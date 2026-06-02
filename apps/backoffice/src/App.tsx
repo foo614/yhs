@@ -522,7 +522,7 @@ function SessionPanel({ currentUser, onLogin, onLogout }: { currentUser: Current
       <Form layout="inline" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
         <Form.Item name="email" rules={[{ required: true }]}><Input placeholder="Email" /></Form.Item>
         <Form.Item name="password" rules={[{ required: true }]}><Input.Password placeholder="Password" /></Form.Item>
-        <Form.Item><Button type="primary" htmlType="submit">Login</Button></Form.Item>
+        <Form.Item className="formActions"><Button type="primary" htmlType="submit">Login</Button></Form.Item>
       </Form>
     </ProCard>
   );
@@ -1032,7 +1032,7 @@ function VehiclesPage({
           <Form.Item name="stockOwner" label="Stock"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit">Create Vehicle</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Vehicle</Button></Form.Item>
         </Form>
         <Form
           key={selectedVehicle?.id ?? "vehicle-edit"}
@@ -1076,7 +1076,7 @@ function VehiclesPage({
           <Form.Item name="stockOwner" label="Stock"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Purchase Invoice / 收车发票">
@@ -1099,7 +1099,7 @@ function VehiclesPage({
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit">Save Purchase Invoice</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Purchase Invoice</Button></Form.Item>
         </Form>
         <Form
           key={selectedPurchaseInvoice?.id ?? "purchase-invoice-edit"}
@@ -1127,7 +1127,7 @@ function VehiclesPage({
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedPurchaseInvoice}>Update Purchase Invoice</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedPurchaseInvoice}>Update Purchase Invoice</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Customer & Owner Details / 客户与原车主">
@@ -1163,7 +1163,7 @@ function VehiclesPage({
                     <Form.Item name="email" label="Email"><Input /></Form.Item>
                     <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
                     <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
-                    <Form.Item><Button type="primary" htmlType="submit">Create Customer</Button></Form.Item>
+                    <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Customer</Button></Form.Item>
                   </Form>
                   <Form
                     key={selectedCustomer?.id ?? "customer-edit"}
@@ -1197,7 +1197,7 @@ function VehiclesPage({
                     <Form.Item name="email" label="Email"><Input /></Form.Item>
                     <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
                     <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
-                    <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedCustomer}>Update Customer</Button></Form.Item>
+                    <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedCustomer}>Update Customer</Button></Form.Item>
                   </Form>
                 </Space>
               )
@@ -1224,7 +1224,7 @@ function VehiclesPage({
                   }}>
                     <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item><Button type="primary" htmlType="submit">Create Owner</Button></Form.Item>
+                    <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Owner</Button></Form.Item>
                   </Form>
                   <Form
                     key={selectedOwner?.id ?? "owner-edit"}
@@ -1250,7 +1250,7 @@ function VehiclesPage({
                     <Form.Item name="id" label="Edit Owner"><Select options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} onChange={setEditOwnerId} /></Form.Item>
                     <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
+                    <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
                   </Form>
                 </Space>
               )
@@ -1458,7 +1458,7 @@ function RepairPage({
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / Invoice Plate"><Input placeholder="Plate printed on invoice" /></Form.Item>
           <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Repair Task Entry / 整备事项">
@@ -1488,7 +1488,7 @@ function RepairPage({
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Edit Repair Task / 修改整备事项">
@@ -1522,7 +1522,7 @@ function RepairPage({
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditRepair}>Update Repair</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditRepair}>Update Repair</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Repair Documents / 整备文件">
@@ -1679,7 +1679,7 @@ function LoanPage({
           <Form.Item name="submittedAt" label="Submitted Date" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit">Submit Loan</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Submit Loan</Button></Form.Item>
         </Form>
         <Form
           key={selectedEditLoan?.id ?? "loan-edit"}
@@ -1720,7 +1720,7 @@ function LoanPage({
           <Form.Item name="submittedAt" label="Submitted Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditLoan}>Update Loan</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditLoan}>Update Loan</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Loan Documents / 贷款文件">
@@ -1904,7 +1904,7 @@ function DeliveryPage({
           {["inspectionDone", "documentsPrepared", "polishDone", "tintedDone", "washDone", "insuranceHandled", "roadTaxHandled", "windscreenInsuranceHandled", "notificationSent", "twoDayNoticeSent"].map((field) => (
             <Form.Item key={field} name={field} label={field}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
           ))}
-          <Form.Item><Button type="primary" htmlType="submit">Schedule</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Schedule</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Edit Delivery / 修改出车安排">
@@ -1958,7 +1958,7 @@ function DeliveryPage({
           {["inspectionDone", "documentsPrepared", "polishDone", "tintedDone", "washDone", "insuranceHandled", "roadTaxHandled", "windscreenInsuranceHandled", "notificationSent", "twoDayNoticeSent"].map((field) => (
             <Form.Item key={field} name={field} label={field}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
           ))}
-          <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditDelivery}>Update Delivery</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDelivery}>Update Delivery</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Delivery Documents / 出车文件">
@@ -2307,7 +2307,7 @@ function FinancePage({
           <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit">Save Payment</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Payment</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Edit Payment / 修改收款记录">
@@ -2364,7 +2364,7 @@ function FinancePage({
           <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditPayment}>Update Payment</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPayment}>Update Payment</Button></Form.Item>
         </Form>
       </ProCard>
       <ProCard title="Finance Documents / 财务文件">
@@ -2445,7 +2445,7 @@ function FinancePage({
             <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
             <Form.Item name="deadline" label="Deadline" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit">Save Settlement</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Settlement</Button></Form.Item>
           </Form>
           <Form
             key={selectedEditSettlement?.id ?? "settlement-edit"}
@@ -2476,7 +2476,7 @@ function FinancePage({
             <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
             <Form.Item name="deadline" label="Deadline" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditSettlement}>Update Settlement</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditSettlement}>Update Settlement</Button></Form.Item>
           </Form>
         </Space>
       </ProCard>
@@ -2506,7 +2506,7 @@ function FinancePage({
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label="CP58 Required"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
             <Form.Item name="cp58Prepared" label="CP58 Prepared"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit">Save Commission</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Commission</Button></Form.Item>
           </Form>
           <Form
             key={selectedEditBrokerCommission?.id ?? "broker-commission-edit"}
@@ -2539,7 +2539,7 @@ function FinancePage({
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label="CP58 Required"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
             <Form.Item name="cp58Prepared" label="CP58 Prepared"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditBrokerCommission}>Update Commission</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditBrokerCommission}>Update Commission</Button></Form.Item>
           </Form>
         </Space>
       </ProCard>
@@ -2569,7 +2569,7 @@ function FinancePage({
             <Form.Item name="followUpDate" label="Follow-up Date / 跟进日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Open", "FollowedUp", "Closed"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit">Save Debt Case</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Debt Case</Button></Form.Item>
           </Form>
           <Form
             key={selectedEditDebtRecovery?.id ?? "debt-recovery-edit"}
@@ -2602,7 +2602,7 @@ function FinancePage({
             <Form.Item name="followUpDate" label="Follow-up Date / 跟进日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Open", "FollowedUp", "Closed"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditDebtRecovery}>Update Debt Case</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDebtRecovery}>Update Debt Case</Button></Form.Item>
           </Form>
         </Space>
       </ProCard>
@@ -2634,7 +2634,7 @@ function FinancePage({
             <Form.Item name="issuedDate" label="Issued Date / 日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Pending", "Approved", "Paid"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit">Save Voucher</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Voucher</Button></Form.Item>
           </Form>
           <Form
             key={selectedEditPaymentVoucher?.id ?? "payment-voucher-edit"}
@@ -2669,7 +2669,7 @@ function FinancePage({
             <Form.Item name="issuedDate" label="Issued Date / 日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Pending", "Approved", "Paid"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditPaymentVoucher}>Update Voucher</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPaymentVoucher}>Update Voucher</Button></Form.Item>
           </Form>
         </Space>
       </ProCard>
@@ -2695,7 +2695,7 @@ function FinancePage({
             <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
             <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit">Save Daily Spend</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Daily Spend</Button></Form.Item>
           </Form>
           <Form
             key={selectedEditDailySpend?.id ?? "daily-spend-edit"}
@@ -2724,7 +2724,7 @@ function FinancePage({
             <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
             <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditDailySpend}>Update Daily Spend</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDailySpend}>Update Daily Spend</Button></Form.Item>
           </Form>
         </Space>
       </ProCard>
@@ -2834,7 +2834,7 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
           <Form.Item name="phone" label="Phone" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="message" label="Message"><Input /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["New", "Contacted", "Closed"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit" disabled={!selectedEditLead}>Update Lead</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditLead}>Update Lead</Button></Form.Item>
         </Form>
       </ProCard>
     </Space>
@@ -3030,7 +3030,7 @@ function AdminPage({
                   <Form.Item label="Email">
                     <Input value={selectedEditStaffUser?.email} disabled />
                   </Form.Item>
-                  <Form.Item>
+                  <Form.Item className="formActions">
                     <Button type="primary" htmlType="submit" disabled={!selectedEditStaffUser}>Update Staff</Button>
                   </Form.Item>
                 </Form>
@@ -3066,7 +3066,7 @@ function AdminPage({
                   <Form.Item name="password" label="New Password" rules={[{ required: true, min: 8 }]}>
                     <Input.Password />
                   </Form.Item>
-                  <Form.Item>
+                  <Form.Item className="formActions">
                     <Button htmlType="submit" disabled={!selectedEditStaffUser}>Reset Password</Button>
                   </Form.Item>
                 </Form>
@@ -3094,7 +3094,7 @@ function AdminPage({
                   <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}><Input /></Form.Item>
                   <Form.Item name="password" label="Initial Password" rules={[{ required: true, min: 8 }]}><Input.Password /></Form.Item>
                   <Form.Item name="role" label="Department Role"><Select options={staffRoles.map((role) => ({ value: role, label: roleLabel(role) }))} /></Form.Item>
-                  <Form.Item><Button type="primary" htmlType="submit">Create Staff</Button></Form.Item>
+                  <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Staff</Button></Form.Item>
                 </Form>
               </Space>
             )

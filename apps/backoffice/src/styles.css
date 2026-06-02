@@ -162,7 +162,24 @@ body {
 .formGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 4px 18px;
+  gap: 14px 18px;
+  align-items: end;
+}
+
+.formGrid .formActions {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+  padding-top: 2px;
+}
+
+.formGrid .formActions .ant-form-item-control-input-content {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.formGrid .formActions .ant-btn {
+  min-width: 136px;
 }
 
 .toolbarForm {
@@ -228,5 +245,19 @@ body {
 
   .moduleStats {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .formGrid .formActions .ant-form-item-control-input-content {
+    justify-content: stretch;
+  }
+
+  .formGrid .formActions .ant-btn {
+    width: 100%;
   }
 }
