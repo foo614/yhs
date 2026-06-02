@@ -35,7 +35,7 @@ export default async function VehiclesPage({ searchParams }: { searchParams: Pro
       />
       <PublicFooter language={language} />
 
-      <PublicMobileNav language={language} />
+      <PublicMobileNav language={language} active="vehicles" />
     </main>
   );
 }

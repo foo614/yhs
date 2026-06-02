@@ -747,10 +747,32 @@ dd { margin: 0; font-weight: 900; }
     border-radius: 14px 14px 0 0;
     backdrop-filter: blur(24px);
   }
-  .atelierMobileNav a { display: grid; place-items: center; gap: 3px; color: rgba(226,226,230,.42); font-size: 9px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
-  .atelierMobileNav a:first-child { color: var(--primary); transform: translateY(-2px); }
+  .atelierMobileNav a { display: grid; place-items: center; gap: 3px; min-width: 0; color: rgba(226,226,230,.42); font-size: 9px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
+  .atelierMobileNav a.active { color: var(--primary); transform: translateY(-2px); }
   .listingShell, .detailGrid, .contactGrid { grid-template-columns: 1fr; }
-  .filterPanel { position: static; }
+  .listingShell {
+    width: min(100% - 24px, 620px);
+    gap: 18px;
+    padding: 24px 0 104px;
+  }
+  .filterPanel {
+    position: relative;
+    top: auto;
+    gap: 12px;
+    padding: 18px;
+  }
+  .inventoryToolbar {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+  }
+  .inventoryToolbar h2 {
+    font-size: 26px;
+    line-height: 1.12;
+  }
+  .inventoryChips {
+    justify-content: flex-start;
+  }
   .listingResults { grid-template-columns: 1fr; }
   .detailImage { min-height: 330px; }
   .contactQuickActions {

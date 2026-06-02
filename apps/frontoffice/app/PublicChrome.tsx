@@ -109,15 +109,29 @@ export function PublicFooter({ language }: { language: Language }) {
   );
 }
 
-export function PublicMobileNav({ language }: { language: Language }) {
+export function PublicMobileNav({ language, active = "home" }: { language: Language; active?: "home" | "vehicles" | "contact" }) {
   const t = frontofficeCopy[language].nav;
+  const items = [
+    { key: "home", href: hrefWithLanguage("/", language), icon: <Home size={18} />, label: t.home },
+    { key: "vehicles", href: hrefWithLanguage("/vehicles", language), icon: <Car size={18} />, label: t.mobileCars },
+    { key: "sell", href: hrefWithLanguage("/contact#contact", language), icon: <Sparkles size={18} />, label: t.mobileSell },
+    { key: "finance", href: hrefWithLanguage("/contact#services", language), icon: <Banknote size={18} />, label: t.mobileFinance },
+    { key: "profile", href: hrefWithLanguage("/contact", language), icon: <UserRound size={18} />, label: t.mobileProfile }
+  ];
+
   return (
     <nav className="atelierMobileNav" aria-label="Mobile navigation">
-      <Link href={hrefWithLanguage("/vehicles", language)}><Car size={18} /> {t.mobileCars}</Link>
-      <Link href={hrefWithLanguage("/vehicles", language)}><Sparkles size={18} /> {t.mobileSell}</Link>
-      <Link href={hrefWithLanguage("/contact", language)}><Banknote size={18} /> {t.mobileFinance}</Link>
-      <Link href={hrefWithLanguage("/contact", language)}><UserRound size={18} /> {t.mobileProfile}</Link>
-      <Link href={hrefWithLanguage("/", language)}><Home size={18} /> {t.home}</Link>
+      {items.map((item) => (
+        <Link
+          href={item.href}
+          className={(item.key === active || (active === "contact" && item.key === "profile")) ? "active" : undefined}
+          aria-current={item.key === active ? "page" : undefined}
+          key={item.key}
+        >
+          {item.icon}
+          {item.label}
+        </Link>
+      ))}
     </nav>
   );
 }

@@ -108,7 +108,7 @@ export default async function ContactPage({ searchParams }: { searchParams: Prom
 
       <PublicFooter language={language} />
 
-      <PublicMobileNav language={language} />
+      <PublicMobileNav language={language} active="contact" />
     </main>
   );
 }

@@ -171,7 +171,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
       <PublicFooter language={language} />
 
-      <PublicMobileNav language={language} />
+      <PublicMobileNav language={language} active="home" />
     </main>
   );
 }

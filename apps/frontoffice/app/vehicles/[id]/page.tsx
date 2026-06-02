@@ -115,7 +115,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
 
       <PublicFooter language={language} />
 
-      <PublicMobileNav language={language} />
+      <PublicMobileNav language={language} active="vehicles" />
     </main>
   );
 }
