@@ -21,6 +21,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Result,
   Select,
   Space,
   Table,
@@ -28,7 +29,8 @@ import {
   Tag,
   Typography,
   Upload,
-  message
+  message,
+  notification
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canAssignStaffRoles, firstAccessiblePath, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
@@ -212,6 +214,7 @@ const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
 ];
 
 export default function App() {
+  const [notificationApi, notificationContextHolder] = notification.useNotification();
   const [pathname, setPathname] = useState("/dashboard");
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [reminders, setReminders] = useState<DashboardReminder[]>([]);
@@ -234,6 +237,7 @@ export default function App() {
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
   const [vehicleLookup, setVehicleLookup] = useState<VehicleLookup[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [logoutSucceeded, setLogoutSucceeded] = useState(false);
   const currentRoles = useMemo(() => currentUser?.roles ?? [], [currentUser?.roles]);
 
   const loadBackOfficeData = useCallback(async (roles?: string[]) => {
@@ -327,20 +331,41 @@ export default function App() {
     routes: currentUser?.isAuthenticated ? allRoutes.filter((item) => canAccessRoute(currentRoles, item.path)) : allRoutes
   }), [currentUser?.isAuthenticated, currentRoles]);
   const pageTitle = route.routes.find((item) => item.path === pathname)?.name ?? bilingual.dashboard;
+  const notifySuccess = useCallback((messageText: string, description?: string) => {
+    notificationApi.success({
+      message: messageText,
+      description,
+      placement: "topRight"
+    });
+  }, [notificationApi]);
+  const notifyError = useCallback((messageText: string, description?: string) => {
+    notificationApi.error({
+      message: messageText,
+      description,
+      placement: "topRight"
+    });
+  }, [notificationApi]);
+
+  useEffect(() => {
+    if (logoutSucceeded && !currentUser?.isAuthenticated) {
+      notifySuccess("Logged out", "Your back-office session ended successfully.");
+    }
+  }, [currentUser?.isAuthenticated, logoutSucceeded, notifySuccess]);
 
   async function handleLogin(values: { email: string; password: string }) {
     await login(values.email, values.password);
     const user = await getCurrentUser();
     setCurrentUser(user);
+    setLogoutSucceeded(false);
     setPathname(firstAccessiblePath(user.roles));
     await loadBackOfficeData(user.roles);
-    message.success("Logged in");
+    notifySuccess("Login successful", `Signed in as ${user.name ?? values.email}`);
   }
 
   async function handleAuditLogSearch(filters: AuditLogFilters) {
     const records = await getAuditLog(filters);
     setAuditLog(records);
-    message.success("Audit log filtered");
+    notifySuccess("Audit log filtered", `${records.length} records loaded`);
   }
 
   async function handleReminderSearch(filters: DashboardReminderFilters) {
@@ -351,8 +376,8 @@ export default function App() {
   async function handleLogout() {
     await logout();
     setCurrentUser(null);
+    setLogoutSucceeded(true);
     setPathname("/dashboard");
-    message.success("Logged out");
   }
 
   async function runCreate<T>(action: () => Promise<T>, success: (record: T) => void, text: string) {
@@ -360,9 +385,9 @@ export default function App() {
       const record = await action();
       success(record);
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
-      message.success(text);
+      notifySuccess(text, "The record has been saved and synced.");
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Request failed");
+      notifyError("Request failed", error instanceof Error ? error.message : "Please try again.");
       throw error;
     }
   }
@@ -370,9 +395,9 @@ export default function App() {
   async function runUpload(action: () => Promise<unknown>, text: string) {
     try {
       await action();
-      message.success(text);
+      notifySuccess(text, "The file is stored and linked to the selected vehicle.");
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Upload failed");
+      notifyError("Upload failed", error instanceof Error ? error.message : "Please check the file and try again.");
       throw error;
     }
   }
@@ -382,15 +407,20 @@ export default function App() {
       const record = await action();
       success(record);
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
-      message.success(text);
+      notifySuccess(text, "The record has been updated and synced.");
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Update failed");
+      notifyError("Update failed", error instanceof Error ? error.message : "Please try again.");
       throw error;
     }
   }
 
   if (!currentUser?.isAuthenticated) {
-    return <LoginHome onLogin={handleLogin} />;
+    return (
+      <>
+        {notificationContextHolder}
+        <LoginHome onLogin={handleLogin} logoutSucceeded={logoutSucceeded} onDismissLogoutResult={() => setLogoutSucceeded(false)} />
+      </>
+    );
   }
 
   return (
@@ -409,6 +439,7 @@ export default function App() {
         </div>
       ]}
     >
+      {notificationContextHolder}
       <PageContainer title={pageTitle}>
         <Space direction="vertical" size={16} className="fullWidth">
           <ModuleCommandBar
@@ -518,7 +549,10 @@ export default function App() {
                 const updatedLead = await updateLead({ ...lead, customerId: customer.id, status: "Contacted" });
                 setLeads((items) => replaceById(items, updatedLead));
                 await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
-                message.success(existingCustomer ? "Existing customer linked to lead" : "Customer linked to lead");
+                notifySuccess(
+                  existingCustomer ? "Existing customer linked to lead" : "Customer linked to lead",
+                  `${lead.customerName} is ready for sales follow-up.`
+                );
               }}
               onUpdate={(lead) => runUpdate(() => updateLead(lead), (record) => setLeads((items) => replaceById(items, record)), "Lead updated")}
             />
@@ -543,7 +577,15 @@ export default function App() {
   );
 }
 
-function LoginHome({ onLogin }: { onLogin: (values: { email: string; password: string }) => Promise<void> }) {
+function LoginHome({
+  onLogin,
+  logoutSucceeded,
+  onDismissLogoutResult
+}: {
+  onLogin: (values: { email: string; password: string }) => Promise<void>;
+  logoutSucceeded?: boolean;
+  onDismissLogoutResult?: () => void;
+}) {
   return (
     <main className="loginHome">
       <section className="loginHero">
@@ -561,19 +603,33 @@ function LoginHome({ onLogin }: { onLogin: (values: { email: string; password: s
         </div>
       </section>
       <section className="loginPanel">
-        <div className="loginPanelHeader">
-          <Typography.Title level={2}>Sign in</Typography.Title>
-          <Typography.Text>Access vehicle intake, loan, delivery, finance, and admin tools based on your role.</Typography.Text>
-        </div>
-        <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
-          <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
-            <Input placeholder="admin@ysheng.local" />
-          </Form.Item>
-          <Form.Item name="password" label="Password" rules={[{ required: true }]}>
-            <Input.Password placeholder="Password" />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" className="loginButton">Enter portal</Button>
-        </Form>
+        {logoutSucceeded ? (
+          <Result
+            className="logoutResult"
+            status="success"
+            title="Logged out successfully"
+            subTitle="Your YS Heng back-office session has ended. Sign in again when you are ready to continue."
+            extra={[
+              <Button type="primary" key="signin" onClick={onDismissLogoutResult}>Back to sign in</Button>
+            ]}
+          />
+        ) : (
+          <>
+            <div className="loginPanelHeader">
+              <Typography.Title level={2}>Sign in</Typography.Title>
+              <Typography.Text>Access vehicle intake, loan, delivery, finance, and admin tools based on your role.</Typography.Text>
+            </div>
+            <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
+              <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
+                <Input placeholder="admin@ysheng.local" />
+              </Form.Item>
+              <Form.Item name="password" label="Password" rules={[{ required: true }]}>
+                <Input.Password placeholder="Password" />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" className="loginButton">Enter portal</Button>
+            </Form>
+          </>
+        )}
       </section>
     </main>
   );

@@ -194,6 +194,20 @@ body {
   height: 42px;
 }
 
+.logoutResult {
+  padding: 6px 0 0;
+}
+
+.logoutResult .ant-result-title {
+  color: #152822;
+  font-weight: 820;
+}
+
+.logoutResult .ant-result-subtitle {
+  color: #5f736d;
+  line-height: 1.5;
+}
+
 .moduleCommandBar {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(360px, auto);
