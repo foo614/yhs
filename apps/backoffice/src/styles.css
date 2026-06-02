@@ -351,6 +351,61 @@ body {
   min-width: 156px;
 }
 
+.leadsPage > .ant-space-item:nth-child(2),
+.leadsPage > .ant-space-item:nth-child(3) {
+  display: inline-block;
+  vertical-align: top;
+  width: calc(50% - 8px);
+}
+
+.leadsPage > .ant-space-item:nth-child(2) {
+  margin-right: 16px;
+}
+
+.leadsPage > .ant-space-item:nth-child(2) .ant-pro-card,
+.leadsPage > .ant-space-item:nth-child(3) .ant-pro-card {
+  min-height: 100%;
+}
+
+.leadsPage > .ant-space-item:nth-child(2) .ant-pro-card-title,
+.leadsPage > .ant-space-item:nth-child(3) .ant-pro-card-title {
+  font-size: 16px;
+}
+
+.leadsPage > .ant-space-item:nth-child(3) .formGrid {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 14px 16px;
+}
+
+.leadsPage > .ant-space-item:nth-child(3) .formGrid .ant-form-item {
+  margin-bottom: 0;
+}
+
+.leadsPage > .ant-space-item:nth-child(3) .formGrid .ant-form-item:nth-child(1),
+.leadsPage > .ant-space-item:nth-child(3) .formGrid .ant-form-item:nth-child(3),
+.leadsPage > .ant-space-item:nth-child(3) .formGrid .ant-form-item:nth-child(6),
+.leadsPage > .ant-space-item:nth-child(3) .formGrid .ant-form-item:nth-child(7) {
+  grid-column: 1 / -1;
+}
+
+.leadsPage > .ant-space-item:nth-child(3) .formGrid .formActions {
+  grid-column: 1 / -1;
+  padding-top: 4px;
+}
+
+.leadsPage > .ant-space-item:nth-child(3) .formGrid .formActions .ant-form-item-control-input-content {
+  justify-content: flex-end;
+}
+
+.leadsPage > .ant-space-item:nth-child(3) .formGrid .formActions .ant-btn {
+  min-width: 156px;
+}
+
+.leadsPage .ant-descriptions-view {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 .toolbarForm {
   margin-bottom: 16px;
   row-gap: 12px;
@@ -453,6 +508,13 @@ body {
   .staffUsersPanel .formGrid .formActions {
     grid-column: 1 / -1;
   }
+
+  .leadsPage > .ant-space-item:nth-child(2),
+  .leadsPage > .ant-space-item:nth-child(3) {
+    display: block;
+    width: 100%;
+    margin-right: 0;
+  }
 }
 
 @media (max-width: 720px) {
@@ -483,6 +545,10 @@ body {
   }
 
   .staffUsersPanel .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .leadsPage > .ant-space-item:nth-child(3) .formGrid {
     grid-template-columns: 1fr;
   }
 

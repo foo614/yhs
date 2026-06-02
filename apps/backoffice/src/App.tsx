@@ -2831,7 +2831,7 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
   ];
 
   return (
-    <Space direction="vertical" size={16} className="fullWidth">
+    <Space direction="vertical" size={16} className="fullWidth leadsPage">
       <ProCard title={bilingual.leads}>
         <Space className="toolbarForm" wrap>
           <Select
@@ -2852,7 +2852,7 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
           />
           <Tag color="blue">{filteredLeads.length} shown</Tag>
         </Space>
-        <Table rowKey="id" columns={columns} dataSource={filteredLeads} pagination={false} scroll={{ x: 980 }} />
+        <Table rowKey="id" size="small" columns={columns} dataSource={filteredLeads} pagination={{ pageSize: 8 }} scroll={{ x: 1180 }} />
       </ProCard>
       <ProCard title="Sales Follow Up / 销售跟进">
         <Descriptions bordered column={1}>
@@ -2894,7 +2894,7 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
           <Form.Item name="customerId" label="Linked Customer"><Select allowClear showSearch optionFilterProp="label" options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item>
           <Form.Item name="customerName" label="Customer Name" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="phone" label="Phone" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="message" label="Message"><Input /></Form.Item>
+          <Form.Item name="message" label="Message"><Input.TextArea rows={4} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["New", "Contacted", "Closed"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditLead}>Update Lead</Button></Form.Item>
         </Form>
