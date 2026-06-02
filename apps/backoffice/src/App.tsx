@@ -3006,14 +3006,14 @@ function AdminPage({
   }, [editStaffUserId, staffUsers]);
 
   const staffColumns: ColumnsType<StaffUser> = [
-    { title: "Name / 姓名", dataIndex: "displayName" },
-    { title: "Email", dataIndex: "email" },
-    { title: "Status", dataIndex: "isActive", render: (isActive: boolean) => <Tag color={isActive ? "green" : "red"}>{isActive ? "Active" : "Disabled"}</Tag> },
-    { title: "Roles / 角色", dataIndex: "roles", render: (roles: StaffRole[]) => <Space>{roles.map((role) => <Tag key={role}>{roleLabel(role)}</Tag>)}</Space> },
+    { title: "Name / 姓名", dataIndex: "displayName", width: 180 },
+    { title: "Email", dataIndex: "email", width: 260 },
+    { title: "Status", dataIndex: "isActive", width: 110, render: (isActive: boolean) => <Tag color={isActive ? "green" : "red"}>{isActive ? "Active" : "Disabled"}</Tag> },
+    { title: "Roles / 角色", dataIndex: "roles", width: 170, render: (roles: StaffRole[]) => <Space wrap>{roles.map((role) => <Tag key={role}>{roleLabel(role)}</Tag>)}</Space> },
     {
       title: "Update Roles / 调整角色",
       fixed: "right",
-      width: 360,
+      width: 320,
       render: (_, row) => (
         <Space.Compact className="fullWidth">
           <Select
@@ -3035,7 +3035,7 @@ function AdminPage({
     {
       title: "Action",
       fixed: "right",
-      width: 180,
+      width: 160,
       render: (_, row) => (
         <Space>
           <Button size="small" onClick={() => setEditStaffUserId(row.id)}>Edit</Button>
@@ -3055,8 +3055,8 @@ function AdminPage({
             key: "users",
             label: "Staff Users",
             children: (
-              <Space direction="vertical" size={16} className="fullWidth">
-                <Table rowKey="id" columns={staffColumns} dataSource={staffUsers} pagination={{ pageSize: 8 }} scroll={{ x: 720 }} />
+              <Space direction="vertical" size={16} className="fullWidth staffUsersPanel">
+                <Table rowKey="id" size="small" columns={staffColumns} dataSource={staffUsers} pagination={{ pageSize: 6 }} scroll={{ x: 1200 }} />
                 <Form
                   key={selectedEditStaffUser?.id ?? "staff-edit"}
                   layout="vertical"

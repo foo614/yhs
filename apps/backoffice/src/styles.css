@@ -277,6 +277,80 @@ body {
   min-width: 136px;
 }
 
+.staffUsersPanel > .ant-space-item:nth-child(n+2) {
+  position: relative;
+  padding: 48px 18px 18px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(248, 252, 250, .96));
+  box-shadow: 0 12px 30px rgba(31, 67, 59, .055);
+}
+
+.staffUsersPanel > .ant-space-item:nth-child(n+2)::before {
+  position: absolute;
+  top: 17px;
+  left: 18px;
+  color: #152822;
+  font-size: 15px;
+  font-weight: 820;
+}
+
+.staffUsersPanel > .ant-space-item:nth-child(n+2)::after {
+  position: absolute;
+  top: 20px;
+  right: 18px;
+  color: #687c75;
+  font-size: 12px;
+}
+
+.staffUsersPanel > .ant-space-item:nth-child(2)::before {
+  content: "Selected Staff / 员工资料";
+}
+
+.staffUsersPanel > .ant-space-item:nth-child(2)::after {
+  content: "Update profile";
+}
+
+.staffUsersPanel > .ant-space-item:nth-child(3)::before {
+  content: "Password Reset / 重设密码";
+}
+
+.staffUsersPanel > .ant-space-item:nth-child(3)::after {
+  content: "Selected account";
+}
+
+.staffUsersPanel > .ant-space-item:nth-child(4)::before {
+  content: "Create Staff / 新增员工";
+}
+
+.staffUsersPanel > .ant-space-item:nth-child(4)::after {
+  content: "New login";
+}
+
+.staffUsersPanel .formGrid {
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 12px 16px;
+}
+
+.staffUsersPanel .formGrid .ant-form-item {
+  margin-bottom: 0;
+}
+
+.staffUsersPanel .formGrid .formActions {
+  grid-column: 4;
+  align-self: end;
+  padding-top: 0;
+}
+
+.staffUsersPanel .formGrid .formActions .ant-form-item-control-input-content {
+  justify-content: flex-end;
+}
+
+.staffUsersPanel .formGrid .formActions .ant-btn {
+  min-width: 156px;
+}
+
 .toolbarForm {
   margin-bottom: 16px;
   row-gap: 12px;
@@ -371,6 +445,14 @@ body {
   .rbacOverview {
     grid-template-columns: 1fr;
   }
+
+  .staffUsersPanel .formGrid {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+
+  .staffUsersPanel .formGrid .formActions {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 720px) {
@@ -389,6 +471,18 @@ body {
   }
 
   .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .staffUsersPanel > .ant-space-item:nth-child(n+2) {
+    padding: 44px 14px 14px;
+  }
+
+  .staffUsersPanel > .ant-space-item:nth-child(n+2)::after {
+    display: none;
+  }
+
+  .staffUsersPanel .formGrid {
     grid-template-columns: 1fr;
   }
 
