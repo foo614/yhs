@@ -30,7 +30,7 @@ import {
   message
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canAssignStaffRoles, firstAccessiblePath, type AppRoutePath, type BackOfficeDataKey } from "./access";
+import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canAssignStaffRoles, firstAccessiblePath, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
 import { brokerCommissionCreateBlockReason, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, settlementCreateBlockReason } from "./finance";
 import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent } from "./delivery";
 import { loanCreateBlockReason, loanDocumentCategories, markLoanApproved, markLoanDone } from "./loan";
@@ -388,6 +388,10 @@ export default function App() {
     }
   }
 
+  if (!currentUser?.isAuthenticated) {
+    return <LoginHome onLogin={handleLogin} />;
+  }
+
   return (
     <ProLayout
       title="YS Heng Portal"
@@ -546,13 +550,43 @@ function SessionPanel({ currentUser, onLogin, onLogout }: { currentUser: Current
   }
 
   return (
-    <ProCard title="Staff Login / 员工登录">
-      <Form layout="inline" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
-        <Form.Item name="email" rules={[{ required: true }]}><Input placeholder="Email" /></Form.Item>
-        <Form.Item name="password" rules={[{ required: true }]}><Input.Password placeholder="Password" /></Form.Item>
-        <Form.Item className="formActions"><Button type="primary" htmlType="submit">Login</Button></Form.Item>
-      </Form>
-    </ProCard>
+    <LoginHome onLogin={onLogin} />
+  );
+}
+
+function LoginHome({ onLogin }: { onLogin: (values: { email: string; password: string }) => Promise<void> }) {
+  return (
+    <main className="loginHome">
+      <section className="loginHero">
+        <div className="loginBrand">
+          <span className="loginMark">YS</span>
+          <div>
+            <Typography.Title level={1}>YS Heng Portal</Typography.Title>
+            <Typography.Text>Staff operations login / 员工后台登录</Typography.Text>
+          </div>
+        </div>
+        <div className="loginSummary">
+          <span><strong>7</strong> department roles</span>
+          <span><strong>RBAC</strong> protected workflows</span>
+          <span><strong>MVP</strong> vehicle operations</span>
+        </div>
+      </section>
+      <section className="loginPanel">
+        <div className="loginPanelHeader">
+          <Typography.Title level={2}>Sign in</Typography.Title>
+          <Typography.Text>Access vehicle intake, loan, delivery, finance, and admin tools based on your role.</Typography.Text>
+        </div>
+        <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
+          <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
+            <Input placeholder="admin@ysheng.local" />
+          </Form.Item>
+          <Form.Item name="password" label="Password" rules={[{ required: true }]}>
+            <Input.Password placeholder="Password" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" className="loginButton">Enter portal</Button>
+        </Form>
+      </section>
+    </main>
   );
 }
 
@@ -3127,12 +3161,88 @@ function AdminPage({
               </Space>
             )
           },
-          { key: "roles", label: "Department Roles", children: <Typography.Paragraph>{staffRoles.map(roleLabel).join(", ")}.</Typography.Paragraph> },
+          { key: "roles", label: "RBAC Listing", children: <RbacListing /> },
           { key: "session", label: "Current Session", children: <Typography.Paragraph>{currentUser?.isAuthenticated ? `${currentUser.name} (${currentUser.roles.join(", ")})` : "Not logged in"}</Typography.Paragraph> },
           { key: "audit", label: "Audit Log", children: <Table rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={{ pageSize: 8 }} scroll={{ x: 900 }} /> }
         ]}
       />
     </ProCard>
+  );
+}
+
+type RbacRoleRow = {
+  role: StaffRole;
+  modules: string[];
+  dataKeys: BackOfficeDataKey[];
+  canManageStaff: boolean;
+  canViewAudit: boolean;
+};
+
+function RbacListing() {
+  const rows: RbacRoleRow[] = staffRoles.map((role) => ({
+    role,
+    modules: routeAccess
+      .filter((access) => access.roles.includes(role) || role === "BossAdmin")
+      .map((access) => routeLabel(access.path)),
+    dataKeys: roleDataKeys[role],
+    canManageStaff: role === "BossAdmin",
+    canViewAudit: role === "BossAdmin"
+  }));
+
+  const columns: ColumnsType<RbacRoleRow> = [
+    {
+      title: "Role / 角色",
+      dataIndex: "role",
+      fixed: "left",
+      width: 150,
+      render: (role: StaffRole) => <Tag color={role === "BossAdmin" ? "green" : "blue"}>{roleLabel(role)}</Tag>
+    },
+    {
+      title: "Portal Modules / 可进入模块",
+      dataIndex: "modules",
+      render: (modules: string[]) => <div className="rbacTagList">{modules.map((module) => <Tag key={module}>{module}</Tag>)}</div>
+    },
+    {
+      title: "Data Scope / 资料范围",
+      dataIndex: "dataKeys",
+      render: (dataKeys: BackOfficeDataKey[]) => dataKeys.length
+        ? <div className="rbacTagList">{dataKeys.map((key) => <Tag key={key} color="cyan">{dataKeyLabel(key)}</Tag>)}</div>
+        : <Typography.Text type="secondary">No MVP data module assigned</Typography.Text>
+    },
+    {
+      title: "Admin Powers",
+      width: 190,
+      render: (_, row) => (
+        <Space direction="vertical" size={4}>
+          <Badge status={row.canManageStaff ? "success" : "default"} text={row.canManageStaff ? "Manage staff users" : "No staff management"} />
+          <Badge status={row.canViewAudit ? "success" : "default"} text={row.canViewAudit ? "View audit log" : "No audit access"} />
+        </Space>
+      )
+    }
+  ];
+
+  return (
+    <Space direction="vertical" size={16} className="fullWidth">
+      <div className="rbacOverview">
+        <div>
+          <span className="moduleEyebrow">Access Control</span>
+          <Typography.Title level={3}>RBAC Listing / 角色权限列表</Typography.Title>
+          <Typography.Text>Review department role access before assigning staff permissions.</Typography.Text>
+        </div>
+        <div className="rbacSummary">
+          <span><strong>{staffRoles.length}</strong> roles</span>
+          <span><strong>{routeAccess.length}</strong> modules</span>
+          <span><strong>{rows.filter((row) => row.canManageStaff).length}</strong> admin role</span>
+        </div>
+      </div>
+      <Table className="rbacTable" rowKey="role" columns={columns} dataSource={rows} pagination={false} scroll={{ x: 980 }} />
+      <Alert
+        type="info"
+        showIcon
+        message="RBAC is enforced twice: the portal hides unavailable modules, and the API rejects unauthorized module requests."
+        description="Boss/Admin can assign roles. Department users only load the datasets listed here, so restricted pages do not fetch unrelated records."
+      />
+    </Space>
   );
 }
 
@@ -3144,6 +3254,36 @@ function auditLogColumns(): ColumnsType<AuditLog> {
     { title: "Entity / 模块", dataIndex: "entityName" },
     { title: "Entity Id", dataIndex: "entityId" }
   ];
+}
+
+function routeLabel(path: AppRoutePath) {
+  return allRoutes.find((route) => route.path === path)?.name ?? path;
+}
+
+function dataKeyLabel(key: BackOfficeDataKey) {
+  const labels: Record<BackOfficeDataKey, string> = {
+    dashboard: "Dashboard summary",
+    reminders: "Reminder inbox",
+    vehicles: "Vehicle records",
+    vehicleLookup: "Car plate lookup",
+    customers: "Customer records",
+    owners: "Owner records",
+    purchaseInvoices: "Purchase invoices",
+    supplierInvoices: "Supplier invoices",
+    repairs: "Repair jobs",
+    loans: "Loan applications",
+    deliveries: "Delivery schedules",
+    payments: "Payments",
+    settlements: "Settlement reminders",
+    dailySpends: "Daily spends",
+    brokerCommissions: "Broker commissions",
+    debtRecoveries: "Debt recovery",
+    paymentVouchers: "Payment vouchers",
+    leads: "Public leads",
+    auditLog: "Audit log",
+    staffUsers: "Staff users"
+  };
+  return labels[key];
 }
 
 function roleLabel(role: StaffRole) {

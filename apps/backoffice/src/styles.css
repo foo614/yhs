@@ -69,6 +69,101 @@ body {
   width: 100%;
 }
 
+.loginHome {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(320px, 1.15fr) minmax(340px, .85fr);
+  gap: 32px;
+  align-items: center;
+  padding: 48px clamp(22px, 5vw, 76px);
+  background:
+    linear-gradient(135deg, rgba(11, 112, 92, .12), transparent 38%),
+    linear-gradient(180deg, #f7faf9, #e8f0ed);
+}
+
+.loginHero {
+  min-height: 520px;
+  display: grid;
+  align-content: space-between;
+  padding: 36px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .92), rgba(236, 246, 242, .84)),
+    linear-gradient(90deg, rgba(11, 112, 92, .14), transparent);
+  box-shadow: 0 22px 60px rgba(31, 67, 59, .11);
+}
+
+.loginBrand {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+
+.loginBrand h1,
+.loginPanel h2,
+.rbacOverview h3 {
+  margin: 0 0 6px;
+}
+
+.loginMark {
+  width: 70px;
+  height: 70px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #0b705c;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 900;
+  box-shadow: 0 16px 36px rgba(11, 112, 92, .24);
+}
+
+.loginSummary,
+.rbacSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.loginSummary span,
+.rbacSummary span {
+  min-width: 132px;
+  padding: 14px 16px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background: #fff;
+  color: #5b7069;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.loginSummary strong,
+.rbacSummary strong {
+  display: block;
+  color: #0b705c;
+  font-size: 22px;
+  line-height: 1;
+  margin-bottom: 5px;
+}
+
+.loginPanel {
+  padding: 30px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 22px 58px rgba(31, 67, 59, .12);
+}
+
+.loginPanelHeader {
+  margin-bottom: 24px;
+}
+
+.loginButton {
+  width: 100%;
+  height: 42px;
+}
+
 .moduleCommandBar {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(360px, auto);
@@ -238,17 +333,61 @@ body {
   gap: 14px;
 }
 
+.rbacOverview {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  padding: 20px;
+  border: 1px solid rgba(20, 72, 61, .1);
+  border-radius: 8px;
+  background: linear-gradient(135deg, #fff, #f6faf8);
+}
+
+.rbacTagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rbacTable .ant-table-cell {
+  vertical-align: top;
+}
+
 @media (max-width: 980px) {
+  .loginHome,
   .moduleCommandBar {
     grid-template-columns: 1fr;
+  }
+
+  .loginHero {
+    min-height: 360px;
   }
 
   .moduleStats {
     justify-content: flex-start;
   }
+
+  .rbacOverview {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
+  .loginHome {
+    padding: 20px;
+  }
+
+  .loginHero,
+  .loginPanel {
+    padding: 22px;
+  }
+
+  .loginBrand {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .formGrid {
     grid-template-columns: 1fr;
   }

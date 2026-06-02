@@ -66,7 +66,7 @@ const allDataKeys: BackOfficeDataKey[] = [
   "staffUsers"
 ];
 
-const roleDataKeys: Record<StaffRole, BackOfficeDataKey[]> = {
+export const roleDataKeys: Record<StaffRole, BackOfficeDataKey[]> = {
   BossAdmin: allDataKeys,
   Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "leads"],
   Loan: ["vehicleLookup", "customers", "loans"],
