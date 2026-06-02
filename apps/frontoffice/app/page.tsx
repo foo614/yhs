@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { BadgeCheck, Banknote, Car, MapPin, Search, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
-import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type Language } from "./i18n";
+import { frontofficeCopy, hrefWithLanguage, type Language } from "./i18n";
 import { distinctMakes, priceRange } from "./vehicles/listing";
 import { getPublicVehicles } from "./vehicles/service";
 
@@ -20,9 +20,8 @@ const categoryImages = [
 const fallbackMakes = ["Toyota", "Honda", "Perodua", "Proton", "Nissan", "Mazda"];
 const workshopPinClasses = ["pinOne", "pinTwo"];
 
-export default async function HomePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const params = await searchParams;
-  const language = languageFromSearchParams(params);
+export default async function HomePage() {
+  const language: Language = "en";
   const t = frontofficeCopy[language];
   const vehicles = await getPublicVehicles();
   const makes = distinctMakes(vehicles);
@@ -43,7 +42,6 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             <span>{t.home.titleAccent}</span>
           </h1>
           <form className="atelierSearch" action="/vehicles">
-            {language === "zh" && <input type="hidden" name="lang" value="zh" />}
             <label>
               <span>{t.home.make}</span>
               <select name="make" defaultValue="">

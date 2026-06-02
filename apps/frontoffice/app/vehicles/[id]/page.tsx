@@ -2,16 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Banknote, CalendarDays, Car, ChevronLeft, Gauge, ShieldCheck } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../../PublicChrome";
-import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams } from "../../i18n";
+import { frontofficeCopy, hrefWithLanguage, type Language } from "../../i18n";
 import { relatedVehicles } from "../listing";
 import { getPublicVehicleDetailPageData, getPublicVehicles } from "../service";
 import { VehiclePhoto } from "../VehiclePhoto";
 import { VehicleCard } from "../VehicleCard";
 import { LeadForm } from "./LeadForm";
 
-export default async function VehicleDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+export default async function VehicleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const language = languageFromSearchParams(await searchParams);
+  const language: Language = "en";
   const t = frontofficeCopy[language].detail;
   const pageData = await getPublicVehicleDetailPageData(id);
   if (!pageData) notFound();

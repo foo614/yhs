@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Banknote, Car, Home, Menu, Search, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { frontofficeCopy, hrefWithLanguage, languages, type Language } from "./i18n";
 
@@ -56,18 +56,26 @@ export function PublicSubNav({ language, active = "home" }: { language: Language
 
 export function LanguageSwitch({ language }: { language: Language }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const [currentSearch, setCurrentSearch] = useState("");
   const [currentHash, setCurrentHash] = useState("");
 
   useEffect(() => {
+    setCurrentSearch(window.location.search || "");
     setCurrentHash(window.location.hash || "");
-    const handleHash = () => setCurrentHash(window.location.hash || "");
-    window.addEventListener("hashchange", handleHash);
-    return () => window.removeEventListener("hashchange", handleHash);
+    const handleLocation = () => {
+      setCurrentSearch(window.location.search || "");
+      setCurrentHash(window.location.hash || "");
+    };
+    window.addEventListener("popstate", handleLocation);
+    window.addEventListener("hashchange", handleLocation);
+    return () => {
+      window.removeEventListener("popstate", handleLocation);
+      window.removeEventListener("hashchange", handleLocation);
+    };
   }, []);
 
   const getSwitchHref = (entry: Language) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(currentSearch);
     if (entry === "zh") {
       params.set("lang", "zh");
     } else {
