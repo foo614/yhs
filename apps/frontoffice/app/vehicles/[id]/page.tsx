@@ -4,7 +4,7 @@ import { Banknote, CalendarDays, Car, ChevronLeft, Gauge, ShieldCheck } from "lu
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../../PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams } from "../../i18n";
 import { relatedVehicles } from "../listing";
-import { getPublicVehicleDetailPageData } from "../service";
+import { getPublicVehicleDetailPageData, getPublicVehicles } from "../service";
 import { VehiclePhoto } from "../VehiclePhoto";
 import { VehicleCard } from "../VehicleCard";
 import { LeadForm } from "./LeadForm";
@@ -118,4 +118,9 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
       <PublicMobileNav language={language} active="vehicles" />
     </main>
   );
+}
+
+export async function generateStaticParams() {
+  const vehicles = await getPublicVehicles();
+  return vehicles.map((vehicle) => ({ id: vehicle.id }));
 }
