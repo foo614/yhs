@@ -18,6 +18,7 @@ import {
   Badge,
   Button,
   Descriptions,
+  Drawer,
   Form,
   Input,
   InputNumber,
@@ -212,6 +213,12 @@ const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
   { path: "/hr-salary", name: "HR/Salary / 人事薪资", icon: <CalendarOutlined /> },
   { path: "/admin", name: bilingual.admin, icon: <UserOutlined /> }
 ];
+
+function focusWorkArea(elementId: string) {
+  window.requestAnimationFrame(() => {
+    document.getElementById(elementId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
 
 export default function App() {
   const [notificationApi, notificationContextHolder] = notification.useNotification();
@@ -976,6 +983,22 @@ function VehiclesPage({
   const selectVehicle = (vehicleId: string) => {
     setEditVehicleId(vehicleId);
     setUploadVehicleId(vehicleId);
+    focusWorkArea("vehicle-record-card");
+  };
+
+  const selectPurchaseInvoice = (invoiceId: string) => {
+    setEditPurchaseInvoiceId(invoiceId);
+    focusWorkArea("purchase-invoice-card");
+  };
+
+  const selectCustomer = (customerId: string) => {
+    setEditCustomerId(customerId);
+    focusWorkArea("contacts-card");
+  };
+
+  const selectOwner = (ownerId: string) => {
+    setEditOwnerId(ownerId);
+    focusWorkArea("contacts-card");
   };
 
   const loadUploads = useCallback(async () => {
@@ -1110,18 +1133,18 @@ function VehiclesPage({
     { title: "Email", dataIndex: "email", render: (value) => value || "-" },
     { title: "Address / 地址", dataIndex: "address", render: (value) => value || "-" },
     { title: "Notes / 备注", dataIndex: "notes", render: (value) => value || "-" },
-    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => setEditCustomerId(row.id)}>Edit</Button> }
+    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => selectCustomer(row.id)}>Edit</Button> }
   ];
   const ownerColumns: ColumnsType<Owner> = [
     { title: "Owner / 原车主", dataIndex: "name" },
     { title: "Phone / 电话", dataIndex: "phone" },
-    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => setEditOwnerId(row.id)}>Edit</Button> }
+    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => selectOwner(row.id)}>Edit</Button> }
   ];
   const purchaseInvoiceColumns: ColumnsType<PurchaseInvoice> = [
     { title: "Car Plate", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Invoice", dataIndex: "invoiceNumber" },
     { title: "Amount", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => setEditPurchaseInvoiceId(row.id)}>Edit</Button> }
+    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => selectPurchaseInvoice(row.id)}>Edit</Button> }
   ];
 
   return (
@@ -1207,7 +1230,7 @@ function VehiclesPage({
           </div>
         </div>
       </ProCard>
-      <ProCard title="Vehicle Record / 收车资料">
+      <ProCard id="vehicle-record-card" title="Vehicle Record / 收车资料">
         <Tabs
           className="vehicleRecordTabs"
           items={[
@@ -1306,7 +1329,7 @@ function VehiclesPage({
           ]}
         />
       </ProCard>
-      <ProCard title="Purchase Invoice / 收车发票">
+      <ProCard id="purchase-invoice-card" title="Purchase Invoice / 收车发票">
         <Table rowKey="id" columns={purchaseInvoiceColumns} dataSource={purchaseInvoices} pagination={{ pageSize: 5 }} scroll={{ x: 560 }} />
         <Form layout="vertical" className="formGrid" onFinish={async (values) => {
           const invoice: PurchaseInvoice = {
@@ -1350,14 +1373,14 @@ function VehiclesPage({
             await onUpdatePurchaseInvoice(invoice);
           }}
         >
-          <Form.Item name="id" label="Edit Purchase Invoice"><Select options={purchaseInvoices.map((invoice) => ({ value: invoice.id, label: `${plateFor(vehicles, invoice.vehicleId)} / ${invoice.invoiceNumber}` }))} onChange={setEditPurchaseInvoiceId} /></Form.Item>
+          <Form.Item name="id" label="Edit Purchase Invoice"><Select options={purchaseInvoices.map((invoice) => ({ value: invoice.id, label: `${plateFor(vehicles, invoice.vehicleId)} / ${invoice.invoiceNumber}` }))} onChange={selectPurchaseInvoice} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedPurchaseInvoice}>Update Purchase Invoice</Button></Form.Item>
         </Form>
       </ProCard>
-      <ProCard title="Customer & Owner Details / 客户与原车主">
+      <ProCard id="contacts-card" title="Customer & Owner Details / 客户与原车主">
         <Tabs
           items={[
             {
@@ -1417,7 +1440,7 @@ function VehiclesPage({
                       onUpdateCustomer(customer);
                     }}
                   >
-                    <Form.Item name="id" label="Edit Customer"><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} onChange={setEditCustomerId} /></Form.Item>
+                    <Form.Item name="id" label="Edit Customer"><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} onChange={selectCustomer} /></Form.Item>
                     <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="icNumber" label="IC / 身份证"><Input /></Form.Item>
@@ -1474,7 +1497,7 @@ function VehiclesPage({
                       onUpdateOwner(owner);
                     }}
                   >
-                    <Form.Item name="id" label="Edit Owner"><Select options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} onChange={setEditOwnerId} /></Form.Item>
+                    <Form.Item name="id" label="Edit Owner"><Select options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} onChange={selectOwner} /></Form.Item>
                     <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
@@ -1613,6 +1636,16 @@ function RepairPage({
     }
   }, [editRepairId, repairs]);
 
+  const selectSupplierInvoice = (invoiceId: string) => {
+    setEditSupplierInvoiceId(invoiceId);
+    focusWorkArea("repair-supplier-card");
+  };
+
+  const selectRepair = (repairId: string) => {
+    setEditRepairId(repairId);
+    focusWorkArea("repair-edit-card");
+  };
+
   const columns: ColumnsType<SupplierInvoice> = [
     { title: "Invoice Plate / Plate", dataIndex: "plateNumberOnInvoice", render: (value) => value || "-" },
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
@@ -1620,7 +1653,7 @@ function RepairPage({
     { title: "Invoice / 单据", dataIndex: "invoiceNumber" },
     { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
     { title: "Validation / 检查", render: (_, row) => <Tag color={row.invoiceNumber ? "green" : "red"}>{row.invoiceNumber ? "Plate-linked" : "Missing invoice"}</Tag> },
-    { title: "Action / 操作", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => setEditSupplierInvoiceId(row.id)}>Edit</Button> }
+    { title: "Action / 操作", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => selectSupplierInvoice(row.id)}>Edit</Button> }
   ];
   const repairColumns: ColumnsType<RepairJob> = [
     { title: "Repair Part / 配件", dataIndex: "repairPart", render: (value) => value || "-" },
@@ -1635,7 +1668,7 @@ function RepairPage({
       render: (_, row) => (
         <Space>
           <Button size="small" onClick={() => onUpdateRepair({ ...row, checklistDone: true })} disabled={row.checklistDone}>Mark Done</Button>
-          <Button size="small" onClick={() => setEditRepairId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectRepair(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -1653,7 +1686,7 @@ function RepairPage({
       <ProCard title="Repair Checklist / 整备检查表">
         <Table rowKey="id" columns={repairColumns} dataSource={repairs} pagination={false} scroll={{ x: 760 }} />
       </ProCard>
-      <ProCard title="Supplier & Refurbishment / 供应商与整备">
+      <ProCard id="repair-supplier-card" title="Supplier & Refurbishment / 供应商与整备">
         <Table rowKey="id" columns={columns} dataSource={supplierInvoices} pagination={false} scroll={{ x: 760 }} />
         <Form
           key={selectedSupplierInvoice?.id ?? "supplier-invoice-edit"}
@@ -1679,7 +1712,7 @@ function RepairPage({
             await onUpdateInvoice(invoice);
           }}
         >
-          <Form.Item name="id" label="Edit Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={setEditSupplierInvoiceId} /></Form.Item>
+          <Form.Item name="id" label="Edit Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
@@ -1718,7 +1751,7 @@ function RepairPage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
         </Form>
       </ProCard>
-      <ProCard title="Edit Repair Task / 修改整备事项">
+      <ProCard id="repair-edit-card" title="Edit Repair Task / 修改整备事项">
         <Form
           key={selectedEditRepair?.id ?? "repair-edit"}
           layout="vertical"
@@ -1743,7 +1776,7 @@ function RepairPage({
             await onUpdateRepair(repair);
           }}
         >
-          <Form.Item name="id" label="Edit Repair"><Select options={repairs.map((repair) => ({ value: repair.id, label: `${plateFor(vehicles, repair.vehicleId)} / ${repair.whatToDo}` }))} onChange={setEditRepairId} /></Form.Item>
+          <Form.Item name="id" label="Edit Repair"><Select options={repairs.map((repair) => ({ value: repair.id, label: `${plateFor(vehicles, repair.vehicleId)} / ${repair.whatToDo}` }))} onChange={selectRepair} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
@@ -1840,6 +1873,11 @@ function LoanPage({
     }
   }, [editLoanId, loans]);
 
+  const selectLoan = (loanId: string) => {
+    setEditLoanId(loanId);
+    focusWorkArea("loan-form-card");
+  };
+
   const columns: ColumnsType<LoanApplication> = [
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Pending" ? "orange" : "green"}>{status}</Tag> },
@@ -1864,7 +1902,7 @@ function LoanPage({
         <Space>
           <Button size="small" onClick={() => onUpdate(markLoanApproved(row))} disabled={row.status === "Approved" || row.status === "Done"}>Approve</Button>
           <Button size="small" onClick={() => onUpdate(markLoanDone(row))} disabled={row.status === "Done"}>Done</Button>
-          <Button size="small" onClick={() => setEditLoanId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectLoan(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -1875,7 +1913,7 @@ function LoanPage({
       <ProCard title="Loan Workflow / 贷款流程">
         <Table rowKey="id" columns={columns} dataSource={loans} pagination={false} scroll={{ x: 760 }} />
       </ProCard>
-      <ProCard title="Submit Loan / 提交贷款">
+      <ProCard id="loan-form-card" title="Submit Loan / 提交贷款">
         <Form layout="vertical" className="formGrid" onFinish={(values) => {
           const loan: LoanApplication = {
             id: newId(),
@@ -1933,7 +1971,7 @@ function LoanPage({
             onUpdate(loan);
           }}
         >
-          <Form.Item name="id" label="Edit Loan"><Select options={loans.map((loan) => ({ value: loan.id, label: `${plateFor(vehicles, loan.vehicleId)} / ${loan.status}` }))} onChange={setEditLoanId} /></Form.Item>
+          <Form.Item name="id" label="Edit Loan"><Select options={loans.map((loan) => ({ value: loan.id, label: `${plateFor(vehicles, loan.vehicleId)} / ${loan.status}` }))} onChange={selectLoan} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}>
             <Select
@@ -2041,6 +2079,11 @@ function DeliveryPage({
     }
   }, [editDeliveryId, deliveries]);
 
+  const selectDelivery = (deliveryId: string) => {
+    setEditDeliveryId(deliveryId);
+    focusWorkArea("delivery-form-card");
+  };
+
   const columns: ColumnsType<DeliverySchedule> = [
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "PIC", dataIndex: "pic" },
@@ -2077,7 +2120,7 @@ function DeliveryPage({
           <Button size="small" onClick={() => onUpdate(markTwoDayNoticeSent(row))} disabled={!canMarkTwoDayNoticeSent(row)}>Notice</Button>
           <Button size="small" onClick={() => onUpdate(markDeliveryReady(row))} disabled={!canMarkDeliveryReady(row) || Boolean(releaseReadiness[row.id]?.missingCategories.length)}>Ready</Button>
           <Button size="small" onClick={() => onUpdate({ ...row, status: "Released" })} disabled={!canReleaseDelivery(row) || Boolean(releaseReadiness[row.id]?.missingCategories.length)}>Release</Button>
-          <Button size="small" onClick={() => setEditDeliveryId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectDelivery(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -2134,7 +2177,7 @@ function DeliveryPage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Schedule</Button></Form.Item>
         </Form>
       </ProCard>
-      <ProCard title="Edit Delivery / 修改出车安排">
+      <ProCard id="delivery-form-card" title="Edit Delivery / 修改出车安排">
         <Form
           key={selectedEditDelivery?.id ?? "delivery-edit"}
           layout="vertical"
@@ -2172,7 +2215,7 @@ function DeliveryPage({
             onUpdate(delivery);
           }}
         >
-          <Form.Item name="id" label="Edit Delivery"><Select options={deliveries.map((delivery) => ({ value: delivery.id, label: `${plateFor(vehicles, delivery.vehicleId)} / ${delivery.status}` }))} onChange={setEditDeliveryId} /></Form.Item>
+          <Form.Item name="id" label="Edit Delivery"><Select options={deliveries.map((delivery) => ({ value: delivery.id, label: `${plateFor(vehicles, delivery.vehicleId)} / ${delivery.status}` }))} onChange={selectDelivery} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="pic" label="PIC" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
@@ -2340,6 +2383,36 @@ function FinancePage({
     }
   }, [editPaymentVoucherId, paymentVouchers]);
 
+  const selectPayment = (paymentId: string) => {
+    setEditPaymentId(paymentId);
+    focusWorkArea("payment-edit-card");
+  };
+
+  const selectSettlement = (settlementId: string) => {
+    setEditSettlementId(settlementId);
+    focusWorkArea("settlement-card");
+  };
+
+  const selectDailySpend = (spendId: string) => {
+    setEditDailySpendId(spendId);
+    focusWorkArea("daily-spend-card");
+  };
+
+  const selectBrokerCommission = (commissionId: string) => {
+    setEditBrokerCommissionId(commissionId);
+    focusWorkArea("broker-commission-card");
+  };
+
+  const selectDebtRecovery = (debtId: string) => {
+    setEditDebtRecoveryId(debtId);
+    focusWorkArea("debt-recovery-card");
+  };
+
+  const selectPaymentVoucher = (voucherId: string) => {
+    setEditPaymentVoucherId(voucherId);
+    focusWorkArea("payment-voucher-card");
+  };
+
   const columns: ColumnsType<PaymentRecord> = [
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Nett Price / 净价", dataIndex: "nettPrice", render: (value) => `RM ${value.toLocaleString()}` },
@@ -2365,7 +2438,7 @@ function FinancePage({
           <Button size="small" onClick={() => onUpdate({ ...row, documentsPrepared: true, checklistValidated: true, invoiceGenerated: true, autoCountKeyed: true })} disabled={row.status === "Reconciled" || (row.documentsPrepared && row.checklistValidated && row.invoiceGenerated && row.autoCountKeyed)}>Checklist</Button>
           <Button size="small" onClick={() => onUpdate({ ...row, status: "Disbursed" })} disabled={!canCorrectReconciledPayment(row)}>Undo</Button>
           <Button size="small" title={paymentReconcileBlockReason(row, payments)} onClick={() => onUpdate({ ...row, status: "Reconciled" })} disabled={!canReconcilePayment(row, payments)}>Reconcile</Button>
-          <Button size="small" onClick={() => setEditPaymentId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectPayment(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -2384,7 +2457,7 @@ function FinancePage({
         <Space>
           <Button size="small" onClick={() => onUpdateSettlement({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
           <Button size="small" onClick={() => onUpdateSettlement({ ...row, isPaid: false })} disabled={!canReopenPaidSettlement(row)}>Reopen</Button>
-          <Button size="small" onClick={() => setEditSettlementId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectSettlement(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -2402,7 +2475,7 @@ function FinancePage({
         <Space>
           <Button size="small" onClick={() => onUpdateDailySpend({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
           <Button size="small" onClick={() => onUpdateDailySpend({ ...row, isPaid: false })} disabled={!canReopenPaidDailySpend(row)}>Reopen</Button>
-          <Button size="small" onClick={() => setEditDailySpendId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectDailySpend(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -2427,7 +2500,7 @@ function FinancePage({
           <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
           <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, cp58Required: true, cp58Prepared: true })} disabled={!row.cp58Required || row.cp58Prepared}>CP58</Button>
           <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, isPaid: false })} disabled={!row.isPaid}>Reopen</Button>
-          <Button size="small" onClick={() => setEditBrokerCommissionId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectBrokerCommission(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -2448,7 +2521,7 @@ function FinancePage({
           <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "FollowedUp" })} disabled={row.status !== "Open"}>Followed</Button>
           <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "Closed" })} disabled={row.status === "Closed"}>Close</Button>
           <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "Open" })} disabled={row.status === "Open"}>Reopen</Button>
-          <Button size="small" onClick={() => setEditDebtRecoveryId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectDebtRecovery(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -2470,7 +2543,7 @@ function FinancePage({
           <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Approved" })} disabled={row.status !== "Pending"}>Approve</Button>
           <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Paid" })} disabled={row.status === "Paid"}>Paid</Button>
           <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Pending" })} disabled={row.status === "Pending"}>Reopen</Button>
-          <Button size="small" onClick={() => setEditPaymentVoucherId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectPaymentVoucher(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -2537,7 +2610,7 @@ function FinancePage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Payment</Button></Form.Item>
         </Form>
       </ProCard>
-      <ProCard title="Edit Payment / 修改收款记录">
+      <ProCard id="payment-edit-card" title="Edit Payment / 修改收款记录">
         <Form
           key={selectedEditPayment?.id ?? "payment-edit"}
           layout="vertical"
@@ -2573,7 +2646,7 @@ function FinancePage({
             onUpdate(payment);
           }}
         >
-          <Form.Item name="id" label="Edit Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.status}` }))} onChange={setEditPaymentId} /></Form.Item>
+          <Form.Item name="id" label="Edit Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
@@ -2638,7 +2711,7 @@ function FinancePage({
           />
         </Space>
       </ProCard>
-      <ProCard title="Settlement Reminder / 收车结算提醒">
+      <ProCard id="settlement-card" title="Settlement Reminder / 收车结算提醒">
         <Space direction="vertical" size={16} className="fullWidth">
           <Descriptions bordered column={1}>
             <Descriptions.Item label="Deadline Popup">Boss/Admin receives reminder when settlement deadline is due.</Descriptions.Item>
@@ -2697,7 +2770,7 @@ function FinancePage({
               onUpdateSettlement(settlement);
             }}
           >
-            <Form.Item name="id" label="Edit Settlement"><Select options={settlements.map((settlement) => ({ value: settlement.id, label: `${plateFor(vehicles, settlement.vehicleId)} / RM ${settlement.amount.toLocaleString()} / ${settlement.deadline}` }))} onChange={setEditSettlementId} /></Form.Item>
+            <Form.Item name="id" label="Edit Settlement"><Select options={settlements.map((settlement) => ({ value: settlement.id, label: `${plateFor(vehicles, settlement.vehicleId)} / RM ${settlement.amount.toLocaleString()} / ${settlement.deadline}` }))} onChange={selectSettlement} /></Form.Item>
             <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="ownerId" label="Settlement Owner / Previous Owner"><Select allowClear showSearch optionFilterProp="label" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} /></Form.Item>
             <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -2707,7 +2780,7 @@ function FinancePage({
           </Form>
         </Space>
       </ProCard>
-      <ProCard title="Broker Commission / 经纪人佣金">
+      <ProCard id="broker-commission-card" title="Broker Commission / 经纪人佣金">
         <Space direction="vertical" size={12} className="fullWidth">
           <Table rowKey="id" columns={brokerCommissionColumns} dataSource={brokerCommissions} pagination={false} scroll={{ x: 760 }} />
           <Form layout="vertical" className="formGrid" onFinish={(values) => {
@@ -2759,7 +2832,7 @@ function FinancePage({
               onUpdateBrokerCommission(commission);
             }}
           >
-            <Form.Item name="id" label="Edit Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / RM ${commission.amount.toLocaleString()}` }))} onChange={setEditBrokerCommissionId} /></Form.Item>
+            <Form.Item name="id" label="Edit Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / RM ${commission.amount.toLocaleString()}` }))} onChange={selectBrokerCommission} /></Form.Item>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
             <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -2770,7 +2843,7 @@ function FinancePage({
           </Form>
         </Space>
       </ProCard>
-      <ProCard title="Debt Recovery / 欠款追讨">
+      <ProCard id="debt-recovery-card" title="Debt Recovery / 欠款追讨">
         <Space direction="vertical" size={12} className="fullWidth">
           <Table rowKey="id" columns={debtRecoveryColumns} dataSource={debtRecoveries} pagination={false} scroll={{ x: 960 }} />
           <Form layout="vertical" className="formGrid" onFinish={(values) => {
@@ -2822,7 +2895,7 @@ function FinancePage({
               onUpdateDebtRecovery(debt);
             }}
           >
-            <Form.Item name="id" label="Edit Debt Case"><Select options={debtRecoveries.map((debt) => ({ value: debt.id, label: `${plateFor(vehicles, debt.vehicleId)} / ${customerLabel(customers, debt.customerId)} / RM ${debt.balanceAmount.toLocaleString()}` }))} onChange={setEditDebtRecoveryId} /></Form.Item>
+            <Form.Item name="id" label="Edit Debt Case"><Select options={debtRecoveries.map((debt) => ({ value: debt.id, label: `${plateFor(vehicles, debt.vehicleId)} / ${customerLabel(customers, debt.customerId)} / RM ${debt.balanceAmount.toLocaleString()}` }))} onChange={selectDebtRecovery} /></Form.Item>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item>
             <Form.Item name="balanceAmount" label="Balance / 欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -2833,7 +2906,7 @@ function FinancePage({
           </Form>
         </Space>
       </ProCard>
-      <ProCard title="Payment Voucher / 付款凭证">
+      <ProCard id="payment-voucher-card" title="Payment Voucher / 付款凭证">
         <Space direction="vertical" size={12} className="fullWidth">
           <Table rowKey="id" columns={paymentVoucherColumns} dataSource={paymentVouchers} pagination={false} scroll={{ x: 960 }} />
           <Form layout="vertical" className="formGrid" onFinish={(values) => {
@@ -2888,7 +2961,7 @@ function FinancePage({
               onUpdatePaymentVoucher(voucher);
             }}
           >
-            <Form.Item name="id" label="Edit Voucher"><Select options={paymentVouchers.map((voucher) => ({ value: voucher.id, label: `${plateFor(vehicles, voucher.vehicleId)} / ${voucher.payeeName} / RM ${voucher.amount.toLocaleString()}` }))} onChange={setEditPaymentVoucherId} /></Form.Item>
+            <Form.Item name="id" label="Edit Voucher"><Select options={paymentVouchers.map((voucher) => ({ value: voucher.id, label: `${plateFor(vehicles, voucher.vehicleId)} / ${voucher.payeeName} / RM ${voucher.amount.toLocaleString()}` }))} onChange={selectPaymentVoucher} /></Form.Item>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="payeeName" label="Payee / 收款人" rules={[{ required: true }]}><Input placeholder="Driver / staff name" /></Form.Item>
             <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -2900,7 +2973,7 @@ function FinancePage({
           </Form>
         </Space>
       </ProCard>
-      <ProCard title="Daily Spend / 日常支出">
+      <ProCard id="daily-spend-card" title="Daily Spend / 日常支出">
         <Space direction="vertical" size={12} className="fullWidth">
           <Table rowKey="id" columns={dailySpendColumns} dataSource={dailySpends} pagination={false} scroll={{ x: 640 }} />
           <Form layout="vertical" className="formGrid" onFinish={(values) => {
@@ -2946,7 +3019,7 @@ function FinancePage({
               onUpdateDailySpend(spend);
             }}
           >
-            <Form.Item name="id" label="Edit Daily Spend"><Select options={dailySpends.map((spend) => ({ value: spend.id, label: `${spend.description} / RM ${spend.amount.toLocaleString()} / ${spend.dueDate}` }))} onChange={setEditDailySpendId} /></Form.Item>
+            <Form.Item name="id" label="Edit Daily Spend"><Select options={dailySpends.map((spend) => ({ value: spend.id, label: `${spend.description} / RM ${spend.amount.toLocaleString()} / ${spend.dueDate}` }))} onChange={selectDailySpend} /></Form.Item>
             <Form.Item name="description" label="Description / 项目" rules={[{ required: true }]}><Input placeholder="Electric Bill" /></Form.Item>
             <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
             <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
@@ -2961,6 +3034,7 @@ function FinancePage({
 
 function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: { vehicles: VehicleLookup[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => void }) {
   const [editLeadId, setEditLeadId] = useState(leads[0]?.id ?? "");
+  const [leadEditorOpen, setLeadEditorOpen] = useState(false);
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
   const selectedEditLead = leads.find((lead) => lead.id === editLeadId) ?? leads[0];
@@ -2971,6 +3045,11 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
       setEditLeadId(leads[0].id);
     }
   }, [editLeadId, leads]);
+
+  const openLeadEditor = (leadId: string) => {
+    setEditLeadId(leadId);
+    setLeadEditorOpen(true);
+  };
 
   const columns: ColumnsType<Lead> = [
     { title: "Customer Record", render: (_, row) => <Tag color={leadCustomerLinkTagColor(row)}>{leadCustomerLinkLabel(row)}</Tag> },
@@ -2989,7 +3068,7 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
           <Button size="small" onClick={() => onCreateCustomer(row)} disabled={row.status === "Closed" || Boolean(row.customerId)}>Customer</Button>
           <Button size="small" onClick={() => onUpdate({ ...row, status: "Contacted" })} disabled={row.status !== "New"}>Contacted</Button>
           <Button size="small" onClick={() => onUpdate({ ...row, status: "Closed" })} disabled={row.status === "Closed"}>Close</Button>
-          <Button size="small" onClick={() => setEditLeadId(row.id)}>Edit</Button>
+          <Button size="small" type="primary" onClick={() => openLeadEditor(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -3026,11 +3105,18 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
           <Descriptions.Item label="Open Leads">{filteredLeads.filter((lead) => lead.status !== "Closed").length}</Descriptions.Item>
         </Descriptions>
       </ProCard>
-      <ProCard title="Edit Lead / 修改询问">
+      <Drawer
+        title="Edit Lead / 修改询问"
+        open={leadEditorOpen}
+        onClose={() => setLeadEditorOpen(false)}
+        width={560}
+        className="leadEditDrawer"
+        destroyOnClose
+      >
         <Form
           key={selectedEditLead?.id ?? "lead-edit"}
           layout="vertical"
-          className="formGrid"
+          className="drawerForm"
           initialValues={selectedEditLead}
           onFinish={(values) => {
             if (!selectedEditLead) return;
@@ -3052,6 +3138,7 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
               return;
             }
             onUpdate(lead);
+            setLeadEditorOpen(false);
           }}
         >
           <Form.Item name="id" label="Edit Lead"><Select options={leads.map((lead) => ({ value: lead.id, label: `${lead.customerName} / ${lead.phone} / ${lead.status}` }))} onChange={setEditLeadId} /></Form.Item>
@@ -3063,7 +3150,7 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
           <Form.Item name="status" label="Status"><Select options={["New", "Contacted", "Closed"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditLead}>Update Lead</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Drawer>
     </Space>
   );
 }
@@ -3170,6 +3257,11 @@ function AdminPage({
     }
   }, [editStaffUserId, staffUsers]);
 
+  const selectStaffUser = (userId: string) => {
+    setEditStaffUserId(userId);
+    focusWorkArea("staff-users-panel");
+  };
+
   const staffColumns: ColumnsType<StaffUser> = [
     { title: "Name / 姓名", dataIndex: "displayName", width: 180 },
     { title: "Email", dataIndex: "email", width: 260 },
@@ -3203,7 +3295,7 @@ function AdminPage({
       width: 160,
       render: (_, row) => (
         <Space>
-          <Button size="small" onClick={() => setEditStaffUserId(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => selectStaffUser(row.id)}>Edit</Button>
           <Button size="small" danger={row.isActive} onClick={() => onUpdateStaffStatus(row.id, { isActive: !row.isActive })}>
             {row.isActive ? "Disable" : "Enable"}
           </Button>
@@ -3220,7 +3312,7 @@ function AdminPage({
             key: "users",
             label: "Staff Users",
             children: (
-              <Space direction="vertical" size={16} className="fullWidth staffUsersPanel">
+              <Space id="staff-users-panel" direction="vertical" size={16} className="fullWidth staffUsersPanel">
                 <Table rowKey="id" size="small" columns={staffColumns} dataSource={staffUsers} pagination={{ pageSize: 6 }} scroll={{ x: 1200 }} />
                 <Form
                   key={selectedEditStaffUser?.id ?? "staff-edit"}
@@ -3248,7 +3340,7 @@ function AdminPage({
                   <Form.Item name="id" label="Edit Staff / 修改员工">
                     <Select
                       options={staffUsers.map((user) => ({ value: user.id, label: `${user.displayName} / ${user.email}` }))}
-                      onChange={setEditStaffUserId}
+                      onChange={selectStaffUser}
                     />
                   </Form.Item>
                   <Form.Item name="displayName" label="Display Name / 姓名" rules={[{ required: true }]}>
@@ -3287,7 +3379,7 @@ function AdminPage({
                   <Form.Item name="id" label="Reset Password / 重设密码">
                     <Select
                       options={staffUsers.map((user) => ({ value: user.id, label: `${user.displayName} / ${user.email}` }))}
-                      onChange={setEditStaffUserId}
+                      onChange={selectStaffUser}
                     />
                   </Form.Item>
                   <Form.Item name="password" label="New Password" rules={[{ required: true, min: 8 }]}>

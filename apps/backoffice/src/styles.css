@@ -450,6 +450,33 @@ body {
   overflow: hidden;
 }
 
+.leadEditDrawer .ant-drawer-body {
+  padding: 18px;
+}
+
+.drawerForm {
+  display: grid;
+  gap: 14px;
+}
+
+.drawerForm .ant-form-item {
+  margin-bottom: 0;
+}
+
+.drawerForm .formActions {
+  margin-bottom: 0;
+  padding-top: 4px;
+}
+
+.drawerForm .formActions .ant-form-item-control-input-content {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawerForm .formActions .ant-btn {
+  min-width: 148px;
+}
+
 .vehiclesPage .ant-table-row {
   cursor: pointer;
 }
@@ -763,6 +790,14 @@ body {
 
   .vehicleFlowSteps {
     grid-template-columns: 1fr;
+  }
+
+  .drawerForm .formActions .ant-form-item-control-input-content {
+    justify-content: stretch;
+  }
+
+  .drawerForm .formActions .ant-btn {
+    width: 100%;
   }
 
   .formGrid .formActions .ant-form-item-control-input-content {
