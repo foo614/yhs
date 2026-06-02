@@ -7,6 +7,7 @@ import {
   DashboardOutlined,
   DownloadOutlined,
   FileDoneOutlined,
+  LogoutOutlined,
   ToolOutlined,
   UploadOutlined,
   UserOutlined
@@ -400,10 +401,16 @@ export default function App() {
       location={{ pathname }}
       menuItemRender={(item, dom) => <button className="menuButton" onClick={() => setPathname(item.path ?? "/dashboard")}>{dom}</button>}
       layout="mix"
+      actionsRender={() => [
+        <div className="headerSession" key="session">
+          <span className="headerSessionUser">{currentUser.name ?? "staff"}</span>
+          <span className="headerSessionRole">{currentRoles.join(", ") || "none"}</span>
+          <Button size="small" icon={<LogoutOutlined />} onClick={handleLogout}>Logout</Button>
+        </div>
+      ]}
     >
       <PageContainer title={pageTitle}>
         <Space direction="vertical" size={16} className="fullWidth">
-          <SessionPanel currentUser={currentUser} onLogin={handleLogin} onLogout={handleLogout} />
           <ModuleCommandBar
             pathname={pathname}
             title={pageTitle}
@@ -533,24 +540,6 @@ export default function App() {
         </Space>
       </PageContainer>
     </ProLayout>
-  );
-}
-
-function SessionPanel({ currentUser, onLogin, onLogout }: { currentUser: CurrentUser | null; onLogin: (values: { email: string; password: string }) => Promise<void>; onLogout: () => Promise<void> }) {
-  if (currentUser?.isAuthenticated) {
-    return (
-      <Alert
-        type="success"
-        showIcon
-        message={`Logged in as ${currentUser.name ?? "staff"}`}
-        description={`Roles: ${currentUser.roles.join(", ") || "none"}`}
-        action={<Button onClick={onLogout}>Logout</Button>}
-      />
-    );
-  }
-
-  return (
-    <LoginHome onLogin={onLogin} />
   );
 }
 
