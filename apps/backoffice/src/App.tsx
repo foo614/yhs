@@ -157,6 +157,34 @@ const dashboardReminderTypes: DashboardReminder["type"][] = [
   "PaymentVoucherFollowUp"
 ];
 
+const deliveryChecklistFields = [
+  "inspectionDone",
+  "documentsPrepared",
+  "polishDone",
+  "tintedDone",
+  "washDone",
+  "insuranceHandled",
+  "roadTaxHandled",
+  "windscreenInsuranceHandled",
+  "notificationSent",
+  "twoDayNoticeSent"
+] as const;
+
+type DeliveryChecklistField = (typeof deliveryChecklistFields)[number];
+
+const deliveryFieldLabels: Record<DeliveryChecklistField, string> = {
+  inspectionDone: "Inspection Done / 正式检查",
+  documentsPrepared: "Documents Prepared / 准备文件",
+  polishDone: "Polish Done / 抛光",
+  tintedDone: "Tinted Done / 隔热膜",
+  washDone: "Wash Done / 洗车",
+  insuranceHandled: "Insurance Handled / 保险",
+  roadTaxHandled: "Road Tax Handled / 路税",
+  windscreenInsuranceHandled: "Windscreen Insurance / 挡风玻璃保险",
+  notificationSent: "Customer Notified / 已通知客户",
+  twoDayNoticeSent: "2-day Notice Sent / 提前2天通知"
+};
+
 const bilingual = {
   dashboard: "Dashboard / 管理层分析",
   vehicles: "Vehicles / 收车库存",
@@ -1901,8 +1929,8 @@ function DeliveryPage({
           <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
           <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
           <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
-          {["inspectionDone", "documentsPrepared", "polishDone", "tintedDone", "washDone", "insuranceHandled", "roadTaxHandled", "windscreenInsuranceHandled", "notificationSent", "twoDayNoticeSent"].map((field) => (
-            <Form.Item key={field} name={field} label={field}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
+          {deliveryChecklistFields.map((field) => (
+            <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
           ))}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Schedule</Button></Form.Item>
         </Form>
@@ -1955,8 +1983,8 @@ function DeliveryPage({
           <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
           <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
           <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
-          {["inspectionDone", "documentsPrepared", "polishDone", "tintedDone", "washDone", "insuranceHandled", "roadTaxHandled", "windscreenInsuranceHandled", "notificationSent", "twoDayNoticeSent"].map((field) => (
-            <Form.Item key={field} name={field} label={field}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
+          {deliveryChecklistFields.map((field) => (
+            <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
           ))}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDelivery}>Update Delivery</Button></Form.Item>
         </Form>
