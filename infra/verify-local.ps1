@@ -31,6 +31,7 @@ Invoke-Step "Docker Compose contract tests" { & .\infra\test-compose-contract.ps
 Invoke-Step "Compose environment validation tests" { & .\infra\test-compose-env.ps1 }
 Invoke-Step "Deployment script contract tests" { & .\infra\test-deployment-scripts.ps1 }
 Invoke-Step "Deployment runbook tests" { & .\infra\test-deployment-runbook.ps1 }
+Invoke-Step "Requirements trace tests" { & .\infra\test-requirements-trace.ps1 }
 Invoke-Step "Source requirements crosscheck tests" { & .\infra\test-source-requirements-crosscheck.ps1 }
 Invoke-Step "Stitch visual reference handoff tests" { & .\infra\test-stitch-reference-handoff.ps1 }
 

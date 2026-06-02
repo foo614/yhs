@@ -84,7 +84,7 @@ Run the full local verification gate:
 
 This includes web type-checking, front/back tests, backend tests, static Dockerfile and Docker Compose contract checks, `.env` validation regression checks, deployment script contract checks, deployment runbook checks, source requirements crosscheck tests, Stitch visual-reference handoff tests, production web builds, and the clean local smoke stack. Use `-SkipSmoke` for a faster code-only check, or `-SkipBuild` when a fresh production build is already available.
 
-GitHub Actions CI runs the Docker-independent portions of that gate on every push and pull request: web type-checks/tests/builds, API tests, Dockerfile/Compose contract checks, env validation checks, deployment script checks, source-document crosscheck, and Stitch handoff checks. Docker Compose runtime smoke remains a deployment-machine proof because it needs a running Docker engine and PostgreSQL-backed containers.
+GitHub Actions CI runs the Docker-independent portions of that gate on every push and pull request: web type-checks/tests/builds, API tests, Dockerfile/Compose contract checks, env validation checks, deployment script checks, deployment runbook checks, requirements trace checks, source-document crosscheck, and Stitch handoff checks. Docker Compose runtime smoke remains a deployment-machine proof because it needs a running Docker engine and PostgreSQL-backed containers.
 
 When Docker is unavailable but local PostgreSQL tooling is installed, run the current code against a clean temporary stack:
 
@@ -114,6 +114,7 @@ You can run the Docker-independent deployment checks separately:
 .\infra\test-compose-env.ps1
 .\infra\test-deployment-scripts.ps1
 .\infra\test-deployment-runbook.ps1
+.\infra\test-requirements-trace.ps1
 ```
 
 For a local Docker Desktop smoke run, you can create `.env` from the local example:
