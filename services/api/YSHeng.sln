@@ -1,0 +1,25 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YSHeng.Api", "src\YSHeng.Api\YSHeng.Api.csproj", "{2D4BA828-C6CB-4C6D-A2C4-1C7F04C31F8E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YSHeng.Api.Tests", "tests\YSHeng.Api.Tests\YSHeng.Api.Tests.csproj", "{853D57C0-C4C8-4121-96AF-A264E4F624A5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2D4BA828-C6CB-4C6D-A2C4-1C7F04C31F8E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2D4BA828-C6CB-4C6D-A2C4-1C7F04C31F8E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2D4BA828-C6CB-4C6D-A2C4-1C7F04C31F8E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2D4BA828-C6CB-4C6D-A2C4-1C7F04C31F8E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{853D57C0-C4C8-4121-96AF-A264E4F624A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{853D57C0-C4C8-4121-96AF-A264E4F624A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{853D57C0-C4C8-4121-96AF-A264E4F624A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{853D57C0-C4C8-4121-96AF-A264E4F624A5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

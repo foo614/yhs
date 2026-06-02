@@ -1,0 +1,14 @@
+node_modules/
+.next/
+dist/
+build/
+bin/
+obj/
+*.tsbuildinfo
+*.log
+.env
+.env.local
+.tmp-*/
+.tmp-*
+backups/
+.superpowers/

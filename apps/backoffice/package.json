@@ -1,0 +1,29 @@
+{
+  "name": "@ysheng/backoffice",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3001",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3001",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ant-design/icons": "5.5.2",
+    "@ant-design/pro-components": "2.8.6",
+    "antd": "5.22.6",
+    "vite": "8.0.14",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "@types/node": "22.12.0",
+    "@types/react": "19.0.1",
+    "@types/react-dom": "19.0.2",
+    "typescript": "5.7.2",
+    "vitest": "4.0.15"
+  }
+}

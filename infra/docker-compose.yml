@@ -1,0 +1,98 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ysheng}
+      POSTGRES_USER: ${POSTGRES_USER:-ysheng}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ysheng_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: services/api/src/YSHeng.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-ysheng};Username=${POSTGRES_USER:-ysheng};Password=${POSTGRES_PASSWORD:-ysheng_dev}
+      AllowedOrigins__0: ${FRONTOFFICE_ORIGIN:-http://localhost:3000}
+      AllowedOrigins__1: ${BACKOFFICE_ORIGIN:-http://localhost:3001}
+      SeedData__Enabled: ${SEED_DATA_ENABLED:-true}
+      SeedAdmin__Email: ${SEED_ADMIN_EMAIL:-admin@ysheng.local}
+      SeedAdmin__Password: ${SEED_ADMIN_PASSWORD:-ChangeMe123!}
+    ports:
+      - "${API_PORT:-5000}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build:
+      context: ..
+      dockerfile: services/api/src/YSHeng.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-ysheng};Username=${POSTGRES_USER:-ysheng};Password=${POSTGRES_PASSWORD:-ysheng_dev}
+      SeedData__Enabled: ${SEED_DATA_ENABLED:-true}
+      Worker__Enabled: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontoffice:
+    build:
+      context: ..
+      dockerfile: apps/frontoffice/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}
+    ports:
+      - "${FRONTOFFICE_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  backoffice:
+    build:
+      context: ..
+      dockerfile: apps/backoffice/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}
+    environment:
+      VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}
+    ports:
+      - "${BACKOFFICE_PORT:-3001}:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  postgres_data:

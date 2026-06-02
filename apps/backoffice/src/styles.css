@@ -1,0 +1,108 @@
+body {
+  margin: 0;
+  background: #f3f6f5;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.menuButton {
+  border: 0;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.metricCard {
+  min-height: 118px;
+  border: 1px solid #e3ebe7;
+  border-radius: 8px;
+  background: #fff;
+  padding: 18px;
+  display: grid;
+  align-content: space-between;
+  gap: 16px;
+}
+
+.metricCard span {
+  color: #53645f;
+  line-height: 1.35;
+}
+
+.metricCard strong {
+  color: #17211f;
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 4px 18px;
+}
+
+.toolbarForm {
+  margin-bottom: 16px;
+  row-gap: 12px;
+}
+
+.stepGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.stepItem {
+  min-height: 84px;
+  border: 1px solid #dce5e0;
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepItem span {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #0d6b57;
+  color: #fff;
+  font-weight: 700;
+}
+
+.checklistGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.checkItem {
+  min-height: 56px;
+  border: 1px solid #dce5e0;
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.extensionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
