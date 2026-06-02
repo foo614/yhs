@@ -1,3 +1,6 @@
+"use client";
+
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Banknote, Car, ExternalLink, MapPin, Mail, Phone, ShieldCheck, Wrench } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../PublicChrome";
@@ -11,8 +14,9 @@ const salesEmail = process.env.NEXT_PUBLIC_SALES_EMAIL ?? "yshengauto@gmail.com"
 const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
 const registrationText = "YS HENG AUTOMOTIVE SDN BHD 202301051775 (1545689-H)";
 
-export default async function ContactPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const language = languageFromSearchParams(await searchParams);
+export default function ContactPage() {
+  const searchParams = useSearchParams();
+  const language = languageFromSearchParams({ lang: searchParams.get("lang") ?? undefined });
   const t = frontofficeCopy[language].contact;
   const phoneHref = `tel:${salesPhone.replace(/[^\d+]/g, "")}`;
   const mapHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(showroomAddress)}`;
