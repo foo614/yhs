@@ -907,6 +907,31 @@ function VehiclesPage({
   const selectedPurchaseInvoice = purchaseInvoices.find((invoice) => invoice.id === editPurchaseInvoiceId) ?? purchaseInvoices[0];
   const selectedCustomer = customers.find((customer) => customer.id === editCustomerId) ?? customers[0];
   const selectedOwner = owners.find((owner) => owner.id === editOwnerId) ?? owners[0];
+  const availableVehicles = vehicles.filter((vehicle) => vehicle.status === "Available").length;
+  const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
+  const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
+  const selectedVehicleStep = selectedVehicle?.status === "Sold" ? 3 : selectedVehicle?.status === "LoanProcessing" ? 2 : selectedVehicle?.bossConfirmed ? 1 : 0;
+  const selectedVehicleProfit = selectedVehicle
+    ? selectedVehicle.sellingPrice - selectedVehicle.purchasePrice - selectedVehicle.additionalCharges - selectedVehicle.refurbishmentTotal - selectedVehicle.commissionTotal
+    : 0;
+  const selectedApprovalGaps = selectedVehicle
+    ? [
+        selectedVehicle.bossConfirmed ? "" : "Boss confirmation pending",
+        selectedVehicle.contraRangePrice ? "" : "Contra range not set",
+        selectedVehicle.ucdStatus ? "" : "UCD status not tracked",
+        selectedVehicle.isPublic ? "" : "Website hidden"
+      ].filter(Boolean)
+    : [];
+  const vehicleStatusColor: Record<Vehicle["status"], string> = {
+    Available: "green",
+    LoanProcessing: "blue",
+    Sold: "purple"
+  };
+
+  const selectVehicle = (vehicleId: string) => {
+    setEditVehicleId(vehicleId);
+    setUploadVehicleId(vehicleId);
+  };
 
   const loadUploads = useCallback(async () => {
     if (!selectedVehicleId) {
@@ -973,7 +998,7 @@ function VehiclesPage({
         : "-"
     },
     { title: "Stock / 分类", dataIndex: "stockOwner" },
-    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Available" ? "green" : "blue"}>{status}</Tag> },
+    { title: "Status / 状态", dataIndex: "status", render: (status: Vehicle["status"]) => <Tag color={vehicleStatusColor[status]}>{status}</Tag> },
     { title: "Boss Confirm / 老板确认", dataIndex: "bossConfirmed", render: (value) => <Badge status={value ? "success" : "warning"} text={value ? "Confirmed" : "Pending"} /> },
     { title: "Contra Range / Contra 价格", dataIndex: "contraRangePrice", render: (value) => `RM ${Number(value ?? 0).toLocaleString()}` },
     { title: "UCD Status", dataIndex: "ucdStatus", render: (value) => value || "-" },
@@ -988,7 +1013,7 @@ function VehiclesPage({
           <Button size="small" onClick={() => onUpdate({ ...row, status: "Available", isPublic: true })} disabled={row.status === "Available" && row.isPublic}>Publish</Button>
           <Button size="small" onClick={() => onUpdate({ ...row, status: "LoanProcessing", isPublic: false })} disabled={row.status === "LoanProcessing"}>Loan</Button>
           <Button size="small" onClick={() => onUpdate({ ...row, status: "Sold", isPublic: false })} disabled={row.status === "Sold"}>Sold</Button>
-          <Button size="small" onClick={() => setEditVehicleId(row.id)}>Edit</Button>
+          <Button size="small" type="primary" onClick={() => selectVehicle(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -1055,11 +1080,96 @@ function VehiclesPage({
   ];
 
   return (
-    <Space direction="vertical" size={16} className="fullWidth">
-      <ProCard title="收车 Flow (Upload to Website)">
-        <Table rowKey="id" columns={columns} dataSource={vehicles} pagination={false} scroll={{ x: 980 }} />
+    <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
+      <ProCard
+        title="Vehicle Inventory / 车辆库存"
+        extra={<Tag color="green">{vehicles.length} vehicles</Tag>}
+      >
+        <div className="vehicleInventoryHeader">
+          <div>
+            <Typography.Text className="moduleEyebrow">Inventory control</Typography.Text>
+            <Typography.Title level={3}>Stock list with approval state</Typography.Title>
+            <Typography.Text type="secondary">Select one car to edit, upload documents, or move through approval.</Typography.Text>
+          </div>
+          <div className="vehicleMiniStats">
+            <span><strong>{availableVehicles}</strong>Available</span>
+            <span><strong>{publicVehicles}</strong>Public</span>
+            <span><strong>{pendingBossConfirmation}</strong>Pending boss</span>
+          </div>
+        </div>
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={vehicles}
+          pagination={{ pageSize: 8 }}
+          scroll={{ x: 1280 }}
+          rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}
+          onRow={(row) => ({
+            onClick: () => selectVehicle(row.id)
+          })}
+        />
       </ProCard>
-      <ProCard title="Vehicle Intake Form / 收车资料">
+      <ProCard title="Approval Flow / 审批流程">
+        <div className="vehicleApprovalWorkbench">
+          <div className="vehicleApprovalMain">
+            <div className="vehicleFlowSteps">
+              {[
+                { title: "Intake", description: "Stock created" },
+                { title: "Boss approved", description: "Price and stock owner checked" },
+                { title: "Loan / Sales", description: "Reserved from public site" },
+                { title: "Sold", description: "Closed and hidden" }
+              ].map((step, index) => (
+                <div className={index <= selectedVehicleStep ? "vehicleFlowStep isDone" : "vehicleFlowStep"} key={step.title}>
+                  <span>{index + 1}</span>
+                  <strong>{step.title}</strong>
+                  <small>{step.description}</small>
+                </div>
+              ))}
+            </div>
+            {selectedVehicle ? (
+              <Descriptions bordered size="small" column={{ xs: 1, sm: 2, xl: 4 }}>
+                <Descriptions.Item label="Plate">{selectedVehicle.plateNumber}</Descriptions.Item>
+                <Descriptions.Item label="Vehicle">{`${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`}</Descriptions.Item>
+                <Descriptions.Item label="Status"><Tag color={vehicleStatusColor[selectedVehicle.status]}>{selectedVehicle.status}</Tag></Descriptions.Item>
+                <Descriptions.Item label="Website"><Badge status={selectedVehicle.isPublic ? "success" : "default"} text={selectedVehicle.isPublic ? "Visible" : "Hidden"} /></Descriptions.Item>
+                <Descriptions.Item label="Boss Confirm"><Badge status={selectedVehicle.bossConfirmed ? "success" : "warning"} text={selectedVehicle.bossConfirmed ? "Confirmed" : "Pending"} /></Descriptions.Item>
+                <Descriptions.Item label="Contra Range">RM {Number(selectedVehicle.contraRangePrice ?? 0).toLocaleString()}</Descriptions.Item>
+                <Descriptions.Item label="UCD">{selectedVehicle.ucdStatus || "-"}</Descriptions.Item>
+                <Descriptions.Item label="Estimated Profit">RM {selectedVehicleProfit.toLocaleString()}</Descriptions.Item>
+              </Descriptions>
+            ) : (
+              <Alert type="info" showIcon message="Create or select a vehicle to begin approval." />
+            )}
+          </div>
+          <div className="vehicleApprovalSide">
+            <Typography.Text strong>Standard actions</Typography.Text>
+            <Space direction="vertical" className="fullWidth">
+              <Button className="fullWidth" onClick={() => selectedVehicle && onUpdate({ ...selectedVehicle, bossConfirmed: true })} disabled={!selectedVehicle || Boolean(selectedVehicle.bossConfirmed)}>Boss Confirm</Button>
+              <Button className="fullWidth" type="primary" onClick={() => selectedVehicle && onUpdate({ ...selectedVehicle, status: "Available", isPublic: true })} disabled={!selectedVehicle || !selectedVehicle.bossConfirmed || (selectedVehicle.status === "Available" && selectedVehicle.isPublic)}>Publish to Website</Button>
+              <Button className="fullWidth" onClick={() => selectedVehicle && onUpdate({ ...selectedVehicle, status: "LoanProcessing", isPublic: false })} disabled={!selectedVehicle || selectedVehicle.status === "LoanProcessing"}>Move to Loan</Button>
+              <Button className="fullWidth" danger onClick={() => selectedVehicle && onUpdate({ ...selectedVehicle, status: "Sold", isPublic: false })} disabled={!selectedVehicle || selectedVehicle.status === "Sold"}>Mark Sold</Button>
+            </Space>
+            {selectedApprovalGaps.length > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="Approval gaps"
+                description={selectedApprovalGaps.join(" · ")}
+              />
+            ) : (
+              <Alert type="success" showIcon message="Vehicle is ready for website and sales workflow." />
+            )}
+          </div>
+        </div>
+      </ProCard>
+      <ProCard title="Vehicle Record / 收车资料">
+        <Tabs
+          className="vehicleRecordTabs"
+          items={[
+            {
+              key: "create",
+              label: "Create Vehicle / 新增车辆",
+              children: (
         <Form layout="vertical" className="formGrid" onFinish={(values) => {
           const vehicle = vehicleFromIntakeValues(values, newId());
           const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
@@ -1096,6 +1206,12 @@ function VehiclesPage({
           <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Vehicle</Button></Form.Item>
         </Form>
+              )
+            },
+            {
+              key: "edit",
+              label: "Edit Selected / 编辑车辆",
+              children: (
         <Form
           key={selectedVehicle?.id ?? "vehicle-edit"}
           layout="vertical"
@@ -1113,7 +1229,7 @@ function VehiclesPage({
             onUpdate(vehicle);
           }}
         >
-          <Form.Item name="id" label="Edit Vehicle"><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} - ${vehicle.make} ${vehicle.model}` }))} onChange={setEditVehicleId} /></Form.Item>
+          <Form.Item name="id" label="Selected Vehicle"><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} - ${vehicle.make} ${vehicle.model}` }))} onChange={selectVehicle} /></Form.Item>
           <Form.Item name="plateNumber" label="Plate / 车牌" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>
           <Form.Item name="model" label="Model"><Input placeholder="Vios" /></Form.Item>
@@ -1140,6 +1256,10 @@ function VehiclesPage({
           <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
         </Form>
+              )
+            }
+          ]}
+        />
       </ProCard>
       <ProCard title="Purchase Invoice / 收车发票">
         <Table rowKey="id" columns={purchaseInvoiceColumns} dataSource={purchaseInvoices} pagination={{ pageSize: 5 }} scroll={{ x: 560 }} />
@@ -1327,7 +1447,7 @@ function VehiclesPage({
               value={selectedVehicleId || undefined}
               placeholder="Select vehicle"
               options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} - ${vehicle.make} ${vehicle.model}` }))}
-              onChange={setUploadVehicleId}
+              onChange={selectVehicle}
             />
           </Form.Item>
           <Form.Item label="Website Photo">
