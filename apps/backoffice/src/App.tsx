@@ -953,6 +953,7 @@ function VehiclesPage({
   const [editPurchaseInvoiceId, setEditPurchaseInvoiceId] = useState(purchaseInvoices[0]?.id ?? "");
   const [editCustomerId, setEditCustomerId] = useState(customers[0]?.id ?? "");
   const [editOwnerId, setEditOwnerId] = useState(owners[0]?.id ?? "");
+  const [vehicleEditorOpen, setVehicleEditorOpen] = useState(false);
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const uploadDisabled = !selectedVehicleId;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
@@ -983,7 +984,11 @@ function VehiclesPage({
   const selectVehicle = (vehicleId: string) => {
     setEditVehicleId(vehicleId);
     setUploadVehicleId(vehicleId);
-    focusWorkArea("vehicle-record-card");
+  };
+
+  const openVehicleEditor = (vehicleId: string) => {
+    selectVehicle(vehicleId);
+    setVehicleEditorOpen(true);
   };
 
   const selectPurchaseInvoice = (invoiceId: string) => {
@@ -1081,7 +1086,7 @@ function VehiclesPage({
           <Button size="small" onClick={() => onUpdate({ ...row, status: "Available", isPublic: true })} disabled={row.status === "Available" && row.isPublic}>Publish</Button>
           <Button size="small" onClick={() => onUpdate({ ...row, status: "LoanProcessing", isPublic: false })} disabled={row.status === "LoanProcessing"}>Loan</Button>
           <Button size="small" onClick={() => onUpdate({ ...row, status: "Sold", isPublic: false })} disabled={row.status === "Sold"}>Sold</Button>
-          <Button size="small" type="primary" onClick={() => selectVehicle(row.id)}>Edit</Button>
+          <Button size="small" type="primary" onClick={() => openVehicleEditor(row.id)}>Edit</Button>
         </Space>
       )
     }
@@ -1230,14 +1235,7 @@ function VehiclesPage({
           </div>
         </div>
       </ProCard>
-      <ProCard id="vehicle-record-card" title="Vehicle Record / 收车资料">
-        <Tabs
-          className="vehicleRecordTabs"
-          items={[
-            {
-              key: "create",
-              label: "Create Vehicle / 新增车辆",
-              children: (
+      <ProCard id="vehicle-record-card" title="Create Vehicle / 新增车辆">
         <Form layout="vertical" className="formGrid" onFinish={(values) => {
           const vehicle = vehicleFromIntakeValues(values, newId());
           const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
@@ -1274,16 +1272,19 @@ function VehiclesPage({
           <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Vehicle</Button></Form.Item>
         </Form>
-              )
-            },
-            {
-              key: "edit",
-              label: "Edit Selected / 编辑车辆",
-              children: (
+      </ProCard>
+      <Drawer
+        title="Edit Vehicle / 编辑车辆"
+        width={560}
+        open={vehicleEditorOpen}
+        onClose={() => setVehicleEditorOpen(false)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
         <Form
           key={selectedVehicle?.id ?? "vehicle-edit"}
           layout="vertical"
-          className="formGrid"
+          className="drawerForm"
           initialValues={selectedVehicle}
           onFinish={(values) => {
             if (!selectedVehicle) return;
@@ -1295,6 +1296,7 @@ function VehiclesPage({
             }
 
             onUpdate(vehicle);
+            setVehicleEditorOpen(false);
           }}
         >
           <Form.Item name="id" label="Selected Vehicle"><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} - ${vehicle.make} ${vehicle.model}` }))} onChange={selectVehicle} /></Form.Item>
@@ -1324,12 +1326,8 @@ function VehiclesPage({
           <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
         </Form>
-              )
-            }
-          ]}
-        />
-      </ProCard>
-      <ProCard id="purchase-invoice-card" title="Purchase Invoice / 收车发票">
+      </Drawer>
+      <ProCard id="purchase-invoice-list-card" title="Purchase Invoice / 收车发票">
         <Table rowKey="id" columns={purchaseInvoiceColumns} dataSource={purchaseInvoices} pagination={{ pageSize: 5 }} scroll={{ x: 560 }} />
         <Form layout="vertical" className="formGrid" onFinish={async (values) => {
           const invoice: PurchaseInvoice = {
@@ -1351,6 +1349,8 @@ function VehiclesPage({
           <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Purchase Invoice</Button></Form.Item>
         </Form>
+      </ProCard>
+      <ProCard id="purchase-invoice-card" title="Edit Purchase Invoice / 修改收车发票">
         <Form
           key={selectedPurchaseInvoice?.id ?? "purchase-invoice-edit"}
           layout="vertical"
@@ -1613,6 +1613,7 @@ function RepairPage({
   const [uploadRepairId, setUploadRepairId] = useState(repairs[0]?.id ?? "");
   const [editSupplierInvoiceId, setEditSupplierInvoiceId] = useState(supplierInvoices[0]?.id ?? "");
   const [editRepairId, setEditRepairId] = useState(repairs[0]?.id ?? "");
+  const [repairEditorOpen, setRepairEditorOpen] = useState(false);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("RepairInvoice");
   const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId) ?? repairs[0];
   const selectedSupplierInvoice = supplierInvoices.find((invoice) => invoice.id === editSupplierInvoiceId) ?? supplierInvoices[0];
@@ -1643,7 +1644,7 @@ function RepairPage({
 
   const selectRepair = (repairId: string) => {
     setEditRepairId(repairId);
-    focusWorkArea("repair-edit-card");
+    setRepairEditorOpen(true);
   };
 
   const columns: ColumnsType<SupplierInvoice> = [
@@ -1751,11 +1752,18 @@ function RepairPage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
         </Form>
       </ProCard>
-      <ProCard id="repair-edit-card" title="Edit Repair Task / 修改整备事项">
+      <Drawer
+        title="Edit Repair Task / 修改整备事项"
+        width={560}
+        open={repairEditorOpen}
+        onClose={() => setRepairEditorOpen(false)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
         <Form
           key={selectedEditRepair?.id ?? "repair-edit"}
           layout="vertical"
-          className="formGrid"
+          className="drawerForm"
           initialValues={selectedEditRepair ? { ...selectedEditRepair, checklistDone: selectedEditRepair.checklistDone ? "done" : "pending" } : undefined}
           onFinish={async (values) => {
             if (!selectedEditRepair) return;
@@ -1774,6 +1782,7 @@ function RepairPage({
             }
 
             await onUpdateRepair(repair);
+            setRepairEditorOpen(false);
           }}
         >
           <Form.Item name="id" label="Edit Repair"><Select options={repairs.map((repair) => ({ value: repair.id, label: `${plateFor(vehicles, repair.vehicleId)} / ${repair.whatToDo}` }))} onChange={selectRepair} /></Form.Item>
@@ -1784,7 +1793,7 @@ function RepairPage({
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditRepair}>Update Repair</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Drawer>
       <ProCard title="Repair Documents / 整备文件">
         <Space direction="vertical" size={12} className="fullWidth">
           <Space wrap>
@@ -1839,6 +1848,7 @@ function LoanPage({
   const [documentChecks, setDocumentChecks] = useState<Record<string, LoanDocumentCheck>>({});
   const [uploadLoanId, setUploadLoanId] = useState(loans[0]?.id ?? "");
   const [editLoanId, setEditLoanId] = useState(loans[0]?.id ?? "");
+  const [loanEditorOpen, setLoanEditorOpen] = useState(false);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("LoanDocument");
   const selectedLoan = loans.find((loan) => loan.id === uploadLoanId) ?? loans[0];
   const selectedEditLoan = loans.find((loan) => loan.id === editLoanId) ?? loans[0];
@@ -1875,7 +1885,7 @@ function LoanPage({
 
   const selectLoan = (loanId: string) => {
     setEditLoanId(loanId);
-    focusWorkArea("loan-form-card");
+    setLoanEditorOpen(true);
   };
 
   const columns: ColumnsType<LoanApplication> = [
@@ -1913,7 +1923,7 @@ function LoanPage({
       <ProCard title="Loan Workflow / 贷款流程">
         <Table rowKey="id" columns={columns} dataSource={loans} pagination={false} scroll={{ x: 760 }} />
       </ProCard>
-      <ProCard id="loan-form-card" title="Submit Loan / 提交贷款">
+      <ProCard id="loan-submit-card" title="Submit Loan / 提交贷款">
         <Form layout="vertical" className="formGrid" onFinish={(values) => {
           const loan: LoanApplication = {
             id: newId(),
@@ -1946,10 +1956,19 @@ function LoanPage({
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Submit Loan</Button></Form.Item>
         </Form>
+      </ProCard>
+      <Drawer
+        title="Edit Loan / 修改贷款"
+        width={560}
+        open={loanEditorOpen}
+        onClose={() => setLoanEditorOpen(false)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
         <Form
           key={selectedEditLoan?.id ?? "loan-edit"}
           layout="vertical"
-          className="formGrid"
+          className="drawerForm"
           initialValues={selectedEditLoan}
           onFinish={(values) => {
             if (!selectedEditLoan) return;
@@ -1969,6 +1988,7 @@ function LoanPage({
             }
 
             onUpdate(loan);
+            setLoanEditorOpen(false);
           }}
         >
           <Form.Item name="id" label="Edit Loan"><Select options={loans.map((loan) => ({ value: loan.id, label: `${plateFor(vehicles, loan.vehicleId)} / ${loan.status}` }))} onChange={selectLoan} /></Form.Item>
@@ -1987,7 +2007,7 @@ function LoanPage({
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditLoan}>Update Loan</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Drawer>
       <ProCard title="Loan Documents / 贷款文件">
         <Space direction="vertical" size={12} className="fullWidth">
           <Space wrap>
@@ -2044,6 +2064,7 @@ function DeliveryPage({
   const [releaseReadiness, setReleaseReadiness] = useState<Record<string, DeliveryReleaseReadiness>>({});
   const [uploadDeliveryId, setUploadDeliveryId] = useState(deliveries[0]?.id ?? "");
   const [editDeliveryId, setEditDeliveryId] = useState(deliveries[0]?.id ?? "");
+  const [deliveryEditorOpen, setDeliveryEditorOpen] = useState(false);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("Policy");
   const selectedDelivery = deliveries.find((delivery) => delivery.id === uploadDeliveryId) ?? deliveries[0];
   const selectedEditDelivery = deliveries.find((delivery) => delivery.id === editDeliveryId) ?? deliveries[0];
@@ -2081,7 +2102,7 @@ function DeliveryPage({
 
   const selectDelivery = (deliveryId: string) => {
     setEditDeliveryId(deliveryId);
-    focusWorkArea("delivery-form-card");
+    setDeliveryEditorOpen(true);
   };
 
   const columns: ColumnsType<DeliverySchedule> = [
@@ -2177,11 +2198,18 @@ function DeliveryPage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Schedule</Button></Form.Item>
         </Form>
       </ProCard>
-      <ProCard id="delivery-form-card" title="Edit Delivery / 修改出车安排">
+      <Drawer
+        title="Edit Delivery / 修改出车安排"
+        width={560}
+        open={deliveryEditorOpen}
+        onClose={() => setDeliveryEditorOpen(false)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
         <Form
           key={selectedEditDelivery?.id ?? "delivery-edit"}
           layout="vertical"
-          className="formGrid"
+          className="drawerForm"
           initialValues={selectedEditDelivery}
           onFinish={(values) => {
             if (!selectedEditDelivery) return;
@@ -2213,6 +2241,7 @@ function DeliveryPage({
               return;
             }
             onUpdate(delivery);
+            setDeliveryEditorOpen(false);
           }}
         >
           <Form.Item name="id" label="Edit Delivery"><Select options={deliveries.map((delivery) => ({ value: delivery.id, label: `${plateFor(vehicles, delivery.vehicleId)} / ${delivery.status}` }))} onChange={selectDelivery} /></Form.Item>
@@ -2230,7 +2259,7 @@ function DeliveryPage({
           ))}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDelivery}>Update Delivery</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Drawer>
       <ProCard title="Delivery Documents / 出车文件">
         <Space direction="vertical" size={12} className="fullWidth">
           <Space wrap>
@@ -2332,6 +2361,7 @@ function FinancePage({
   const [editBrokerCommissionId, setEditBrokerCommissionId] = useState(brokerCommissions[0]?.id ?? "");
   const [editDebtRecoveryId, setEditDebtRecoveryId] = useState(debtRecoveries[0]?.id ?? "");
   const [editPaymentVoucherId, setEditPaymentVoucherId] = useState(paymentVouchers[0]?.id ?? "");
+  const [financeEditorOpen, setFinanceEditorOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PaymentReceipt");
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
@@ -2385,32 +2415,32 @@ function FinancePage({
 
   const selectPayment = (paymentId: string) => {
     setEditPaymentId(paymentId);
-    focusWorkArea("payment-edit-card");
+    setFinanceEditorOpen("payment");
   };
 
   const selectSettlement = (settlementId: string) => {
     setEditSettlementId(settlementId);
-    focusWorkArea("settlement-card");
+    setFinanceEditorOpen("settlement");
   };
 
   const selectDailySpend = (spendId: string) => {
     setEditDailySpendId(spendId);
-    focusWorkArea("daily-spend-card");
+    setFinanceEditorOpen("dailySpend");
   };
 
   const selectBrokerCommission = (commissionId: string) => {
     setEditBrokerCommissionId(commissionId);
-    focusWorkArea("broker-commission-card");
+    setFinanceEditorOpen("brokerCommission");
   };
 
   const selectDebtRecovery = (debtId: string) => {
     setEditDebtRecoveryId(debtId);
-    focusWorkArea("debt-recovery-card");
+    setFinanceEditorOpen("debtRecovery");
   };
 
   const selectPaymentVoucher = (voucherId: string) => {
     setEditPaymentVoucherId(voucherId);
-    focusWorkArea("payment-voucher-card");
+    setFinanceEditorOpen("paymentVoucher");
   };
 
   const columns: ColumnsType<PaymentRecord> = [
@@ -2610,11 +2640,18 @@ function FinancePage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Payment</Button></Form.Item>
         </Form>
       </ProCard>
-      <ProCard id="payment-edit-card" title="Edit Payment / 修改收款记录">
+      <Drawer
+        title="Edit Payment / 修改收款记录"
+        width={560}
+        open={financeEditorOpen === "payment"}
+        onClose={() => setFinanceEditorOpen(null)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
         <Form
           key={selectedEditPayment?.id ?? "payment-edit"}
           layout="vertical"
-          className="formGrid"
+          className="drawerForm"
           initialValues={selectedEditPayment}
           onFinish={(values) => {
             if (!selectedEditPayment) return;
@@ -2644,6 +2681,7 @@ function FinancePage({
               return;
             }
             onUpdate(payment);
+            setFinanceEditorOpen(null);
           }}
         >
           <Form.Item name="id" label="Edit Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
@@ -2666,7 +2704,7 @@ function FinancePage({
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPayment}>Update Payment</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Drawer>
       <ProCard title="Finance Documents / 财务文件">
         <Space direction="vertical" size={12} className="fullWidth">
           <Form layout="vertical" className="formGrid">
@@ -2711,7 +2749,7 @@ function FinancePage({
           />
         </Space>
       </ProCard>
-      <ProCard id="settlement-card" title="Settlement Reminder / 收车结算提醒">
+      <ProCard id="settlement-list-card" title="Settlement Reminder / 收车结算提醒">
         <Space direction="vertical" size={16} className="fullWidth">
           <Descriptions bordered column={1}>
             <Descriptions.Item label="Deadline Popup">Boss/Admin receives reminder when settlement deadline is due.</Descriptions.Item>
@@ -2747,10 +2785,20 @@ function FinancePage({
             <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Settlement</Button></Form.Item>
           </Form>
+        </Space>
+      </ProCard>
+      <Drawer
+        title="Edit Settlement / 修改结算提醒"
+        width={560}
+        open={financeEditorOpen === "settlement"}
+        onClose={() => setFinanceEditorOpen(null)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
           <Form
             key={selectedEditSettlement?.id ?? "settlement-edit"}
             layout="vertical"
-            className="formGrid"
+            className="drawerForm"
             initialValues={selectedEditSettlement}
             onFinish={(values) => {
               if (!selectedEditSettlement) return;
@@ -2768,6 +2816,7 @@ function FinancePage({
                 return;
               }
               onUpdateSettlement(settlement);
+              setFinanceEditorOpen(null);
             }}
           >
             <Form.Item name="id" label="Edit Settlement"><Select options={settlements.map((settlement) => ({ value: settlement.id, label: `${plateFor(vehicles, settlement.vehicleId)} / RM ${settlement.amount.toLocaleString()} / ${settlement.deadline}` }))} onChange={selectSettlement} /></Form.Item>
@@ -2778,9 +2827,8 @@ function FinancePage({
             <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditSettlement}>Update Settlement</Button></Form.Item>
           </Form>
-        </Space>
-      </ProCard>
-      <ProCard id="broker-commission-card" title="Broker Commission / 经纪人佣金">
+      </Drawer>
+      <ProCard id="broker-commission-list-card" title="Broker Commission / 经纪人佣金">
         <Space direction="vertical" size={12} className="fullWidth">
           <Table rowKey="id" columns={brokerCommissionColumns} dataSource={brokerCommissions} pagination={false} scroll={{ x: 760 }} />
           <Form layout="vertical" className="formGrid" onFinish={(values) => {
@@ -2808,10 +2856,20 @@ function FinancePage({
             <Form.Item name="cp58Prepared" label="CP58 Prepared"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Commission</Button></Form.Item>
           </Form>
+        </Space>
+      </ProCard>
+      <Drawer
+        title="Edit Broker Commission / 修改经纪人佣金"
+        width={560}
+        open={financeEditorOpen === "brokerCommission"}
+        onClose={() => setFinanceEditorOpen(null)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
           <Form
             key={selectedEditBrokerCommission?.id ?? "broker-commission-edit"}
             layout="vertical"
-            className="formGrid"
+            className="drawerForm"
             initialValues={selectedEditBrokerCommission}
             onFinish={(values) => {
               if (!selectedEditBrokerCommission) return;
@@ -2830,6 +2888,7 @@ function FinancePage({
                 return;
               }
               onUpdateBrokerCommission(commission);
+              setFinanceEditorOpen(null);
             }}
           >
             <Form.Item name="id" label="Edit Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / RM ${commission.amount.toLocaleString()}` }))} onChange={selectBrokerCommission} /></Form.Item>
@@ -2841,9 +2900,8 @@ function FinancePage({
             <Form.Item name="cp58Prepared" label="CP58 Prepared"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditBrokerCommission}>Update Commission</Button></Form.Item>
           </Form>
-        </Space>
-      </ProCard>
-      <ProCard id="debt-recovery-card" title="Debt Recovery / 欠款追讨">
+      </Drawer>
+      <ProCard id="debt-recovery-list-card" title="Debt Recovery / 欠款追讨">
         <Space direction="vertical" size={12} className="fullWidth">
           <Table rowKey="id" columns={debtRecoveryColumns} dataSource={debtRecoveries} pagination={false} scroll={{ x: 960 }} />
           <Form layout="vertical" className="formGrid" onFinish={(values) => {
@@ -2871,10 +2929,20 @@ function FinancePage({
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Debt Case</Button></Form.Item>
           </Form>
+        </Space>
+      </ProCard>
+      <Drawer
+        title="Edit Debt Case / 修改欠款追讨"
+        width={560}
+        open={financeEditorOpen === "debtRecovery"}
+        onClose={() => setFinanceEditorOpen(null)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
           <Form
             key={selectedEditDebtRecovery?.id ?? "debt-recovery-edit"}
             layout="vertical"
-            className="formGrid"
+            className="drawerForm"
             initialValues={selectedEditDebtRecovery}
             onFinish={(values) => {
               if (!selectedEditDebtRecovery) return;
@@ -2893,6 +2961,7 @@ function FinancePage({
                 return;
               }
               onUpdateDebtRecovery(debt);
+              setFinanceEditorOpen(null);
             }}
           >
             <Form.Item name="id" label="Edit Debt Case"><Select options={debtRecoveries.map((debt) => ({ value: debt.id, label: `${plateFor(vehicles, debt.vehicleId)} / ${customerLabel(customers, debt.customerId)} / RM ${debt.balanceAmount.toLocaleString()}` }))} onChange={selectDebtRecovery} /></Form.Item>
@@ -2904,9 +2973,8 @@ function FinancePage({
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDebtRecovery}>Update Debt Case</Button></Form.Item>
           </Form>
-        </Space>
-      </ProCard>
-      <ProCard id="payment-voucher-card" title="Payment Voucher / 付款凭证">
+      </Drawer>
+      <ProCard id="payment-voucher-list-card" title="Payment Voucher / 付款凭证">
         <Space direction="vertical" size={12} className="fullWidth">
           <Table rowKey="id" columns={paymentVoucherColumns} dataSource={paymentVouchers} pagination={false} scroll={{ x: 960 }} />
           <Form layout="vertical" className="formGrid" onFinish={(values) => {
@@ -2936,10 +3004,20 @@ function FinancePage({
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Voucher</Button></Form.Item>
           </Form>
+        </Space>
+      </ProCard>
+      <Drawer
+        title="Edit Payment Voucher / 修改付款凭证"
+        width={560}
+        open={financeEditorOpen === "paymentVoucher"}
+        onClose={() => setFinanceEditorOpen(null)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
           <Form
             key={selectedEditPaymentVoucher?.id ?? "payment-voucher-edit"}
             layout="vertical"
-            className="formGrid"
+            className="drawerForm"
             initialValues={selectedEditPaymentVoucher}
             onFinish={(values) => {
               if (!selectedEditPaymentVoucher) return;
@@ -2959,6 +3037,7 @@ function FinancePage({
                 return;
               }
               onUpdatePaymentVoucher(voucher);
+              setFinanceEditorOpen(null);
             }}
           >
             <Form.Item name="id" label="Edit Voucher"><Select options={paymentVouchers.map((voucher) => ({ value: voucher.id, label: `${plateFor(vehicles, voucher.vehicleId)} / ${voucher.payeeName} / RM ${voucher.amount.toLocaleString()}` }))} onChange={selectPaymentVoucher} /></Form.Item>
@@ -2971,9 +3050,8 @@ function FinancePage({
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPaymentVoucher}>Update Voucher</Button></Form.Item>
           </Form>
-        </Space>
-      </ProCard>
-      <ProCard id="daily-spend-card" title="Daily Spend / 日常支出">
+      </Drawer>
+      <ProCard id="daily-spend-list-card" title="Daily Spend / 日常支出">
         <Space direction="vertical" size={12} className="fullWidth">
           <Table rowKey="id" columns={dailySpendColumns} dataSource={dailySpends} pagination={false} scroll={{ x: 640 }} />
           <Form layout="vertical" className="formGrid" onFinish={(values) => {
@@ -2997,10 +3075,20 @@ function FinancePage({
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Daily Spend</Button></Form.Item>
           </Form>
+        </Space>
+      </ProCard>
+      <Drawer
+        title="Edit Daily Spend / 修改日常支出"
+        width={560}
+        open={financeEditorOpen === "dailySpend"}
+        onClose={() => setFinanceEditorOpen(null)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
           <Form
             key={selectedEditDailySpend?.id ?? "daily-spend-edit"}
             layout="vertical"
-            className="formGrid"
+            className="drawerForm"
             initialValues={selectedEditDailySpend}
             onFinish={(values) => {
               if (!selectedEditDailySpend) return;
@@ -3017,6 +3105,7 @@ function FinancePage({
                 return;
               }
               onUpdateDailySpend(spend);
+              setFinanceEditorOpen(null);
             }}
           >
             <Form.Item name="id" label="Edit Daily Spend"><Select options={dailySpends.map((spend) => ({ value: spend.id, label: `${spend.description} / RM ${spend.amount.toLocaleString()} / ${spend.dueDate}` }))} onChange={selectDailySpend} /></Form.Item>
@@ -3026,8 +3115,7 @@ function FinancePage({
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDailySpend}>Update Daily Spend</Button></Form.Item>
           </Form>
-        </Space>
-      </ProCard>
+      </Drawer>
     </Space>
   );
 }

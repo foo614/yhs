@@ -450,7 +450,8 @@ body {
   overflow: hidden;
 }
 
-.leadEditDrawer .ant-drawer-body {
+.leadEditDrawer .ant-drawer-body,
+.recordEditDrawer .ant-drawer-body {
   padding: 18px;
 }
 
@@ -607,17 +608,6 @@ body {
 .vehicleFlowStep.isDone span {
   background: #0b705c;
   color: #fff;
-}
-
-.vehicleRecordTabs .ant-tabs-nav {
-  margin-bottom: 18px;
-}
-
-.vehicleRecordTabs .formGrid {
-  padding: 18px;
-  border: 1px solid rgba(20, 72, 61, .1);
-  border-radius: 8px;
-  background: linear-gradient(180deg, #fff, #f8fbfa);
 }
 
 .toolbarForm {
