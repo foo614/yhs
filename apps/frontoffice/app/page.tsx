@@ -19,6 +19,7 @@ const categoryImages = [
 
 const fallbackMakes = ["Toyota", "Honda", "Perodua", "Proton", "Nissan", "Mazda"];
 const workshopPinClasses = ["pinOne", "pinTwo"];
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export default async function HomePage() {
   const language: Language = "en";
@@ -41,7 +42,7 @@ export default async function HomePage() {
             {t.home.titleLineOne} <br />
             <span>{t.home.titleAccent}</span>
           </h1>
-          <form className="atelierSearch" action="/vehicles">
+          <form className="atelierSearch" action={`${basePath}/vehicles`}>
             <label>
               <span>{t.home.make}</span>
               <select name="make" defaultValue="">
