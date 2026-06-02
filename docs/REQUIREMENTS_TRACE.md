@@ -19,6 +19,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | .NET 10 API | Implemented, verified | `services/api/src/YSHeng.Api`; `global.json` pins .NET `10.0.100`; `dotnet test services\api\YSHeng.sln` passes. |
 | PostgreSQL persistence | Implemented, verified locally | EF Core/Npgsql `AppDbContext`; PostgreSQL 17 clean local smoke runner; `local-clean-smoke.ps1` verifies DB-backed API readiness and workflows. |
 | Docker/VPS deployment shape | Implemented, externally blocked for final local proof | `infra/docker-compose.yml`, service Dockerfiles, production and local `.env` examples, deploy/backup/restore scripts, healthchecks, static Dockerfile and Compose contract tests, compose env validation tests, deployment script contract tests. Local Docker preflight currently reports `com.docker.service` stopped, so Docker Desktop/Linux engine is not responding. |
+| GitHub CI verification | Implemented, pending remote run after push | `.github/workflows/ci.yml` runs web type-checks/tests/builds, .NET 10 API tests, and Docker-independent deployment contract checks on pushes and pull requests. |
 | Background worker/reminders | Implemented, verified locally | Worker container/service path in Compose; `ReminderWorker`; smoke checks reminder behavior across loan, delivery, payment, spend, debt recovery, and voucher flows. |
 
 ## Public Front Office

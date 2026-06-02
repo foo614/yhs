@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web apps
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Type-check web apps
+        run: npm run lint
+
+      - name: Test front office
+        run: npm --workspace apps/frontoffice run test
+
+      - name: Test back office
+        run: npm --workspace apps/backoffice run test
+
+      - name: Build web apps
+        run: npm run build
+
+  api:
+    name: .NET API
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore API solution
+        run: dotnet restore services/api/YSHeng.sln
+
+      - name: Test API solution
+        run: dotnet test services/api/YSHeng.sln --no-restore
+
+  deployment-contracts:
+    name: Deployment contracts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check Dockerfiles
+        shell: pwsh
+        run: ./infra/test-dockerfiles.ps1
+
+      - name: Check Docker Compose contract
+        shell: pwsh
+        run: ./infra/test-compose-contract.ps1
+
+      - name: Check Compose env validation
+        shell: pwsh
+        run: ./infra/test-compose-env.ps1
+
+      - name: Check deployment scripts
+        shell: pwsh
+        run: ./infra/test-deployment-scripts.ps1
+
+      - name: Check source requirements crosscheck
+        shell: pwsh
+        run: ./infra/test-source-requirements-crosscheck.ps1
+
+      - name: Check Stitch visual handoff
+        shell: pwsh
+        run: ./infra/test-stitch-reference-handoff.ps1
