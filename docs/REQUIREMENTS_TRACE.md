@@ -20,7 +20,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | PostgreSQL persistence | Implemented, verified locally | EF Core/Npgsql `AppDbContext`; PostgreSQL 17 clean local smoke runner; `local-clean-smoke.ps1` verifies DB-backed API readiness and workflows. |
 | Docker/VPS deployment shape | Implemented, externally blocked for final local proof | `infra/docker-compose.yml`, service Dockerfiles, production and local `.env` examples, deploy/backup/restore scripts, healthchecks, static Dockerfile and Compose contract tests, compose env validation tests, deployment script contract tests. Local Docker preflight currently reports `com.docker.service` stopped, so Docker Desktop/Linux engine is not responding. |
 | Deployment runbook | Implemented, guarded | `docs/DEPLOYMENT_RUNBOOK.md`; `infra/test-deployment-runbook.ps1` verifies the runbook covers env setup, Docker preflight, deploy, smoke proof, backup/restore, post-deploy hardening, and the current Docker Desktop service blocker. |
-| GitHub CI verification | Implemented, verified remotely | `.github/workflows/ci.yml` runs web type-checks/tests/builds, .NET 10 API tests, and Docker-independent deployment contract checks on pushes and pull requests; run `26806881673` passed on commit `a24cf5e`. |
+| GitHub CI verification | Implemented, guarded | `.github/workflows/ci.yml` runs web type-checks/tests/builds, .NET 10 API tests, and Docker-independent deployment contract checks on pushes and pull requests. GitHub Actions CI verifies the Docker-independent gate on every pushed commit. |
 | Background worker/reminders | Implemented, verified locally | Worker container/service path in Compose; `ReminderWorker`; smoke checks reminder behavior across loan, delivery, payment, spend, debt recovery, and voucher flows. |
 
 ## Public Front Office
@@ -106,7 +106,8 @@ Recent verified counts:
 - Requirements trace tests: passed.
 - Source requirements crosscheck tests: passed.
 - Stitch visual reference handoff tests: passed.
-- GitHub Actions CI run `26806881673`: passed on `main` commit `a24cf5e`.
+- GitHub Actions CI verifies the Docker-independent gate on every pushed commit.
+- Record the latest successful GitHub Actions run in release notes or deployment handoff before production rollout.
 - Clean local stack smoke: passed end to end.
 - Back-office production browser check: passed with no console errors.
 - Front-office standalone production browser check: passed with no console errors.

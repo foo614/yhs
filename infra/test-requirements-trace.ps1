@@ -47,7 +47,8 @@ foreach ($expected in @(
   "OCR/AI/WhatsApp/AutoCount",
   "Deployment runbook tests: passed.",
   "Requirements trace tests: passed.",
-  'GitHub Actions CI run `26806881673`: passed on `main` commit `a24cf5e`.',
+  "GitHub Actions CI verifies the Docker-independent gate on every pushed commit.",
+  "Record the latest successful GitHub Actions run in release notes or deployment handoff before production rollout.",
   "Docker Desktop service com.docker.service is Stopped."
 )) {
   if (-not $text.Contains($expected)) {
