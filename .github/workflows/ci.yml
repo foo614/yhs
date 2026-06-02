@@ -82,6 +82,10 @@ jobs:
         shell: pwsh
         run: ./infra/test-deployment-scripts.ps1
 
+      - name: Check deployment runbook
+        shell: pwsh
+        run: ./infra/test-deployment-runbook.ps1
+
       - name: Check source requirements crosscheck
         shell: pwsh
         run: ./infra/test-source-requirements-crosscheck.ps1

@@ -11,7 +11,7 @@ YS Heng MVP is a used-car digital platform monorepo with a public vehicle websit
 - `services/api`: .NET 10 minimal API with EF Core, PostgreSQL, ASP.NET Identity cookie auth, role policies, upload blobs, dashboard metrics, workflow rules, reminders, and audit logging.
 - `infra`: Dockerfiles, Docker Compose, smoke tests, VPS deploy helper, Dockerfile/Compose/deployment script contract checks, environment validation, and PostgreSQL backup/restore scripts.
 
-Detailed implementation notes live in `docs/IMPLEMENTATION.md`; endpoint and role-policy details live in `docs/API.md`; source-document workflow mapping lives in `docs/SOURCE_REQUIREMENTS_CROSSCHECK.md`; Stitch visual-reference status lives in `docs/STITCH_VISUAL_REFERENCE.md`; requirement coverage and verification status live in `docs/REQUIREMENTS_TRACE.md`.
+Detailed implementation notes live in `docs/IMPLEMENTATION.md`; endpoint and role-policy details live in `docs/API.md`; deployment proof steps live in `docs/DEPLOYMENT_RUNBOOK.md`; source-document workflow mapping lives in `docs/SOURCE_REQUIREMENTS_CROSSCHECK.md`; Stitch visual-reference status lives in `docs/STITCH_VISUAL_REFERENCE.md`; requirement coverage and verification status live in `docs/REQUIREMENTS_TRACE.md`.
 
 ## Requirements
 
@@ -82,7 +82,7 @@ Run the full local verification gate:
 .\infra\verify-local.ps1
 ```
 
-This includes web type-checking, front/back tests, backend tests, static Dockerfile and Docker Compose contract checks, `.env` validation regression checks, deployment script contract checks, source requirements crosscheck tests, Stitch visual-reference handoff tests, production web builds, and the clean local smoke stack. Use `-SkipSmoke` for a faster code-only check, or `-SkipBuild` when a fresh production build is already available.
+This includes web type-checking, front/back tests, backend tests, static Dockerfile and Docker Compose contract checks, `.env` validation regression checks, deployment script contract checks, deployment runbook checks, source requirements crosscheck tests, Stitch visual-reference handoff tests, production web builds, and the clean local smoke stack. Use `-SkipSmoke` for a faster code-only check, or `-SkipBuild` when a fresh production build is already available.
 
 GitHub Actions CI runs the Docker-independent portions of that gate on every push and pull request: web type-checks/tests/builds, API tests, Dockerfile/Compose contract checks, env validation checks, deployment script checks, source-document crosscheck, and Stitch handoff checks. Docker Compose runtime smoke remains a deployment-machine proof because it needs a running Docker engine and PostgreSQL-backed containers.
 
@@ -113,6 +113,7 @@ You can run the Docker-independent deployment checks separately:
 .\infra\test-compose-contract.ps1
 .\infra\test-compose-env.ps1
 .\infra\test-deployment-scripts.ps1
+.\infra\test-deployment-runbook.ps1
 ```
 
 For a local Docker Desktop smoke run, you can create `.env` from the local example:

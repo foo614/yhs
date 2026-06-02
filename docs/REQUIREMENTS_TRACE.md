@@ -19,6 +19,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | .NET 10 API | Implemented, verified | `services/api/src/YSHeng.Api`; `global.json` pins .NET `10.0.100`; `dotnet test services\api\YSHeng.sln` passes. |
 | PostgreSQL persistence | Implemented, verified locally | EF Core/Npgsql `AppDbContext`; PostgreSQL 17 clean local smoke runner; `local-clean-smoke.ps1` verifies DB-backed API readiness and workflows. |
 | Docker/VPS deployment shape | Implemented, externally blocked for final local proof | `infra/docker-compose.yml`, service Dockerfiles, production and local `.env` examples, deploy/backup/restore scripts, healthchecks, static Dockerfile and Compose contract tests, compose env validation tests, deployment script contract tests. Local Docker preflight currently reports `com.docker.service` stopped, so Docker Desktop/Linux engine is not responding. |
+| Deployment runbook | Implemented, guarded | `docs/DEPLOYMENT_RUNBOOK.md`; `infra/test-deployment-runbook.ps1` verifies the runbook covers env setup, Docker preflight, deploy, smoke proof, backup/restore, post-deploy hardening, and the current Docker Desktop service blocker. |
 | GitHub CI verification | Implemented, verified remotely | `.github/workflows/ci.yml` runs web type-checks/tests/builds, .NET 10 API tests, and Docker-independent deployment contract checks on pushes and pull requests; run `26806312014` passed on commit `01d1ee0`. |
 | Background worker/reminders | Implemented, verified locally | Worker container/service path in Compose; `ReminderWorker`; smoke checks reminder behavior across loan, delivery, payment, spend, debt recovery, and voucher flows. |
 
@@ -101,6 +102,7 @@ Recent verified counts:
 - Docker Compose contract tests: passed.
 - Compose environment validation tests: passed.
 - Deployment script contract tests: passed.
+- Deployment runbook tests: passed.
 - Source requirements crosscheck tests: passed.
 - Stitch visual reference handoff tests: passed.
 - GitHub Actions CI run `26806312014`: passed on `main` commit `01d1ee0`.
