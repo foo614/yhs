@@ -14,12 +14,12 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | React public front office | Implemented, verified | `apps/frontoffice`; Next.js app routes for home, inventory, vehicle detail, contact; `npm --workspace apps/frontoffice run build`; browser-verified standalone production server. |
-| React back office with Ant Design Pro style | Implemented, verified | `apps/backoffice`; ProLayout/ProCard Ant Design operations portal; Vite build with chunk splitting; browser-verified production preview. |
+| React back office with Ant Design Pro style | Implemented, verified | `apps/backoffice`; ProLayout/ProCard Ant Design operations portal; module command header with live workflow counters; Vite build with chunk splitting; Docker Compose smoke verifies the back-office shell and authenticated workflows. |
 | Google Stitch visual reference | Handoff documented, exact matching pending exported assets | `docs/STITCH_VISUAL_REFERENCE.md`; current browser inspection reaches `Stitch - Projects` and a cross-origin `Stitch - Design with AI` canvas showing a `Web UI Prototype`, but screen internals/assets remain unavailable, so pixel-level Stitch fidelity cannot be verified until screenshots or export assets are provided. |
 | .NET 10 API | Implemented, verified | `services/api/src/YSHeng.Api`; `global.json` pins .NET `10.0.100`; `dotnet test services\api\YSHeng.sln` passes. |
 | PostgreSQL persistence | Implemented, verified locally | EF Core/Npgsql `AppDbContext`; PostgreSQL 17 clean local smoke runner; `local-clean-smoke.ps1` verifies DB-backed API readiness and workflows. |
-| Docker/VPS deployment shape | Implemented, externally blocked for final local proof | `infra/docker-compose.yml`, service Dockerfiles, production and local `.env` examples, deploy/backup/restore scripts, healthchecks, static Dockerfile and Compose contract tests, compose env validation tests, deployment script contract tests. Local Docker preflight currently reports `com.docker.service` stopped, so Docker Desktop/Linux engine is not responding. |
-| Deployment runbook | Implemented, guarded | `docs/DEPLOYMENT_RUNBOOK.md`; `infra/test-deployment-runbook.ps1` verifies the runbook covers env setup, Docker preflight, deploy, smoke proof, backup/restore, post-deploy hardening, and the current Docker Desktop service blocker. |
+| Docker/VPS deployment shape | Implemented, verified locally | `infra/docker-compose.yml`, service Dockerfiles, production and local `.env` examples, deploy/backup/restore scripts, healthchecks, static Dockerfile and Compose contract tests, compose env validation tests, deployment script contract tests, and clean Docker Compose smoke proof using project `yshengproof` on ports `5200/3200/3201`. |
+| Deployment runbook | Implemented, guarded | `docs/DEPLOYMENT_RUNBOOK.md`; `infra/test-deployment-runbook.ps1` verifies the runbook covers env setup, Docker preflight, deploy, smoke proof, backup/restore, post-deploy hardening, Docker Desktop service warning behavior, and the clean local Compose proof command set. |
 | GitHub CI verification | Implemented, guarded | `.github/workflows/ci.yml` runs web type-checks/tests/builds, .NET 10 API tests, and Docker-independent deployment contract checks on pushes and pull requests. GitHub Actions CI verifies the Docker-independent gate on every pushed commit. |
 | Background worker/reminders | Implemented, verified locally | Worker container/service path in Compose; `ReminderWorker`; smoke checks reminder behavior across loan, delivery, payment, spend, debt recovery, and voucher flows. |
 
@@ -109,22 +109,25 @@ Recent verified counts:
 - GitHub Actions CI verifies the Docker-independent gate on every pushed commit.
 - Record the latest successful GitHub Actions run in release notes or deployment handoff before production rollout.
 - Clean local stack smoke: passed end to end.
+- Docker Compose build/up/smoke: passed end to end with project `yshengproof`, API `http://localhost:5200`, front office `http://localhost:3200`, and back office `http://localhost:3201`.
 - Back-office production browser check: passed with no console errors.
 - Front-office standalone production browser check: passed with no console errors.
 
-## Remaining Completion Caveat
+## Docker Proof Note
 
-The codebase includes Dockerfiles, Compose services, healthchecks, preflight, smoke, deploy, backup, and restore scripts. However, final Docker Compose proof on this machine is blocked because `infra/docker-preflight.ps1` reports that the Windows Docker Desktop service is stopped:
+The clean Docker Compose proof passes on this machine after Docker Desktop was updated. The preflight may still print:
 
 ```text
-Docker Desktop service com.docker.service is Stopped.
+Docker Desktop service com.docker.service is Stopped; continuing to probe the Linux engine directly.
 ```
 
-Once Docker Desktop/Linux engine is running, use:
+That is now a warning, not a blocker, when `docker version` returns a server version. An earlier default Compose project had a stale PostgreSQL volume missing newer columns, so schema-sensitive proof should use a fresh Compose project/volume or reset the local test volume before smoking current code.
+
+The verified clean proof path used:
 
 ```powershell
 .\infra\docker-preflight.ps1
-docker compose -f infra\docker-compose.yml build
-docker compose -f infra\docker-compose.yml up -d
-.\infra\smoke-test.ps1
+docker compose -p yshengproof -f infra\docker-compose.yml build
+docker compose -p yshengproof -f infra\docker-compose.yml up -d
+.\infra\smoke-test.ps1 -ApiBaseUrl http://localhost:5200 -FrontOfficeUrl http://localhost:3200 -BackOfficeUrl http://localhost:3201
 ```

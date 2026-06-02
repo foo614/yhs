@@ -18,7 +18,7 @@ foreach ($expected in @(
   "BACKOFFICE_ORIGIN",
   ".\infra\validate-compose-env.ps1",
   ".\infra\docker-preflight.ps1",
-  "Docker Desktop service com.docker.service is Stopped",
+  "continues and probes the Linux engine directly",
   ".\infra\deploy-vps.ps1",
   "-EnvPath .env.production",
   ".\infra\smoke-test.ps1",
@@ -29,7 +29,9 @@ foreach ($expected in @(
   "-ConfirmRestore",
   "SEED_DATA_ENABLED=false",
   "PostgreSQL blobs",
-  "GitHub Actions CI run"
+  "GitHub Actions CI run",
+  "yshengproof",
+  "YS Heng stack smoke test passed."
 )) {
   if (-not $text.Contains($expected)) {
     throw "Deployment runbook is missing expected text: $expected"

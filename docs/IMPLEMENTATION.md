@@ -12,7 +12,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - `infra/test-compose-contract.ps1`: static Compose contract checks for required services, Dockerfile references, ports, healthchecks, API/worker environment wiring, and service dependencies when Docker Desktop is unavailable.
 - `infra/test-compose-env.ps1`: regression checks for production `.env` validation, including required keys, placeholder secrets, public URL shape, local-only/example domains, trailing slashes, and local Docker example override behavior.
 - `infra/test-deployment-scripts.ps1`: static deployment script checks for deploy ordering, smoke-test URL wiring, PostgreSQL backup custom-format dumps, restore confirmation, and temporary dump cleanup.
-- `infra/test-deployment-runbook.ps1`: static deployment runbook check for VPS env setup, preflight, deploy, smoke proof, backup/restore, and known Docker Desktop service blocker instructions.
+- `infra/test-deployment-runbook.ps1`: static deployment runbook check for VPS env setup, preflight, deploy, smoke proof, backup/restore, Docker Desktop service warning behavior, and clean local Compose proof instructions.
 - `infra/test-requirements-trace.ps1`: static requirements trace check for the main MVP platform, workflow, API, file-handling, automation, verification, and Docker-blocker evidence.
 - `.github/workflows/ci.yml`: GitHub Actions CI for web type-checks/tests/builds, .NET 10 API tests, and Docker-independent deployment contract checks on pushes and pull requests.
 - `docs/SOURCE_REQUIREMENTS_CROSSCHECK.md`: source-document workflow mapping for the supplied YS Heng requirement Word documents, guarded by `infra/test-source-requirements-crosscheck.ps1`.
@@ -39,6 +39,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Front-office search now carries homepage make, model, year, price, stock owner, and sort URL parameters into structured inventory filters, with make selection preserved separately from free-text model/plate search.
 - The public front office now supports English and Chinese UI copy through a language switch on home, inventory, vehicle detail, contact, vehicle cards, footer, mobile navigation, and lead capture.
 - Repair, loan, delivery, and finance screens now expose operational tables/forms instead of static workflow cards; repair jobs now load from the API, track Repair Part/Spare Part separately from What To Do, and can be marked checklist-done from the Repair screen.
+- The back-office portal now shows a module command header with live workflow counters and current role tags above each operations module, improving scanability before staff enter dense tables and forms.
 - Back-office create forms now submit vehicles, supplier invoices, repair jobs, loans, delivery schedules, and payment records to the .NET API when staff are logged in.
 - Back-office API failures now surface the first structured backend validation error message from `errors[]`, including upload failures, instead of a generic HTTP status message.
 - Finance payment records now track receipt number, invoice number, bank name, and bank follow-up date; reconciled payments require receipt and invoice references before saving.
@@ -252,7 +253,7 @@ Run the bounded preflight first if Docker Desktop may be asleep or ports may alr
 .\infra\docker-preflight.ps1
 ```
 
-The preflight checks Dockerfiles and the Compose contract first, then checks the Docker engine, validates the Compose file, reports default port conflicts, and times out Docker probes instead of leaving hanging CLI processes. On Windows, it fails fast when `com.docker.service` is stopped; if the Docker server probe still times out, it prints read-only diagnostics for the Docker CLI path, active Docker context, Docker Desktop process/service state, and WSL distro state before stopping.
+The preflight checks Dockerfiles and the Compose contract first, then checks the Docker engine, validates the Compose file, reports default port conflicts, and times out Docker probes instead of leaving hanging CLI processes. On Windows, a stopped `com.docker.service` is reported as a warning while the script continues to probe the Linux engine directly; if the Docker server probe fails or times out, it prints read-only diagnostics for the Docker CLI path, active Docker context, Docker Desktop process/service state, and WSL distro state before stopping.
 When `.env` exists, the preflight also runs `infra/validate-compose-env.ps1`; use `-SkipEnvValidation` only for local diagnostics before the VPS `.env` file has been created.
 Normal `.env` validation rejects placeholder secrets, sample `example.com` domains, `localhost`/loopback public URLs, and trailing slashes on public URL values, so `PUBLIC_API_BASE_URL`, `FRONTOFFICE_ORIGIN`, and `BACKOFFICE_ORIGIN` must be changed to real VPS domains or public IP URLs before deployment.
 For local Docker Desktop smoke testing only, copy `infra/compose.env.local.example` to `.env` and run `infra/docker-preflight.ps1 -AllowExampleEnvValues`; the local example intentionally uses localhost URLs and default demo credentials.

@@ -18,7 +18,7 @@ On Windows, run:
 .\infra\docker-preflight.ps1
 ```
 
-If it reports `Docker Desktop service com.docker.service is Stopped`, start Docker Desktop with the Linux engine enabled, or start the Docker Desktop Service from an elevated shell, then rerun the preflight.
+If Windows reports `Docker Desktop service com.docker.service is Stopped`, the preflight continues and probes the Linux engine directly. Treat the Docker server version check as the readiness proof; if the server probe fails or times out, start Docker Desktop with the Linux engine enabled and rerun the preflight.
 
 ## Environment File
 
@@ -55,7 +55,7 @@ Run preflight before every deploy:
 .\infra\docker-preflight.ps1
 ```
 
-The preflight checks Dockerfiles, Compose service wiring, the Docker engine, env validation, Compose config, and host port conflicts. It fails before build/start when service wiring or env values are unsafe.
+The preflight checks Dockerfiles, Compose service wiring, the Docker engine, env validation, Compose config, and host port conflicts. It fails before build/start when service wiring, env values, or Docker server readiness are unsafe.
 
 ## First Deploy
 
@@ -134,15 +134,26 @@ After the first successful smoke proof:
 - Keep `PUBLIC_API_BASE_URL`, `FRONTOFFICE_ORIGIN`, and `BACKOFFICE_ORIGIN` aligned so cookie-auth CORS remains valid.
 - Keep the latest successful GitHub Actions CI run attached to the deployed commit.
 
-## Current Local Blocker
+## Current Local Proof
 
-On this Windows machine, Docker Compose runtime proof is still blocked by Docker Desktop service state:
+Docker Desktop was updated and the clean Compose proof now passes on this Windows machine. Because an older local Compose volume had a stale schema, the proof used a separate project name and alternate ports:
 
-```text
-Docker Desktop service com.docker.service is Stopped.
+```powershell
+$env:POSTGRES_PORT="55532"
+$env:API_PORT="5200"
+$env:FRONTOFFICE_PORT="3200"
+$env:BACKOFFICE_PORT="3201"
+$env:PUBLIC_API_BASE_URL="http://localhost:5200"
+$env:FRONTOFFICE_ORIGIN="http://localhost:3200"
+$env:BACKOFFICE_ORIGIN="http://localhost:3201"
+docker compose -p yshengproof -f infra/docker-compose.yml build
+docker compose -p yshengproof -f infra/docker-compose.yml up -d
+.\infra\smoke-test.ps1 -ApiBaseUrl http://localhost:5200 -FrontOfficeUrl http://localhost:3200 -BackOfficeUrl http://localhost:3201
 ```
 
-Code-side Dockerfile and Compose contracts pass before this blocker. Once the Docker service/Linux engine is running, rerun:
+The smoke suite completed with `YS Heng stack smoke test passed.` Use a fresh Compose project or reset the local volume when validating schema changes against Docker; stale volumes can keep old tables around.
+
+For the normal default-port path on a clean host, use:
 
 ```powershell
 .\infra\docker-preflight.ps1

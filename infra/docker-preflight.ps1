@@ -28,6 +28,34 @@ function Read-BoundedCommandText {
   return $utf8
 }
 
+function Normalize-CommandText {
+  param([string]$Text)
+
+  if ([string]::IsNullOrEmpty($Text)) {
+    return ""
+  }
+
+  return ($Text -replace ([string][char]0), "")
+}
+
+function ConvertTo-ProcessArgumentString {
+  param([string[]]$Arguments)
+
+  $quoted = foreach ($argument in $Arguments) {
+    if ($null -eq $argument) {
+      '""'
+    }
+    elseif ($argument -notmatch '[\s"]') {
+      $argument
+    }
+    else {
+      '"' + ($argument -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+    }
+  }
+
+  return $quoted -join " "
+}
+
 function Invoke-BoundedCommand {
   param(
     [string]$FilePath,
@@ -41,22 +69,29 @@ function Invoke-BoundedCommand {
   $stdout = Join-Path $tempRoot "$id.out.log"
   $stderr = Join-Path $tempRoot "$id.err.log"
 
-  $process = Start-Process `
-    -FilePath $FilePath `
-    -ArgumentList $Arguments `
-    -WorkingDirectory (Get-Location) `
-    -WindowStyle Hidden `
-    -RedirectStandardOutput $stdout `
-    -RedirectStandardError $stderr `
-    -PassThru
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $FilePath
+  $startInfo.WorkingDirectory = (Get-Location).Path
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.Arguments = ConvertTo-ProcessArgumentString $Arguments
+
+  $process = [System.Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  [void]$process.Start()
+
+  $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+  $stderrTask = $process.StandardError.ReadToEndAsync()
 
   if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     return [pscustomobject]@{
       TimedOut = $true
       ExitCode = $null
-      StdOut = (Read-BoundedCommandText $stdout)
-      StdErr = (Read-BoundedCommandText $stderr)
+      StdOut = ""
+      StdErr = ""
     }
   }
 
@@ -64,8 +99,8 @@ function Invoke-BoundedCommand {
   return [pscustomobject]@{
     TimedOut = $false
     ExitCode = $process.ExitCode
-    StdOut = (Read-BoundedCommandText $stdout)
-    StdErr = (Read-BoundedCommandText $stderr)
+    StdOut = (Normalize-CommandText $stdoutTask.Result)
+    StdErr = (Normalize-CommandText $stderrTask.Result)
   }
 }
 
@@ -139,8 +174,7 @@ function Assert-DockerDesktopServiceReady {
 
   $service = Get-Service -Name "com.docker.service" -ErrorAction SilentlyContinue
   if ($service -and $service.Status -ne "Running") {
-    Write-DockerDesktopDiagnostics
-    throw "Docker Desktop service com.docker.service is $($service.Status). Start Docker Desktop with the Linux engine enabled, or start the Docker Desktop Service from an elevated shell, then rerun this preflight."
+    Write-Host "Docker Desktop service com.docker.service is $($service.Status); continuing to probe the Linux engine directly."
   }
 }
 

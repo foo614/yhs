@@ -297,6 +297,7 @@ export default function App() {
     path: "/",
     routes: currentUser?.isAuthenticated ? allRoutes.filter((item) => canAccessRoute(currentRoles, item.path)) : allRoutes
   }), [currentUser?.isAuthenticated, currentRoles]);
+  const pageTitle = route.routes.find((item) => item.path === pathname)?.name ?? bilingual.dashboard;
 
   async function handleLogin(values: { email: string; password: string }) {
     await login(values.email, values.password);
@@ -368,9 +369,26 @@ export default function App() {
       menuItemRender={(item, dom) => <button className="menuButton" onClick={() => setPathname(item.path ?? "/dashboard")}>{dom}</button>}
       layout="mix"
     >
-      <PageContainer title={route.routes.find((item) => item.path === pathname)?.name ?? bilingual.dashboard}>
+      <PageContainer title={pageTitle}>
         <Space direction="vertical" size={16} className="fullWidth">
           <SessionPanel currentUser={currentUser} onLogin={handleLogin} onLogout={handleLogout} />
+          <ModuleCommandBar
+            pathname={pathname}
+            title={pageTitle}
+            currentUser={currentUser}
+            dashboard={dashboard}
+            reminders={reminders}
+            vehicles={vehicles}
+            customers={customers}
+            supplierInvoices={supplierInvoices}
+            repairs={repairs}
+            loans={loans}
+            deliveries={deliveries}
+            payments={payments}
+            settlements={settlements}
+            leads={leads}
+            staffUsers={staffUsers}
+          />
           {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} reminders={reminders} onSearch={handleReminderSearch} />}
           {pathname === "/vehicles" && (
             <VehiclesPage
@@ -508,6 +526,162 @@ function SessionPanel({ currentUser, onLogin, onLogout }: { currentUser: Current
       </Form>
     </ProCard>
   );
+}
+
+function ModuleCommandBar({
+  pathname,
+  title,
+  currentUser,
+  dashboard,
+  reminders,
+  vehicles,
+  customers,
+  supplierInvoices,
+  repairs,
+  loans,
+  deliveries,
+  payments,
+  settlements,
+  leads,
+  staffUsers
+}: {
+  pathname: string;
+  title: string;
+  currentUser: CurrentUser | null;
+  dashboard: DashboardSummary | null;
+  reminders: DashboardReminder[];
+  vehicles: Vehicle[];
+  customers: Customer[];
+  supplierInvoices: SupplierInvoice[];
+  repairs: RepairJob[];
+  loans: LoanApplication[];
+  deliveries: DeliverySchedule[];
+  payments: PaymentRecord[];
+  settlements: SettlementReminder[];
+  leads: Lead[];
+  staffUsers: StaffUser[];
+}) {
+  const stats = moduleStats(pathname, {
+    dashboard,
+    reminders,
+    vehicles,
+    customers,
+    supplierInvoices,
+    repairs,
+    loans,
+    deliveries,
+    payments,
+    settlements,
+    leads,
+    staffUsers
+  });
+  const roles = currentUser?.roles ?? [];
+
+  return (
+    <section className="moduleCommandBar">
+      <div>
+        <span className="moduleEyebrow">YS Heng Operations</span>
+        <h1>{title}</h1>
+        <div className="moduleRoles">
+          {(roles.length > 0 ? roles : ["Guest"]).map((role) => <Tag key={role}>{role}</Tag>)}
+        </div>
+      </div>
+      <div className="moduleStats">
+        {stats.map((stat) => (
+          <span key={stat.label}>
+            <strong>{stat.value}</strong>
+            {stat.label}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function moduleStats(pathname: string, data: {
+  dashboard: DashboardSummary | null;
+  reminders: DashboardReminder[];
+  vehicles: Vehicle[];
+  customers: Customer[];
+  supplierInvoices: SupplierInvoice[];
+  repairs: RepairJob[];
+  loans: LoanApplication[];
+  deliveries: DeliverySchedule[];
+  payments: PaymentRecord[];
+  settlements: SettlementReminder[];
+  leads: Lead[];
+  staffUsers: StaffUser[];
+}) {
+  const availableVehicles = data.vehicles.filter((vehicle) => vehicle.status === "Available").length;
+  const publicVehicles = data.vehicles.filter((vehicle) => vehicle.isPublic).length;
+  const pendingLoans = data.loans.filter((loan) => loan.status === "Pending").length;
+  const openPayments = data.payments.filter((payment) => payment.status !== "Reconciled").length;
+  const dueSettlements = data.settlements.filter((settlement) => !settlement.isPaid).length;
+  const pendingDeliveries = data.deliveries.filter((delivery) => delivery.status !== "Released").length;
+  const newLeads = data.leads.filter((lead) => lead.status === "New").length;
+
+  switch (pathname) {
+    case "/vehicles":
+      return [
+        { label: "stock rows", value: data.vehicles.length },
+        { label: "public", value: publicVehicles },
+        { label: "contacts", value: data.customers.length }
+      ];
+    case "/repairs":
+      return [
+        { label: "repair jobs", value: data.repairs.length },
+        { label: "supplier invoices", value: data.supplierInvoices.length },
+        { label: "checklist done", value: data.repairs.filter((repair) => repair.checklistDone).length }
+      ];
+    case "/loans":
+      return [
+        { label: "loan files", value: data.loans.length },
+        { label: "pending", value: pendingLoans },
+        { label: "reminders", value: data.reminders.filter((reminder) => reminder.type === "LoanFollowUp").length }
+      ];
+    case "/delivery":
+      return [
+        { label: "scheduled", value: data.deliveries.length },
+        { label: "open", value: pendingDeliveries },
+        { label: "release due", value: data.reminders.filter((reminder) => reminder.type === "DeliveryPreparation").length }
+      ];
+    case "/finance":
+      return [
+        { label: "payments", value: data.payments.length },
+        { label: "open bank", value: openPayments },
+        { label: "settlement due", value: dueSettlements }
+      ];
+    case "/leads":
+      return [
+        { label: "enquiries", value: data.leads.length },
+        { label: "new", value: newLeads },
+        { label: "linked", value: data.leads.filter((lead) => Boolean(lead.customerId)).length }
+      ];
+    case "/audit-log":
+      return [
+        { label: "active reminders", value: data.reminders.length },
+        { label: "stock rows", value: data.vehicles.length },
+        { label: "staff roles", value: data.staffUsers.length }
+      ];
+    case "/admin":
+      return [
+        { label: "staff users", value: data.staffUsers.length },
+        { label: "active", value: data.staffUsers.filter((staff) => staff.isActive).length },
+        { label: "disabled", value: data.staffUsers.filter((staff) => !staff.isActive).length }
+      ];
+    case "/hr-salary":
+      return [
+        { label: "scope", value: "MVP" },
+        { label: "access", value: "Role" },
+        { label: "payroll", value: "Next" }
+      ];
+    default:
+      return [
+        { label: "total stock", value: data.dashboard?.totalStock ?? data.vehicles.length },
+        { label: "available", value: availableVehicles },
+        { label: "reminders", value: data.reminders.length }
+      ];
+  }
 }
 
 function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: DashboardSummary | null; reminders: DashboardReminder[]; onSearch: (filters: DashboardReminderFilters) => Promise<void> }) {

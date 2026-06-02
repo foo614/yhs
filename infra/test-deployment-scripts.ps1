@@ -94,7 +94,7 @@ Assert-Contains -Name "docker-preflight null-byte output detection" -Text $prefl
 Assert-Contains -Name "docker-preflight diagnostics function" -Text $preflight -Expected "function Write-DockerDesktopDiagnostics"
 Assert-Contains -Name "docker-preflight diagnostics invocation" -Text $preflight -Expected "Write-DockerDesktopDiagnostics"
 Assert-Contains -Name "docker-preflight service guard function" -Text $preflight -Expected "function Assert-DockerDesktopServiceReady"
-Assert-Contains -Name "docker-preflight service stopped failure" -Text $preflight -Expected "Docker Desktop service com.docker.service is"
+Assert-Contains -Name "docker-preflight service stopped warning" -Text $preflight -Expected "continuing to probe the Linux engine directly"
 Assert-Contains -Name "docker-preflight Docker Desktop process check" -Text $preflight -Expected 'Get-Process -Name "Docker Desktop"'
 Assert-Contains -Name "docker-preflight Docker service check" -Text $preflight -Expected 'Get-Service -Name "com.docker.service"'
 Assert-Contains -Name "docker-preflight WSL distro check" -Text $preflight -Expected 'Invoke-BoundedCommand -FilePath "wsl"'

@@ -49,7 +49,8 @@ foreach ($expected in @(
   "Requirements trace tests: passed.",
   "GitHub Actions CI verifies the Docker-independent gate on every pushed commit.",
   "Record the latest successful GitHub Actions run in release notes or deployment handoff before production rollout.",
-  "Docker Desktop service com.docker.service is Stopped."
+  'Docker Compose build/up/smoke: passed end to end with project `yshengproof`',
+  "continuing to probe the Linux engine directly"
 )) {
   if (-not $text.Contains($expected)) {
     throw "Requirements trace is missing expected text: $expected"

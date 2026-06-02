@@ -130,7 +130,7 @@ Assert-Contains -Name "frontoffice dockerfile" -Text $frontoffice -Expected "doc
 Assert-Contains -Name "frontoffice build API URL" -Text $frontoffice -Expected 'NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}'
 Assert-Contains -Name "frontoffice port" -Text $frontoffice -Expected '"${FRONTOFFICE_PORT:-3000}:3000"'
 Assert-Contains -Name "frontoffice depends on api health" -Text $frontoffice -Expected "api:"
-Assert-Contains -Name "frontoffice healthcheck" -Text $frontoffice -Expected "http://localhost:3000"
+Assert-Contains -Name "frontoffice healthcheck" -Text $frontoffice -Expected 'http://$$(hostname):3000'
 
 $backoffice = Get-ServiceBlock "backoffice"
 Assert-Contains -Name "backoffice dockerfile" -Text $backoffice -Expected "dockerfile: apps/backoffice/Dockerfile"
