@@ -560,14 +560,47 @@ img { max-width: 100%; display: block; }
 }
 .filterPanel { position: sticky; top: 86px; display: grid; gap: 13px; padding: 20px; box-shadow: 0 18px 44px rgba(0,0,0,.24); }
 .filterPanel label, .leadForm label { display: grid; gap: 7px; color: var(--muted); font-size: 13px; font-weight: 900; }
+.leadForm {
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+}
+.leadForm h2 {
+  margin: 0 0 2px;
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1.08;
+}
+.leadForm label {
+  gap: 9px;
+  color: var(--muted);
+  line-height: 1.2;
+}
 .filterPanel input, .filterPanel select, .leadForm input, .leadForm textarea {
   width: 100%;
   min-height: 44px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 4px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   color: var(--text);
   background: var(--surface-high);
+}
+.leadForm input {
+  min-height: 48px;
+}
+.leadForm textarea {
+  min-height: 112px;
+  resize: vertical;
+  line-height: 1.55;
+}
+.leadForm input::placeholder,
+.leadForm textarea::placeholder {
+  color: rgba(213,196,172,.58);
+  opacity: 1;
+}
+.leadForm button {
+  justify-self: start;
+  min-width: 136px;
 }
 .inputIcon { position: relative; display: block; }
 .inputIcon svg { position: absolute; top: 50%; left: 12px; transform: translateY(-50%); color: var(--muted); }
