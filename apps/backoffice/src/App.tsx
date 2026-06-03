@@ -214,12 +214,6 @@ const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
   { path: "/admin", name: bilingual.admin, icon: <UserOutlined /> }
 ];
 
-function focusWorkArea(elementId: string) {
-  window.requestAnimationFrame(() => {
-    document.getElementById(elementId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-}
-
 export default function App() {
   const [notificationApi, notificationContextHolder] = notification.useNotification();
   const [pathname, setPathname] = useState("/dashboard");
@@ -955,6 +949,8 @@ function VehiclesPage({
   const [editOwnerId, setEditOwnerId] = useState(owners[0]?.id ?? "");
   const [vehicleEditorOpen, setVehicleEditorOpen] = useState(false);
   const [purchaseInvoiceEditorOpen, setPurchaseInvoiceEditorOpen] = useState(false);
+  const [customerEditorOpen, setCustomerEditorOpen] = useState(false);
+  const [ownerEditorOpen, setOwnerEditorOpen] = useState(false);
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const uploadDisabled = !selectedVehicleId;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
@@ -999,12 +995,12 @@ function VehiclesPage({
 
   const selectCustomer = (customerId: string) => {
     setEditCustomerId(customerId);
-    focusWorkArea("contacts-card");
+    setCustomerEditorOpen(true);
   };
 
   const selectOwner = (ownerId: string) => {
     setEditOwnerId(ownerId);
-    focusWorkArea("contacts-card");
+    setOwnerEditorOpen(true);
   };
 
   const loadUploads = useCallback(async () => {
@@ -1424,7 +1420,7 @@ function VehiclesPage({
                     <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Customer</Button></Form.Item>
                   </Form>
-                  <Form
+                  {false && <Form
                     key={selectedCustomer?.id ?? "customer-edit"}
                     layout="vertical"
                     className="formGrid"
@@ -1457,7 +1453,7 @@ function VehiclesPage({
                     <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
                     <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedCustomer}>Update Customer</Button></Form.Item>
-                  </Form>
+                  </Form>}
                 </Space>
               )
             },
@@ -1485,7 +1481,7 @@ function VehiclesPage({
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Owner</Button></Form.Item>
                   </Form>
-                  <Form
+                  {false && <Form
                     key={selectedOwner?.id ?? "owner-edit"}
                     layout="vertical"
                     className="formGrid"
@@ -1510,13 +1506,93 @@ function VehiclesPage({
                     <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
-                  </Form>
+                  </Form>}
                 </Space>
               )
             }
           ]}
         />
       </ProCard>
+      <Drawer
+        title="Edit Customer / 修改客户"
+        width={560}
+        open={customerEditorOpen}
+        onClose={() => setCustomerEditorOpen(false)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
+        <Form
+          key={selectedCustomer?.id ?? "customer-edit-drawer"}
+          layout="vertical"
+          className="drawerForm"
+          initialValues={selectedCustomer}
+          onFinish={(values) => {
+            if (!selectedCustomer) return;
+            const customer: Customer = {
+              ...selectedCustomer,
+              name: values.name,
+              phone: values.phone,
+              icNumber: values.icNumber,
+              email: values.email,
+              address: values.address,
+              notes: values.notes
+            };
+            const blockReason = customerCreateBlockReason(customer, customers);
+            if (blockReason) {
+              message.warning(blockReason);
+              return;
+            }
+
+            onUpdateCustomer(customer);
+            setCustomerEditorOpen(false);
+          }}
+        >
+          <Form.Item name="id" label="Edit Customer"><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} onChange={selectCustomer} /></Form.Item>
+          <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="icNumber" label="IC / 身份证"><Input /></Form.Item>
+          <Form.Item name="email" label="Email"><Input /></Form.Item>
+          <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
+          <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedCustomer}>Update Customer</Button></Form.Item>
+        </Form>
+      </Drawer>
+      <Drawer
+        title="Edit Owner / 修改原车主"
+        width={560}
+        open={ownerEditorOpen}
+        onClose={() => setOwnerEditorOpen(false)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
+        <Form
+          key={selectedOwner?.id ?? "owner-edit-drawer"}
+          layout="vertical"
+          className="drawerForm"
+          initialValues={selectedOwner}
+          onFinish={(values) => {
+            if (!selectedOwner) return;
+            const owner: Owner = {
+              ...selectedOwner,
+              name: values.name,
+              phone: values.phone
+            };
+            const blockReason = ownerCreateBlockReason(owner, owners);
+            if (blockReason) {
+              message.warning(blockReason);
+              return;
+            }
+
+            onUpdateOwner(owner);
+            setOwnerEditorOpen(false);
+          }}
+        >
+          <Form.Item name="id" label="Edit Owner"><Select options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} onChange={selectOwner} /></Form.Item>
+          <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
+        </Form>
+      </Drawer>
       <ProCard title="Photo & Document Upload / 照片与文件上传">
         <Form layout="vertical" className="formGrid">
           <Form.Item label="Car Plate">
@@ -1622,6 +1698,7 @@ function RepairPage({
   const [uploadRepairId, setUploadRepairId] = useState(repairs[0]?.id ?? "");
   const [editSupplierInvoiceId, setEditSupplierInvoiceId] = useState(supplierInvoices[0]?.id ?? "");
   const [editRepairId, setEditRepairId] = useState(repairs[0]?.id ?? "");
+  const [supplierInvoiceEditorOpen, setSupplierInvoiceEditorOpen] = useState(false);
   const [repairEditorOpen, setRepairEditorOpen] = useState(false);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("RepairInvoice");
   const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId) ?? repairs[0];
@@ -1648,7 +1725,7 @@ function RepairPage({
 
   const selectSupplierInvoice = (invoiceId: string) => {
     setEditSupplierInvoiceId(invoiceId);
-    focusWorkArea("repair-supplier-card");
+    setSupplierInvoiceEditorOpen(true);
   };
 
   const selectRepair = (repairId: string) => {
@@ -1674,7 +1751,7 @@ function RepairPage({
     {
       title: "Action / 操作",
       fixed: "right",
-      width: 160,
+      width: 220,
       render: (_, row) => (
         <Space>
           <Button size="small" onClick={() => onUpdateRepair({ ...row, checklistDone: true })} disabled={row.checklistDone}>Mark Done</Button>
@@ -1698,7 +1775,7 @@ function RepairPage({
       </ProCard>
       <ProCard id="repair-supplier-card" title="Supplier & Refurbishment / 供应商与整备">
         <Table rowKey="id" columns={columns} dataSource={supplierInvoices} pagination={false} scroll={{ x: 760 }} />
-        <Form
+        {false && <Form
           key={selectedSupplierInvoice?.id ?? "supplier-invoice-edit"}
           layout="vertical"
           className="formGrid"
@@ -1729,8 +1806,50 @@ function RepairPage({
           <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / Invoice Plate"><Input placeholder="Plate printed on invoice" /></Form.Item>
           <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
-        </Form>
+        </Form>}
       </ProCard>
+      <Drawer
+        title="Edit Supplier Invoice / 修改供应商发票"
+        width={560}
+        open={supplierInvoiceEditorOpen}
+        onClose={() => setSupplierInvoiceEditorOpen(false)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
+        <Form
+          key={selectedSupplierInvoice?.id ?? "supplier-invoice-edit-drawer"}
+          layout="vertical"
+          className="drawerForm"
+          initialValues={selectedSupplierInvoice}
+          onFinish={async (values) => {
+            if (!selectedSupplierInvoice) return;
+            const invoice: SupplierInvoice = {
+              ...selectedSupplierInvoice,
+              vehicleId: values.vehicleId,
+              supplierName: values.supplierName,
+              invoiceNumber: values.invoiceNumber,
+              plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined,
+              amount: Number(values.amount ?? 0)
+            };
+            const blockReason = supplierInvoiceCreateBlockReason(invoice, supplierInvoices, vehicles);
+            if (blockReason) {
+              message.warning(blockReason);
+              return;
+            }
+
+            await onUpdateInvoice(invoice);
+            setSupplierInvoiceEditorOpen(false);
+          }}
+        >
+          <Form.Item name="id" label="Edit Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / Invoice Plate"><Input placeholder="Plate printed on invoice" /></Form.Item>
+          <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
+        </Form>
+      </Drawer>
       <ProCard title="Repair Task Entry / 整备事项">
         <Form layout="vertical" className="formGrid" onFinish={async (values) => {
           const invoice: SupplierInvoice = { id: newId(), vehicleId: values.vehicleId, supplierName: values.supplierName, invoiceNumber: values.invoiceNumber, plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined, amount: Number(values.amount ?? 0) };
@@ -3346,6 +3465,8 @@ function AdminPage({
   onUpdateStaffRoles: (userId: string, roles: StaffRole[]) => Promise<void>;
 }) {
   const [editStaffUserId, setEditStaffUserId] = useState(staffUsers[0]?.id ?? "");
+  const [staffEditorOpen, setStaffEditorOpen] = useState(false);
+  const [passwordResetOpen, setPasswordResetOpen] = useState(false);
   const selectedEditStaffUser = staffUsers.find((user) => user.id === editStaffUserId) ?? staffUsers[0];
 
   useEffect(() => {
@@ -3356,7 +3477,12 @@ function AdminPage({
 
   const selectStaffUser = (userId: string) => {
     setEditStaffUserId(userId);
-    focusWorkArea("staff-users-panel");
+    setStaffEditorOpen(true);
+  };
+
+  const openPasswordReset = (userId: string) => {
+    setEditStaffUserId(userId);
+    setPasswordResetOpen(true);
   };
 
   const staffColumns: ColumnsType<StaffUser> = [
@@ -3389,10 +3515,11 @@ function AdminPage({
     {
       title: "Action",
       fixed: "right",
-      width: 160,
+      width: 220,
       render: (_, row) => (
         <Space>
           <Button size="small" onClick={() => selectStaffUser(row.id)}>Edit</Button>
+          <Button size="small" onClick={() => openPasswordReset(row.id)}>Reset</Button>
           <Button size="small" danger={row.isActive} onClick={() => onUpdateStaffStatus(row.id, { isActive: !row.isActive })}>
             {row.isActive ? "Disable" : "Enable"}
           </Button>
@@ -3411,7 +3538,102 @@ function AdminPage({
             children: (
               <Space id="staff-users-panel" direction="vertical" size={16} className="fullWidth staffUsersPanel">
                 <Table rowKey="id" size="small" columns={staffColumns} dataSource={staffUsers} pagination={{ pageSize: 6 }} scroll={{ x: 1200 }} />
-                <Form
+                <Drawer
+                  title="Edit Staff / 修改员工"
+                  width={520}
+                  open={staffEditorOpen}
+                  onClose={() => setStaffEditorOpen(false)}
+                  destroyOnClose
+                  className="recordEditDrawer"
+                >
+                  <Form
+                    key={selectedEditStaffUser?.id ?? "staff-edit-drawer"}
+                    layout="vertical"
+                    className="drawerForm"
+                    initialValues={selectedEditStaffUser ? { id: selectedEditStaffUser.id, displayName: selectedEditStaffUser.displayName } : {}}
+                    onFinish={(values) => {
+                      if (!selectedEditStaffUser) {
+                        message.warning("Select a staff user before updating.");
+                        return;
+                      }
+
+                      const staffUser: UpdateStaffUserRequest = {
+                        displayName: values.displayName
+                      };
+                      const blockReason = staffUpdateBlockReason(staffUser);
+                      if (blockReason) {
+                        message.warning(blockReason);
+                        return;
+                      }
+
+                      onUpdateStaffUser(selectedEditStaffUser.id, staffUser);
+                      setStaffEditorOpen(false);
+                    }}
+                  >
+                    <Form.Item name="id" label="Edit Staff / 修改员工">
+                      <Select
+                        options={staffUsers.map((user) => ({ value: user.id, label: `${user.displayName} / ${user.email}` }))}
+                        onChange={selectStaffUser}
+                      />
+                    </Form.Item>
+                    <Form.Item name="displayName" label="Display Name / 姓名" rules={[{ required: true }]}>
+                      <Input />
+                    </Form.Item>
+                    <Form.Item label="Email">
+                      <Input value={selectedEditStaffUser?.email} disabled />
+                    </Form.Item>
+                    <Form.Item className="formActions">
+                      <Button type="primary" htmlType="submit" disabled={!selectedEditStaffUser}>Update Staff</Button>
+                    </Form.Item>
+                  </Form>
+                </Drawer>
+                <Drawer
+                  title="Reset Password / 重设密码"
+                  width={520}
+                  open={passwordResetOpen}
+                  onClose={() => setPasswordResetOpen(false)}
+                  destroyOnClose
+                  className="recordEditDrawer"
+                >
+                  <Form
+                    key={`${selectedEditStaffUser?.id ?? "staff"}-password-drawer`}
+                    layout="vertical"
+                    className="drawerForm"
+                    initialValues={selectedEditStaffUser ? { id: selectedEditStaffUser.id } : {}}
+                    onFinish={(values) => {
+                      if (!selectedEditStaffUser) {
+                        message.warning("Select a staff user before resetting password.");
+                        return;
+                      }
+
+                      const requestBody: ResetStaffPasswordRequest = {
+                        password: values.password
+                      };
+                      const blockReason = staffPasswordResetBlockReason(requestBody);
+                      if (blockReason) {
+                        message.warning(blockReason);
+                        return;
+                      }
+
+                      onResetStaffPassword(selectedEditStaffUser.id, requestBody);
+                      setPasswordResetOpen(false);
+                    }}
+                  >
+                    <Form.Item name="id" label="Staff / 员工">
+                      <Select
+                        options={staffUsers.map((user) => ({ value: user.id, label: `${user.displayName} / ${user.email}` }))}
+                        onChange={(userId) => setEditStaffUserId(userId)}
+                      />
+                    </Form.Item>
+                    <Form.Item name="password" label="New Password" rules={[{ required: true, min: 8 }]}>
+                      <Input.Password />
+                    </Form.Item>
+                    <Form.Item className="formActions">
+                      <Button htmlType="submit" disabled={!selectedEditStaffUser}>Reset Password</Button>
+                    </Form.Item>
+                  </Form>
+                </Drawer>
+                {false && <Form
                   key={selectedEditStaffUser?.id ?? "staff-edit"}
                   layout="vertical"
                   className="formGrid"
@@ -3449,8 +3671,8 @@ function AdminPage({
                   <Form.Item className="formActions">
                     <Button type="primary" htmlType="submit" disabled={!selectedEditStaffUser}>Update Staff</Button>
                   </Form.Item>
-                </Form>
-                <Form
+                </Form>}
+                {false && <Form
                   key={`${selectedEditStaffUser?.id ?? "staff"}-password`}
                   layout="vertical"
                   className="formGrid"
@@ -3485,7 +3707,7 @@ function AdminPage({
                   <Form.Item className="formActions">
                     <Button htmlType="submit" disabled={!selectedEditStaffUser}>Reset Password</Button>
                   </Form.Item>
-                </Form>
+                </Form>}
                 <Form
                   layout="vertical"
                   className="formGrid"
