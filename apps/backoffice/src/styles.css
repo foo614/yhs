@@ -528,130 +528,59 @@ body {
   margin-bottom: 4px;
 }
 
-.vehicleApprovalWorkbench {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 18px;
-  align-items: stretch;
-}
-
-.vehicleApprovalMain,
-.vehicleApprovalSide {
-  border: 1px solid rgba(20, 72, 61, .1);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.vehicleApprovalMain {
-  display: grid;
-  gap: 18px;
-  padding: 20px;
-}
-
-.vehicleApprovalContext {
+.vehicleSelectedSummary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  padding-bottom: 2px;
-}
-
-.vehicleApprovalContext .ant-typography {
-  margin-bottom: 0;
-}
-
-.vehicleApprovalSide {
-  display: grid;
-  align-content: start;
   gap: 14px;
-  padding: 18px;
-}
-
-.vehicleApprovalSide .ant-alert {
-  margin-top: 2px;
-}
-
-.approvalActionStack {
-  display: grid;
-  gap: 10px;
-}
-
-.approvalActionCard {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 92px;
-  gap: 10px;
   align-items: center;
-  padding: 12px;
+  margin-top: 14px;
+  margin-bottom: 14px;
+  padding: 14px;
   border: 1px solid rgba(20, 72, 61, .1);
   border-radius: 8px;
   background: #f8fbfa;
 }
 
-.approvalActionCard.isNext {
-  border-color: rgba(196, 146, 23, .38);
-  background: #fffaf0;
+.vehicleSelectedIdentity {
+  display: grid;
+  gap: 6px;
 }
 
-.approvalActionCard .ant-typography-secondary {
+.vehicleSelectedIdentity .ant-typography {
+  margin-bottom: 0;
+}
+
+.vehicleSelectedFacts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.vehicleSelectedFacts span {
+  min-width: 112px;
+  padding: 10px 12px;
+  border: 1px solid rgba(20, 72, 61, .1);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.vehicleSelectedFacts small {
   display: block;
-  margin-top: 2px;
-  font-size: 12px;
+  color: #6a7d76;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.vehicleSelectedFacts strong {
+  display: block;
+  color: #233a33;
+  font-size: 13px;
   line-height: 1.35;
 }
 
-.approvalActionCard .ant-btn {
-  min-width: 84px;
-}
-
-.vehicleFlowSteps {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 10px;
-}
-
-.vehicleFlowStep {
-  position: relative;
-  min-height: 96px;
-  display: grid;
-  grid-template-columns: 34px 1fr;
-  align-content: start;
-  gap: 4px 10px;
-  padding: 14px;
-  border: 1px solid rgba(20, 72, 61, .12);
-  border-radius: 8px;
-  background: #f7faf9;
-}
-
-.vehicleFlowStep span {
-  grid-row: span 2;
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #d9e5e1;
-  color: #60746e;
-  font-weight: 840;
-}
-
-.vehicleFlowStep strong {
-  color: #233a33;
-  line-height: 1.2;
-}
-
-.vehicleFlowStep small {
-  color: #6a7d76;
-  line-height: 1.3;
-}
-
-.vehicleFlowStep.isDone {
-  border-color: rgba(11, 112, 92, .24);
-  background: #eef8f5;
-}
-
-.vehicleFlowStep.isDone span {
-  background: #0b705c;
-  color: #fff;
+.vehicleSelectedSummary .ant-alert {
+  grid-column: 1 / -1;
 }
 
 .toolbarForm {
@@ -765,15 +694,15 @@ body {
   }
 
   .vehicleInventoryHeader,
-  .vehicleApprovalWorkbench {
+  .vehicleSelectedSummary {
     grid-template-columns: 1fr;
   }
 
-  .vehicleFlowSteps {
-    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  .vehicleMiniStats {
+    justify-content: flex-start;
   }
 
-  .vehicleMiniStats {
+  .vehicleSelectedFacts {
     justify-content: flex-start;
   }
 }
@@ -822,17 +751,12 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .vehicleFlowSteps {
+  .vehicleSelectedSummary {
     grid-template-columns: 1fr;
   }
 
-  .vehicleApprovalContext,
-  .approvalActionCard {
-    grid-template-columns: 1fr;
-  }
-
-  .approvalActionCard .ant-btn {
-    width: 100%;
+  .vehicleSelectedFacts span {
+    flex: 1 1 100%;
   }
 
   .drawerForm .formActions .ant-form-item-control-input-content {

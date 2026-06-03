@@ -960,7 +960,6 @@ function VehiclesPage({
   const availableVehicles = vehicles.filter((vehicle) => vehicle.status === "Available").length;
   const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
-  const selectedVehicleStep = selectedVehicle?.status === "Sold" ? 3 : selectedVehicle?.status === "LoanProcessing" ? 2 : selectedVehicle?.bossConfirmed ? 1 : 0;
   const selectedVehicleProfit = selectedVehicle
     ? selectedVehicle.sellingPrice - selectedVehicle.purchasePrice - selectedVehicle.additionalCharges - selectedVehicle.refurbishmentTotal - selectedVehicle.commissionTotal
     : 0;
@@ -1197,6 +1196,46 @@ function VehiclesPage({
             <span><strong>{pendingBossConfirmation}</strong>Pending boss</span>
           </div>
         </div>
+        <div className="vehicleSelectedSummary">
+          {selectedVehicle ? (
+            <>
+              <div className="vehicleSelectedIdentity">
+                <Typography.Text className="moduleEyebrow">Selected vehicle</Typography.Text>
+                <Typography.Title level={4}>
+                  {`${selectedVehicle.plateNumber} - ${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`}
+                </Typography.Title>
+                <Space wrap>
+                  <Tag color={vehicleStatusColor[selectedVehicle.status]}>{approvalStageLabel}</Tag>
+                  <Tag color={nextApprovalAction === "done" ? "green" : "gold"}>Next: {nextApprovalLabel[nextApprovalAction]}</Tag>
+                </Space>
+              </div>
+              <div className="vehicleSelectedFacts">
+                <span>
+                  <small>Boss</small>
+                  <strong>{selectedVehicle.bossConfirmed ? "Confirmed" : "Pending"}</strong>
+                </span>
+                <span>
+                  <small>Website</small>
+                  <strong>{selectedVehicle.isPublic ? "Visible" : "Hidden"}</strong>
+                </span>
+                <span>
+                  <small>Profit</small>
+                  <strong>RM {selectedVehicleProfit.toLocaleString()}</strong>
+                </span>
+              </div>
+              {selectedApprovalGaps.length > 0 ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="Attention"
+                  description={selectedApprovalGaps.join(" · ")}
+                />
+              ) : null}
+            </>
+          ) : (
+            <Alert type="info" showIcon message="Select a vehicle row to view its workflow summary." />
+          )}
+        </div>
         <Table
           rowKey="id"
           columns={columns}
@@ -1208,120 +1247,6 @@ function VehiclesPage({
             onClick: () => selectVehicle(row.id)
           })}
         />
-      </ProCard>
-      <ProCard title="Approval Flow / 审批流程">
-        <div className="vehicleApprovalWorkbench">
-          <div className="vehicleApprovalMain">
-            <div className="vehicleApprovalContext">
-              <div>
-                <Typography.Text className="moduleEyebrow">Selected vehicle</Typography.Text>
-                <Typography.Title level={4}>
-                  {selectedVehicle ? `${selectedVehicle.plateNumber} - ${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : "No vehicle selected"}
-                </Typography.Title>
-              </div>
-              <Space wrap>
-                <Tag color={selectedVehicle ? vehicleStatusColor[selectedVehicle.status] : "default"}>{approvalStageLabel}</Tag>
-                <Tag color={nextApprovalAction === "done" ? "green" : "gold"}>Next: {nextApprovalLabel[nextApprovalAction]}</Tag>
-              </Space>
-            </div>
-            <div className="vehicleFlowSteps">
-              {[
-                { title: "1. Intake", description: "Vehicle record exists" },
-                { title: "2. Boss confirm", description: "Price and stock approved" },
-                { title: "3. Website / loan", description: "Publish, then reserve for buyer loan" },
-                { title: "4. Sold", description: "Close stock and hide listing" }
-              ].map((step, index) => (
-                <div className={index <= selectedVehicleStep ? "vehicleFlowStep isDone" : "vehicleFlowStep"} key={step.title}>
-                  <span>{index + 1}</span>
-                  <strong>{step.title}</strong>
-                  <small>{step.description}</small>
-                </div>
-              ))}
-            </div>
-            {selectedVehicle ? (
-              <Descriptions bordered size="small" column={{ xs: 1, sm: 2, xl: 4 }}>
-                <Descriptions.Item label="Plate">{selectedVehicle.plateNumber}</Descriptions.Item>
-                <Descriptions.Item label="Vehicle">{`${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`}</Descriptions.Item>
-                <Descriptions.Item label="Status"><Tag color={vehicleStatusColor[selectedVehicle.status]}>{selectedVehicle.status}</Tag></Descriptions.Item>
-                <Descriptions.Item label="Website"><Badge status={selectedVehicle.isPublic ? "success" : "default"} text={selectedVehicle.isPublic ? "Visible" : "Hidden"} /></Descriptions.Item>
-                <Descriptions.Item label="Boss Confirm"><Badge status={selectedVehicle.bossConfirmed ? "success" : "warning"} text={selectedVehicle.bossConfirmed ? "Confirmed" : "Pending"} /></Descriptions.Item>
-                <Descriptions.Item label="Contra Range">RM {Number(selectedVehicle.contraRangePrice ?? 0).toLocaleString()}</Descriptions.Item>
-                <Descriptions.Item label="UCD">{selectedVehicle.ucdStatus || "-"}</Descriptions.Item>
-                <Descriptions.Item label="Estimated Profit">RM {selectedVehicleProfit.toLocaleString()}</Descriptions.Item>
-              </Descriptions>
-            ) : (
-              <Alert type="info" showIcon message="Create or select a vehicle to begin approval." />
-            )}
-          </div>
-          <div className="vehicleApprovalSide">
-            <Typography.Text strong>Workflow actions / 流程动作</Typography.Text>
-            <div className="approvalActionStack">
-              {[
-                {
-                  key: "boss",
-                  title: "Boss Confirm",
-                  note: "Approve purchase, selling price, stock owner.",
-                  button: "Confirm",
-                  disabled: !selectedVehicle || Boolean(selectedVehicle.bossConfirmed),
-                  onClick: () => selectedVehicle && onUpdate({ ...selectedVehicle, bossConfirmed: true })
-                },
-                {
-                  key: "publish",
-                  title: "Publish to Website",
-                  note: "Show ready stock on the public inventory.",
-                  button: "Publish",
-                  disabled: !selectedVehicle || !selectedVehicle.bossConfirmed || (selectedVehicle.status === "Available" && selectedVehicle.isPublic),
-                  onClick: () => selectedVehicle && onUpdate({ ...selectedVehicle, status: "Available", isPublic: true })
-                },
-                {
-                  key: "loan",
-                  title: "Move to Loan",
-                  note: "Reserve the car after buyer starts loan workflow.",
-                  button: "Start Loan",
-                  disabled: !selectedVehicle || selectedVehicle.status === "LoanProcessing",
-                  onClick: () => selectedVehicle && onUpdate({ ...selectedVehicle, status: "LoanProcessing", isPublic: false })
-                },
-                {
-                  key: "sold",
-                  title: "Mark Sold",
-                  note: "Close stock and hide it from website.",
-                  button: "Sold",
-                  disabled: !selectedVehicle || selectedVehicle.status === "Sold",
-                  danger: true,
-                  onClick: () => selectedVehicle && onUpdate({ ...selectedVehicle, status: "Sold", isPublic: false })
-                }
-              ].map((action) => (
-                <div className={nextApprovalAction === action.key ? "approvalActionCard isNext" : "approvalActionCard"} key={action.key}>
-                  <div>
-                    <Space size={6} wrap>
-                      <Typography.Text strong>{action.title}</Typography.Text>
-                      {nextApprovalAction === action.key ? <Tag color="gold">Next</Tag> : null}
-                    </Space>
-                    <Typography.Text type="secondary">{action.note}</Typography.Text>
-                  </div>
-                  <Button
-                    type={nextApprovalAction === action.key ? "primary" : "default"}
-                    danger={action.danger}
-                    disabled={action.disabled}
-                    onClick={action.onClick}
-                  >
-                    {action.button}
-                  </Button>
-                </div>
-              ))}
-            </div>
-            {selectedApprovalGaps.length > 0 ? (
-              <Alert
-                type="warning"
-                showIcon
-                message="Approval gaps"
-                description={selectedApprovalGaps.join(" · ")}
-              />
-            ) : (
-              <Alert type="success" showIcon message="Vehicle is ready for website and sales workflow." />
-            )}
-          </div>
-        </div>
       </ProCard>
       <ProCard id="vehicle-record-card" title="Create Vehicle / 新增车辆">
         <Form layout="vertical" className="formGrid" onFinish={(values) => {
