@@ -972,6 +972,36 @@ function VehiclesPage({
         selectedVehicle.isPublic ? "" : "Website hidden"
       ].filter(Boolean)
     : [];
+  const approvalStageLabel = selectedVehicle
+    ? selectedVehicle.status === "Sold"
+      ? "Sold / 已售"
+      : selectedVehicle.status === "LoanProcessing"
+        ? "Loan processing / 贷款中"
+        : selectedVehicle.bossConfirmed
+          ? selectedVehicle.isPublic
+            ? "Ready stock on website / 网站现车"
+            : "Ready stock hidden / 已确认未上架"
+          : "Waiting boss confirm / 等老板确认"
+    : "No vehicle selected";
+  const nextApprovalAction = selectedVehicle
+    ? !selectedVehicle.bossConfirmed
+      ? "boss"
+      : selectedVehicle.status === "Available" && !selectedVehicle.isPublic
+        ? "publish"
+        : selectedVehicle.status === "Available"
+          ? "loan"
+          : selectedVehicle.status === "LoanProcessing"
+            ? "sold"
+            : "done"
+    : "select";
+  const nextApprovalLabel: Record<typeof nextApprovalAction, string> = {
+    select: "Select a vehicle",
+    boss: "Boss Confirm",
+    publish: "Publish to Website",
+    loan: "Move to Loan",
+    sold: "Mark Sold",
+    done: "Completed"
+  };
   const vehicleStatusColor: Record<Vehicle["status"], string> = {
     Available: "green",
     LoanProcessing: "blue",
@@ -1182,12 +1212,24 @@ function VehiclesPage({
       <ProCard title="Approval Flow / 审批流程">
         <div className="vehicleApprovalWorkbench">
           <div className="vehicleApprovalMain">
+            <div className="vehicleApprovalContext">
+              <div>
+                <Typography.Text className="moduleEyebrow">Selected vehicle</Typography.Text>
+                <Typography.Title level={4}>
+                  {selectedVehicle ? `${selectedVehicle.plateNumber} - ${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : "No vehicle selected"}
+                </Typography.Title>
+              </div>
+              <Space wrap>
+                <Tag color={selectedVehicle ? vehicleStatusColor[selectedVehicle.status] : "default"}>{approvalStageLabel}</Tag>
+                <Tag color={nextApprovalAction === "done" ? "green" : "gold"}>Next: {nextApprovalLabel[nextApprovalAction]}</Tag>
+              </Space>
+            </div>
             <div className="vehicleFlowSteps">
               {[
-                { title: "Intake", description: "Stock created" },
-                { title: "Boss approved", description: "Price and stock owner checked" },
-                { title: "Loan / Sales", description: "Reserved from public site" },
-                { title: "Sold", description: "Closed and hidden" }
+                { title: "1. Intake", description: "Vehicle record exists" },
+                { title: "2. Boss confirm", description: "Price and stock approved" },
+                { title: "3. Website / loan", description: "Publish, then reserve for buyer loan" },
+                { title: "4. Sold", description: "Close stock and hide listing" }
               ].map((step, index) => (
                 <div className={index <= selectedVehicleStep ? "vehicleFlowStep isDone" : "vehicleFlowStep"} key={step.title}>
                   <span>{index + 1}</span>
@@ -1212,13 +1254,62 @@ function VehiclesPage({
             )}
           </div>
           <div className="vehicleApprovalSide">
-            <Typography.Text strong>Standard actions</Typography.Text>
-            <Space direction="vertical" className="fullWidth">
-              <Button className="fullWidth" onClick={() => selectedVehicle && onUpdate({ ...selectedVehicle, bossConfirmed: true })} disabled={!selectedVehicle || Boolean(selectedVehicle.bossConfirmed)}>Boss Confirm</Button>
-              <Button className="fullWidth" type="primary" onClick={() => selectedVehicle && onUpdate({ ...selectedVehicle, status: "Available", isPublic: true })} disabled={!selectedVehicle || !selectedVehicle.bossConfirmed || (selectedVehicle.status === "Available" && selectedVehicle.isPublic)}>Publish to Website</Button>
-              <Button className="fullWidth" onClick={() => selectedVehicle && onUpdate({ ...selectedVehicle, status: "LoanProcessing", isPublic: false })} disabled={!selectedVehicle || selectedVehicle.status === "LoanProcessing"}>Move to Loan</Button>
-              <Button className="fullWidth" danger onClick={() => selectedVehicle && onUpdate({ ...selectedVehicle, status: "Sold", isPublic: false })} disabled={!selectedVehicle || selectedVehicle.status === "Sold"}>Mark Sold</Button>
-            </Space>
+            <Typography.Text strong>Workflow actions / 流程动作</Typography.Text>
+            <div className="approvalActionStack">
+              {[
+                {
+                  key: "boss",
+                  title: "Boss Confirm",
+                  note: "Approve purchase, selling price, stock owner.",
+                  button: "Confirm",
+                  disabled: !selectedVehicle || Boolean(selectedVehicle.bossConfirmed),
+                  onClick: () => selectedVehicle && onUpdate({ ...selectedVehicle, bossConfirmed: true })
+                },
+                {
+                  key: "publish",
+                  title: "Publish to Website",
+                  note: "Show ready stock on the public inventory.",
+                  button: "Publish",
+                  disabled: !selectedVehicle || !selectedVehicle.bossConfirmed || (selectedVehicle.status === "Available" && selectedVehicle.isPublic),
+                  onClick: () => selectedVehicle && onUpdate({ ...selectedVehicle, status: "Available", isPublic: true })
+                },
+                {
+                  key: "loan",
+                  title: "Move to Loan",
+                  note: "Reserve the car after buyer starts loan workflow.",
+                  button: "Start Loan",
+                  disabled: !selectedVehicle || selectedVehicle.status === "LoanProcessing",
+                  onClick: () => selectedVehicle && onUpdate({ ...selectedVehicle, status: "LoanProcessing", isPublic: false })
+                },
+                {
+                  key: "sold",
+                  title: "Mark Sold",
+                  note: "Close stock and hide it from website.",
+                  button: "Sold",
+                  disabled: !selectedVehicle || selectedVehicle.status === "Sold",
+                  danger: true,
+                  onClick: () => selectedVehicle && onUpdate({ ...selectedVehicle, status: "Sold", isPublic: false })
+                }
+              ].map((action) => (
+                <div className={nextApprovalAction === action.key ? "approvalActionCard isNext" : "approvalActionCard"} key={action.key}>
+                  <div>
+                    <Space size={6} wrap>
+                      <Typography.Text strong>{action.title}</Typography.Text>
+                      {nextApprovalAction === action.key ? <Tag color="gold">Next</Tag> : null}
+                    </Space>
+                    <Typography.Text type="secondary">{action.note}</Typography.Text>
+                  </div>
+                  <Button
+                    type={nextApprovalAction === action.key ? "primary" : "default"}
+                    danger={action.danger}
+                    disabled={action.disabled}
+                    onClick={action.onClick}
+                  >
+                    {action.button}
+                  </Button>
+                </div>
+              ))}
+            </div>
             {selectedApprovalGaps.length > 0 ? (
               <Alert
                 type="warning"

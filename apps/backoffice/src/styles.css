@@ -548,6 +548,18 @@ body {
   padding: 20px;
 }
 
+.vehicleApprovalContext {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+.vehicleApprovalContext .ant-typography {
+  margin-bottom: 0;
+}
+
 .vehicleApprovalSide {
   display: grid;
   align-content: start;
@@ -557,6 +569,38 @@ body {
 
 .vehicleApprovalSide .ant-alert {
   margin-top: 2px;
+}
+
+.approvalActionStack {
+  display: grid;
+  gap: 10px;
+}
+
+.approvalActionCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(20, 72, 61, .1);
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.approvalActionCard.isNext {
+  border-color: rgba(196, 146, 23, .38);
+  background: #fffaf0;
+}
+
+.approvalActionCard .ant-typography-secondary {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.approvalActionCard .ant-btn {
+  min-width: 84px;
 }
 
 .vehicleFlowSteps {
@@ -780,6 +824,15 @@ body {
 
   .vehicleFlowSteps {
     grid-template-columns: 1fr;
+  }
+
+  .vehicleApprovalContext,
+  .approvalActionCard {
+    grid-template-columns: 1fr;
+  }
+
+  .approvalActionCard .ant-btn {
+    width: 100%;
   }
 
   .drawerForm .formActions .ant-form-item-control-input-content {
