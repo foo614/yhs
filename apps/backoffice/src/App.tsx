@@ -954,6 +954,7 @@ function VehiclesPage({
   const [editCustomerId, setEditCustomerId] = useState(customers[0]?.id ?? "");
   const [editOwnerId, setEditOwnerId] = useState(owners[0]?.id ?? "");
   const [vehicleEditorOpen, setVehicleEditorOpen] = useState(false);
+  const [purchaseInvoiceEditorOpen, setPurchaseInvoiceEditorOpen] = useState(false);
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const uploadDisabled = !selectedVehicleId;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
@@ -993,7 +994,7 @@ function VehiclesPage({
 
   const selectPurchaseInvoice = (invoiceId: string) => {
     setEditPurchaseInvoiceId(invoiceId);
-    focusWorkArea("purchase-invoice-card");
+    setPurchaseInvoiceEditorOpen(true);
   };
 
   const selectCustomer = (customerId: string) => {
@@ -1350,11 +1351,18 @@ function VehiclesPage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Purchase Invoice</Button></Form.Item>
         </Form>
       </ProCard>
-      <ProCard id="purchase-invoice-card" title="Edit Purchase Invoice / 修改收车发票">
+      <Drawer
+        title="Edit Purchase Invoice / 修改收车发票"
+        width={560}
+        open={purchaseInvoiceEditorOpen}
+        onClose={() => setPurchaseInvoiceEditorOpen(false)}
+        destroyOnClose
+        className="recordEditDrawer"
+      >
         <Form
           key={selectedPurchaseInvoice?.id ?? "purchase-invoice-edit"}
           layout="vertical"
-          className="formGrid"
+          className="drawerForm"
           initialValues={selectedPurchaseInvoice}
           onFinish={async (values) => {
             if (!selectedPurchaseInvoice) return;
@@ -1371,6 +1379,7 @@ function VehiclesPage({
             }
 
             await onUpdatePurchaseInvoice(invoice);
+            setPurchaseInvoiceEditorOpen(false);
           }}
         >
           <Form.Item name="id" label="Edit Purchase Invoice"><Select options={purchaseInvoices.map((invoice) => ({ value: invoice.id, label: `${plateFor(vehicles, invoice.vehicleId)} / ${invoice.invoiceNumber}` }))} onChange={selectPurchaseInvoice} /></Form.Item>
@@ -1379,7 +1388,7 @@ function VehiclesPage({
           <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedPurchaseInvoice}>Update Purchase Invoice</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Drawer>
       <ProCard id="contacts-card" title="Customer & Owner Details / 客户与原车主">
         <Tabs
           items={[
