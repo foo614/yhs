@@ -7,6 +7,7 @@ import { Banknote, Car, Home, Menu, Search, ShieldCheck, Sparkles, UserRound } f
 import { frontofficeCopy, hrefWithLanguage, languages, type Language } from "./i18n";
 
 const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
+const publicBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 type ContactSection = "services" | "workshop" | "contact";
 
 export function PublicHeader({ language, active = "home" }: { language: Language; active?: "home" | "vehicles" | "contact" }) {
@@ -15,7 +16,7 @@ export function PublicHeader({ language, active = "home" }: { language: Language
 
   return (
     <header className="atelierHeader">
-      <Link href={hrefWithLanguage("/", language)} className="atelierBrand">YS HENG AUTO</Link>
+      <BrandLogo language={language} />
       <nav>
         <Link href={hrefWithLanguage("/", language)} className={active === "home" ? "active" : undefined}>{t.home}</Link>
         <Link href={hrefWithLanguage("/vehicles", language)} className={active === "vehicles" ? "active" : undefined}>{t.buyCar}</Link>
@@ -41,7 +42,7 @@ export function PublicSubNav({ language, active = "home" }: { language: Language
 
   return (
     <nav className="atelierSubNav">
-      <Link href={hrefWithLanguage("/", language)} className="atelierBrand">YS HENG AUTO</Link>
+      <BrandLogo language={language} />
       <div>
         <Link href={hrefWithLanguage("/", language)} className={active === "home" ? "active" : undefined}>{t.home}</Link>
         <Link href={hrefWithLanguage("/vehicles", language)} className={active === "vehicles" ? "active" : undefined}>{t.buyCar}</Link>
@@ -106,7 +107,7 @@ export function PublicFooter({ language }: { language: Language }) {
   return (
     <footer className="atelierFooter">
       <div>
-        <strong>YS HENG AUTO</strong>
+        <BrandLogo language={language} footer />
         <p>{t.description}</p>
       </div>
       <FooterLinks title={t.quickLinks} items={t.quickItems} language={language} />
@@ -114,6 +115,14 @@ export function PublicFooter({ language }: { language: Language }) {
       <FooterLinks title={t.company} items={t.companyItems} language={language} />
       <FooterLinks title={t.support} items={t.supportItems} language={language} />
     </footer>
+  );
+}
+
+function BrandLogo({ language, footer = false }: { language: Language; footer?: boolean }) {
+  return (
+    <Link href={hrefWithLanguage("/", language)} className={footer ? "atelierBrand footerBrand" : "atelierBrand"} aria-label="YS Heng Auto home">
+      <img src={`${publicBasePath}/ys-heng-logo.png`} alt="YS Heng Auto" />
+    </Link>
   );
 }
 

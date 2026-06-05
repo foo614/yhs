@@ -2,13 +2,16 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { BadgeCheck, Banknote, Car, MapPin, Search, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
-import { frontofficeCopy, hrefWithLanguage, type Language } from "./i18n";
+import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type Language, type SearchParams } from "./i18n";
 import { distinctMakes, priceRange } from "./vehicles/listing";
 import { getPublicVehicles } from "./vehicles/service";
 
 const heroImage = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1900&q=88";
 const conciergeImage = "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=1200&q=88";
-const mapImage = "https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&w=1400&q=80";
+const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
+  "No.6,JALAN PULAI, KAWASAN JALAN MERSING BATU 1 1/2,86000 KLUANG,JOHOR.";
+const mapHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(showroomAddress)}`;
+const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(showroomAddress)}&output=embed`;
 
 const categoryImages = [
   "https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=900&q=84",
@@ -18,11 +21,11 @@ const categoryImages = [
 ];
 
 const fallbackMakes = ["Toyota", "Honda", "Perodua", "Proton", "Nissan", "Mazda"];
-const workshopPinClasses = ["pinOne", "pinTwo"];
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 
-export default async function HomePage() {
-  const language: Language = "en";
+export default async function HomePage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
+  const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
   const t = frontofficeCopy[language];
   const vehicles = await getPublicVehicles();
   const makes = distinctMakes(vehicles);
@@ -43,6 +46,7 @@ export default async function HomePage() {
             <span>{t.home.titleAccent}</span>
           </h1>
           <form className="atelierSearch" action={`${basePath}/vehicles`}>
+            {language === "zh" && <input type="hidden" name="lang" value="zh" />}
             <label>
               <span>{t.home.make}</span>
               <select name="make" defaultValue="">
@@ -142,10 +146,20 @@ export default async function HomePage() {
           </div>
         </div>
         <div className="mapPanel">
-          <img src={mapImage} alt="" />
-          {t.home.workshopBranches.map((branch, index) => (
-            <MapPinLabel className={workshopPinClasses[index]} label={branch.pinLabel} key={branch.pinLabel} />
-          ))}
+          <iframe
+            src={mapEmbedUrl}
+            title="YS Heng Automotive map"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+          <div className="mapLocationCard">
+            <span><MapPin size={16} /></span>
+            <div>
+              <strong>{t.home.workshopBranches[0]?.region ?? "YS Heng Automotive"}</strong>
+              <p>{showroomAddress}</p>
+              <a href={mapHref} target="_blank" rel="noreferrer">Open in Google Maps</a>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -182,15 +196,6 @@ function SolutionCard({ icon, title, text }: { icon: ReactNode; title: string; t
       <h3>{title}</h3>
       <p>{text}</p>
     </article>
-  );
-}
-
-function MapPinLabel({ className, label }: { className: string; label: string }) {
-  return (
-    <div className={`mapPin ${className}`}>
-      <span><MapPin size={15} /></span>
-      <strong>{label}</strong>
-    </div>
   );
 }
 

@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { Car, ChevronLeft, Search } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../PublicChrome";
-import { frontofficeCopy, hrefWithLanguage, type Language } from "../i18n";
+import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type SearchParams } from "../i18n";
 import { InventoryBrowser } from "./InventoryBrowser";
 import { listingFiltersFromSearchParams } from "./listing";
 import { getPublicVehicles } from "./service";
 
-export default async function VehiclesPage() {
+const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
+
+export default async function VehiclesPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
+  const resolvedSearchParams = isStaticExport ? undefined : await searchParams;
   const vehicles = await getPublicVehicles();
-  const language: Language = "en";
+  const language = languageFromSearchParams(resolvedSearchParams);
   const t = frontofficeCopy[language].inventory;
 
   return (
@@ -29,7 +32,7 @@ export default async function VehiclesPage() {
       </header>
       <InventoryBrowser
         vehicles={vehicles}
-        initialFilters={listingFiltersFromSearchParams({})}
+        initialFilters={listingFiltersFromSearchParams(resolvedSearchParams ?? {})}
         language={language}
       />
       <PublicFooter language={language} />

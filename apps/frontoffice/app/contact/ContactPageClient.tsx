@@ -1,10 +1,9 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { Banknote, Car, ExternalLink, MapPin, Mail, Phone, ShieldCheck, Wrench } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../PublicChrome";
-import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams } from "../i18n";
+import { frontofficeCopy, languageFromSearchParams } from "../i18n";
 
 const whatsappNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "60108281218";
 const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
@@ -20,13 +19,12 @@ export default function ContactPageClient() {
   const t = frontofficeCopy[language].contact;
   const phoneHref = `tel:${salesPhone.replace(/[^\d+]/g, "")}`;
   const mapHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(showroomAddress)}`;
+  const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(showroomAddress)}&output=embed`;
   const salesIntro = t.salesIntro ?? "Nak jual atau beli kereta? Hubungi Ah Boon 010-828 1218.";
   const serviceTiles = Array.isArray(t.tiles) && t.tiles.length >= 4 ? t.tiles : ["Vehicle viewing", "Financing guidance", "Preparation tracking", "Release readiness"];
-  const workshopTiles = Array.isArray(t.workshopTiles) && t.workshopTiles.length >= 4 ? t.workshopTiles : ["Pre-delivery inspection", "JPJ & Puspakom", "Body and paint follow-up", "Handover coordination"];
   const callNow = t.callNow ?? "Call now";
   const whatsapp = t.whatsapp ?? "WhatsApp";
   const openMap = t.openMap ?? "Open map";
-  const browse = t.browse ?? "Browse cars";
   const facebook = t.facebook ?? "Facebook";
   const reviewSnippet = t.reviewSnippet ?? "Not yet rated";
   const helpTitle = t.helpTitle ?? "How we help";
@@ -49,13 +47,52 @@ export default function ContactPageClient() {
             <a href={phoneHref} className="primaryAction"><Phone size={16} /> {callNow}</a>
             {whatsappNumber && <a href={`https://wa.me/${whatsappNumber}`} className="secondaryAction"><Phone size={16} /> {whatsapp}</a>}
             <a href={mapHref} target="_blank" rel="noreferrer" className="secondaryAction"><MapPin size={16} /> {openMap}</a>
-          </div>
-          <div className="heroActions">
-            <Link href={hrefWithLanguage("/vehicles", language)} className="primaryAction">{browse}</Link>
-            <a href={facebookUrl} target="_blank" rel="noreferrer" className="secondaryAction">{facebook}</a>
+            <a href={facebookUrl} target="_blank" rel="noreferrer" className="secondaryAction"><ExternalLink size={16} /> {facebook}</a>
           </div>
         </div>
       </header>
+
+      <section className="atelierServicePanel contactServices" id="services">
+        <div>
+          <p className="atelierKicker">{t.helpKicker}</p>
+          <h2>{helpTitle}</h2>
+          <p>{helpText}</p>
+        </div>
+        <div className="serviceTiles">
+          <span><Car size={20} /> {serviceTiles[0]}</span>
+          <span><Banknote size={20} /> {serviceTiles[1]}</span>
+          <span><Wrench size={20} /> {serviceTiles[2]}</span>
+          <span><ShieldCheck size={20} /> {serviceTiles[3]}</span>
+        </div>
+      </section>
+
+      <section className="atelierServicePanel contactServices locationPanel" id="workshop">
+        <div>
+          <p className="atelierKicker">{workshopKicker}</p>
+          <h2>{workshopTitle}</h2>
+          <p>{workshopText}</p>
+          <div className="locationActions">
+            <a href={mapHref} target="_blank" rel="noreferrer" className="primaryAction"><MapPin size={16} /> {openMap}</a>
+            <a href={phoneHref} className="secondaryAction"><Phone size={16} /> {callNow}</a>
+          </div>
+        </div>
+        <div className="mapPanel contactMapPanel">
+          <iframe
+            src={mapEmbedUrl}
+            title="YS Heng Automotive map"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+          <div className="mapLocationCard">
+            <span><MapPin size={16} /></span>
+            <div>
+              <strong>YS Heng Automotive Sdn Bhd</strong>
+              <p>{showroomAddress}</p>
+              <a href={mapHref} target="_blank" rel="noreferrer">{openMap}</a>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="contactGrid" id="contact">
         <a className="contactCard" href={mapHref} target="_blank" rel="noreferrer">
@@ -80,34 +117,6 @@ export default function ContactPageClient() {
           <h2>{facebook}</h2>
           <p>Ys Heng Automotive Sdn Bhd</p>
         </a>
-      </section>
-
-      <section className="atelierServicePanel contactServices" id="services">
-        <div>
-          <p className="atelierKicker">{t.helpKicker}</p>
-          <h2>{helpTitle}</h2>
-          <p>{helpText}</p>
-        </div>
-        <div className="serviceTiles">
-          <span><Car size={20} /> {serviceTiles[0]}</span>
-          <span><Banknote size={20} /> {serviceTiles[1]}</span>
-          <span><Wrench size={20} /> {serviceTiles[2]}</span>
-          <span><ShieldCheck size={20} /> {serviceTiles[3]}</span>
-        </div>
-      </section>
-
-      <section className="atelierServicePanel contactServices" id="workshop">
-        <div>
-          <p className="atelierKicker">{workshopKicker}</p>
-          <h2>{workshopTitle}</h2>
-          <p>{workshopText}</p>
-        </div>
-        <div className="serviceTiles">
-          <span><Wrench size={20} /> {workshopTiles[0]}</span>
-          <span><ShieldCheck size={20} /> {workshopTiles[1]}</span>
-          <span><Car size={20} /> {workshopTiles[2]}</span>
-          <span><Banknote size={20} /> {workshopTiles[3]}</span>
-        </div>
       </section>
 
       <PublicFooter language={language} />

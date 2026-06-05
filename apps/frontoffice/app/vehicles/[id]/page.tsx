@@ -2,16 +2,18 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Banknote, CalendarDays, Car, ChevronLeft, Gauge, ShieldCheck } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../../PublicChrome";
-import { frontofficeCopy, hrefWithLanguage, type Language } from "../../i18n";
+import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type SearchParams } from "../../i18n";
 import { relatedVehicles } from "../listing";
 import { getPublicVehicleDetailPageData, getPublicVehicles } from "../service";
 import { VehiclePhoto } from "../VehiclePhoto";
 import { VehicleCard } from "../VehicleCard";
 import { LeadForm } from "./LeadForm";
 
-export default async function VehicleDetailPage({ params }: { params: Promise<{ id: string }> }) {
+const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
+
+export default async function VehicleDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams?: Promise<SearchParams> }) {
   const { id } = await params;
-  const language: Language = "en";
+  const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
   const t = frontofficeCopy[language].detail;
   const pageData = await getPublicVehicleDetailPageData(id);
   if (!pageData) notFound();
@@ -30,6 +32,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
   const nextTitle = t.nextTitle ?? "What happens next";
   const nextText = t.nextText ?? "Sales follow up, confirms viewing, and guides loan, documents, payment, insurance, transfer, and delivery steps.";
   const highlightsTitle = t.highlights ?? "Vehicle highlights";
+  const gallery = vehicle.photoUrls.length > 0 ? vehicle.photoUrls : [vehicle.photoUrl];
 
   return (
     <main className="atelierSubPage">
@@ -45,12 +48,27 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
       </header>
       <section className="detailPage">
       <section className="detailGrid">
-        <div className="detailImage">
-          <VehiclePhoto
-            src={vehicle.photoUrl}
-            alt={`${make} ${model}`}
-            fallback={fallbackLetters}
-          />
+        <div className="detailGallery">
+          <div className="detailImage">
+            <VehiclePhoto
+              src={gallery[0]}
+              alt={`${make} ${model}`}
+              fallback={fallbackLetters}
+            />
+          </div>
+          {gallery.length > 1 && (
+            <div className="detailPhotoStrip" aria-label="Vehicle photo gallery">
+              {gallery.map((photoUrl, index) => (
+                <a href={photoUrl} target="_blank" rel="noreferrer" className={index === 0 ? "isPrimary" : ""} key={photoUrl}>
+                  <VehiclePhoto
+                    src={photoUrl}
+                    alt={`${make} ${model} photo ${index + 1}`}
+                    fallback={fallbackLetters}
+                  />
+                </a>
+              ))}
+            </div>
+          )}
         </div>
         <div className="detailInfo">
           <p className="plate">{plateNumber}</p>

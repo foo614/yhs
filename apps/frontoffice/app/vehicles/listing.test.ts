@@ -23,7 +23,8 @@ const vehicles: PublicVehicle[] = [
     stockOwner: "YSHeng",
     status: "Available",
     sellingPrice: 58000,
-    photoUrl: "/one.jpg"
+    photoUrl: "/one.jpg",
+    photoUrls: ["/one.jpg"]
   },
   {
     id: "two",
@@ -34,7 +35,8 @@ const vehicles: PublicVehicle[] = [
     stockOwner: "KS",
     status: "Available",
     sellingPrice: 64000,
-    photoUrl: "/two.jpg"
+    photoUrl: "/two.jpg",
+    photoUrls: ["/two.jpg"]
   },
   {
     id: "three",
@@ -45,7 +47,8 @@ const vehicles: PublicVehicle[] = [
     stockOwner: "YSHeng",
     status: "Available",
     sellingPrice: 42000,
-    photoUrl: "/three.jpg"
+    photoUrl: "/three.jpg",
+    photoUrls: ["/three.jpg"]
   }
 ];
 
@@ -166,7 +169,8 @@ describe("publicVehicleFromApi", () => {
       stockOwner: "YSHeng",
       status: "Available",
       sellingPrice: 58000,
-      photoUrl: "http://localhost:5000/api/public/vehicles/one/photo"
+      photoUrl: "http://localhost:5000/api/public/vehicles/one/photo",
+      photoUrls: ["http://localhost:5000/api/public/vehicles/one/photo"]
     });
     expect("purchasePrice" in result).toBe(false);
     expect("refurbishmentTotal" in result).toBe(false);
@@ -230,28 +234,41 @@ describe("getPublicVehicles", () => {
 
 describe("getPublicVehicle", () => {
   it("loads vehicle details from the public detail endpoint", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue({
-        id: "vehicle-1",
-        plateNumber: "VPK1234",
-        make: "Toyota",
-        model: "Vios",
-        year: 2021,
-        stockOwner: "YSHeng",
-        status: "Available",
-        sellingPrice: 58000
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          id: "vehicle-1",
+          plateNumber: "VPK1234",
+          make: "Toyota",
+          model: "Vios",
+          year: 2021,
+          stockOwner: "YSHeng",
+          status: "Available",
+          sellingPrice: 58000
+        })
       })
-    });
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          { id: "photo-1", fileName: "front.jpg", mimeType: "image/jpeg", uploadedAt: "2026-06-04T00:00:00Z" },
+          { id: "photo-2", fileName: "rear.jpg", mimeType: "image/jpeg", uploadedAt: "2026-06-03T00:00:00Z" }
+        ])
+      });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await getPublicVehicle("vehicle-1", "http://localhost:5000");
 
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/public/vehicles/vehicle-1", { next: { revalidate: 30 } });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/public/vehicles/vehicle-1", { next: { revalidate: 30 } });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/public/vehicles/vehicle-1/photos", { next: { revalidate: 30 } });
     expect(result).toEqual(expect.objectContaining({
       id: "vehicle-1",
       plateNumber: "VPK1234",
-      photoUrl: "http://localhost:5000/api/public/vehicles/vehicle-1/photo"
+      photoUrl: "http://localhost:5000/api/public/vehicles/vehicle-1/photos/photo-1",
+      photoUrls: [
+        "http://localhost:5000/api/public/vehicles/vehicle-1/photos/photo-1",
+        "http://localhost:5000/api/public/vehicles/vehicle-1/photos/photo-2"
+      ]
     }));
   });
 
@@ -277,6 +294,10 @@ describe("getPublicVehicleDetailPageData", () => {
           status: "Available",
           sellingPrice: 58000
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([])
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -308,7 +329,8 @@ describe("getPublicVehicleDetailPageData", () => {
     const result = await getPublicVehicleDetailPageData("vehicle-1", "http://localhost:5000");
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/public/vehicles/vehicle-1", { next: { revalidate: 30 } });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/public/vehicles", { next: { revalidate: 30 } });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/public/vehicles/vehicle-1/photos", { next: { revalidate: 30 } });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/public/vehicles", { next: { revalidate: 30 } });
     expect(result?.vehicle.id).toBe("vehicle-1");
     expect(result?.vehicles.map((vehicle) => vehicle.id)).toEqual(["vehicle-1", "vehicle-2"]);
   });

@@ -11,6 +11,14 @@ export type PublicVehicle = {
   status: PublicVehicleStatus;
   sellingPrice: number;
   photoUrl: string;
+  photoUrls: string[];
+};
+
+export type PublicVehiclePhoto = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  uploadedAt: string;
 };
 
 type ApiVehicle = {
@@ -47,7 +55,8 @@ const fallbackVehicles: PublicVehicle[] = [
     stockOwner: "YSHeng",
     status: "Available",
     sellingPrice: 58000,
-    photoUrl: "https://images.unsplash.com/photo-1623869675781-80aa31012a5a?auto=format&fit=crop&w=900&q=84"
+    photoUrl: "https://images.unsplash.com/photo-1623869675781-80aa31012a5a?auto=format&fit=crop&w=900&q=84",
+    photoUrls: ["https://images.unsplash.com/photo-1623869675781-80aa31012a5a?auto=format&fit=crop&w=900&q=84"]
   },
   {
     id: "53af5d9e-ecb0-4f85-b7c5-0f56fd973571",
@@ -58,7 +67,8 @@ const fallbackVehicles: PublicVehicle[] = [
     stockOwner: "YSHeng",
     status: "Available",
     sellingPrice: 62000,
-    photoUrl: "https://images.unsplash.com/photo-1619767886558-efdc259cde1a?auto=format&fit=crop&w=900&q=84"
+    photoUrl: "https://images.unsplash.com/photo-1619767886558-efdc259cde1a?auto=format&fit=crop&w=900&q=84",
+    photoUrls: ["https://images.unsplash.com/photo-1619767886558-efdc259cde1a?auto=format&fit=crop&w=900&q=84"]
   },
   {
     id: "2b544508-501e-4958-8bd3-f0fe728f5e14",
@@ -69,7 +79,8 @@ const fallbackVehicles: PublicVehicle[] = [
     stockOwner: "KS",
     status: "Available",
     sellingPrice: 39800,
-    photoUrl: "https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=900&q=84"
+    photoUrl: "https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=900&q=84",
+    photoUrls: ["https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=900&q=84"]
   },
   {
     id: "f8df54c3-7073-48e8-988f-67f249334b9c",
@@ -80,7 +91,8 @@ const fallbackVehicles: PublicVehicle[] = [
     stockOwner: "YSHeng",
     status: "LoanProcessing",
     sellingPrice: 89800,
-    photoUrl: "https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=900&q=84"
+    photoUrl: "https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=900&q=84",
+    photoUrls: ["https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=900&q=84"]
   },
   {
     id: "fdc9ad77-96d8-474c-94f7-7f1646db7561",
@@ -91,7 +103,8 @@ const fallbackVehicles: PublicVehicle[] = [
     stockOwner: "YSHeng",
     status: "Available",
     sellingPrice: 75800,
-    photoUrl: "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=900&q=84"
+    photoUrl: "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=900&q=84",
+    photoUrls: ["https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=900&q=84"]
   },
   {
     id: "a07ce9a0-b4c7-4ced-8a50-00a7ea342a7e",
@@ -102,7 +115,8 @@ const fallbackVehicles: PublicVehicle[] = [
     stockOwner: "KS",
     status: "Available",
     sellingPrice: 108000,
-    photoUrl: "https://images.unsplash.com/photo-1616422285623-13ff0162193c?auto=format&fit=crop&w=900&q=84"
+    photoUrl: "https://images.unsplash.com/photo-1616422285623-13ff0162193c?auto=format&fit=crop&w=900&q=84",
+    photoUrls: ["https://images.unsplash.com/photo-1616422285623-13ff0162193c?auto=format&fit=crop&w=900&q=84"]
   },
   {
     id: "6f6abac7-c88f-4f88-b376-6122df4fe0aa",
@@ -113,7 +127,8 @@ const fallbackVehicles: PublicVehicle[] = [
     stockOwner: "YSHeng",
     status: "Available",
     sellingPrice: 168000,
-    photoUrl: "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=900&q=84"
+    photoUrl: "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=900&q=84",
+    photoUrls: ["https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=900&q=84"]
   },
   {
     id: "c4b31677-79b2-4861-a38d-926f50c1774e",
@@ -124,7 +139,8 @@ const fallbackVehicles: PublicVehicle[] = [
     stockOwner: "YSHeng",
     status: "Available",
     sellingPrice: 92800,
-    photoUrl: "https://images.unsplash.com/photo-1600712242805-5f78671b24da?auto=format&fit=crop&w=900&q=84"
+    photoUrl: "https://images.unsplash.com/photo-1600712242805-5f78671b24da?auto=format&fit=crop&w=900&q=84",
+    photoUrls: ["https://images.unsplash.com/photo-1600712242805-5f78671b24da?auto=format&fit=crop&w=900&q=84"]
   }
 ];
 
@@ -150,6 +166,11 @@ export async function getPublicVehicle(id: string, baseUrl = apiBaseUrl): Promis
       return availableVehicles(fallbackVehicles).find((vehicle) => vehicle.id === id) ?? null;
     }
     const vehicle = publicVehicleFromApi(payload, baseUrl);
+    const photoUrls = await getPublicVehiclePhotoUrls(id, baseUrl);
+    if (photoUrls.length > 0) {
+      vehicle.photoUrls = photoUrls;
+      vehicle.photoUrl = photoUrls[0];
+    }
     return vehicle.status === "Available" ? vehicle : null;
   } catch {
     return availableVehicles(fallbackVehicles).find((vehicle) => vehicle.id === id) ?? null;
@@ -166,6 +187,7 @@ export async function getPublicVehicleDetailPageData(id: string, baseUrl = apiBa
 }
 
 export function publicVehicleFromApi(vehicle: ApiVehicle, baseUrl = apiBaseUrl): PublicVehicle {
+  const photoUrl = `${baseUrl}/api/public/vehicles/${vehicle.id}/photo`;
   return {
     id: vehicle.id,
     plateNumber: vehicle.plateNumber,
@@ -175,8 +197,23 @@ export function publicVehicleFromApi(vehicle: ApiVehicle, baseUrl = apiBaseUrl):
     stockOwner: vehicle.stockOwner,
     status: vehicle.status,
     sellingPrice: vehicle.sellingPrice,
-    photoUrl: `${baseUrl}/api/public/vehicles/${vehicle.id}/photo`
+    photoUrl,
+    photoUrls: [photoUrl]
   };
+}
+
+export async function getPublicVehiclePhotoUrls(id: string, baseUrl = apiBaseUrl): Promise<string[]> {
+  try {
+    const response = await fetch(`${baseUrl}/api/public/vehicles/${id}/photos`, { next: { revalidate: 30 } });
+    if (!response.ok) return [];
+    const photos = await response.json();
+    if (!Array.isArray(photos)) return [];
+    return photos
+      .filter(isValidPublicVehiclePhoto)
+      .map((photo) => `${baseUrl}/api/public/vehicles/${id}/photos/${photo.id}`);
+  } catch {
+    return [];
+  }
 }
 
 export async function submitPublicLead(payload: PublicLeadPayload, baseUrl = apiBaseUrl): Promise<PublicLeadResult> {
@@ -232,6 +269,14 @@ function isValidApiVehicle(vehicle: unknown): vehicle is ApiVehicle {
     && typeof (vehicle as ApiVehicle).stockOwner === "string"
     && typeof (vehicle as ApiVehicle).status === "string"
     && typeof (vehicle as ApiVehicle).sellingPrice === "number";
+}
+
+function isValidPublicVehiclePhoto(photo: unknown): photo is PublicVehiclePhoto {
+  return typeof photo === "object" && photo !== null
+    && typeof (photo as PublicVehiclePhoto).id === "string"
+    && typeof (photo as PublicVehiclePhoto).fileName === "string"
+    && typeof (photo as PublicVehiclePhoto).mimeType === "string"
+    && typeof (photo as PublicVehiclePhoto).uploadedAt === "string";
 }
 
 function withPhotoUrls(vehicles: ApiVehicle[], baseUrl = apiBaseUrl): PublicVehicle[] {
