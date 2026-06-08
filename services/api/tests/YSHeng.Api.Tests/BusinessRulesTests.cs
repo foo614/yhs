@@ -166,6 +166,98 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Backoffice_lead_status_change_requires_original_taker()
+    {
+        var existing = new Lead
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = Guid.NewGuid(),
+            CustomerName = "Ali Tan",
+            Phone = "0123456789",
+            Status = LeadStatus.Contacted,
+            TakenByUserId = "staff-1",
+            TakenByName = "Jason Tan",
+            TakenAt = DateTime.UtcNow.AddHours(-1)
+        };
+        var incoming = existing with { Status = LeadStatus.Closed };
+
+        var result = LeadRules.ValidateStatusOwner(existing, incoming, "staff-2");
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "lead_assignee_required");
+    }
+
+    [Fact]
+    public void Backoffice_lead_status_change_allows_original_taker()
+    {
+        var existing = new Lead
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = Guid.NewGuid(),
+            CustomerName = "Ali Tan",
+            Phone = "0123456789",
+            Status = LeadStatus.Contacted,
+            TakenByUserId = "staff-1",
+            TakenByName = "Jason Tan",
+            TakenAt = DateTime.UtcNow.AddHours(-1)
+        };
+        var incoming = existing with { Status = LeadStatus.Closed };
+
+        var result = LeadRules.ValidateStatusOwner(existing, incoming, "staff-1");
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Backoffice_lead_update_assigns_first_taker_on_status_change()
+    {
+        var createdAt = DateTime.UtcNow.AddDays(-2);
+        var existing = new Lead
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = Guid.NewGuid(),
+            CustomerName = "Ali Tan",
+            Phone = "0123456789",
+            Status = LeadStatus.New,
+            CreatedAt = createdAt
+        };
+        var incoming = existing with { Status = LeadStatus.Contacted };
+        var takenAt = DateTime.UtcNow;
+
+        var result = LeadRules.ApplyBackOfficeUpdate(existing, incoming, "staff-1", "Jason Tan", takenAt);
+
+        Assert.Equal(LeadStatus.Contacted, result.Status);
+        Assert.Equal(createdAt, result.CreatedAt);
+        Assert.Equal("staff-1", result.TakenByUserId);
+        Assert.Equal("Jason Tan", result.TakenByName);
+        Assert.Equal(takenAt, result.TakenAt);
+    }
+
+    [Fact]
+    public void Backoffice_lead_update_clears_taker_when_released_to_new()
+    {
+        var existing = new Lead
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = Guid.NewGuid(),
+            CustomerName = "Ali Tan",
+            Phone = "0123456789",
+            Status = LeadStatus.Contacted,
+            TakenByUserId = "staff-1",
+            TakenByName = "Jason Tan",
+            TakenAt = DateTime.UtcNow.AddHours(-1)
+        };
+        var incoming = existing with { Status = LeadStatus.New };
+
+        var result = LeadRules.ApplyBackOfficeUpdate(existing, incoming, "staff-1", "Jason Tan", DateTime.UtcNow);
+
+        Assert.Equal(LeadStatus.New, result.Status);
+        Assert.Null(result.TakenByUserId);
+        Assert.Null(result.TakenByName);
+        Assert.Null(result.TakenAt);
+    }
+
+    [Fact]
     public void Customer_validation_requires_name_and_phone()
     {
         var customer = new Customer { Name = " ", Phone = "" };
@@ -235,6 +327,165 @@ public sealed class BusinessRulesTests
         var result = ContactRules.ValidateUniqueOwnerPhone(incoming, [existing]);
 
         Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Hr_payslip_uses_working_days_for_daily_salary_and_unpaid_leave()
+    {
+        var profile = new HrPayrollProfile
+        {
+            StaffUserId = "staff-1",
+            MonthlyBaseSalary = 2200m,
+            OvertimeHours = 2m,
+            OvertimeRate = 15m,
+            Allowances = 100m,
+            ManualDeductions = 20m
+        };
+        var period = new HrPayPeriod
+        {
+            Id = Guid.NewGuid(),
+            Name = "June 2026",
+            StartDate = new DateOnly(2026, 6, 1),
+            EndDate = new DateOnly(2026, 6, 30),
+            WorkingDays = 22
+        };
+        var leave = new HrLeaveRequest
+        {
+            StaffUserId = "staff-1",
+            Type = HrLeaveType.UnpaidLeave,
+            Status = HrLeaveStatus.Approved,
+            StartDate = new DateOnly(2026, 6, 10),
+            EndDate = new DateOnly(2026, 6, 10),
+            Days = 1m
+        };
+
+        var payslip = HrRules.GeneratePayslip(profile, period, [leave]);
+
+        Assert.Equal(100m, payslip.DailySalary);
+        Assert.Equal(100m, payslip.UnpaidLeaveDeduction);
+        Assert.Equal(2330m, payslip.GrossPay);
+        Assert.Equal(2210m, payslip.NetPay);
+    }
+
+    [Fact]
+    public void Hr_leave_approval_updates_al_and_mc_balances_only()
+    {
+        var balance = new HrLeaveBalance { StaffUserId = "staff-1", AnnualLeaveDays = 8m, MedicalLeaveDays = 14m };
+
+        var annual = HrRules.ApplyApprovedLeave(balance, new HrLeaveRequest { StaffUserId = "staff-1", Type = HrLeaveType.AnnualLeave, Status = HrLeaveStatus.Approved, Days = 2m });
+        var medical = HrRules.ApplyApprovedLeave(annual, new HrLeaveRequest { StaffUserId = "staff-1", Type = HrLeaveType.MedicalLeave, Status = HrLeaveStatus.Approved, Days = 1m });
+        var unpaid = HrRules.ApplyApprovedLeave(medical, new HrLeaveRequest { StaffUserId = "staff-1", Type = HrLeaveType.UnpaidLeave, Status = HrLeaveStatus.Approved, Days = 1m });
+
+        Assert.Equal(6m, unpaid.AnnualLeaveDays);
+        Assert.Equal(13m, unpaid.MedicalLeaveDays);
+    }
+
+    [Fact]
+    public void Hr_leave_cancellation_only_allows_pending_requests()
+    {
+        var pending = HrRules.ValidateLeaveCancellation(new HrLeaveRequest { StaffUserId = "staff-1", Status = HrLeaveStatus.Pending, StartDate = new DateOnly(2026, 6, 10), EndDate = new DateOnly(2026, 6, 10), Days = 1m });
+        var approved = HrRules.ValidateLeaveCancellation(new HrLeaveRequest { StaffUserId = "staff-1", Status = HrLeaveStatus.Approved, StartDate = new DateOnly(2026, 6, 10), EndDate = new DateOnly(2026, 6, 10), Days = 1m });
+
+        Assert.True(pending.IsValid);
+        Assert.False(approved.IsValid);
+    }
+
+    [Fact]
+    public void Hr_attendance_rejects_check_in_when_session_is_open()
+    {
+        var openSession = new HrAttendanceRecord
+        {
+            StaffUserId = "staff-1",
+            AttendanceDate = new DateOnly(2026, 6, 7),
+            CheckInAt = new DateTime(2026, 6, 7, 9, 0, 0, DateTimeKind.Utc)
+        };
+
+        var result = HrRules.ValidateCheckIn(openSession);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "attendance_open_session_exists");
+    }
+
+    [Fact]
+    public void Hr_attendance_allows_check_in_after_previous_session_closed()
+    {
+        var result = HrRules.ValidateCheckIn(null);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Hr_attendance_requires_check_in_before_check_out()
+    {
+        var result = HrRules.ValidateCheckOut(null);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "attendance_open_session_required");
+    }
+
+    [Fact]
+    public void Hr_attendance_allows_check_out_for_open_session()
+    {
+        var openSession = new HrAttendanceRecord
+        {
+            StaffUserId = "staff-1",
+            AttendanceDate = new DateOnly(2026, 6, 7),
+            CheckInAt = new DateTime(2026, 6, 7, 9, 0, 0, DateTimeKind.Utc)
+        };
+
+        var result = HrRules.ValidateCheckOut(openSession);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Hr_leave_decision_rejects_already_decided_request()
+    {
+        var existing = new HrLeaveRequest
+        {
+            StaffUserId = "staff-1",
+            Type = HrLeaveType.AnnualLeave,
+            Status = HrLeaveStatus.Approved,
+            StartDate = new DateOnly(2026, 6, 8),
+            EndDate = new DateOnly(2026, 6, 8),
+            Days = 1m
+        };
+
+        var result = HrRules.ValidateLeaveDecision(existing);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "leave_already_decided");
+    }
+
+    [Fact]
+    public void Hr_medical_certificate_upload_requires_medical_leave()
+    {
+        var existing = new HrLeaveRequest
+        {
+            StaffUserId = "staff-1",
+            Type = HrLeaveType.AnnualLeave,
+            Status = HrLeaveStatus.Pending,
+            StartDate = new DateOnly(2026, 6, 8),
+            EndDate = new DateOnly(2026, 6, 8),
+            Days = 1m
+        };
+
+        var result = HrRules.ValidateMedicalCertificateUpload(existing);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "mc_only_for_medical_leave");
+    }
+
+    [Fact]
+    public void Hr_access_allows_owner_or_hr_manager_only()
+    {
+        var owner = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "staff-1")], "Test"));
+        var otherStaff = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "staff-2")], "Test"));
+        var hr = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "hr-1"), new Claim(ClaimTypes.Role, "HrSalary")], "Test"));
+
+        Assert.True(DepartmentAccess.CanAccessHrStaff(owner, "staff-1"));
+        Assert.False(DepartmentAccess.CanAccessHrStaff(otherStaff, "staff-1"));
+        Assert.True(DepartmentAccess.CanAccessHrStaff(hr, "staff-1"));
     }
 
     [Fact]
@@ -910,11 +1161,14 @@ public sealed class BusinessRulesTests
             [],
             [],
             [],
+            [],
             repairs,
             [
                 new SupplierInvoice { VehicleId = vehicleId, SupplierName = "ABC Spray", InvoiceNumber = "S-1", Amount = 500m },
                 new SupplierInvoice { VehicleId = vehicleId, SupplierName = "Tint Shop", InvoiceNumber = "S-2", Amount = 1500m }
             ],
+            [],
+            [],
             [],
             [],
             [
@@ -951,7 +1205,10 @@ public sealed class BusinessRulesTests
             [],
             [],
             [],
+            [],
             [new BrokerCommission { VehicleId = vehicleId, BrokerName = "Ah Chong", Amount = 1800m }],
+            [],
+            [],
             [],
             [],
             new DateOnly(2026, 5, 30));
@@ -983,7 +1240,10 @@ public sealed class BusinessRulesTests
             [],
             [],
             [],
+            [],
             [new PaymentVoucher { VehicleId = vehicleId, PayeeName = "Driver", Amount = 180m, Purpose = "Outstation Pickup Allowance", IssuedDate = new DateOnly(2026, 6, 3) }],
+            [],
+            [],
             [],
             new DateOnly(2026, 5, 30));
 
@@ -1010,6 +1270,9 @@ public sealed class BusinessRulesTests
             [],
             [],
             [],
+            [],
+            [],
+            [],
             today);
 
         Assert.Equal(3, summary.TotalStock);
@@ -1017,6 +1280,103 @@ public sealed class BusinessRulesTests
         Assert.Contains(summary.AgingBuckets, bucket => bucket.Label == "0-30" && bucket.Count == 1);
         Assert.Contains(summary.AgingBuckets, bucket => bucket.Label == "31-60" && bucket.Count == 1);
         Assert.Contains(summary.AgingBuckets, bucket => bucket.Label == "61+" && bucket.Count == 1);
+    }
+
+    [Fact]
+    public void Dashboard_metrics_create_chart_ready_management_insights()
+    {
+        var today = new DateOnly(2026, 6, 1);
+        var availableVehicleId = Guid.NewGuid();
+        var loanVehicleId = Guid.NewGuid();
+        var soldVehicleId = Guid.NewGuid();
+        var vehicles = new[]
+        {
+            VehicleSeed.Available(publicVisible: true) with
+            {
+                Id = availableVehicleId,
+                StockOwner = StockOwner.YSHeng,
+                PurchasePrice = 42000m,
+                SellingPrice = 58000m,
+                AdditionalCharges = 600m,
+                RefurbishmentTotal = 3500m,
+                CommissionTotal = 1200m,
+                OutstationPickupAllowance = 100m
+            },
+            VehicleSeed.LoanProcessing(publicVisible: false) with
+            {
+                Id = loanVehicleId,
+                StockOwner = StockOwner.KS,
+                PurchasePrice = 30000m,
+                SellingPrice = 42000m,
+                AdditionalCharges = 300m,
+                RefurbishmentTotal = 2000m,
+                CommissionTotal = 900m
+            },
+            VehicleSeed.Sold(publicVisible: false) with
+            {
+                Id = soldVehicleId,
+                StockOwner = StockOwner.KS,
+                PurchasePrice = 20000m,
+                SellingPrice = 30000m,
+                RefurbishmentTotal = 1000m,
+                CommissionTotal = 500m
+            }
+        };
+
+        var summary = DashboardMetrics.Create(
+            vehicles,
+            [new LoanApplication { VehicleId = loanVehicleId, CustomerId = Guid.NewGuid(), Status = LoanStatus.Pending, SubmittedAt = today.AddDays(-4) }],
+            [new DeliverySchedule { VehicleId = loanVehicleId, Pic = "Ah Ming", Status = DeliveryStatus.Scheduled, ScheduledDate = today.AddDays(2) }],
+            [
+                new PaymentRecord { VehicleId = loanVehicleId, NettPrice = 58000m, Status = PaymentStatus.Disbursed, BankFollowUpDate = today, CreatedAt = new DateTime(2026, 5, 31, 0, 0, 0, DateTimeKind.Utc) },
+                new PaymentRecord { VehicleId = soldVehicleId, NettPrice = 30000m, Status = PaymentStatus.Reconciled, CreatedAt = new DateTime(2026, 5, 28, 0, 0, 0, DateTimeKind.Utc) }
+            ],
+            [
+                new SettlementReminder { VehicleId = availableVehicleId, Amount = 25000m, Deadline = today, IsPaid = false },
+                new SettlementReminder { VehicleId = soldVehicleId, Amount = 12000m, Deadline = today, IsPaid = true }
+            ],
+            [new RepairJob { VehicleId = availableVehicleId, WhatToDo = "Paint", Cost = 450m }],
+            [
+                new SupplierInvoice { VehicleId = availableVehicleId, SupplierName = "ABC Spray", InvoiceNumber = "S-1", Amount = 500m },
+                new SupplierInvoice { VehicleId = loanVehicleId, SupplierName = "Tint Shop", InvoiceNumber = "S-2", Amount = 1500m },
+                new SupplierInvoice { VehicleId = soldVehicleId, SupplierName = "ABC Spray", InvoiceNumber = "S-3", Amount = 700m }
+            ],
+            [new BrokerCommission { VehicleId = availableVehicleId, BrokerName = "Broker A", Amount = 1800m }],
+            [
+                new PaymentVoucher { VehicleId = availableVehicleId, PayeeName = "Driver", Amount = 180m, Purpose = "Outstation Pickup Allowance", IssuedDate = today, Status = PaymentVoucherStatus.Approved },
+                new PaymentVoucher { VehicleId = soldVehicleId, PayeeName = "Runner", Amount = 90m, Purpose = "JPJ", IssuedDate = today, Status = PaymentVoucherStatus.Paid }
+            ],
+            [new DailySpend { Description = "Electric", Amount = 480m, DueDate = today, IsPaid = false }],
+            [
+                new DebtRecoveryCase { VehicleId = loanVehicleId, CustomerId = Guid.NewGuid(), BalanceAmount = 3200m, Status = DebtRecoveryStatus.Open, FollowUpDate = today },
+                new DebtRecoveryCase { VehicleId = soldVehicleId, CustomerId = Guid.NewGuid(), BalanceAmount = 1000m, Status = DebtRecoveryStatus.Closed, FollowUpDate = today }
+            ],
+            [
+                new Lead { VehicleId = availableVehicleId, CustomerName = "Ali", Phone = "012", Status = LeadStatus.New },
+                new Lead { VehicleId = loanVehicleId, CustomerName = "Tan", Phone = "013", Status = LeadStatus.Contacted },
+                new Lead { VehicleId = soldVehicleId, CustomerName = "Lim", Phone = "014", Status = LeadStatus.Closed }
+            ],
+            today);
+
+        Assert.Contains(summary.StockStatusMix, item => item.Label == "Available" && item.Count == 1);
+        Assert.Contains(summary.StockStatusMix, item => item.Label == "LoanProcessing" && item.Count == 1);
+        Assert.Contains(summary.StockStatusMix, item => item.Label == "Sold" && item.Count == 1);
+        Assert.Contains(summary.StockOwnerMix, item => item.Label == "YSHeng" && item.Count == 1);
+        Assert.Contains(summary.StockOwnerMix, item => item.Label == "KS" && item.Count == 2);
+        Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Outstanding Payment" && item.Amount == 58000m);
+        Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Unpaid Settlement" && item.Amount == 25000m);
+        Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Open Debt Recovery" && item.Amount == 3200m);
+        Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Unpaid Daily Spend" && item.Amount == 480m);
+        Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Open Payment Voucher" && item.Amount == 180m);
+        Assert.Contains(summary.WorkflowBlockers.ByType, item => item.Label == "DeliveryPreparation" && item.Count == 1);
+        Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "Overdue" && item.Count == 2);
+        Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "DueToday" && item.Count == 5);
+        Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "Upcoming" && item.Count == 1);
+        Assert.Contains(summary.SalesFunnel.Stages, item => item.Label == "Closed" && item.Count == 1);
+        Assert.Equal(33.3m, summary.SalesFunnel.ConversionRate);
+        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Repair Cost" && item.Amount == summary.RepairCost);
+        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Estimated Profit" && item.Amount == summary.TotalProfit);
+        Assert.Equal(["Tint Shop", "ABC Spray"], summary.SupplierSpendTop.Select(item => item.Label).ToArray());
     }
 
     [Fact]
@@ -1520,6 +1880,34 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Public_photo_gallery_returns_vehicle_photos_newest_first()
+    {
+        var vehicleId = Guid.NewGuid();
+        var otherVehicleId = Guid.NewGuid();
+        var older = new VehiclePhoto
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = vehicleId,
+            FileName = "older.jpg",
+            MimeType = "image/jpeg",
+            Content = [1],
+            UploadedAt = new DateTime(2026, 5, 29, 8, 0, 0, DateTimeKind.Utc)
+        };
+        var newer = older with
+        {
+            Id = Guid.NewGuid(),
+            FileName = "newer.jpg",
+            UploadedAt = new DateTime(2026, 5, 30, 8, 0, 0, DateTimeKind.Utc)
+        };
+        var unrelated = older with { Id = Guid.NewGuid(), VehicleId = otherVehicleId, FileName = "other.jpg" };
+
+        var gallery = PublicVehiclePhotos.SelectGallery(vehicleId, [older, unrelated, newer]);
+
+        Assert.Equal([newer.Id, older.Id], gallery.Select(photo => photo.Id).ToArray());
+        Assert.Equal(["newer.jpg", "older.jpg"], gallery.Select(photo => photo.FileName).ToArray());
+    }
+
+    [Fact]
     public void Public_photo_selection_returns_null_when_vehicle_has_no_photo()
     {
         var selected = PublicVehiclePhotos.SelectPrimary(Guid.NewGuid(), []);
@@ -1672,6 +2060,70 @@ public sealed class BusinessRulesTests
         Assert.False(DepartmentAccess.CanUploadDocument(["Loan"], FileCategory.Policy));
         Assert.False(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.PurchaseInvoice));
         Assert.False(DepartmentAccess.CanUploadDocument(["Sales"], FileCategory.PaymentReceipt));
+    }
+
+    [Fact]
+    public void Local_mock_ocr_extracts_purchase_invoice_fields_from_uploaded_text()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "VPK1234" };
+        var document = new DocumentBlob
+        {
+            VehicleId = vehicle.Id,
+            Category = FileCategory.PurchaseInvoice,
+            FileName = "purchase.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes("Purchase invoice PI-1001 plate VPK1234 amount RM 52000.00")
+        };
+
+        var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
+
+        Assert.Equal(FileCategory.PurchaseInvoice, result.DocumentCategory);
+        Assert.Equal("PI-1001", result.Fields["invoiceNumber"]);
+        Assert.Equal("VPK1234", result.Fields["plateNumber"]);
+        Assert.Equal("52000.00", result.Fields["amount"]);
+        Assert.True(result.Confidence > 0);
+    }
+
+    [Fact]
+    public void Local_mock_ocr_extracts_repair_invoice_supplier_and_plate()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "ABC1234" };
+        var document = new DocumentBlob
+        {
+            VehicleId = vehicle.Id,
+            Category = FileCategory.RepairInvoice,
+            FileName = "repair.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes("Supplier Brilliant Spray invoice SUP-7788 plate ABC1234 total RM 880")
+        };
+
+        var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
+
+        Assert.Equal("Brilliant", result.Fields["supplierName"]);
+        Assert.Equal("SUP-7788", result.Fields["invoiceNumber"]);
+        Assert.Equal("ABC1234", result.Fields["plateNumberOnInvoice"]);
+        Assert.Equal("880", result.Fields["amount"]);
+    }
+
+    [Fact]
+    public void Local_mock_ocr_extracts_finance_receipt_fields()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false);
+        var document = new DocumentBlob
+        {
+            VehicleId = vehicle.Id,
+            Category = FileCategory.PaymentReceipt,
+            FileName = "receipt.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes("Receipt RCPT-9001 Maybank amount RM 58000 date 2026-06-08")
+        };
+
+        var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
+
+        Assert.Equal("RCPT-9001", result.Fields["receiptNumber"]);
+        Assert.Equal("Maybank", result.Fields["bankName"]);
+        Assert.Equal("58000", result.Fields["nettPrice"]);
+        Assert.Equal("2026-06-08", result.Fields["documentDate"]);
     }
 
     [Fact]

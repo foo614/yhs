@@ -8,7 +8,12 @@ public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, Preparing
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
-public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice }
+public enum HrAttendanceStatus { Present, Late, HalfDay, Absent }
+public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave }
+public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
+public enum HrPayslipStatus { Draft, Generated }
+public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
+public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
 
 public sealed record Vehicle
 {
@@ -64,6 +69,9 @@ public sealed record Lead
     public string? Message { get; init; }
     public LeadStatus Status { get; init; } = LeadStatus.New;
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public string? TakenByUserId { get; init; }
+    public string? TakenByName { get; init; }
+    public DateTime? TakenAt { get; init; }
 }
 
 public sealed record VehiclePhoto
@@ -91,6 +99,19 @@ public sealed record DocumentBlob
     public string Checksum { get; init; } = "";
     public string UploadedBy { get; init; } = "";
     public DateTime UploadedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record OcrJob
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid DocumentId { get; init; }
+    public FileCategory Category { get; init; }
+    public OcrJobStatus Status { get; init; } = OcrJobStatus.Queued;
+    public int Progress { get; init; }
+    public string ResultJson { get; init; } = "";
+    public string[] Warnings { get; init; } = [];
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public DateTime? CompletedAt { get; init; }
 }
 
 public sealed record PurchaseInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string InvoiceNumber { get; init; } = ""; public decimal Amount { get; init; } }
@@ -206,6 +227,121 @@ public sealed record PaymentVoucher
     public PaymentVoucherStatus Status { get; init; } = PaymentVoucherStatus.Pending;
     public DateOnly IssuedDate { get; init; }
     public string? Notes { get; init; }
+}
+
+public sealed record HrAttendanceRecord
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public DateOnly AttendanceDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public DateTime? CheckInAt { get; init; }
+    public DateTime? CheckOutAt { get; init; }
+    public HrAttendanceStatus Status { get; init; } = HrAttendanceStatus.Present;
+    public string? Notes { get; init; }
+}
+
+public sealed record HrLeaveRequest
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public HrLeaveType Type { get; init; } = HrLeaveType.AnnualLeave;
+    public HrLeaveStatus Status { get; init; } = HrLeaveStatus.Pending;
+    public DateOnly StartDate { get; init; }
+    public DateOnly EndDate { get; init; }
+    public decimal Days { get; init; }
+    public string? Reason { get; init; }
+    public Guid? MedicalCertificateDocumentId { get; init; }
+    public string? ApprovedBy { get; init; }
+    public DateTime? ApprovedAt { get; init; }
+    public string? DecisionNotes { get; init; }
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrLeaveBalance
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public decimal AnnualLeaveDays { get; init; }
+    public decimal MedicalLeaveDays { get; init; }
+    public string? Notes { get; init; }
+}
+
+public sealed record HrLeavePolicy
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string Role { get; init; } = "";
+    public decimal AnnualLeaveDays { get; init; }
+    public decimal MedicalLeaveDays { get; init; }
+    public string? Notes { get; init; }
+}
+
+public enum HrLeaveAdjustmentType
+{
+    AnnualLeave = 0,
+    MedicalLeave = 1
+}
+
+public enum HrLeaveAdjustmentDirection
+{
+    Increase = 0,
+    Decrease = 1
+}
+
+public sealed record HrLeaveAdjustment
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public HrLeaveAdjustmentType Type { get; init; } = HrLeaveAdjustmentType.AnnualLeave;
+    public HrLeaveAdjustmentDirection Direction { get; init; } = HrLeaveAdjustmentDirection.Increase;
+    public decimal Days { get; init; }
+    public decimal AnnualLeaveBefore { get; init; }
+    public decimal MedicalLeaveBefore { get; init; }
+    public decimal AnnualLeaveAfter { get; init; }
+    public decimal MedicalLeaveAfter { get; init; }
+    public string Reason { get; init; } = "";
+    public string AdjustedBy { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrPayrollProfile
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public decimal MonthlyBaseSalary { get; init; }
+    public decimal OvertimeHours { get; init; }
+    public decimal OvertimeRate { get; init; }
+    public decimal Allowances { get; init; }
+    public decimal ManualDeductions { get; init; }
+    public string? Notes { get; init; }
+}
+
+public sealed record HrPayPeriod
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string Name { get; init; } = "";
+    public DateOnly StartDate { get; init; }
+    public DateOnly EndDate { get; init; }
+    public int WorkingDays { get; init; }
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrPayslip
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public Guid PayPeriodId { get; init; }
+    public HrPayslipStatus Status { get; init; } = HrPayslipStatus.Generated;
+    public decimal BaseSalary { get; init; }
+    public int WorkingDays { get; init; }
+    public decimal DailySalary { get; init; }
+    public decimal UnpaidLeaveDays { get; init; }
+    public decimal UnpaidLeaveDeduction { get; init; }
+    public decimal OvertimePay { get; init; }
+    public decimal Allowances { get; init; }
+    public decimal ManualDeductions { get; init; }
+    public decimal GrossPay { get; init; }
+    public decimal NetPay { get; init; }
+    public DateTime GeneratedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record AuditLog { public Guid Id { get; init; } = Guid.NewGuid(); public string Actor { get; init; } = ""; public string Action { get; init; } = ""; public string EntityName { get; init; } = ""; public Guid EntityId { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }

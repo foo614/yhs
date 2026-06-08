@@ -47,7 +47,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Leads triage | Implemented, verified | Public enquiries appear in back office, lead/customer linking, status/customer-link filters, duplicate phone reuse. |
 | Audit log | Implemented, verified | Authenticated mutations write staff actor; Boss/Admin audit log filters by actor/action/entity. |
 | Admin users/roles | Implemented, verified | Staff creation, role update, display-name update, password reset, enable/disable, validation, role enforcement. |
-| HR/Salary | Extension point, role-scoped | HR route and role restrictions exist; salary, leave, attendance, MC, pay slip remain planned extension scope. |
+| HR/Salary | Implemented as next MVP slice | Staff self-service attendance, leave/MC requests, own payslips, HR/Admin approvals, AL/MC balances, working-day setup, payroll profiles, and payslip generation are implemented under authenticated back-office access. |
 
 ## API And Security
 
@@ -81,7 +81,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Workflow validations/status changes | Implemented, verified | Loan moves vehicles to LoanProcessing/private; reconciled/corrected payments update sold/loan-processing state; smoke checks automation. |
 | Audit trails | Implemented, verified | Mutation audit records with authenticated staff email; public lead audit actor. |
 | OCR/AI/WhatsApp/AutoCount | Extension point | AutoCount key-in is tracked manually; WhatsApp/OCR/AI remain explicitly outside MVP and documented as extension points. |
-| Salary/pay slip/CP58 generation | Extension point | HR/Salary and CP58 state are represented without generating full statutory forms. |
+| Salary/pay slip/CP58 generation | Implemented for HR payslips; CP58 remains extension point | HR payslips calculate daily salary from configured working days and exclude statutory payroll formulas; CP58 state remains represented without generating statutory forms. |
 
 ## Verification Evidence
 

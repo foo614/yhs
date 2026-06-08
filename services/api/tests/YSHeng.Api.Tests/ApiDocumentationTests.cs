@@ -44,6 +44,7 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<PaymentVoucherStatus>(apiDocs);
         AssertDocumentedEnum<DebtRecoveryStatus>(apiDocs);
         AssertDocumentedEnum<FileCategory>(apiDocs);
+        AssertDocumentedEnum<OcrJobStatus>(apiDocs);
     }
 
     [Fact]
@@ -129,6 +130,11 @@ public sealed class ApiDocumentationTests
         foreach (Match match in Regex.Matches(program, @"admin\.Map(?:Get|Post|Put|Delete)\(""(?<path>/[^""]+)"""))
         {
             yield return NormalizeRoute($"/api/admin{match.Groups["path"].Value}");
+        }
+
+        foreach (Match match in Regex.Matches(program, @"hr\.Map(?:Get|Post|Put|Delete)\(""(?<path>/[^""]+)"""))
+        {
+            yield return NormalizeRoute($"/api/hr{match.Groups["path"].Value}");
         }
     }
 
@@ -232,7 +238,8 @@ public sealed class ApiDocumentationTests
             ["Repairs"] = ExtractRequireRoleValues(program, "Repairs"),
             ["Loans"] = ExtractRequireRoleValues(program, "Loans"),
             ["Deliveries"] = ExtractRequireRoleValues(program, "Deliveries"),
-            ["Finance"] = ExtractRequireRoleValues(program, "Finance")
+            ["Finance"] = ExtractRequireRoleValues(program, "Finance", businessRules),
+            ["HrSalary"] = ExtractRequireRoleValues(program, "HrSalary", businessRules)
         };
     }
 

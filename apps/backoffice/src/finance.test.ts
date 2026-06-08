@@ -94,7 +94,7 @@ describe("finance workflow helpers", () => {
     const payment = { ...basePayment, receiptNumber: "RCPT-1001", invoiceNumber: "INV-1001", bossChecked: false };
 
     expect(canReconcilePayment(payment)).toBe(false);
-    expect(paymentReconcileBlockReason(payment)).toBe("Boss check is required before reconciliation.");
+    expect(paymentReconcileBlockReason(payment)).toBe("Management review is required before reconciliation.");
   });
 
   it("requires finance checklist steps before reconciliation", () => {

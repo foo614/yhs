@@ -20,6 +20,7 @@ describe("backoffice role access", () => {
     expect(canAccessRoute(["Delivery"], "/delivery")).toBe(true);
     expect(canAccessRoute(["HrSalary"], "/hr-salary")).toBe(true);
     expect(canAccessRoute(["HrSalary"], "/vehicles")).toBe(false);
+    expect(canAccessRoute(["Sales"], "/hr-salary")).toBe(true);
   });
 
   it("chooses the first accessible module as the landing page", () => {
@@ -38,12 +39,12 @@ describe("backoffice role access", () => {
   });
 
   it("loads only the data sets needed by department roles", () => {
-    expect(backOfficeDataKeysForRoles(["Finance"])).toEqual(["vehicleLookup", "customers", "owners", "payments", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers"]);
-    expect(backOfficeDataKeysForRoles(["Loan"])).toEqual(["vehicleLookup", "customers", "loans"]);
-    expect(backOfficeDataKeysForRoles(["Repair"])).toEqual(["vehicleLookup", "supplierInvoices", "repairs"]);
-    expect(backOfficeDataKeysForRoles(["Delivery"])).toEqual(["vehicleLookup", "deliveries"]);
-    expect(backOfficeDataKeysForRoles(["Sales"])).toEqual(["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "leads"]);
-    expect(backOfficeDataKeysForRoles(["HrSalary"])).toEqual([]);
+    expect(backOfficeDataKeysForRoles(["Finance"])).toEqual(["vehicleLookup", "customers", "owners", "payments", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["Loan"])).toEqual(["vehicleLookup", "customers", "loans", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["Repair"])).toEqual(["vehicleLookup", "supplierInvoices", "repairs", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["Delivery"])).toEqual(["vehicleLookup", "deliveries", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["Sales"])).toEqual(["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "leads", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["HrSalary"])).toEqual(["hrStaffUsers", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeavePolicies", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
   });
 
   it("keeps Boss/Admin and unauthenticated demo sessions broad while empty authenticated roles load nothing", () => {

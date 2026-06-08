@@ -48,7 +48,7 @@ export function paymentCreateBlockReason(payment: PaymentRecord, existing: Payme
   }
 
   if (!payment.bossChecked) {
-    return "Boss check is required before reconciliation.";
+    return "Management review is required before reconciliation.";
   }
 
   const checklistReason = paymentChecklistBlockReason(payment);
@@ -73,7 +73,7 @@ export function paymentReconcileBlockReason(payment: PaymentRecord, existing: Pa
   }
 
   if (!payment.bossChecked) {
-    return "Boss check is required before reconciliation.";
+    return "Management review is required before reconciliation.";
   }
 
   const checklistReason = paymentChecklistBlockReason(payment);

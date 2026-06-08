@@ -64,6 +64,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `Loans` | `BossAdmin`, `Loan` |
 | `Deliveries` | `BossAdmin`, `Delivery` |
 | `Finance` | `BossAdmin`, `Finance` |
+| `HrSalary` | `BossAdmin`, `HrSalary` |
 
 ## Vehicle Intake And Contacts
 
@@ -95,6 +96,8 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `POST` | `/api/vehicles/{id}/documents?category={FileCategory}` | Category-specific role | Upload document, max 10 MB. |
 | `GET` | `/api/vehicles/{id}/documents` | `BackOffice` | List document metadata. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | `BackOffice` | Download document content. |
+| `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start local OCR analysis for receipt or invoice review. |
+| `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, warnings, and extracted draft fields. |
 
 Document upload ownership:
 
@@ -105,6 +108,7 @@ Document upload ownership:
 | `DeliveryDocument`, `Policy`, `RoadTaxReceipt` | `BossAdmin`, `Delivery` |
 | `RepairInvoice` | `BossAdmin`, `Repair` |
 | `PaymentReceipt`, `PaymentInvoice` | `BossAdmin`, `Finance` |
+| `MedicalCertificate` | `BossAdmin`, `HrSalary` |
 
 `VehiclePhoto` is rejected on the document endpoint and must use the photo endpoint.
 
@@ -129,6 +133,8 @@ Document upload ownership:
 | `GET` | `/api/leads` | `Sales` | List public and back-office leads. |
 | `PUT` | `/api/leads/{id}` | `Sales` | Update lead/customer link/status. |
 
+Lead status ownership: the first staff member who moves a lead out of `New` is recorded as the taker. After that, only that same staff member can change the lead status.
+
 ## Finance
 
 All finance endpoints require the `Finance` policy.
@@ -147,6 +153,47 @@ All finance endpoints require the `Finance` policy.
 | `PUT` | `/api/debt-recoveries/{id}` | Update debt recovery case. |
 | `GET` / `POST` | `/api/payment-vouchers` | List/create payment vouchers. |
 | `PUT` | `/api/payment-vouchers/{id}` | Update payment voucher. |
+
+## HR And Salary
+
+All HR endpoints require authenticated back-office access. Staff can access their own attendance, leave, MC, balance, payroll profile, pay-period, and payslip records. HR/Salary and Admin users can review and manage all staff HR records.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/hr/staff` | HR/Admin list of existing staff users for HR selectors. |
+| `GET` | `/api/hr/attendance` | List attendance records scoped to the current staff user, or all staff for HR/Admin. |
+| `POST` | `/api/hr/attendance/check-in` | Create or update today's check-in for the current staff user. |
+| `POST` | `/api/hr/attendance/check-out` | Create or update today's check-out for the current staff user. |
+| `PUT` | `/api/hr/attendance/{id}` | HR/Admin update attendance status or notes. |
+| `GET` | `/api/hr/leave-requests` | List leave and MC requests scoped to the current staff user, or all staff for HR/Admin. |
+| `POST` | `/api/hr/leave-requests` | Submit a leave request. |
+| `PUT` | `/api/hr/leave-requests/{id}/decision` | HR/Admin approve or reject a leave request. |
+| `PUT` | `/api/hr/leave-requests/{id}/cancel` | Staff cancel their own pending leave request; HR/Admin can cancel any pending staff leave request. |
+| `POST` | `/api/hr/leave-requests/{id}/mc` | Upload a medical certificate document for the leave request, max 10 MB. |
+| `GET` | `/api/hr/leave-requests/{id}/mc/content` | Download the medical certificate for the owner or HR/Admin. |
+| `GET` | `/api/hr/leave-balances` | List AL/MC balances scoped to self, or all staff for HR/Admin. |
+| `PUT` | `/api/hr/leave-balances/{staffUserId}` | HR/Admin apply/reset a staff AL/MC balance, usually from a role policy. |
+| `GET` | `/api/hr/leave-policies` | HR/Admin list default AL/MC entitlements by role. |
+| `PUT` | `/api/hr/leave-policies/{role}` | HR/Admin create or update default AL/MC entitlement for a role. |
+| `GET` | `/api/hr/leave-adjustments` | List leave adjustment history scoped to self, or all staff for HR/Admin. |
+| `POST` | `/api/hr/leave-adjustments` | HR/Admin increase or decrease one staff member's AL/MC balance with a reason and audit log. |
+| `GET` | `/api/hr/payroll-profiles` | List payroll profiles scoped to self, or all staff for HR/Admin. |
+| `PUT` | `/api/hr/payroll-profiles/{staffUserId}` | HR/Admin create or update base salary, overtime, allowances, and manual deductions. |
+| `GET` | `/api/hr/pay-periods` | List pay periods and configured working days. |
+| `POST` | `/api/hr/pay-periods` | HR/Admin create a working-day pay period. |
+| `GET` | `/api/hr/payslips` | List payslips scoped to self, or all staff for HR/Admin. |
+| `POST` | `/api/hr/pay-periods/{id}/generate-payslips` | HR/Admin generate or update payslips for a pay period. |
+
+Payslip formula:
+
+```text
+dailySalary = monthlyBaseSalary / workingDays
+unpaidLeaveDeduction = dailySalary * approvedUnpaidLeaveDays
+grossPay = monthlyBaseSalary + overtimePay + allowances
+netPay = grossPay - unpaidLeaveDeduction - manualDeductions
+```
+
+Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 
 ## Dashboard, Audit, And Admin
 
@@ -172,7 +219,12 @@ All finance endpoints require the `Finance` policy.
 - `PaymentStatus`: `Pending`, `Approved`, `Disbursed`, `Reconciled`
 - `PaymentVoucherStatus`: `Pending`, `Approved`, `Paid`
 - `DebtRecoveryStatus`: `Open`, `FollowedUp`, `Closed`
-- `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`
+- `HrAttendanceStatus`: `Present`, `Late`, `HalfDay`, `Absent`
+- `HrLeaveType`: `AnnualLeave`, `MedicalLeave`, `EmergencyLeave`, `UnpaidLeave`
+- `HrLeaveStatus`: `Pending`, `Approved`, `Rejected`, `Cancelled`
+- `HrPayslipStatus`: `Draft`, `Generated`
+- `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`
+- `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`
 
 ## Error Shape
 

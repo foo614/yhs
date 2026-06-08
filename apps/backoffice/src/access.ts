@@ -21,7 +21,16 @@ export type BackOfficeDataKey =
   | "paymentVouchers"
   | "leads"
   | "auditLog"
-  | "staffUsers";
+  | "staffUsers"
+  | "hrStaffUsers"
+  | "hrAttendance"
+  | "hrLeaveRequests"
+  | "hrLeaveBalances"
+  | "hrLeavePolicies"
+  | "hrLeaveAdjustments"
+  | "hrPayrollProfiles"
+  | "hrPayPeriods"
+  | "hrPayslips";
 
 export const assignableStaffRoles: StaffRole[] = ["BossAdmin", "Sales", "Loan", "Delivery", "Finance", "Repair", "HrSalary"];
 
@@ -39,7 +48,7 @@ export const routeAccess: RouteAccess[] = [
   { path: "/finance", roles: ["BossAdmin", "Finance"] },
   { path: "/leads", roles: ["BossAdmin", "Sales"] },
   { path: "/audit-log", roles: ["BossAdmin"] },
-  { path: "/hr-salary", roles: ["BossAdmin", "HrSalary"] },
+  { path: "/hr-salary", roles: assignableStaffRoles },
   { path: "/admin", roles: ["BossAdmin"] }
 ];
 
@@ -63,17 +72,42 @@ const allDataKeys: BackOfficeDataKey[] = [
   "paymentVouchers",
   "leads",
   "auditLog",
-  "staffUsers"
+  "staffUsers",
+  "hrStaffUsers",
+  "hrAttendance",
+  "hrLeaveRequests",
+  "hrLeaveBalances",
+  "hrLeavePolicies",
+  "hrLeaveAdjustments",
+  "hrPayrollProfiles",
+  "hrPayPeriods",
+  "hrPayslips"
+];
+
+const hrSelfServiceDataKeys: BackOfficeDataKey[] = [
+  "hrAttendance",
+  "hrLeaveRequests",
+  "hrLeaveBalances",
+  "hrLeaveAdjustments",
+  "hrPayrollProfiles",
+  "hrPayPeriods",
+  "hrPayslips"
+];
+
+const hrManagementDataKeys: BackOfficeDataKey[] = [
+  ...hrSelfServiceDataKeys,
+  "hrStaffUsers",
+  "hrLeavePolicies"
 ];
 
 export const roleDataKeys: Record<StaffRole, BackOfficeDataKey[]> = {
   BossAdmin: allDataKeys,
-  Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "leads"],
-  Loan: ["vehicleLookup", "customers", "loans"],
-  Delivery: ["vehicleLookup", "deliveries"],
-  Finance: ["vehicleLookup", "customers", "owners", "payments", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers"],
-  Repair: ["vehicleLookup", "supplierInvoices", "repairs"],
-  HrSalary: []
+  Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "leads", ...hrSelfServiceDataKeys],
+  Loan: ["vehicleLookup", "customers", "loans", ...hrSelfServiceDataKeys],
+  Delivery: ["vehicleLookup", "deliveries", ...hrSelfServiceDataKeys],
+  Finance: ["vehicleLookup", "customers", "owners", "payments", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", ...hrSelfServiceDataKeys],
+  Repair: ["vehicleLookup", "supplierInvoices", "repairs", ...hrSelfServiceDataKeys],
+  HrSalary: hrManagementDataKeys
 };
 
 export function canAccessRoute(userRoles: string[] | undefined, path: string) {

@@ -6,11 +6,34 @@ using SkiaSharp;
 namespace YSHeng.Api.Features;
 
 public sealed record LeadRequest(Guid VehicleId, string CustomerName, string Phone, string? Message);
+public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
 public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice);
 public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status);
-public sealed record DashboardSummary(int TotalStock, int PendingLoan, decimal OutstandingPayment, int SettlementDue, decimal RepairCost, decimal EstimatedProfit, decimal TotalProfit, int VehicleAging, DashboardAgingBucket[] AgingBuckets, string TopSupplier, int SalesPerformance);
+public sealed record DashboardSummary(
+    int TotalStock,
+    int PendingLoan,
+    decimal OutstandingPayment,
+    int SettlementDue,
+    decimal RepairCost,
+    decimal EstimatedProfit,
+    decimal TotalProfit,
+    int VehicleAging,
+    DashboardAgingBucket[] AgingBuckets,
+    string TopSupplier,
+    int SalesPerformance,
+    DashboardCountSlice[] StockStatusMix,
+    DashboardCountSlice[] StockOwnerMix,
+    DashboardAmountSlice[] MoneyRiskBreakdown,
+    DashboardWorkflowBlockers WorkflowBlockers,
+    DashboardSalesFunnel SalesFunnel,
+    DashboardAmountSlice[] ProfitBreakdown,
+    DashboardAmountSlice[] SupplierSpendTop);
 
 public sealed record DashboardAgingBucket(string Label, int Count);
+public sealed record DashboardCountSlice(string Label, int Count);
+public sealed record DashboardAmountSlice(string Label, decimal Amount);
+public sealed record DashboardWorkflowBlockers(DashboardCountSlice[] ByType, DashboardCountSlice[] DueBuckets);
+public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal ConversionRate);
 public sealed record ReminderItem(string Type, string Title, string VehiclePlate, Guid VehicleId, DateOnly DueDate, decimal? Amount);
 public sealed record ValidationError(string Code, string Message);
 public sealed record ApiError(string Message);
@@ -22,6 +45,7 @@ public sealed record LoanDocumentCheck(bool IsComplete, IReadOnlyList<FileCatego
 public sealed record DeliveryDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories);
 public sealed record HealthPayload(string Service, string Status, DateTimeOffset CheckedAt);
 public sealed record PublicPhotoPayload(Guid Id, string MimeType, byte[] Bytes);
+public sealed record PublicPhotoSummary(Guid Id, string FileName, string MimeType, DateTime UploadedAt);
 public sealed record PhotoThumbnailResult(bool IsValid, byte[]? Thumbnail, ValidationError? Error);
 
 public static class DepartmentAccess
@@ -30,6 +54,7 @@ public static class DepartmentAccess
     public static readonly string[] VehicleWriters = ["BossAdmin", "Sales"];
     public static readonly string[] CustomerReaders = ["BossAdmin", "Sales", "Loan", "Finance"];
     public static readonly string[] OwnerReaders = ["BossAdmin", "Sales", "Finance"];
+    public static readonly string[] HrManagers = ["BossAdmin", "HrSalary"];
 
     public static bool CanReadFullVehicleRecords(string role) =>
         VehicleWriters.Contains(role);
@@ -46,9 +71,16 @@ public static class DepartmentAccess
             FileCategory.DeliveryDocument or FileCategory.Policy or FileCategory.RoadTaxReceipt => roleSet.Contains("Delivery"),
             FileCategory.RepairInvoice => roleSet.Contains("Repair"),
             FileCategory.PaymentReceipt or FileCategory.PaymentInvoice => roleSet.Contains("Finance"),
+            FileCategory.MedicalCertificate => roleSet.Contains("HrSalary"),
             _ => false
         };
     }
+
+    public static bool IsHrManager(ClaimsPrincipal principal) =>
+        principal.IsInRole("BossAdmin") || principal.IsInRole("HrSalary");
+
+    public static bool CanAccessHrStaff(ClaimsPrincipal principal, string staffUserId) =>
+        IsHrManager(principal) || string.Equals(principal.FindFirstValue(ClaimTypes.NameIdentifier), staffUserId, StringComparison.Ordinal);
 }
 
 public static class ApiErrors
@@ -88,6 +120,13 @@ public static class BackOfficeVehicleLookup
 
 public static class PublicVehiclePhotos
 {
+    public static IReadOnlyList<PublicPhotoSummary> SelectGallery(Guid vehicleId, IEnumerable<VehiclePhoto> photos) =>
+        photos
+            .Where(item => item.VehicleId == vehicleId)
+            .OrderByDescending(item => item.UploadedAt)
+            .Select(item => new PublicPhotoSummary(item.Id, item.FileName, item.MimeType, item.UploadedAt))
+            .ToList();
+
     public static PublicPhotoPayload? SelectPrimary(Guid vehicleId, IEnumerable<VehiclePhoto> photos)
     {
         var photo = photos
@@ -286,6 +325,54 @@ public static class LeadRules
 
         return new ValidationResult(errors);
     }
+
+    public static ValidationResult ValidateStatusOwner(Lead existing, Lead incoming, string currentUserId)
+    {
+        if (existing.Status == incoming.Status)
+        {
+            return new ValidationResult([]);
+        }
+
+        if (string.IsNullOrWhiteSpace(currentUserId))
+        {
+            return new ValidationResult([new ValidationError("lead_user_required", "A signed-in staff user is required to change lead status.")]);
+        }
+
+        if (!string.IsNullOrWhiteSpace(existing.TakenByUserId) &&
+            !string.Equals(existing.TakenByUserId, currentUserId, StringComparison.Ordinal))
+        {
+            return new ValidationResult([new ValidationError("lead_assignee_required", "Only the staff member who took this lead can change its status.")]);
+        }
+
+        return new ValidationResult([]);
+    }
+
+    public static Lead ApplyBackOfficeUpdate(Lead existing, Lead incoming, string currentUserId, string currentUserName, DateTime now)
+    {
+        var takenByUserId = existing.TakenByUserId;
+        var takenByName = existing.TakenByName;
+        var takenAt = existing.TakenAt;
+        if (incoming.Status == LeadStatus.New)
+        {
+            takenByUserId = null;
+            takenByName = null;
+            takenAt = null;
+        }
+        else if (string.IsNullOrWhiteSpace(takenByUserId))
+        {
+            takenByUserId = currentUserId;
+            takenByName = string.IsNullOrWhiteSpace(currentUserName) ? currentUserId : currentUserName.Trim();
+            takenAt = now;
+        }
+
+        return incoming with
+        {
+            CreatedAt = existing.CreatedAt,
+            TakenByUserId = takenByUserId,
+            TakenByName = takenByName,
+            TakenAt = takenAt
+        };
+    }
 }
 
 public static class ContactRules
@@ -417,6 +504,276 @@ public static class StaffUserRules
         }
 
         return new ValidationResult(errors);
+    }
+}
+
+public static class HrRules
+{
+    public static ValidationResult ValidateCheckIn(HrAttendanceRecord? openSession)
+    {
+        var errors = new List<ValidationError>();
+        if (openSession is not null)
+        {
+            errors.Add(new ValidationError("attendance_open_session_exists", "Check out before starting another attendance session."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateCheckOut(HrAttendanceRecord? openSession)
+    {
+        var errors = new List<ValidationError>();
+        if (openSession?.CheckInAt is null)
+        {
+            errors.Add(new ValidationError("attendance_open_session_required", "Check in before checking out."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateAttendance(HrAttendanceRecord attendance)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(attendance.StaffUserId))
+        {
+            errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
+        }
+
+        if (attendance.CheckOutAt is not null && attendance.CheckInAt is not null && attendance.CheckOutAt < attendance.CheckInAt)
+        {
+            errors.Add(new ValidationError("attendance_checkout_before_checkin", "Check-out cannot be before check-in."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateLeaveRequest(HrLeaveRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(request.StaffUserId))
+        {
+            errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
+        }
+
+        if (request.EndDate < request.StartDate)
+        {
+            errors.Add(new ValidationError("leave_date_range_invalid", "Leave end date cannot be before start date."));
+        }
+
+        if (request.Days <= 0)
+        {
+            errors.Add(new ValidationError("leave_days_invalid", "Leave days must be greater than zero."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateLeaveDecision(HrLeaveRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (request.Status != HrLeaveStatus.Pending)
+        {
+            errors.Add(new ValidationError("leave_already_decided", "Leave request has already been decided."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateLeaveCancellation(HrLeaveRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (request.Status != HrLeaveStatus.Pending)
+        {
+            errors.Add(new ValidationError("leave_cancel_not_pending", "Only pending leave requests can be cancelled."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateMedicalCertificateUpload(HrLeaveRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (request.Type != HrLeaveType.MedicalLeave)
+        {
+            errors.Add(new ValidationError("mc_only_for_medical_leave", "Medical certificate upload is only available for medical leave."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateLeaveBalance(HrLeaveBalance balance)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(balance.StaffUserId))
+        {
+            errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
+        }
+
+        if (balance.AnnualLeaveDays < 0 || balance.MedicalLeaveDays < 0)
+        {
+            errors.Add(new ValidationError("leave_balance_negative", "Leave balances cannot be negative."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateLeavePolicy(HrLeavePolicy policy)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(policy.Role))
+        {
+            errors.Add(new ValidationError("leave_policy_role_required", "Leave policy role is required."));
+        }
+
+        if (policy.AnnualLeaveDays < 0 || policy.MedicalLeaveDays < 0)
+        {
+            errors.Add(new ValidationError("leave_policy_negative", "Leave policy days cannot be negative."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateLeaveAdjustment(HrLeaveAdjustment adjustment)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(adjustment.StaffUserId))
+        {
+            errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
+        }
+
+        if (adjustment.Days <= 0)
+        {
+            errors.Add(new ValidationError("leave_adjustment_days_invalid", "Adjustment days must be greater than zero."));
+        }
+
+        if (string.IsNullOrWhiteSpace(adjustment.Reason))
+        {
+            errors.Add(new ValidationError("leave_adjustment_reason_required", "Adjustment reason is required."));
+        }
+
+        if (adjustment.AnnualLeaveAfter < 0 || adjustment.MedicalLeaveAfter < 0)
+        {
+            errors.Add(new ValidationError("leave_adjustment_negative_balance", "Adjustment cannot make leave balance negative."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static HrLeaveAdjustment BuildLeaveAdjustment(HrLeaveBalance balance, HrLeaveAdjustmentRequest request, string actor)
+    {
+        var annualAfter = balance.AnnualLeaveDays;
+        var medicalAfter = balance.MedicalLeaveDays;
+        var signedDays = request.Direction == HrLeaveAdjustmentDirection.Increase ? request.Days : -request.Days;
+        if (request.Type == HrLeaveAdjustmentType.AnnualLeave)
+        {
+            annualAfter += signedDays;
+        }
+        else
+        {
+            medicalAfter += signedDays;
+        }
+
+        return new HrLeaveAdjustment
+        {
+            StaffUserId = request.StaffUserId,
+            Type = request.Type,
+            Direction = request.Direction,
+            Days = request.Days,
+            AnnualLeaveBefore = balance.AnnualLeaveDays,
+            MedicalLeaveBefore = balance.MedicalLeaveDays,
+            AnnualLeaveAfter = annualAfter,
+            MedicalLeaveAfter = medicalAfter,
+            Reason = request.Reason,
+            AdjustedBy = actor,
+            CreatedAt = DateTime.UtcNow
+        };
+    }
+
+    public static ValidationResult ValidatePayrollProfile(HrPayrollProfile profile)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(profile.StaffUserId))
+        {
+            errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
+        }
+
+        if (profile.MonthlyBaseSalary < 0 || profile.OvertimeHours < 0 || profile.OvertimeRate < 0 || profile.Allowances < 0 || profile.ManualDeductions < 0)
+        {
+            errors.Add(new ValidationError("payroll_amount_negative", "Payroll amounts cannot be negative."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidatePayPeriod(HrPayPeriod period)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(period.Name))
+        {
+            errors.Add(new ValidationError("pay_period_name_required", "Pay period name is required."));
+        }
+
+        if (period.EndDate < period.StartDate)
+        {
+            errors.Add(new ValidationError("pay_period_date_range_invalid", "Pay period end date cannot be before start date."));
+        }
+
+        if (period.WorkingDays <= 0)
+        {
+            errors.Add(new ValidationError("working_days_invalid", "Working days must be greater than zero."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static decimal ApprovedLeaveDays(IEnumerable<HrLeaveRequest> leaves, string staffUserId, HrLeaveType type, HrPayPeriod period) =>
+        leaves
+            .Where(leave => leave.StaffUserId == staffUserId && leave.Type == type && leave.Status == HrLeaveStatus.Approved)
+            .Where(leave => leave.StartDate <= period.EndDate && leave.EndDate >= period.StartDate)
+            .Sum(leave => leave.Days);
+
+    public static HrLeaveBalance ApplyApprovedLeave(HrLeaveBalance balance, HrLeaveRequest request)
+    {
+        if (request.Status != HrLeaveStatus.Approved)
+        {
+            return balance;
+        }
+
+        return request.Type switch
+        {
+            HrLeaveType.AnnualLeave => balance with { AnnualLeaveDays = Math.Max(0, balance.AnnualLeaveDays - request.Days) },
+            HrLeaveType.MedicalLeave => balance with { MedicalLeaveDays = Math.Max(0, balance.MedicalLeaveDays - request.Days) },
+            _ => balance
+        };
+    }
+
+    public static HrPayslip GeneratePayslip(HrPayrollProfile profile, HrPayPeriod period, IEnumerable<HrLeaveRequest> leaveRequests, Guid? id = null)
+    {
+        var dailySalary = Math.Round(profile.MonthlyBaseSalary / period.WorkingDays, 2, MidpointRounding.AwayFromZero);
+        var unpaidLeaveDays = ApprovedLeaveDays(leaveRequests, profile.StaffUserId, HrLeaveType.UnpaidLeave, period);
+        var unpaidLeaveDeduction = Math.Round(dailySalary * unpaidLeaveDays, 2, MidpointRounding.AwayFromZero);
+        var overtimePay = Math.Round(profile.OvertimeHours * profile.OvertimeRate, 2, MidpointRounding.AwayFromZero);
+        var gross = Math.Round(profile.MonthlyBaseSalary + overtimePay + profile.Allowances, 2, MidpointRounding.AwayFromZero);
+        var net = Math.Round(gross - unpaidLeaveDeduction - profile.ManualDeductions, 2, MidpointRounding.AwayFromZero);
+
+        return new HrPayslip
+        {
+            Id = id ?? Guid.NewGuid(),
+            StaffUserId = profile.StaffUserId,
+            PayPeriodId = period.Id,
+            Status = HrPayslipStatus.Generated,
+            BaseSalary = profile.MonthlyBaseSalary,
+            WorkingDays = period.WorkingDays,
+            DailySalary = dailySalary,
+            UnpaidLeaveDays = unpaidLeaveDays,
+            UnpaidLeaveDeduction = unpaidLeaveDeduction,
+            OvertimePay = overtimePay,
+            Allowances = profile.Allowances,
+            ManualDeductions = profile.ManualDeductions,
+            GrossPay = gross,
+            NetPay = net,
+            GeneratedAt = DateTime.UtcNow
+        };
     }
 }
 
@@ -1240,30 +1597,46 @@ public static class DashboardMetrics
     public static DashboardSummary Create(
         IEnumerable<Vehicle> vehicles,
         IEnumerable<LoanApplication> loans,
+        IEnumerable<DeliverySchedule> deliveries,
         IEnumerable<PaymentRecord> payments,
         IEnumerable<SettlementReminder> settlements,
         IEnumerable<RepairJob> repairs,
         IEnumerable<SupplierInvoice> supplierInvoices,
         IEnumerable<BrokerCommission> brokerCommissions,
         IEnumerable<PaymentVoucher> paymentVouchers,
+        IEnumerable<DailySpend> dailySpends,
+        IEnumerable<DebtRecoveryCase> debtRecoveries,
         IEnumerable<Lead> leads,
         DateOnly today)
     {
         var vehicleList = vehicles.ToList();
-        var topSupplier = supplierInvoices
+        var loanList = loans.ToList();
+        var deliveryList = deliveries.ToList();
+        var paymentList = payments.ToList();
+        var settlementList = settlements.ToList();
+        var repairList = repairs.ToList();
+        var supplierInvoiceList = supplierInvoices.ToList();
+        var brokerCommissionList = brokerCommissions.ToList();
+        var paymentVoucherList = paymentVouchers.ToList();
+        var dailySpendList = dailySpends.ToList();
+        var debtRecoveryList = debtRecoveries.ToList();
+        var leadList = leads.ToList();
+        var supplierSpendTop = supplierInvoiceList
             .Where(invoice => !string.IsNullOrWhiteSpace(invoice.SupplierName))
             .GroupBy(invoice => invoice.SupplierName.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(group => new { SupplierName = group.First().SupplierName.Trim(), Total = group.Sum(invoice => invoice.Amount) })
-            .OrderByDescending(item => item.Total)
-            .ThenBy(item => item.SupplierName)
-            .FirstOrDefault()?.SupplierName ?? "-";
-        var repairCostsByVehicle = repairs
+            .Select(group => new DashboardAmountSlice(group.First().SupplierName.Trim(), group.Sum(invoice => invoice.Amount)))
+            .OrderByDescending(item => item.Amount)
+            .ThenBy(item => item.Label)
+            .Take(5)
+            .ToArray();
+        var topSupplier = supplierSpendTop.FirstOrDefault()?.Label ?? "-";
+        var repairCostsByVehicle = repairList
             .GroupBy(repair => repair.VehicleId)
             .ToDictionary(group => group.Key, group => group.Sum(repair => repair.Cost));
-        var commissionsByVehicle = brokerCommissions
+        var commissionsByVehicle = brokerCommissionList
             .GroupBy(commission => commission.VehicleId)
             .ToDictionary(group => group.Key, group => group.Sum(commission => commission.Amount));
-        var pickupAllowancesByVehicle = paymentVouchers
+        var pickupAllowancesByVehicle = paymentVoucherList
             .GroupBy(voucher => voucher.VehicleId)
             .ToDictionary(group => group.Key, group => group.Sum(voucher => voucher.Amount));
 
@@ -1291,19 +1664,85 @@ public static class DashboardMetrics
         };
 
         var totalProfit = vehicleList.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
+        var outstandingPayment = paymentList.Where(payment => payment.Status != PaymentStatus.Reconciled).Sum(payment => payment.NettPrice);
+        var settlementDue = settlementList.Count(settlement => ReminderRules.IsSettlementDue(settlement, today));
+        var reminderItems = ReminderInbox.Create(
+            loanList,
+            deliveryList,
+            settlementList,
+            paymentList,
+            dailySpendList,
+            debtRecoveryList,
+            paymentVoucherList,
+            vehicleList,
+            today);
+        var stockStatusMix = Enum.GetValues<VehicleStatus>()
+            .Select(status => new DashboardCountSlice(status.ToString(), vehicleList.Count(vehicle => vehicle.Status == status)))
+            .ToArray();
+        var stockOwnerMix = Enum.GetValues<StockOwner>()
+            .Select(owner => new DashboardCountSlice(owner.ToString(), vehicleList.Count(vehicle => vehicle.StockOwner == owner)))
+            .ToArray();
+        var moneyRiskBreakdown = new[]
+        {
+            new DashboardAmountSlice("Outstanding Payment", outstandingPayment),
+            new DashboardAmountSlice("Unpaid Settlement", settlementList.Where(settlement => !settlement.IsPaid).Sum(settlement => settlement.Amount)),
+            new DashboardAmountSlice("Open Debt Recovery", debtRecoveryList.Where(debt => debt.Status != DebtRecoveryStatus.Closed).Sum(debt => debt.BalanceAmount)),
+            new DashboardAmountSlice("Unpaid Daily Spend", dailySpendList.Where(spend => !spend.IsPaid).Sum(spend => spend.Amount)),
+            new DashboardAmountSlice("Open Payment Voucher", paymentVoucherList.Where(voucher => voucher.Status != PaymentVoucherStatus.Paid).Sum(voucher => voucher.Amount))
+        };
+        var workflowBlockers = new DashboardWorkflowBlockers(
+            ByType: reminderItems
+                .GroupBy(reminder => reminder.Type)
+                .Select(group => new DashboardCountSlice(group.Key, group.Count()))
+                .OrderByDescending(item => item.Count)
+                .ThenBy(item => item.Label)
+                .ToArray(),
+            DueBuckets:
+            [
+                new DashboardCountSlice("Overdue", ReminderInbox.Filter(reminderItems, null, "Overdue", today).Count),
+                new DashboardCountSlice("DueToday", ReminderInbox.Filter(reminderItems, null, "DueToday", today).Count),
+                new DashboardCountSlice("Upcoming", ReminderInbox.Filter(reminderItems, null, "Upcoming", today).Count)
+            ]);
+        var salesStages = Enum.GetValues<LeadStatus>()
+            .Select(status => new DashboardCountSlice(status.ToString(), leadList.Count(lead => lead.Status == status)))
+            .ToArray();
+        var salesFunnel = new DashboardSalesFunnel(
+            salesStages,
+            leadList.Count == 0 ? 0m : decimal.Round(leadList.Count(lead => lead.Status == LeadStatus.Closed) * 100m / leadList.Count, 1));
+        var totalRevenue = vehicleList.Sum(vehicle => vehicle.SellingPrice + vehicle.AdditionalCharges);
+        var purchaseCost = vehicleList.Sum(vehicle => vehicle.PurchasePrice);
+        var repairCost = vehicleList.Sum(EffectiveRepairCost);
+        var commissionCost = vehicleList.Sum(EffectiveCommissionCost);
+        var pickupAllowanceCost = vehicleList.Sum(EffectivePickupAllowanceCost);
+        var profitBreakdown = new[]
+        {
+            new DashboardAmountSlice("Selling + Charges", totalRevenue),
+            new DashboardAmountSlice("Purchase Cost", purchaseCost),
+            new DashboardAmountSlice("Repair Cost", repairCost),
+            new DashboardAmountSlice("Commission", commissionCost),
+            new DashboardAmountSlice("Pickup Allowance", pickupAllowanceCost),
+            new DashboardAmountSlice("Estimated Profit", totalProfit)
+        };
 
         return new DashboardSummary(
             TotalStock: unsoldVehicles.Count,
-            PendingLoan: loans.Count(loan => loan.Status == LoanStatus.Pending),
-            OutstandingPayment: payments.Where(payment => payment.Status != PaymentStatus.Reconciled).Sum(payment => payment.NettPrice),
-            SettlementDue: settlements.Count(settlement => ReminderRules.IsSettlementDue(settlement, today)),
-            RepairCost: vehicleList.Sum(EffectiveRepairCost),
+            PendingLoan: loanList.Count(loan => loan.Status == LoanStatus.Pending),
+            OutstandingPayment: outstandingPayment,
+            SettlementDue: settlementDue,
+            RepairCost: repairCost,
             EstimatedProfit: totalProfit,
             TotalProfit: totalProfit,
             VehicleAging: agingBuckets.First(bucket => bucket.Label == "61+").Count,
             AgingBuckets: agingBuckets,
             TopSupplier: topSupplier,
-            SalesPerformance: leads.Count(lead => lead.Status == LeadStatus.Closed));
+            SalesPerformance: leadList.Count(lead => lead.Status == LeadStatus.Closed),
+            StockStatusMix: stockStatusMix,
+            StockOwnerMix: stockOwnerMix,
+            MoneyRiskBreakdown: moneyRiskBreakdown,
+            WorkflowBlockers: workflowBlockers,
+            SalesFunnel: salesFunnel,
+            ProfitBreakdown: profitBreakdown,
+            SupplierSpendTop: supplierSpendTop);
     }
 
     private static int AgeInDays(Vehicle vehicle, DateOnly today) => Math.Max(0, today.DayNumber - vehicle.IntakeDate.DayNumber);

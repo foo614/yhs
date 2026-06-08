@@ -35,7 +35,7 @@ It is intended to keep the implementation aligned with the original business voc
 | Supplier/refurbishment duplicate invoice, wrong plate, supplier multi-invoice checks, costs by plate, profit deduction | Implemented | Supplier invoice validation, repair costs linked to vehicle, dashboard profit calculation. |
 | Broker commission, car plate profit, CP58 | Implemented as MVP tracking | Broker commission records and CP58 required/prepared flags; full CP58 form generation remains extension scope. |
 | Daily spend, electric bill, monthly 15th reminder | Implemented | Daily spend records and reminder rules. |
-| Salary: working day, leave, MC, attendance, AL/MC control, pay slip | Extension point | HR/Salary route and role are present; full salary workflows remain outside MVP. |
+| Salary: working day, leave, MC, attendance, AL/MC control, pay slip | Implemented as next MVP slice | HR/Salary supports working-day pay periods, leave/MC requests and uploads, attendance check-in/out, AL/MC balance control, and payslip generation with daily salary and unpaid-leave deduction. |
 | Profit calculation: nett selling price, refurbishment, commission, real-time dashboard | Implemented | Dashboard `totalProfit`/`estimatedProfit`, repair/payment/commission cost impacts. |
 | Debt recovery status, balance reminder, follow-up | Implemented with manual reminder workflow | Debt recovery records and dashboard reminders; WhatsApp automation remains extension scope. |
 | Dashboard: total stock, total profit, pending loan, outstanding payment, settlement due, top supplier, sales performance, vehicle aging | Implemented | Dashboard summary and smoke/test coverage. |

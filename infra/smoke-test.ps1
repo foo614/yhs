@@ -142,7 +142,7 @@ function Invoke-MultipartUpload {
   }
 }
 
-function New-SmokePngBytes {
+function New-LocalTestPngBytes {
   $bitmap = [System.Drawing.Bitmap]::new(8, 8)
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
   $stream = [System.IO.MemoryStream]::new()
@@ -291,7 +291,7 @@ $salesEmail = "smoke.sales.$roleSuffix@ysheng.local"
 $salesPassword = "ChangeMe123!"
 $salesUserBody = @{
   email = $salesEmail
-  displayName = "Smoke Sales"
+  displayName = "Ah Wei Sales"
   password = $salesPassword
   role = "Sales"
 } | ConvertTo-Json
@@ -302,19 +302,19 @@ if ($salesUser.StatusCode -lt 200 -or $salesUser.StatusCode -ge 300) {
 $createdSalesUser = $salesUser.Content | ConvertFrom-Json
 
 $updatedSalesUserBody = @{
-  displayName = "Smoke Sales Lead"
+  displayName = "Ah Wei Sales"
 } | ConvertTo-Json
 $updatedSalesUser = Invoke-WebRequest -Uri "$ApiBaseUrl/api/admin/users/$($createdSalesUser.id)" -Method Put -Body $updatedSalesUserBody -ContentType "application/json" -WebSession $session -UseBasicParsing
 if ($updatedSalesUser.StatusCode -lt 200 -or $updatedSalesUser.StatusCode -ge 300) {
   throw "Sales staff update returned HTTP $($updatedSalesUser.StatusCode)"
 }
 $updatedSalesUserContent = $updatedSalesUser.Content | ConvertFrom-Json
-if ($updatedSalesUserContent.displayName -ne "Smoke Sales Lead" -or $updatedSalesUserContent.email -ne $salesEmail -or -not ($updatedSalesUserContent.roles -contains "Sales")) {
+if ($updatedSalesUserContent.displayName -ne "Ah Wei Sales" -or $updatedSalesUserContent.email -ne $salesEmail -or -not ($updatedSalesUserContent.roles -contains "Sales")) {
   throw "Sales staff update did not preserve expected staff profile fields"
 }
 Write-Host "Staff user update OK"
 
-$salesPassword = "SmokeReset123!"
+$salesPassword = "LocalReset123!"
 $resetSalesPasswordBody = @{
   password = $salesPassword
 } | ConvertTo-Json
@@ -375,7 +375,7 @@ $financeEmail = "smoke.finance.$roleSuffix@ysheng.local"
 $financePassword = "ChangeMe123!"
 $financeUserBody = @{
   email = $financeEmail
-  displayName = "Smoke Finance"
+  displayName = "Mei Ling Finance"
   password = $financePassword
   role = "Finance"
 } | ConvertTo-Json
@@ -388,7 +388,7 @@ $hrEmail = "smoke.hr.$roleSuffix@ysheng.local"
 $hrPassword = "ChangeMe123!"
 $hrUserBody = @{
   email = $hrEmail
-  displayName = "Smoke HR Salary"
+  displayName = "Mei Ling HR"
   password = $hrPassword
   role = "HrSalary"
 } | ConvertTo-Json
@@ -553,12 +553,14 @@ Assert-HttpStatus "$ApiBaseUrl/api/vehicles" "HR/Salary role vehicle restriction
 Assert-HttpStatus "$ApiBaseUrl/api/payments" "HR/Salary role finance restriction" 403 $hrSession
 Assert-HttpStatus "$ApiBaseUrl/api/dashboard/summary" "HR/Salary role dashboard restriction" 403 $hrSession
 
-$leadPhone = "SMOKE-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+$leadSuffix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
+$leadPhone = "012-$($leadSuffix.Substring($leadSuffix.Length - 7))"
+$correctedLeadPhone = "011-$($leadSuffix.Substring($leadSuffix.Length - 8))"
 $leadBody = @{
   vehicleId = $leadVehicleId
-  customerName = "Smoke Test Lead"
+  customerName = "Tan Wei Sheng"
   phone = $leadPhone
-  message = "Smoke test enquiry from public website"
+  message = "Wants to view after work in Kluang and check loan monthly payment."
 } | ConvertTo-Json
 $lead = Invoke-WebRequest -Uri "$ApiBaseUrl/api/public/leads" -Method Post -Body $leadBody -ContentType "application/json" -UseBasicParsing
 if ($lead.StatusCode -lt 200 -or $lead.StatusCode -ge 300) {
@@ -571,7 +573,7 @@ $invalidLeadBody = @{
   vehicleId = $leadVehicleId
   customerName = " "
   phone = ""
-  message = "Invalid smoke test enquiry"
+  message = "Invalid local test enquiry"
 } | ConvertTo-Json
 try {
   $invalidLead = Invoke-WebRequest -Uri "$ApiBaseUrl/api/public/leads" -Method Post -Body $invalidLeadBody -ContentType "application/json" -UseBasicParsing
@@ -635,8 +637,8 @@ Write-Host "Back-office lead validation OK"
 $leadCustomerId = [guid]::NewGuid().ToString()
 $leadCustomerBody = @{
   id = $leadCustomerId
-  name = $createdLead.customerName
-  phone = $createdLead.phone
+  name = "Lim Mei Ling"
+  phone = $correctedLeadPhone
   email = "lead.$roleSuffix@ysheng.local"
 } | ConvertTo-Json
 $leadCustomer = Invoke-WebRequest -Uri "$ApiBaseUrl/api/customers" -Method Post -Body $leadCustomerBody -ContentType "application/json" -WebSession $session -UseBasicParsing
@@ -668,9 +670,9 @@ $correctedLeadBody = @{
   id = $createdLead.id
   vehicleId = $leadVehicleId
   customerId = $leadCustomerId
-  customerName = "Smoke Lead Corrected"
-  phone = "$leadPhone-EDIT"
-  message = "Corrected back-office lead note"
+  customerName = "Lim Mei Ling"
+  phone = $correctedLeadPhone
+  message = "Updated viewing and bank loan follow-up note."
   status = "New"
   createdAt = $createdLead.createdAt
 } | ConvertTo-Json
@@ -679,14 +681,14 @@ if ($correctedLead.StatusCode -lt 200 -or $correctedLead.StatusCode -ge 300) {
   throw "Lead correction update returned HTTP $($correctedLead.StatusCode)"
 }
 $correctedLeadRecord = $correctedLead.Content | ConvertFrom-Json
-if ($correctedLeadRecord.customerName -ne "Smoke Lead Corrected" -or $correctedLeadRecord.phone -ne "$leadPhone-EDIT" -or $correctedLeadRecord.message -ne "Corrected back-office lead note" -or $correctedLeadRecord.status -ne "New" -or $correctedLeadRecord.customerId -ne $leadCustomerId) {
+if ($correctedLeadRecord.customerName -ne "Lim Mei Ling" -or $correctedLeadRecord.phone -ne $correctedLeadPhone -or $correctedLeadRecord.message -ne "Updated viewing and bank loan follow-up note." -or $correctedLeadRecord.status -ne "New" -or $correctedLeadRecord.customerId -ne $leadCustomerId) {
   throw "Back-office lead correction did not round trip customer, phone, message, status, and linked customer"
 }
 Write-Host "Back-office lead update tracking OK"
 
 $leads = Invoke-WebRequest -Uri "$ApiBaseUrl/api/leads" -WebSession $session -UseBasicParsing
-if ($leads.Content -notmatch "$leadPhone-EDIT" -or $leads.Content -notmatch $leadCustomerId) {
-  throw "Back-office leads API did not include the linked smoke-test public enquiry"
+if ($leads.Content -notmatch $correctedLeadPhone -or $leads.Content -notmatch $leadCustomerId) {
+  throw "Back-office leads API did not include the linked local public enquiry"
 }
 Write-Host "Back-office lead intake OK"
 
@@ -694,9 +696,9 @@ $closedLeadBody = @{
   id = $createdLead.id
   vehicleId = $leadVehicleId
   customerId = $leadCustomerId
-  customerName = "Smoke Lead Corrected"
-  phone = "$leadPhone-EDIT"
-  message = "Corrected back-office lead note"
+  customerName = "Lim Mei Ling"
+  phone = $correctedLeadPhone
+  message = "Updated viewing and bank loan follow-up note."
   status = "Closed"
   createdAt = $createdLead.createdAt
 } | ConvertTo-Json
@@ -711,15 +713,15 @@ $workflowVehicleId = [guid]::NewGuid().ToString()
 $workflowCustomerId = [guid]::NewGuid().ToString()
 $workflowOwnerId = [guid]::NewGuid().ToString()
 $workflowPlate = "SMK$($workflowSuffix.ToString().Substring($workflowSuffix.ToString().Length - 6))"
-$workflowCustomerPhone = "SMOKE-CUSTOMER-$workflowSuffix"
-$workflowOwnerPhone = "SMOKE-OWNER-$workflowSuffix"
+$workflowCustomerPhone = "012-$($workflowSuffix.ToString().Substring($workflowSuffix.ToString().Length - 7))"
+$workflowOwnerPhone = "019-$($workflowSuffix.ToString().Substring($workflowSuffix.ToString().Length - 7))"
 $workflowCustomerBody = @{
   id = $workflowCustomerId
-  name = "Smoke Workflow Customer"
+  name = "Tan Wei Sheng"
   phone = $workflowCustomerPhone
-  icNumber = "SMOKE-IC"
-  email = "smoke.workflow@example.test"
-  address = "123 Smoke Workflow Street"
+  icNumber = "900101-01-1234"
+  email = "tan.weisheng@example.test"
+  address = "123 Jalan Kluang"
   notes = "Customer detail note for invoice and delivery"
 } | ConvertTo-Json
 $workflowCustomer = Invoke-WebRequest -Uri "$ApiBaseUrl/api/customers" -Method Post -Body $workflowCustomerBody -ContentType "application/json" -WebSession $session -UseBasicParsing
@@ -727,16 +729,16 @@ if ($workflowCustomer.StatusCode -lt 200 -or $workflowCustomer.StatusCode -ge 30
   throw "Workflow customer creation returned HTTP $($workflowCustomer.StatusCode)"
 }
 $createdWorkflowCustomer = $workflowCustomer.Content | ConvertFrom-Json
-if ($createdWorkflowCustomer.address -ne "123 Smoke Workflow Street" -or $createdWorkflowCustomer.notes -ne "Customer detail note for invoice and delivery") {
+if ($createdWorkflowCustomer.address -ne "123 Jalan Kluang Jaya" -or $createdWorkflowCustomer.notes -ne "Customer detail note for invoice and delivery") {
   throw "Workflow customer did not preserve detailed address and notes"
 }
 $updatedWorkflowCustomerBody = @{
   id = $workflowCustomerId
-  name = "Smoke Workflow Customer"
+  name = "Tan Wei Sheng"
   phone = $workflowCustomerPhone
-  icNumber = "SMOKE-IC"
-  email = "smoke.workflow@example.test"
-  address = "456 Updated Workflow Street"
+  icNumber = "900101-01-1234"
+  email = "tan.weisheng@example.test"
+  address = "456 Jalan Mersing"
   notes = "Updated customer detail note"
 } | ConvertTo-Json
 $updatedWorkflowCustomer = Invoke-WebRequest -Uri "$ApiBaseUrl/api/customers/$workflowCustomerId" -Method Put -Body $updatedWorkflowCustomerBody -ContentType "application/json" -WebSession $session -UseBasicParsing
@@ -749,7 +751,7 @@ if ($updatedWorkflowCustomerContent.address -ne "456 Updated Workflow Street" -o
 }
 $workflowOwnerBody = @{
   id = $workflowOwnerId
-  name = "Smoke Previous Owner"
+  name = "Lim Previous Owner"
   phone = $workflowOwnerPhone
 } | ConvertTo-Json
 $workflowOwner = Invoke-WebRequest -Uri "$ApiBaseUrl/api/owners" -Method Post -Body $workflowOwnerBody -ContentType "application/json" -WebSession $session -UseBasicParsing
@@ -758,7 +760,7 @@ if ($workflowOwner.StatusCode -lt 200 -or $workflowOwner.StatusCode -ge 300) {
 }
 $updatedWorkflowOwnerBody = @{
   id = $workflowOwnerId
-  name = "Smoke Updated Previous Owner"
+  name = "Lim Chee Seng"
   phone = $workflowOwnerPhone
 } | ConvertTo-Json
 $updatedWorkflowOwner = Invoke-WebRequest -Uri "$ApiBaseUrl/api/owners/$workflowOwnerId" -Method Put -Body $updatedWorkflowOwnerBody -ContentType "application/json" -WebSession $session -UseBasicParsing
@@ -766,14 +768,14 @@ if ($updatedWorkflowOwner.StatusCode -lt 200 -or $updatedWorkflowOwner.StatusCod
   throw "Workflow owner update returned HTTP $($updatedWorkflowOwner.StatusCode)"
 }
 $updatedWorkflowOwnerContent = $updatedWorkflowOwner.Content | ConvertFrom-Json
-if ($updatedWorkflowOwnerContent.name -ne "Smoke Updated Previous Owner") {
+if ($updatedWorkflowOwnerContent.name -ne "Lim Chee Seng") {
   throw "Workflow owner updates did not round trip"
 }
 Write-Host "Customer and owner update OK"
 $workflowVehicleBody = @{
   id = $workflowVehicleId
   plateNumber = $workflowPlate
-  make = "Smoke"
+  make = "Perodua"
   model = "Workflow"
   year = 2026
   stockOwner = "YSHeng"
@@ -802,7 +804,7 @@ if ($createdWorkflowVehicle.customerId -ne $workflowCustomerId -or $createdWorkf
 $updatedWorkflowVehicleBody = @{
   id = $workflowVehicleId
   plateNumber = $workflowPlate
-  make = "Smoke"
+  make = "Perodua"
   model = "Workflow Updated"
   year = 2026
   stockOwner = "YSHeng"
@@ -987,7 +989,7 @@ Write-Host "Vehicle intake validation OK"
 $duplicateVehicleBody = @{
   id = [guid]::NewGuid().ToString()
   plateNumber = $workflowPlate.ToLowerInvariant()
-  make = "Smoke"
+  make = "Perodua"
   model = "Duplicate"
   year = 2026
   stockOwner = "YSHeng"
@@ -1061,7 +1063,7 @@ $repairId = [guid]::NewGuid().ToString()
 $repairBody = @{
   id = $repairId
   vehicleId = $workflowVehicleId
-  repairPart = "Smoke Spare Part"
+  repairPart = "Myvi Spare Part"
   whatToDo = "Install and polish spare part"
   cost = 650
   checklistDone = $false
@@ -1074,7 +1076,7 @@ $createdRepairContent = $createdRepair.Content | ConvertFrom-Json
 $updatedRepairBody = @{
   id = $createdRepairContent.id
   vehicleId = $createdRepairContent.vehicleId
-  repairPart = "Smoke Spare Part Corrected"
+  repairPart = "Myvi Spare Part Corrected"
   whatToDo = "Install, polish, and align spare part"
   cost = 725
   checklistDone = $true
@@ -1084,11 +1086,11 @@ if ($updatedRepair.StatusCode -lt 200 -or $updatedRepair.StatusCode -ge 300) {
   throw "Repair update returned HTTP $($updatedRepair.StatusCode)"
 }
 $updatedRepairContent = $updatedRepair.Content | ConvertFrom-Json
-if ($updatedRepairContent.repairPart -ne "Smoke Spare Part Corrected" -or $updatedRepairContent.whatToDo -ne "Install, polish, and align spare part" -or $updatedRepairContent.cost -ne 725 -or $updatedRepairContent.checklistDone -ne $true) {
+if ($updatedRepairContent.repairPart -ne "Myvi Spare Part Corrected" -or $updatedRepairContent.whatToDo -ne "Install, polish, and align spare part" -or $updatedRepairContent.cost -ne 725 -or $updatedRepairContent.checklistDone -ne $true) {
   throw "Repair update did not round trip corrected task details"
 }
 $repairs = Invoke-WebRequest -Uri "$ApiBaseUrl/api/repairs" -WebSession $session -UseBasicParsing
-if ($repairs.Content -notmatch "Smoke Spare Part Corrected" -or $repairs.Content -notmatch "Install, polish, and align spare part") {
+if ($repairs.Content -notmatch "Myvi Spare Part Corrected" -or $repairs.Content -notmatch "Install, polish, and align spare part") {
   throw "Repair list did not preserve repair part and task details"
 }
 Write-Host "Repair update tracking OK"
@@ -1130,7 +1132,7 @@ Write-Host "Supplier invoice validation OK"
 $supplierInvoiceBody = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
-  supplierName = "Smoke Workshop"
+  supplierName = "Kluang Workshop"
   invoiceNumber = "SW-$workflowSuffix"
   plateNumberOnInvoice = $workflowPlate
   amount = 1650
@@ -1163,7 +1165,7 @@ Write-Host "Supplier invoice update OK"
 
 $dashboardAfterSupplier = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
 $dashboardAfterSupplierSummary = $dashboardAfterSupplier.Content | ConvertFrom-Json
-if ($dashboardAfterSupplierSummary.topSupplier -ne "Smoke Workshop" -or $dashboardAfterSupplierSummary.salesPerformance -lt 1) {
+if ($dashboardAfterSupplierSummary.topSupplier -ne "Kluang Workshop" -or $dashboardAfterSupplierSummary.salesPerformance -lt 1) {
   throw "Dashboard summary did not include top supplier and sales performance metrics from live workflow data"
 }
 Write-Host "Dashboard top supplier and sales performance OK"
@@ -1171,7 +1173,7 @@ Write-Host "Dashboard top supplier and sales performance OK"
 $duplicateSupplierInvoiceBody = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
-  supplierName = " smoke workshop "
+  supplierName = " kluang workshop "
   invoiceNumber = " sw-$workflowSuffix "
   plateNumberOnInvoice = $workflowPlate
   amount = 700
@@ -1238,7 +1240,7 @@ $noticeReminderDeliveryId = [guid]::NewGuid().ToString()
 $noticeReminderDeliveryBody = @{
   id = $noticeReminderDeliveryId
   vehicleId = $workflowVehicleId
-  pic = "Smoke Delivery Reminder"
+  pic = "Ah Ming Delivery Reminder"
   status = "Scheduled"
   scheduledDate = "2026-06-01"
   polishDone = $false
@@ -1262,7 +1264,7 @@ if ($deliveryReminderInbox.Content -notmatch "DeliveryPreparation" -or $delivery
 $sentNoticeDeliveryBody = @{
   id = $noticeReminderDeliveryId
   vehicleId = $workflowVehicleId
-  pic = "Smoke Delivery Reminder"
+  pic = "Ah Ming Delivery Reminder"
   status = "Scheduled"
   scheduledDate = "2026-06-01"
   polishDone = $false
@@ -1290,7 +1292,7 @@ $deliveryId = [guid]::NewGuid().ToString()
 $deliveryBody = @{
   id = $deliveryId
   vehicleId = $workflowVehicleId
-  pic = "Smoke Delivery"
+  pic = "Ah Ming Delivery"
   status = "Scheduled"
   scheduledDate = "2026-06-03"
   polishDone = $true
@@ -1318,7 +1320,7 @@ if ($createdDelivery.notificationSent -ne $false) {
 $correctedDeliveryBody = @{
   id = $createdDelivery.id
   vehicleId = $createdDelivery.vehicleId
-  pic = "Smoke Delivery Corrected"
+  pic = "Ah Ming Delivery Corrected"
   status = "PreparingDocuments"
   scheduledDate = "2026-06-04"
   polishDone = $createdDelivery.polishDone
@@ -1342,7 +1344,7 @@ if ($correctedDelivery.StatusCode -lt 200 -or $correctedDelivery.StatusCode -ge 
   throw "Workflow delivery correction update returned HTTP $($correctedDelivery.StatusCode)"
 }
 $correctedDeliveryContent = $correctedDelivery.Content | ConvertFrom-Json
-if ($correctedDeliveryContent.pic -ne "Smoke Delivery Corrected" -or $correctedDeliveryContent.status -ne "PreparingDocuments" -or $correctedDeliveryContent.scheduledDate -ne "2026-06-04") {
+if ($correctedDeliveryContent.pic -ne "Ah Ming Delivery Corrected" -or $correctedDeliveryContent.status -ne "PreparingDocuments" -or $correctedDeliveryContent.scheduledDate -ne "2026-06-04") {
   throw "Workflow delivery correction fields did not round trip"
 }
 
@@ -1390,7 +1392,7 @@ Write-Host "Delivery handover reference tracking OK"
 $blockedReleaseBody = @{
   id = $deliveryId
   vehicleId = $workflowVehicleId
-  pic = "Smoke Delivery"
+  pic = "Ah Ming Delivery"
   status = "Released"
   scheduledDate = "2026-06-03"
   polishDone = $true
@@ -1431,7 +1433,7 @@ Write-Host "Delivery release validation OK"
 $blockedReadyBody = @{
   id = $deliveryId
   vehicleId = $workflowVehicleId
-  pic = "Smoke Delivery"
+  pic = "Ah Ming Delivery"
   status = "ReadyForRelease"
   scheduledDate = "2026-06-03"
   polishDone = $true
@@ -1511,7 +1513,7 @@ Write-Host "Delivery schedule validation OK"
 $invalidInspectionDeliveryBody = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
-  pic = "Smoke Delivery"
+  pic = "Ah Ming Delivery"
   status = "Inspection"
   scheduledDate = "2026-06-03"
   polishDone = $false
@@ -1550,7 +1552,7 @@ if ($invalidInspectionDeliveryStatus -ne 400 -or $invalidInspectionDeliveryConte
 Write-Host "Delivery inspection report validation OK"
 
 $photoFileName = "smoke-photo-$workflowSuffix.png"
-$photoBytes = New-SmokePngBytes
+$photoBytes = New-LocalTestPngBytes
 $photoChecksum = Get-Sha256Hex $photoBytes
 $photoUpload = Invoke-MultipartUpload `
   -Url "$ApiBaseUrl/api/vehicles/$workflowVehicleId/photos" `
@@ -1599,7 +1601,7 @@ if ($invalidDocumentCategoryUpload.StatusCode -ne 400 -or $invalidDocumentCatego
 Write-Host "Vehicle document category validation OK"
 
 $documentFileName = "smoke-document-$workflowSuffix.txt"
-$documentText = "Smoke test document upload $workflowSuffix"
+$documentText = "Local test document upload $workflowSuffix"
 $documentBytes = [System.Text.Encoding]::UTF8.GetBytes($documentText)
 $documentChecksum = Get-Sha256Hex $documentBytes
 $documentUpload = Invoke-MultipartUpload `
@@ -1627,7 +1629,7 @@ if ($documentContent.Content -ne $documentText) {
 Write-Host "Vehicle document upload/download OK"
 
 $financeReceiptFileName = "smoke-payment-receipt-$workflowSuffix.txt"
-$financeReceiptText = "Smoke payment receipt upload $workflowSuffix"
+$financeReceiptText = "Local payment receipt upload $workflowSuffix"
 $financeReceiptBytes = [System.Text.Encoding]::UTF8.GetBytes($financeReceiptText)
 $financeReceiptChecksum = Get-Sha256Hex $financeReceiptBytes
 $financeReceiptUpload = Invoke-MultipartUpload `
@@ -1641,7 +1643,7 @@ if ($financeReceiptUpload.StatusCode -lt 200 -or $financeReceiptUpload.StatusCod
 }
 
 $financeInvoiceFileName = "smoke-payment-invoice-$workflowSuffix.txt"
-$financeInvoiceText = "Smoke payment invoice upload $workflowSuffix"
+$financeInvoiceText = "Local payment invoice upload $workflowSuffix"
 $financeInvoiceBytes = [System.Text.Encoding]::UTF8.GetBytes($financeInvoiceText)
 $financeInvoiceChecksum = Get-Sha256Hex $financeInvoiceBytes
 $financeInvoiceUpload = Invoke-MultipartUpload `
@@ -1689,7 +1691,7 @@ $invalidCustomerBody = @{
   id = [guid]::NewGuid().ToString()
   name = " "
   phone = ""
-  icNumber = "SMOKE-INVALID"
+  icNumber = "LOCAL-INVALID"
   email = "invalid.customer@example.test"
 } | ConvertTo-Json
 try {
@@ -1721,7 +1723,7 @@ $duplicateCustomerBody = @{
   id = [guid]::NewGuid().ToString()
   name = "Duplicate Customer"
   phone = $workflowCustomerPhone.Replace("-", " ")
-  icNumber = "SMOKE-DUP-CUSTOMER"
+  icNumber = "LOCAL-DUP-CUSTOMER"
   email = "duplicate.customer@example.test"
 } | ConvertTo-Json
 try {
@@ -1994,7 +1996,7 @@ $bankFollowUpPaymentBody = @{
   nettPrice = 52000
   status = "Disbursed"
   bossChecked = $false
-  bankName = "Smoke Bank"
+  bankName = "Maybank"
   bankFollowUpDate = "2026-05-30"
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
@@ -2051,7 +2053,7 @@ $workflowPaymentBody = @{
   ncdAmount = 1200
   windscreenCharges = 450
   outstationDeliveryDate = "2026-06-05"
-  bankName = "Smoke Bank"
+  bankName = "Maybank"
   bankFollowUpDate = "2026-05-31"
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
@@ -2060,7 +2062,7 @@ if ($workflowPayment.StatusCode -lt 200 -or $workflowPayment.StatusCode -ge 300)
   throw "Workflow payment creation returned HTTP $($workflowPayment.StatusCode)"
 }
 $createdWorkflowPayment = $workflowPayment.Content | ConvertFrom-Json
-if ($createdWorkflowPayment.receiptNumber -ne "RCPT-$workflowSuffix" -or $createdWorkflowPayment.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdWorkflowPayment.bossChecked -ne $true -or $createdWorkflowPayment.documentsPrepared -ne $true -or $createdWorkflowPayment.checklistValidated -ne $true -or $createdWorkflowPayment.invoiceGenerated -ne $true -or $createdWorkflowPayment.autoCountKeyed -ne $true -or $createdWorkflowPayment.bankName -ne "Smoke Bank" -or $createdWorkflowPayment.bankFollowUpDate -ne "2026-05-31" -or $createdWorkflowPayment.salesPrice -ne 58000 -or $createdWorkflowPayment.interestAdditionalCharges -ne 600 -or $createdWorkflowPayment.ncdAmount -ne 1200 -or $createdWorkflowPayment.windscreenCharges -ne 450 -or $createdWorkflowPayment.outstationDeliveryDate -ne "2026-06-05") {
+if ($createdWorkflowPayment.receiptNumber -ne "RCPT-$workflowSuffix" -or $createdWorkflowPayment.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdWorkflowPayment.bossChecked -ne $true -or $createdWorkflowPayment.documentsPrepared -ne $true -or $createdWorkflowPayment.checklistValidated -ne $true -or $createdWorkflowPayment.invoiceGenerated -ne $true -or $createdWorkflowPayment.autoCountKeyed -ne $true -or $createdWorkflowPayment.bankName -ne "Maybank" -or $createdWorkflowPayment.bankFollowUpDate -ne "2026-05-31" -or $createdWorkflowPayment.salesPrice -ne 58000 -or $createdWorkflowPayment.interestAdditionalCharges -ne 600 -or $createdWorkflowPayment.ncdAmount -ne 1200 -or $createdWorkflowPayment.windscreenCharges -ne 450 -or $createdWorkflowPayment.outstationDeliveryDate -ne "2026-06-05") {
   throw "Workflow payment did not preserve receipt, invoice, boss check, finance checklist, customer invoice detail, and bank follow-up metadata"
 }
 
@@ -2081,7 +2083,7 @@ $updatedWorkflowPaymentBody = @{
   ncdAmount = 1300
   windscreenCharges = 500
   outstationDeliveryDate = "2026-06-06"
-  bankName = "Smoke Bank Corrected"
+  bankName = "Public Bank"
   bankFollowUpDate = "2026-06-02"
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
@@ -2090,7 +2092,7 @@ if ($updatedWorkflowPayment.StatusCode -lt 200 -or $updatedWorkflowPayment.Statu
   throw "Workflow payment correction update returned HTTP $($updatedWorkflowPayment.StatusCode)"
 }
 $updatedWorkflowPaymentContent = $updatedWorkflowPayment.Content | ConvertFrom-Json
-if ($updatedWorkflowPaymentContent.nettPrice -ne 52500 -or $updatedWorkflowPaymentContent.salesPrice -ne 58500 -or $updatedWorkflowPaymentContent.interestAdditionalCharges -ne 650 -or $updatedWorkflowPaymentContent.ncdAmount -ne 1300 -or $updatedWorkflowPaymentContent.windscreenCharges -ne 500 -or $updatedWorkflowPaymentContent.outstationDeliveryDate -ne "2026-06-06" -or $updatedWorkflowPaymentContent.bankName -ne "Smoke Bank Corrected" -or $updatedWorkflowPaymentContent.bankFollowUpDate -ne "2026-06-02") {
+if ($updatedWorkflowPaymentContent.nettPrice -ne 52500 -or $updatedWorkflowPaymentContent.salesPrice -ne 58500 -or $updatedWorkflowPaymentContent.interestAdditionalCharges -ne 650 -or $updatedWorkflowPaymentContent.ncdAmount -ne 1300 -or $updatedWorkflowPaymentContent.windscreenCharges -ne 500 -or $updatedWorkflowPaymentContent.outstationDeliveryDate -ne "2026-06-06" -or $updatedWorkflowPaymentContent.bankName -ne "Public Bank" -or $updatedWorkflowPaymentContent.bankFollowUpDate -ne "2026-06-02") {
   throw "Workflow payment correction did not round trip customer invoice and bank metadata"
 }
 Write-Host "Payment update tracking OK"
@@ -2597,7 +2599,7 @@ Write-Host "Broker commission validation OK"
 $invalidBrokerCp58Body = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
-  brokerName = "Smoke Broker"
+  brokerName = "Ah Chong Broker"
   amount = 1200
   isPaid = $false
   cp58Required = $false
@@ -2634,7 +2636,7 @@ $brokerCommissionId = [guid]::NewGuid().ToString()
 $brokerCommissionBody = @{
   id = $brokerCommissionId
   vehicleId = $workflowVehicleId
-  brokerName = "Smoke Broker"
+  brokerName = "Ah Chong Broker"
   amount = 1200
   isPaid = $false
   cp58Required = $true
@@ -2645,8 +2647,8 @@ if ($createdBrokerCommission.StatusCode -lt 200 -or $createdBrokerCommission.Sta
   throw "Broker commission creation returned HTTP $($createdBrokerCommission.StatusCode)"
 }
 $brokerCommissions = Invoke-WebRequest -Uri "$ApiBaseUrl/api/broker-commissions" -WebSession $session -UseBasicParsing
-if ($brokerCommissions.Content -notmatch "Smoke Broker" -or $brokerCommissions.Content -notmatch "1200" -or $brokerCommissions.Content -notmatch "cp58Required") {
-  throw "Broker commission list did not include the smoke broker commission"
+if ($brokerCommissions.Content -notmatch "Ah Chong Broker" -or $brokerCommissions.Content -notmatch "1200" -or $brokerCommissions.Content -notmatch "cp58Required") {
+  throw "Broker commission list did not include the local broker commission"
 }
 $dashboardAfterCommission = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
 $profitAfterCommission = Get-DashboardTotalProfit $dashboardAfterCommission.Content
@@ -2656,7 +2658,7 @@ if (($profitBeforeCommission - $profitAfterCommission) -ne 1200) {
 $updatedBrokerCommissionBody = @{
   id = $brokerCommissionId
   vehicleId = $workflowVehicleId
-  brokerName = "Smoke Broker Corrected"
+  brokerName = "Ah Chong Broker Corrected"
   amount = 1300
   isPaid = $false
   cp58Required = $true
@@ -2667,7 +2669,7 @@ if ($updatedBrokerCommission.StatusCode -lt 200 -or $updatedBrokerCommission.Sta
   throw "Broker commission update returned HTTP $($updatedBrokerCommission.StatusCode)"
 }
 $updatedBrokerCommissionContent = $updatedBrokerCommission.Content | ConvertFrom-Json
-if ($updatedBrokerCommissionContent.brokerName -ne "Smoke Broker Corrected" -or $updatedBrokerCommissionContent.amount -ne 1300 -or $updatedBrokerCommissionContent.isPaid -ne $false -or $updatedBrokerCommissionContent.cp58Required -ne $true -or $updatedBrokerCommissionContent.cp58Prepared -ne $false) {
+if ($updatedBrokerCommissionContent.brokerName -ne "Ah Chong Broker Corrected" -or $updatedBrokerCommissionContent.amount -ne 1300 -or $updatedBrokerCommissionContent.isPaid -ne $false -or $updatedBrokerCommissionContent.cp58Required -ne $true -or $updatedBrokerCommissionContent.cp58Prepared -ne $false) {
   throw "Broker commission update did not round trip corrected broker, amount, paid, and CP58 state"
 }
 $dashboardAfterCommissionUpdate = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
@@ -2679,7 +2681,7 @@ Write-Host "Broker commission update tracking OK"
 $paidBrokerCommissionBody = @{
   id = $brokerCommissionId
   vehicleId = $workflowVehicleId
-  brokerName = "Smoke Broker Corrected"
+  brokerName = "Ah Chong Broker Corrected"
   amount = 1300
   isPaid = $true
   cp58Required = $true
@@ -2828,7 +2830,7 @@ $paymentVoucherId = [guid]::NewGuid().ToString()
 $paymentVoucherBody = @{
   id = $paymentVoucherId
   vehicleId = $workflowVehicleId
-  payeeName = "Smoke Driver"
+  payeeName = "Ah Ming Driver"
   amount = 180
   purpose = "Outstation Pickup Allowance"
   status = "Pending"
@@ -2840,8 +2842,8 @@ if ($createdPaymentVoucher.StatusCode -lt 200 -or $createdPaymentVoucher.StatusC
   throw "Payment voucher creation returned HTTP $($createdPaymentVoucher.StatusCode)"
 }
 $paymentVouchers = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payment-vouchers" -WebSession $session -UseBasicParsing
-if ($paymentVouchers.Content -notmatch "Smoke Driver" -or $paymentVouchers.Content -notmatch "180") {
-  throw "Payment voucher list did not include the smoke pickup allowance"
+if ($paymentVouchers.Content -notmatch "Ah Ming Driver" -or $paymentVouchers.Content -notmatch "180") {
+  throw "Payment voucher list did not include the local pickup allowance"
 }
 $dashboardAfterPaymentVoucher = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
 $profitAfterPaymentVoucher = Get-DashboardTotalProfit $dashboardAfterPaymentVoucher.Content
@@ -2856,7 +2858,7 @@ if (-not ($paymentVoucherReminders | Where-Object { $_.type -eq "PaymentVoucherF
 $updatedPaymentVoucherBody = @{
   id = $paymentVoucherId
   vehicleId = $workflowVehicleId
-  payeeName = "Smoke Driver Corrected"
+  payeeName = "Ah Ming Driver Corrected"
   amount = 220
   purpose = "Outstation Pickup Allowance Corrected"
   status = "Approved"
@@ -2868,7 +2870,7 @@ if ($updatedPaymentVoucher.StatusCode -lt 200 -or $updatedPaymentVoucher.StatusC
   throw "Payment voucher update returned HTTP $($updatedPaymentVoucher.StatusCode)"
 }
 $updatedPaymentVoucherContent = $updatedPaymentVoucher.Content | ConvertFrom-Json
-if ($updatedPaymentVoucherContent.payeeName -ne "Smoke Driver Corrected" -or $updatedPaymentVoucherContent.amount -ne 220 -or $updatedPaymentVoucherContent.purpose -ne "Outstation Pickup Allowance Corrected" -or $updatedPaymentVoucherContent.status -ne "Approved" -or $updatedPaymentVoucherContent.issuedDate -ne "2026-06-01" -or $updatedPaymentVoucherContent.notes -ne "Corrected booking slip $workflowSuffix") {
+if ($updatedPaymentVoucherContent.payeeName -ne "Ah Ming Driver Corrected" -or $updatedPaymentVoucherContent.amount -ne 220 -or $updatedPaymentVoucherContent.purpose -ne "Outstation Pickup Allowance Corrected" -or $updatedPaymentVoucherContent.status -ne "Approved" -or $updatedPaymentVoucherContent.issuedDate -ne "2026-06-01" -or $updatedPaymentVoucherContent.notes -ne "Corrected booking slip $workflowSuffix") {
   throw "Payment voucher update did not round trip corrected payee, amount, purpose, status, issue date, and notes"
 }
 $dashboardAfterPaymentVoucherUpdate = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
@@ -2880,7 +2882,7 @@ Write-Host "Payment voucher update tracking OK"
 $paidPaymentVoucherBody = @{
   id = $paymentVoucherId
   vehicleId = $workflowVehicleId
-  payeeName = "Smoke Driver Corrected"
+  payeeName = "Ah Ming Driver Corrected"
   amount = 220
   purpose = "Outstation Pickup Allowance Corrected"
   status = "Paid"
@@ -2922,7 +2924,7 @@ $correctedPaymentBody = @{
   ncdAmount = 1200
   windscreenCharges = 450
   outstationDeliveryDate = "2026-06-05"
-  bankName = "Smoke Bank"
+  bankName = "Maybank"
   bankFollowUpDate = "2026-05-31"
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
@@ -2953,7 +2955,7 @@ $reconciledAgainPaymentBody = @{
   ncdAmount = 1200
   windscreenCharges = 450
   outstationDeliveryDate = "2026-06-05"
-  bankName = "Smoke Bank"
+  bankName = "Maybank"
   bankFollowUpDate = "2026-05-31"
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json

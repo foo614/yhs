@@ -15,8 +15,16 @@ import {
   createSettlementReminder,
   createSupplierInvoice,
   createVehicle,
+  checkInHrAttendance,
+  checkOutHrAttendance,
+  cancelHrLeaveRequest,
+  createHrLeaveAdjustment,
+  createHrLeaveRequest,
+  createHrPayPeriod,
   customerFromLead,
   customerSelectLabel,
+  decideHrLeaveRequest,
+  generateHrPayslips,
   getAuditLog,
   getCurrentUser,
   getCustomers,
@@ -28,6 +36,15 @@ import {
   getDeliveries,
   getLeads,
   getDeliveryReleaseReadiness,
+  getHrAttendance,
+  getHrLeaveAdjustments,
+  getHrLeaveBalances,
+  getHrLeavePolicies,
+  getHrLeaveRequests,
+  getHrPayPeriods,
+  getHrPayrollProfiles,
+  getHrPayslips,
+  getHrStaffUsers,
   getLoanDocumentCheck,
   getLoans,
   getOwners,
@@ -37,6 +54,7 @@ import {
   getRepairs,
   getSettlementReminders,
   getSupplierInvoices,
+  getOcrJob,
   getVehicleLookup,
   getStaffUsers,
   getVehicleDocuments,
@@ -45,6 +63,10 @@ import {
   vehiclePhotoContentUrl,
   login,
   logout,
+  hrMedicalCertificateContentUrl,
+  updateHrLeaveBalance,
+  updateHrLeavePolicy,
+  updateHrPayrollProfile,
   updateDelivery,
   updateBrokerCommission,
   updateCustomer,
@@ -62,6 +84,7 @@ import {
   updateStaffUserStatus,
   updateSupplierInvoice,
   updateVehicle,
+  startOcrJob,
   uploadVehicleDocument,
   uploadVehiclePhoto,
   type DeliverySchedule,
@@ -72,6 +95,10 @@ import {
   type DashboardReminder,
   type DebtRecoveryCase,
   type Lead,
+  type HrAttendanceRecord,
+  type HrLeavePolicy,
+  type HrLeaveRequest,
+  type HrPayPeriod,
   type LoanApplication,
   type DeliveryReleaseReadiness,
   type LoanDocumentCheck,
@@ -483,6 +510,32 @@ describe("backoffice api client", () => {
     expect(fetchMock.mock.calls[1][1].headers).toBeUndefined();
   });
 
+  it("starts and reads OCR jobs for uploaded documents", async () => {
+    const ocrJob = {
+      id: "ocr-1",
+      documentId: "doc-1",
+      category: "PaymentReceipt",
+      status: "NeedsReview",
+      progress: 100,
+      result: {
+        documentCategory: "PaymentReceipt",
+        confidence: 0.82,
+        fieldConfidence: { receiptNumber: 0.8 },
+        fields: { receiptNumber: "RCPT-1001" },
+        rawText: "Receipt RCPT-1001",
+        warnings: []
+      },
+      warnings: [],
+      createdAt: "2026-06-08T00:00:00Z"
+    };
+    const fetchMock = mockFetch(ocrJob);
+
+    expect(await startOcrJob("doc-1")).toEqual(ocrJob);
+    expect(await getOcrJob("ocr-1")).toEqual(ocrJob);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/documents/doc-1/ocr-jobs", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/ocr-jobs/ocr-1", expect.objectContaining({ credentials: "include" }));
+  });
+
   it("loads public website enquiries for the back office leads module", async () => {
     const leads: Lead[] = [
       {
@@ -501,6 +554,28 @@ describe("backoffice api client", () => {
 
     expect(result).toEqual(leads);
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/leads", { credentials: "include" });
+  });
+
+  it("uses Malaysia-market demo leads when the leads API is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    const result = await getLeads();
+
+    expect(result.map((lead) => lead.customerName)).toEqual([
+      "Tan Wei Sheng",
+      "Nur Aisyah",
+      "Raj Kumar",
+      "Lim Mei Ling",
+      "Ahmad Faiz"
+    ]);
+    expect(result.map((lead) => lead.phone)).toEqual([
+      "012-345 6789",
+      "011-2088 7721",
+      "016-771 9032",
+      "017-662 1180",
+      "013-904 5527"
+    ]);
+    expect(result.every((lead) => lead.vehicleId === "9f5d6f16-9bb5-46b9-bb13-e8a8b3534737")).toBe(true);
   });
 
   it("loads dashboard reminder inbox items", async () => {
@@ -601,7 +676,54 @@ describe("backoffice api client", () => {
         { label: "61+", count: 1 }
       ],
       topSupplier: "ABC Spray",
-      salesPerformance: 2
+      salesPerformance: 2,
+      stockStatusMix: [
+        { label: "Available", count: 2 },
+        { label: "LoanProcessing", count: 1 },
+        { label: "Sold", count: 0 }
+      ],
+      stockOwnerMix: [
+        { label: "YSHeng", count: 2 },
+        { label: "KS", count: 1 }
+      ],
+      moneyRiskBreakdown: [
+        { label: "Outstanding Payment", amount: 58000 },
+        { label: "Unpaid Settlement", amount: 25000 },
+        { label: "Open Debt Recovery", amount: 3200 },
+        { label: "Unpaid Daily Spend", amount: 480 },
+        { label: "Open Payment Voucher", amount: 180 }
+      ],
+      workflowBlockers: {
+        byType: [
+          { label: "LoanFollowUp", count: 1 },
+          { label: "SettlementDue", count: 1 }
+        ],
+        dueBuckets: [
+          { label: "Overdue", count: 1 },
+          { label: "DueToday", count: 1 },
+          { label: "Upcoming", count: 0 }
+        ]
+      },
+      salesFunnel: {
+        stages: [
+          { label: "New", count: 2 },
+          { label: "Contacted", count: 1 },
+          { label: "Closed", count: 2 }
+        ],
+        conversionRate: 40
+      },
+      profitBreakdown: [
+        { label: "Selling + Charges", amount: 120000 },
+        { label: "Purchase Cost", amount: 84000 },
+        { label: "Repair Cost", amount: 3500 },
+        { label: "Commission", amount: 2400 },
+        { label: "Pickup Allowance", amount: 180 },
+        { label: "Estimated Profit", amount: 11900 }
+      ],
+      supplierSpendTop: [
+        { label: "ABC Spray", amount: 1500 },
+        { label: "Tint Shop", amount: 1200 }
+      ]
     };
     const fetchMock = mockFetch(summary);
 
@@ -816,6 +938,98 @@ describe("backoffice api client", () => {
         body: JSON.stringify({ isActive: false })
       })
     );
+  });
+
+  it("loads and mutates HR self-service and management records", async () => {
+    const attendance: HrAttendanceRecord = {
+      id: "attendance-1",
+      staffUserId: "staff-1",
+      attendanceDate: "2026-06-06",
+      checkInAt: "2026-06-06T01:00:00Z",
+      status: "Present"
+    };
+    const leave: HrLeaveRequest = {
+      id: "leave-1",
+      staffUserId: "staff-1",
+      type: "UnpaidLeave",
+      status: "Pending",
+      startDate: "2026-06-06",
+      endDate: "2026-06-06",
+      days: 1,
+      createdAt: "2026-06-06T00:00:00Z"
+    };
+    const period: HrPayPeriod = {
+      id: "period-1",
+      name: "June 2026",
+      startDate: "2026-06-01",
+      endDate: "2026-06-30",
+      workingDays: 22,
+      createdAt: "2026-06-06T00:00:00Z"
+    };
+    const policy: HrLeavePolicy = {
+      id: "policy-1",
+      role: "Sales",
+      annualLeaveDays: 12,
+      medicalLeaveDays: 14
+    };
+    const fetchMock = mockFetch([attendance]);
+
+    await getHrStaffUsers();
+    await getHrAttendance();
+    await checkInHrAttendance();
+    await checkOutHrAttendance();
+    await getHrLeaveRequests();
+    await createHrLeaveRequest(leave);
+    await decideHrLeaveRequest("leave-1", "Approved", "ok");
+    await cancelHrLeaveRequest("leave-1");
+    await getHrLeaveBalances();
+    await updateHrLeaveBalance({ id: "balance-1", staffUserId: "staff-1", annualLeaveDays: 8, medicalLeaveDays: 12 });
+    await getHrLeavePolicies();
+    await updateHrLeavePolicy(policy);
+    await getHrLeaveAdjustments();
+    await createHrLeaveAdjustment({ staffUserId: "staff-1", type: "AnnualLeave", direction: "Increase", days: 1, reason: "Carry forward" });
+    await getHrPayrollProfiles();
+    await updateHrPayrollProfile({ id: "profile-1", staffUserId: "staff-1", monthlyBaseSalary: 2200, overtimeHours: 2, overtimeRate: 15, allowances: 100, manualDeductions: 20 });
+    await getHrPayPeriods();
+    await createHrPayPeriod(period);
+    await getHrPayslips();
+    await generateHrPayslips("period-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/hr/staff", { credentials: "include" });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/hr/attendance", { credentials: "include" });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/hr/attendance/check-in", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/hr/attendance/check-out", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:5000/api/hr/leave-requests", expect.objectContaining({ method: "POST", body: JSON.stringify(leave) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:5000/api/hr/leave-requests/leave-1/decision", expect.objectContaining({ method: "PUT", body: JSON.stringify({ status: "Approved", decisionNotes: "ok" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(8, "http://localhost:5000/api/hr/leave-requests/leave-1/cancel", expect.objectContaining({ method: "PUT" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(10, "http://localhost:5000/api/hr/leave-balances/staff-1", expect.objectContaining({ method: "PUT" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(12, "http://localhost:5000/api/hr/leave-policies/Sales", expect.objectContaining({ method: "PUT", body: JSON.stringify(policy) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(14, "http://localhost:5000/api/hr/leave-adjustments", expect.objectContaining({ method: "POST", body: JSON.stringify({ staffUserId: "staff-1", type: "AnnualLeave", direction: "Increase", days: 1, reason: "Carry forward" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(16, "http://localhost:5000/api/hr/payroll-profiles/staff-1", expect.objectContaining({ method: "PUT" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(18, "http://localhost:5000/api/hr/pay-periods", expect.objectContaining({ method: "POST", body: JSON.stringify(period) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(20, "http://localhost:5000/api/hr/pay-periods/period-1/generate-payslips", expect.objectContaining({ method: "POST" }));
+    expect(hrMedicalCertificateContentUrl("leave-1")).toBe("http://localhost:5000/api/hr/leave-requests/leave-1/mc/content");
+  });
+
+  it("falls back to demo data when HR endpoints return 404", async () => {
+    mockFetch({ message: "not found" }, false, 404);
+
+    const staff = await getHrStaffUsers();
+    const attendance = await getHrAttendance();
+    const checkIn = await checkInHrAttendance();
+    const checkOut = await checkOutHrAttendance();
+
+    expect(staff).toHaveLength(3);
+    expect(staff[0].id).toBe("staff-demo-hr");
+    expect(attendance).toHaveLength(3);
+    expect(checkIn.id).toContain("attendance-demo-");
+    expect(checkIn.staffUserId).toBe("staff-demo-hr");
+    expect(checkIn.status).toBe("Present");
+    expect(checkIn.checkInAt).toBeTruthy();
+    expect(checkOut.id).toContain("attendance-demo-");
+    expect(checkOut.staffUserId).toBe("staff-demo-hr");
+    expect(checkOut.status).toBe("Present");
+    expect(checkOut.checkOutAt).toBeTruthy();
   });
 
   it("updates workflow records with authenticated PUT requests", async () => {

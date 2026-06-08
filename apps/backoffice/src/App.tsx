@@ -8,6 +8,8 @@ import {
   DownloadOutlined,
   FileDoneOutlined,
   LogoutOutlined,
+  MenuOutlined,
+  SettingOutlined,
   ToolOutlined,
   UploadOutlined,
   UserOutlined
@@ -17,34 +19,57 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Descriptions,
   Drawer,
   Form,
   Input,
   InputNumber,
+  Modal,
   Result,
   Select,
   Space,
-  Table,
+  Steps,
+  Table as AntTable,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
   Upload,
   message,
   notification
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import type { TableProps } from "antd/es/table";
+import type { TablePaginationConfig } from "antd/es/table/interface";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canAssignStaffRoles, firstAccessiblePath, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
-import { brokerCommissionCreateBlockReason, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, settlementCreateBlockReason } from "./finance";
 import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent } from "./delivery";
 import { loanCreateBlockReason, loanDocumentCategories, markLoanApproved, markLoanDone } from "./loan";
-import { filterLeadsForTriage, findCustomerForLead, leadCustomerLinkLabel, leadCustomerLinkTagColor, type LeadLinkFilter } from "./leads";
+import {
+  activeLeadCountByVehicle,
+  filterLeadsForTriage,
+  findCustomerForLead,
+  groupLeadsByVehicle,
+  leadVehicleLabel,
+  sortLeadsByHotCarDemand,
+  type LeadVehicleGroup,
+  type LeadLinkFilter
+} from "./leads";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
-import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "./vehicles";
 import { repairCreateBlockReason, repairDocumentCategories, supplierInvoiceCreateBlockReason } from "./repairs";
 import { staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason } from "./staff";
 import { filterDashboardReminders, reminderDueLabel, reminderDueTagColor, type ReminderDueFilter } from "./dashboard";
+import { FinancePage } from "./modules/finance/FinancePage";
+import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
+import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
+import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import {
+  checkInHrAttendance,
+  checkOutHrAttendance,
+  cancelHrLeaveRequest,
+  createHrLeaveAdjustment,
+  createHrLeaveRequest,
+  createHrPayPeriod,
   createCustomer,
   createBrokerCommission,
   createDailySpend,
@@ -62,6 +87,8 @@ import {
   createVehicle,
   customerFromLead,
   customerSelectLabel,
+  decideHrLeaveRequest,
+  generateHrPayslips,
   getAuditLog,
   getCurrentUser,
   getCustomers,
@@ -72,6 +99,15 @@ import {
   getDashboardReminders,
   getDeliveryReleaseReadiness,
   getDeliveries,
+  getHrAttendance,
+  getHrLeaveAdjustments,
+  getHrLeaveBalances,
+  getHrLeavePolicies,
+  getHrLeaveRequests,
+  getHrPayPeriods,
+  getHrPayrollProfiles,
+  getHrPayslips,
+  getHrStaffUsers,
   getLeads,
   getLoanDocumentCheck,
   getLoans,
@@ -85,11 +121,14 @@ import {
   getSupplierInvoices,
   getVehicleDocuments,
   getVehicleLookup,
-  getVehiclePhotos,
   getVehicles,
   login,
   logout,
   resetStaffUserPassword,
+  hrMedicalCertificateContentUrl,
+  updateHrLeaveBalance,
+  updateHrLeavePolicy,
+  updateHrPayrollProfile,
   updateDelivery,
   updateBrokerCommission,
   updateCustomer,
@@ -108,11 +147,10 @@ import {
   updateStaffUserStatus,
   updateSupplierInvoice,
   updateVehicle,
+  uploadHrMedicalCertificate,
   uploadVehicleDocument,
   uploadVehiclePhoto,
   vehicleDocumentContentUrl,
-  vehiclePhotoContentUrl,
-  vehicleFromIntakeValues,
   type AuditLog,
   type AuditLogFilters,
   type BrokerCommission,
@@ -127,6 +165,15 @@ import {
   type DeliverySchedule,
   type DeliveryReleaseReadiness,
   type DocumentCategory,
+  type HrAttendanceRecord,
+  type HrLeaveAdjustment,
+  type HrLeaveBalance,
+  type HrLeavePolicy,
+  type HrLeaveRequest,
+  type HrLeaveStatus,
+  type HrPayPeriod,
+  type HrPayrollProfile,
+  type HrPayslip,
   type Lead,
   type LoanApplication,
   type LoanDocumentCheck,
@@ -143,9 +190,8 @@ import {
   type UpdateStaffUserRequest,
   type UpdateStaffUserStatusRequest,
   type Vehicle,
-  type VehicleDocument,
   type VehicleLookup,
-  type VehiclePhoto
+  type VehicleDocument
 } from "./api";
 
 const staffRoles: StaffRole[] = assignableStaffRoles;
@@ -189,6 +235,22 @@ const deliveryFieldLabels: Record<DeliveryChecklistField, string> = {
   twoDayNoticeSent: "2-day Notice Sent / 提前2天通知"
 };
 
+const deliveryPreparationChecklist: DeliveryChecklistField[] = [
+  "inspectionDone",
+  "documentsPrepared",
+  "polishDone",
+  "tintedDone",
+  "washDone",
+  "insuranceHandled",
+  "roadTaxHandled",
+  "windscreenInsuranceHandled"
+];
+
+const deliveryNotificationChecklist: DeliveryChecklistField[] = [
+  "notificationSent",
+  "twoDayNoticeSent"
+];
+
 const bilingual = {
   dashboard: "Dashboard / 管理层分析",
   vehicles: "Vehicles / 收车库存",
@@ -198,8 +260,11 @@ const bilingual = {
   finance: "Finance / 收款Bank",
   leads: "Leads / 客户询问",
   auditLog: "Audit Log / 操作记录",
-  admin: "Admin / 用户角色"
+  settings: "Settings / 系统设置"
 };
+
+const hrPayrollRouteName = "HR Payroll / 人事薪资";
+const staffSelfServiceRouteName = "My Attendance / Leave";
 
 const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
   { path: "/dashboard", name: bilingual.dashboard, icon: <DashboardOutlined /> },
@@ -210,13 +275,54 @@ const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
   { path: "/finance", name: bilingual.finance, icon: <BankOutlined /> },
   { path: "/leads", name: bilingual.leads, icon: <UserOutlined /> },
   { path: "/audit-log", name: bilingual.auditLog, icon: <AuditOutlined /> },
-  { path: "/hr-salary", name: "HR/Salary / 人事薪资", icon: <CalendarOutlined /> },
-  { path: "/admin", name: bilingual.admin, icon: <UserOutlined /> }
+  { path: "/hr-salary", name: staffSelfServiceRouteName, icon: <CalendarOutlined /> },
+  { path: "/admin", name: bilingual.settings, icon: <SettingOutlined /> }
 ];
+
+function hasHrManagementRole(roles: readonly string[]) {
+  return roles.includes("BossAdmin") || roles.includes("HrSalary");
+}
+
+function routeDisplayName(path: AppRoutePath, roles: readonly string[]) {
+  if (path === "/hr-salary") {
+    return hasHrManagementRole(roles) ? hrPayrollRouteName : staffSelfServiceRouteName;
+  }
+  return allRoutes.find((route) => route.path === path)?.name ?? path;
+}
+
+function normalizeRoutePath(path?: string): AppRoutePath {
+  const candidate = path && path !== "/" ? path : "/dashboard";
+  return allRoutes.some((route) => route.path === candidate) ? candidate as AppRoutePath : "/dashboard";
+}
+
+function tablePagination(pageSize = 8): TablePaginationConfig {
+  return {
+    pageSize,
+    showSizeChanger: true,
+    pageSizeOptions: ["5", "8", "10", "20", "50"],
+    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} / 共 ${total} 条`
+  };
+}
+
+function Table<RecordType extends object>({ columns, dataSource, pagination, ...props }: TableProps<RecordType>) {
+  const tableColumns = useMemo(
+    () => ensureColumnFilters(columns, dataSource),
+    [columns, dataSource]
+  );
+
+  return (
+    <AntTable
+      {...props}
+      columns={tableColumns}
+      dataSource={dataSource}
+      pagination={pagination ?? tablePagination()}
+    />
+  );
+}
 
 export default function App() {
   const [notificationApi, notificationContextHolder] = notification.useNotification();
-  const [pathname, setPathname] = useState("/dashboard");
+  const [pathname, setPathname] = useState(() => normalizeRoutePath(window.location.pathname));
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [reminders, setReminders] = useState<DashboardReminder[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -236,9 +342,21 @@ export default function App() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLog[]>([]);
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
+  const [hrStaffUsers, setHrStaffUsers] = useState<StaffUser[]>([]);
+  const [hrAttendance, setHrAttendance] = useState<HrAttendanceRecord[]>([]);
+  const [hrLeaveRequests, setHrLeaveRequests] = useState<HrLeaveRequest[]>([]);
+  const [hrLeaveBalances, setHrLeaveBalances] = useState<HrLeaveBalance[]>([]);
+  const [hrLeavePolicies, setHrLeavePolicies] = useState<HrLeavePolicy[]>([]);
+  const [hrLeaveAdjustments, setHrLeaveAdjustments] = useState<HrLeaveAdjustment[]>([]);
+  const [hrPayrollProfiles, setHrPayrollProfiles] = useState<HrPayrollProfile[]>([]);
+  const [hrPayPeriods, setHrPayPeriods] = useState<HrPayPeriod[]>([]);
+  const [hrPayslips, setHrPayslips] = useState<HrPayslip[]>([]);
   const [vehicleLookup, setVehicleLookup] = useState<VehicleLookup[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [logoutSucceeded, setLogoutSucceeded] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const currentRoles = useMemo(() => currentUser?.roles ?? [], [currentUser?.roles]);
 
   const loadBackOfficeData = useCallback(async (roles?: string[]) => {
@@ -264,7 +382,16 @@ export default function App() {
       paymentVoucherData,
       leadData,
       auditData,
-      staffUserData
+      staffUserData,
+      hrStaffUserData,
+      hrAttendanceData,
+      hrLeaveRequestData,
+      hrLeaveBalanceData,
+      hrLeavePolicyData,
+      hrLeaveAdjustmentData,
+      hrPayrollProfileData,
+      hrPayPeriodData,
+      hrPayslipData
     ] = await Promise.all([
       canLoad("dashboard") ? getDashboard() : Promise.resolve(null),
       canLoad("reminders") ? getDashboardReminders() : Promise.resolve([]),
@@ -285,7 +412,16 @@ export default function App() {
       canLoad("paymentVouchers") ? getPaymentVouchers() : Promise.resolve([]),
       canLoad("leads") ? getLeads() : Promise.resolve([]),
       canLoad("auditLog") ? getAuditLog() : Promise.resolve([]),
-      canLoad("staffUsers") ? getStaffUsers() : Promise.resolve([])
+      canLoad("staffUsers") ? getStaffUsers() : Promise.resolve([]),
+      canLoad("hrStaffUsers") ? getHrStaffUsers() : Promise.resolve([]),
+      canLoad("hrAttendance") ? getHrAttendance() : Promise.resolve([]),
+      canLoad("hrLeaveRequests") ? getHrLeaveRequests() : Promise.resolve([]),
+      canLoad("hrLeaveBalances") ? getHrLeaveBalances() : Promise.resolve([]),
+      canLoad("hrLeavePolicies") ? getHrLeavePolicies() : Promise.resolve([]),
+      canLoad("hrLeaveAdjustments") ? getHrLeaveAdjustments() : Promise.resolve([]),
+      canLoad("hrPayrollProfiles") ? getHrPayrollProfiles() : Promise.resolve([]),
+      canLoad("hrPayPeriods") ? getHrPayPeriods() : Promise.resolve([]),
+      canLoad("hrPayslips") ? getHrPayslips() : Promise.resolve([])
     ]);
     setDashboard(dashboardData);
     setReminders(reminderData);
@@ -307,6 +443,15 @@ export default function App() {
     setLeads(leadData);
     setAuditLog(auditData);
     setStaffUsers(staffUserData);
+    setHrStaffUsers(hrStaffUserData);
+    setHrAttendance(hrAttendanceData);
+    setHrLeaveRequests(hrLeaveRequestData);
+    setHrLeaveBalances(hrLeaveBalanceData);
+    setHrLeavePolicies(hrLeavePolicyData);
+    setHrLeaveAdjustments(hrLeaveAdjustmentData);
+    setHrPayrollProfiles(hrPayrollProfileData);
+    setHrPayPeriods(hrPayPeriodData);
+    setHrPayslips(hrPayslipData);
   }, []);
 
   useEffect(() => {
@@ -323,15 +468,32 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser?.isAuthenticated && !canAccessRoute(currentRoles, pathname)) {
-      setPathname(firstAccessiblePath(currentRoles));
+      const fallbackPath = firstAccessiblePath(currentRoles);
+      setPathname(fallbackPath);
+      window.history.replaceState(null, "", fallbackPath);
     }
   }, [currentRoles, currentUser?.isAuthenticated, pathname]);
 
+  useEffect(() => {
+    const syncPathFromBrowser = () => setPathname(normalizeRoutePath(window.location.pathname));
+    window.addEventListener("popstate", syncPathFromBrowser);
+    return () => window.removeEventListener("popstate", syncPathFromBrowser);
+  }, []);
+
   const route = useMemo(() => ({
     path: "/",
-    routes: currentUser?.isAuthenticated ? allRoutes.filter((item) => canAccessRoute(currentRoles, item.path)) : allRoutes
+    routes: (currentUser?.isAuthenticated ? allRoutes.filter((item) => canAccessRoute(currentRoles, item.path)) : allRoutes)
+      .map((item) => ({ ...item, name: routeDisplayName(item.path, currentRoles) }))
   }), [currentUser?.isAuthenticated, currentRoles]);
   const pageTitle = route.routes.find((item) => item.path === pathname)?.name ?? bilingual.dashboard;
+  const navigateTo = (path: string) => {
+    const nextPath = normalizeRoutePath(path);
+    setPathname(nextPath);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState(null, "", nextPath);
+    }
+    setMobileNavOpen(false);
+  };
   const notifySuccess = useCallback((messageText: string, description?: string) => {
     notificationApi.success({
       message: messageText,
@@ -354,13 +516,29 @@ export default function App() {
   }, [currentUser?.isAuthenticated, logoutSucceeded, notifySuccess]);
 
   async function handleLogin(values: { email: string; password: string }) {
-    await login(values.email, values.password);
-    const user = await getCurrentUser();
-    setCurrentUser(user);
-    setLogoutSucceeded(false);
-    setPathname(firstAccessiblePath(user.roles));
-    await loadBackOfficeData(user.roles);
-    notifySuccess("Login successful", `Signed in as ${user.name ?? values.email}`);
+    setLoginLoading(true);
+    setLoginError(null);
+    try {
+      await login(values.email, values.password);
+      const user = await getCurrentUser();
+      setCurrentUser(user);
+      setLogoutSucceeded(false);
+      const nextPath = firstAccessiblePath(user.roles);
+      setPathname(nextPath);
+      window.history.replaceState(null, "", nextPath);
+      await loadBackOfficeData(user.roles);
+      notifySuccess("Login successful", `Signed in as ${user.name ?? values.email}`);
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message.trim() : "";
+      const messageText = rawMessage && rawMessage.toLowerCase().includes("failed to fetch")
+        ? "Cannot reach API at localhost:5000. Please confirm the API is running."
+        : rawMessage || "Please check your credentials and API connection.";
+      setLoginError(messageText);
+      notifyError("Login failed", messageText);
+      throw error;
+    } finally {
+      setLoginLoading(false);
+    }
   }
 
   async function handleAuditLogSearch(filters: AuditLogFilters) {
@@ -379,6 +557,7 @@ export default function App() {
     setCurrentUser(null);
     setLogoutSucceeded(true);
     setPathname("/dashboard");
+    window.history.replaceState(null, "", "/dashboard");
   }
 
   async function runCreate<T>(action: () => Promise<T>, success: (record: T) => void, text: string) {
@@ -415,31 +594,123 @@ export default function App() {
     }
   }
 
+  async function handleStartVehicleLoan(vehicle: Vehicle) {
+    if (!vehicle.customerId) {
+      notifyError("Customer required", "Open the vehicle record and link or create the customer before starting the loan workflow.");
+      return;
+    }
+
+    try {
+      const existingLoan = loans.find((loan) => loan.vehicleId === vehicle.id);
+      if (!existingLoan) {
+        const loan = await createLoan({
+          id: newId(),
+          vehicleId: vehicle.id,
+          customerId: vehicle.customerId,
+          status: "Pending",
+          louApproved: false,
+          louDone: false,
+          submittedAt: today()
+        });
+        setLoans((items) => [loan, ...items]);
+      }
+
+      if (vehicle.status !== "LoanProcessing" || vehicle.isPublic) {
+        const updatedVehicle = await updateVehicle({ ...vehicle, status: "LoanProcessing", isPublic: false });
+        setVehicles((items) => replaceById(items, updatedVehicle));
+      }
+
+      await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
+      setPathname("/loans");
+      window.history.pushState(null, "", "/loans");
+      notifySuccess(
+        existingLoan ? "Loan workflow opened" : "Loan workflow started",
+        existingLoan ? "This vehicle already has a loan record." : "A pending loan record was created and linked to the selected customer."
+      );
+    } catch (error) {
+      notifyError("Loan workflow failed", error instanceof Error ? error.message : "Please try again.");
+      throw error;
+    }
+  }
+
   if (!currentUser?.isAuthenticated) {
     return (
       <>
         {notificationContextHolder}
-        <LoginHome onLogin={handleLogin} logoutSucceeded={logoutSucceeded} onDismissLogoutResult={() => setLogoutSucceeded(false)} />
+        <LoginHome
+          onLogin={handleLogin}
+          loginLoading={loginLoading}
+          loginError={loginError}
+          logoutSucceeded={logoutSucceeded}
+          onDismissLogoutResult={() => setLogoutSucceeded(false)}
+        />
       </>
     );
   }
 
   return (
-    <ProLayout
-      title="YS Heng Portal"
-      logo={false}
-      route={route}
-      location={{ pathname }}
-      menuItemRender={(item, dom) => <button className="menuButton" onClick={() => setPathname(item.path ?? "/dashboard")}>{dom}</button>}
-      layout="mix"
-      actionsRender={() => [
-        <div className="headerSession" key="session">
-          <span className="headerSessionUser">{currentUser.name ?? "staff"}</span>
-          <span className="headerSessionRole">{currentRoles.join(", ") || "none"}</span>
-          <Button size="small" icon={<LogoutOutlined />} onClick={handleLogout}>Logout</Button>
+    <>
+      <div className="mobileTopBar">
+        <Button aria-label="Open navigation" icon={<MenuOutlined />} onClick={() => setMobileNavOpen(true)} />
+        <div className="mobileTopTitle">
+          <strong>YS Heng</strong>
+          <span>{pageTitle}</span>
         </div>
-      ]}
-    >
+        <Button
+          aria-label="Logout"
+          className="mobileLogoutButton"
+          icon={<LogoutOutlined />}
+          onClick={handleLogout}
+          title="Logout"
+        />
+      </div>
+      <div className="mobileRouteStrip" aria-label="Mobile module navigation">
+        {route.routes.map((item) => (
+          <button
+            key={item.path}
+            className={item.path === pathname ? "mobileRoutePill active" : "mobileRoutePill"}
+            onClick={() => navigateTo(item.path)}
+          >
+            {item.name}
+          </button>
+        ))}
+      </div>
+      <Drawer
+        title="YS Heng Portal"
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        placement="left"
+        width={300}
+        className="mobileNavDrawer"
+      >
+        <Space direction="vertical" size={6} className="fullWidth">
+          {route.routes.map((item) => (
+            <button
+              key={item.path}
+              className={item.path === pathname ? "mobileNavItem active" : "mobileNavItem"}
+              onClick={() => navigateTo(item.path)}
+            >
+              <span className="mobileNavIcon">{item.icon}</span>
+              <span>{item.name}</span>
+            </button>
+          ))}
+        </Space>
+      </Drawer>
+      <ProLayout
+        title="YS Heng Portal"
+        logo={false}
+        route={route}
+        location={{ pathname }}
+        menuItemRender={(item, dom) => <button className="menuButton" onClick={() => navigateTo(item.path ?? "/dashboard")}>{dom}</button>}
+        layout="mix"
+        actionsRender={() => [
+          <div className="headerSession" key="session">
+            <span className="headerSessionUser">{currentUser.name ?? "staff"}</span>
+            <span className="headerSessionRole">{currentRoles.map(displayRoleLabel).join(", ") || "none"}</span>
+            <Button size="small" icon={<LogoutOutlined />} onClick={handleLogout}>Logout</Button>
+          </div>
+        ]}
+      >
       {notificationContextHolder}
       <PageContainer title={pageTitle}>
         <Space direction="vertical" size={16} className="fullWidth">
@@ -459,16 +730,21 @@ export default function App() {
             settlements={settlements}
             leads={leads}
             staffUsers={staffUsers}
+            hrAttendance={hrAttendance}
+            hrLeaveRequests={hrLeaveRequests}
+            hrPayslips={hrPayslips}
           />
           {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} reminders={reminders} onSearch={handleReminderSearch} />}
           {pathname === "/vehicles" && (
-            <VehiclesPage
+            <VehiclePage
               vehicles={vehicles}
+              leads={leads}
               customers={customers}
               owners={owners}
               purchaseInvoices={purchaseInvoices}
               onCreate={(vehicle) => runCreate(() => createVehicle(vehicle), (record) => setVehicles((items) => [record, ...items]), "Vehicle created")}
               onUpdate={(vehicle) => runUpdate(() => updateVehicle(vehicle), (record) => setVehicles((items) => replaceById(items, record)), "Vehicle updated")}
+              onStartLoan={handleStartVehicleLoan}
               onCreateCustomer={(customer) => runCreate(() => createCustomer(customer), (record) => setCustomers((items) => [record, ...items]), "Customer created")}
               onUpdateCustomer={(customer) => runUpdate(() => updateCustomer(customer), (record) => setCustomers((items) => replaceById(items, record)), "Customer updated")}
               onCreateOwner={(owner) => runCreate(() => createOwner(owner), (record) => setOwners((items) => [record, ...items]), "Owner created")}
@@ -538,7 +814,8 @@ export default function App() {
           )}
           {pathname === "/leads" && (
             <LeadsPage
-              vehicles={vehicleLookup}
+              currentUser={currentUser}
+              vehicles={vehicles}
               customers={customers}
               leads={leads}
               onCreateCustomer={async (lead) => {
@@ -558,11 +835,42 @@ export default function App() {
               onUpdate={(lead) => runUpdate(() => updateLead(lead), (record) => setLeads((items) => replaceById(items, record)), "Lead updated")}
             />
           )}
-          {pathname === "/hr-salary" && <HrSalaryPage />}
+          {pathname === "/hr-salary" && (
+            <HrSalaryModulePage
+              currentUser={currentUser}
+              staffUsers={hrStaffUsers}
+              attendance={hrAttendance}
+              leaveRequests={hrLeaveRequests}
+              leaveBalances={hrLeaveBalances}
+              leavePolicies={hrLeavePolicies}
+              leaveAdjustments={hrLeaveAdjustments}
+              payrollProfiles={hrPayrollProfiles}
+              payPeriods={hrPayPeriods}
+              payslips={hrPayslips}
+              onCheckIn={() => runUpdate(() => checkInHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked in")}
+              onCheckOut={() => runUpdate(() => checkOutHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked out")}
+              onCreateLeave={(leave) => runCreate(() => createHrLeaveRequest(leave), (record) => setHrLeaveRequests((items) => [record, ...items]), "Leave request submitted")}
+              onDecideLeave={(leaveId, status, decisionNotes) => runUpdate(() => decideHrLeaveRequest(leaveId, status, decisionNotes), (record) => setHrLeaveRequests((items) => replaceById(items, record)), status === "Approved" ? "Leave approved" : "Leave rejected")}
+              onCancelLeave={(leaveId) => runUpdate(() => cancelHrLeaveRequest(leaveId), (record) => setHrLeaveRequests((items) => replaceById(items, record)), "Leave request cancelled")}
+              onUploadMc={async (leaveId, file) => {
+                await runUpload(() => uploadHrMedicalCertificate(leaveId, file), "MC uploaded");
+                await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
+              }}
+              mcContentUrl={hrMedicalCertificateContentUrl}
+              onUpdateBalance={(balance) => runUpdate(() => updateHrLeaveBalance(balance), (record) => setHrLeaveBalances((items) => replaceByIdOrPrepend(items, record)), "Leave balance updated")}
+              onUpdatePolicy={(policy) => runUpdate(() => updateHrLeavePolicy(policy), (record) => setHrLeavePolicies((items) => replaceByIdOrPrepend(items, record)), "Leave policy updated")}
+              onCreateAdjustment={(adjustment) => runCreate(() => createHrLeaveAdjustment(adjustment), (result) => {
+                setHrLeaveBalances((items) => replaceByIdOrPrepend(items, result.balance));
+                setHrLeaveAdjustments((items) => [result.adjustment, ...items]);
+              }, "Leave adjustment saved")}
+              onUpdatePayrollProfile={(profile) => runUpdate(() => updateHrPayrollProfile(profile), (record) => setHrPayrollProfiles((items) => replaceByIdOrPrepend(items, record)), "Payroll profile updated")}
+              onCreatePayPeriod={(period) => runCreate(() => createHrPayPeriod(period), (record) => setHrPayPeriods((items) => [record, ...items]), "Pay period created")}
+              onGeneratePayslips={(payPeriodId) => runUpdate(() => generateHrPayslips(payPeriodId), (records) => setHrPayslips((items) => mergeById(items, records)), "Payslips generated")}
+            />
+          )}
           {pathname === "/audit-log" && <AuditLogPage auditLog={auditLog} onSearch={handleAuditLogSearch} />}
           {pathname === "/admin" && (
             <AdminPage
-              currentUser={currentUser}
               auditLog={auditLog}
               staffUsers={staffUsers}
               onCreateStaffUser={(user) => runCreate(() => createStaffUser(user), (record) => setStaffUsers((items) => [record, ...items]), "Staff user created")}
@@ -574,16 +882,21 @@ export default function App() {
           )}
         </Space>
       </PageContainer>
-    </ProLayout>
+      </ProLayout>
+    </>
   );
 }
 
 function LoginHome({
   onLogin,
+  loginLoading,
+  loginError,
   logoutSucceeded,
   onDismissLogoutResult
 }: {
   onLogin: (values: { email: string; password: string }) => Promise<void>;
+  loginLoading?: boolean;
+  loginError?: string | null;
   logoutSucceeded?: boolean;
   onDismissLogoutResult?: () => void;
 }) {
@@ -627,7 +940,10 @@ function LoginHome({
               <Form.Item name="password" label="Password" rules={[{ required: true }]}>
                 <Input.Password placeholder="Password" />
               </Form.Item>
-              <Button type="primary" htmlType="submit" className="loginButton">Enter portal</Button>
+              {loginError && <Alert className="loginError" message="Login failed" description={loginError} type="error" showIcon />}
+              <Button type="primary" htmlType="submit" className="loginButton" loading={loginLoading}>
+                Enter portal
+              </Button>
             </Form>
           </>
         )}
@@ -651,7 +967,10 @@ function ModuleCommandBar({
   payments,
   settlements,
   leads,
-  staffUsers
+  staffUsers,
+  hrAttendance,
+  hrLeaveRequests,
+  hrPayslips
 }: {
   pathname: string;
   title: string;
@@ -668,6 +987,9 @@ function ModuleCommandBar({
   settlements: SettlementReminder[];
   leads: Lead[];
   staffUsers: StaffUser[];
+  hrAttendance: HrAttendanceRecord[];
+  hrLeaveRequests: HrLeaveRequest[];
+  hrPayslips: HrPayslip[];
 }) {
   const stats = moduleStats(pathname, {
     dashboard,
@@ -681,7 +1003,10 @@ function ModuleCommandBar({
     payments,
     settlements,
     leads,
-    staffUsers
+    staffUsers,
+    hrAttendance,
+    hrLeaveRequests,
+    hrPayslips
   });
   const roles = currentUser?.roles ?? [];
 
@@ -691,7 +1016,7 @@ function ModuleCommandBar({
         <span className="moduleEyebrow">YS Heng Operations</span>
         <h1>{title}</h1>
         <div className="moduleRoles">
-          {(roles.length > 0 ? roles : ["Guest"]).map((role) => <Tag key={role}>{role}</Tag>)}
+          {(roles.length > 0 ? roles : ["Guest"]).map((role) => <Tag key={role}>{displayRoleLabel(role)}</Tag>)}
         </div>
       </div>
       <div className="moduleStats">
@@ -719,6 +1044,9 @@ function moduleStats(pathname: string, data: {
   settlements: SettlementReminder[];
   leads: Lead[];
   staffUsers: StaffUser[];
+  hrAttendance: HrAttendanceRecord[];
+  hrLeaveRequests: HrLeaveRequest[];
+  hrPayslips: HrPayslip[];
 }) {
   const availableVehicles = data.vehicles.filter((vehicle) => vehicle.status === "Available").length;
   const publicVehicles = data.vehicles.filter((vehicle) => vehicle.isPublic).length;
@@ -727,6 +1055,9 @@ function moduleStats(pathname: string, data: {
   const dueSettlements = data.settlements.filter((settlement) => !settlement.isPaid).length;
   const pendingDeliveries = data.deliveries.filter((delivery) => delivery.status !== "Released").length;
   const newLeads = data.leads.filter((lead) => lead.status === "New").length;
+  const todayText = today();
+  const attendanceToday = data.hrAttendance.filter((record) => record.attendanceDate === todayText).length;
+  const pendingLeave = data.hrLeaveRequests.filter((leave) => leave.status === "Pending").length;
 
   switch (pathname) {
     case "/vehicles":
@@ -779,9 +1110,9 @@ function moduleStats(pathname: string, data: {
       ];
     case "/hr-salary":
       return [
-        { label: "scope", value: "MVP" },
-        { label: "access", value: "Role" },
-        { label: "payroll", value: "Next" }
+        { label: "attendance today", value: attendanceToday },
+        { label: "pending leave", value: pendingLeave },
+        { label: "payslips", value: data.hrPayslips.length }
       ];
     default:
       return [
@@ -790,6 +1121,85 @@ function moduleStats(pathname: string, data: {
         { label: "reminders", value: data.reminders.length }
       ];
   }
+}
+
+function ModuleDocumentList({
+  vehicleId,
+  categories,
+  reloadKey = 0
+}: {
+  vehicleId?: string;
+  categories: readonly DocumentCategory[];
+  reloadKey?: number;
+}) {
+  const [documents, setDocuments] = useState<VehicleDocument[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    if (!vehicleId) {
+      setDocuments([]);
+      return () => {
+        active = false;
+      };
+    }
+
+    void getVehicleDocuments(vehicleId).then((items) => {
+      if (active) {
+        setDocuments(items.filter((document) => categories.includes(document.category)));
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [categories, reloadKey, vehicleId]);
+
+  const columns: ColumnsType<VehicleDocument> = [
+    { title: "Uploaded / 日期", dataIndex: "uploadedAt", render: (value) => String(value).slice(0, 10) },
+    {
+      title: "Type / 类型",
+      dataIndex: "category",
+      filters: tableTextFilters(documents.map((document) => document.category)),
+      onFilter: (value, row) => row.category === value
+    },
+    {
+      title: "File / 文件",
+      dataIndex: "fileName",
+      filters: tableTextFilters(documents.map((document) => document.fileName)),
+      filterSearch: true,
+      onFilter: (value, row) => row.fileName === value
+    },
+    {
+      title: "Uploaded By / 上传者",
+      dataIndex: "uploadedBy",
+      filters: tableTextFilters(documents.map((document) => document.uploadedBy || "System")),
+      filterSearch: true,
+      onFilter: (value, row) => (row.uploadedBy || "System") === value,
+      render: (value) => value || "-"
+    },
+    {
+      title: "Open / 查看",
+      fixed: "right",
+      width: 100,
+      render: (_, row) => vehicleId ? (
+        <Button size="small" icon={<DownloadOutlined />} href={vehicleDocumentContentUrl(vehicleId, row.id)} target="_blank">
+          Open
+        </Button>
+      ) : null
+    }
+  ];
+
+  return (
+    <Table
+      rowKey="id"
+      size="small"
+      columns={columns}
+      dataSource={documents}
+      pagination={tablePagination(5)}
+      scroll={{ x: 760 }}
+      locale={{ emptyText: vehicleId ? "No uploaded documents for this selected record." : "Select a record to view uploaded documents." }}
+    />
+  );
 }
 
 function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: DashboardSummary | null; reminders: DashboardReminder[]; onSearch: (filters: DashboardReminderFilters) => Promise<void> }) {
@@ -810,82 +1220,184 @@ function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: Dashboar
       { label: "61+" as const, count: 0 }
     ],
     topSupplier: "-",
-    salesPerformance: 0
+    salesPerformance: 0,
+    stockStatusMix: [
+      { label: "Available", count: 0 },
+      { label: "LoanProcessing", count: 0 },
+      { label: "Sold", count: 0 }
+    ],
+    stockOwnerMix: [
+      { label: "YSHeng", count: 0 },
+      { label: "KS", count: 0 }
+    ],
+    moneyRiskBreakdown: [],
+    workflowBlockers: { byType: [], dueBuckets: [] },
+    salesFunnel: {
+      stages: [
+        { label: "New", count: 0 },
+        { label: "Contacted", count: 0 },
+        { label: "Closed", count: 0 }
+      ],
+      conversionRate: 0
+    },
+    profitBreakdown: [],
+    supplierSpendTop: []
   };
   const agingBuckets = data.agingBuckets?.length ? data.agingBuckets : [
     { label: "0-30" as const, count: 0 },
     { label: "31-60" as const, count: 0 },
     { label: "61+" as const, count: data.vehicleAging }
   ];
+  const moneyRiskBreakdown = data.moneyRiskBreakdown?.length ? data.moneyRiskBreakdown : [
+    { label: "Outstanding Payment", amount: data.outstandingPayment },
+    { label: "Unpaid Settlement", amount: 0 },
+    { label: "Open Debt Recovery", amount: 0 },
+    { label: "Unpaid Daily Spend", amount: 0 },
+    { label: "Open Payment Voucher", amount: 0 }
+  ];
+  const riskTotal = moneyRiskBreakdown.reduce((sum, item) => sum + Math.max(item.amount, 0), 0);
+  const profitValue = data.totalProfit ?? data.estimatedProfit;
   const filteredReminders = filterDashboardReminders(reminders, { type: reminderTypeFilter, due: reminderDueFilter });
+  const urgentReminderCount = reminders.filter((reminder) => {
+    const dueLabel = reminderDueLabel(reminder.dueDate);
+    return dueLabel === "Overdue" || dueLabel === "Due today";
+  }).length;
 
   return (
-    <Space direction="vertical" size={16} className="fullWidth">
-      <div className="metricGrid">
-        <Metric label="Total Stock / 总库存" value={data.totalStock} />
-        <Metric label="Pending Loan / 贷款待跟进" value={data.pendingLoan} />
-        <Metric label="Outstanding / 未收款" value={`RM ${data.outstandingPayment.toLocaleString()}`} />
-        <Metric label="Settlement Due / 结算到期" value={data.settlementDue} />
-        <Metric label="Repair Cost / 整备费用" value={`RM ${data.repairCost.toLocaleString()}`} />
-        <Metric label="Total Profit / 总利润" value={`RM ${(data.totalProfit ?? data.estimatedProfit).toLocaleString()}`} />
-        <Metric label="Vehicle Aging / 超60天库存" value={data.vehicleAging} />
-        <Metric label="Top Supplier / 主要供应商" value={data.topSupplier || "-"} />
-        <Metric label="Sales Performance / 成交询问" value={data.salesPerformance} />
-      </div>
-      <ProCard title="Vehicle Aging / 库存车龄">
-        <Table
-          rowKey="label"
-          columns={[
-            { title: "Age / 车龄", dataIndex: "label", render: (value) => `${value} days` },
-            { title: "Stock / 库存", dataIndex: "count" }
-          ]}
-          dataSource={agingBuckets}
-          pagination={false}
-        />
+    <Space direction="vertical" size={16} className="fullWidth dashboardPage">
+      <ProCard
+        title="Operations dashboard / 运营看板"
+        className="dashboardOverviewCard"
+        extra={<Tag color={urgentReminderCount > 0 ? "red" : "green"}>{urgentReminderCount} due now</Tag>}
+      >
+        <Typography.Text type="secondary">Simple daily view for stock, money, profit, and reminders.</Typography.Text>
+        <div className="metricGrid dashboardMetricGrid">
+          <Metric label="Total Stock / 总库存" value={data.totalStock} />
+          <Metric label="Pending Loan / 贷款待跟进" value={data.pendingLoan} tone={data.pendingLoan > 0 ? "work" : "neutral"} />
+          <Metric label="Outstanding / 未收款" value={formatCompactMoney(data.outstandingPayment)} tone={data.outstandingPayment > 0 ? "risk" : "neutral"} />
+          <Metric label="Settlement Due / 结算到期" value={data.settlementDue} tone={data.settlementDue > 0 ? "risk" : "neutral"} />
+          <Metric label="Profit / 利润" value={formatCompactMoney(profitValue)} tone={profitValue >= 0 ? "profit" : "risk"} />
+          <Metric label="Aging / 超60天库存" value={data.vehicleAging} tone={data.vehicleAging > 0 ? "work" : "neutral"} />
+        </div>
       </ProCard>
-      <ProCard title="Reminder Inbox / 提醒事项">
-        <Space className="toolbarForm" wrap>
-          <Select
-            value={reminderTypeFilter}
-            options={[{ value: "All", label: "All Types" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: type }))]}
-            onChange={(value) => {
-              setReminderTypeFilter(value);
-              void onSearch({ type: value, due: reminderDueFilter });
-            }}
-            style={{ width: 220 }}
-          />
-          <Select
-            value={reminderDueFilter}
-            options={[
-              { value: "All", label: "All Due" },
-              { value: "Overdue", label: "Overdue" },
-              { value: "DueToday", label: "Due today" },
-              { value: "Upcoming", label: "Upcoming" }
+
+      <div className="dashboardSimpleGrid">
+        <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard">
+          <Table
+            rowKey="label"
+            size="small"
+            columns={[
+              { title: "Age / 车龄", dataIndex: "label", render: (value) => `${value} days` },
+              { title: "Stock / 库存", dataIndex: "count" }
             ]}
-            onChange={(value) => {
-              setReminderDueFilter(value);
-              void onSearch({ type: reminderTypeFilter, due: value });
-            }}
-            style={{ width: 160 }}
+            dataSource={agingBuckets}
+            pagination={false}
           />
-          <Tag color="blue">{filteredReminders.length} shown</Tag>
-        </Space>
+        </ProCard>
+        <ProCard title="Money follow-up / 金额跟进" className="dashboardSimpleCard" extra={<Tag color={riskTotal > 0 ? "volcano" : "green"}>{formatCompactMoney(riskTotal)}</Tag>}>
+          <Table
+            rowKey="label"
+            size="small"
+            columns={[
+              { title: "Item / 项目", dataIndex: "label", render: dashboardLabel },
+              { title: "Amount / 金额", dataIndex: "amount", align: "right", render: (value) => formatMoney(Number(value)) }
+            ]}
+            dataSource={moneyRiskBreakdown}
+            pagination={false}
+          />
+        </ProCard>
+      </div>
+
+      <ProCard
+        title="Reminder inbox / 提醒事项"
+        className="dashboardReminderCard"
+        extra={<Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{filteredReminders.length} shown</Tag>}
+      >
+        <div className="dashboardInboxHeader">
+          <Space className="toolbarForm" wrap>
+            <Select
+              value={reminderTypeFilter}
+              options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: dashboardLabel(type) }))]}
+              onChange={(value) => {
+                setReminderTypeFilter(value);
+                void onSearch({ type: value, due: reminderDueFilter });
+              }}
+              style={{ width: 220 }}
+            />
+            <Select
+              value={reminderDueFilter}
+              options={[
+                { value: "All", label: "All Due / 全部到期" },
+                { value: "Overdue", label: "Overdue / 已逾期" },
+                { value: "DueToday", label: "Due today / 今日到期" },
+                { value: "Upcoming", label: "Upcoming / 即将到期" }
+              ]}
+              onChange={(value) => {
+                setReminderDueFilter(value);
+                void onSearch({ type: reminderTypeFilter, due: value });
+              }}
+              style={{ width: 160 }}
+            />
+          </Space>
+          <Typography.Text type="secondary">{urgentReminderCount} overdue or due today across all reminders.</Typography.Text>
+        </div>
         <Table
           rowKey={(row) => `${row.type}-${row.vehicleId}-${row.dueDate}`}
           columns={[
-            { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag color={reminderColor(value)}>{value}</Tag> },
+            { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag color={reminderColor(value)}>{dashboardLabel(value)}</Tag> },
             { title: "Title / 事项", dataIndex: "title" },
             { title: "Car Plate / 车牌", dataIndex: "vehiclePlate" },
-            { title: "Due / 到期", dataIndex: "dueDate", render: (value) => <Space><span>{value}</span><Tag color={reminderDueTagColor(value)}>{reminderDueLabel(value)}</Tag></Space> },
+            { title: "Due / 到期", dataIndex: "dueDate", render: (value) => <Space><span>{value}</span><Tag color={reminderDueTagColor(value)}>{dashboardLabel(reminderDueLabel(value))}</Tag></Space> },
             { title: "Amount / 金额", dataIndex: "amount", render: (value) => value ? `RM ${Number(value).toLocaleString()}` : "-" }
           ]}
           dataSource={filteredReminders}
-          pagination={false}
+          pagination={tablePagination(8)}
           scroll={{ x: 760 }}
         />
       </ProCard>
     </Space>
   );
+}
+
+const dashboardLabelMap: Record<string, string> = {
+  Available: "Available / 可售",
+  LoanProcessing: "Loan Processing / 贷款处理中",
+  Sold: "Sold / 已售",
+  YSHeng: "YSHeng / 裕盛",
+  KS: "KS / KS",
+  "0-30": "0-30 days / 0-30天",
+  "31-60": "31-60 days / 31-60天",
+  "61+": "61+ days / 61天以上",
+  "Outstanding Payment": "Outstanding Payment / 未收款",
+  "Unpaid Settlement": "Unpaid Settlement / 未付结算",
+  "Open Debt Recovery": "Open Debt Recovery / 债务追收",
+  "Unpaid Daily Spend": "Unpaid Daily Spend / 未付日常支出",
+  "Open Payment Voucher": "Open Payment Voucher / 未付付款凭证",
+  Overdue: "Overdue / 已逾期",
+  "Due today": "Due today / 今日到期",
+  DueToday: "Due Today / 今日到期",
+  Upcoming: "Upcoming / 即将到期",
+  LoanFollowUp: "Loan Follow-up / 贷款跟进",
+  DeliveryPreparation: "Delivery Preparation / 交车准备",
+  SettlementDue: "Settlement Due / 结算到期",
+  PaymentBankFollowUp: "Payment Bank Follow-up / 银行收款跟进",
+  PaymentStatusFollowUp: "Payment Status Follow-up / 收款状态跟进",
+  DailySpendDue: "Daily Spend Due / 日常支出到期",
+  DebtRecoveryFollowUp: "Debt Recovery Follow-up / 债务追收跟进",
+  PaymentVoucherFollowUp: "Payment Voucher Follow-up / 付款凭证跟进",
+  New: "New / 新询问",
+  Contacted: "Contacted / 已联系",
+  Closed: "Closed / 已成交",
+  "Selling + Charges": "Selling + Charges / 售价加收费",
+  "Purchase Cost": "Purchase Cost / 收车成本",
+  "Repair Cost": "Repair Cost / 整备费用",
+  Commission: "Commission / 佣金",
+  "Pickup Allowance": "Pickup Allowance / 收车津贴",
+  "Estimated Profit": "Estimated Profit / 预估利润"
+};
+
+function dashboardLabel(label: string) {
+  return dashboardLabelMap[label] ?? label;
 }
 
 function reminderColor(type: DashboardReminder["type"]) {
@@ -899,798 +1411,37 @@ function reminderColor(type: DashboardReminder["type"]) {
   return "blue";
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
+function Metric({
+  label,
+  value,
+  meta,
+  tone = "neutral"
+}: {
+  label: string;
+  value: string | number;
+  meta?: string;
+  tone?: "neutral" | "risk" | "profit" | "work";
+}) {
   return (
-    <div className="metricCard">
+    <div className={`metricCard metricCard-${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
+      {meta ? <small>{meta}</small> : null}
     </div>
   );
 }
 
-function VehiclesPage({
-  vehicles,
-  customers,
-  owners,
-  purchaseInvoices,
-  onCreate,
-  onUpdate,
-  onCreateCustomer,
-  onUpdateCustomer,
-  onCreateOwner,
-  onUpdateOwner,
-  onCreatePurchaseInvoice,
-  onUpdatePurchaseInvoice,
-  onUploadPhoto,
-  onUploadDocument
-}: {
-  vehicles: Vehicle[];
-  customers: Customer[];
-  owners: Owner[];
-  purchaseInvoices: PurchaseInvoice[];
-  onCreate: (vehicle: Vehicle) => void;
-  onUpdate: (vehicle: Vehicle) => void;
-  onCreateCustomer: (customer: Customer) => void;
-  onUpdateCustomer: (customer: Customer) => void;
-  onCreateOwner: (owner: Owner) => void;
-  onUpdateOwner: (owner: Owner) => void;
-  onCreatePurchaseInvoice: (invoice: PurchaseInvoice) => Promise<void>;
-  onUpdatePurchaseInvoice: (invoice: PurchaseInvoice) => Promise<void>;
-  onUploadPhoto: (vehicleId: string, file: File) => Promise<void>;
-  onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
-}) {
-  const [uploadVehicleId, setUploadVehicleId] = useState(vehicles[0]?.id ?? "");
-  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PurchaseInvoice");
-  const [documents, setDocuments] = useState<VehicleDocument[]>([]);
-  const [photos, setPhotos] = useState<VehiclePhoto[]>([]);
-  const [editVehicleId, setEditVehicleId] = useState(vehicles[0]?.id ?? "");
-  const [editPurchaseInvoiceId, setEditPurchaseInvoiceId] = useState(purchaseInvoices[0]?.id ?? "");
-  const [editCustomerId, setEditCustomerId] = useState(customers[0]?.id ?? "");
-  const [editOwnerId, setEditOwnerId] = useState(owners[0]?.id ?? "");
-  const [vehicleEditorOpen, setVehicleEditorOpen] = useState(false);
-  const [purchaseInvoiceEditorOpen, setPurchaseInvoiceEditorOpen] = useState(false);
-  const [customerEditorOpen, setCustomerEditorOpen] = useState(false);
-  const [ownerEditorOpen, setOwnerEditorOpen] = useState(false);
-  const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
-  const uploadDisabled = !selectedVehicleId;
-  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
-  const selectedPurchaseInvoice = purchaseInvoices.find((invoice) => invoice.id === editPurchaseInvoiceId) ?? purchaseInvoices[0];
-  const selectedCustomer = customers.find((customer) => customer.id === editCustomerId) ?? customers[0];
-  const selectedOwner = owners.find((owner) => owner.id === editOwnerId) ?? owners[0];
-  const availableVehicles = vehicles.filter((vehicle) => vehicle.status === "Available").length;
-  const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
-  const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
-  const selectedVehicleProfit = selectedVehicle
-    ? selectedVehicle.sellingPrice - selectedVehicle.purchasePrice - selectedVehicle.additionalCharges - selectedVehicle.refurbishmentTotal - selectedVehicle.commissionTotal
-    : 0;
-  const selectedApprovalGaps = selectedVehicle
-    ? [
-        selectedVehicle.bossConfirmed ? "" : "Boss confirmation pending",
-        selectedVehicle.contraRangePrice ? "" : "Contra range not set",
-        selectedVehicle.ucdStatus ? "" : "UCD status not tracked",
-        selectedVehicle.isPublic ? "" : "Website hidden"
-      ].filter(Boolean)
-    : [];
-  const approvalStageLabel = selectedVehicle
-    ? selectedVehicle.status === "Sold"
-      ? "Sold / 已售"
-      : selectedVehicle.status === "LoanProcessing"
-        ? "Loan processing / 贷款中"
-        : selectedVehicle.bossConfirmed
-          ? selectedVehicle.isPublic
-            ? "Ready stock on website / 网站现车"
-            : "Ready stock hidden / 已确认未上架"
-          : "Waiting boss confirm / 等老板确认"
-    : "No vehicle selected";
-  const nextApprovalAction = selectedVehicle
-    ? !selectedVehicle.bossConfirmed
-      ? "boss"
-      : selectedVehicle.status === "Available" && !selectedVehicle.isPublic
-        ? "publish"
-        : selectedVehicle.status === "Available"
-          ? "loan"
-          : selectedVehicle.status === "LoanProcessing"
-            ? "sold"
-            : "done"
-    : "select";
-  const nextApprovalLabel: Record<typeof nextApprovalAction, string> = {
-    select: "Select a vehicle",
-    boss: "Boss Confirm",
-    publish: "Publish to Website",
-    loan: "Move to Loan",
-    sold: "Mark Sold",
-    done: "Completed"
-  };
-  const vehicleStatusColor: Record<Vehicle["status"], string> = {
-    Available: "green",
-    LoanProcessing: "blue",
-    Sold: "purple"
-  };
-
-  const selectVehicle = (vehicleId: string) => {
-    setEditVehicleId(vehicleId);
-    setUploadVehicleId(vehicleId);
-  };
-
-  const openVehicleEditor = (vehicleId: string) => {
-    selectVehicle(vehicleId);
-    setVehicleEditorOpen(true);
-  };
-
-  const selectPurchaseInvoice = (invoiceId: string) => {
-    setEditPurchaseInvoiceId(invoiceId);
-    setPurchaseInvoiceEditorOpen(true);
-  };
-
-  const selectCustomer = (customerId: string) => {
-    setEditCustomerId(customerId);
-    setCustomerEditorOpen(true);
-  };
-
-  const selectOwner = (ownerId: string) => {
-    setEditOwnerId(ownerId);
-    setOwnerEditorOpen(true);
-  };
-
-  const loadUploads = useCallback(async () => {
-    if (!selectedVehicleId) {
-      setDocuments([]);
-      setPhotos([]);
-      return;
-    }
-    const [photoData, documentData] = await Promise.all([
-      getVehiclePhotos(selectedVehicleId),
-      getVehicleDocuments(selectedVehicleId)
-    ]);
-    setPhotos(photoData);
-    setDocuments(documentData);
-  }, [selectedVehicleId]);
-
-  useEffect(() => {
-    if (!uploadVehicleId && vehicles[0]?.id) {
-      setUploadVehicleId(vehicles[0].id);
-    }
-  }, [uploadVehicleId, vehicles]);
-
-  useEffect(() => {
-    if (!editVehicleId && vehicles[0]?.id) {
-      setEditVehicleId(vehicles[0].id);
-    }
-  }, [editVehicleId, vehicles]);
-
-  useEffect(() => {
-    if (!editPurchaseInvoiceId && purchaseInvoices[0]?.id) {
-      setEditPurchaseInvoiceId(purchaseInvoices[0].id);
-    }
-  }, [editPurchaseInvoiceId, purchaseInvoices]);
-
-  useEffect(() => {
-    if (!editCustomerId && customers[0]?.id) {
-      setEditCustomerId(customers[0].id);
-    }
-  }, [editCustomerId, customers]);
-
-  useEffect(() => {
-    if (!editOwnerId && owners[0]?.id) {
-      setEditOwnerId(owners[0].id);
-    }
-  }, [editOwnerId, owners]);
-
-  useEffect(() => {
-    void loadUploads();
-  }, [loadUploads]);
-
-  const columns: ColumnsType<Vehicle> = [
-    { title: "Plate / 车牌", dataIndex: "plateNumber" },
-    { title: "Vehicle / 车辆", render: (_, row) => `${row.year} ${row.make} ${row.model}` },
-    { title: "Customer / 客户", dataIndex: "customerId", render: (customerId) => contactFor(customers, customerId) },
-    { title: "Owner / 原车主", dataIndex: "ownerId", render: (ownerId) => contactFor(owners, ownerId) },
-    {
-      title: "Outstation Pickup / 外地收车",
-      render: (_, row) => row.outstationPickupScheduledAt || row.outstationPickupAllowance || row.outstationPickupBookingSlip
-        ? (
-          <Space direction="vertical" size={0}>
-            <span>{row.outstationPickupScheduledAt ? String(row.outstationPickupScheduledAt).replace("T", " ").slice(0, 16) : "No schedule"}</span>
-            <span>RM {(row.outstationPickupAllowance ?? 0).toLocaleString()} / {row.outstationPickupBookingSlip || "No slip"}</span>
-          </Space>
-        )
-        : "-"
-    },
-    { title: "Stock / 分类", dataIndex: "stockOwner" },
-    { title: "Status / 状态", dataIndex: "status", render: (status: Vehicle["status"]) => <Tag color={vehicleStatusColor[status]}>{status}</Tag> },
-    { title: "Boss Confirm / 老板确认", dataIndex: "bossConfirmed", render: (value) => <Badge status={value ? "success" : "warning"} text={value ? "Confirmed" : "Pending"} /> },
-    { title: "Contra Range / Contra 价格", dataIndex: "contraRangePrice", render: (value) => `RM ${Number(value ?? 0).toLocaleString()}` },
-    { title: "UCD Status", dataIndex: "ucdStatus", render: (value) => value || "-" },
-    { title: "Public / 网站", dataIndex: "isPublic", render: (value) => <Badge status={value ? "success" : "default"} text={value ? "Visible" : "Hidden"} /> },
-    { title: "Selling / 售价", dataIndex: "sellingPrice", render: (value) => `RM ${value.toLocaleString()}` },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 250,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Available", isPublic: true })} disabled={row.status === "Available" && row.isPublic}>Publish</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "LoanProcessing", isPublic: false })} disabled={row.status === "LoanProcessing"}>Loan</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Sold", isPublic: false })} disabled={row.status === "Sold"}>Sold</Button>
-          <Button size="small" type="primary" onClick={() => openVehicleEditor(row.id)}>Edit</Button>
-        </Space>
-      )
-    }
-  ];
-  const documentColumns: ColumnsType<VehicleDocument> = [
-    { title: "Uploaded / 日期", dataIndex: "uploadedAt", render: (value) => String(value).slice(0, 10) },
-    { title: "Type / 类型", dataIndex: "category" },
-    { title: "File / 文件", dataIndex: "fileName" },
-    { title: "Uploaded By / 上传者", dataIndex: "uploadedBy", render: (value) => value || "-" },
-    { title: "Checksum / 校验", dataIndex: "checksum", render: (value) => value ? `${String(value).slice(0, 12)}...` : "-" },
-    {
-      title: "Download / 下载",
-      render: (_, row) => (
-        <Button
-          size="small"
-          icon={<DownloadOutlined />}
-          href={vehicleDocumentContentUrl(selectedVehicleId, row.id)}
-          target="_blank"
-        >
-          Open
-        </Button>
-      )
-    }
-  ];
-  const photoColumns: ColumnsType<VehiclePhoto> = [
-    { title: "Uploaded / 日期", dataIndex: "uploadedAt", render: (value) => String(value).slice(0, 10) },
-    { title: "File / 文件", dataIndex: "fileName" },
-    { title: "MIME", dataIndex: "mimeType" },
-    { title: "Uploaded By / 上传者", dataIndex: "uploadedBy", render: (value) => value || "-" },
-    { title: "Checksum / 校验", dataIndex: "checksum", render: (value) => value ? `${String(value).slice(0, 12)}...` : "-" },
-    {
-      title: "Preview / 预览",
-      render: (_, row) => (
-        <Button
-          size="small"
-          icon={<DownloadOutlined />}
-          href={vehiclePhotoContentUrl(selectedVehicleId, row.id)}
-          target="_blank"
-        >
-          Open
-        </Button>
-      )
-    }
-  ];
-  const customerColumns: ColumnsType<Customer> = [
-    { title: "Name / 姓名", dataIndex: "name" },
-    { title: "Phone / 电话", dataIndex: "phone" },
-    { title: "IC", dataIndex: "icNumber", render: (value) => value || "-" },
-    { title: "Email", dataIndex: "email", render: (value) => value || "-" },
-    { title: "Address / 地址", dataIndex: "address", render: (value) => value || "-" },
-    { title: "Notes / 备注", dataIndex: "notes", render: (value) => value || "-" },
-    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => selectCustomer(row.id)}>Edit</Button> }
-  ];
-  const ownerColumns: ColumnsType<Owner> = [
-    { title: "Owner / 原车主", dataIndex: "name" },
-    { title: "Phone / 电话", dataIndex: "phone" },
-    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => selectOwner(row.id)}>Edit</Button> }
-  ];
-  const purchaseInvoiceColumns: ColumnsType<PurchaseInvoice> = [
-    { title: "Car Plate", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Invoice", dataIndex: "invoiceNumber" },
-    { title: "Amount", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Action", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => selectPurchaseInvoice(row.id)}>Edit</Button> }
-  ];
-
-  return (
-    <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
-      <ProCard
-        title="Vehicle Inventory / 车辆库存"
-        extra={<Tag color="green">{vehicles.length} vehicles</Tag>}
-      >
-        <div className="vehicleInventoryHeader">
-          <div>
-            <Typography.Text className="moduleEyebrow">Inventory control</Typography.Text>
-            <Typography.Title level={3}>Stock list with approval state</Typography.Title>
-            <Typography.Text type="secondary">Select one car to edit, upload documents, or move through approval.</Typography.Text>
-          </div>
-          <div className="vehicleMiniStats">
-            <span><strong>{availableVehicles}</strong>Available</span>
-            <span><strong>{publicVehicles}</strong>Public</span>
-            <span><strong>{pendingBossConfirmation}</strong>Pending boss</span>
-          </div>
-        </div>
-        <div className="vehicleSelectedSummary">
-          {selectedVehicle ? (
-            <>
-              <div className="vehicleSelectedIdentity">
-                <Typography.Text className="moduleEyebrow">Selected vehicle</Typography.Text>
-                <Typography.Title level={4}>
-                  {`${selectedVehicle.plateNumber} - ${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`}
-                </Typography.Title>
-                <Space wrap>
-                  <Tag color={vehicleStatusColor[selectedVehicle.status]}>{approvalStageLabel}</Tag>
-                  <Tag color={nextApprovalAction === "done" ? "green" : "gold"}>Next: {nextApprovalLabel[nextApprovalAction]}</Tag>
-                </Space>
-              </div>
-              <div className="vehicleSelectedFacts">
-                <span>
-                  <small>Boss</small>
-                  <strong>{selectedVehicle.bossConfirmed ? "Confirmed" : "Pending"}</strong>
-                </span>
-                <span>
-                  <small>Website</small>
-                  <strong>{selectedVehicle.isPublic ? "Visible" : "Hidden"}</strong>
-                </span>
-                <span>
-                  <small>Profit</small>
-                  <strong>RM {selectedVehicleProfit.toLocaleString()}</strong>
-                </span>
-              </div>
-              {selectedApprovalGaps.length > 0 ? (
-                <Alert
-                  type="warning"
-                  showIcon
-                  message="Attention"
-                  description={selectedApprovalGaps.join(" · ")}
-                />
-              ) : null}
-            </>
-          ) : (
-            <Alert type="info" showIcon message="Select a vehicle row to view its workflow summary." />
-          )}
-        </div>
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={vehicles}
-          pagination={{ pageSize: 8 }}
-          scroll={{ x: 1280 }}
-          rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}
-          onRow={(row) => ({
-            onClick: () => selectVehicle(row.id)
-          })}
-        />
-      </ProCard>
-      <ProCard id="vehicle-record-card" title="Create Vehicle / 新增车辆">
-        <Form layout="vertical" className="formGrid" onFinish={(values) => {
-          const vehicle = vehicleFromIntakeValues(values, newId());
-          const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
-          if (blockReason) {
-            message.warning(blockReason);
-            return;
-          }
-
-          onCreate(vehicle);
-        }} initialValues={{ stockOwner: "YSHeng", status: "Available", isPublic: true, bossConfirmed: false, contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}>
-          <Form.Item name="plateNumber" label="Plate / 车牌" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>
-          <Form.Item name="model" label="Model"><Input placeholder="Vios" /></Form.Item>
-          <Form.Item name="year" label="Year"><InputNumber className="fullWidth" min={1990} max={2030} /></Form.Item>
-          <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="bossConfirmed" label="Boss Confirm / 老板确认"><Select options={[{ value: true, label: "Confirmed" }, { value: false, label: "Pending" }]} /></Form.Item>
-          <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="ucdStatus" label="UCD Status Tracking"><Input placeholder="Ready / Pending / Submitted" /></Form.Item>
-          <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="refurbishmentTotal" label="Refurbishment Total / 整备预算"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="commissionTotal" label="Commission / 佣金"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="outstationPickupAllowance" label="Outstation Pickup Allowance / 外地收车津贴"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="outstationPickupScheduledAt" label="Outstation Pickup Date & Time / 外地收车时间"><Input type="datetime-local" /></Form.Item>
-          <Form.Item name="outstationPickupBookingSlip" label="Booking Slip Reference / Booking Slip"><Input placeholder="Booking slip no. or file ref" /></Form.Item>
-          <Form.Item name="customerId" label="Customer / 客户">
-            <Select allowClear showSearch optionFilterProp="label" placeholder="Select customer" options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} />
-          </Form.Item>
-          <Form.Item name="ownerId" label="Owner / 原车主">
-            <Select allowClear showSearch optionFilterProp="label" placeholder="Select owner" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} />
-          </Form.Item>
-          <Form.Item name="stockOwner" label="Stock"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Vehicle</Button></Form.Item>
-        </Form>
-      </ProCard>
-      <Drawer
-        title="Edit Vehicle / 编辑车辆"
-        width={560}
-        open={vehicleEditorOpen}
-        onClose={() => setVehicleEditorOpen(false)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-        <Form
-          key={selectedVehicle?.id ?? "vehicle-edit"}
-          layout="vertical"
-          className="drawerForm"
-          initialValues={selectedVehicle}
-          onFinish={(values) => {
-            if (!selectedVehicle) return;
-            const vehicle = vehicleFromIntakeValues(values, selectedVehicle.id);
-            const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-
-            onUpdate(vehicle);
-            setVehicleEditorOpen(false);
-          }}
-        >
-          <Form.Item name="id" label="Selected Vehicle"><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} - ${vehicle.make} ${vehicle.model}` }))} onChange={selectVehicle} /></Form.Item>
-          <Form.Item name="plateNumber" label="Plate / 车牌" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>
-          <Form.Item name="model" label="Model"><Input placeholder="Vios" /></Form.Item>
-          <Form.Item name="year" label="Year"><InputNumber className="fullWidth" min={1990} max={2030} /></Form.Item>
-          <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="bossConfirmed" label="Boss Confirm / 老板确认"><Select options={[{ value: true, label: "Confirmed" }, { value: false, label: "Pending" }]} /></Form.Item>
-          <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="ucdStatus" label="UCD Status Tracking"><Input placeholder="Ready / Pending / Submitted" /></Form.Item>
-          <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="refurbishmentTotal" label="Refurbishment Total / 整备预算"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="commissionTotal" label="Commission / 佣金"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="outstationPickupAllowance" label="Outstation Pickup Allowance / 外地收车津贴"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="outstationPickupScheduledAt" label="Outstation Pickup Date & Time / 外地收车时间"><Input type="datetime-local" /></Form.Item>
-          <Form.Item name="outstationPickupBookingSlip" label="Booking Slip Reference / Booking Slip"><Input placeholder="Booking slip no. or file ref" /></Form.Item>
-          <Form.Item name="customerId" label="Customer / 客户">
-            <Select allowClear showSearch optionFilterProp="label" placeholder="Select customer" options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} />
-          </Form.Item>
-          <Form.Item name="ownerId" label="Owner / 原车主">
-            <Select allowClear showSearch optionFilterProp="label" placeholder="Select owner" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} />
-          </Form.Item>
-          <Form.Item name="stockOwner" label="Stock"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
-        </Form>
-      </Drawer>
-      <ProCard id="purchase-invoice-list-card" title="Purchase Invoice / 收车发票">
-        <Table rowKey="id" columns={purchaseInvoiceColumns} dataSource={purchaseInvoices} pagination={{ pageSize: 5 }} scroll={{ x: 560 }} />
-        <Form layout="vertical" className="formGrid" onFinish={async (values) => {
-          const invoice: PurchaseInvoice = {
-            id: newId(),
-            vehicleId: values.vehicleId,
-            invoiceNumber: values.invoiceNumber,
-            amount: Number(values.amount ?? 0)
-          };
-          const blockReason = purchaseInvoiceCreateBlockReason(invoice, purchaseInvoices);
-          if (blockReason) {
-            message.warning(blockReason);
-            return;
-          }
-
-          await onCreatePurchaseInvoice(invoice);
-        }} initialValues={{ vehicleId: vehicles[0]?.id }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Purchase Invoice</Button></Form.Item>
-        </Form>
-      </ProCard>
-      <Drawer
-        title="Edit Purchase Invoice / 修改收车发票"
-        width={560}
-        open={purchaseInvoiceEditorOpen}
-        onClose={() => setPurchaseInvoiceEditorOpen(false)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-        <Form
-          key={selectedPurchaseInvoice?.id ?? "purchase-invoice-edit"}
-          layout="vertical"
-          className="drawerForm"
-          initialValues={selectedPurchaseInvoice}
-          onFinish={async (values) => {
-            if (!selectedPurchaseInvoice) return;
-            const invoice: PurchaseInvoice = {
-              ...selectedPurchaseInvoice,
-              vehicleId: values.vehicleId,
-              invoiceNumber: values.invoiceNumber,
-              amount: Number(values.amount ?? 0)
-            };
-            const blockReason = purchaseInvoiceCreateBlockReason(invoice, purchaseInvoices);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-
-            await onUpdatePurchaseInvoice(invoice);
-            setPurchaseInvoiceEditorOpen(false);
-          }}
-        >
-          <Form.Item name="id" label="Edit Purchase Invoice"><Select options={purchaseInvoices.map((invoice) => ({ value: invoice.id, label: `${plateFor(vehicles, invoice.vehicleId)} / ${invoice.invoiceNumber}` }))} onChange={selectPurchaseInvoice} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedPurchaseInvoice}>Update Purchase Invoice</Button></Form.Item>
-        </Form>
-      </Drawer>
-      <ProCard id="contacts-card" title="Customer & Owner Details / 客户与原车主">
-        <Tabs
-          items={[
-            {
-              key: "customers",
-              label: "Customers",
-              children: (
-                <Space direction="vertical" size={16} className="fullWidth">
-                  <Table rowKey="id" columns={customerColumns} dataSource={customers} pagination={{ pageSize: 5 }} scroll={{ x: 720 }} />
-                  <Form layout="vertical" className="formGrid" onFinish={(values) => {
-                    const customer: Customer = {
-                      id: newId(),
-                      name: values.name,
-                      phone: values.phone,
-                      icNumber: values.icNumber,
-                      email: values.email,
-                      address: values.address,
-                      notes: values.notes
-                    };
-                    const blockReason = customerCreateBlockReason(customer, customers);
-                    if (blockReason) {
-                      message.warning(blockReason);
-                      return;
-                    }
-
-                    onCreateCustomer(customer);
-                  }}>
-                    <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item name="icNumber" label="IC / 身份证"><Input /></Form.Item>
-                    <Form.Item name="email" label="Email"><Input /></Form.Item>
-                    <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
-                    <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
-                    <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Customer</Button></Form.Item>
-                  </Form>
-                  {false && <Form
-                    key={selectedCustomer?.id ?? "customer-edit"}
-                    layout="vertical"
-                    className="formGrid"
-                    initialValues={selectedCustomer}
-                    onFinish={(values) => {
-                      if (!selectedCustomer) return;
-                      const customer: Customer = {
-                        ...selectedCustomer,
-                        name: values.name,
-                        phone: values.phone,
-                        icNumber: values.icNumber,
-                        email: values.email,
-                        address: values.address,
-                        notes: values.notes
-                      };
-                      const blockReason = customerCreateBlockReason(customer, customers);
-                      if (blockReason) {
-                        message.warning(blockReason);
-                        return;
-                      }
-
-                      onUpdateCustomer(customer);
-                    }}
-                  >
-                    <Form.Item name="id" label="Edit Customer"><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} onChange={selectCustomer} /></Form.Item>
-                    <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item name="icNumber" label="IC / 身份证"><Input /></Form.Item>
-                    <Form.Item name="email" label="Email"><Input /></Form.Item>
-                    <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
-                    <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
-                    <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedCustomer}>Update Customer</Button></Form.Item>
-                  </Form>}
-                </Space>
-              )
-            },
-            {
-              key: "owners",
-              label: "Owners",
-              children: (
-                <Space direction="vertical" size={16} className="fullWidth">
-                  <Table rowKey="id" columns={ownerColumns} dataSource={owners} pagination={{ pageSize: 5 }} scroll={{ x: 520 }} />
-                  <Form layout="vertical" className="formGrid" onFinish={(values) => {
-                    const owner: Owner = {
-                      id: newId(),
-                      name: values.name,
-                      phone: values.phone
-                    };
-                    const blockReason = ownerCreateBlockReason(owner, owners);
-                    if (blockReason) {
-                      message.warning(blockReason);
-                      return;
-                    }
-
-                    onCreateOwner(owner);
-                  }}>
-                    <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Owner</Button></Form.Item>
-                  </Form>
-                  {false && <Form
-                    key={selectedOwner?.id ?? "owner-edit"}
-                    layout="vertical"
-                    className="formGrid"
-                    initialValues={selectedOwner}
-                    onFinish={(values) => {
-                      if (!selectedOwner) return;
-                      const owner: Owner = {
-                        ...selectedOwner,
-                        name: values.name,
-                        phone: values.phone
-                      };
-                      const blockReason = ownerCreateBlockReason(owner, owners);
-                      if (blockReason) {
-                        message.warning(blockReason);
-                        return;
-                      }
-
-                      onUpdateOwner(owner);
-                    }}
-                  >
-                    <Form.Item name="id" label="Edit Owner"><Select options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} onChange={selectOwner} /></Form.Item>
-                    <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
-                    <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
-                  </Form>}
-                </Space>
-              )
-            }
-          ]}
-        />
-      </ProCard>
-      <Drawer
-        title="Edit Customer / 修改客户"
-        width={560}
-        open={customerEditorOpen}
-        onClose={() => setCustomerEditorOpen(false)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-        <Form
-          key={selectedCustomer?.id ?? "customer-edit-drawer"}
-          layout="vertical"
-          className="drawerForm"
-          initialValues={selectedCustomer}
-          onFinish={(values) => {
-            if (!selectedCustomer) return;
-            const customer: Customer = {
-              ...selectedCustomer,
-              name: values.name,
-              phone: values.phone,
-              icNumber: values.icNumber,
-              email: values.email,
-              address: values.address,
-              notes: values.notes
-            };
-            const blockReason = customerCreateBlockReason(customer, customers);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-
-            onUpdateCustomer(customer);
-            setCustomerEditorOpen(false);
-          }}
-        >
-          <Form.Item name="id" label="Edit Customer"><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} onChange={selectCustomer} /></Form.Item>
-          <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="icNumber" label="IC / 身份证"><Input /></Form.Item>
-          <Form.Item name="email" label="Email"><Input /></Form.Item>
-          <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
-          <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedCustomer}>Update Customer</Button></Form.Item>
-        </Form>
-      </Drawer>
-      <Drawer
-        title="Edit Owner / 修改原车主"
-        width={560}
-        open={ownerEditorOpen}
-        onClose={() => setOwnerEditorOpen(false)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-        <Form
-          key={selectedOwner?.id ?? "owner-edit-drawer"}
-          layout="vertical"
-          className="drawerForm"
-          initialValues={selectedOwner}
-          onFinish={(values) => {
-            if (!selectedOwner) return;
-            const owner: Owner = {
-              ...selectedOwner,
-              name: values.name,
-              phone: values.phone
-            };
-            const blockReason = ownerCreateBlockReason(owner, owners);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-
-            onUpdateOwner(owner);
-            setOwnerEditorOpen(false);
-          }}
-        >
-          <Form.Item name="id" label="Edit Owner"><Select options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} onChange={selectOwner} /></Form.Item>
-          <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
-        </Form>
-      </Drawer>
-      <ProCard title="Photo & Document Upload / 照片与文件上传">
-        <Form layout="vertical" className="formGrid">
-          <Form.Item label="Car Plate">
-            <Select
-              value={selectedVehicleId || undefined}
-              placeholder="Select vehicle"
-              options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} - ${vehicle.make} ${vehicle.model}` }))}
-              onChange={selectVehicle}
-            />
-          </Form.Item>
-          <Form.Item label="Website Photo">
-            <Upload
-              accept="image/jpeg,image/png,image/webp"
-              disabled={uploadDisabled}
-              maxCount={1}
-              showUploadList={false}
-              customRequest={(option) => {
-                void onUploadPhoto(selectedVehicleId, option.file as File)
-                  .then(async () => {
-                    await loadUploads();
-                    option.onSuccess?.({}, option.file);
-                  })
-                  .catch((error: Error) => option.onError?.(error));
-              }}
-            >
-              <Button icon={<UploadOutlined />} disabled={uploadDisabled}>Upload Website Photo</Button>
-            </Upload>
-          </Form.Item>
-          <Form.Item label="Document Type">
-            <Select<DocumentCategory>
-              value={documentCategory}
-              onChange={setDocumentCategory}
-              options={[
-                { value: "PurchaseInvoice", label: "Purchase Invoice" },
-                { value: "Voc", label: "VOC" },
-                { value: "ApDocument", label: "AP Document" },
-                { value: "StatusReceipt", label: "Status Receipt" },
-                { value: "LoanDocument", label: "Loan Document" },
-                { value: "DeliveryDocument", label: "Delivery Document" },
-                { value: "Policy", label: "Policy" },
-                { value: "RoadTaxReceipt", label: "Road Tax Receipt" },
-                { value: "RepairInvoice", label: "Repair Invoice" }
-              ]}
-            />
-          </Form.Item>
-          <Form.Item label="Document Upload">
-            <Upload
-              accept=".pdf,.jpg,.jpeg,.png,.webp"
-              disabled={uploadDisabled}
-              maxCount={1}
-              showUploadList={false}
-              customRequest={(option) => {
-                void onUploadDocument(selectedVehicleId, option.file as File, documentCategory)
-                  .then(async () => {
-                    await loadUploads();
-                    option.onSuccess?.({}, option.file);
-                  })
-                  .catch((error: Error) => option.onError?.(error));
-              }}
-            >
-              <Button icon={<UploadOutlined />} disabled={uploadDisabled}>Upload Document</Button>
-            </Upload>
-          </Form.Item>
-        </Form>
-        <Table
-          rowKey="id"
-          columns={photoColumns}
-          dataSource={photos}
-          pagination={false}
-          scroll={{ x: 820 }}
-        />
-        <Table
-          rowKey="id"
-          columns={documentColumns}
-          dataSource={documents}
-          pagination={false}
-          scroll={{ x: 760 }}
-        />
-      </ProCard>
-    </Space>
-  );
+function formatMoney(value: number) {
+  return `RM ${Math.round(value).toLocaleString()}`;
 }
+
+function formatCompactMoney(value: number) {
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000) return `RM ${(value / 1_000_000).toFixed(1)}m`;
+  if (absolute >= 10_000) return `RM ${Math.round(value / 1000).toLocaleString()}k`;
+  return formatMoney(value);
+}
+
 
 function RepairPage({
   vehicles,
@@ -1711,21 +1462,19 @@ function RepairPage({
   onUpdateRepair: (repair: RepairJob) => Promise<void>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
-  const [uploadRepairId, setUploadRepairId] = useState(repairs[0]?.id ?? "");
+  const [uploadRepairId, setUploadRepairId] = useState("");
   const [editSupplierInvoiceId, setEditSupplierInvoiceId] = useState(supplierInvoices[0]?.id ?? "");
   const [editRepairId, setEditRepairId] = useState(repairs[0]?.id ?? "");
   const [supplierInvoiceEditorOpen, setSupplierInvoiceEditorOpen] = useState(false);
   const [repairEditorOpen, setRepairEditorOpen] = useState(false);
+  const [repairCreateOpen, setRepairCreateOpen] = useState(false);
+  const [supplierInvoiceOcrDraft, setSupplierInvoiceOcrDraft] = useState<OcrReviewValues | null>(null);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("RepairInvoice");
-  const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId) ?? repairs[0];
+  const [documentReloadKey, setDocumentReloadKey] = useState(0);
+  const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId);
   const selectedSupplierInvoice = supplierInvoices.find((invoice) => invoice.id === editSupplierInvoiceId) ?? supplierInvoices[0];
   const selectedEditRepair = repairs.find((repair) => repair.id === editRepairId) ?? repairs[0];
-
-  useEffect(() => {
-    if (!uploadRepairId && repairs[0]?.id) {
-      setUploadRepairId(repairs[0].id);
-    }
-  }, [uploadRepairId, repairs]);
+  const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
 
   useEffect(() => {
     if (!editSupplierInvoiceId && supplierInvoices[0]?.id) {
@@ -1750,13 +1499,16 @@ function RepairPage({
   };
 
   const columns: ColumnsType<SupplierInvoice> = [
-    { title: "Invoice Plate / Plate", dataIndex: "plateNumberOnInvoice", render: (value) => value || "-" },
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
+    { title: "Plate on Invoice / 发票车牌", dataIndex: "plateNumberOnInvoice", render: (value) => value || "-" },
+    { title: "Selected Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Supplier / 供应商", dataIndex: "supplierName" },
     { title: "Invoice / 单据", dataIndex: "invoiceNumber" },
     { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Validation / 检查", render: (_, row) => <Tag color={row.invoiceNumber ? "green" : "red"}>{row.invoiceNumber ? "Plate-linked" : "Missing invoice"}</Tag> },
-    { title: "Action / 操作", fixed: "right", width: 90, render: (_, row) => <Button size="small" onClick={() => selectSupplierInvoice(row.id)}>Edit</Button> }
+    { title: "Plate Check / 车牌检查", render: (_, row) => {
+      const status = supplierInvoicePlateStatus(row, vehicles);
+      return <Tag color={status.color}>{status.label}</Tag>;
+    } },
+    { title: "Action / 操作", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectSupplierInvoice(row.id)}>Details</Button></Space> }
   ];
   const repairColumns: ColumnsType<RepairJob> = [
     { title: "Repair Part / 配件", dataIndex: "repairPart", render: (value) => value || "-" },
@@ -1769,15 +1521,105 @@ function RepairPage({
       fixed: "right",
       width: 220,
       render: (_, row) => (
-        <Space>
+        <Space className="tableActionGroup" wrap size={6}>
+          <Button size="small" type="primary" onClick={() => setUploadRepairId(row.id)}>Details</Button>
           <Button size="small" onClick={() => onUpdateRepair({ ...row, checklistDone: true })} disabled={row.checklistDone}>Mark Done</Button>
-          <Button size="small" onClick={() => selectRepair(row.id)}>Edit</Button>
         </Space>
       )
     }
   ];
   const pendingRepairs = repairs.filter((repair) => !repair.checklistDone).length;
   const repairTotal = repairs.reduce((sum, repair) => sum + repair.cost, 0);
+
+  if (selectedRepair) {
+    return (
+      <Space direction="vertical" size={16} className="fullWidth">
+        <Button onClick={() => setUploadRepairId("")}>Back to Repair List</Button>
+        <ProCard title={`Repair Details / 整备详情 - ${plateFor(vehicles, selectedRepair.vehicleId)}`}>
+          <Descriptions size="small" column={{ xs: 1, md: 3 }}>
+            <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedRepair.vehicleId)}</Descriptions.Item>
+            <Descriptions.Item label="Repair Part / 配件">{selectedRepair.repairPart || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Cost / 费用">RM {selectedRepair.cost.toLocaleString()}</Descriptions.Item>
+            <Descriptions.Item label="Checklist / 检查表">
+              <Tag color={selectedRepair.checklistDone ? "green" : "orange"}>{selectedRepair.checklistDone ? "Done" : "Pending"}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="What To Do / 整备事项">{selectedRepair.whatToDo}</Descriptions.Item>
+          </Descriptions>
+        </ProCard>
+        <ProCard title="Repair Record / 整备资料">
+          <Form
+            key={`${selectedRepair.id}-repair-record`}
+            layout="vertical"
+            className="formGrid"
+            initialValues={{ ...selectedRepair, checklistDone: selectedRepair.checklistDone ? "done" : "pending" }}
+            onFinish={async (values) => {
+              const repair: RepairJob = {
+                ...selectedRepair,
+                vehicleId: values.vehicleId,
+                repairPart: values.repairPart,
+                whatToDo: values.whatToDo,
+                cost: Number(values.cost ?? 0),
+                checklistDone: values.checklistDone === "done"
+              };
+              const repairBlockReason = repairCreateBlockReason(repair);
+              if (repairBlockReason) {
+                message.warning(repairBlockReason);
+                return;
+              }
+
+              await onUpdateRepair(repair);
+            }}
+          >
+            <Form.Item name="id" label="Selected Repair">
+              <Select options={repairs.map((repair) => ({ value: repair.id, label: `${plateFor(vehicles, repair.vehicleId)} / ${repair.whatToDo}` }))} onChange={setUploadRepairId} />
+            </Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
+            <Form.Item name="whatToDo" label="What To Do" rules={[{ required: true }]}><Input placeholder="Polish, wash, spare part..." /></Form.Item>
+            <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Repair</Button></Form.Item>
+          </Form>
+        </ProCard>
+        <ProCard title="Repair Documents / 整备文件">
+          <Space direction="vertical" size={12} className="fullWidth">
+            <Space wrap>
+              <Select<DocumentCategory>
+                value={documentCategory}
+                onChange={setDocumentCategory}
+                style={{ minWidth: 180 }}
+                options={repairDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+              />
+              <OcrUploadReview
+                vehicleId={selectedRepair.vehicleId}
+                category={documentCategory}
+                buttonLabel="Upload & OCR Repair Invoice"
+                applyLabel="Apply to Supplier Invoice"
+                fields={[
+                  { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
+                  { name: "supplierName", label: "Supplier" },
+                  { name: "invoiceNumber", label: "Invoice" },
+                  { name: "plateNumberOnInvoice", label: "Plate on Supplier Invoice" },
+                  { name: "amount", label: "Amount", type: "number" }
+                ]}
+                onUploaded={() => setDocumentReloadKey((value) => value + 1)}
+                onApply={(values) => {
+                  setSupplierInvoiceOcrDraft(values);
+                  setRepairCreateOpen(true);
+                }}
+              />
+            </Space>
+            <Alert type="info" showIcon message="Upload supplier repair invoices against the linked car plate for audit and profit tracking." />
+            <ModuleDocumentList
+              vehicleId={selectedRepair.vehicleId}
+              categories={repairDocumentCategories}
+              reloadKey={documentReloadKey}
+            />
+          </Space>
+        </ProCard>
+      </Space>
+    );
+  }
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
@@ -1786,11 +1628,83 @@ function RepairPage({
         <Metric label="Pending Checklist / 未完成检查" value={pendingRepairs} />
         <Metric label="Repair Cost / 整备费用" value={`RM ${repairTotal.toLocaleString()}`} />
       </div>
-      <ProCard title="Repair Checklist / 整备检查表">
-        <Table rowKey="id" columns={repairColumns} dataSource={repairs} pagination={false} scroll={{ x: 760 }} />
+      <ProCard
+        title="Repair Checklist / 整备检查表"
+        extra={<Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button>}
+      >
+        <div className="mobileRecordList">
+          {repairs.map((repair) => (
+            <article className="mobileRecordCard" key={repair.id}>
+              <div className="mobileRecordHeader">
+                <div>
+                  <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
+                  <Typography.Title level={5}>{plateFor(vehicles, repair.vehicleId)}</Typography.Title>
+                </div>
+                <Tag color={repair.checklistDone ? "green" : "orange"}>{repair.checklistDone ? "Done" : "Pending"}</Tag>
+              </div>
+              <div className="mobileRecordMeta">
+                <span>
+                  <small>Repair Part / 配件</small>
+                  <strong>{repair.repairPart || "-"}</strong>
+                </span>
+                <span>
+                  <small>Cost / 费用</small>
+                  <strong>RM {repair.cost.toLocaleString()}</strong>
+                </span>
+              </div>
+              <div className="mobileRecordSection">
+                <Typography.Text className="mobileRecordLabel">What To Do / 整备事项</Typography.Text>
+                <div className="mobileRecordTextBlock"><span>{repair.whatToDo}</span></div>
+              </div>
+              <div className="mobileRecordFooter">
+                <Space className="tableActionGroup" wrap size={6}>
+                  <Button size="small" type="primary" onClick={() => setUploadRepairId(repair.id)}>Details</Button>
+                  <Button size="small" onClick={() => onUpdateRepair({ ...repair, checklistDone: true })} disabled={repair.checklistDone}>Mark Done</Button>
+                </Space>
+              </div>
+            </article>
+          ))}
+        </div>
+        <Table className="desktopDataTable" rowKey="id" columns={repairColumns} dataSource={repairs} pagination={tablePagination(8)} scroll={{ x: 760 }} />
       </ProCard>
       <ProCard id="repair-supplier-card" title="Supplier & Refurbishment / 供应商与整备">
-        <Table rowKey="id" columns={columns} dataSource={supplierInvoices} pagination={false} scroll={{ x: 760 }} />
+        <div className="mobileRecordList">
+          {supplierInvoices.map((invoice) => (
+            <article className="mobileRecordCard" key={invoice.id}>
+              <div className="mobileRecordHeader">
+                <div>
+                  <Typography.Text className="mobileRecordEyebrow">Supplier / 供应商</Typography.Text>
+                  <Typography.Title level={5}>{invoice.supplierName}</Typography.Title>
+                </div>
+                {(() => {
+                  const status = supplierInvoicePlateStatus(invoice, vehicles);
+                  return <Tag color={status.color}>{status.label}</Tag>;
+                })()}
+              </div>
+              <div className="mobileRecordMeta">
+                <span>
+                  <small>Selected Car Plate / 车牌</small>
+                  <strong>{plateFor(vehicles, invoice.vehicleId)}</strong>
+                </span>
+                <span>
+                  <small>Amount / 金额</small>
+                  <strong>RM {invoice.amount.toLocaleString()}</strong>
+                </span>
+              </div>
+              <div className="mobileRecordSection">
+                <Typography.Text className="mobileRecordLabel">Invoice / 单据</Typography.Text>
+                <div className="mobileRecordTextBlock">
+                  <span>Invoice No: {invoice.invoiceNumber}</span>
+                  <span>Plate on invoice: {invoice.plateNumberOnInvoice || "Not entered"}</span>
+                </div>
+              </div>
+              <div className="mobileRecordFooter">
+                  <Button size="small" type="primary" onClick={() => selectSupplierInvoice(invoice.id)}>Details</Button>
+              </div>
+            </article>
+          ))}
+        </div>
+        <Table className="desktopDataTable" rowKey="id" columns={columns} dataSource={supplierInvoices} pagination={tablePagination(8)} scroll={{ x: 760 }} />
         {false && <Form
           key={selectedSupplierInvoice?.id ?? "supplier-invoice-edit"}
           layout="vertical"
@@ -1819,13 +1733,13 @@ function RepairPage({
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / Invoice Plate"><Input placeholder="Plate printed on invoice" /></Form.Item>
+          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
           <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
         </Form>}
       </ProCard>
       <Drawer
-        title="Edit Supplier Invoice / 修改供应商发票"
+        title="Supplier Invoice Details / 供应商发票详情"
         width={560}
         open={supplierInvoiceEditorOpen}
         onClose={() => setSupplierInvoiceEditorOpen(false)}
@@ -1857,17 +1771,28 @@ function RepairPage({
             setSupplierInvoiceEditorOpen(false);
           }}
         >
-          <Form.Item name="id" label="Edit Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
+          <Form.Item name="id" label="Selected Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / Invoice Plate"><Input placeholder="Plate printed on invoice" /></Form.Item>
+          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
           <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
         </Form>
       </Drawer>
-      <ProCard title="Repair Task Entry / 整备事项">
-        <Form layout="vertical" className="formGrid" onFinish={async (values) => {
+      <Modal
+        title="New Repair Task / 新增整备事项"
+        width={760}
+        open={repairCreateOpen}
+        onCancel={() => {
+          setRepairCreateOpen(false);
+          setSupplierInvoiceOcrDraft(null);
+        }}
+        footer={null}
+        destroyOnClose
+        className="recordCreateModal"
+      >
+        <Form layout="vertical" className="modalForm formGrid" onFinish={async (values) => {
           const invoice: SupplierInvoice = { id: newId(), vehicleId: values.vehicleId, supplierName: values.supplierName, invoiceNumber: values.invoiceNumber, plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined, amount: Number(values.amount ?? 0) };
           const blockReason = supplierInvoiceCreateBlockReason(invoice, supplierInvoices, vehicles);
           if (blockReason) {
@@ -1884,18 +1809,20 @@ function RepairPage({
 
           await onCreateInvoice(invoice);
           await onCreateRepair(repair);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, checklistDone: "pending" }}>
+          setSupplierInvoiceOcrDraft(null);
+          setRepairCreateOpen(false);
+        }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", ...supplierInvoiceOcrDraft }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / Invoice Plate"><Input placeholder="Plate printed on invoice" /></Form.Item>
+          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
           <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Modal>
       <Drawer
         title="Edit Repair Task / 修改整备事项"
         width={560}
@@ -1938,38 +1865,6 @@ function RepairPage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditRepair}>Update Repair</Button></Form.Item>
         </Form>
       </Drawer>
-      <ProCard title="Repair Documents / 整备文件">
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Space wrap>
-            <Select
-              value={selectedRepair?.id}
-              onChange={setUploadRepairId}
-              placeholder="Select repair"
-              style={{ minWidth: 180 }}
-              options={repairs.map((repair) => ({ value: repair.id, label: `${plateFor(vehicles, repair.vehicleId)} / ${repair.whatToDo}` }))}
-            />
-            <Select<DocumentCategory>
-              value={documentCategory}
-              onChange={setDocumentCategory}
-              style={{ minWidth: 180 }}
-              options={repairDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
-            />
-            <Upload
-              showUploadList={false}
-              disabled={!selectedRepair}
-              customRequest={(option) => {
-                if (!selectedRepair) return;
-                void onUploadDocument(selectedRepair.vehicleId, option.file as File, documentCategory)
-                  .then(() => option.onSuccess?.({ ok: true }))
-                  .catch((error) => option.onError?.(error));
-              }}
-            >
-              <Button icon={<UploadOutlined />} disabled={!selectedRepair}>Upload Repair Invoice</Button>
-            </Upload>
-          </Space>
-          <Alert type="info" showIcon message="Upload supplier repair invoices against the linked car plate for audit and profit tracking." />
-        </Space>
-      </ProCard>
     </Space>
   );
 }
@@ -1990,11 +1885,13 @@ function LoanPage({
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [documentChecks, setDocumentChecks] = useState<Record<string, LoanDocumentCheck>>({});
-  const [uploadLoanId, setUploadLoanId] = useState(loans[0]?.id ?? "");
+  const [uploadLoanId, setUploadLoanId] = useState("");
   const [editLoanId, setEditLoanId] = useState(loans[0]?.id ?? "");
   const [loanEditorOpen, setLoanEditorOpen] = useState(false);
+  const [loanCreateOpen, setLoanCreateOpen] = useState(false);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("LoanDocument");
-  const selectedLoan = loans.find((loan) => loan.id === uploadLoanId) ?? loans[0];
+  const [documentReloadKey, setDocumentReloadKey] = useState(0);
+  const selectedLoan: LoanApplication | undefined = loans.find((loan) => loan.id === uploadLoanId);
   const selectedEditLoan = loans.find((loan) => loan.id === editLoanId) ?? loans[0];
   const loanIds = useMemo(() => loans.map((loan) => loan.id).join(","), [loans]);
 
@@ -2016,12 +1913,6 @@ function LoanPage({
   }, [loanIds, loans]);
 
   useEffect(() => {
-    if (!uploadLoanId && loans[0]?.id) {
-      setUploadLoanId(loans[0].id);
-    }
-  }, [uploadLoanId, loans]);
-
-  useEffect(() => {
     if (!editLoanId && loans[0]?.id) {
       setEditLoanId(loans[0].id);
     }
@@ -2032,43 +1923,255 @@ function LoanPage({
     setLoanEditorOpen(true);
   };
 
+  const loanStatusColor: Record<LoanApplication["status"], string> = {
+    Draft: "default",
+    Pending: "orange",
+    Approved: "green",
+    Rejected: "red",
+    Done: "blue"
+  };
+
+  const renderLoanDocumentSummary = (check?: LoanDocumentCheck) => {
+    if (!check) return <Tag>Checking</Tag>;
+    if (check.isComplete) return <Tag color="green">Complete</Tag>;
+
+    const missingLabel = check.missingCategories.map(documentCategoryLabel).join(", ");
+    return (
+      <Tooltip title={`Missing: ${missingLabel}`}>
+        <Tag color="red">{check.missingCategories.length} missing</Tag>
+      </Tooltip>
+    );
+  };
+
+  const renderLoanNextAction = (loan: LoanApplication) => {
+    if (loan.status === "Done") {
+      return <Typography.Text type="secondary">Completed</Typography.Text>;
+    }
+
+    if (loan.status === "Rejected") {
+      return <Typography.Text type="secondary">Review record</Typography.Text>;
+    }
+
+    if (loan.status === "Draft") {
+      return (
+        <Button size="small" onClick={() => onUpdate({ ...loan, status: "Pending", submittedAt: loan.submittedAt || today() })}>
+          Submit
+        </Button>
+      );
+    }
+
+    if (!loan.louApproved) {
+      return <Button size="small" type="primary" onClick={() => onUpdate(markLoanApproved(loan))}>Approve</Button>;
+    }
+
+    if (!loan.louDone) {
+      return <Button size="small" type="primary" onClick={() => onUpdate(markLoanDone(loan))}>Mark Done</Button>;
+    }
+
+    return <Typography.Text type="secondary">No workflow action</Typography.Text>;
+  };
+
   const columns: ColumnsType<LoanApplication> = [
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Pending" ? "orange" : "green"}>{status}</Tag> },
-    { title: "LOU", render: (_, row) => <Space><Badge status={row.louApproved ? "success" : "default"} text="Approve" /><Badge status={row.louDone ? "success" : "warning"} text="Done" /></Space> },
+    { title: "Car Plate / 车牌", dataIndex: "vehicleId", width: 150, render: (vehicleId) => plateFor(vehicles, vehicleId) },
+    { title: "Customer / 客户", dataIndex: "customerId", width: 240, render: (customerId) => contactFor(customers, customerId) },
+    { title: "Status / 状态", dataIndex: "status", width: 130, render: (status: LoanApplication["status"]) => <Tag color={loanStatusColor[status]}>{status}</Tag> },
+    {
+      title: "LOU",
+      width: 180,
+      render: (_, row) => (
+        <Space size={8}>
+          <Badge status={row.louApproved ? "success" : "default"} text="Approved" />
+          <Badge status={row.louDone ? "success" : "warning"} text="Completed" />
+        </Space>
+      )
+    },
     {
       title: "Documents / 文件",
-      render: (_, row) => {
-        const check = documentChecks[row.id];
-        if (!check) return <Tag>Checking</Tag>;
-        return check.isComplete
-          ? <Tag color="green">Complete</Tag>
-          : <Space wrap>{check.missingCategories.map((category) => <Tag key={category} color="red">{documentCategoryLabel(category)}</Tag>)}</Space>;
-      }
+      width: 150,
+      render: (_, row) => renderLoanDocumentSummary(documentChecks[row.id])
     },
-    { title: "Submitted / 提交", dataIndex: "submittedAt" },
-    { title: "3 Days Follow Up", render: (_, row) => <Tag color={row.status === "Pending" ? "orange" : "default"}>{row.status === "Pending" ? "Reminder Active" : "No reminder"}</Tag> },
+    { title: "Submitted / 提交", dataIndex: "submittedAt", width: 140, render: (value) => value || "-" },
+    { title: "Follow Up / 跟进", width: 140, render: (_, row) => <Tag color={row.status === "Pending" ? "orange" : "default"}>{row.status === "Pending" ? "3-day active" : "No reminder"}</Tag> },
     {
-      title: "Action / 操作",
+      title: "Next Action / 操作",
       fixed: "right",
-      width: 170,
+      width: 240,
       render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdate(markLoanApproved(row))} disabled={row.status === "Approved" || row.status === "Done"}>Approve</Button>
-          <Button size="small" onClick={() => onUpdate(markLoanDone(row))} disabled={row.status === "Done"}>Done</Button>
-          <Button size="small" onClick={() => selectLoan(row.id)}>Edit</Button>
+        <Space className="tableActionGroup loanActionCell" wrap size={6}>
+          <Button size="small" type="primary" onClick={() => setUploadLoanId(row.id)}>Details</Button>
+          {renderLoanNextAction(row)}
         </Space>
       )
     }
   ];
 
+  if (selectedLoan) {
+    const check = documentChecks[selectedLoan.id];
+    return (
+      <Space direction="vertical" size={16} className="fullWidth">
+        <Button onClick={() => setUploadLoanId("")}>Back to Loan List</Button>
+        <ProCard title={`Loan Details / 贷款详情 - ${plateFor(vehicles, selectedLoan.vehicleId)}`}>
+          <Descriptions size="small" column={{ xs: 1, md: 3 }}>
+            <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedLoan.vehicleId)}</Descriptions.Item>
+            <Descriptions.Item label="Customer / 客户">{contactFor(customers, selectedLoan.customerId)}</Descriptions.Item>
+            <Descriptions.Item label="Status / 状态"><Tag color={selectedLoan.status === "Pending" ? "orange" : "green"}>{selectedLoan.status}</Tag></Descriptions.Item>
+            <Descriptions.Item label="Submitted / 提交">{selectedLoan.submittedAt}</Descriptions.Item>
+            <Descriptions.Item label="LOU Approve">{selectedLoan.louApproved ? "Yes" : "No"}</Descriptions.Item>
+            <Descriptions.Item label="LOU Done">{selectedLoan.louDone ? "Yes" : "No"}</Descriptions.Item>
+            <Descriptions.Item label="Document Check / 文件检查">
+              {check?.isComplete ? <Tag color="green">Complete</Tag> : <Tag color="red">Incomplete</Tag>}
+            </Descriptions.Item>
+          </Descriptions>
+          {check && check.missingCategories.length > 0 && (
+            <Space wrap className="detailTagRow">
+              {check.missingCategories.map((category) => <Tag color="red" key={category}>Missing {documentCategoryLabel(category)}</Tag>)}
+            </Space>
+          )}
+        </ProCard>
+        <ProCard title="Loan Record / 贷款资料">
+          <Form
+            key={`${selectedLoan.id}-loan-record`}
+            layout="vertical"
+            className="formGrid"
+            initialValues={selectedLoan}
+            onFinish={(values) => {
+              const loan: LoanApplication = {
+                ...selectedLoan,
+                vehicleId: values.vehicleId,
+                customerId: values.customerId,
+                status: values.status,
+                louApproved: values.louApproved,
+                louDone: values.louDone,
+                submittedAt: values.submittedAt
+              };
+              const blockReason = loanCreateBlockReason(loan);
+              if (blockReason) {
+                message.warning(blockReason);
+                return;
+              }
+
+              onUpdate(loan);
+            }}
+          >
+            <Form.Item name="id" label="Selected Loan"><Select options={loans.map((loan) => ({ value: loan.id, label: `${plateFor(vehicles, loan.vehicleId)} / ${loan.status}` }))} onChange={setUploadLoanId} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Select customer"
+                options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
+              />
+            </Form.Item>
+            <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="submittedAt" label="Submitted Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
+            <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Loan</Button></Form.Item>
+          </Form>
+        </ProCard>
+        <ProCard title="Loan Documents / 贷款文件">
+          <Space direction="vertical" size={12} className="fullWidth">
+            <Space wrap>
+              <Select<DocumentCategory>
+                value={documentCategory}
+                onChange={setDocumentCategory}
+                style={{ minWidth: 180 }}
+                options={loanDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+              />
+              <Upload
+                showUploadList={false}
+                customRequest={(option) => {
+                  void onUploadDocument(selectedLoan.vehicleId, option.file as File, documentCategory)
+                    .then(() => {
+                      setDocumentReloadKey((value) => value + 1);
+                      option.onSuccess?.({ ok: true });
+                    })
+                    .catch((error) => option.onError?.(error));
+                }}
+              >
+                <Button icon={<UploadOutlined />}>Upload Loan Document</Button>
+              </Upload>
+            </Space>
+            <Alert
+              type="info"
+              showIcon
+              message="Upload VOC, AP Document, Status Receipt, and Loan Document before completing loan follow-up."
+            />
+            <ModuleDocumentList
+              vehicleId={selectedLoan.vehicleId}
+              categories={loanDocumentCategories}
+              reloadKey={documentReloadKey}
+            />
+          </Space>
+        </ProCard>
+      </Space>
+    );
+  }
+
   return (
     <Space direction="vertical" size={16} className="fullWidth">
-      <ProCard title="Loan Workflow / 贷款流程">
-        <Table rowKey="id" columns={columns} dataSource={loans} pagination={false} scroll={{ x: 760 }} />
+      <ProCard
+        title="Loan Workflow / 贷款流程"
+        extra={<Button type="primary" onClick={() => setLoanCreateOpen(true)}>New Loan</Button>}
+      >
+        <div className="mobileRecordList loanMobileList">
+          {loans.map((loan) => {
+            const check = documentChecks[loan.id];
+            const isPending = loan.status === "Pending";
+            return (
+              <article className="mobileRecordCard" key={loan.id}>
+                <div className="mobileRecordHeader">
+                  <div>
+                    <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
+                    <Typography.Title level={5}>{plateFor(vehicles, loan.vehicleId)}</Typography.Title>
+                  </div>
+                  <Tag color={loanStatusColor[loan.status]}>{loan.status}</Tag>
+                </div>
+                <div className="mobileRecordMeta">
+                  <span>
+                    <small>Customer / 客户</small>
+                    <strong>{contactFor(customers, loan.customerId)}</strong>
+                  </span>
+                  <span>
+                    <small>Submitted / 提交</small>
+                    <strong>{loan.submittedAt}</strong>
+                  </span>
+                </div>
+                <div className="mobileRecordSection">
+                  <Typography.Text className="mobileRecordLabel">LOU</Typography.Text>
+                  <Space wrap size={6}>
+                    <Badge status={loan.louApproved ? "success" : "default"} text="Approved" />
+                    <Badge status={loan.louDone ? "success" : "warning"} text="Completed" />
+                  </Space>
+                </div>
+                <div className="mobileRecordSection">
+                  <Typography.Text className="mobileRecordLabel">Documents / 文件</Typography.Text>
+                  {renderLoanDocumentSummary(check)}
+                </div>
+                <div className="mobileRecordFooter">
+                  <Tag color={isPending ? "orange" : "default"}>{isPending ? "3-day reminder active" : "No reminder"}</Tag>
+                  <Space className="tableActionGroup" wrap size={6}>
+                    <Button size="small" type="primary" onClick={() => setUploadLoanId(loan.id)}>Details</Button>
+                    {renderLoanNextAction(loan)}
+                  </Space>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <Table className="desktopDataTable loanWorkflowTable" rowKey="id" columns={columns} dataSource={loans} pagination={tablePagination(8)} scroll={{ x: "max-content" }} />
       </ProCard>
-      <ProCard id="loan-submit-card" title="Submit Loan / 提交贷款">
-        <Form layout="vertical" className="formGrid" onFinish={(values) => {
+      <Modal
+        title="Submit Loan / 提交贷款"
+        width={680}
+        open={loanCreateOpen}
+        onCancel={() => setLoanCreateOpen(false)}
+        footer={null}
+        destroyOnClose
+        className="recordCreateModal"
+      >
+        <Form layout="vertical" className="modalForm" onFinish={(values) => {
           const loan: LoanApplication = {
             id: newId(),
             vehicleId: values.vehicleId,
@@ -2084,6 +2187,7 @@ function LoanPage({
             return;
           }
           onCreate(loan);
+          setLoanCreateOpen(false);
         }} initialValues={{ vehicleId: vehicles[0]?.id, customerId: customers[0]?.id, status: "Pending", louApproved: false, louDone: false, submittedAt: today() }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}>
@@ -2100,7 +2204,7 @@ function LoanPage({
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Submit Loan</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Modal>
       <Drawer
         title="Edit Loan / 修改贷款"
         width={560}
@@ -2152,42 +2256,6 @@ function LoanPage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditLoan}>Update Loan</Button></Form.Item>
         </Form>
       </Drawer>
-      <ProCard title="Loan Documents / 贷款文件">
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Space wrap>
-            <Select
-              value={selectedLoan?.id}
-              onChange={setUploadLoanId}
-              placeholder="Select loan"
-              style={{ minWidth: 180 }}
-              options={loans.map((loan) => ({ value: loan.id, label: `${plateFor(vehicles, loan.vehicleId)} / ${loan.status}` }))}
-            />
-            <Select<DocumentCategory>
-              value={documentCategory}
-              onChange={setDocumentCategory}
-              style={{ minWidth: 180 }}
-              options={loanDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
-            />
-            <Upload
-              showUploadList={false}
-              disabled={!selectedLoan}
-              customRequest={(option) => {
-                if (!selectedLoan) return;
-                void onUploadDocument(selectedLoan.vehicleId, option.file as File, documentCategory)
-                  .then(() => option.onSuccess?.({ ok: true }))
-                  .catch((error) => option.onError?.(error));
-              }}
-            >
-              <Button icon={<UploadOutlined />} disabled={!selectedLoan}>Upload Loan Document</Button>
-            </Upload>
-          </Space>
-          <Alert
-            type="info"
-            showIcon
-            message="Upload VOC, AP Document, Status Receipt, and Loan Document before completing loan follow-up."
-          />
-        </Space>
-      </ProCard>
     </Space>
   );
 }
@@ -2206,12 +2274,15 @@ function DeliveryPage({
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [releaseReadiness, setReleaseReadiness] = useState<Record<string, DeliveryReleaseReadiness>>({});
-  const [uploadDeliveryId, setUploadDeliveryId] = useState(deliveries[0]?.id ?? "");
+  const [uploadDeliveryId, setUploadDeliveryId] = useState("");
   const [editDeliveryId, setEditDeliveryId] = useState(deliveries[0]?.id ?? "");
   const [deliveryEditorOpen, setDeliveryEditorOpen] = useState(false);
+  const [deliveryCreateOpen, setDeliveryCreateOpen] = useState(false);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("Policy");
-  const selectedDelivery = deliveries.find((delivery) => delivery.id === uploadDeliveryId) ?? deliveries[0];
-  const selectedEditDelivery = deliveries.find((delivery) => delivery.id === editDeliveryId) ?? deliveries[0];
+  const [documentReloadKey, setDocumentReloadKey] = useState(0);
+  const selectedDelivery: DeliverySchedule | undefined = deliveries.find((delivery) => delivery.id === uploadDeliveryId);
+  const selectedEditDelivery: DeliverySchedule | undefined = deliveries.find((delivery) => delivery.id === editDeliveryId) ?? deliveries[0];
+  const selectedDeliveryReadiness = selectedEditDelivery ? releaseReadiness[selectedEditDelivery.id] : undefined;
 
   useEffect(() => {
     let active = true;
@@ -2233,71 +2304,439 @@ function DeliveryPage({
   }, [deliveries]);
 
   useEffect(() => {
-    if (!uploadDeliveryId && deliveries[0]?.id) {
-      setUploadDeliveryId(deliveries[0].id);
-    }
-  }, [uploadDeliveryId, deliveries]);
-
-  useEffect(() => {
     if (!editDeliveryId && deliveries[0]?.id) {
       setEditDeliveryId(deliveries[0].id);
     }
   }, [editDeliveryId, deliveries]);
+
+  const selectDeliveryRecord = (deliveryId: string) => {
+    setUploadDeliveryId(deliveryId);
+    setEditDeliveryId(deliveryId);
+  };
 
   const selectDelivery = (deliveryId: string) => {
     setEditDeliveryId(deliveryId);
     setDeliveryEditorOpen(true);
   };
 
+  const tableHeader = (label: string, secondary: string) => (
+    <span className="tableHeaderStack">
+      <span>{label}</span>
+      <span>{secondary}</span>
+    </span>
+  );
+
+  const deliveryStatusLabel = (status: DeliverySchedule["status"]) => ({
+    BookingInspection: "Booking inspection",
+    Scheduled: "Scheduled",
+    Inspection: "Inspection",
+    PreparingDocuments: "Preparing docs",
+    CarPreparation: "Car prep",
+    ReadyForRelease: "Ready",
+    Released: "Released"
+  })[status] ?? status;
+
+  const deliveryStatusColor = (status: DeliverySchedule["status"]) => ({
+    BookingInspection: "blue",
+    Scheduled: "gold",
+    Inspection: "cyan",
+    PreparingDocuments: "purple",
+    CarPreparation: "geekblue",
+    ReadyForRelease: "green",
+    Released: "default"
+  })[status] ?? "default";
+
+  const deliveryActionDisabledReason = (row: DeliverySchedule) => {
+    const missingDocuments = releaseReadiness[row.id]?.missingCategories ?? [];
+    if (missingDocuments.length > 0) {
+      return `Missing ${missingDocuments.map(documentCategoryLabel).join(", ")}`;
+    }
+    if (!canMarkDeliveryReady(row) && !canReleaseDelivery(row)) {
+      return "Finish the previous delivery steps first.";
+    }
+    return "";
+  };
+
+  const renderNextDeliveryAction = (row: DeliverySchedule) => {
+    const missingDocuments = releaseReadiness[row.id]?.missingCategories ?? [];
+    const blocksReleaseStep = missingDocuments.length > 0;
+    const blockedReason = deliveryActionDisabledReason(row);
+
+    if (canMarkNotificationSent(row)) {
+      return <Button type="primary" size="small" onClick={() => onUpdate(markNotificationSent(row))}>Notify</Button>;
+    }
+    if (canMarkTwoDayNoticeSent(row)) {
+      return <Button type="primary" size="small" onClick={() => onUpdate(markTwoDayNoticeSent(row))}>Notice</Button>;
+    }
+    if (canMarkDeliveryReady(row)) {
+      return (
+        <Tooltip title={blocksReleaseStep ? blockedReason : ""}>
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => onUpdate(markDeliveryReady(row))}
+            disabled={blocksReleaseStep || !canMarkDeliveryReady(row)}
+          >
+            Ready
+          </Button>
+        </Tooltip>
+      );
+    }
+    if (row.status === "ReadyForRelease") {
+      return (
+        <Tooltip title={blocksReleaseStep ? blockedReason : ""}>
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => onUpdate({ ...row, status: "Released" })}
+            disabled={blocksReleaseStep || !canReleaseDelivery(row)}
+          >
+            Release
+          </Button>
+        </Tooltip>
+      );
+    }
+    if (row.status === "Released") {
+      return <Tag color="default">Done</Tag>;
+    }
+    return null;
+  };
+
   const columns: ColumnsType<DeliverySchedule> = [
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "PIC", dataIndex: "pic" },
-    { title: "Notification / Notify", dataIndex: "notificationSent", render: (sent) => <Tag color={sent ? "green" : "orange"}>{sent ? "Sent" : "Pending"}</Tag> },
-    { title: "Schedule / 时间", dataIndex: "scheduledDate" },
-    { title: "Status / 状态", dataIndex: "status" },
-    { title: "Booking / 预约", dataIndex: "inspectionBookingReference", render: (value) => value || "-" },
-    { title: "Inspection Report / 检查报告", dataIndex: "inspectionReportReference", render: (value) => value || "-" },
-    { title: "Policy / 保单", dataIndex: "insurancePolicyReference", render: (value) => value || "-" },
-    { title: "Road Tax Receipt / 路税收据", dataIndex: "roadTaxReceiptReference", render: (value) => value || "-" },
-    { title: "Windscreen / 挡风玻璃", dataIndex: "windscreenPolicyReference", render: (value) => value || "-" },
     {
-      title: "Release Ready / 可出车",
+      title: tableHeader("Car Plate", "车牌"),
+      dataIndex: "vehicleId",
+      width: 116,
+      render: (vehicleId) => <Typography.Text strong className="nowrapText">{plateFor(vehicles, vehicleId)}</Typography.Text>
+    },
+    {
+      title: shortformLabel("PIC", "Person in charge"),
+      dataIndex: "pic",
+      width: 154,
+      ellipsis: true,
+      render: (pic) => <Typography.Text ellipsis={{ tooltip: pic }} className="deliveryTableText">{pic}</Typography.Text>
+    },
+    {
+      title: tableHeader("Schedule", "时间"),
+      dataIndex: "scheduledDate",
+      width: 122,
+      render: (value) => <span className="nowrapText">{value}</span>
+    },
+    {
+      title: tableHeader("Status", "状态"),
+      dataIndex: "status",
+      width: 146,
+      render: (status: DeliverySchedule["status"]) => <Tag color={deliveryStatusColor(status)}>{deliveryStatusLabel(status)}</Tag>
+    },
+    {
+      title: tableHeader("Notify", "通知"),
+      dataIndex: "notificationSent",
+      width: 96,
+      render: (sent) => <Badge status={sent ? "success" : "warning"} text={sent ? "Sent" : "Pending"} />
+    },
+    {
+      title: tableHeader("Release Ready", "可出车"),
+      width: 190,
       render: (_, row) => {
         const readiness = releaseReadiness[row.id];
         const ready = readiness?.isReady ?? isDeliveryReady(row);
+        const missingCategories = readiness?.missingCategories ?? [];
+        const missingLabel = missingCategories.map(documentCategoryLabel).join(", ");
         return (
-          <Space direction="vertical" size={4}>
+          <Space direction="vertical" size={3} className="deliveryReadinessCell">
             <Tag color={ready ? "green" : "red"}>{ready ? "Ready" : "Blocked"}</Tag>
-            {readiness && readiness.missingCategories.length > 0 && (
-              <Space wrap>{readiness.missingCategories.map((category) => <Tag key={category} color="red">{documentCategoryLabel(category)}</Tag>)}</Space>
+            {missingCategories.length > 0 && (
+              <Tooltip title={missingLabel}>
+                <Typography.Text type="danger" className="deliveryTableText">
+                  {missingCategories.length} missing
+                </Typography.Text>
+              </Tooltip>
             )}
           </Space>
         );
       }
     },
     {
-      title: "Action / 操作",
+      title: tableHeader("Next Action", "操作"),
       fixed: "right",
-      width: 160,
+      width: 240,
       render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdate(markNotificationSent(row))} disabled={!canMarkNotificationSent(row)}>Notify</Button>
-          <Button size="small" onClick={() => onUpdate(markTwoDayNoticeSent(row))} disabled={!canMarkTwoDayNoticeSent(row)}>Notice</Button>
-          <Button size="small" onClick={() => onUpdate(markDeliveryReady(row))} disabled={!canMarkDeliveryReady(row) || Boolean(releaseReadiness[row.id]?.missingCategories.length)}>Ready</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Released" })} disabled={!canReleaseDelivery(row) || Boolean(releaseReadiness[row.id]?.missingCategories.length)}>Release</Button>
-          <Button size="small" onClick={() => selectDelivery(row.id)}>Edit</Button>
+        <Space className="tableActionGroup deliveryActionCell" wrap size={6}>
+          <Button size="small" type="primary" onClick={() => selectDeliveryRecord(row.id)}>Details</Button>
+          {renderNextDeliveryAction(row) ?? <Typography.Text type="secondary">No workflow action</Typography.Text>}
         </Space>
       )
     }
   ];
 
+  if (selectedDelivery) {
+    return (
+      <Space direction="vertical" size={16} className="fullWidth">
+        <Button onClick={() => setUploadDeliveryId("")}>Back to Delivery List</Button>
+        <ProCard title={`Delivery Details / 出车详情 - ${plateFor(vehicles, selectedDelivery.vehicleId)}`}>
+          <Descriptions size="small" column={{ xs: 1, md: 3 }}>
+            <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedDelivery.vehicleId)}</Descriptions.Item>
+            <Descriptions.Item label={shortformLabel("PIC", "Person in charge")}>{selectedDelivery.pic}</Descriptions.Item>
+            <Descriptions.Item label="Schedule / 时间">{selectedDelivery.scheduledDate}</Descriptions.Item>
+            <Descriptions.Item label="Status / 状态">{selectedDelivery.status}</Descriptions.Item>
+            <Descriptions.Item label="Ready / 可出车">
+              <Tag color={selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "green" : "red"}>
+                {selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "Ready for release" : "Blocked"}
+              </Tag>
+            </Descriptions.Item>
+          </Descriptions>
+        </ProCard>
+        <ProCard title="Delivery Record / 出车资料">
+          <Form
+            key={`${selectedDelivery.id}-delivery-record`}
+            layout="vertical"
+            className="formGrid"
+            initialValues={selectedDelivery}
+            onFinish={(values) => {
+              const delivery: DeliverySchedule = {
+                ...selectedDelivery,
+                vehicleId: values.vehicleId,
+                pic: values.pic,
+                status: values.status,
+                scheduledDate: values.scheduledDate,
+                polishDone: values.polishDone,
+                tintedDone: values.tintedDone,
+                washDone: values.washDone,
+                documentsPrepared: values.documentsPrepared,
+                inspectionDone: values.inspectionDone,
+                inspectionBookingReference: values.inspectionBookingReference?.trim() || undefined,
+                inspectionReportReference: values.inspectionReportReference?.trim() || undefined,
+                notificationSent: values.notificationSent,
+                twoDayNoticeSent: values.twoDayNoticeSent,
+                insuranceHandled: values.insuranceHandled,
+                insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
+                roadTaxHandled: values.roadTaxHandled,
+                roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
+                windscreenInsuranceHandled: values.windscreenInsuranceHandled,
+                windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined
+              };
+              const blockReason = deliveryCreateBlockReason(delivery);
+              if (blockReason) {
+                message.warning(blockReason);
+                return;
+              }
+
+              onUpdate(delivery);
+            }}
+          >
+            <Form.Item name="id" label="Selected Delivery">
+              <Select
+                showSearch
+                optionFilterProp="label"
+                options={deliveries.map((delivery) => ({ value: delivery.id, label: `${plateFor(vehicles, delivery.vehicleId)} / ${delivery.status}` }))}
+                onChange={selectDeliveryRecord}
+              />
+            </Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
+              <Select showSearch optionFilterProp="label" placeholder="Select car plate" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} />
+            </Form.Item>
+            <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
+            <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
+            <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
+            <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
+            <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
+            {deliveryChecklistFields.map((field) => (
+              <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
+            ))}
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Delivery</Button></Form.Item>
+          </Form>
+        </ProCard>
+        <ProCard title="Delivery Documents / 出车文件">
+          <Space direction="vertical" size={12} className="fullWidth">
+            <Space wrap>
+              <Select<DocumentCategory>
+                value={documentCategory}
+                onChange={setDocumentCategory}
+                style={{ minWidth: 180 }}
+                options={deliveryDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+              />
+              <Upload
+                showUploadList={false}
+                customRequest={(option) => {
+                  void onUploadDocument(selectedDelivery.vehicleId, option.file as File, documentCategory)
+                    .then(() => {
+                      setDocumentReloadKey((value) => value + 1);
+                      option.onSuccess?.({ ok: true });
+                    })
+                    .catch((error) => option.onError?.(error));
+                }}
+              >
+                <Button icon={<UploadOutlined />}>Upload Delivery Document</Button>
+              </Upload>
+            </Space>
+            <Alert
+              type="info"
+              showIcon
+              message="Upload Policy and Road Tax Receipt before marking a delivery Ready or Released."
+            />
+            <ModuleDocumentList
+              vehicleId={selectedDelivery.vehicleId}
+              categories={deliveryDocumentCategories}
+              reloadKey={documentReloadKey}
+            />
+          </Space>
+        </ProCard>
+        <ProCard title="Final Checklist / 最后核对">
+          <Space direction="vertical" size={12} className="fullWidth">
+            <Alert
+              type="info"
+              showIcon
+              message="Update final release preparation here."
+              description="Use this checklist to mark preparation work done from the detail page. Upload required Policy/Road Tax/Delivery documents above, then use Ready or Release from the Delivery Workflow table when readiness is complete."
+            />
+            <Space wrap>
+              <Tag color="blue">{plateFor(vehicles, selectedDelivery.vehicleId)}</Tag>
+              <Tag color={selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "green" : "red"}>
+                {selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "Ready for release" : "Blocked"}
+              </Tag>
+              {selectedDeliveryReadiness?.missingCategories.map((category) => (
+                <Tag color="red" key={category}>Missing {documentCategoryLabel(category)}</Tag>
+              ))}
+            </Space>
+            <Form
+              key={`${selectedDelivery.id}-final-checklist`}
+              layout="vertical"
+              className="deliveryChecklistForm"
+              initialValues={deliveryChecklistFields.reduce((values, field) => ({ ...values, [field]: selectedDelivery[field] }), {})}
+              onFinish={(values) => {
+                const delivery: DeliverySchedule = {
+                  ...selectedDelivery,
+                  ...deliveryChecklistFields.reduce(
+                    (updates, field) => ({ ...updates, [field]: Boolean(values[field]) }),
+                    {} as Pick<DeliverySchedule, DeliveryChecklistField>
+                  )
+                };
+                const blockReason = deliveryCreateBlockReason(delivery);
+                if (blockReason) {
+                  message.warning(blockReason);
+                  return;
+                }
+
+                onUpdate(delivery);
+              }}
+            >
+              <div className="deliveryChecklistSection">
+                <div>
+                  <Typography.Text className="mobileRecordLabel">Preparation / 出车准备</Typography.Text>
+                  <div className="deliveryChecklistEditGrid">
+                    {deliveryPreparationChecklist.map((field) => (
+                      <Form.Item key={field} name={field} valuePropName="checked">
+                        <Checkbox>{deliveryFieldLabels[field]}</Checkbox>
+                      </Form.Item>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <Typography.Text className="mobileRecordLabel">Notification / 通知</Typography.Text>
+                  <div className="deliveryChecklistEditGrid compact">
+                    {deliveryNotificationChecklist.map((field) => (
+                      <Form.Item key={field} name={field} valuePropName="checked">
+                        <Checkbox>{deliveryFieldLabels[field]}</Checkbox>
+                      </Form.Item>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="checklistReferenceGrid">
+                {deliveryReferenceChecklist(selectedDelivery).map((item) => (
+                  <div className="checkItem" key={item.label}><Badge status={item.done ? "success" : "error"} text={item.label} /></div>
+                ))}
+              </div>
+              <Form.Item className="formActions">
+                <Button type="primary" htmlType="submit">Save Checklist</Button>
+              </Form.Item>
+            </Form>
+          </Space>
+        </ProCard>
+      </Space>
+    );
+  }
+
   return (
     <Space direction="vertical" size={16} className="fullWidth">
-      <ProCard title="Delivery Workflow / 出车流程">
-        <Table rowKey="id" columns={columns} dataSource={deliveries} pagination={false} scroll={{ x: 760 }} />
+      <ProCard
+        title="Delivery Workflow / 出车流程"
+        extra={<Button type="primary" onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button>}
+      >
+        <Space direction="vertical" size={12} className="fullWidth">
+          <Alert
+            type="info"
+            showIcon
+            message="Click Open to view delivery documents, edit the record, and update the final checklist."
+          />
+          <div className="mobileRecordList">
+            {deliveries.map((delivery) => {
+              const readiness = releaseReadiness[delivery.id];
+              const ready = readiness?.isReady ?? isDeliveryReady(delivery);
+              const missingCategories = readiness?.missingCategories ?? [];
+              const nextAction = renderNextDeliveryAction(delivery);
+              return (
+                <article className="mobileRecordCard" key={delivery.id}>
+                  <div className="mobileRecordHeader">
+                    <div>
+                      <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
+                      <Typography.Title level={5}>{plateFor(vehicles, delivery.vehicleId)}</Typography.Title>
+                    </div>
+                    <Tag color={deliveryStatusColor(delivery.status)}>{deliveryStatusLabel(delivery.status)}</Tag>
+                  </div>
+                  <div className="mobileRecordMeta">
+                    <span>
+                      <small>{shortformLabel("PIC", "Person in charge")}</small>
+                      <strong>{delivery.pic}</strong>
+                    </span>
+                    <span>
+                      <small>Schedule / 时间</small>
+                      <strong>{delivery.scheduledDate}</strong>
+                    </span>
+                  </div>
+                  <div className="mobileRecordSection">
+                    <Typography.Text className="mobileRecordLabel">Readiness / 可出车</Typography.Text>
+                    <Space wrap size={6}>
+                      <Tag color={ready ? "green" : "red"}>{ready ? "Ready" : "Blocked"}</Tag>
+                      <Badge status={delivery.notificationSent ? "success" : "warning"} text={delivery.notificationSent ? "Notified" : "Notify pending"} />
+                      {missingCategories.map((category) => (
+                        <Tag color="red" key={category}>Missing {documentCategoryLabel(category)}</Tag>
+                      ))}
+                    </Space>
+                  </div>
+                  <div className="mobileRecordFooter">
+                    <Space className="tableActionGroup" wrap size={6}>
+                      <Button size="small" type="primary" onClick={() => selectDeliveryRecord(delivery.id)}>Details</Button>
+                      {nextAction}
+                    </Space>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <Table
+            rowKey="id"
+            className="deliveryWorkflowTable desktopDataTable"
+            columns={columns}
+            dataSource={deliveries}
+            pagination={tablePagination(8)}
+            scroll={{ x: "max-content" }}
+          />
+        </Space>
       </ProCard>
-      <ProCard title="Schedule Delivery / 安排出车">
-        <Form layout="vertical" className="formGrid" onFinish={(values) => {
+      <Modal
+        title="Schedule New Delivery / 新增出车安排"
+        width={820}
+        open={deliveryCreateOpen}
+        onCancel={() => setDeliveryCreateOpen(false)}
+        footer={null}
+        destroyOnClose
+        className="recordCreateModal"
+      >
+        <Form layout="vertical" className="modalForm formGrid" onFinish={(values) => {
           const delivery: DeliverySchedule = {
             id: newId(),
             vehicleId: values.vehicleId,
@@ -2326,9 +2765,17 @@ function DeliveryPage({
             return;
           }
           onCreate(delivery);
+          setDeliveryCreateOpen(false);
         }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", roadTaxReceiptReference: "", windscreenPolicyReference: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="pic" label="PIC" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="Select car plate"
+              options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
+            />
+          </Form.Item>
+          <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
@@ -2341,7 +2788,7 @@ function DeliveryPage({
           ))}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Schedule</Button></Form.Item>
         </Form>
-      </ProCard>
+      </Modal>
       <Drawer
         title="Edit Delivery / 修改出车安排"
         width={560}
@@ -2388,9 +2835,23 @@ function DeliveryPage({
             setDeliveryEditorOpen(false);
           }}
         >
-          <Form.Item name="id" label="Edit Delivery"><Select options={deliveries.map((delivery) => ({ value: delivery.id, label: `${plateFor(vehicles, delivery.vehicleId)} / ${delivery.status}` }))} onChange={selectDelivery} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="pic" label="PIC" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="id" label="Edit Delivery / 修改出车记录">
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={deliveries.map((delivery) => ({ value: delivery.id, label: `${plateFor(vehicles, delivery.vehicleId)} / ${delivery.status}` }))}
+              onChange={selectDelivery}
+            />
+          </Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="Select car plate"
+              options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
+            />
+          </Form.Item>
+          <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
@@ -2404,911 +2865,188 @@ function DeliveryPage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDelivery}>Update Delivery</Button></Form.Item>
         </Form>
       </Drawer>
-      <ProCard title="Delivery Documents / 出车文件">
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Space wrap>
-            <Select
-              value={selectedDelivery?.id}
-              onChange={setUploadDeliveryId}
-              placeholder="Select delivery"
-              style={{ minWidth: 180 }}
-              options={deliveries.map((delivery) => ({ value: delivery.id, label: plateFor(vehicles, delivery.vehicleId) }))}
-            />
-            <Select<DocumentCategory>
-              value={documentCategory}
-              onChange={setDocumentCategory}
-              style={{ minWidth: 180 }}
-              options={deliveryDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
-            />
-            <Upload
-              showUploadList={false}
-              disabled={!selectedDelivery}
-              customRequest={(option) => {
-                if (!selectedDelivery) return;
-                void onUploadDocument(selectedDelivery.vehicleId, option.file as File, documentCategory)
-                  .then(() => option.onSuccess?.({ ok: true }))
-                  .catch((error) => option.onError?.(error));
-              }}
-            >
-              <Button icon={<UploadOutlined />} disabled={!selectedDelivery}>Upload Delivery Document</Button>
-            </Upload>
-          </Space>
-          <Alert
-            type="info"
-            showIcon
-            message="Upload Policy and Road Tax Receipt before marking a delivery Ready or Released."
-          />
-        </Space>
-      </ProCard>
-      <ProCard title="Final Checklist / 最后核对">
-        <div className="checklistGrid">
-          {deliveries[0] ? deliveryChecklist(deliveries[0]).map((item) => (
-            <div className="checkItem" key={item.label}><Badge status={item.done ? "success" : "error"} text={item.label} /></div>
-          )) : <Typography.Text>No delivery scheduled.</Typography.Text>}
-        </div>
-      </ProCard>
     </Space>
   );
 }
 
-function FinancePage({
-  vehicles,
-  customers,
-  owners,
-  payments,
-  settlements,
-  dailySpends,
-  brokerCommissions,
-  debtRecoveries,
-  paymentVouchers,
-  onCreate,
-  onUpdate,
-  onCreateSettlement,
-  onUpdateSettlement,
-  onCreateDailySpend,
-  onUpdateDailySpend,
-  onCreateBrokerCommission,
-  onUpdateBrokerCommission,
-  onCreateDebtRecovery,
-  onUpdateDebtRecovery,
-  onCreatePaymentVoucher,
-  onUpdatePaymentVoucher,
-  onUploadDocument
-}: {
-  vehicles: VehicleLookup[];
-  customers: Customer[];
-  owners: Owner[];
-  payments: PaymentRecord[];
-  settlements: SettlementReminder[];
-  dailySpends: DailySpend[];
-  brokerCommissions: BrokerCommission[];
-  debtRecoveries: DebtRecoveryCase[];
-  paymentVouchers: PaymentVoucher[];
-  onCreate: (payment: PaymentRecord) => void;
-  onUpdate: (payment: PaymentRecord) => void;
-  onCreateSettlement: (settlement: SettlementReminder) => void;
-  onUpdateSettlement: (settlement: SettlementReminder) => void;
-  onCreateDailySpend: (spend: DailySpend) => void;
-  onUpdateDailySpend: (spend: DailySpend) => void;
-  onCreateBrokerCommission: (commission: BrokerCommission) => void;
-  onUpdateBrokerCommission: (commission: BrokerCommission) => void;
-  onCreateDebtRecovery: (debt: DebtRecoveryCase) => void;
-  onUpdateDebtRecovery: (debt: DebtRecoveryCase) => void;
-  onCreatePaymentVoucher: (voucher: PaymentVoucher) => void;
-  onUpdatePaymentVoucher: (voucher: PaymentVoucher) => void;
-  onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
-}) {
-  const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
-  const [editPaymentId, setEditPaymentId] = useState(payments[0]?.id ?? "");
-  const [editSettlementId, setEditSettlementId] = useState(settlements[0]?.id ?? "");
-  const [editDailySpendId, setEditDailySpendId] = useState(dailySpends[0]?.id ?? "");
-  const [editBrokerCommissionId, setEditBrokerCommissionId] = useState(brokerCommissions[0]?.id ?? "");
-  const [editDebtRecoveryId, setEditDebtRecoveryId] = useState(debtRecoveries[0]?.id ?? "");
-  const [editPaymentVoucherId, setEditPaymentVoucherId] = useState(paymentVouchers[0]?.id ?? "");
-  const [financeEditorOpen, setFinanceEditorOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
-  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PaymentReceipt");
-  const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
-  const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
-  const selectedEditSettlement = settlements.find((settlement) => settlement.id === editSettlementId) ?? settlements[0];
-  const selectedEditDailySpend = dailySpends.find((spend) => spend.id === editDailySpendId) ?? dailySpends[0];
-  const selectedEditBrokerCommission = brokerCommissions.find((commission) => commission.id === editBrokerCommissionId) ?? brokerCommissions[0];
-  const selectedEditDebtRecovery = debtRecoveries.find((debt) => debt.id === editDebtRecoveryId) ?? debtRecoveries[0];
-  const selectedEditPaymentVoucher = paymentVouchers.find((voucher) => voucher.id === editPaymentVoucherId) ?? paymentVouchers[0];
-
-  useEffect(() => {
-    if (!uploadPaymentId && payments[0]?.id) {
-      setUploadPaymentId(payments[0].id);
-    }
-  }, [uploadPaymentId, payments]);
-
-  useEffect(() => {
-    if (!editPaymentId && payments[0]?.id) {
-      setEditPaymentId(payments[0].id);
-    }
-  }, [editPaymentId, payments]);
-
-  useEffect(() => {
-    if (!editSettlementId && settlements[0]?.id) {
-      setEditSettlementId(settlements[0].id);
-    }
-  }, [editSettlementId, settlements]);
-
-  useEffect(() => {
-    if (!editDailySpendId && dailySpends[0]?.id) {
-      setEditDailySpendId(dailySpends[0].id);
-    }
-  }, [editDailySpendId, dailySpends]);
-
-  useEffect(() => {
-    if (!editBrokerCommissionId && brokerCommissions[0]?.id) {
-      setEditBrokerCommissionId(brokerCommissions[0].id);
-    }
-  }, [editBrokerCommissionId, brokerCommissions]);
-
-  useEffect(() => {
-    if (!editDebtRecoveryId && debtRecoveries[0]?.id) {
-      setEditDebtRecoveryId(debtRecoveries[0].id);
-    }
-  }, [editDebtRecoveryId, debtRecoveries]);
-
-  useEffect(() => {
-    if (!editPaymentVoucherId && paymentVouchers[0]?.id) {
-      setEditPaymentVoucherId(paymentVouchers[0].id);
-    }
-  }, [editPaymentVoucherId, paymentVouchers]);
-
-  const selectPayment = (paymentId: string) => {
-    setEditPaymentId(paymentId);
-    setFinanceEditorOpen("payment");
-  };
-
-  const selectSettlement = (settlementId: string) => {
-    setEditSettlementId(settlementId);
-    setFinanceEditorOpen("settlement");
-  };
-
-  const selectDailySpend = (spendId: string) => {
-    setEditDailySpendId(spendId);
-    setFinanceEditorOpen("dailySpend");
-  };
-
-  const selectBrokerCommission = (commissionId: string) => {
-    setEditBrokerCommissionId(commissionId);
-    setFinanceEditorOpen("brokerCommission");
-  };
-
-  const selectDebtRecovery = (debtId: string) => {
-    setEditDebtRecoveryId(debtId);
-    setFinanceEditorOpen("debtRecovery");
-  };
-
-  const selectPaymentVoucher = (voucherId: string) => {
-    setEditPaymentVoucherId(voucherId);
-    setFinanceEditorOpen("paymentVoucher");
-  };
-
-  const columns: ColumnsType<PaymentRecord> = [
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Nett Price / 净价", dataIndex: "nettPrice", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Reconciled" ? "green" : "orange"}>{status}</Tag> },
-    { title: "Receipt", dataIndex: "receiptNumber", render: (value) => value || "-" },
-    { title: "Invoice", dataIndex: "invoiceNumber", render: (value) => value || "-" },
-    { title: "Boss Check", dataIndex: "bossChecked", render: (value) => <Tag color={value ? "green" : "orange"}>{value ? "Checked" : "Pending"}</Tag> },
-    { title: "Finance Checklist", render: (_, row) => <Space wrap>{paymentChecklistTags(row)}</Space> },
-    { title: "NCD / 无索偿折扣", dataIndex: "ncdAmount", render: (value) => `RM ${Number(value ?? 0).toLocaleString()}` },
-    { title: "Windscreen / 挡风玻璃", dataIndex: "windscreenCharges", render: (value) => `RM ${Number(value ?? 0).toLocaleString()}` },
-    { title: "Outstation Delivery / 外地送车", dataIndex: "outstationDeliveryDate", render: (value) => value || "-" },
-    { title: "Bank", dataIndex: "bankName", render: (value) => value || "-" },
-    { title: "Follow Up", dataIndex: "bankFollowUpDate", render: (value) => value || "-" },
-    { title: "Created / 日期", dataIndex: "createdAt", render: (value) => String(value).slice(0, 10) },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 190,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Disbursed" })} disabled={row.status === "Disbursed" || row.status === "Reconciled"}>Disbursed</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, bossChecked: true })} disabled={row.bossChecked || row.status === "Reconciled"}>Boss Check</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, documentsPrepared: true, checklistValidated: true, invoiceGenerated: true, autoCountKeyed: true })} disabled={row.status === "Reconciled" || (row.documentsPrepared && row.checklistValidated && row.invoiceGenerated && row.autoCountKeyed)}>Checklist</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Disbursed" })} disabled={!canCorrectReconciledPayment(row)}>Undo</Button>
-          <Button size="small" title={paymentReconcileBlockReason(row, payments)} onClick={() => onUpdate({ ...row, status: "Reconciled" })} disabled={!canReconcilePayment(row, payments)}>Reconcile</Button>
-          <Button size="small" onClick={() => selectPayment(row.id)}>Edit</Button>
-        </Space>
-      )
-    }
-  ];
-  const settlementColumns: ColumnsType<SettlementReminder> = [
-    { title: "Owner / Previous Owner", dataIndex: "ownerId", render: (ownerId) => contactFor(owners, ownerId) },
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Deadline / 截止日期", dataIndex: "deadline" },
-    { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "red"}>{isPaid ? "Paid" : "Due"}</Tag> },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 270,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdateSettlement({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
-          <Button size="small" onClick={() => onUpdateSettlement({ ...row, isPaid: false })} disabled={!canReopenPaidSettlement(row)}>Reopen</Button>
-          <Button size="small" onClick={() => selectSettlement(row.id)}>Edit</Button>
-        </Space>
-      )
-    }
-  ];
-  const dailySpendColumns: ColumnsType<DailySpend> = [
-    { title: "Description / 项目", dataIndex: "description" },
-    { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Due / 到期", dataIndex: "dueDate" },
-    { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "red"}>{isPaid ? "Paid" : "Due"}</Tag> },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 190,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdateDailySpend({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
-          <Button size="small" onClick={() => onUpdateDailySpend({ ...row, isPaid: false })} disabled={!canReopenPaidDailySpend(row)}>Reopen</Button>
-          <Button size="small" onClick={() => selectDailySpend(row.id)}>Edit</Button>
-        </Space>
-      )
-    }
-  ];
-  const brokerCommissionColumns: ColumnsType<BrokerCommission> = [
-    {
-      title: "CP58",
-      render: (_, row) => row.cp58Required
-        ? <Tag color={row.cp58Prepared ? "green" : "gold"}>{row.cp58Prepared ? "Prepared" : "Required"}</Tag>
-        : <Tag>Not Required</Tag>
-    },
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Broker / 经纪人", dataIndex: "brokerName" },
-    { title: "Commission / 佣金", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "orange"}>{isPaid ? "Paid" : "Unpaid"}</Tag> },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 270,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
-          <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, cp58Required: true, cp58Prepared: true })} disabled={!row.cp58Required || row.cp58Prepared}>CP58</Button>
-          <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, isPaid: false })} disabled={!row.isPaid}>Reopen</Button>
-          <Button size="small" onClick={() => selectBrokerCommission(row.id)}>Edit</Button>
-        </Space>
-      )
-    }
-  ];
-  const debtRecoveryColumns: ColumnsType<DebtRecoveryCase> = [
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Customer / 客户", dataIndex: "customerId", render: (customerId) => customerLabel(customers, customerId) },
-    { title: "Balance / 欠款", dataIndex: "balanceAmount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Follow Up / 跟进", dataIndex: "followUpDate" },
-    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Closed" ? "green" : status === "FollowedUp" ? "blue" : "orange"}>{status}</Tag> },
-    { title: "Notes / 备注", dataIndex: "notes", render: (value) => value || "-" },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 210,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "FollowedUp" })} disabled={row.status !== "Open"}>Followed</Button>
-          <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "Closed" })} disabled={row.status === "Closed"}>Close</Button>
-          <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "Open" })} disabled={row.status === "Open"}>Reopen</Button>
-          <Button size="small" onClick={() => selectDebtRecovery(row.id)}>Edit</Button>
-        </Space>
-      )
-    }
-  ];
-  const paymentVoucherColumns: ColumnsType<PaymentVoucher> = [
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Payee / 收款人", dataIndex: "payeeName" },
-    { title: "Purpose / 用途", dataIndex: "purpose" },
-    { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Issued / 日期", dataIndex: "issuedDate" },
-    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Paid" ? "green" : status === "Approved" ? "blue" : "orange"}>{status}</Tag> },
-    { title: "Notes / 备注", dataIndex: "notes", render: (value) => value || "-" },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 180,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Approved" })} disabled={row.status !== "Pending"}>Approve</Button>
-          <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Paid" })} disabled={row.status === "Paid"}>Paid</Button>
-          <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Pending" })} disabled={row.status === "Pending"}>Reopen</Button>
-          <Button size="small" onClick={() => selectPaymentVoucher(row.id)}>Edit</Button>
-        </Space>
-      )
-    }
-  ];
-  const outstanding = payments.filter((payment) => payment.status !== "Reconciled").reduce((sum, payment) => sum + payment.nettPrice, 0);
-  const settlementOutstanding = settlements.filter((settlement) => !settlement.isPaid).reduce((sum, settlement) => sum + settlement.amount, 0);
-  const dailySpendOutstanding = dailySpends.filter((spend) => !spend.isPaid).reduce((sum, spend) => sum + spend.amount, 0);
-  const brokerCommissionOutstanding = brokerCommissions.filter((commission) => !commission.isPaid).reduce((sum, commission) => sum + commission.amount, 0);
-  const debtOutstanding = debtRecoveries.filter((debt) => debt.status !== "Closed").reduce((sum, debt) => sum + debt.balanceAmount, 0);
-  const voucherOutstanding = paymentVouchers.filter((voucher) => voucher.status !== "Paid").reduce((sum, voucher) => sum + voucher.amount, 0);
-
-  return (
-    <Space direction="vertical" size={16} className="fullWidth">
-      <ProCard title="Bank Collection / 收款Bank">
-        <Table rowKey="id" columns={columns} dataSource={payments} pagination={false} scroll={{ x: 1040 }} />
-      </ProCard>
-      <ProCard title="Payment Entry / 收款记录">
-        <Form layout="vertical" className="formGrid" onFinish={(values) => {
-          const payment: PaymentRecord = {
-            id: newId(),
-            vehicleId: values.vehicleId,
-            nettPrice: Number(values.nettPrice ?? 0),
-            status: values.status,
-            receiptNumber: values.receiptNumber,
-            invoiceNumber: values.invoiceNumber,
-            bossChecked: values.bossChecked,
-            documentsPrepared: values.documentsPrepared,
-            checklistValidated: values.checklistValidated,
-            invoiceGenerated: values.invoiceGenerated,
-            autoCountKeyed: values.autoCountKeyed,
-            salesPrice: Number(values.salesPrice ?? 0),
-            interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
-            ncdAmount: Number(values.ncdAmount ?? 0),
-            windscreenCharges: Number(values.windscreenCharges ?? 0),
-            outstationDeliveryDate: values.outstationDeliveryDate,
-            bankName: values.bankName,
-            bankFollowUpDate: values.bankFollowUpDate,
-            createdAt: new Date().toISOString()
-          };
-          const blockReason = paymentCreateBlockReason(payment, payments);
-          if (blockReason) {
-            message.warning(blockReason);
-            return;
-          }
-          onCreate(payment);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Pending", bossChecked: false, documentsPrepared: false, checklistValidated: false, invoiceGenerated: false, autoCountKeyed: false }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
-          <Form.Item name="bossChecked" label="Boss Check"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Checked" }]} /></Form.Item>
-          <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="invoiceGenerated" label="Invoice Generated"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="autoCountKeyed" label="AutoCount Key In"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="ncdAmount" label="NCD / 无索偿折扣"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
-          <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Payment</Button></Form.Item>
-        </Form>
-      </ProCard>
-      <Drawer
-        title="Edit Payment / 修改收款记录"
-        width={560}
-        open={financeEditorOpen === "payment"}
-        onClose={() => setFinanceEditorOpen(null)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-        <Form
-          key={selectedEditPayment?.id ?? "payment-edit"}
-          layout="vertical"
-          className="drawerForm"
-          initialValues={selectedEditPayment}
-          onFinish={(values) => {
-            if (!selectedEditPayment) return;
-            const payment: PaymentRecord = {
-              ...selectedEditPayment,
-              vehicleId: values.vehicleId,
-              nettPrice: Number(values.nettPrice ?? 0),
-              status: values.status,
-              receiptNumber: values.receiptNumber?.trim() || undefined,
-              invoiceNumber: values.invoiceNumber?.trim() || undefined,
-              bossChecked: values.bossChecked,
-              documentsPrepared: values.documentsPrepared,
-              checklistValidated: values.checklistValidated,
-              invoiceGenerated: values.invoiceGenerated,
-              autoCountKeyed: values.autoCountKeyed,
-              salesPrice: Number(values.salesPrice ?? 0),
-              interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
-              ncdAmount: Number(values.ncdAmount ?? 0),
-              windscreenCharges: Number(values.windscreenCharges ?? 0),
-              outstationDeliveryDate: values.outstationDeliveryDate?.trim() || undefined,
-              bankName: values.bankName?.trim() || undefined,
-              bankFollowUpDate: values.bankFollowUpDate?.trim() || undefined
-            };
-            const blockReason = paymentCreateBlockReason(payment, payments);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-            onUpdate(payment);
-            setFinanceEditorOpen(null);
-          }}
-        >
-          <Form.Item name="id" label="Edit Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
-          <Form.Item name="bossChecked" label="Boss Check"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Checked" }]} /></Form.Item>
-          <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="invoiceGenerated" label="Invoice Generated"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="autoCountKeyed" label="AutoCount Key In"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="ncdAmount" label="NCD / 无索偿折扣"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
-          <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPayment}>Update Payment</Button></Form.Item>
-        </Form>
-      </Drawer>
-      <ProCard title="Finance Documents / 财务文件">
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Form layout="vertical" className="formGrid">
-            <Form.Item label="Payment Record / 收款记录">
-              <Select
-                value={selectedPayment?.id}
-                onChange={setUploadPaymentId}
-                options={payments.map((payment) => ({
-                  value: payment.id,
-                  label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.invoiceNumber || "No invoice"}`
-                }))}
-              />
-            </Form.Item>
-            <Form.Item label="Document Type / 文件类型">
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                options={financeDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
-              />
-            </Form.Item>
-            <Form.Item label="Receipt / Invoice Upload / 收据与发票上传">
-              <Upload
-                maxCount={1}
-                customRequest={(option) => {
-                  if (!selectedPayment) {
-                    option.onError?.(new Error("Select a payment first."));
-                    return;
-                  }
-                  void onUploadDocument(selectedPayment.vehicleId, option.file as File, documentCategory)
-                    .then(() => option.onSuccess?.({}))
-                    .catch((error) => option.onError?.(error));
-                }}
-              >
-                <Button icon={<UploadOutlined />} disabled={!selectedPayment}>Upload Finance Document / 上传财务文件</Button>
-              </Upload>
-            </Form.Item>
-          </Form>
-          <Alert
-            type="info"
-            showIcon
-            message="Upload payment receipts and invoices against the linked car plate for finance audit and reconciliation. / 上传收据和发票并关联车牌，方便财务审核与对账。"
-          />
-        </Space>
-      </ProCard>
-      <ProCard id="settlement-list-card" title="Settlement Reminder / 收车结算提醒">
-        <Space direction="vertical" size={16} className="fullWidth">
-          <Descriptions bordered column={1}>
-            <Descriptions.Item label="Deadline Popup">Boss/Admin receives reminder when settlement deadline is due.</Descriptions.Item>
-            <Descriptions.Item label="AutoCount">Extension point prepared; MVP tracks key-in status manually.</Descriptions.Item>
-            <Descriptions.Item label="Outstanding Bank Collection">RM {outstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Outstanding Settlement">RM {settlementOutstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Daily Spend Due">RM {dailySpendOutstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Broker Commission Due">RM {brokerCommissionOutstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Debt Recovery Balance">RM {debtOutstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Payment Voucher Open">RM {voucherOutstanding.toLocaleString()}</Descriptions.Item>
-          </Descriptions>
-          <Table rowKey="id" columns={settlementColumns} dataSource={settlements} pagination={false} scroll={{ x: 640 }} />
-          <Form layout="vertical" className="formGrid" onFinish={(values) => {
-            const settlement: SettlementReminder = {
-              id: newId(),
-              vehicleId: values.vehicleId,
-              ownerId: values.ownerId,
-              amount: Number(values.amount ?? 0),
-              deadline: values.deadline,
-              isPaid: values.isPaid
-            };
-            const blockReason = settlementCreateBlockReason(settlement, owners);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-            onCreateSettlement(settlement);
-          }} initialValues={{ vehicleId: vehicles[0]?.id, deadline: today(), isPaid: false }}>
-            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="ownerId" label="Settlement Owner / Previous Owner"><Select allowClear showSearch optionFilterProp="label" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} /></Form.Item>
-            <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="deadline" label="Deadline" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Settlement</Button></Form.Item>
-          </Form>
-        </Space>
-      </ProCard>
-      <Drawer
-        title="Edit Settlement / 修改结算提醒"
-        width={560}
-        open={financeEditorOpen === "settlement"}
-        onClose={() => setFinanceEditorOpen(null)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-          <Form
-            key={selectedEditSettlement?.id ?? "settlement-edit"}
-            layout="vertical"
-            className="drawerForm"
-            initialValues={selectedEditSettlement}
-            onFinish={(values) => {
-              if (!selectedEditSettlement) return;
-              const settlement: SettlementReminder = {
-                ...selectedEditSettlement,
-                vehicleId: values.vehicleId,
-                ownerId: values.ownerId,
-                amount: Number(values.amount ?? 0),
-                deadline: values.deadline,
-                isPaid: values.isPaid
-              };
-              const blockReason = settlementCreateBlockReason(settlement, owners);
-              if (blockReason) {
-                message.warning(blockReason);
-                return;
-              }
-              onUpdateSettlement(settlement);
-              setFinanceEditorOpen(null);
-            }}
-          >
-            <Form.Item name="id" label="Edit Settlement"><Select options={settlements.map((settlement) => ({ value: settlement.id, label: `${plateFor(vehicles, settlement.vehicleId)} / RM ${settlement.amount.toLocaleString()} / ${settlement.deadline}` }))} onChange={selectSettlement} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="ownerId" label="Settlement Owner / Previous Owner"><Select allowClear showSearch optionFilterProp="label" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} /></Form.Item>
-            <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="deadline" label="Deadline" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditSettlement}>Update Settlement</Button></Form.Item>
-          </Form>
-      </Drawer>
-      <ProCard id="broker-commission-list-card" title="Broker Commission / 经纪人佣金">
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Table rowKey="id" columns={brokerCommissionColumns} dataSource={brokerCommissions} pagination={false} scroll={{ x: 760 }} />
-          <Form layout="vertical" className="formGrid" onFinish={(values) => {
-            const commission: BrokerCommission = {
-              id: newId(),
-              vehicleId: values.vehicleId,
-              brokerName: values.brokerName,
-              amount: Number(values.amount ?? 0),
-              isPaid: values.isPaid,
-              cp58Required: values.cp58Required,
-              cp58Prepared: values.cp58Prepared
-            };
-            const blockReason = brokerCommissionCreateBlockReason(commission, vehicles);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-            onCreateBrokerCommission(commission);
-          }} initialValues={{ vehicleId: vehicles[0]?.id, isPaid: false, cp58Required: false, cp58Prepared: false }}>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
-            <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item name="cp58Required" label="CP58 Required"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
-            <Form.Item name="cp58Prepared" label="CP58 Prepared"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Commission</Button></Form.Item>
-          </Form>
-        </Space>
-      </ProCard>
-      <Drawer
-        title="Edit Broker Commission / 修改经纪人佣金"
-        width={560}
-        open={financeEditorOpen === "brokerCommission"}
-        onClose={() => setFinanceEditorOpen(null)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-          <Form
-            key={selectedEditBrokerCommission?.id ?? "broker-commission-edit"}
-            layout="vertical"
-            className="drawerForm"
-            initialValues={selectedEditBrokerCommission}
-            onFinish={(values) => {
-              if (!selectedEditBrokerCommission) return;
-              const commission: BrokerCommission = {
-                ...selectedEditBrokerCommission,
-                vehicleId: values.vehicleId,
-                brokerName: values.brokerName,
-                amount: Number(values.amount ?? 0),
-                isPaid: values.isPaid,
-                cp58Required: values.cp58Required,
-                cp58Prepared: values.cp58Prepared
-              };
-              const blockReason = brokerCommissionCreateBlockReason(commission, vehicles);
-              if (blockReason) {
-                message.warning(blockReason);
-                return;
-              }
-              onUpdateBrokerCommission(commission);
-              setFinanceEditorOpen(null);
-            }}
-          >
-            <Form.Item name="id" label="Edit Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / RM ${commission.amount.toLocaleString()}` }))} onChange={selectBrokerCommission} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
-            <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item name="cp58Required" label="CP58 Required"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
-            <Form.Item name="cp58Prepared" label="CP58 Prepared"><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditBrokerCommission}>Update Commission</Button></Form.Item>
-          </Form>
-      </Drawer>
-      <ProCard id="debt-recovery-list-card" title="Debt Recovery / 欠款追讨">
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Table rowKey="id" columns={debtRecoveryColumns} dataSource={debtRecoveries} pagination={false} scroll={{ x: 960 }} />
-          <Form layout="vertical" className="formGrid" onFinish={(values) => {
-            const debt: DebtRecoveryCase = {
-              id: newId(),
-              vehicleId: values.vehicleId,
-              customerId: values.customerId,
-              balanceAmount: Number(values.balanceAmount ?? 0),
-              status: values.status,
-              followUpDate: values.followUpDate,
-              notes: values.notes
-            };
-            const blockReason = debtRecoveryCreateBlockReason(debt, vehicles, customers);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-            onCreateDebtRecovery(debt);
-          }} initialValues={{ vehicleId: vehicles[0]?.id, customerId: customers[0]?.id, status: "Open", followUpDate: today() }}>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item>
-            <Form.Item name="balanceAmount" label="Balance / 欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="followUpDate" label="Follow-up Date / 跟进日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="status" label="Status / 状态"><Select options={["Open", "FollowedUp", "Closed"].map((value) => ({ value }))} /></Form.Item>
-            <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Debt Case</Button></Form.Item>
-          </Form>
-        </Space>
-      </ProCard>
-      <Drawer
-        title="Edit Debt Case / 修改欠款追讨"
-        width={560}
-        open={financeEditorOpen === "debtRecovery"}
-        onClose={() => setFinanceEditorOpen(null)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-          <Form
-            key={selectedEditDebtRecovery?.id ?? "debt-recovery-edit"}
-            layout="vertical"
-            className="drawerForm"
-            initialValues={selectedEditDebtRecovery}
-            onFinish={(values) => {
-              if (!selectedEditDebtRecovery) return;
-              const debt: DebtRecoveryCase = {
-                ...selectedEditDebtRecovery,
-                vehicleId: values.vehicleId,
-                customerId: values.customerId,
-                balanceAmount: Number(values.balanceAmount ?? 0),
-                status: values.status,
-                followUpDate: values.followUpDate,
-                notes: values.notes?.trim() || undefined
-              };
-              const blockReason = debtRecoveryCreateBlockReason(debt, vehicles, customers);
-              if (blockReason) {
-                message.warning(blockReason);
-                return;
-              }
-              onUpdateDebtRecovery(debt);
-              setFinanceEditorOpen(null);
-            }}
-          >
-            <Form.Item name="id" label="Edit Debt Case"><Select options={debtRecoveries.map((debt) => ({ value: debt.id, label: `${plateFor(vehicles, debt.vehicleId)} / ${customerLabel(customers, debt.customerId)} / RM ${debt.balanceAmount.toLocaleString()}` }))} onChange={selectDebtRecovery} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item>
-            <Form.Item name="balanceAmount" label="Balance / 欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="followUpDate" label="Follow-up Date / 跟进日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="status" label="Status / 状态"><Select options={["Open", "FollowedUp", "Closed"].map((value) => ({ value }))} /></Form.Item>
-            <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDebtRecovery}>Update Debt Case</Button></Form.Item>
-          </Form>
-      </Drawer>
-      <ProCard id="payment-voucher-list-card" title="Payment Voucher / 付款凭证">
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Table rowKey="id" columns={paymentVoucherColumns} dataSource={paymentVouchers} pagination={false} scroll={{ x: 960 }} />
-          <Form layout="vertical" className="formGrid" onFinish={(values) => {
-            const voucher: PaymentVoucher = {
-              id: newId(),
-              vehicleId: values.vehicleId,
-              payeeName: values.payeeName,
-              amount: Number(values.amount ?? 0),
-              purpose: values.purpose,
-              status: values.status,
-              issuedDate: values.issuedDate,
-              notes: values.notes
-            };
-            const blockReason = paymentVoucherCreateBlockReason(voucher, vehicles);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-            onCreatePaymentVoucher(voucher);
-          }} initialValues={{ vehicleId: vehicles[0]?.id, purpose: "Outstation Pickup Allowance", status: "Pending", issuedDate: today() }}>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="payeeName" label="Payee / 收款人" rules={[{ required: true }]}><Input placeholder="Driver / staff name" /></Form.Item>
-            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="purpose" label="Purpose / 用途" rules={[{ required: true }]}><Input placeholder="Outstation Pickup Allowance" /></Form.Item>
-            <Form.Item name="issuedDate" label="Issued Date / 日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="status" label="Status / 状态"><Select options={["Pending", "Approved", "Paid"].map((value) => ({ value }))} /></Form.Item>
-            <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Voucher</Button></Form.Item>
-          </Form>
-        </Space>
-      </ProCard>
-      <Drawer
-        title="Edit Payment Voucher / 修改付款凭证"
-        width={560}
-        open={financeEditorOpen === "paymentVoucher"}
-        onClose={() => setFinanceEditorOpen(null)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-          <Form
-            key={selectedEditPaymentVoucher?.id ?? "payment-voucher-edit"}
-            layout="vertical"
-            className="drawerForm"
-            initialValues={selectedEditPaymentVoucher}
-            onFinish={(values) => {
-              if (!selectedEditPaymentVoucher) return;
-              const voucher: PaymentVoucher = {
-                ...selectedEditPaymentVoucher,
-                vehicleId: values.vehicleId,
-                payeeName: values.payeeName,
-                amount: Number(values.amount ?? 0),
-                purpose: values.purpose,
-                status: values.status,
-                issuedDate: values.issuedDate,
-                notes: values.notes?.trim() || undefined
-              };
-              const blockReason = paymentVoucherCreateBlockReason(voucher, vehicles);
-              if (blockReason) {
-                message.warning(blockReason);
-                return;
-              }
-              onUpdatePaymentVoucher(voucher);
-              setFinanceEditorOpen(null);
-            }}
-          >
-            <Form.Item name="id" label="Edit Voucher"><Select options={paymentVouchers.map((voucher) => ({ value: voucher.id, label: `${plateFor(vehicles, voucher.vehicleId)} / ${voucher.payeeName} / RM ${voucher.amount.toLocaleString()}` }))} onChange={selectPaymentVoucher} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="payeeName" label="Payee / 收款人" rules={[{ required: true }]}><Input placeholder="Driver / staff name" /></Form.Item>
-            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="purpose" label="Purpose / 用途" rules={[{ required: true }]}><Input placeholder="Outstation Pickup Allowance" /></Form.Item>
-            <Form.Item name="issuedDate" label="Issued Date / 日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="status" label="Status / 状态"><Select options={["Pending", "Approved", "Paid"].map((value) => ({ value }))} /></Form.Item>
-            <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPaymentVoucher}>Update Voucher</Button></Form.Item>
-          </Form>
-      </Drawer>
-      <ProCard id="daily-spend-list-card" title="Daily Spend / 日常支出">
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Table rowKey="id" columns={dailySpendColumns} dataSource={dailySpends} pagination={false} scroll={{ x: 640 }} />
-          <Form layout="vertical" className="formGrid" onFinish={(values) => {
-            const spend: DailySpend = {
-              id: newId(),
-              description: values.description,
-              amount: Number(values.amount ?? 0),
-              dueDate: values.dueDate,
-              isPaid: values.isPaid
-            };
-            const blockReason = dailySpendCreateBlockReason(spend);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-            onCreateDailySpend(spend);
-          }} initialValues={{ description: "Electric Bill", dueDate: monthlyElectricBillDueDate(), isPaid: false }}>
-            <Form.Item name="description" label="Description / 项目" rules={[{ required: true }]}><Input placeholder="Electric Bill" /></Form.Item>
-            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Daily Spend</Button></Form.Item>
-          </Form>
-        </Space>
-      </ProCard>
-      <Drawer
-        title="Edit Daily Spend / 修改日常支出"
-        width={560}
-        open={financeEditorOpen === "dailySpend"}
-        onClose={() => setFinanceEditorOpen(null)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-          <Form
-            key={selectedEditDailySpend?.id ?? "daily-spend-edit"}
-            layout="vertical"
-            className="drawerForm"
-            initialValues={selectedEditDailySpend}
-            onFinish={(values) => {
-              if (!selectedEditDailySpend) return;
-              const spend: DailySpend = {
-                ...selectedEditDailySpend,
-                description: values.description,
-                amount: Number(values.amount ?? 0),
-                dueDate: values.dueDate,
-                isPaid: values.isPaid
-              };
-              const blockReason = dailySpendCreateBlockReason(spend);
-              if (blockReason) {
-                message.warning(blockReason);
-                return;
-              }
-              onUpdateDailySpend(spend);
-              setFinanceEditorOpen(null);
-            }}
-          >
-            <Form.Item name="id" label="Edit Daily Spend"><Select options={dailySpends.map((spend) => ({ value: spend.id, label: `${spend.description} / RM ${spend.amount.toLocaleString()} / ${spend.dueDate}` }))} onChange={selectDailySpend} /></Form.Item>
-            <Form.Item name="description" label="Description / 项目" rules={[{ required: true }]}><Input placeholder="Electric Bill" /></Form.Item>
-            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDailySpend}>Update Daily Spend</Button></Form.Item>
-          </Form>
-      </Drawer>
-    </Space>
-  );
-}
-
-function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: { vehicles: VehicleLookup[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => void }) {
-  const [editLeadId, setEditLeadId] = useState(leads[0]?.id ?? "");
-  const [leadEditorOpen, setLeadEditorOpen] = useState(false);
+function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate }: { currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => void }) {
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
-  const selectedEditLead = leads.find((lead) => lead.id === editLeadId) ?? leads[0];
+  const [leadSortMode, setLeadSortMode] = useState<"CloseAsap" | "Received">("CloseAsap");
   const filteredLeads = filterLeadsForTriage(leads, { status: leadStatusFilter, link: leadLinkFilter });
+  const displayedLeads = leadSortMode === "CloseAsap"
+    ? sortLeadsByHotCarDemand(filteredLeads, vehicles)
+    : [...filteredLeads].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const groupedLeadRows = groupLeadsByVehicle(displayedLeads, vehicles);
+  const activeCounts = activeLeadCountByVehicle(leads);
+  const openLeadCount = leads.filter((lead) => lead.status !== "Closed").length;
+  const multiLeadVehicleCount = Object.values(activeCounts).filter((count) => count > 1).length;
+  const hotVehicleCount = vehicles.filter((vehicle) => vehicle.status === "Available" && vehicle.isPublic && (activeCounts[vehicle.id] ?? 0) > 1).length;
+  const customerRecordForLead = (lead: Lead) => lead.customerId ? customers.find((customer) => customer.id === lead.customerId) : undefined;
+  const currentUserId = currentUser?.id ?? "";
+  const isTakenByCurrentUser = (lead: Lead) => Boolean(lead.takenByUserId && lead.takenByUserId === currentUserId);
+  const isTakenByOtherUser = (lead: Lead) => Boolean(lead.takenByUserId && lead.takenByUserId !== currentUserId);
+  const leadOwnerLabel = (lead: Lead) => {
+    if (lead.takenByName) return `Taken by ${lead.takenByName}`;
+    if (lead.status === "Closed") return undefined;
+    return "Not taken";
+  };
+  const canReleaseLead = (lead: Lead) => lead.status === "Contacted" && isTakenByCurrentUser(lead);
+  const releaseLead = (lead: Lead) => onUpdate({
+    ...lead,
+    status: "New",
+    takenByUserId: undefined,
+    takenByName: undefined,
+    takenAt: undefined
+  });
+  const renderLeadReleaseButton = (lead: Lead) => canReleaseLead(lead) ? (
+    <Button size="small" className="leadReleaseButton" onClick={() => releaseLead(lead)}>
+      Release Lead
+    </Button>
+  ) : null;
 
-  useEffect(() => {
-    if (!editLeadId && leads[0]?.id) {
-      setEditLeadId(leads[0].id);
-    }
-  }, [editLeadId, leads]);
+  const renderLeadWorkflowButton = (lead: Lead) => {
+    const takenByOther = isTakenByOtherUser(lead);
+    const disabled = lead.status === "Closed" || takenByOther || !currentUserId;
+    const label = !currentUserId
+      ? "Sign in"
+      : takenByOther
+        ? `Taken by ${lead.takenByName || "staff"}`
+        : lead.status === "New"
+          ? "Take Lead"
+          : lead.status === "Contacted"
+            ? "Close Case"
+            : "Closed";
 
-  const openLeadEditor = (leadId: string) => {
-    setEditLeadId(leadId);
-    setLeadEditorOpen(true);
+    return (
+      <Button
+        size="small"
+        type={lead.status === "Closed" || takenByOther ? "default" : "primary"}
+        disabled={disabled}
+        onClick={() => {
+          if (lead.status === "New") {
+            if (lead.customerId) {
+              onUpdate({ ...lead, status: "Contacted" });
+            } else {
+              void onCreateCustomer(lead);
+            }
+            return;
+          }
+
+          if (lead.status === "Contacted") {
+            onUpdate({ ...lead, status: "Closed" });
+          }
+        }}
+      >
+        {label}
+      </Button>
+    );
+  };
+  const renderLeadActions = (lead: Lead) => (
+    <Space className="tableActionGroup leadActionGroup" wrap size={6}>
+      {renderLeadWorkflowButton(lead)}
+      {renderLeadReleaseButton(lead)}
+    </Space>
+  );
+  const renderLeadCustomer = (lead: Lead) => {
+    const customer = customerRecordForLead(lead);
+    return (
+      <Space direction="vertical" size={0}>
+        <Typography.Text strong>{customer?.name ?? lead.customerName}</Typography.Text>
+        <Typography.Text type="secondary">{customer?.phone ?? lead.phone}</Typography.Text>
+      </Space>
+    );
   };
 
-  const columns: ColumnsType<Lead> = [
-    { title: "Customer Record", render: (_, row) => <Tag color={leadCustomerLinkTagColor(row)}>{leadCustomerLinkLabel(row)}</Tag> },
-    { title: "Received / 日期", dataIndex: "createdAt", render: (value) => String(value).slice(0, 10) },
-    { title: "Customer / 客户", dataIndex: "customerName" },
-    { title: "Phone / 电话", dataIndex: "phone" },
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Message / 询问", dataIndex: "message", render: (value) => value || "-" },
-    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "New" ? "orange" : status === "Contacted" ? "blue" : "green"}>{status}</Tag> },
+  const leadDetailColumns: ColumnsType<Lead> = [
     {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 190,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => onCreateCustomer(row)} disabled={row.status === "Closed" || Boolean(row.customerId)}>Customer</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Contacted" })} disabled={row.status !== "New"}>Contacted</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Closed" })} disabled={row.status === "Closed"}>Close</Button>
-          <Button size="small" type="primary" onClick={() => openLeadEditor(row.id)}>Edit</Button>
+      title: "Customer Record",
+      width: 220,
+      render: (_, row) => renderLeadCustomer(row)
+    },
+    { title: "Received / 日期", dataIndex: "createdAt", render: (value) => String(value).slice(0, 10) },
+    { title: "Message / 询问", dataIndex: "message", render: (value) => value || "-" },
+    {
+      title: "Status / 状态",
+      dataIndex: "status",
+      render: (status, row) => (
+        <Space direction="vertical" size={2}>
+          <Tag color={status === "New" ? "orange" : status === "Contacted" ? "blue" : "green"}>{status}</Tag>
+          {leadOwnerLabel(row) ? (
+            <Typography.Text type="secondary" className="leadTakenByText">
+              {leadOwnerLabel(row)}
+            </Typography.Text>
+          ) : null}
         </Space>
       )
+    },
+    {
+      title: "Next Action / 操作",
+      fixed: "right",
+      width: 230,
+      render: (_, row) => renderLeadActions(row)
+    }
+  ];
+  const groupColumns: ColumnsType<LeadVehicleGroup> = [
+    {
+      title: "Vehicle / 车辆",
+      width: 300,
+      render: (_, row) => (
+        <Space direction="vertical" size={0} className="leadVehicleCell">
+          <Typography.Text strong>{leadVehicleLabel(row.latestLead, vehicles)}</Typography.Text>
+          <Typography.Text type="secondary">{row.activeCount} active lead{row.activeCount === 1 ? "" : "s"} / {row.leads.length} total</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Customer Leads",
+      render: (_, row) => (
+        <Space direction="vertical" size={2} className="leadGroupCustomers">
+          {row.leads.slice(0, 3).map((lead) => (
+            <Typography.Text key={lead.id}>{lead.customerName} / {lead.phone}</Typography.Text>
+          ))}
+          {row.leads.length > 3 ? <Typography.Text type="secondary">+{row.leads.length - 3} more</Typography.Text> : null}
+        </Space>
+      )
+    },
+    {
+      title: "Lead Status",
+      width: 220,
+      render: (_, row) => {
+        const newCount = row.leads.filter((lead) => lead.status === "New").length;
+        const contactedCount = row.leads.filter((lead) => lead.status === "Contacted").length;
+        const closedCount = row.leads.filter((lead) => lead.status === "Closed").length;
+        return (
+          <Space wrap size={4}>
+            <Tag color="orange">{newCount} New</Tag>
+            <Tag color="blue">{contactedCount} Contacted</Tag>
+            <Tag color="green">{closedCount} Closed</Tag>
+          </Space>
+        );
+      }
+    },
+    {
+      title: "Latest / 日期",
+      width: 120,
+      render: (_, row) => String(row.latestLead.createdAt).slice(0, 10)
     }
   ];
 
   return (
     <Space direction="vertical" size={16} className="fullWidth leadsPage">
       <ProCard title={bilingual.leads}>
+        <div className="leadCloseAsapBand">
+          <div>
+            <Typography.Text className="moduleEyebrow">Close ASAP</Typography.Text>
+            <Typography.Title level={3}>Hot cars with active customer demand</Typography.Title>
+            <Typography.Text type="secondary">Open leads on available public vehicles move to the top, with multi-lead cars highlighted for fast follow-up.</Typography.Text>
+          </div>
+          <div className="vehicleMiniStats">
+            <span><strong>{hotVehicleCount}</strong>Hot cars</span>
+            <span><strong>{openLeadCount}</strong>Open leads</span>
+            <span><strong>{multiLeadVehicleCount}</strong>Multi-lead cars</span>
+          </div>
+        </div>
         <Space className="toolbarForm" wrap>
           <Select
             value={leadStatusFilter}
@@ -3326,95 +3064,90 @@ function LeadsPage({ vehicles, customers, leads, onCreateCustomer, onUpdate }: {
             onChange={setLeadLinkFilter}
             style={{ width: 180 }}
           />
-          <Tag color="blue">{filteredLeads.length} shown</Tag>
+          <Select
+            value={leadSortMode}
+            options={[
+              { value: "CloseAsap", label: "Close ASAP first" },
+              { value: "Received", label: "Newest first" }
+            ]}
+            onChange={setLeadSortMode}
+            style={{ width: 180 }}
+          />
+          <Tag color="blue">{groupedLeadRows.length} cars / {displayedLeads.length} leads</Tag>
         </Space>
-        <Table rowKey="id" size="small" columns={columns} dataSource={filteredLeads} pagination={{ pageSize: 8 }} scroll={{ x: 1180 }} />
-      </ProCard>
-      <ProCard title="Sales Follow Up / 销售跟进">
-        <Descriptions bordered column={1}>
-          <Descriptions.Item label="Source">Public website enquiry form</Descriptions.Item>
-          <Descriptions.Item label="Next Action">Sales contacts the customer, then creates customer, loan, delivery, and payment records after confirmation.</Descriptions.Item>
-          <Descriptions.Item label="Open Leads">{filteredLeads.filter((lead) => lead.status !== "Closed").length}</Descriptions.Item>
-        </Descriptions>
-      </ProCard>
-      <Drawer
-        title="Edit Lead / 修改询问"
-        open={leadEditorOpen}
-        onClose={() => setLeadEditorOpen(false)}
-        width={560}
-        className="leadEditDrawer"
-        destroyOnClose
-      >
-        <Form
-          key={selectedEditLead?.id ?? "lead-edit"}
-          layout="vertical"
-          className="drawerForm"
-          initialValues={selectedEditLead}
-          onFinish={(values) => {
-            if (!selectedEditLead) return;
-            const lead: Lead = {
-              ...selectedEditLead,
-              vehicleId: values.vehicleId,
-              customerId: values.customerId,
-              customerName: values.customerName,
-              phone: values.phone,
-              message: values.message?.trim() || undefined,
-              status: values.status
-            };
-            if (!lead.customerName.trim()) {
-              message.warning("Lead customer name is required.");
-              return;
-            }
-            if (!lead.phone.trim()) {
-              message.warning("Lead phone is required.");
-              return;
-            }
-            onUpdate(lead);
-            setLeadEditorOpen(false);
-          }}
-        >
-          <Form.Item name="id" label="Edit Lead"><Select options={leads.map((lead) => ({ value: lead.id, label: `${lead.customerName} / ${lead.phone} / ${lead.status}` }))} onChange={setEditLeadId} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="customerId" label="Linked Customer"><Select allowClear showSearch optionFilterProp="label" options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item>
-          <Form.Item name="customerName" label="Customer Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="phone" label="Phone" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="message" label="Message"><Input.TextArea rows={4} /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["New", "Contacted", "Closed"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditLead}>Update Lead</Button></Form.Item>
-        </Form>
-      </Drawer>
-    </Space>
-  );
-}
-
-function HrSalaryPage() {
-  const plannedItems = [
-    { title: "Working Day / 工作日计算", description: "Future payroll calendars can reuse delivery/outstation working-day rules without affecting current vehicle workflows." },
-    { title: "Leave Request / 请假申请", description: "Planned request and Boss approval notification flow for AL and emergency leave." },
-    { title: "MC Upload / 病假单上传", description: "Planned document upload category for medical certificates and HR review." },
-    { title: "Attendance / 打卡", description: "Planned attendance capture and exception review for staff records." },
-    { title: "AL/MC Control / 年假病假控制", description: "Planned balance tracking and Boss/Admin adjustment controls." },
-    { title: "Pay Slip / 薪资单", description: "Planned payslip generation after salary rules are approved." }
-  ];
-
-  return (
-    <Space direction="vertical" size={16} className="fullWidth">
-      <Alert
-        type="info"
-        showIcon
-        message="HR/Salary is a planned extension module."
-        description="The MVP keeps HR access visible and role-scoped, while salary calculation, leave approvals, MC uploads, attendance, AL/MC control, and pay slip generation remain future extension points."
-      />
-      <ProCard title="HR/Salary Scope / 人事薪资范围">
-        <div className="extensionGrid">
-          {plannedItems.map((item) => (
-            <ProCard key={item.title} bordered>
-              <Typography.Title level={5}>{item.title}</Typography.Title>
-              <Typography.Paragraph>{item.description}</Typography.Paragraph>
-              <Tag color="default">Planned extension</Tag>
-            </ProCard>
+        <div className="mobileRecordList">
+          {groupedLeadRows.map((group) => (
+            <article className="mobileRecordCard" key={group.vehicleId}>
+              <div className="mobileRecordHeader">
+                <div>
+                  <Typography.Text className="mobileRecordEyebrow">Vehicle / 车辆</Typography.Text>
+                  <Typography.Title level={5}>{leadVehicleLabel(group.latestLead, vehicles)}</Typography.Title>
+                </div>
+                <Space wrap size={4}>
+                  <Tag>{group.activeCount} active</Tag>
+                </Space>
+              </div>
+              <div className="mobileRecordMeta">
+                <span>
+                  <small>Total Leads</small>
+                  <strong>{group.leads.length}</strong>
+                </span>
+                <span>
+                  <small>Latest / 日期</small>
+                  <strong>{String(group.latestLead.createdAt).slice(0, 10)}</strong>
+                </span>
+              </div>
+              <div className="mobileRecordSection">
+                <Typography.Text className="mobileRecordLabel">Leads / 客户询问</Typography.Text>
+                <div className="leadMobileGroupList">
+                  {group.leads.map((lead) => (
+                    <div className="leadMobileGroupItem" key={lead.id}>
+                      <div>
+                        <strong>{lead.customerName}</strong>
+                        <span>{lead.phone}</span>
+                        <small>{lead.message || "No message"}</small>
+                        {leadOwnerLabel(lead) ? <small>{leadOwnerLabel(lead)}</small> : null}
+                      </div>
+                      <Space wrap size={4}>
+                        <Tag color={lead.status === "New" ? "orange" : lead.status === "Contacted" ? "blue" : "green"}>{lead.status}</Tag>
+                        {renderLeadActions(lead)}
+                      </Space>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mobileRecordFooter">
+                <Space wrap size={6}>
+                  <Tag color="orange">{group.leads.filter((lead) => lead.status === "New").length} New</Tag>
+                  <Tag color="blue">{group.leads.filter((lead) => lead.status === "Contacted").length} Contacted</Tag>
+                  <Tag color="green">{group.leads.filter((lead) => lead.status === "Closed").length} Closed</Tag>
+                </Space>
+              </div>
+            </article>
           ))}
         </div>
+        <Table
+          className="desktopDataTable"
+          rowKey="vehicleId"
+          size="small"
+          columns={groupColumns}
+          dataSource={groupedLeadRows}
+          pagination={tablePagination(8)}
+          scroll={{ x: 930 }}
+          expandable={{
+            defaultExpandAllRows: groupedLeadRows.length <= 3,
+            expandedRowRender: (group) => (
+              <Table
+                rowKey="id"
+                size="small"
+                columns={leadDetailColumns}
+                dataSource={group.leads}
+                pagination={false}
+                scroll={{ x: 900 }}
+              />
+            )
+          }}
+        />
       </ProCard>
     </Space>
   );
@@ -3449,7 +3182,28 @@ function AuditLogPage({ auditLog, onSearch }: { auditLog: AuditLog[]; onSearch: 
             <Button htmlType="button" onClick={() => onSearch({})}>Reset</Button>
           </Form.Item>
         </Form>
-        <Table rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={{ pageSize: 12 }} scroll={{ x: 900 }} />
+        <div className="mobileRecordList">
+          {auditLog.slice(0, 12).map((entry) => (
+            <article className="mobileRecordCard" key={entry.id}>
+              <div className="mobileRecordHeader">
+                <div>
+                  <Typography.Text className="mobileRecordEyebrow">Action / 动作</Typography.Text>
+                  <Typography.Title level={5}>{entry.action}</Typography.Title>
+                </div>
+                <Tag>{entry.entityName}</Tag>
+              </div>
+              <div className="mobileRecordMeta">
+                <span><small>Actor / 操作人</small><strong>{entry.actor}</strong></span>
+                <span><small>Time / 时间</small><strong>{String(entry.createdAt).replace("T", " ").slice(0, 16)}</strong></span>
+              </div>
+              <div className="mobileRecordSection">
+                <Typography.Text className="mobileRecordLabel">Entity Id</Typography.Text>
+                <div className="mobileRecordTextBlock"><span>{entry.entityId}</span></div>
+              </div>
+            </article>
+          ))}
+        </div>
+        <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={tablePagination(12)} scroll={{ x: 900 }} />
       </ProCard>
       <Alert
         type="info"
@@ -3462,7 +3216,6 @@ function AuditLogPage({ auditLog, onSearch }: { auditLog: AuditLog[]; onSearch: 
 }
 
 function AdminPage({
-  currentUser,
   auditLog,
   staffUsers,
   onCreateStaffUser,
@@ -3471,7 +3224,6 @@ function AdminPage({
   onUpdateStaffStatus,
   onUpdateStaffRoles
 }: {
-  currentUser: CurrentUser | null;
   auditLog: AuditLog[];
   staffUsers: StaffUser[];
   onCreateStaffUser: (user: CreateStaffUserRequest) => Promise<void>;
@@ -3483,6 +3235,7 @@ function AdminPage({
   const [editStaffUserId, setEditStaffUserId] = useState(staffUsers[0]?.id ?? "");
   const [staffEditorOpen, setStaffEditorOpen] = useState(false);
   const [passwordResetOpen, setPasswordResetOpen] = useState(false);
+  const [staffCreateOpen, setStaffCreateOpen] = useState(false);
   const selectedEditStaffUser = staffUsers.find((user) => user.id === editStaffUserId) ?? staffUsers[0];
 
   useEffect(() => {
@@ -3533,8 +3286,8 @@ function AdminPage({
       fixed: "right",
       width: 220,
       render: (_, row) => (
-        <Space>
-          <Button size="small" onClick={() => selectStaffUser(row.id)}>Edit</Button>
+        <Space className="tableActionGroup" wrap size={6}>
+          <Button size="small" type="primary" onClick={() => selectStaffUser(row.id)}>Details</Button>
           <Button size="small" onClick={() => openPasswordReset(row.id)}>Reset</Button>
           <Button size="small" danger={row.isActive} onClick={() => onUpdateStaffStatus(row.id, { isActive: !row.isActive })}>
             {row.isActive ? "Disable" : "Enable"}
@@ -3545,17 +3298,51 @@ function AdminPage({
   ];
 
   return (
-    <ProCard title={bilingual.admin}>
+    <ProCard title={bilingual.settings}>
       <Tabs
         items={[
+          { key: "flow", label: "System Flow / 系统流程", children: <SystemFlowReference /> },
           {
             key: "users",
-            label: "Staff Users",
+            label: "Staff Users / 员工账号",
             children: (
               <Space id="staff-users-panel" direction="vertical" size={16} className="fullWidth staffUsersPanel">
-                <Table rowKey="id" size="small" columns={staffColumns} dataSource={staffUsers} pagination={{ pageSize: 6 }} scroll={{ x: 1200 }} />
+                <div className="tableToolbar">
+                  <Typography.Text type="secondary">Create users from this list, then adjust RBAC roles directly in the table.</Typography.Text>
+                  <Button type="primary" onClick={() => setStaffCreateOpen(true)}>New Staff</Button>
+                </div>
+                <div className="mobileRecordList">
+                  {staffUsers.map((user) => (
+                    <article className="mobileRecordCard" key={user.id}>
+                      <div className="mobileRecordHeader">
+                        <div>
+                          <Typography.Text className="mobileRecordEyebrow">Staff / 员工</Typography.Text>
+                          <Typography.Title level={5}>{user.displayName}</Typography.Title>
+                        </div>
+                        <Tag color={user.isActive ? "green" : "red"}>{user.isActive ? "Active" : "Disabled"}</Tag>
+                      </div>
+                      <div className="mobileRecordMeta">
+                        <span><small>Email</small><strong>{user.email}</strong></span>
+                      </div>
+                      <div className="mobileRecordSection">
+                        <Typography.Text className="mobileRecordLabel">Roles / 角色</Typography.Text>
+                        <Space wrap size={4}>{user.roles.map((role) => <Tag key={role}>{roleLabel(role)}</Tag>)}</Space>
+                      </div>
+                      <div className="mobileRecordFooter">
+                        <Space className="tableActionGroup" wrap size={6}>
+                          <Button size="small" type="primary" onClick={() => selectStaffUser(user.id)}>Details</Button>
+                          <Button size="small" onClick={() => openPasswordReset(user.id)}>Reset</Button>
+                          <Button size="small" danger={user.isActive} onClick={() => onUpdateStaffStatus(user.id, { isActive: !user.isActive })}>
+                            {user.isActive ? "Disable" : "Enable"}
+                          </Button>
+                        </Space>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <Table className="desktopDataTable" rowKey="id" size="small" columns={staffColumns} dataSource={staffUsers} pagination={tablePagination(6)} scroll={{ x: 1200 }} />
                 <Drawer
-                  title="Edit Staff / 修改员工"
+                  title="Staff Details / 员工详情"
                   width={520}
                   open={staffEditorOpen}
                   onClose={() => setStaffEditorOpen(false)}
@@ -3586,7 +3373,7 @@ function AdminPage({
                       setStaffEditorOpen(false);
                     }}
                   >
-                    <Form.Item name="id" label="Edit Staff / 修改员工">
+                    <Form.Item name="id" label="Selected Staff / 已选员工">
                       <Select
                         options={staffUsers.map((user) => ({ value: user.id, label: `${user.displayName} / ${user.email}` }))}
                         onChange={selectStaffUser}
@@ -3649,84 +3436,18 @@ function AdminPage({
                     </Form.Item>
                   </Form>
                 </Drawer>
-                {false && <Form
-                  key={selectedEditStaffUser?.id ?? "staff-edit"}
-                  layout="vertical"
-                  className="formGrid"
-                  initialValues={selectedEditStaffUser ? { id: selectedEditStaffUser.id, displayName: selectedEditStaffUser.displayName } : {}}
-                  onFinish={(values) => {
-                    if (!selectedEditStaffUser) {
-                      message.warning("Select a staff user before updating.");
-                      return;
-                    }
-
-                    const staffUser: UpdateStaffUserRequest = {
-                      displayName: values.displayName
-                    };
-                    const blockReason = staffUpdateBlockReason(staffUser);
-                    if (blockReason) {
-                      message.warning(blockReason);
-                      return;
-                    }
-
-                    onUpdateStaffUser(selectedEditStaffUser.id, staffUser);
-                  }}
+                <Modal
+                  title="Create Staff / 新增员工"
+                  width={680}
+                  open={staffCreateOpen}
+                  onCancel={() => setStaffCreateOpen(false)}
+                  footer={null}
+                  destroyOnClose
+                  className="recordCreateModal"
                 >
-                  <Form.Item name="id" label="Edit Staff / 修改员工">
-                    <Select
-                      options={staffUsers.map((user) => ({ value: user.id, label: `${user.displayName} / ${user.email}` }))}
-                      onChange={selectStaffUser}
-                    />
-                  </Form.Item>
-                  <Form.Item name="displayName" label="Display Name / 姓名" rules={[{ required: true }]}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item label="Email">
-                    <Input value={selectedEditStaffUser?.email} disabled />
-                  </Form.Item>
-                  <Form.Item className="formActions">
-                    <Button type="primary" htmlType="submit" disabled={!selectedEditStaffUser}>Update Staff</Button>
-                  </Form.Item>
-                </Form>}
-                {false && <Form
-                  key={`${selectedEditStaffUser?.id ?? "staff"}-password`}
+                  <Form
                   layout="vertical"
-                  className="formGrid"
-                  initialValues={selectedEditStaffUser ? { id: selectedEditStaffUser.id } : {}}
-                  onFinish={(values) => {
-                    if (!selectedEditStaffUser) {
-                      message.warning("Select a staff user before resetting password.");
-                      return;
-                    }
-
-                    const requestBody: ResetStaffPasswordRequest = {
-                      password: values.password
-                    };
-                    const blockReason = staffPasswordResetBlockReason(requestBody);
-                    if (blockReason) {
-                      message.warning(blockReason);
-                      return;
-                    }
-
-                    onResetStaffPassword(selectedEditStaffUser.id, requestBody);
-                  }}
-                >
-                  <Form.Item name="id" label="Reset Password / 重设密码">
-                    <Select
-                      options={staffUsers.map((user) => ({ value: user.id, label: `${user.displayName} / ${user.email}` }))}
-                      onChange={selectStaffUser}
-                    />
-                  </Form.Item>
-                  <Form.Item name="password" label="New Password" rules={[{ required: true, min: 8 }]}>
-                    <Input.Password />
-                  </Form.Item>
-                  <Form.Item className="formActions">
-                    <Button htmlType="submit" disabled={!selectedEditStaffUser}>Reset Password</Button>
-                  </Form.Item>
-                </Form>}
-                <Form
-                  layout="vertical"
-                  className="formGrid"
+                  className="modalForm formGrid"
                   initialValues={{ role: "Sales" }}
                   onFinish={(values) => {
                     const staffUser: CreateStaffUserRequest = {
@@ -3742,6 +3463,7 @@ function AdminPage({
                     }
 
                     onCreateStaffUser(staffUser);
+                    setStaffCreateOpen(false);
                   }}
                 >
                   <Form.Item name="displayName" label="Display Name / 姓名" rules={[{ required: true }]}><Input /></Form.Item>
@@ -3749,16 +3471,184 @@ function AdminPage({
                   <Form.Item name="password" label="Initial Password" rules={[{ required: true, min: 8 }]}><Input.Password /></Form.Item>
                   <Form.Item name="role" label="Department Role"><Select options={staffRoles.map((role) => ({ value: role, label: roleLabel(role) }))} /></Form.Item>
                   <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Staff</Button></Form.Item>
-                </Form>
+                  </Form>
+                </Modal>
               </Space>
             )
           },
-          { key: "roles", label: "RBAC Listing", children: <RbacListing /> },
-          { key: "session", label: "Current Session", children: <Typography.Paragraph>{currentUser?.isAuthenticated ? `${currentUser.name} (${currentUser.roles.join(", ")})` : "Not logged in"}</Typography.Paragraph> },
-          { key: "audit", label: "Audit Log", children: <Table rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={{ pageSize: 8 }} scroll={{ x: 900 }} /> }
+          { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
+          { key: "audit", label: "Audit Log / 操作记录", children: <Table rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={tablePagination(8)} scroll={{ x: 900 }} /> }
         ]}
       />
     </ProCard>
+  );
+}
+
+function SystemFlowReference() {
+  const flowSteps = [
+    {
+      title: "1. Lead / Enquiry",
+      owner: "Sales",
+      records: ["Lead", "Customer"],
+      detail: "Public enquiry or walk-in customer is captured, qualified, and linked to a customer record."
+    },
+    {
+      title: "2. Vehicle Intake",
+      owner: "Sales + Admin",
+      records: ["Vehicle", "Purchase Invoice", "Owner"],
+      detail: "Stock is created with plate, owner, purchase cost, selling price, management approval, and website visibility."
+    },
+    {
+      title: "3. Refurbishment",
+      owner: "Repair",
+      records: ["Repair Job", "Supplier Invoice"],
+      detail: "Repair checklist, parts, supplier invoice checks, and refurbishment cost are linked to the car plate."
+    },
+    {
+      title: "4. Loan Workflow",
+      owner: "Loan",
+      records: ["Loan Application", "Loan Documents"],
+      detail: "Loan documents, LOU approve/done status, and follow-up reminders move the vehicle out of ready stock."
+    },
+    {
+      title: "5. Delivery Prep",
+      owner: "Delivery",
+      records: ["Delivery Schedule", "Policy", "Road Tax"],
+      detail: "Inspection, documents, polish, tinted, wash, insurance, road tax, and 2-day release notification are tracked."
+    },
+    {
+      title: "6. Finance Close",
+      owner: "Finance",
+      records: ["Payment", "Settlement", "Voucher"],
+      detail: "Receipts, invoices, bank follow-up, settlement reminders, profit estimate, and payment status are reconciled."
+    }
+  ];
+
+  const ownershipRows = [
+    {
+      role: "BossAdmin" as StaffRole,
+      owns: "Approve pricing, manage staff/RBAC, inspect audit trail, review dashboard exceptions.",
+      handoff: "Confirms vehicle economics before website/loan/sold workflow progresses."
+    },
+    {
+      role: "Sales" as StaffRole,
+      owns: "Leads, customer follow-up, vehicle intake, website stock visibility.",
+      handoff: "Hands confirmed buyer to Loan and closes sales notes before Delivery/Finance."
+    },
+    {
+      role: "Repair" as StaffRole,
+      owns: "Refurbishment jobs, parts checklist, supplier invoice validation.",
+      handoff: "Updates repair total so Finance can estimate real profit."
+    },
+    {
+      role: "Loan" as StaffRole,
+      owns: "Loan submission, document checklist, LOU approve/done, 3-day follow-up.",
+      handoff: "Moves approved buyer to Delivery preparation."
+    },
+    {
+      role: "Delivery" as StaffRole,
+      owns: "Inspection booking, release schedule, document prep, road tax, policy, final cleaning checklist.",
+      handoff: "Sends 2-day notice and marks release readiness before Finance final close."
+    },
+    {
+      role: "Finance" as StaffRole,
+      owns: "Payment receipts/invoices, bank follow-up, settlement deadline/amount, vouchers.",
+      handoff: "Reconciles money movement and flags overdue settlement."
+    },
+    {
+      role: "HrSalary" as StaffRole,
+      owns: "Salary/commission reference, leave/MC controls, CP58 preparation as a planned extension.",
+      handoff: "Uses approved commission/payment records for year-end staff tax reporting."
+    }
+  ];
+
+  return (
+    <Space direction="vertical" size={16} className="fullWidth systemFlowReference">
+      <div className="settingsOverview">
+        <div>
+          <span className="moduleEyebrow">Operating Model</span>
+          <Typography.Title level={3}>System Flow Reference / 系统流程参考</Typography.Title>
+          <Typography.Text>Use this page as the standard department handoff map before configuring users and roles.</Typography.Text>
+        </div>
+        <div className="rbacSummary">
+          <span><strong>{flowSteps.length}</strong> workflow steps</span>
+          <span><strong>{ownershipRows.length}</strong> owner roles</span>
+          <span><strong>RBAC</strong> enforced</span>
+        </div>
+      </div>
+
+      <div className="systemFlowMap" aria-label="YS Heng department workflow">
+        {flowSteps.map((step) => (
+          <div className="systemFlowNode" key={step.title}>
+            <Tag color="green">{step.owner}</Tag>
+            <Typography.Title level={5}>{step.title}</Typography.Title>
+            <Typography.Text>{step.detail}</Typography.Text>
+            <div className="systemFlowRecords">
+              {step.records.map((record) => <Tag key={record}>{record}</Tag>)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <ProCard title="Approval and Handoff Standard / 审批交接标准" className="systemHandoffCard">
+        <Steps
+          direction="vertical"
+          size="small"
+          items={[
+            { title: "Vehicle record created", description: "Sales creates the stock record and uploads purchase/VOC/AP documents where available." },
+            { title: "Management approves economics", description: "Admin confirms stock owner, purchase cost, selling price, and publish readiness." },
+            { title: "Department modules update same vehicle", description: "Repair, Loan, Delivery, and Finance update their own records against the same car plate." },
+            { title: "Finance closes and Audit Log records", description: "Payment, settlement, and status changes are visible in dashboard/audit trail for management review." }
+          ]}
+        />
+      </ProCard>
+
+      <div className="mobileRecordList">
+        {ownershipRows.map((row) => (
+          <article className="mobileRecordCard" key={row.role}>
+            <div className="mobileRecordHeader">
+              <div>
+                <Typography.Text className="mobileRecordEyebrow">Department Role</Typography.Text>
+                <Typography.Title level={5}>{roleLabel(row.role)}</Typography.Title>
+              </div>
+              <Tag color={row.role === "BossAdmin" ? "green" : "blue"}>{roleLabel(row.role)}</Tag>
+            </div>
+            <div className="mobileRecordSection">
+              <Typography.Text className="mobileRecordLabel">Owns / 负责</Typography.Text>
+              <div className="mobileRecordTextBlock"><span>{row.owns}</span></div>
+            </div>
+            <div className="mobileRecordSection">
+              <Typography.Text className="mobileRecordLabel">Handoff / 交接</Typography.Text>
+              <div className="mobileRecordTextBlock"><span>{row.handoff}</span></div>
+            </div>
+          </article>
+        ))}
+      </div>
+      <Table
+        rowKey="role"
+        size="small"
+        className="systemOwnershipTable desktopDataTable"
+        columns={[
+          {
+            title: "Department Role",
+            dataIndex: "role",
+            width: 160,
+            render: (role: StaffRole) => <Tag color={role === "BossAdmin" ? "green" : "blue"}>{roleLabel(role)}</Tag>
+          },
+          { title: "Owns / 负责", dataIndex: "owns" },
+          { title: "Handoff / 交接", dataIndex: "handoff" }
+        ]}
+        dataSource={ownershipRows}
+        pagination={tablePagination(8)}
+        scroll={{ x: 900 }}
+      />
+      <Alert
+        type="info"
+        showIcon
+        message="CP58 ownership"
+        description="CP58 should be prepared by HR Payroll or Finance from approved commission/payment records, checked by Admin, and approved through management review. It remains a planned extension, not an MVP blocker."
+      />
+    </Space>
   );
 }
 
@@ -3827,12 +3717,41 @@ function RbacListing() {
           <span><strong>{rows.filter((row) => row.canManageStaff).length}</strong> admin role</span>
         </div>
       </div>
-      <Table className="rbacTable" rowKey="role" columns={columns} dataSource={rows} pagination={false} scroll={{ x: 980 }} />
+      <div className="mobileRecordList">
+        {rows.map((row) => (
+          <article className="mobileRecordCard" key={row.role}>
+            <div className="mobileRecordHeader">
+              <div>
+                <Typography.Text className="mobileRecordEyebrow">Role / 角色</Typography.Text>
+                <Typography.Title level={5}>{roleLabel(row.role)}</Typography.Title>
+              </div>
+              <Tag color={row.role === "BossAdmin" ? "green" : "blue"}>{roleLabel(row.role)}</Tag>
+            </div>
+            <div className="mobileRecordSection">
+              <Typography.Text className="mobileRecordLabel">Portal Modules / 可进入模块</Typography.Text>
+              <Space wrap size={4}>{row.modules.map((module) => <Tag key={module}>{module}</Tag>)}</Space>
+            </div>
+            <div className="mobileRecordSection">
+              <Typography.Text className="mobileRecordLabel">Data Scope / 资料范围</Typography.Text>
+              <Space wrap size={4}>
+                {row.dataKeys.length
+                  ? row.dataKeys.map((key) => <Tag key={key} color="cyan">{dataKeyLabel(key)}</Tag>)
+                  : <Tag>No MVP data module assigned</Tag>}
+              </Space>
+            </div>
+            <div className="mobileRecordFooter">
+              <Badge status={row.canManageStaff ? "success" : "default"} text={row.canManageStaff ? "Manage staff users" : "No staff management"} />
+              <Badge status={row.canViewAudit ? "success" : "default"} text={row.canViewAudit ? "View audit log" : "No audit access"} />
+            </div>
+          </article>
+        ))}
+      </div>
+      <Table className="rbacTable desktopDataTable" rowKey="role" columns={columns} dataSource={rows} pagination={tablePagination(8)} scroll={{ x: 980 }} />
       <Alert
         type="info"
         showIcon
         message="RBAC is enforced twice: the portal hides unavailable modules, and the API rejects unauthorized module requests."
-        description="Boss/Admin can assign roles. Department users only load the datasets listed here, so restricted pages do not fetch unrelated records."
+        description="Admin can assign roles. Department users only load the datasets listed here, so restricted pages do not fetch unrelated records."
       />
     </Space>
   );
@@ -3849,7 +3768,7 @@ function auditLogColumns(): ColumnsType<AuditLog> {
 }
 
 function routeLabel(path: AppRoutePath) {
-  return allRoutes.find((route) => route.path === path)?.name ?? path;
+  return routeDisplayName(path, ["BossAdmin"]);
 }
 
 function dataKeyLabel(key: BackOfficeDataKey) {
@@ -3873,13 +3792,26 @@ function dataKeyLabel(key: BackOfficeDataKey) {
     paymentVouchers: "Payment vouchers",
     leads: "Public leads",
     auditLog: "Audit log",
-    staffUsers: "Staff users"
+    staffUsers: "Staff users",
+    hrStaffUsers: "HR staff users",
+    hrAttendance: "HR attendance",
+    hrLeaveRequests: "HR leave requests",
+    hrLeaveBalances: "HR leave balances",
+    hrLeavePolicies: "HR leave policies",
+    hrLeaveAdjustments: "HR leave adjustments",
+    hrPayrollProfiles: "HR payroll profiles",
+    hrPayPeriods: "HR pay periods",
+    hrPayslips: "HR payslips"
   };
   return labels[key];
 }
 
 function roleLabel(role: StaffRole) {
-  return role === "BossAdmin" ? "Boss/Admin" : role === "HrSalary" ? "HR/Salary" : role;
+  return displayRoleLabel(role);
+}
+
+function displayRoleLabel(role: string) {
+  return role === "BossAdmin" ? "Admin" : role === "HrSalary" ? "HR Payroll" : role;
 }
 
 function documentCategoryLabel(category: DocumentCategory) {
@@ -3894,13 +3826,41 @@ function documentCategoryLabel(category: DocumentCategory) {
     RoadTaxReceipt: "Road Tax Receipt",
     RepairInvoice: "Repair Invoice",
     PaymentReceipt: "Payment Receipt",
-    PaymentInvoice: "Payment Invoice"
+    PaymentInvoice: "Payment Invoice",
+    MedicalCertificate: "Medical Certificate"
   };
   return labels[category];
 }
 
+function shortformLabel(label: string, title: string) {
+  return (
+    <Tooltip title={title}>
+      <span>{label}</span>
+    </Tooltip>
+  );
+}
+
 function plateFor(vehicles: VehicleLookup[], vehicleId: string) {
   return vehicles.find((vehicle) => vehicle.id === vehicleId)?.plateNumber ?? "Unknown";
+}
+
+function normalizePlate(value?: string) {
+  return value?.replace(/[^a-z0-9]/gi, "").toUpperCase() ?? "";
+}
+
+function supplierInvoicePlateStatus(invoice: SupplierInvoice, vehicles: VehicleLookup[]) {
+  const invoicePlate = normalizePlate(invoice.plateNumberOnInvoice);
+  const vehiclePlate = normalizePlate(plateFor(vehicles, invoice.vehicleId));
+
+  if (!invoicePlate) {
+    return { color: "default", label: "No invoice plate" };
+  }
+
+  if (invoicePlate === vehiclePlate) {
+    return { color: "green", label: "Plate matched" };
+  }
+
+  return { color: "red", label: "Plate mismatch" };
 }
 
 function customerLabel(customers: Customer[], customerId: string) {
@@ -3909,17 +3869,92 @@ function customerLabel(customers: Customer[], customerId: string) {
 
 function paymentChecklistTags(payment: PaymentRecord) {
   return [
-    ["Docs", payment.documentsPrepared],
+    ["Docs", payment.documentsPrepared, "Documents prepared"],
     ["Checklist", payment.checklistValidated],
     ["Invoice", payment.invoiceGenerated],
-    ["AutoCount", payment.autoCountKeyed]
-  ].map(([label, done]) => <Tag key={String(label)} color={done ? "green" : "orange"}>{String(label)}</Tag>);
+    ["AutoCount", payment.autoCountKeyed, "Accounting system entry status"]
+  ].map(([label, done, tooltip]) => {
+    const tag = <Tag key={String(label)} color={done ? "green" : "orange"}>{String(label)}</Tag>;
+    return tooltip ? <Tooltip key={String(label)} title={String(tooltip)}>{tag}</Tooltip> : tag;
+  });
 }
 
 function contactFor<T extends { id: string; name: string; phone: string }>(contacts: T[], contactId?: string) {
   if (!contactId) return "-";
   const contact = contacts.find((item) => item.id === contactId);
   return contact ? `${contact.name} / ${contact.phone}` : "Unknown";
+}
+
+function tableTextFilters(values: Array<string | undefined | null>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))))
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => ({ text: value, value }));
+}
+
+function ensureColumnFilters<RecordType extends object>(
+  columns: TableProps<RecordType>["columns"],
+  dataSource: TableProps<RecordType>["dataSource"]
+): TableProps<RecordType>["columns"] {
+  if (!columns || !Array.isArray(dataSource)) {
+    return columns;
+  }
+
+  return columns.map((column) => {
+    if ("children" in column && column.children) {
+      return {
+        ...column,
+        children: ensureColumnFilters(column.children, dataSource)
+      };
+    }
+
+    const filterableColumn = column as typeof column & {
+      dataIndex?: string | number | readonly (string | number)[];
+      filters?: unknown;
+      filterDropdown?: unknown;
+    };
+
+    if (!filterableColumn.dataIndex || filterableColumn.filters || filterableColumn.filterDropdown) {
+      return column;
+    }
+
+    const dataIndex = filterableColumn.dataIndex;
+    const filterValues = dataSource
+      .flatMap((row) => tableFilterValues(row, dataIndex))
+      .filter((value) => value.length > 0);
+    const uniqueValues = Array.from(new Set(filterValues)).sort((a, b) => a.localeCompare(b));
+
+    if (uniqueValues.length === 0) {
+      return column;
+    }
+
+    return {
+      ...column,
+      filters: uniqueValues.map((value) => ({ text: value, value })),
+      filterSearch: column.filterSearch ?? uniqueValues.length > 8,
+      onFilter: column.onFilter ?? ((value, row) => tableFilterValues(row, dataIndex).includes(String(value)))
+    };
+  });
+}
+
+function tableFilterValues<RecordType extends object>(row: RecordType, dataIndex: string | number | readonly (string | number)[]) {
+  const keys = Array.isArray(dataIndex) ? dataIndex : [dataIndex];
+  const value = keys.reduce<unknown>((current, key) => {
+    if (current && typeof current === "object") {
+      return (current as Record<string, unknown>)[String(key)];
+    }
+
+    return undefined;
+  }, row);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item));
+  }
+
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  return [String(value)];
 }
 
 function isDeliveryReady(delivery: DeliverySchedule) {
@@ -3936,28 +3971,32 @@ function isDeliveryReady(delivery: DeliverySchedule) {
     delivery.twoDayNoticeSent;
 }
 
-function deliveryChecklist(delivery: DeliverySchedule) {
+function deliveryReferenceChecklist(delivery: DeliverySchedule) {
   return [
-    { label: "Inspection / 正式检查", done: delivery.inspectionDone },
     { label: "Inspection Booking / 验车预约", done: Boolean(delivery.inspectionBookingReference?.trim()) },
     { label: "Inspection Report / 检查报告", done: Boolean(delivery.inspectionReportReference?.trim()) },
-    { label: "Prepare Document / 准备文件", done: delivery.documentsPrepared },
-    { label: "Polish / 抛光", done: delivery.polishDone },
-    { label: "Tinted / 隔热膜", done: delivery.tintedDone },
-    { label: "Wash / 洗车", done: delivery.washDone },
-    { label: "Insurance / 保险", done: delivery.insuranceHandled },
     { label: `Policy Ref / 保单: ${delivery.insurancePolicyReference?.trim() || "-"}`, done: Boolean(delivery.insurancePolicyReference?.trim()) },
-    { label: "Road Tax / 路税", done: delivery.roadTaxHandled },
     { label: `Road Tax Receipt / 路税收据: ${delivery.roadTaxReceiptReference?.trim() || "-"}`, done: Boolean(delivery.roadTaxReceiptReference?.trim()) },
-    { label: "Windscreen Insurance", done: delivery.windscreenInsuranceHandled },
-    { label: `Windscreen Ref: ${delivery.windscreenPolicyReference?.trim() || "-"}`, done: Boolean(delivery.windscreenPolicyReference?.trim()) },
-    { label: "Notification / Notify", done: delivery.notificationSent },
-    { label: "2-day Notice / 提前2天通知", done: delivery.twoDayNoticeSent }
+    { label: `Windscreen Ref: ${delivery.windscreenPolicyReference?.trim() || "-"}`, done: Boolean(delivery.windscreenPolicyReference?.trim()) }
   ];
 }
 
 function replaceById<T extends { id: string }>(items: T[], record: T) {
   return items.map((item) => item.id === record.id ? record : item);
+}
+
+function replaceByIdOrPrepend<T extends { id: string }>(items: T[], record: T) {
+  return items.some((item) => item.id === record.id) ? replaceById(items, record) : [record, ...items];
+}
+
+function mergeById<T extends { id: string }>(items: T[], records: T[]) {
+  const next = [...items];
+  for (const record of records) {
+    const index = next.findIndex((item) => item.id === record.id);
+    if (index >= 0) next[index] = record;
+    else next.unshift(record);
+  }
+  return next;
 }
 
 function newId() {

@@ -14,6 +14,9 @@ public static class SeedData
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
+        await EnsureLeadSchemaAsync(db);
+        await EnsureHrSchemaAsync(db);
+        await EnsureOcrSchemaAsync(db);
 
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         foreach (var role in Roles)
@@ -24,6 +27,20 @@ public static class SeedData
             }
         }
 
+        if (!await db.HrLeavePolicies.AnyAsync())
+        {
+            db.HrLeavePolicies.AddRange(
+                new HrLeavePolicy { Role = "BossAdmin", AnnualLeaveDays = 12, MedicalLeaveDays = 14, Notes = "Default full-time entitlement" },
+                new HrLeavePolicy { Role = "Sales", AnnualLeaveDays = 12, MedicalLeaveDays = 14, Notes = "Default full-time entitlement" },
+                new HrLeavePolicy { Role = "Loan", AnnualLeaveDays = 12, MedicalLeaveDays = 14, Notes = "Default full-time entitlement" },
+                new HrLeavePolicy { Role = "Delivery", AnnualLeaveDays = 12, MedicalLeaveDays = 14, Notes = "Default full-time entitlement" },
+                new HrLeavePolicy { Role = "Finance", AnnualLeaveDays = 12, MedicalLeaveDays = 14, Notes = "Default full-time entitlement" },
+                new HrLeavePolicy { Role = "Repair", AnnualLeaveDays = 12, MedicalLeaveDays = 14, Notes = "Default full-time entitlement" },
+                new HrLeavePolicy { Role = "HrSalary", AnnualLeaveDays = 12, MedicalLeaveDays = 14, Notes = "Default full-time entitlement" }
+            );
+            await db.SaveChangesAsync();
+        }
+
         var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
         var email = config["SeedAdmin:Email"] ?? "admin@ysheng.local";
@@ -31,9 +48,58 @@ public static class SeedData
         var admin = await userManager.FindByEmailAsync(email);
         if (admin is null)
         {
-            admin = new AppUser { UserName = email, Email = email, DisplayName = "Boss Admin" };
+            admin = new AppUser { UserName = email, Email = email, DisplayName = "Boss Admin", EmailConfirmed = true };
             await userManager.CreateAsync(admin, password);
             await userManager.AddToRoleAsync(admin, "BossAdmin");
+        }
+        else
+        {
+            if (!admin.EmailConfirmed)
+            {
+                admin.EmailConfirmed = true;
+                await userManager.UpdateAsync(admin);
+            }
+            if (!await userManager.CheckPasswordAsync(admin, password))
+            {
+                var resetToken = await userManager.GeneratePasswordResetTokenAsync(admin);
+                await userManager.ResetPasswordAsync(admin, resetToken, password);
+            }
+        }
+
+        var seedPassword = config["SeedAdmin:Password"] ?? "ChangeMe123!";
+        var seededStaffUsers = new[]
+        {
+            ("hr-boss@ysheng.local", "HR Manager", "HrSalary"),
+            ("hr-accountant@ysheng.local", "HR Payroll Clerk", "Finance"),
+            ("hr-sales@ysheng.local", "HR Sales Liaison", "Sales")
+        };
+
+        foreach (var (seedEmail, displayName, role) in seededStaffUsers)
+        {
+            var seedUser = await userManager.FindByEmailAsync(seedEmail);
+            if (seedUser is null)
+            {
+                seedUser = new AppUser { UserName = seedEmail, Email = seedEmail, DisplayName = displayName, EmailConfirmed = true };
+                await userManager.CreateAsync(seedUser, seedPassword);
+            }
+            if (!seedUser.EmailConfirmed)
+            {
+                var resetToken = await userManager.GeneratePasswordResetTokenAsync(seedUser);
+                seedUser.EmailConfirmed = true;
+                await userManager.UpdateAsync(seedUser);
+                await userManager.ResetPasswordAsync(seedUser, resetToken, seedPassword);
+            }
+            if (!await userManager.CheckPasswordAsync(seedUser, seedPassword))
+            {
+                var resetToken = await userManager.GeneratePasswordResetTokenAsync(seedUser);
+                await userManager.ResetPasswordAsync(seedUser, resetToken, seedPassword);
+            }
+
+            var currentRoles = await userManager.GetRolesAsync(seedUser);
+            if (!currentRoles.Contains(role))
+            {
+                await userManager.AddToRoleAsync(seedUser, role);
+            }
         }
 
         if (!await db.Vehicles.AnyAsync())
@@ -92,5 +158,151 @@ public static class SeedData
             db.AuditLogs.Add(AuditTrail.Record("seed", "vehicle.created", nameof(Vehicle), vehicleId, DateTime.UtcNow));
             await db.SaveChangesAsync();
         }
+    }
+
+    private static async Task EnsureLeadSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenByUserId" text NULL;
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenByName" text NULL;
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenAt" timestamp with time zone NULL;
+        """);
+    }
+
+    private static async Task EnsureHrSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "HrAttendanceRecords" (
+                "Id" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "AttendanceDate" date NOT NULL,
+                "CheckInAt" timestamp with time zone NULL,
+                "CheckOutAt" timestamp with time zone NULL,
+                "Status" integer NOT NULL,
+                "Notes" text NULL,
+                CONSTRAINT "PK_HrAttendanceRecords" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrLeaveRequests" (
+                "Id" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "Type" integer NOT NULL,
+                "Status" integer NOT NULL,
+                "StartDate" date NOT NULL,
+                "EndDate" date NOT NULL,
+                "Days" numeric NOT NULL,
+                "Reason" text NULL,
+                "MedicalCertificateDocumentId" uuid NULL,
+                "ApprovedBy" text NULL,
+                "ApprovedAt" timestamp with time zone NULL,
+                "DecisionNotes" text NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrLeaveRequests" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrLeaveBalances" (
+                "Id" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "AnnualLeaveDays" numeric NOT NULL,
+                "MedicalLeaveDays" numeric NOT NULL,
+                "Notes" text NULL,
+                CONSTRAINT "PK_HrLeaveBalances" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrLeavePolicies" (
+                "Id" uuid NOT NULL,
+                "Role" text NOT NULL,
+                "AnnualLeaveDays" numeric NOT NULL,
+                "MedicalLeaveDays" numeric NOT NULL,
+                "Notes" text NULL,
+                CONSTRAINT "PK_HrLeavePolicies" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrLeaveAdjustments" (
+                "Id" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "Type" integer NOT NULL,
+                "Direction" integer NOT NULL,
+                "Days" numeric NOT NULL,
+                "AnnualLeaveBefore" numeric NOT NULL,
+                "MedicalLeaveBefore" numeric NOT NULL,
+                "AnnualLeaveAfter" numeric NOT NULL,
+                "MedicalLeaveAfter" numeric NOT NULL,
+                "Reason" text NOT NULL,
+                "AdjustedBy" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrLeaveAdjustments" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrPayrollProfiles" (
+                "Id" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "MonthlyBaseSalary" numeric NOT NULL,
+                "OvertimeHours" numeric NOT NULL,
+                "OvertimeRate" numeric NOT NULL,
+                "Allowances" numeric NOT NULL,
+                "ManualDeductions" numeric NOT NULL,
+                "Notes" text NULL,
+                CONSTRAINT "PK_HrPayrollProfiles" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrPayPeriods" (
+                "Id" uuid NOT NULL,
+                "Name" text NOT NULL,
+                "StartDate" date NOT NULL,
+                "EndDate" date NOT NULL,
+                "WorkingDays" integer NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrPayPeriods" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrPayslips" (
+                "Id" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "PayPeriodId" uuid NOT NULL,
+                "Status" integer NOT NULL,
+                "BaseSalary" numeric NOT NULL,
+                "WorkingDays" integer NOT NULL,
+                "DailySalary" numeric NOT NULL,
+                "UnpaidLeaveDays" numeric NOT NULL,
+                "UnpaidLeaveDeduction" numeric NOT NULL,
+                "OvertimePay" numeric NOT NULL,
+                "Allowances" numeric NOT NULL,
+                "ManualDeductions" numeric NOT NULL,
+                "GrossPay" numeric NOT NULL,
+                "NetPay" numeric NOT NULL,
+                "GeneratedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrPayslips" PRIMARY KEY ("Id")
+            );
+
+            DROP INDEX IF EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate";
+            CREATE INDEX IF NOT EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate" ON "HrAttendanceRecords" ("StaffUserId", "AttendanceDate");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeaveBalances_StaffUserId" ON "HrLeaveBalances" ("StaffUserId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeavePolicies_Role" ON "HrLeavePolicies" ("Role");
+            CREATE INDEX IF NOT EXISTS "IX_HrLeaveAdjustments_StaffUserId_CreatedAt" ON "HrLeaveAdjustments" ("StaffUserId", "CreatedAt");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrPayrollProfiles_StaffUserId" ON "HrPayrollProfiles" ("StaffUserId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrPayPeriods_Name" ON "HrPayPeriods" ("Name");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrPayslips_StaffUserId_PayPeriodId" ON "HrPayslips" ("StaffUserId", "PayPeriodId");
+        """);
+    }
+
+    private static async Task EnsureOcrSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "OcrJobs" (
+                "Id" uuid NOT NULL,
+                "DocumentId" uuid NOT NULL,
+                "Category" integer NOT NULL,
+                "Status" integer NOT NULL,
+                "Progress" integer NOT NULL,
+                "ResultJson" text NOT NULL,
+                "Warnings" text[] NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "CompletedAt" timestamp with time zone NULL,
+                CONSTRAINT "PK_OcrJobs" PRIMARY KEY ("Id")
+            );
+
+            CREATE INDEX IF NOT EXISTS "IX_OcrJobs_DocumentId" ON "OcrJobs" ("DocumentId");
+        """);
     }
 }

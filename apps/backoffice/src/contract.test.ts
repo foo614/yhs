@@ -11,7 +11,11 @@ const apiTypeByDomainEnum = {
   DeliveryStatus: "DeliveryStatus",
   PaymentStatus: "PaymentStatus",
   PaymentVoucherStatus: "PaymentVoucherStatus",
-  DebtRecoveryStatus: "DebtRecoveryStatus"
+  DebtRecoveryStatus: "DebtRecoveryStatus",
+  HrAttendanceStatus: "HrAttendanceStatus",
+  HrLeaveType: "HrLeaveType",
+  HrLeaveStatus: "HrLeaveStatus",
+  HrPayslipStatus: "HrPayslipStatus"
 } as const;
 
 describe("backoffice API contract types", () => {
@@ -104,6 +108,10 @@ function extractBackendRoutes(program: string) {
 
   for (const match of program.matchAll(/admin\.Map(?:Get|Post|Put|Delete)\("(?<path>\/[^"]+)"/g)) {
     routes.add(normalizeRoute(`/api/admin${match.groups!.path}`));
+  }
+
+  for (const match of program.matchAll(/hr\.Map(?:Get|Post|Put|Delete)\("(?<path>\/[^"]+)"/g)) {
+    routes.add(normalizeRoute(`/api/hr${match.groups!.path}`));
   }
 
   return routes;

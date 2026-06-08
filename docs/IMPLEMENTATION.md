@@ -40,6 +40,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - The public front office now supports English and Chinese UI copy through a language switch on home, inventory, vehicle detail, contact, vehicle cards, footer, mobile navigation, and lead capture.
 - Repair, loan, delivery, and finance screens now expose operational tables/forms instead of static workflow cards; repair jobs now load from the API, track Repair Part/Spare Part separately from What To Do, and can be marked checklist-done from the Repair screen.
 - The back-office portal now shows a module command header with live workflow counters and current role tags above each operations module, improving scanability before staff enter dense tables and forms.
+- Back-office row actions are standardized into one right-side action column; separate left-side Open/Details columns are avoided so tables scan consistently.
 - Back-office create forms now submit vehicles, supplier invoices, repair jobs, loans, delivery schedules, and payment records to the .NET API when staff are logged in.
 - Back-office API failures now surface the first structured backend validation error message from `errors[]`, including upload failures, instead of a generic HTTP status message.
 - Finance payment records now track receipt number, invoice number, bank name, and bank follow-up date; reconciled payments require receipt and invoice references before saving.
@@ -82,7 +83,8 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Boss/Admin users can edit staff display names from the Admin screen while preserving email and department roles.
 - Boss/Admin users can reset staff passwords from the Admin screen without changing the staff member's email, display name, or department roles.
 - Boss/Admin users can disable or enable staff accounts from the Admin screen; disabled staff cannot sign in, while their audit history and role assignments are preserved.
-- HR/Salary is now a role-scoped back-office extension page, so HR staff can sign in and see planned Working Day, Leave Request, MC Upload, Attendance, AL/MC Control, and Pay Slip scope without granting vehicle, finance, or sales access.
+- HR/Salary now implements the next MVP slice: all authenticated staff can use self-service attendance, leave/MC requests, and own payslips, while HR/Admin can review attendance, approve leave, manage AL/MC balances, configure working-day pay periods, maintain payroll profiles, upload/review MC files, and generate payslips.
+- HR payslips calculate daily salary from monthly base salary divided by configured working days, deduct approved unpaid leave, add overtime and allowances, subtract manual deductions, and intentionally exclude statutory EPF/SOCSO/EIS/PCB calculations for this MVP.
 - Authenticated back-office reloads now request only the data sets needed by the staff member's department roles, reducing noisy forbidden calls and keeping role-limited sessions scoped to their modules.
 - Workflow departments now use a narrow back-office vehicle lookup endpoint for car plate selectors instead of loading full vehicle financial/intake records.
 - Full back-office vehicle records remain readable only by Boss/Admin and Sales; Loan, Delivery, Finance, and Repair use lookup DTOs.
@@ -198,7 +200,7 @@ The smoke test checks:
 - Dashboard vehicle aging bucket output is smoke-tested so the management summary includes both the headline over-60 count and the full aging breakdown.
 - Department role enforcement is smoke-tested with a Sales user that can access vehicles but is blocked from Finance APIs.
 - Finance role enforcement is smoke-tested with access to payments, customer lookup for balance/debt follow-up, and owner lookup for settlement follow-up.
-- HR/Salary role enforcement is smoke-tested with an HR user that can authenticate but remains blocked from vehicle, finance, and dashboard APIs while the salary module stays an extension surface.
+- HR/Salary role enforcement is smoke-tested with HR users blocked from vehicle, finance, and dashboard APIs while HR records remain scoped so ordinary staff see only their own attendance, leave, MC, and payslip data.
 - Staff user creation, password reset, active/disabled login control, and role-update validation are smoke-tested before role enforcement so bad admin input fails predictably.
 - Authenticated mutation audit logging is smoke-tested by creating a vehicle and verifying the audit log actor is the logged-in admin email.
 - Audit Log actor/action/entity filters are smoke-tested against the same authenticated vehicle mutation.

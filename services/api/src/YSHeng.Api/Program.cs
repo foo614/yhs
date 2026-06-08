@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Identity;
@@ -12,6 +14,7 @@ var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+builder.Services.AddScoped<IOcrExtractor, LocalMockOcrExtractor>();
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = UploadPolicy.MultipartBodyLimit;
@@ -29,6 +32,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Loans", policy => policy.RequireRole("BossAdmin", "Loan"));
     options.AddPolicy("Deliveries", policy => policy.RequireRole("BossAdmin", "Delivery"));
     options.AddPolicy("Finance", policy => policy.RequireRole("BossAdmin", "Finance"));
+    options.AddPolicy("HrSalary", policy => policy.RequireRole(DepartmentAccess.HrManagers));
     options.AddPolicy("Sales", policy => policy.RequireRole("BossAdmin", "Sales"));
     options.AddPolicy("CustomerRead", policy => policy.RequireRole(DepartmentAccess.CustomerReaders));
     options.AddPolicy("OwnerRead", policy => policy.RequireRole(DepartmentAccess.OwnerReaders));
@@ -75,12 +79,18 @@ app.MapPost("/api/auth/logout", async (SignInManager<AppUser> signInManager) =>
     await signInManager.SignOutAsync();
     return Results.Ok(new { message = "Logged out." });
 }).RequireAuthorization();
-app.MapGet("/api/auth/me", (HttpContext context) => Results.Ok(new
+app.MapGet("/api/auth/me", async (HttpContext context, UserManager<AppUser> userManager) =>
 {
-    isAuthenticated = context.User.Identity?.IsAuthenticated ?? false,
-    name = context.User.Identity?.Name,
-    roles = context.User.Claims.Where(claim => claim.Type.EndsWith("/role") || claim.Type == "role").Select(claim => claim.Value)
-})).RequireAuthorization();
+    var userId = StaffIdentity.CurrentUserId(context);
+    var appUser = string.IsNullOrWhiteSpace(userId) ? null : await userManager.FindByIdAsync(userId);
+    return Results.Ok(new
+    {
+        isAuthenticated = context.User.Identity?.IsAuthenticated ?? false,
+        id = userId,
+        name = string.IsNullOrWhiteSpace(appUser?.DisplayName) ? context.User.Identity?.Name : appUser.DisplayName,
+        roles = context.User.Claims.Where(claim => claim.Type.EndsWith("/role") || claim.Type == "role").Select(claim => claim.Value)
+    });
+}).RequireAuthorization();
 
 app.MapGet("/api/public/vehicles", async (AppDbContext db) =>
 {
@@ -101,6 +111,24 @@ app.MapGet("/api/public/vehicles/{id:guid}/photo", async (Guid id, AppDbContext 
 
     var photo = PublicVehiclePhotos.SelectPrimary(id, await db.VehiclePhotos.AsNoTracking().ToListAsync());
     return photo is null ? Results.NotFound() : Results.File(photo.Bytes, photo.MimeType);
+});
+
+app.MapGet("/api/public/vehicles/{id:guid}/photos", async (Guid id, AppDbContext db) =>
+{
+    var isPublicVehicle = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id && item.IsPublic && item.Status == VehicleStatus.Available);
+    if (!isPublicVehicle) return Results.NotFound();
+
+    var photos = PublicVehiclePhotos.SelectGallery(id, await db.VehiclePhotos.AsNoTracking().ToListAsync());
+    return Results.Ok(photos);
+});
+
+app.MapGet("/api/public/vehicles/{id:guid}/photos/{photoId:guid}", async (Guid id, Guid photoId, AppDbContext db) =>
+{
+    var isPublicVehicle = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id && item.IsPublic && item.Status == VehicleStatus.Available);
+    if (!isPublicVehicle) return Results.NotFound();
+
+    var photo = await db.VehiclePhotos.AsNoTracking().FirstOrDefaultAsync(item => item.Id == photoId && item.VehicleId == id);
+    return photo is null ? Results.NotFound() : Results.File(photo.Content, photo.MimeType);
 });
 
 app.MapPost("/api/public/leads", async (LeadRequest request, AppDbContext db) =>
@@ -225,7 +253,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     db.DocumentBlobs.Add(document);
     ApiAudit.Add(db, context.User, "vehicle.document.uploaded", nameof(DocumentBlob), document.Id);
     await db.SaveChangesAsync();
-    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.Category, document.Checksum, document.UploadedBy });
+    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.Checksum, document.UploadedBy, document.UploadedAt });
 }).DisableAntiforgery();
 
 backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext db) =>
@@ -239,6 +267,42 @@ backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", asy
 {
     var document = await db.DocumentBlobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == documentId && item.VehicleId == id);
     return document is null ? Results.NotFound() : Results.File(document.Content, document.MimeType, document.FileName);
+});
+
+backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid documentId, AppDbContext db, HttpContext context, IOcrExtractor extractor) =>
+{
+    var document = await db.DocumentBlobs.FirstOrDefaultAsync(item => item.Id == documentId);
+    if (document is null) return Results.NotFound();
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
+
+    var extraction = extractor.Analyze(document, await db.Vehicles.AsNoTracking().ToListAsync());
+    var job = new OcrJob
+    {
+        DocumentId = document.Id,
+        Category = document.Category,
+        Status = OcrJobStatus.NeedsReview,
+        Progress = 100,
+        ResultJson = JsonSerializer.Serialize(extraction),
+        Warnings = extraction.Warnings.ToArray(),
+        CompletedAt = DateTime.UtcNow
+    };
+    db.OcrJobs.Add(job);
+    ApiAudit.Add(db, context.User, "document.ocr.analyzed", nameof(OcrJob), job.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/ocr-jobs/{job.Id}", OcrJobResponses.ToResponse(job));
+});
+
+backOffice.MapGet("/ocr-jobs/{jobId:guid}", async (Guid jobId, AppDbContext db, HttpContext context) =>
+{
+    var job = await db.OcrJobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == jobId);
+    if (job is null) return Results.NotFound();
+    var document = await db.DocumentBlobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == job.DocumentId);
+    if (document is null) return Results.NotFound();
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
+
+    return Results.Ok(OcrJobResponses.ToResponse(job));
 });
 
 backOffice.MapGet("/customers", async (AppDbContext db) => await db.Customers.AsNoTracking().OrderBy(customer => customer.Name).ToListAsync()).RequireAuthorization("CustomerRead");
@@ -602,19 +666,26 @@ backOffice.MapPut("/payment-vouchers/{id:guid}", async (Guid id, PaymentVoucher 
 }).RequireAuthorization("Finance");
 
 backOffice.MapGet("/leads", async (AppDbContext db) => await db.Leads.AsNoTracking().OrderByDescending(lead => lead.CreatedAt).ToListAsync()).RequireAuthorization("Sales");
-backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db, HttpContext context) =>
+backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
     if (id != lead.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("lead"));
-    if (!await db.Leads.AnyAsync(item => item.Id == id)) return Results.NotFound();
+    var existingLead = await db.Leads.FirstOrDefaultAsync(item => item.Id == id);
+    if (existingLead is null) return Results.NotFound();
+    var currentUserId = StaffIdentity.CurrentUserId(context);
+    var ownershipValidation = LeadRules.ValidateStatusOwner(existingLead, lead, currentUserId);
+    if (!ownershipValidation.IsValid) return Results.BadRequest(ownershipValidation);
+    var currentUser = string.IsNullOrWhiteSpace(currentUserId) ? null : await userManager.FindByIdAsync(currentUserId);
+    var currentUserName = string.IsNullOrWhiteSpace(currentUser?.DisplayName) ? AuditTrail.ActorFrom(context.User) : currentUser.DisplayName;
+    var updatedLead = LeadRules.ApplyBackOfficeUpdate(existingLead, lead, currentUserId, currentUserName, DateTime.UtcNow);
     var validation = LeadRules.ValidateBackOfficeLead(
-        lead,
+        updatedLead,
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.Customers.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
-    db.Leads.Update(lead);
-    ApiAudit.Add(db, context.User, "lead.updated", nameof(Lead), lead.Id);
+    db.Entry(existingLead).CurrentValues.SetValues(updatedLead);
+    ApiAudit.Add(db, context.User, "lead.updated", nameof(Lead), updatedLead.Id);
     await db.SaveChangesAsync();
-    return Results.Ok(lead);
+    return Results.Ok(updatedLead);
 }).RequireAuthorization("Sales");
 backOffice.MapGet("/audit-log", async (string? actor, string? action, string? entityName, AppDbContext db) =>
 {
@@ -794,18 +865,381 @@ admin.MapPut("/users/{id}/roles", async (string id, UpdateStaffUserRolesRequest 
     return Results.Ok(new StaffUserResponse(user.Id, user.Email ?? "", user.DisplayName, roles, user.LockoutEnd is null || user.LockoutEnd <= DateTimeOffset.UtcNow));
 });
 
+var hr = backOffice.MapGroup("/hr");
+hr.MapGet("/staff", async (UserManager<AppUser> userManager, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    var users = await userManager.Users.AsNoTracking().OrderBy(user => user.DisplayName).ToListAsync();
+    var result = new List<StaffUserResponse>();
+    foreach (var user in users)
+    {
+        var roles = await userManager.GetRolesAsync(user);
+        result.Add(new StaffUserResponse(user.Id, user.Email ?? "", user.DisplayName, roles.Order().ToArray(), user.LockoutEnd is null || user.LockoutEnd <= DateTimeOffset.UtcNow));
+    }
+
+    return Results.Ok(result);
+});
+
+hr.MapGet("/attendance", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrAttendanceRecords.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User))
+    {
+        var staffUserId = StaffIdentity.CurrentUserId(context);
+        query = query.Where(record => record.StaffUserId == staffUserId);
+    }
+
+    return Results.Ok(await query
+        .OrderByDescending(record => record.AttendanceDate)
+        .ThenByDescending(record => record.CheckInAt)
+        .ToListAsync());
+});
+
+hr.MapPost("/attendance/check-in", async (AppDbContext db, HttpContext context) =>
+{
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var now = DateTime.UtcNow;
+    var openSession = await db.HrAttendanceRecords
+        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
+        .OrderByDescending(record => record.CheckInAt)
+        .FirstOrDefaultAsync();
+    var actionValidation = HrRules.ValidateCheckIn(openSession);
+    if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
+    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present };
+
+    var validation = HrRules.ValidateAttendance(attendance);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    db.HrAttendanceRecords.Add(attendance);
+    ApiAudit.Add(db, context.User, "hr.attendance.checkedIn", nameof(HrAttendanceRecord), attendance.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(attendance);
+});
+
+hr.MapPost("/attendance/check-out", async (AppDbContext db, HttpContext context) =>
+{
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var now = DateTime.UtcNow;
+    var openSession = await db.HrAttendanceRecords
+        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
+        .OrderByDescending(record => record.CheckInAt)
+        .FirstOrDefaultAsync();
+    var actionValidation = HrRules.ValidateCheckOut(openSession);
+    if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
+    var attendance = openSession! with { CheckOutAt = now };
+
+    var validation = HrRules.ValidateAttendance(attendance);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    db.Entry(openSession!).CurrentValues.SetValues(attendance);
+    ApiAudit.Add(db, context.User, "hr.attendance.checkedOut", nameof(HrAttendanceRecord), attendance.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(attendance);
+});
+
+hr.MapPut("/attendance/{id:guid}", async (Guid id, HrAttendanceRecord attendance, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    if (id != attendance.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("attendance"));
+    var existing = await db.HrAttendanceRecords.FirstOrDefaultAsync(record => record.Id == id);
+    if (existing is null) return Results.NotFound();
+    var validation = HrRules.ValidateAttendance(attendance);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    db.Entry(existing).CurrentValues.SetValues(attendance);
+    ApiAudit.Add(db, context.User, "hr.attendance.updated", nameof(HrAttendanceRecord), attendance.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(attendance);
+});
+
+hr.MapGet("/leave-requests", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrLeaveRequests.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User))
+    {
+        var staffUserId = StaffIdentity.CurrentUserId(context);
+        query = query.Where(request => request.StaffUserId == staffUserId);
+    }
+
+    return Results.Ok(await query.OrderByDescending(request => request.CreatedAt).ToListAsync());
+});
+
+hr.MapPost("/leave-requests", async (HrLeaveRequest request, AppDbContext db, HttpContext context) =>
+{
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    if (!DepartmentAccess.IsHrManager(context.User) && request.StaffUserId != staffUserId) return Results.Forbid();
+    var leave = request with
+    {
+        StaffUserId = DepartmentAccess.IsHrManager(context.User) && !string.IsNullOrWhiteSpace(request.StaffUserId) ? request.StaffUserId : staffUserId,
+        Status = HrLeaveStatus.Pending,
+        ApprovedBy = null,
+        ApprovedAt = null,
+        DecisionNotes = null,
+        CreatedAt = DateTime.UtcNow
+    };
+    var validation = HrRules.ValidateLeaveRequest(leave);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    db.HrLeaveRequests.Add(leave);
+    ApiAudit.Add(db, context.User, "hr.leave.created", nameof(HrLeaveRequest), leave.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/hr/leave-requests/{leave.Id}", leave);
+});
+
+hr.MapPut("/leave-requests/{id:guid}/decision", async (Guid id, HrLeaveDecisionRequest decision, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    var existing = await db.HrLeaveRequests.FirstOrDefaultAsync(request => request.Id == id);
+    if (existing is null) return Results.NotFound();
+    var decisionValidation = HrRules.ValidateLeaveDecision(existing);
+    if (!decisionValidation.IsValid) return Results.BadRequest(decisionValidation);
+    var decided = existing with
+    {
+        Status = decision.Status,
+        ApprovedBy = AuditTrail.ActorFrom(context.User),
+        ApprovedAt = DateTime.UtcNow,
+        DecisionNotes = decision.DecisionNotes
+    };
+    var validation = HrRules.ValidateLeaveRequest(decided);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    db.Entry(existing).CurrentValues.SetValues(decided);
+    if (decision.Status == HrLeaveStatus.Approved && existing.Status != HrLeaveStatus.Approved)
+    {
+        var balance = await db.HrLeaveBalances.FirstOrDefaultAsync(item => item.StaffUserId == existing.StaffUserId);
+        if (balance is not null)
+        {
+            db.Entry(balance).CurrentValues.SetValues(HrRules.ApplyApprovedLeave(balance, decided));
+        }
+    }
+    ApiAudit.Add(db, context.User, "hr.leave.decided", nameof(HrLeaveRequest), decided.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(decided);
+});
+
+hr.MapPut("/leave-requests/{id:guid}/cancel", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var existing = await db.HrLeaveRequests.FirstOrDefaultAsync(request => request.Id == id);
+    if (existing is null) return Results.NotFound();
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    if (!DepartmentAccess.IsHrManager(context.User) && existing.StaffUserId != staffUserId) return Results.Forbid();
+    var cancellationValidation = HrRules.ValidateLeaveCancellation(existing);
+    if (!cancellationValidation.IsValid) return Results.BadRequest(cancellationValidation);
+    var cancelled = existing with
+    {
+        Status = HrLeaveStatus.Cancelled,
+        DecisionNotes = "Cancelled by staff / 员工取消"
+    };
+    var validation = HrRules.ValidateLeaveRequest(cancelled);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    db.Entry(existing).CurrentValues.SetValues(cancelled);
+    ApiAudit.Add(db, context.User, "hr.leave.cancelled", nameof(HrLeaveRequest), cancelled.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(cancelled);
+});
+
+hr.MapPost("/leave-requests/{id:guid}/mc", async (Guid id, IFormFile file, AppDbContext db, HttpContext context) =>
+{
+    var leave = await db.HrLeaveRequests.FirstOrDefaultAsync(request => request.Id == id);
+    if (leave is null) return Results.NotFound();
+    if (!DepartmentAccess.CanAccessHrStaff(context.User, leave.StaffUserId)) return Results.Forbid();
+    var validation = HrRules.ValidateMedicalCertificateUpload(leave);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (!UploadPolicy.IsAllowed(FileCategory.MedicalCertificate, file.Length)) return Results.BadRequest(new { message = "MC document exceeds 10MB limit." });
+    await using var stream = file.OpenReadStream();
+    using var memory = new MemoryStream();
+    await stream.CopyToAsync(memory);
+    var bytes = memory.ToArray();
+    var document = new DocumentBlob
+    {
+        CustomerId = null,
+        VehicleId = null,
+        Category = FileCategory.MedicalCertificate,
+        FileName = file.FileName,
+        MimeType = file.ContentType,
+        Content = bytes,
+        Checksum = Convert.ToHexString(SHA256.HashData(bytes)),
+        UploadedBy = UploadMetadata.UploaderFrom(context.User)
+    };
+    db.DocumentBlobs.Add(document);
+    var updated = leave with { MedicalCertificateDocumentId = document.Id };
+    db.Entry(leave).CurrentValues.SetValues(updated);
+    ApiAudit.Add(db, context.User, "hr.leave.mcUploaded", nameof(DocumentBlob), document.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/hr/leave-requests/{id}/mc/{document.Id}", new { document.Id, document.FileName, document.Category, document.Checksum, document.UploadedBy });
+}).DisableAntiforgery();
+
+hr.MapGet("/leave-requests/{id:guid}/mc/content", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var leave = await db.HrLeaveRequests.AsNoTracking().FirstOrDefaultAsync(request => request.Id == id);
+    if (leave?.MedicalCertificateDocumentId is null) return Results.NotFound();
+    if (!DepartmentAccess.CanAccessHrStaff(context.User, leave.StaffUserId)) return Results.Forbid();
+    var document = await db.DocumentBlobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == leave.MedicalCertificateDocumentId && item.Category == FileCategory.MedicalCertificate);
+    return document is null ? Results.NotFound() : Results.File(document.Content, document.MimeType, document.FileName);
+});
+
+hr.MapGet("/leave-balances", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrLeaveBalances.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User))
+    {
+        var staffUserId = StaffIdentity.CurrentUserId(context);
+        query = query.Where(balance => balance.StaffUserId == staffUserId);
+    }
+    return Results.Ok(await query.OrderBy(balance => balance.StaffUserId).ToListAsync());
+});
+
+hr.MapGet("/leave-policies", async (AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    return Results.Ok(await db.HrLeavePolicies.AsNoTracking().OrderBy(policy => policy.Role).ToListAsync());
+});
+
+hr.MapPut("/leave-policies/{role}", async (string role, HrLeavePolicy policy, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    if (!string.Equals(role, policy.Role, StringComparison.Ordinal)) return Results.BadRequest(ApiErrors.RouteIdMismatch("leave policy"));
+    if (!SeedData.Roles.Contains(policy.Role)) return Results.BadRequest(new { message = "Role is not valid for leave policy." });
+    var validation = HrRules.ValidateLeavePolicy(policy);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    var existing = await db.HrLeavePolicies.FirstOrDefaultAsync(item => item.Role == role);
+    if (existing is null) db.HrLeavePolicies.Add(policy);
+    else db.Entry(existing).CurrentValues.SetValues(policy);
+    ApiAudit.Add(db, context.User, "hr.leavePolicy.updated", nameof(HrLeavePolicy), policy.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(policy);
+});
+
+hr.MapPut("/leave-balances/{staffUserId}", async (string staffUserId, HrLeaveBalance balance, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    if (staffUserId != balance.StaffUserId) return Results.BadRequest(ApiErrors.RouteIdMismatch("leave balance"));
+    var validation = HrRules.ValidateLeaveBalance(balance);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    var existing = await db.HrLeaveBalances.FirstOrDefaultAsync(item => item.StaffUserId == staffUserId);
+    if (existing is null) db.HrLeaveBalances.Add(balance);
+    else db.Entry(existing).CurrentValues.SetValues(balance);
+    ApiAudit.Add(db, context.User, "hr.leaveBalance.updated", nameof(HrLeaveBalance), balance.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(balance);
+});
+
+hr.MapGet("/leave-adjustments", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrLeaveAdjustments.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User))
+    {
+        var staffUserId = StaffIdentity.CurrentUserId(context);
+        query = query.Where(adjustment => adjustment.StaffUserId == staffUserId);
+    }
+    return Results.Ok(await query.OrderByDescending(adjustment => adjustment.CreatedAt).Take(200).ToListAsync());
+});
+
+hr.MapPost("/leave-adjustments", async (HrLeaveAdjustmentRequest request, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    var existing = await db.HrLeaveBalances.FirstOrDefaultAsync(item => item.StaffUserId == request.StaffUserId);
+    var balance = existing ?? new HrLeaveBalance { StaffUserId = request.StaffUserId, AnnualLeaveDays = 0, MedicalLeaveDays = 0 };
+    var adjustment = HrRules.BuildLeaveAdjustment(balance, request, AuditTrail.ActorFrom(context.User));
+    var validation = HrRules.ValidateLeaveAdjustment(adjustment);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    var updatedBalance = balance with
+    {
+        AnnualLeaveDays = adjustment.AnnualLeaveAfter,
+        MedicalLeaveDays = adjustment.MedicalLeaveAfter,
+        Notes = request.Reason
+    };
+    if (existing is null) db.HrLeaveBalances.Add(updatedBalance);
+    else db.Entry(existing).CurrentValues.SetValues(updatedBalance);
+    db.HrLeaveAdjustments.Add(adjustment);
+    ApiAudit.Add(db, context.User, "hr.leaveAdjustment.created", nameof(HrLeaveAdjustment), adjustment.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(new HrLeaveAdjustmentResult(updatedBalance, adjustment));
+});
+
+hr.MapGet("/payroll-profiles", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrPayrollProfiles.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User))
+    {
+        var staffUserId = StaffIdentity.CurrentUserId(context);
+        query = query.Where(profile => profile.StaffUserId == staffUserId);
+    }
+    return Results.Ok(await query.OrderBy(profile => profile.StaffUserId).ToListAsync());
+});
+
+hr.MapPut("/payroll-profiles/{staffUserId}", async (string staffUserId, HrPayrollProfile profile, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    if (staffUserId != profile.StaffUserId) return Results.BadRequest(ApiErrors.RouteIdMismatch("payroll profile"));
+    var validation = HrRules.ValidatePayrollProfile(profile);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    var existing = await db.HrPayrollProfiles.FirstOrDefaultAsync(item => item.StaffUserId == staffUserId);
+    if (existing is null) db.HrPayrollProfiles.Add(profile);
+    else db.Entry(existing).CurrentValues.SetValues(profile);
+    ApiAudit.Add(db, context.User, "hr.payrollProfile.updated", nameof(HrPayrollProfile), profile.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(profile);
+});
+
+hr.MapGet("/pay-periods", async (AppDbContext db) =>
+    await db.HrPayPeriods.AsNoTracking().OrderByDescending(period => period.StartDate).ToListAsync());
+
+hr.MapPost("/pay-periods", async (HrPayPeriod period, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    var validation = HrRules.ValidatePayPeriod(period);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    db.HrPayPeriods.Add(period);
+    ApiAudit.Add(db, context.User, "hr.payPeriod.created", nameof(HrPayPeriod), period.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/hr/pay-periods/{period.Id}", period);
+});
+
+hr.MapGet("/payslips", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrPayslips.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User))
+    {
+        var staffUserId = StaffIdentity.CurrentUserId(context);
+        query = query.Where(payslip => payslip.StaffUserId == staffUserId);
+    }
+    return Results.Ok(await query.OrderByDescending(payslip => payslip.GeneratedAt).ToListAsync());
+});
+
+hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    var period = await db.HrPayPeriods.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (period is null) return Results.NotFound();
+    var profiles = await db.HrPayrollProfiles.AsNoTracking().ToListAsync();
+    var leaves = await db.HrLeaveRequests.AsNoTracking().ToListAsync();
+    var generated = new List<HrPayslip>();
+    foreach (var profile in profiles)
+    {
+        var existing = await db.HrPayslips.FirstOrDefaultAsync(payslip => payslip.PayPeriodId == id && payslip.StaffUserId == profile.StaffUserId);
+        var payslip = HrRules.GeneratePayslip(profile, period, leaves, existing?.Id);
+        if (existing is null) db.HrPayslips.Add(payslip);
+        else db.Entry(existing).CurrentValues.SetValues(payslip);
+        generated.Add(payslip);
+    }
+    ApiAudit.Add(db, context.User, "hr.payslips.generated", nameof(HrPayPeriod), period.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(generated);
+});
+
 backOffice.MapGet("/dashboard/summary", async (AppDbContext db) =>
 {
     var today = DateOnly.FromDateTime(DateTime.UtcNow);
     return DashboardMetrics.Create(
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.LoanApplications.AsNoTracking().ToListAsync(),
+        await db.DeliverySchedules.AsNoTracking().ToListAsync(),
         await db.PaymentRecords.AsNoTracking().ToListAsync(),
         await db.SettlementReminders.AsNoTracking().ToListAsync(),
         await db.RepairJobs.AsNoTracking().ToListAsync(),
         await db.SupplierInvoices.AsNoTracking().ToListAsync(),
         await db.BrokerCommissions.AsNoTracking().ToListAsync(),
         await db.PaymentVouchers.AsNoTracking().ToListAsync(),
+        await db.DailySpends.AsNoTracking().ToListAsync(),
+        await db.DebtRecoveryCases.AsNoTracking().ToListAsync(),
         await db.Leads.AsNoTracking().ToListAsync(),
         today);
 }).RequireAuthorization("Dashboard");
@@ -869,6 +1303,15 @@ public sealed record UpdateStaffUserStatusRequest(bool IsActive);
 
 public sealed record UpdateStaffUserRolesRequest(string[] Roles);
 
+public sealed record HrLeaveDecisionRequest(HrLeaveStatus Status, string? DecisionNotes);
+public sealed record HrLeaveAdjustmentResult(HrLeaveBalance Balance, HrLeaveAdjustment Adjustment);
+
+internal static class StaffIdentity
+{
+    public static string CurrentUserId(HttpContext context) =>
+        context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+}
+
 internal static class ApiAudit
 {
     public static void Add(AppDbContext db, System.Security.Claims.ClaimsPrincipal actor, string action, string entityName, Guid entityId) =>
@@ -876,4 +1319,20 @@ internal static class ApiAudit
 
     public static void Add(AppDbContext db, string actor, string action, string entityName, Guid entityId) =>
         db.AuditLogs.Add(AuditTrail.Record(actor, action, entityName, entityId, DateTime.UtcNow));
+}
+
+internal static class OcrJobResponses
+{
+    public static object ToResponse(OcrJob job) => new
+    {
+        job.Id,
+        job.DocumentId,
+        job.Category,
+        job.Status,
+        job.Progress,
+        Result = string.IsNullOrWhiteSpace(job.ResultJson) ? null : JsonSerializer.Deserialize<OcrExtractionResult>(job.ResultJson),
+        job.Warnings,
+        job.CreatedAt,
+        job.CompletedAt
+    };
 }
