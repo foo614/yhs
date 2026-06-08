@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Banknote, Car, Home, Menu, Search, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { frontofficeCopy, hrefWithLanguage, languages, type Language } from "./i18n";
 
@@ -25,10 +25,10 @@ export function PublicHeader({ language, active = "home" }: { language: Language
         <Link href={hrefWithLanguage("/contact#contact", language)} onClick={() => setContactSection("contact")} className={active === "contact" && contactSection === "contact" ? "active" : undefined}>{t.contact}</Link>
       </nav>
       <div className="headerTools">
-        <div className="headerSearch">
+        <form className="headerSearch" action={hrefWithLanguage("/vehicles", language)}>
           <Search size={13} />
-          <input placeholder={t.searchPlaceholder} />
-        </div>
+          <input name="q" placeholder={t.searchPlaceholder} />
+        </form>
         <LanguageSwitch language={language} />
       </div>
       <button className="mobileMenu" aria-label="Open menu"><Menu size={22} /></button>
@@ -57,33 +57,18 @@ export function PublicSubNav({ language, active = "home" }: { language: Language
 
 export function LanguageSwitch({ language }: { language: Language }) {
   const pathname = usePathname();
-  const [currentSearch, setCurrentSearch] = useState("");
-  const [currentHash, setCurrentHash] = useState("");
-
-  useEffect(() => {
-    setCurrentSearch(window.location.search || "");
-    setCurrentHash(window.location.hash || "");
-    const handleLocation = () => {
-      setCurrentSearch(window.location.search || "");
-      setCurrentHash(window.location.hash || "");
-    };
-    window.addEventListener("popstate", handleLocation);
-    window.addEventListener("hashchange", handleLocation);
-    return () => {
-      window.removeEventListener("popstate", handleLocation);
-      window.removeEventListener("hashchange", handleLocation);
-    };
-  }, []);
+  const searchParams = useSearchParams();
 
   const getSwitchHref = (entry: Language) => {
-    const params = new URLSearchParams(currentSearch);
+    const params = new URLSearchParams(searchParams?.toString());
     if (entry === "zh") {
       params.set("lang", "zh");
     } else {
       params.delete("lang");
     }
     const query = params.toString();
-    return `${pathname}${query ? `?${query}` : ""}${currentHash || ""}`;
+    const hash = typeof window === "undefined" ? "" : window.location.hash;
+    return `${pathname}${query ? `?${query}` : ""}${hash || ""}`;
   };
 
   return (
