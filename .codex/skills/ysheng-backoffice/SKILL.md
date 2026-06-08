@@ -37,6 +37,22 @@ description: Work on the YS Heng back-office operations portal. Use for Vite Rea
 - Keep uploaded document categories aligned with backend `FileCategory` values.
 - Treat finance screens, payment mutations, staff role updates, and admin flows as permission-sensitive.
 
+## Responsive and usability rules
+
+- Every back-office screen must work on laptop, tablet, and mobile widths.
+- Use desktop and laptop views for dense operational tables, filters, summaries, and side-by-side forms.
+- Use tablet views for compact grids, wrapped actions, readable columns, and drawers or stacked panels where space is limited.
+- Use mobile views for stacked record cards, primary actions, readable forms, and horizontal table scroll only when a table cannot be simplified safely.
+- Keep key actions visible and easy to reach. Avoid hiding important workflow steps behind unclear menus.
+- Keep forms easy to understand with clear labels, sensible defaults, validation messages, and obvious save or submit actions.
+- Keep tables easy to scan with pagination, useful filters, status tags, short column labels, and the most important row action first.
+- In back-office tables, keep row actions in a single right-fixed `Action / 操作` or `Next Action / 操作` column. Do not add separate left-side `Open` or `Details` action columns.
+- Align row action buttons with the shared `tableActionGroup` pattern: `Details` first when a details view exists, then quick workflow actions.
+- Keep the visual design simple: use restrained spacing, familiar Ant Design controls, clear hierarchy, and minimal decoration.
+- Avoid nested cards, oversized hero layouts, decorative backgrounds, and heavy visual effects in the operations portal.
+- Make the UI usable for all staff: readable text, sufficient contrast, keyboard focus, touch-friendly controls, and no text overflow on small screens.
+- Use bilingual labels where they improve staff understanding, especially for visible workflow headings, statuses, and operational terms.
+
 ## Verification
 
 Run from the workspace root when back-office validation is requested:

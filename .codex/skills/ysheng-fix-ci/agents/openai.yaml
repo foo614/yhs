@@ -1,0 +1,4 @@
+interface:
+  display_name: "YS Heng Fix CI"
+  short_description: "Diagnose and fix YS Heng CI failures"
+  default_prompt: "Inspect failing CI or pasted logs, isolate the root cause, and apply a focused YS Heng fix."

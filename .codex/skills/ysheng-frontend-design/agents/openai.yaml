@@ -1,0 +1,4 @@
+interface:
+  display_name: "YS Heng Frontend Design"
+  short_description: "Design YS Heng UI with domain-appropriate polish"
+  default_prompt: "Improve YS Heng frontend UI while following app-specific design and data-safety rules."

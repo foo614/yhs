@@ -1,0 +1,4 @@
+interface:
+  display_name: "YS Heng Security Review"
+  short_description: "Review YS Heng changes for security risk"
+  default_prompt: "Review YS Heng code or diffs for auth, finance, upload, public-data, and deployment risks."

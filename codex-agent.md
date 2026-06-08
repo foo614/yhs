@@ -49,6 +49,23 @@ Core stack:
 - API: .NET 10 Minimal APIs, EF Core, ASP.NET Identity cookie auth, PostgreSQL.
 - Infrastructure: Docker Compose, PowerShell smoke and deployment scripts.
 
+## Project-local skill catalog
+
+Use these project-local skills for repeatable YS Heng workflows:
+
+- `.codex/skills/ysheng-project/SKILL.md`: repository orientation, local URLs, Docker, deployment, and cross-stack verification.
+- `.codex/skills/ysheng-api/SKILL.md`: backend API, EF Core, auth policies, uploads, business rules, and backend tests.
+- `.codex/skills/ysheng-backoffice/SKILL.md`: operations portal, Ant Design UI, API client contracts, finance-sensitive flows, and portal tests.
+- `.codex/skills/ysheng-frontoffice/SKILL.md`: public vehicle sales app, public API usage, lead capture, photos, and public-data safety.
+- `.codex/skills/ysheng-plan-change/SKILL.md`: substantial, multi-file, or high-risk work before implementation.
+- `.codex/skills/ysheng-fix-ci/SKILL.md`: CI, build, lint, test, or smoke-check failures.
+- `.codex/skills/ysheng-address-review/SKILL.md`: PR review feedback and requested changes.
+- `.codex/skills/ysheng-frontend-design/SKILL.md`: front-office and back-office UI or interaction design.
+- `.codex/skills/ysheng-polish-prose/SKILL.md`: docs, comments, commit text, skill text, and user-facing copy.
+- `.codex/skills/ysheng-security-review/SKILL.md`: security reviews involving auth, finance, uploads, public data, persistence, deployment, secrets, or backups.
+
+Personal integrations such as external code search, web research, and hosted MCP services may be useful, but do not make required project behavior depend on teammate-specific API keys or global `~/.codex` configuration.
+
 ## Allowed actions
 
 Codex may:
@@ -305,7 +322,7 @@ Local Docker-independent verification may use the infra validation scripts docum
 - Public data exposure restrictions are documented.
 - Required quality gates are documented.
 - Docker, smoke, backup, restore, and deployment risk gates are documented.
-- Local skill files exist for project, API, back office, and front office workflows.
+- Local skill files exist for project, API, back office, front office, planning, CI repair, review feedback, frontend design, prose cleanup, and security review workflows.
 
 ## Summary of project-specific customizations
 
@@ -314,6 +331,7 @@ This ruleset customizes the official Codex project-instruction pattern for YS He
 - Using a root `AGENTS.md` shim for automatic Codex loading.
 - Keeping a comprehensive `codex-agent.md` specification for teammate readability.
 - Adding project-local skills for repeatable YS Heng workflows.
+- Adding project-local workflow skills for planning, CI repair, review feedback, frontend design, prose cleanup, and security review.
 - Encoding the monorepo architecture and local service URLs.
 - Capturing strict public/private data boundaries for vehicle sales operations.
 - Capturing role-policy expectations for Boss/Admin, Sales, Loan, Delivery, Finance, Repair, Dashboard, and HR-adjacent extension areas.

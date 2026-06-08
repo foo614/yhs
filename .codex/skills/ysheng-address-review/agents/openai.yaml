@@ -1,0 +1,4 @@
+interface:
+  display_name: "YS Heng Address Review"
+  short_description: "Resolve YS Heng PR review feedback"
+  default_prompt: "Triage PR review comments, implement actionable fixes, and preserve unrelated user work."

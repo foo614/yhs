@@ -1,0 +1,4 @@
+interface:
+  display_name: "YS Heng Plan Change"
+  short_description: "Plan substantial YS Heng changes before editing"
+  default_prompt: "Plan a YS Heng change with scope, files, risks, and validation before implementation."

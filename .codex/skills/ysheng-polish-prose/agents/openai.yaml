@@ -1,0 +1,4 @@
+interface:
+  display_name: "YS Heng Polish Prose"
+  short_description: "Clean up YS Heng docs and generated prose"
+  default_prompt: "Revise YS Heng documentation, comments, and commit text into concise human prose."
