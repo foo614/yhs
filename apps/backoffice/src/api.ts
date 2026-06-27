@@ -4,6 +4,7 @@ export type LeadStatus = "New" | "Contacted" | "Closed";
 export type LoanStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Done";
 export type DeliveryStatus = "BookingInspection" | "Scheduled" | "Inspection" | "PreparingDocuments" | "CarPreparation" | "ReadyForRelease" | "Released";
 export type PaymentStatus = "Pending" | "Approved" | "Disbursed" | "Reconciled";
+export type AutoCountSyncStatus = "Draft" | "Ready" | "Submitted" | "Synced" | "Failed";
 export type PaymentVoucherStatus = "Pending" | "Approved" | "Paid";
 export type DebtRecoveryStatus = "Open" | "FollowedUp" | "Closed";
 export type HrAttendanceStatus = "Present" | "Late" | "HalfDay" | "Absent";
@@ -220,6 +221,40 @@ export type PaymentRecord = {
   bankName?: string;
   bankFollowUpDate?: string;
   createdAt: string;
+};
+
+export type AutoCountSyncJob = {
+  id: string;
+  financeInvoiceId: string;
+  paymentRecordId: string;
+  status: AutoCountSyncStatus;
+  externalDocumentId?: string;
+  externalDocumentNumber?: string;
+  responseSummary?: string;
+  lastError?: string;
+  retryCount: number;
+  submittedBy?: string;
+  submittedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FinanceInvoice = {
+  id: string;
+  paymentRecordId: string;
+  vehicleId: string;
+  customerId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  amount: number;
+  salesPrice: number;
+  interestAdditionalCharges: number;
+  ncdAmount: number;
+  windscreenCharges: number;
+  contentMimeType: string;
+  createdBy: string;
+  createdAt: string;
+  latestSync?: AutoCountSyncJob | null;
 };
 
 export type SettlementReminder = {
@@ -587,6 +622,10 @@ export async function getPayments(): Promise<PaymentRecord[]> {
   return getWithNetworkFallback("/api/payments", fallbackPayments());
 }
 
+export async function getFinanceInvoices(): Promise<FinanceInvoice[]> {
+  return getWithNetworkFallback("/api/finance-invoices", fallbackFinanceInvoices(), { onNotFoundFallback: true });
+}
+
 export async function getSettlementReminders(): Promise<SettlementReminder[]> {
   return getWithNetworkFallback("/api/settlement-reminders", []);
 }
@@ -886,6 +925,14 @@ export async function createPayment(payment: PaymentRecord): Promise<PaymentReco
   });
 }
 
+export async function getPaymentInvoice(paymentId: string): Promise<FinanceInvoice> {
+  return request<FinanceInvoice>(`/api/payments/${paymentId}/invoice`);
+}
+
+export async function generatePaymentInvoice(paymentId: string): Promise<FinanceInvoice> {
+  return request<FinanceInvoice>(`/api/payments/${paymentId}/invoice`, { method: "POST" });
+}
+
 export async function createStaffUser(user: CreateStaffUserRequest): Promise<StaffUser> {
   return request<StaffUser>("/api/admin/users", {
     method: "POST",
@@ -947,6 +994,14 @@ export async function updatePayment(payment: PaymentRecord): Promise<PaymentReco
     method: "PUT",
     body: JSON.stringify(payment)
   });
+}
+
+export async function getAutoCountSyncJobs(invoiceId: string): Promise<AutoCountSyncJob[]> {
+  return request<AutoCountSyncJob[]>(`/api/finance-invoices/${invoiceId}/autocount-sync`);
+}
+
+export async function submitAutoCountSync(invoiceId: string): Promise<AutoCountSyncJob> {
+  return request<AutoCountSyncJob>(`/api/finance-invoices/${invoiceId}/autocount-sync`, { method: "POST" });
 }
 
 export async function createSettlementReminder(reminder: SettlementReminder): Promise<SettlementReminder> {
@@ -1041,6 +1096,10 @@ export async function getVehiclePhotos(vehicleId: string): Promise<VehiclePhoto[
 
 export function vehicleDocumentContentUrl(vehicleId: string, documentId: string) {
   return `${apiBaseUrl}/api/vehicles/${vehicleId}/documents/${documentId}/content`;
+}
+
+export function financeInvoiceContentUrl(invoiceId: string) {
+  return `${apiBaseUrl}/api/finance-invoices/${invoiceId}/content`;
 }
 
 export function vehiclePhotoContentUrl(vehicleId: string, photoId: string) {
@@ -1366,6 +1425,36 @@ function fallbackPayments(): PaymentRecord[] {
       bankName: "Maybank",
       bankFollowUpDate: "2026-06-01",
       createdAt: "2026-05-30T00:00:00Z"
+    }
+  ];
+}
+
+function fallbackFinanceInvoices(): FinanceInvoice[] {
+  return [
+    {
+      id: "b9a39374-16d3-44d7-984a-010b9ff9b51f",
+      paymentRecordId: "7e0dcbee-5369-4f26-a97f-46f3c7784c6d",
+      vehicleId: sampleVehicle.id,
+      customerId: "d686b3e3-b0fb-47c2-8f26-58c8bd9466bb",
+      invoiceNumber: "INV-DEMO-1001",
+      invoiceDate: "2026-06-01",
+      amount: 58000,
+      salesPrice: 58000,
+      interestAdditionalCharges: 600,
+      ncdAmount: 1200,
+      windscreenCharges: 450,
+      contentMimeType: "application/pdf",
+      createdBy: "demo-finance",
+      createdAt: "2026-06-01T00:00:00Z",
+      latestSync: {
+        id: "f6c75e4f-1d51-4378-8a68-e17327d1f81b",
+        financeInvoiceId: "b9a39374-16d3-44d7-984a-010b9ff9b51f",
+        paymentRecordId: "7e0dcbee-5369-4f26-a97f-46f3c7784c6d",
+        status: "Ready",
+        retryCount: 0,
+        createdAt: "2026-06-01T00:00:00Z",
+        updatedAt: "2026-06-01T00:00:00Z"
+      }
     }
   ];
 }

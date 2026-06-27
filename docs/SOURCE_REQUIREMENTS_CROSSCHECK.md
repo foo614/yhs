@@ -30,7 +30,7 @@ It is intended to keep the implementation aligned with the original business voc
 | Polish, tinted, wash, final checklist | Implemented | Delivery preparation checklist and release blocking rules. |
 | Insurance, road tax, windscreen insurance | Implemented | Delivery handover references, document categories, readiness validation. |
 | Customer invoice detail: sales price, interest/additional charges, NCD, windscreen charges, outstation delivery date | Implemented | Finance payment fields, validation, smoke round trip. |
-| Bank prepare document, checklist, invoice generation, payment follow-up, Pending/Approve/Disbursed, AutoCount key-in, nett price | Implemented as MVP manual workflow | Finance module tracks manual checklist and AutoCount key-in state; direct AutoCount integration remains extension scope. |
+| Bank prepare document, checklist, invoice generation, payment follow-up, Pending/Approve/Disbursed, AutoCount key-in, nett price | Implemented for sales invoice phase | Finance keeps manual document/checklist review, generates sales invoice PDFs from payment/vehicle/customer data, syncs invoices to AutoCount AOTG/API, and blocks reconciliation until latest sync is `Synced`. |
 | Car settlement owner, deadline, amount reminder | Implemented | Owner records, settlement reminders, dashboard reminder inbox. |
 | Supplier/refurbishment duplicate invoice, wrong plate, supplier multi-invoice checks, costs by plate, profit deduction | Implemented | Supplier invoice validation, repair costs linked to vehicle, dashboard profit calculation. |
 | Broker commission, car plate profit, CP58 | Implemented as MVP tracking | Broker commission records and CP58 required/prepared flags; full CP58 form generation remains extension scope. |
@@ -39,7 +39,7 @@ It is intended to keep the implementation aligned with the original business voc
 | Profit calculation: nett selling price, refurbishment, commission, real-time dashboard | Implemented | Dashboard `totalProfit`/`estimatedProfit`, repair/payment/commission cost impacts. |
 | Debt recovery status, balance reminder, follow-up | Implemented with manual reminder workflow | Debt recovery records and dashboard reminders; WhatsApp automation remains extension scope. |
 | Dashboard: total stock, total profit, pending loan, outstanding payment, settlement due, top supplier, sales performance, vehicle aging | Implemented | Dashboard summary and smoke/test coverage. |
-| AI OCR, loan eligibility prediction, photo optimization, profit prediction, WhatsApp, AutoCount integration | Extension point | Data boundaries and manual states are present; automation integrations are documented outside MVP scope. |
+| AI OCR, loan eligibility prediction, photo optimization, profit prediction, WhatsApp, AutoCount integration | Partial implementation plus extension point | AutoCount sales invoice generation/sync is implemented; receipt/payment sync, LHDN e-Invoice fields, WhatsApp, prediction, and broader AI automation remain later phases. |
 
 ## Verification
 

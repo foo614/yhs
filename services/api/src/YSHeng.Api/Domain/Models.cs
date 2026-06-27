@@ -6,6 +6,7 @@ public enum LeadStatus { New, Contacted, Closed }
 public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
 public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
+public enum AutoCountSyncStatus { Draft, Ready, Submitted, Synced, Failed }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
 public enum HrAttendanceStatus { Present, Late, HalfDay, Absent }
@@ -174,6 +175,42 @@ public sealed record PaymentRecord
     public string? BankName { get; init; }
     public DateOnly? BankFollowUpDate { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record FinanceInvoice
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid PaymentRecordId { get; init; }
+    public Guid VehicleId { get; init; }
+    public Guid CustomerId { get; init; }
+    public string InvoiceNumber { get; init; } = "";
+    public DateOnly InvoiceDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public decimal Amount { get; init; }
+    public decimal SalesPrice { get; init; }
+    public decimal InterestAdditionalCharges { get; init; }
+    public decimal NcdAmount { get; init; }
+    public decimal WindscreenCharges { get; init; }
+    public byte[] Content { get; init; } = [];
+    public string ContentMimeType { get; init; } = "application/pdf";
+    public string CreatedBy { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record AutoCountSyncJob
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid FinanceInvoiceId { get; init; }
+    public Guid PaymentRecordId { get; init; }
+    public AutoCountSyncStatus Status { get; init; } = AutoCountSyncStatus.Draft;
+    public string? ExternalDocumentId { get; init; }
+    public string? ExternalDocumentNumber { get; init; }
+    public string? ResponseSummary { get; init; }
+    public string? LastError { get; init; }
+    public int RetryCount { get; init; }
+    public string? SubmittedBy { get; init; }
+    public DateTime? SubmittedAt { get; init; }
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record SettlementReminder

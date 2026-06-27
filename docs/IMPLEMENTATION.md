@@ -45,7 +45,11 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Back-office API failures now surface the first structured backend validation error message from `errors[]`, including upload failures, instead of a generic HTTP status message.
 - Finance payment records now track receipt number, invoice number, bank name, and bank follow-up date; reconciled payments require receipt and invoice references before saving.
 - Finance payment records now track Boss Check, and final reconciliation is blocked until the boss verification step is marked checked.
-- Finance payment records now track Prepare Document, Checklist Validation, Invoice Generated, and AutoCount Key In as manual Bank workflow checklist states; final reconciliation is blocked until all four are checked.
+- Finance payment records now track Prepare Document and Checklist Validation as manual Bank workflow checklist states; generated sales invoices and AutoCount sync are stored as explicit finance records.
+- Finance sales invoices are generated from payment, vehicle, and customer data, stored as PDF content, and exposed through Finance-only preview/download endpoints.
+- AutoCount AOTG/API sync jobs track `Draft`, `Ready`, `Submitted`, `Synced`, and `Failed` status, external document identifiers, response summaries, last error, submitted user/time, and retry count without storing credentials or full sensitive payloads.
+- AutoCount AOTG/API configuration is supplied through environment-bound keys such as `AutoCount__Aotg__Endpoint`, `AutoCount__Aotg__ApiToken`, `AutoCount__Aotg__CompanyCode`, `AutoCount__Aotg__AccountBookId`, and optional `AutoCount__Aotg__CreateSalesInvoicePath`.
+- Final payment reconciliation is blocked until receipt/invoice references, Boss Check, prepared documents, checklist validation, a generated sales invoice, and a latest AutoCount sync status of `Synced` are all present.
 - Finance payment records now also capture customer invoice detail fields from the portal requirement docs: sales price, interest/additional charges, NCD amount, windscreen charges, and outstation delivery date.
 - Finance payment validation rejects negative customer invoice detail amounts before they enter payment tracking.
 - Finance payment records can now be edited from the Finance screen so staff can correct car plate, nett price, receipt/invoice references, bank follow-up metadata, customer invoice fields, and reconciliation checklist state without recreating the payment.
@@ -67,7 +71,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Dashboard reminder due dates are tagged as overdue, due today, or upcoming for faster Boss/Admin triage.
 - Dashboard reminder inbox can be filtered by reminder type and due state so Boss/Admin can focus on overdue, due-today, or upcoming work.
 - The dashboard reminder API also accepts `type` and `due` query filters; the back-office reminder controls call that filtered endpoint, and the smoke suite checks an overdue bank follow-up filter against the running stack.
-- The Finance table disables one-click reconciliation until the payment has receipt and invoice references, matching the API validation rule.
+- The Finance table disables one-click reconciliation until the payment has receipt and invoice references, a generated sales invoice, and a synced AutoCount sales invoice, matching the API validation rule.
 - The Finance table also disables one-click reconciliation when the receipt or payment invoice reference is already used by another row.
 - The Finance payment entry form warns before submitting a new reconciled payment with duplicate receipt or payment invoice references.
 - The Finance payment entry form warns before submitting non-positive nett prices.
@@ -224,7 +228,7 @@ The smoke test checks:
 - Delivery records with missing PIC or schedule date return structured validation errors.
 - Delivery inspection booking reference persistence is smoke-tested separately from inspection report validation.
 - Delivery 2-day notice reminders are smoke-tested before and after the notice is marked sent.
-- Payment, broker commission, debt recovery, payment voucher, and settlement APIs reject invalid finance amounts and missing required references before they affect dashboard totals; settlement owner links and broker CP58 state are validated, and reconciled payment validation also checks receipt and invoice references, Boss Check, finance checklist completion, duplicate receipt/invoice reuse, and bank follow-up reminders.
+- Payment, broker commission, debt recovery, payment voucher, and settlement APIs reject invalid finance amounts and missing required references before they affect dashboard totals; settlement owner links and broker CP58 state are validated, and reconciled payment validation also checks receipt and invoice references, Boss Check, finance checklist completion, generated invoice presence, latest AutoCount sync status, duplicate receipt/invoice reuse, and bank follow-up reminders.
 - Payment Pending/Approved/Disbursed status reminders are smoke-tested through the dashboard reminder inbox.
 - Dashboard reminder type/due filtering is smoke-tested through `/api/dashboard/reminders?type=PaymentBankFollowUp&due=Overdue`.
 - Payment voucher and broker commission profit impacts are smoke-tested through the dashboard `totalProfit` field, with the backward-compatible `estimatedProfit` field checked for alignment.

@@ -1082,6 +1082,15 @@ public static class FinanceRules
 
     public static ValidationResult ValidatePayment(PaymentRecord payment, IEnumerable<PaymentRecord> existing)
     {
+        return ValidatePayment(payment, existing, [], []);
+    }
+
+    public static ValidationResult ValidatePayment(
+        PaymentRecord payment,
+        IEnumerable<PaymentRecord> existing,
+        IEnumerable<FinanceInvoice> invoices,
+        IEnumerable<AutoCountSyncJob> syncJobs)
+    {
         var errors = new List<ValidationError>();
         if (payment.NettPrice <= 0)
         {
@@ -1125,14 +1134,18 @@ public static class FinanceRules
                 errors.Add(new ValidationError("payment_checklist_validated_required", "Finance checklist must be validated before payment reconciliation."));
             }
 
-            if (!payment.InvoiceGenerated)
+            var invoice = invoices.FirstOrDefault(item => item.PaymentRecordId == payment.Id);
+            if (invoice is null)
             {
-                errors.Add(new ValidationError("payment_invoice_generated_required", "Payment invoice must be generated before reconciliation."));
+                errors.Add(new ValidationError("payment_invoice_generated_required", "Generated sales invoice is required before payment reconciliation."));
             }
-
-            if (!payment.AutoCountKeyed)
+            else
             {
-                errors.Add(new ValidationError("payment_autocount_keyed_required", "AutoCount key-in must be marked before payment reconciliation."));
+                var latestSync = FinanceInvoiceMapping.LatestSync(invoice.Id, syncJobs);
+                if (latestSync?.Status != AutoCountSyncStatus.Synced)
+                {
+                    errors.Add(new ValidationError("payment_autocount_sync_required", "AutoCount sales invoice sync must be completed before payment reconciliation."));
+                }
             }
 
             if (string.IsNullOrWhiteSpace(payment.ReceiptNumber))

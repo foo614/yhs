@@ -143,6 +143,10 @@ All finance endpoints require the `Finance` policy.
 | --- | --- | --- |
 | `GET` / `POST` | `/api/payments` | List/create payment records. |
 | `PUT` | `/api/payments/{id}` | Update payment workflow/reconciliation. |
+| `GET` | `/api/finance-invoices` | List generated sales invoices with latest AutoCount sync state. |
+| `GET` / `POST` | `/api/payments/{paymentId}/invoice` | Read or generate the sales invoice PDF record for one payment. |
+| `GET` | `/api/finance-invoices/{invoiceId}/content` | Download the generated sales invoice PDF. |
+| `GET` / `POST` | `/api/finance-invoices/{invoiceId}/autocount-sync` | Read sync history or submit/retry the invoice against AutoCount AOTG/API. |
 | `GET` / `POST` | `/api/settlement-reminders` | List/create settlement reminders. |
 | `PUT` | `/api/settlement-reminders/{id}` | Update settlement reminder. |
 | `GET` / `POST` | `/api/daily-spends` | List/create daily spend rows. |
@@ -153,6 +157,8 @@ All finance endpoints require the `Finance` policy.
 | `PUT` | `/api/debt-recoveries/{id}` | Update debt recovery case. |
 | `GET` / `POST` | `/api/payment-vouchers` | List/create payment vouchers. |
 | `PUT` | `/api/payment-vouchers/{id}` | Update payment voucher. |
+
+Payment reconciliation requires receipt and invoice references, Boss/Admin review, prepared finance documents, checklist validation, a generated `FinanceInvoice`, and the latest AutoCount sync job for that invoice to be `Synced`.
 
 ## HR And Salary
 
@@ -217,6 +223,7 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `LoanStatus`: `Draft`, `Pending`, `Approved`, `Rejected`, `Done`
 - `DeliveryStatus`: `BookingInspection`, `Scheduled`, `Inspection`, `PreparingDocuments`, `CarPreparation`, `ReadyForRelease`, `Released`
 - `PaymentStatus`: `Pending`, `Approved`, `Disbursed`, `Reconciled`
+- `AutoCountSyncStatus`: `Draft`, `Ready`, `Submitted`, `Synced`, `Failed`
 - `PaymentVoucherStatus`: `Pending`, `Approved`, `Paid`
 - `DebtRecoveryStatus`: `Open`, `FollowedUp`, `Closed`
 - `HrAttendanceStatus`: `Present`, `Late`, `HalfDay`, `Absent`

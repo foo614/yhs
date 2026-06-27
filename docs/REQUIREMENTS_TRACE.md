@@ -43,7 +43,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Repairs/refurbishment | Implemented, verified | Repair jobs, repair parts, supplier invoices, duplicate/wrong-plate validation, repair document uploads. |
 | Loan workflow | Implemented, verified | Loan CRUD, LOU status rules, document completeness check, 3-day reminders, loan-owned uploads. |
 | Delivery workflow | Implemented, verified | Scheduling, PIC, inspection booking/report, handover refs, preparation checklist, release readiness, 2-day notice. |
-| Finance/payment tracking | Implemented, verified | Payments, reconciliation prerequisites, settlements, daily spend, broker commissions/CP58 state, debt recovery, payment vouchers, finance document uploads. |
+| Finance/payment tracking | Implemented, verified | Payments, generated sales invoices, AutoCount AOTG/API sync jobs, reconciliation prerequisites, settlements, daily spend, broker commissions/CP58 state, debt recovery, payment vouchers, finance document uploads. |
 | Leads triage | Implemented, verified | Public enquiries appear in back office, lead/customer linking, status/customer-link filters, duplicate phone reuse. |
 | Audit log | Implemented, verified | Authenticated mutations write staff actor; Boss/Admin audit log filters by actor/action/entity. |
 | Admin users/roles | Implemented, verified | Staff creation, role update, display-name update, password reset, enable/disable, validation, role enforcement. |
@@ -80,7 +80,8 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Rules-based reminders | Implemented, verified | Reminder worker and dashboard reminder inbox; smoke checks loan, delivery, payment, spend, debt, voucher reminders. |
 | Workflow validations/status changes | Implemented, verified | Loan moves vehicles to LoanProcessing/private; reconciled/corrected payments update sold/loan-processing state; smoke checks automation. |
 | Audit trails | Implemented, verified | Mutation audit records with authenticated staff email; public lead audit actor. |
-| OCR/AI/WhatsApp/AutoCount | Extension point | AutoCount key-in is tracked manually; WhatsApp/OCR/AI remain explicitly outside MVP and documented as extension points. |
+| AutoCount sales invoice integration | Implemented, verified | Finance can generate a sales invoice PDF from payment/vehicle/customer data, submit/retry AutoCount AOTG/API sync, and reconciliation requires latest sync status `Synced`. |
+| OCR/AI/WhatsApp/later e-Invoice phases | Extension point | Receipt/payment sync, LHDN e-Invoice fields, WhatsApp, loan prediction, and broader AI automation remain outside this phase. |
 | Salary/pay slip/CP58 generation | Implemented for HR payslips; CP58 remains extension point | HR payslips calculate daily salary from configured working days and exclude statutory payroll formulas; CP58 state remains represented without generating statutory forms. |
 
 ## Verification Evidence

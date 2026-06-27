@@ -15,6 +15,8 @@ var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 builder.Services.AddScoped<IOcrExtractor, LocalMockOcrExtractor>();
+builder.Services.Configure<AutoCountAotgOptions>(builder.Configuration.GetSection("AutoCount:Aotg"));
+builder.Services.AddHttpClient<IAutoCountClient, AutoCountAotgClient>();
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = UploadPolicy.MultipartBodyLimit;
@@ -512,7 +514,11 @@ backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, H
     var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
-    var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
+    var financeValidation = FinanceRules.ValidatePayment(
+        payment,
+        existingPayments,
+        await db.FinanceInvoices.AsNoTracking().ToListAsync(),
+        await db.AutoCountSyncJobs.AsNoTracking().ToListAsync());
     if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
     var vehiclePayments = existingPayments
@@ -532,7 +538,11 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
-    var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
+    var financeValidation = FinanceRules.ValidatePayment(
+        payment,
+        existingPayments,
+        await db.FinanceInvoices.AsNoTracking().ToListAsync(),
+        await db.AutoCountSyncJobs.AsNoTracking().ToListAsync());
     if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
     var vehiclePayments = existingPayments
@@ -544,6 +554,162 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     ApiAudit.Add(db, context.User, "payment.updated", nameof(PaymentRecord), payment.Id);
     await db.SaveChangesAsync();
     return Results.Ok(payment);
+}).RequireAuthorization("Finance");
+
+backOffice.MapGet("/finance-invoices", async (AppDbContext db) =>
+{
+    var invoices = await db.FinanceInvoices.AsNoTracking().OrderByDescending(invoice => invoice.CreatedAt).ToListAsync();
+    var syncJobs = await db.AutoCountSyncJobs.AsNoTracking().ToListAsync();
+    return Results.Ok(invoices.Select(invoice => FinanceInvoiceMapping.ToResponse(invoice, syncJobs)));
+}).RequireAuthorization("Finance");
+backOffice.MapGet("/payments/{paymentId:guid}/invoice", async (Guid paymentId, AppDbContext db) =>
+{
+    var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == paymentId);
+    if (invoice is null) return Results.NotFound();
+
+    var syncJobs = await db.AutoCountSyncJobs.AsNoTracking().Where(job => job.FinanceInvoiceId == invoice.Id).ToListAsync();
+    return Results.Ok(FinanceInvoiceMapping.ToResponse(invoice, syncJobs));
+}).RequireAuthorization("Finance");
+backOffice.MapPost("/payments/{paymentId:guid}/invoice", async (Guid paymentId, AppDbContext db, HttpContext context) =>
+{
+    var existingInvoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == paymentId);
+    if (existingInvoice is not null)
+    {
+        var existingJobs = await db.AutoCountSyncJobs.AsNoTracking().Where(job => job.FinanceInvoiceId == existingInvoice.Id).ToListAsync();
+        return Results.Ok(FinanceInvoiceMapping.ToResponse(existingInvoice, existingJobs));
+    }
+
+    var payment = await db.PaymentRecords.FirstOrDefaultAsync(item => item.Id == paymentId);
+    if (payment is null) return Results.NotFound();
+
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == payment.VehicleId);
+    if (vehicle is null)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Payment must reference an existing vehicle.")]));
+    }
+
+    if (vehicle.CustomerId is not { } customerId)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("customer_required", "Vehicle must be linked to a customer before generating a sales invoice.")]));
+    }
+
+    var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == customerId);
+    if (customer is null)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("customer_not_found", "Vehicle customer must exist before generating a sales invoice.")]));
+    }
+
+    var now = DateTime.UtcNow;
+    var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, StaffIdentity.CurrentUserId(context), now);
+    var readyJob = new AutoCountSyncJob
+    {
+        FinanceInvoiceId = invoice.Id,
+        PaymentRecordId = payment.Id,
+        Status = AutoCountSyncStatus.Ready,
+        CreatedAt = now,
+        UpdatedAt = now
+    };
+
+    db.FinanceInvoices.Add(invoice);
+    db.AutoCountSyncJobs.Add(readyJob);
+    db.Entry(payment).CurrentValues.SetValues(payment with
+    {
+        InvoiceNumber = invoice.InvoiceNumber,
+        InvoiceGenerated = true
+    });
+    ApiAudit.Add(db, context.User, "financeInvoice.generated", nameof(FinanceInvoice), invoice.Id);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/finance-invoices/{invoice.Id}", FinanceInvoiceMapping.ToResponse(invoice, [readyJob]));
+}).RequireAuthorization("Finance");
+backOffice.MapGet("/finance-invoices/{invoiceId:guid}/content", async (Guid invoiceId, AppDbContext db) =>
+{
+    var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoiceId);
+    if (invoice is null) return Results.NotFound();
+
+    return Results.File(invoice.Content, invoice.ContentMimeType, $"{invoice.InvoiceNumber}.pdf");
+}).RequireAuthorization("Finance");
+backOffice.MapGet("/finance-invoices/{invoiceId:guid}/autocount-sync", async (Guid invoiceId, AppDbContext db) =>
+{
+    if (!await db.FinanceInvoices.AsNoTracking().AnyAsync(item => item.Id == invoiceId)) return Results.NotFound();
+
+    var jobs = await db.AutoCountSyncJobs.AsNoTracking()
+        .Where(job => job.FinanceInvoiceId == invoiceId)
+        .OrderByDescending(job => job.UpdatedAt)
+        .ThenByDescending(job => job.CreatedAt)
+        .ToListAsync();
+    return Results.Ok(jobs.Select(FinanceInvoiceMapping.ToResponse));
+}).RequireAuthorization("Finance");
+backOffice.MapPost("/finance-invoices/{invoiceId:guid}/autocount-sync", async (Guid invoiceId, AppDbContext db, IAutoCountClient autoCountClient, HttpContext context, CancellationToken cancellationToken) =>
+{
+    var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoiceId);
+    if (invoice is null) return Results.NotFound();
+
+    var existingJobs = await db.AutoCountSyncJobs.AsNoTracking().Where(job => job.FinanceInvoiceId == invoice.Id).ToListAsync();
+    var latest = FinanceInvoiceMapping.LatestSync(invoice.Id, existingJobs);
+    if (latest?.Status == AutoCountSyncStatus.Synced)
+    {
+        return Results.Ok(FinanceInvoiceMapping.ToResponse(latest));
+    }
+
+    var payment = await db.PaymentRecords.FirstOrDefaultAsync(item => item.Id == invoice.PaymentRecordId);
+    if (payment is null) return Results.BadRequest(new ValidationResult([new ValidationError("payment_not_found", "Invoice payment must exist before AutoCount sync.")]));
+
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.VehicleId);
+    if (vehicle is null) return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Invoice vehicle must exist before AutoCount sync.")]));
+
+    var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.CustomerId);
+    if (customer is null) return Results.BadRequest(new ValidationResult([new ValidationError("customer_not_found", "Invoice customer must exist before AutoCount sync.")]));
+
+    var now = DateTime.UtcNow;
+    var retryCount = existingJobs.Count(job => job.Status == AutoCountSyncStatus.Failed);
+    var submittedJob = new AutoCountSyncJob
+    {
+        FinanceInvoiceId = invoice.Id,
+        PaymentRecordId = invoice.PaymentRecordId,
+        Status = AutoCountSyncStatus.Submitted,
+        RetryCount = retryCount,
+        SubmittedBy = StaffIdentity.CurrentUserId(context),
+        SubmittedAt = now,
+        CreatedAt = now,
+        UpdatedAt = now
+    };
+    db.AutoCountSyncJobs.Add(submittedJob);
+    ApiAudit.Add(db, context.User, "autocountSync.submitted", nameof(AutoCountSyncJob), submittedJob.Id);
+    await db.SaveChangesAsync(cancellationToken);
+
+    var result = await autoCountClient.SubmitSalesInvoiceAsync(invoice, payment, vehicle, customer, cancellationToken);
+    var completedAt = DateTime.UtcNow;
+    db.Entry(submittedJob).CurrentValues.SetValues(submittedJob with
+    {
+        Status = result.Status,
+        ExternalDocumentId = result.ExternalDocumentId,
+        ExternalDocumentNumber = result.ExternalDocumentNumber,
+        ResponseSummary = result.ResponseSummary,
+        LastError = result.Error,
+        UpdatedAt = completedAt
+    });
+
+    if (result.Status == AutoCountSyncStatus.Synced)
+    {
+        db.Entry(payment).CurrentValues.SetValues(payment with { AutoCountKeyed = true });
+        ApiAudit.Add(db, context.User, "autocountSync.synced", nameof(AutoCountSyncJob), submittedJob.Id);
+    }
+    else
+    {
+        ApiAudit.Add(db, context.User, "autocountSync.failed", nameof(AutoCountSyncJob), submittedJob.Id);
+    }
+
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(FinanceInvoiceMapping.ToResponse(submittedJob with
+    {
+        Status = result.Status,
+        ExternalDocumentId = result.ExternalDocumentId,
+        ExternalDocumentNumber = result.ExternalDocumentNumber,
+        ResponseSummary = result.ResponseSummary,
+        LastError = result.Error,
+        UpdatedAt = completedAt
+    }));
 }).RequireAuthorization("Finance");
 backOffice.MapGet("/settlement-reminders", async (AppDbContext db) => await db.SettlementReminders.AsNoTracking().OrderBy(reminder => reminder.Deadline).ToListAsync()).RequireAuthorization("Finance");
 backOffice.MapPost("/settlement-reminders", async (SettlementReminder reminder, AppDbContext db, HttpContext context) =>

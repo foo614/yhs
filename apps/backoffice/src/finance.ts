@@ -1,9 +1,9 @@
-import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
+import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, FinanceInvoice, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
 
 export const financeDocumentCategories = ["PaymentReceipt", "PaymentInvoice"] as const;
 
-export function canReconcilePayment(payment: PaymentRecord, existing: PaymentRecord[] = []) {
-  return paymentReconcileBlockReason(payment, existing) === undefined;
+export function canReconcilePayment(payment: PaymentRecord, existing: PaymentRecord[] = [], invoice?: FinanceInvoice | null) {
+  return paymentReconcileBlockReason(payment, existing, invoice) === undefined;
 }
 
 export function canCorrectReconciledPayment(payment: PaymentRecord) {
@@ -18,7 +18,7 @@ export function canReopenPaidDailySpend(spend: DailySpend) {
   return spend.isPaid;
 }
 
-export function paymentCreateBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = []) {
+export function paymentCreateBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = [], invoice?: FinanceInvoice | null) {
   if (payment.nettPrice <= 0) {
     return "Payment nett price must be greater than zero.";
   }
@@ -56,6 +56,11 @@ export function paymentCreateBlockReason(payment: PaymentRecord, existing: Payme
     return checklistReason;
   }
 
+  const invoiceReason = paymentInvoiceSyncBlockReason(invoice);
+  if (invoiceReason) {
+    return invoiceReason;
+  }
+
   if (hasDuplicateReference(payment, existing)) {
     return "Receipt or invoice is already used by another payment.";
   }
@@ -63,7 +68,7 @@ export function paymentCreateBlockReason(payment: PaymentRecord, existing: Payme
   return undefined;
 }
 
-export function paymentReconcileBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = []) {
+export function paymentReconcileBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = [], invoice?: FinanceInvoice | null) {
   if (payment.status === "Reconciled") {
     return "Payment is already reconciled.";
   }
@@ -79,6 +84,11 @@ export function paymentReconcileBlockReason(payment: PaymentRecord, existing: Pa
   const checklistReason = paymentChecklistBlockReason(payment);
   if (checklistReason) {
     return checklistReason;
+  }
+
+  const invoiceReason = paymentInvoiceSyncBlockReason(invoice);
+  if (invoiceReason) {
+    return invoiceReason;
   }
 
   if (hasDuplicateReference(payment, existing)) {
@@ -113,12 +123,18 @@ function paymentChecklistBlockReason(payment: PaymentRecord) {
     return "Finance checklist must be validated before reconciliation.";
   }
 
-  if (!payment.invoiceGenerated) {
-    return "Payment invoice must be generated before reconciliation.";
+  return undefined;
+}
+
+function paymentInvoiceSyncBlockReason(invoice?: FinanceInvoice | null) {
+  if (!invoice) {
+    return "Generated sales invoice is required before reconciliation.";
   }
 
-  if (!payment.autoCountKeyed) {
-    return "AutoCount key-in must be marked before reconciliation.";
+  if (invoice.latestSync?.status !== "Synced") {
+    return invoice.latestSync?.status === "Failed"
+      ? "AutoCount sync failed; retry before reconciliation."
+      : "AutoCount sync must be completed before reconciliation.";
   }
 
   return undefined;

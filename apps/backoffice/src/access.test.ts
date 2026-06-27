@@ -39,7 +39,7 @@ describe("backoffice role access", () => {
   });
 
   it("loads only the data sets needed by department roles", () => {
-    expect(backOfficeDataKeysForRoles(["Finance"])).toEqual(["vehicleLookup", "customers", "owners", "payments", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["Finance"])).toEqual(["vehicleLookup", "customers", "owners", "payments", "financeInvoices", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["Loan"])).toEqual(["vehicleLookup", "customers", "loans", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["Repair"])).toEqual(["vehicleLookup", "supplierInvoices", "repairs", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["Delivery"])).toEqual(["vehicleLookup", "deliveries", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);

@@ -18,6 +18,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
     public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
+    public DbSet<FinanceInvoice> FinanceInvoices => Set<FinanceInvoice>();
+    public DbSet<AutoCountSyncJob> AutoCountSyncJobs => Set<AutoCountSyncJob>();
     public DbSet<SettlementReminder> SettlementReminders => Set<SettlementReminder>();
     public DbSet<DailySpend> DailySpends => Set<DailySpend>();
     public DbSet<BrokerCommission> BrokerCommissions => Set<BrokerCommission>();
@@ -42,6 +44,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<VehiclePhoto>().Property(photo => photo.Content).HasColumnType("bytea");
         builder.Entity<VehiclePhoto>().Property(photo => photo.Thumbnail).HasColumnType("bytea");
         builder.Entity<DocumentBlob>().Property(document => document.Content).HasColumnType("bytea");
+        builder.Entity<FinanceInvoice>().Property(invoice => invoice.Content).HasColumnType("bytea");
+        builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.PaymentRecordId).IsUnique();
+        builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.InvoiceNumber).IsUnique();
+        builder.Entity<AutoCountSyncJob>().HasIndex(job => job.FinanceInvoiceId);
+        builder.Entity<AutoCountSyncJob>().HasIndex(job => job.PaymentRecordId);
         builder.Entity<HrAttendanceRecord>().HasIndex(record => new { record.StaffUserId, record.AttendanceDate });
         builder.Entity<HrLeaveBalance>().HasIndex(balance => balance.StaffUserId).IsUnique();
         builder.Entity<HrLeavePolicy>().HasIndex(policy => policy.Role).IsUnique();

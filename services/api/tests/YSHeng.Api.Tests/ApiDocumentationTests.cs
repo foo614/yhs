@@ -41,6 +41,7 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<LoanStatus>(apiDocs);
         AssertDocumentedEnum<DeliveryStatus>(apiDocs);
         AssertDocumentedEnum<PaymentStatus>(apiDocs);
+        AssertDocumentedEnum<AutoCountSyncStatus>(apiDocs);
         AssertDocumentedEnum<PaymentVoucherStatus>(apiDocs);
         AssertDocumentedEnum<DebtRecoveryStatus>(apiDocs);
         AssertDocumentedEnum<FileCategory>(apiDocs);
@@ -165,7 +166,7 @@ public sealed class ApiDocumentationTests
     {
         var policies = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var section = ExtractMarkdownSection(apiDocs, "## Back-Office Role Policies");
-        var rowPattern = new Regex(@"^\| `(?<policy>[^`]+)` \| (?<roles>.+) \|$", RegexOptions.Compiled | RegexOptions.Multiline);
+        var rowPattern = new Regex(@"^\| `(?<policy>[^`]+)` \| (?<roles>.+) \|\r?$", RegexOptions.Compiled | RegexOptions.Multiline);
 
         foreach (Match match in rowPattern.Matches(section))
         {
@@ -195,7 +196,7 @@ public sealed class ApiDocumentationTests
     {
         var section = ExtractMarkdownSubsection(apiDocs, "Document upload ownership:");
         var ownership = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        var rowPattern = new Regex(@"^\| (?<categories>.+) \| (?<roles>.+) \|$", RegexOptions.Compiled | RegexOptions.Multiline);
+        var rowPattern = new Regex(@"^\| (?<categories>.+) \| (?<roles>.+) \|\r?$", RegexOptions.Compiled | RegexOptions.Multiline);
 
         foreach (Match match in rowPattern.Matches(section))
         {
