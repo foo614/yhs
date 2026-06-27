@@ -14,7 +14,17 @@ var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
-builder.Services.AddScoped<IOcrExtractor, LocalMockOcrExtractor>();
+builder.Services.Configure<BaiduUnlimitedOcrOptions>(builder.Configuration.GetSection("Ocr:BaiduUnlimited"));
+builder.Services.AddHttpClient<BaiduUnlimitedOcrClient>();
+builder.Services.AddScoped<BaiduUnlimitedOcrExtractor>();
+builder.Services.AddScoped<LocalMockOcrExtractor>();
+builder.Services.AddScoped<IOcrExtractor>(services =>
+{
+    var provider = services.GetRequiredService<IConfiguration>().GetValue("Ocr:Provider", "BaiduUnlimited");
+    return string.Equals(provider, "LocalMock", StringComparison.OrdinalIgnoreCase)
+        ? services.GetRequiredService<LocalMockOcrExtractor>()
+        : services.GetRequiredService<BaiduUnlimitedOcrExtractor>();
+});
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = UploadPolicy.MultipartBodyLimit;
@@ -269,26 +279,44 @@ backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", asy
     return document is null ? Results.NotFound() : Results.File(document.Content, document.MimeType, document.FileName);
 });
 
-backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid documentId, AppDbContext db, HttpContext context, IOcrExtractor extractor) =>
+backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid documentId, AppDbContext db, HttpContext context, IOcrExtractor extractor, CancellationToken cancellationToken) =>
 {
     var document = await db.DocumentBlobs.FirstOrDefaultAsync(item => item.Id == documentId);
     if (document is null) return Results.NotFound();
     var roles = SeedData.Roles.Where(context.User.IsInRole);
     if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
 
-    var extraction = extractor.Analyze(document, await db.Vehicles.AsNoTracking().ToListAsync());
+    OcrExtractionResult? extraction = null;
+    OcrJobStatus status;
+    string[] warnings;
+    try
+    {
+        extraction = await extractor.AnalyzeAsync(document, await db.Vehicles.AsNoTracking().ToListAsync(), cancellationToken);
+        status = OcrJobStatus.NeedsReview;
+        warnings = extraction.Warnings.ToArray();
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        status = OcrJobStatus.Failed;
+        warnings = [$"OCR analysis failed: {ex.Message}"];
+    }
+
     var job = new OcrJob
     {
         DocumentId = document.Id,
         Category = document.Category,
-        Status = OcrJobStatus.NeedsReview,
+        Status = status,
         Progress = 100,
-        ResultJson = JsonSerializer.Serialize(extraction),
-        Warnings = extraction.Warnings.ToArray(),
+        ResultJson = extraction is null ? "" : JsonSerializer.Serialize(extraction),
+        Warnings = warnings,
         CompletedAt = DateTime.UtcNow
     };
     db.OcrJobs.Add(job);
-    ApiAudit.Add(db, context.User, "document.ocr.analyzed", nameof(OcrJob), job.Id);
+    ApiAudit.Add(db, context.User, status == OcrJobStatus.Failed ? "document.ocr.failed" : "document.ocr.analyzed", nameof(OcrJob), job.Id);
     await db.SaveChangesAsync();
     return Results.Created($"/api/ocr-jobs/{job.Id}", OcrJobResponses.ToResponse(job));
 });
@@ -303,6 +331,26 @@ backOffice.MapGet("/ocr-jobs/{jobId:guid}", async (Guid jobId, AppDbContext db, 
     if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
 
     return Results.Ok(OcrJobResponses.ToResponse(job));
+});
+
+backOffice.MapGet("/vehicles/{id:guid}/ocr-jobs", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    if (!await db.Vehicles.AsNoTracking().AnyAsync(vehicle => vehicle.Id == id)) return Results.NotFound();
+
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    var documents = await db.DocumentBlobs.AsNoTracking()
+        .Where(document => document.VehicleId == id)
+        .ToListAsync();
+    var visibleDocuments = documents
+        .Where(document => DepartmentAccess.CanUploadDocument(roles, document.Category))
+        .ToDictionary(document => document.Id);
+    var documentIds = visibleDocuments.Keys.ToList();
+    var jobs = await db.OcrJobs.AsNoTracking()
+        .Where(job => documentIds.Contains(job.DocumentId))
+        .OrderByDescending(job => job.CreatedAt)
+        .ToListAsync();
+
+    return Results.Ok(jobs.Select(job => OcrJobResponses.ToVehicleResponse(job, visibleDocuments[job.DocumentId])));
 });
 
 backOffice.MapGet("/customers", async (AppDbContext db) => await db.Customers.AsNoTracking().OrderBy(customer => customer.Name).ToListAsync()).RequireAuthorization("CustomerRead");
@@ -1334,5 +1382,28 @@ internal static class OcrJobResponses
         job.Warnings,
         job.CreatedAt,
         job.CompletedAt
+    };
+
+    public static object ToVehicleResponse(OcrJob job, DocumentBlob document) => new
+    {
+        job.Id,
+        job.DocumentId,
+        job.Category,
+        job.Status,
+        job.Progress,
+        Result = string.IsNullOrWhiteSpace(job.ResultJson) ? null : JsonSerializer.Deserialize<OcrExtractionResult>(job.ResultJson),
+        job.Warnings,
+        job.CreatedAt,
+        job.CompletedAt,
+        Document = new
+        {
+            document.Id,
+            document.FileName,
+            document.MimeType,
+            document.Category,
+            document.Checksum,
+            document.UploadedBy,
+            document.UploadedAt
+        }
     };
 }
