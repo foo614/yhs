@@ -42,7 +42,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Vehicles/intake | Implemented, verified | Vehicle CRUD, customer/owner links, purchase invoice tracking, duplicate plate validation, upload metadata. |
 | Repairs/refurbishment | Implemented, verified | Repair jobs, repair parts, supplier invoices, duplicate/wrong-plate validation, repair document uploads. |
 | Loan workflow | Implemented, verified | Loan CRUD, LOU status rules, document completeness check, 3-day reminders, loan-owned uploads. |
-| Delivery workflow | Implemented, verified | Scheduling, PIC, inspection booking/report, handover refs, preparation checklist, release readiness, 2-day notice. |
+| Delivery workflow | Implemented, verified | Scheduling, PIC, inspection booking/report, handover refs, preparation checklist, release readiness, expiry tracking, release evidence completeness, 2-day notice. |
 | Finance/payment tracking | Implemented, verified | Payments, reconciliation prerequisites, settlements, daily spend, broker commissions/CP58 state, debt recovery, payment vouchers, finance document uploads. |
 | Leads triage | Implemented, verified | Public enquiries appear in back office, lead/customer linking, status/customer-link filters, duplicate phone reuse. |
 | Audit log | Implemented, verified | Authenticated mutations write staff actor; Boss/Admin audit log filters by actor/action/entity. |

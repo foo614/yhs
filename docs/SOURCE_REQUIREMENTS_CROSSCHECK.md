@@ -26,7 +26,7 @@ It is intended to keep the implementation aligned with the original business voc
 | Payment key in, Boss Check, payment status | Implemented | Finance checklist fields, Boss Check, status workflow, payment reminders, reconciliation validation. |
 | Outstation pickup allowance, schedule, booking slip | Implemented | Vehicle intake tracks allowance/schedule/booking slip; payment voucher workflow covers allowance follow-up. |
 | Loan edit, submit, follow-up, 3-day reminder, LOU, upload document | Implemented | Loan CRUD/status rules, LOU validation, 3-day reminders, loan-owned uploads. |
-| Delivery booking inspection, schedule, PIC, notification, inspection, prepare document, report | Implemented | Delivery workflow statuses, PIC/schedule, inspection booking/report references, document readiness, 2-day notice. |
+| Delivery booking inspection, schedule, PIC, notification, inspection, prepare document, report | Implemented | Delivery workflow statuses, PIC/schedule, inspection booking/report references, document readiness, expiry tracking, release evidence completeness, 2-day notice. |
 | Polish, tinted, wash, final checklist | Implemented | Delivery preparation checklist and release blocking rules. |
 | Insurance, road tax, windscreen insurance | Implemented | Delivery handover references, document categories, readiness validation. |
 | Customer invoice detail: sales price, interest/additional charges, NCD, windscreen charges, outstation delivery date | Implemented | Finance payment fields, validation, smoke round trip. |

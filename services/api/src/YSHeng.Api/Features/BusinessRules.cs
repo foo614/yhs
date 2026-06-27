@@ -1515,7 +1515,44 @@ public static class DeliveryRules
         delivery.InsuranceHandled &&
         delivery.RoadTaxHandled &&
         delivery.WindscreenInsuranceHandled &&
-        delivery.TwoDayNoticeSent;
+        delivery.TwoDayNoticeSent &&
+        MissingReleaseEvidence(delivery).Count == 0 &&
+        ExpiredDeliveryDocuments(delivery).Count == 0;
+
+    public static IReadOnlyList<string> MissingReleaseEvidence(DeliverySchedule delivery)
+    {
+        var missing = new List<string>();
+        if (!delivery.HandoverPhotoCaptured)
+        {
+            missing.Add("Handover photo");
+        }
+
+        if (!delivery.SignedHandoverReceived)
+        {
+            missing.Add("Signed handover document");
+        }
+
+        if (!delivery.CustomerAcknowledged)
+        {
+            missing.Add("Customer acknowledgement");
+        }
+
+        if (!delivery.FinalChecklistConfirmed)
+        {
+            missing.Add("Final checklist confirmation");
+        }
+
+        return missing;
+    }
+
+    public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery)
+    {
+        var issues = new List<string>();
+        AddExpiryIssue(issues, delivery.InsuranceExpiryDate, delivery.ScheduledDate, "Insurance policy");
+        AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, delivery.ScheduledDate, "Road tax");
+        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, delivery.ScheduledDate, "Windscreen insurance");
+        return issues;
+    }
 
     public static ValidationResult Validate(DeliverySchedule delivery)
     {
@@ -1556,8 +1593,22 @@ public static class DeliveryRules
             : new ValidationResult([new ValidationError("delivery_not_ready", DeliveryReleaseBlockedMessage)]);
     }
 
-    public const string DeliveryNotReadyMessage = "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.";
-    public const string DeliveryReleaseBlockedMessage = "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.";
+    private static void AddExpiryIssue(ICollection<string> issues, DateOnly? expiryDate, DateOnly scheduledDate, string label)
+    {
+        if (expiryDate is null)
+        {
+            issues.Add($"{label} expiry date missing");
+            return;
+        }
+
+        if (expiryDate.Value < scheduledDate)
+        {
+            issues.Add($"{label} expires before delivery date");
+        }
+    }
+
+    public const string DeliveryNotReadyMessage = "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
+    public const string DeliveryReleaseBlockedMessage = "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
 }
 
 public static class DeliveryDocumentRules

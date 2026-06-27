@@ -35,14 +35,39 @@ export function deliveryCreateBlockReason(delivery: DeliverySchedule) {
   }
 
   if (delivery.status === "ReadyForRelease" && !canReleaseDelivery(delivery)) {
-    return "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.";
+    return "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
   }
 
   if (delivery.status === "Released" && !isChecklistComplete(delivery)) {
-    return "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.";
+    return "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
   }
 
   return undefined;
+}
+
+export function missingReleaseEvidence(delivery: DeliverySchedule) {
+  const missing: string[] = [];
+  if (!delivery.handoverPhotoCaptured) {
+    missing.push("Handover photo");
+  }
+  if (!delivery.signedHandoverReceived) {
+    missing.push("Signed handover document");
+  }
+  if (!delivery.customerAcknowledged) {
+    missing.push("Customer acknowledgement");
+  }
+  if (!delivery.finalChecklistConfirmed) {
+    missing.push("Final checklist confirmation");
+  }
+  return missing;
+}
+
+export function expiredDeliveryDocuments(delivery: DeliverySchedule) {
+  const issues: string[] = [];
+  addExpiryIssue(issues, delivery.insuranceExpiryDate, delivery.scheduledDate, "Insurance policy");
+  addExpiryIssue(issues, delivery.roadTaxExpiryDate, delivery.scheduledDate, "Road tax");
+  addExpiryIssue(issues, delivery.windscreenInsuranceExpiryDate, delivery.scheduledDate, "Windscreen insurance");
+  return issues;
 }
 
 function isChecklistComplete(delivery: DeliverySchedule) {
@@ -55,7 +80,21 @@ function isChecklistComplete(delivery: DeliverySchedule) {
     delivery.insuranceHandled &&
     delivery.roadTaxHandled &&
     delivery.windscreenInsuranceHandled &&
-    delivery.twoDayNoticeSent;
+    delivery.twoDayNoticeSent &&
+    missingReleaseEvidence(delivery).length === 0 &&
+    expiredDeliveryDocuments(delivery).length === 0;
+}
+
+function addExpiryIssue(issues: string[], expiryDate: string | undefined, scheduledDate: string, label: string) {
+  const normalizedExpiry = expiryDate?.trim();
+  if (!normalizedExpiry) {
+    issues.push(`${label} expiry date missing`);
+    return;
+  }
+
+  if (normalizedExpiry < scheduledDate) {
+    issues.push(`${label} expires before delivery date`);
+  }
 }
 
 export function markTwoDayNoticeSent(delivery: DeliverySchedule): DeliverySchedule {

@@ -131,7 +131,7 @@ Document upload ownership:
 | `GET` | `/api/deliveries` | `Deliveries` | List delivery schedules. |
 | `POST` | `/api/deliveries` | `Deliveries` | Create delivery workflow record. |
 | `PUT` | `/api/deliveries/{id}` | `Deliveries` | Update delivery workflow record. |
-| `GET` | `/api/deliveries/{id}/release-readiness` | `Deliveries` | Check delivery checklist and required documents. |
+| `GET` | `/api/deliveries/{id}/release-readiness` | `Deliveries` | Check delivery checklist, required documents, release evidence, and expiry readiness. |
 | `GET` | `/api/repairs` | `Repairs` | List repair jobs. |
 | `POST` | `/api/repairs` | `Repairs` | Create repair job. |
 | `PUT` | `/api/repairs/{id}` | `Repairs` | Update repair job. |
@@ -142,6 +142,8 @@ Document upload ownership:
 | `PUT` | `/api/leads/{id}` | `Sales` | Update lead/customer link/status. |
 
 Lead status ownership: the first staff member who moves a lead out of `New` is recorded as the taker. After that, only that same staff member can change the lead status.
+
+Delivery release-readiness responses include `isReady`, `missingCategories`, `missingEvidence`, and `expiredDocuments` so the back office can show uploaded-document, handover-evidence, and expiry blockers before release.
 
 ## Finance
 

@@ -194,10 +194,17 @@ export type DeliverySchedule = {
   twoDayNoticeSent: boolean;
   insuranceHandled: boolean;
   insurancePolicyReference?: string;
+  insuranceExpiryDate?: string;
   roadTaxHandled: boolean;
   roadTaxReceiptReference?: string;
+  roadTaxExpiryDate?: string;
   windscreenInsuranceHandled: boolean;
   windscreenPolicyReference?: string;
+  windscreenInsuranceExpiryDate?: string;
+  handoverPhotoCaptured: boolean;
+  signedHandoverReceived: boolean;
+  customerAcknowledged: boolean;
+  finalChecklistConfirmed: boolean;
 };
 
 export type PaymentRecord = {
@@ -437,6 +444,8 @@ export type LoanDocumentCheck = {
 export type DeliveryReleaseReadiness = {
   isReady: boolean;
   missingCategories: DocumentCategory[];
+  missingEvidence: string[];
+  expiredDocuments: string[];
 };
 
 export type CurrentUser = {
@@ -529,7 +538,7 @@ export async function getLoanDocumentCheck(loanId: string): Promise<LoanDocument
 }
 
 export async function getDeliveryReleaseReadiness(deliveryId: string): Promise<DeliveryReleaseReadiness> {
-  return getWithNetworkFallback(`/api/deliveries/${deliveryId}/release-readiness`, { isReady: false, missingCategories: [] });
+  return getWithNetworkFallback(`/api/deliveries/${deliveryId}/release-readiness`, { isReady: false, missingCategories: [], missingEvidence: [], expiredDocuments: [] });
 }
 
 export async function login(email: string, password: string) {
@@ -1336,10 +1345,17 @@ function fallbackDeliveries(): DeliverySchedule[] {
       twoDayNoticeSent: true,
       insuranceHandled: true,
       insurancePolicyReference: "POL-DEMO-1001",
+      insuranceExpiryDate: "2026-06-30",
       roadTaxHandled: true,
       roadTaxReceiptReference: "RT-DEMO-1001",
+      roadTaxExpiryDate: "2026-06-30",
       windscreenInsuranceHandled: true,
-      windscreenPolicyReference: "WS-DEMO-1001"
+      windscreenPolicyReference: "WS-DEMO-1001",
+      windscreenInsuranceExpiryDate: "2026-06-30",
+      handoverPhotoCaptured: true,
+      signedHandoverReceived: true,
+      customerAcknowledged: false,
+      finalChecklistConfirmed: false
     }
   ];
 }
