@@ -27,6 +27,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Vehicle photo and document uploads are stored in PostgreSQL blobs with metadata for MIME type, category, checksum, linked entity, and authenticated uploader; vehicle photos also create cached JPEG thumbnails with SkiaSharp.
 - ASP.NET multipart parsing allows a small request overhead above the 10 MB document payload limit, while endpoint validation still enforces 10 MB documents and the stricter 5 MB vehicle-photo limit before storing blobs.
 - Document uploads reject the `VehiclePhoto` category so photos stay on the photo endpoint with thumbnail generation and the separate 5 MB image limit.
+- Uploaded receipt and invoice OCR now runs through a Baidu Unlimited-OCR-compatible backend service, storing reviewable draft fields in `OcrJobs` while preserving document category authorization.
 - Back-office vehicle intake shows uploaded website photo metadata, including uploader and checksum, next to document metadata and download/preview links.
 - Public vehicle listings now request the latest uploaded vehicle thumbnail from `/api/public/vehicles/{id}/photo` and gracefully fall back to initials when no photo exists.
 - Public vehicle detail pages now fetch `GET /api/public/vehicles/{id}` directly and return not-found for vehicles the public API rejects.

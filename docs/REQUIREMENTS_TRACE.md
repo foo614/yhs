@@ -80,7 +80,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Rules-based reminders | Implemented, verified | Reminder worker and dashboard reminder inbox; smoke checks loan, delivery, payment, spend, debt, voucher reminders. |
 | Workflow validations/status changes | Implemented, verified | Loan moves vehicles to LoanProcessing/private; reconciled/corrected payments update sold/loan-processing state; smoke checks automation. |
 | Audit trails | Implemented, verified | Mutation audit records with authenticated staff email; public lead audit actor. |
-| OCR/AI/WhatsApp/AutoCount | Extension point | AutoCount key-in is tracked manually; WhatsApp/OCR/AI remain explicitly outside MVP and documented as extension points. |
+| OCR/AI/WhatsApp/AutoCount | OCR implemented for document review; other AI/automation remains extension point | Document OCR uses a Baidu Unlimited-OCR-compatible backend service and stores extracted draft fields in `OcrJobs`; AutoCount key-in is tracked manually, while WhatsApp, loan eligibility prediction, photo optimization, and profit prediction remain extension points. |
 | Salary/pay slip/CP58 generation | Implemented for HR payslips; CP58 remains extension point | HR payslips calculate daily salary from configured working days and exclude statutory payroll formulas; CP58 state remains represented without generating statutory forms. |
 
 ## Verification Evidence

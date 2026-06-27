@@ -96,8 +96,16 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `POST` | `/api/vehicles/{id}/documents?category={FileCategory}` | Category-specific role | Upload document, max 10 MB. |
 | `GET` | `/api/vehicles/{id}/documents` | `BackOffice` | List document metadata. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | `BackOffice` | Download document content. |
-| `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start local OCR analysis for receipt or invoice review. |
+| `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start Baidu Unlimited-OCR analysis for receipt or invoice review. |
 | `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, warnings, and extracted draft fields. |
+| `GET` | `/api/vehicles/{id}/ocr-jobs` | Category-specific role | List captured OCR receipt or invoice data for uploaded vehicle documents visible to the signed-in department. |
+
+OCR runtime:
+
+- The default OCR provider is `BaiduUnlimited`, configured through `Ocr__BaiduUnlimited__Endpoint` with an OpenAI-compatible Baidu Unlimited-OCR/SGLang server, usually `http://127.0.0.1:10000`.
+- `Ocr__BaiduUnlimited__Model` defaults to `Unlimited-OCR`; `Ocr__BaiduUnlimited__ImageMode` defaults to `gundam`.
+- The current backend adapter sends uploaded image files to the OCR service; PDF conversion must happen before upload or inside a separate OCR gateway.
+- `Ocr__Provider=LocalMock` is only for local deterministic fallback or tests.
 
 Document upload ownership:
 

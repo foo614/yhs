@@ -1,5 +1,8 @@
 using System.Security.Claims;
+using System.Net;
+using System.Text;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
 using YSHeng.Api.Features;
@@ -2127,6 +2130,56 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public async Task Baidu_unlimited_ocr_extractor_sends_image_to_openai_compatible_endpoint()
+    {
+        string? requestBody = null;
+        Uri? requestUri = null;
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            requestUri = request.RequestUri;
+            requestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    data: {"choices":[{"delta":{"content":"Purchase invoice PI-1001 plate VPK1234 "}}]}
+
+                    data: {"choices":[{"delta":{"content":"amount RM 52000.00"}}]}
+
+                    data: [DONE]
+
+                    """,
+                    Encoding.UTF8,
+                    "text/event-stream")
+            };
+        });
+        var client = new BaiduUnlimitedOcrClient(
+            new HttpClient(handler),
+            Options.Create(new BaiduUnlimitedOcrOptions { Endpoint = "http://ocr.local:10000", RequestTimeoutSeconds = 30 }));
+        var extractor = new BaiduUnlimitedOcrExtractor(client);
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "VPK1234" };
+        var document = new DocumentBlob
+        {
+            VehicleId = vehicle.Id,
+            Category = FileCategory.PurchaseInvoice,
+            FileName = "purchase.png",
+            MimeType = "image/png",
+            Content = [1, 2, 3]
+        };
+
+        var result = await extractor.AnalyzeAsync(document, [vehicle]);
+
+        Assert.Equal("http://ocr.local:10000/v1/chat/completions", requestUri?.ToString());
+        Assert.Contains(@"""model"":""Unlimited-OCR""", requestBody);
+        Assert.Contains(@"""image_mode"":""gundam""", requestBody);
+        Assert.Contains("data:image/png;base64,AQID", requestBody);
+        Assert.Equal("PI-1001", result.Fields["invoiceNumber"]);
+        Assert.Equal("VPK1234", result.Fields["plateNumber"]);
+        Assert.Equal("52000.00", result.Fields["amount"]);
+        Assert.Contains(result.Warnings, warning => warning.Contains("Baidu Unlimited-OCR", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Reminder_worker_retries_when_database_schema_is_not_ready()
     {
         Assert.True(ReminderWorkerPolicy.IsMissingSchemaErrorCode("42P01"));
@@ -2167,6 +2220,12 @@ public sealed class BusinessRulesTests
         Assert.False(ReminderRules.IsPaymentStatusFollowUpDue(payment, new DateOnly(2026, 5, 31)));
         Assert.False(ReminderRules.IsPaymentStatusFollowUpDue(payment with { Status = PaymentStatus.Reconciled }, new DateOnly(2026, 6, 1)));
     }
+}
+
+internal sealed class StubHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        handler(request);
 }
 
 internal static class VehicleSeed

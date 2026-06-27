@@ -1,11 +1,14 @@
 using System.Text.RegularExpressions;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.Options;
 using YSHeng.Api.Domain;
 
 namespace YSHeng.Api.Features;
 
 public interface IOcrExtractor
 {
-    OcrExtractionResult Analyze(DocumentBlob document, IEnumerable<Vehicle> vehicles);
+    Task<OcrExtractionResult> AnalyzeAsync(DocumentBlob document, IEnumerable<Vehicle> vehicles, CancellationToken cancellationToken = default);
 }
 
 public sealed record OcrExtractionResult(
@@ -16,59 +19,147 @@ public sealed record OcrExtractionResult(
     string RawText,
     IReadOnlyList<string> Warnings);
 
+public sealed class BaiduUnlimitedOcrOptions
+{
+    public string Endpoint { get; init; } = "http://127.0.0.1:10000";
+    public string Model { get; init; } = "Unlimited-OCR";
+    public string Prompt { get; init; } = "document parsing.";
+    public string ImageMode { get; init; } = "gundam";
+    public int RequestTimeoutSeconds { get; init; } = 1200;
+    public bool Stream { get; init; } = true;
+}
+
+public sealed record BaiduUnlimitedOcrRecognition(string RawText, decimal Confidence, IReadOnlyList<string> Warnings);
+
+public sealed class BaiduUnlimitedOcrClient(HttpClient httpClient, IOptions<BaiduUnlimitedOcrOptions> options)
+{
+    private readonly BaiduUnlimitedOcrOptions _options = options.Value;
+
+    public async Task<BaiduUnlimitedOcrRecognition> RecognizeAsync(DocumentBlob document, CancellationToken cancellationToken = default)
+    {
+        if (!document.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Baidu Unlimited-OCR requires an uploaded image file for this backend flow.");
+        }
+
+        httpClient.Timeout = TimeSpan.FromSeconds(Math.Max(30, _options.RequestTimeoutSeconds));
+        var endpoint = new Uri(new Uri(_options.Endpoint.TrimEnd('/') + "/", UriKind.Absolute), "v1/chat/completions");
+        var payload = BuildPayload(document);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+        };
+        using var response = await httpClient.SendAsync(
+            request,
+            _options.Stream ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var rawText = _options.Stream
+            ? await ReadStreamingTextAsync(response, cancellationToken)
+            : await ReadCompletionTextAsync(response, cancellationToken);
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            throw new InvalidOperationException("Baidu Unlimited-OCR returned no readable text.");
+        }
+
+        return new BaiduUnlimitedOcrRecognition(
+            rawText.Trim(),
+            0.86m,
+            ["Baidu Unlimited-OCR result. Review extracted values before saving."]);
+    }
+
+    private object BuildPayload(DocumentBlob document)
+    {
+        var base64 = Convert.ToBase64String(document.Content);
+        var mimeType = string.IsNullOrWhiteSpace(document.MimeType) ? "image/png" : document.MimeType;
+        var imageUrl = $"data:{mimeType};base64,{base64}";
+        return new
+        {
+            model = _options.Model,
+            messages = new[]
+            {
+                new
+                {
+                    role = "user",
+                    content = new object[]
+                    {
+                        new { type = "text", text = _options.Prompt },
+                        new { type = "image_url", image_url = new { url = imageUrl } }
+                    }
+                }
+            },
+            temperature = 0,
+            skip_special_tokens = false,
+            stream = _options.Stream,
+            images_config = new { image_mode = _options.ImageMode },
+            custom_params = new
+            {
+                ngram_size = 35,
+                window_size = string.Equals(_options.ImageMode, "base", StringComparison.OrdinalIgnoreCase) ? 1024 : 128
+            }
+        };
+    }
+
+    private static async Task<string> ReadStreamingTextAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(stream);
+        var builder = new StringBuilder();
+        while (true)
+        {
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (line is null) break;
+            if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var data = line["data:".Length..].Trim();
+            if (data == "[DONE]") break;
+            if (string.IsNullOrWhiteSpace(data)) continue;
+
+            using var payload = JsonDocument.Parse(data);
+            var delta = payload.RootElement.GetProperty("choices")[0].GetProperty("delta");
+            if (delta.TryGetProperty("content", out var content))
+            {
+                builder.Append(content.GetString());
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static async Task<string> ReadCompletionTextAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var payload = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var choice = payload.RootElement.GetProperty("choices")[0];
+        return choice.GetProperty("message").GetProperty("content").GetString() ?? "";
+    }
+}
+
+public sealed class BaiduUnlimitedOcrExtractor(BaiduUnlimitedOcrClient client) : IOcrExtractor
+{
+    public async Task<OcrExtractionResult> AnalyzeAsync(DocumentBlob document, IEnumerable<Vehicle> vehicles, CancellationToken cancellationToken = default)
+    {
+        var recognition = await client.RecognizeAsync(document, cancellationToken);
+        return OcrExtractionParser.Analyze(
+            document,
+            vehicles,
+            recognition.RawText,
+            recognition.Confidence,
+            recognition.Warnings);
+    }
+}
+
 public sealed class LocalMockOcrExtractor : IOcrExtractor
 {
+    public Task<OcrExtractionResult> AnalyzeAsync(DocumentBlob document, IEnumerable<Vehicle> vehicles, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Analyze(document, vehicles));
+
     public OcrExtractionResult Analyze(DocumentBlob document, IEnumerable<Vehicle> vehicles)
     {
         var text = BuildRawText(document);
-        var fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["vehicleId"] = document.VehicleId?.ToString(),
-            ["plateNumber"] = FindPlate(text) ?? vehicles.FirstOrDefault(vehicle => vehicle.Id == document.VehicleId)?.PlateNumber,
-            ["invoiceNumber"] = FindValue(text, "invoice", "inv") ?? MockReference(document, "INV"),
-            ["receiptNumber"] = FindValue(text, "receipt", "rcpt"),
-            ["amount"] = FindAmount(text) ?? MockAmount(document),
-            ["nettPrice"] = FindAmount(text) ?? MockAmount(document),
-            ["salesPrice"] = FindAmount(text) ?? MockAmount(document),
-            ["bankName"] = FindBank(text),
-            ["documentDate"] = FindDate(text),
-            ["bankFollowUpDate"] = FindDate(text)
-        };
-
-        if (document.Category == FileCategory.RepairInvoice)
-        {
-            fields["supplierName"] = FindValue(text, "supplier", "vendor") ?? "OCR Demo Supplier";
-            fields["plateNumberOnInvoice"] = fields["plateNumber"];
-        }
-
-        if (document.Category == FileCategory.PaymentReceipt)
-        {
-            fields["receiptNumber"] ??= MockReference(document, "RCPT");
-        }
-
-        if (document.Category == FileCategory.PaymentInvoice)
-        {
-            fields["invoiceNumber"] ??= MockReference(document, "PINV");
-        }
-
-        var warnings = new List<string>();
-        if (string.IsNullOrWhiteSpace(fields["plateNumber"]))
-        {
-            warnings.Add("No car plate was detected. Please confirm the linked vehicle before saving.");
-        }
-
-        if (document.Category == FileCategory.RepairInvoice && string.IsNullOrWhiteSpace(fields["supplierName"]))
-        {
-            warnings.Add("Supplier name was not detected.");
-        }
-
-        return new OcrExtractionResult(
-            document.Category,
-            0.82m,
-            fields.Keys.ToDictionary(key => key, _ => 0.8m, StringComparer.OrdinalIgnoreCase),
-            fields,
-            text,
-            warnings);
+        return OcrExtractionParser.Analyze(document, vehicles, text, 0.82m, [], allowMockFallbacks: true);
     }
 
     private static string BuildRawText(DocumentBlob document)
@@ -84,6 +175,73 @@ public sealed class LocalMockOcrExtractor : IOcrExtractor
             FileCategory.PaymentInvoice => $"Payment Invoice {MockReference(document, "PINV")} Bank Maybank Amount RM {MockAmount(document)}",
             _ => $"Document {document.FileName} Amount RM {MockAmount(document)}"
         };
+    }
+
+    private static string MockReference(DocumentBlob document, string prefix) =>
+        $"{prefix}-{document.Id.ToString("N")[..6].ToUpperInvariant()}";
+
+    private static string MockAmount(DocumentBlob document) =>
+        (500 + document.Content.Length).ToString("0.00");
+}
+
+public static class OcrExtractionParser
+{
+    public static OcrExtractionResult Analyze(
+        DocumentBlob document,
+        IEnumerable<Vehicle> vehicles,
+        string text,
+        decimal confidence,
+        IReadOnlyList<string> initialWarnings,
+        bool allowMockFallbacks = false)
+    {
+        var fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["vehicleId"] = document.VehicleId?.ToString(),
+            ["plateNumber"] = FindPlate(text) ?? vehicles.FirstOrDefault(vehicle => vehicle.Id == document.VehicleId)?.PlateNumber,
+            ["invoiceNumber"] = FindValue(text, "invoice", "inv") ?? MockReference(document, "INV", allowMockFallbacks),
+            ["receiptNumber"] = FindValue(text, "receipt", "rcpt"),
+            ["amount"] = FindAmount(text) ?? MockAmount(document, allowMockFallbacks),
+            ["nettPrice"] = FindAmount(text) ?? MockAmount(document, allowMockFallbacks),
+            ["salesPrice"] = FindAmount(text) ?? MockAmount(document, allowMockFallbacks),
+            ["bankName"] = FindBank(text),
+            ["documentDate"] = FindDate(text),
+            ["bankFollowUpDate"] = FindDate(text)
+        };
+
+        if (document.Category == FileCategory.RepairInvoice)
+        {
+            fields["supplierName"] = FindValue(text, "supplier", "vendor") ?? (allowMockFallbacks ? "OCR Demo Supplier" : null);
+            fields["plateNumberOnInvoice"] = fields["plateNumber"];
+        }
+
+        if (document.Category == FileCategory.PaymentReceipt)
+        {
+            fields["receiptNumber"] ??= MockReference(document, "RCPT", allowMockFallbacks);
+        }
+
+        if (document.Category == FileCategory.PaymentInvoice)
+        {
+            fields["invoiceNumber"] ??= MockReference(document, "PINV", allowMockFallbacks);
+        }
+
+        var warnings = new List<string>(initialWarnings);
+        if (string.IsNullOrWhiteSpace(fields["plateNumber"]))
+        {
+            warnings.Add("No car plate was detected. Please confirm the linked vehicle before saving.");
+        }
+
+        if (document.Category == FileCategory.RepairInvoice && string.IsNullOrWhiteSpace(fields["supplierName"]))
+        {
+            warnings.Add("Supplier name was not detected.");
+        }
+
+        return new OcrExtractionResult(
+            document.Category,
+            confidence,
+            fields.Keys.ToDictionary(key => key, _ => 0.8m, StringComparer.OrdinalIgnoreCase),
+            fields,
+            text,
+            warnings);
     }
 
     private static string? FindValue(string text, params string[] labels)
@@ -124,9 +282,9 @@ public sealed class LocalMockOcrExtractor : IOcrExtractor
         return match.Success ? match.Groups["date"].Value : null;
     }
 
-    private static string MockReference(DocumentBlob document, string prefix) =>
-        $"{prefix}-{document.Id.ToString("N")[..6].ToUpperInvariant()}";
+    private static string? MockReference(DocumentBlob document, string prefix, bool allowMockFallbacks) =>
+        allowMockFallbacks ? $"{prefix}-{document.Id.ToString("N")[..6].ToUpperInvariant()}" : null;
 
-    private static string MockAmount(DocumentBlob document) =>
-        (500 + document.Content.Length).ToString("0.00");
+    private static string? MockAmount(DocumentBlob document, bool allowMockFallbacks) =>
+        allowMockFallbacks ? (500 + document.Content.Length).ToString("0.00") : null;
 }
