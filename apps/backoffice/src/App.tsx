@@ -43,7 +43,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { TableProps } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canAssignStaffRoles, firstAccessiblePath, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
-import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent } from "./delivery";
+import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, expiredDeliveryDocuments, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent, missingReleaseEvidence } from "./delivery";
 import { loanCreateBlockReason, loanDocumentCategories, markLoanApproved, markLoanDone } from "./loan";
 import {
   activeLeadCountByVehicle,
@@ -217,7 +217,11 @@ const deliveryChecklistFields = [
   "roadTaxHandled",
   "windscreenInsuranceHandled",
   "notificationSent",
-  "twoDayNoticeSent"
+  "twoDayNoticeSent",
+  "handoverPhotoCaptured",
+  "signedHandoverReceived",
+  "customerAcknowledged",
+  "finalChecklistConfirmed"
 ] as const;
 
 type DeliveryChecklistField = (typeof deliveryChecklistFields)[number];
@@ -232,7 +236,11 @@ const deliveryFieldLabels: Record<DeliveryChecklistField, string> = {
   roadTaxHandled: "Road Tax Handled / 路税",
   windscreenInsuranceHandled: "Windscreen Insurance / 挡风玻璃保险",
   notificationSent: "Customer Notified / 已通知客户",
-  twoDayNoticeSent: "2-day Notice Sent / 提前2天通知"
+  twoDayNoticeSent: "2-day Notice Sent / 提前2天通知",
+  handoverPhotoCaptured: "Handover Photo / 交车照片",
+  signedHandoverReceived: "Signed Handover / 签名交车文件",
+  customerAcknowledged: "Customer Acknowledged / 客户确认",
+  finalChecklistConfirmed: "Final Checklist Confirmed / 最后核对"
 };
 
 const deliveryPreparationChecklist: DeliveryChecklistField[] = [
@@ -249,6 +257,13 @@ const deliveryPreparationChecklist: DeliveryChecklistField[] = [
 const deliveryNotificationChecklist: DeliveryChecklistField[] = [
   "notificationSent",
   "twoDayNoticeSent"
+];
+
+const deliveryEvidenceChecklist: DeliveryChecklistField[] = [
+  "handoverPhotoCaptured",
+  "signedHandoverReceived",
+  "customerAcknowledged",
+  "finalChecklistConfirmed"
 ];
 
 const bilingual = {
@@ -2326,6 +2341,15 @@ function DeliveryPage({
     </span>
   );
 
+  const readinessIssuesFor = (delivery: DeliverySchedule) => {
+    const readiness = releaseReadiness[delivery.id];
+    return {
+      missingCategories: readiness?.missingCategories ?? [],
+      missingEvidence: readiness?.missingEvidence ?? missingReleaseEvidence(delivery),
+      expiredDocuments: readiness?.expiredDocuments ?? expiredDeliveryDocuments(delivery)
+    };
+  };
+
   const deliveryStatusLabel = (status: DeliverySchedule["status"]) => ({
     BookingInspection: "Booking inspection",
     Scheduled: "Scheduled",
@@ -2347,9 +2371,15 @@ function DeliveryPage({
   })[status] ?? "default";
 
   const deliveryActionDisabledReason = (row: DeliverySchedule) => {
-    const missingDocuments = releaseReadiness[row.id]?.missingCategories ?? [];
+    const { missingCategories: missingDocuments, missingEvidence, expiredDocuments } = readinessIssuesFor(row);
     if (missingDocuments.length > 0) {
       return `Missing ${missingDocuments.map(documentCategoryLabel).join(", ")}`;
+    }
+    if (missingEvidence.length > 0) {
+      return `Missing evidence: ${missingEvidence.join(", ")}`;
+    }
+    if (expiredDocuments.length > 0) {
+      return `Expiry issue: ${expiredDocuments.join(", ")}`;
     }
     if (!canMarkDeliveryReady(row) && !canReleaseDelivery(row)) {
       return "Finish the previous delivery steps first.";
@@ -2358,8 +2388,8 @@ function DeliveryPage({
   };
 
   const renderNextDeliveryAction = (row: DeliverySchedule) => {
-    const missingDocuments = releaseReadiness[row.id]?.missingCategories ?? [];
-    const blocksReleaseStep = missingDocuments.length > 0;
+    const { missingCategories, missingEvidence, expiredDocuments } = readinessIssuesFor(row);
+    const blocksReleaseStep = missingCategories.length > 0 || missingEvidence.length > 0 || expiredDocuments.length > 0;
     const blockedReason = deliveryActionDisabledReason(row);
 
     if (canMarkNotificationSent(row)) {
@@ -2440,8 +2470,10 @@ function DeliveryPage({
       render: (_, row) => {
         const readiness = releaseReadiness[row.id];
         const ready = readiness?.isReady ?? isDeliveryReady(row);
-        const missingCategories = readiness?.missingCategories ?? [];
+        const { missingCategories, missingEvidence, expiredDocuments } = readinessIssuesFor(row);
         const missingLabel = missingCategories.map(documentCategoryLabel).join(", ");
+        const evidenceLabel = missingEvidence.join(", ");
+        const expiryLabel = expiredDocuments.join(", ");
         return (
           <Space direction="vertical" size={3} className="deliveryReadinessCell">
             <Tag color={ready ? "green" : "red"}>{ready ? "Ready" : "Blocked"}</Tag>
@@ -2449,6 +2481,20 @@ function DeliveryPage({
               <Tooltip title={missingLabel}>
                 <Typography.Text type="danger" className="deliveryTableText">
                   {missingCategories.length} missing
+                </Typography.Text>
+              </Tooltip>
+            )}
+            {missingEvidence.length > 0 && (
+              <Tooltip title={evidenceLabel}>
+                <Typography.Text type="danger" className="deliveryTableText">
+                  {missingEvidence.length} evidence
+                </Typography.Text>
+              </Tooltip>
+            )}
+            {expiredDocuments.length > 0 && (
+              <Tooltip title={expiryLabel}>
+                <Typography.Text type="warning" className="deliveryTableText">
+                  {expiredDocuments.length} expiry
                 </Typography.Text>
               </Tooltip>
             )}
@@ -2484,6 +2530,9 @@ function DeliveryPage({
                 {selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "Ready for release" : "Blocked"}
               </Tag>
             </Descriptions.Item>
+            <Descriptions.Item label="Insurance Expiry">{selectedDelivery.insuranceExpiryDate ?? "-"}</Descriptions.Item>
+            <Descriptions.Item label="Road Tax Expiry">{selectedDelivery.roadTaxExpiryDate ?? "-"}</Descriptions.Item>
+            <Descriptions.Item label="Windscreen Expiry">{selectedDelivery.windscreenInsuranceExpiryDate ?? "-"}</Descriptions.Item>
           </Descriptions>
         </ProCard>
         <ProCard title="Delivery Record / 出车资料">
@@ -2510,10 +2559,17 @@ function DeliveryPage({
                 twoDayNoticeSent: values.twoDayNoticeSent,
                 insuranceHandled: values.insuranceHandled,
                 insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
+                insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
                 roadTaxHandled: values.roadTaxHandled,
                 roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
+                roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
                 windscreenInsuranceHandled: values.windscreenInsuranceHandled,
-                windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined
+                windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
+                windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
+                handoverPhotoCaptured: values.handoverPhotoCaptured,
+                signedHandoverReceived: values.signedHandoverReceived,
+                customerAcknowledged: values.customerAcknowledged,
+                finalChecklistConfirmed: values.finalChecklistConfirmed
               };
               const blockReason = deliveryCreateBlockReason(delivery);
               if (blockReason) {
@@ -2541,8 +2597,11 @@ function DeliveryPage({
             <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
             <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
             <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
+            <Form.Item name="insuranceExpiryDate" label="Insurance Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
+            <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
+            <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Insurance Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             {deliveryChecklistFields.map((field) => (
               <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
             ))}
@@ -2575,7 +2634,7 @@ function DeliveryPage({
             <Alert
               type="info"
               showIcon
-              message="Upload Policy and Road Tax Receipt before marking a delivery Ready or Released."
+              message="Upload Policy and Road Tax Receipt, record current expiry dates, and complete release evidence before marking Ready or Released."
             />
             <ModuleDocumentList
               vehicleId={selectedDelivery.vehicleId}
@@ -2590,7 +2649,7 @@ function DeliveryPage({
               type="info"
               showIcon
               message="Update final release preparation here."
-              description="Use this checklist to mark preparation work done from the detail page. Upload required Policy/Road Tax/Delivery documents above, then use Ready or Release from the Delivery Workflow table when readiness is complete."
+              description="Use this checklist to mark preparation, notice, handover photo, signed handover, customer acknowledgement, and final release confirmation. Upload required Policy/Road Tax/Delivery documents above, then use Ready or Release from the Delivery Workflow table when readiness is complete."
             />
             <Space wrap>
               <Tag color="blue">{plateFor(vehicles, selectedDelivery.vehicleId)}</Tag>
@@ -2599,6 +2658,12 @@ function DeliveryPage({
               </Tag>
               {selectedDeliveryReadiness?.missingCategories.map((category) => (
                 <Tag color="red" key={category}>Missing {documentCategoryLabel(category)}</Tag>
+              ))}
+              {(selectedDeliveryReadiness?.missingEvidence ?? missingReleaseEvidence(selectedDelivery)).map((item) => (
+                <Tag color="red" key={item}>Missing {item}</Tag>
+              ))}
+              {(selectedDeliveryReadiness?.expiredDocuments ?? expiredDeliveryDocuments(selectedDelivery)).map((item) => (
+                <Tag color="orange" key={item}>{item}</Tag>
               ))}
             </Space>
             <Form
@@ -2644,6 +2709,16 @@ function DeliveryPage({
                     ))}
                   </div>
                 </div>
+                <div>
+                  <Typography.Text className="mobileRecordLabel">Evidence / 交车证据</Typography.Text>
+                  <div className="deliveryChecklistEditGrid compact">
+                    {deliveryEvidenceChecklist.map((field) => (
+                      <Form.Item key={field} name={field} valuePropName="checked">
+                        <Checkbox>{deliveryFieldLabels[field]}</Checkbox>
+                      </Form.Item>
+                    ))}
+                  </div>
+                </div>
               </div>
               <div className="checklistReferenceGrid">
                 {deliveryReferenceChecklist(selectedDelivery).map((item) => (
@@ -2676,7 +2751,7 @@ function DeliveryPage({
             {deliveries.map((delivery) => {
               const readiness = releaseReadiness[delivery.id];
               const ready = readiness?.isReady ?? isDeliveryReady(delivery);
-              const missingCategories = readiness?.missingCategories ?? [];
+              const { missingCategories, missingEvidence, expiredDocuments } = readinessIssuesFor(delivery);
               const nextAction = renderNextDeliveryAction(delivery);
               return (
                 <article className="mobileRecordCard" key={delivery.id}>
@@ -2704,6 +2779,12 @@ function DeliveryPage({
                       <Badge status={delivery.notificationSent ? "success" : "warning"} text={delivery.notificationSent ? "Notified" : "Notify pending"} />
                       {missingCategories.map((category) => (
                         <Tag color="red" key={category}>Missing {documentCategoryLabel(category)}</Tag>
+                      ))}
+                      {missingEvidence.map((item) => (
+                        <Tag color="red" key={item}>Missing {item}</Tag>
+                      ))}
+                      {expiredDocuments.map((item) => (
+                        <Tag color="orange" key={item}>{item}</Tag>
                       ))}
                     </Space>
                   </div>
@@ -2754,10 +2835,17 @@ function DeliveryPage({
             twoDayNoticeSent: values.twoDayNoticeSent,
             insuranceHandled: values.insuranceHandled,
             insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
+            insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
             roadTaxHandled: values.roadTaxHandled,
             roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
+            roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
             windscreenInsuranceHandled: values.windscreenInsuranceHandled,
-            windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined
+            windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
+            windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
+            handoverPhotoCaptured: values.handoverPhotoCaptured,
+            signedHandoverReceived: values.signedHandoverReceived,
+            customerAcknowledged: values.customerAcknowledged,
+            finalChecklistConfirmed: values.finalChecklistConfirmed
           };
           const blockReason = deliveryCreateBlockReason(delivery);
           if (blockReason) {
@@ -2766,7 +2854,7 @@ function DeliveryPage({
           }
           onCreate(delivery);
           setDeliveryCreateOpen(false);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", roadTaxReceiptReference: "", windscreenPolicyReference: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false }}>
+        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
           <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
             <Select
               showSearch
@@ -2781,8 +2869,11 @@ function DeliveryPage({
           <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
           <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
           <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
+          <Form.Item name="insuranceExpiryDate" label="Insurance Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
+          <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
+          <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Insurance Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           {deliveryChecklistFields.map((field) => (
             <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
           ))}
@@ -2821,10 +2912,17 @@ function DeliveryPage({
               twoDayNoticeSent: values.twoDayNoticeSent,
               insuranceHandled: values.insuranceHandled,
               insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
+              insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
               roadTaxHandled: values.roadTaxHandled,
               roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
+              roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
               windscreenInsuranceHandled: values.windscreenInsuranceHandled,
-              windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined
+              windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
+              windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
+              handoverPhotoCaptured: values.handoverPhotoCaptured,
+              signedHandoverReceived: values.signedHandoverReceived,
+              customerAcknowledged: values.customerAcknowledged,
+              finalChecklistConfirmed: values.finalChecklistConfirmed
             };
             const blockReason = deliveryCreateBlockReason(delivery);
             if (blockReason) {
@@ -2857,8 +2955,11 @@ function DeliveryPage({
           <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
           <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
           <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
+          <Form.Item name="insuranceExpiryDate" label="Insurance Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
+          <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
+          <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Insurance Expiry Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           {deliveryChecklistFields.map((field) => (
             <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
           ))}
@@ -3968,7 +4069,9 @@ function isDeliveryReady(delivery: DeliverySchedule) {
     delivery.insuranceHandled &&
     delivery.roadTaxHandled &&
     delivery.windscreenInsuranceHandled &&
-    delivery.twoDayNoticeSent;
+    delivery.twoDayNoticeSent &&
+    missingReleaseEvidence(delivery).length === 0 &&
+    expiredDeliveryDocuments(delivery).length === 0;
 }
 
 function deliveryReferenceChecklist(delivery: DeliverySchedule) {
@@ -3976,9 +4079,24 @@ function deliveryReferenceChecklist(delivery: DeliverySchedule) {
     { label: "Inspection Booking / 验车预约", done: Boolean(delivery.inspectionBookingReference?.trim()) },
     { label: "Inspection Report / 检查报告", done: Boolean(delivery.inspectionReportReference?.trim()) },
     { label: `Policy Ref / 保单: ${delivery.insurancePolicyReference?.trim() || "-"}`, done: Boolean(delivery.insurancePolicyReference?.trim()) },
+    { label: `Policy Expiry: ${delivery.insuranceExpiryDate || "-"}`, done: isCurrentExpiry(delivery.insuranceExpiryDate, delivery.scheduledDate) },
     { label: `Road Tax Receipt / 路税收据: ${delivery.roadTaxReceiptReference?.trim() || "-"}`, done: Boolean(delivery.roadTaxReceiptReference?.trim()) },
-    { label: `Windscreen Ref: ${delivery.windscreenPolicyReference?.trim() || "-"}`, done: Boolean(delivery.windscreenPolicyReference?.trim()) }
+    { label: `Road Tax Expiry: ${delivery.roadTaxExpiryDate || "-"}`, done: isCurrentExpiry(delivery.roadTaxExpiryDate, delivery.scheduledDate) },
+    { label: `Windscreen Ref: ${delivery.windscreenPolicyReference?.trim() || "-"}`, done: Boolean(delivery.windscreenPolicyReference?.trim()) },
+    { label: `Windscreen Expiry: ${delivery.windscreenInsuranceExpiryDate || "-"}`, done: isCurrentExpiry(delivery.windscreenInsuranceExpiryDate, delivery.scheduledDate) },
+    { label: "Handover Photo", done: delivery.handoverPhotoCaptured },
+    { label: "Signed Handover", done: delivery.signedHandoverReceived },
+    { label: "Customer Acknowledgement", done: delivery.customerAcknowledged },
+    { label: "Final Checklist", done: delivery.finalChecklistConfirmed }
   ];
+}
+
+function isCurrentExpiry(expiryDate: string | undefined, scheduledDate: string) {
+  const normalizedExpiry = expiryDate?.trim();
+  if (!normalizedExpiry) {
+    return false;
+  }
+  return normalizedExpiry >= scheduledDate;
 }
 
 function replaceById<T extends { id: string }>(items: T[], record: T) {

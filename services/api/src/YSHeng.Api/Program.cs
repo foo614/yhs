@@ -1326,7 +1326,13 @@ backOffice.MapGet("/deliveries/{id:guid}/release-readiness", async (Guid id, App
     var delivery = await db.DeliverySchedules.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (delivery is null) return Results.NotFound();
     var documentCheck = DeliveryDocumentRules.CheckCompleteness(delivery, await db.DocumentBlobs.AsNoTracking().ToListAsync());
-    return Results.Ok(new { isReady = DeliveryRules.IsReadyForRelease(delivery) && documentCheck.IsComplete, missingCategories = documentCheck.MissingCategories });
+    return Results.Ok(new
+    {
+        isReady = DeliveryRules.IsReadyForRelease(delivery) && documentCheck.IsComplete,
+        missingCategories = documentCheck.MissingCategories,
+        missingEvidence = DeliveryRules.MissingReleaseEvidence(delivery),
+        expiredDocuments = DeliveryRules.ExpiredDeliveryDocuments(delivery)
+    });
 }).RequireAuthorization("Deliveries");
 
 var seedDataEnabled = app.Configuration.GetValue("SeedData:Enabled", app.Environment.IsDevelopment());

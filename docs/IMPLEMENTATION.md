@@ -118,6 +118,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Delivery workflow records reject blank PIC values and missing schedule dates before they enter the schedule/release flow.
 - Delivery workflow records now capture the inspection booking reference separately from the final inspection report reference.
 - Delivery workflow records now capture insurance policy, road tax receipt, and windscreen policy references alongside the handover checklist.
+- Delivery workflow records now track insurance, road tax, and windscreen expiry dates plus release evidence for handover photo, signed handover, customer acknowledgement, and final checklist confirmation.
 - The Delivery scheduling form warns through the shared delivery guard before submitting blank PIC values or missing schedule dates.
 - Delivery workflow records cannot be marked Ready for Release until inspection, documents, preparation checklist, and 2-day notice are complete.
 - Delivery readiness now also requires insurance, road tax, and windscreen insurance handover checks before Ready for Release or Released status.
@@ -132,6 +133,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - The Delivery table only enables Ready after the release checklist is already complete; it no longer auto-completes checklist items.
 - The Delivery table disables Release until the same readiness checklist required by the API is complete.
 - Delivery records can now be edited from the Delivery screen so staff can correct PIC, schedule date, workflow status, checklist flags, inspection references, and handover policy/road-tax/windscreen references without recreating the delivery.
+- Delivery readiness now surfaces missing uploaded handover documents, missing release evidence, and missing or expired document dates in the table, mobile cards, and detail checklist before Ready or Release actions are allowed.
 - Repair jobs reject blank task descriptions and negative costs before they affect dashboard repair cost or estimated profit.
 - The Loan screen now calls the backend document-check rule and shows missing VOC, AP Document, Status Receipt, or Loan Document items directly in the loan workflow table.
 - Loan quick actions now keep LOU Done consistent by marking LOU Approved before completing the loan workflow.

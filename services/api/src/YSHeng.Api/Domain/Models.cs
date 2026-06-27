@@ -147,10 +147,17 @@ public sealed record DeliverySchedule
     public bool TwoDayNoticeSent { get; init; }
     public bool InsuranceHandled { get; init; }
     public string? InsurancePolicyReference { get; init; }
+    public DateOnly? InsuranceExpiryDate { get; init; }
     public bool RoadTaxHandled { get; init; }
     public string? RoadTaxReceiptReference { get; init; }
+    public DateOnly? RoadTaxExpiryDate { get; init; }
     public bool WindscreenInsuranceHandled { get; init; }
     public string? WindscreenPolicyReference { get; init; }
+    public DateOnly? WindscreenInsuranceExpiryDate { get; init; }
+    public bool HandoverPhotoCaptured { get; init; }
+    public bool SignedHandoverReceived { get; init; }
+    public bool CustomerAcknowledged { get; init; }
+    public bool FinalChecklistConfirmed { get; init; }
 }
 
 public sealed record PaymentRecord

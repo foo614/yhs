@@ -270,8 +270,15 @@ describe("backoffice api client", () => {
       notificationSent: false,
       twoDayNoticeSent: false,
       insuranceHandled: false,
+      insuranceExpiryDate: undefined,
       roadTaxHandled: false,
-      windscreenInsuranceHandled: false
+      roadTaxExpiryDate: undefined,
+      windscreenInsuranceHandled: false,
+      windscreenInsuranceExpiryDate: undefined,
+      handoverPhotoCaptured: false,
+      signedHandoverReceived: false,
+      customerAcknowledged: false,
+      finalChecklistConfirmed: false
     };
     const payment: PaymentRecord = {
       id: "00000000-0000-0000-0000-000000000006",
@@ -746,7 +753,9 @@ describe("backoffice api client", () => {
   it("loads delivery release readiness with missing handover document categories", async () => {
     const readiness: DeliveryReleaseReadiness = {
       isReady: false,
-      missingCategories: ["Policy", "RoadTaxReceipt"]
+      missingCategories: ["Policy", "RoadTaxReceipt"],
+      missingEvidence: ["Handover photo"],
+      expiredDocuments: ["Road tax expiry date missing"]
     };
     const fetchMock = mockFetch(readiness);
 
@@ -1059,8 +1068,15 @@ describe("backoffice api client", () => {
       notificationSent: true,
       twoDayNoticeSent: true,
       insuranceHandled: true,
+      insuranceExpiryDate: "2026-06-30",
       roadTaxHandled: true,
-      windscreenInsuranceHandled: true
+      roadTaxExpiryDate: "2026-06-30",
+      windscreenInsuranceHandled: true,
+      windscreenInsuranceExpiryDate: "2026-06-30",
+      handoverPhotoCaptured: true,
+      signedHandoverReceived: true,
+      customerAcknowledged: true,
+      finalChecklistConfirmed: true
     };
     const payment: PaymentRecord = {
       id: "00000000-0000-0000-0000-000000000006",

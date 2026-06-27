@@ -1682,8 +1682,15 @@ public sealed class BusinessRulesTests
             InspectionReportReference = "INSPECT-1001",
             TwoDayNoticeSent = true,
             InsuranceHandled = true,
+            InsuranceExpiryDate = new DateOnly(2026, 6, 30),
             RoadTaxHandled = true,
-            WindscreenInsuranceHandled = true
+            RoadTaxExpiryDate = new DateOnly(2026, 6, 30),
+            WindscreenInsuranceHandled = true,
+            WindscreenInsuranceExpiryDate = new DateOnly(2026, 6, 30),
+            HandoverPhotoCaptured = true,
+            SignedHandoverReceived = true,
+            CustomerAcknowledged = true,
+            FinalChecklistConfirmed = true
         };
 
         Assert.True(DeliveryRules.IsReadyForRelease(delivery));
@@ -1692,6 +1699,12 @@ public sealed class BusinessRulesTests
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { WindscreenInsuranceHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { InspectionReportReference = " " }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { HandoverPhotoCaptured = false }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { SignedHandoverReceived = false }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { CustomerAcknowledged = false }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { FinalChecklistConfirmed = false }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { InsuranceExpiryDate = new DateOnly(2026, 6, 2) }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxExpiryDate = null }));
     }
 
     [Fact]
@@ -1731,8 +1744,15 @@ public sealed class BusinessRulesTests
             InspectionReportReference = "INSPECT-1001",
             TwoDayNoticeSent = true,
             InsuranceHandled = true,
+            InsuranceExpiryDate = new DateOnly(2026, 6, 30),
             RoadTaxHandled = true,
-            WindscreenInsuranceHandled = true
+            RoadTaxExpiryDate = new DateOnly(2026, 6, 30),
+            WindscreenInsuranceHandled = true,
+            WindscreenInsuranceExpiryDate = new DateOnly(2026, 6, 30),
+            HandoverPhotoCaptured = true,
+            SignedHandoverReceived = true,
+            CustomerAcknowledged = true,
+            FinalChecklistConfirmed = true
         };
 
         var result = DeliveryRules.ValidateRelease(delivery);
@@ -1759,14 +1779,61 @@ public sealed class BusinessRulesTests
             InspectionReportReference = "INSPECT-1001",
             TwoDayNoticeSent = true,
             InsuranceHandled = true,
+            InsuranceExpiryDate = new DateOnly(2026, 6, 30),
             RoadTaxHandled = true,
-            WindscreenInsuranceHandled = true
+            RoadTaxExpiryDate = new DateOnly(2026, 6, 30),
+            WindscreenInsuranceHandled = true,
+            WindscreenInsuranceExpiryDate = new DateOnly(2026, 6, 30),
+            HandoverPhotoCaptured = true,
+            SignedHandoverReceived = true,
+            CustomerAcknowledged = true,
+            FinalChecklistConfirmed = true
         };
 
         var result = DeliveryRules.Validate(delivery);
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "delivery_not_ready");
+    }
+
+    [Fact]
+    public void Delivery_readiness_lists_missing_evidence_and_expired_documents()
+    {
+        var delivery = new DeliverySchedule
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = Guid.NewGuid(),
+            Pic = "Ah Ming",
+            Status = DeliveryStatus.ReadyForRelease,
+            ScheduledDate = new DateOnly(2026, 6, 3),
+            PolishDone = true,
+            TintedDone = true,
+            WashDone = true,
+            DocumentsPrepared = true,
+            InspectionDone = true,
+            InspectionReportReference = "INSPECT-1001",
+            TwoDayNoticeSent = true,
+            InsuranceHandled = true,
+            InsuranceExpiryDate = new DateOnly(2026, 6, 1),
+            RoadTaxHandled = true,
+            RoadTaxExpiryDate = null,
+            WindscreenInsuranceHandled = true,
+            WindscreenInsuranceExpiryDate = new DateOnly(2026, 6, 30),
+            HandoverPhotoCaptured = false,
+            SignedHandoverReceived = true,
+            CustomerAcknowledged = false,
+            FinalChecklistConfirmed = true
+        };
+
+        var missingEvidence = DeliveryRules.MissingReleaseEvidence(delivery);
+        var expiredDocuments = DeliveryRules.ExpiredDeliveryDocuments(delivery);
+
+        Assert.Contains("Handover photo", missingEvidence);
+        Assert.Contains("Customer acknowledgement", missingEvidence);
+        Assert.DoesNotContain("Signed handover document", missingEvidence);
+        Assert.Contains("Insurance policy expires before delivery date", expiredDocuments);
+        Assert.Contains("Road tax expiry date missing", expiredDocuments);
+        Assert.DoesNotContain("Windscreen insurance expires before delivery date", expiredDocuments);
     }
 
     [Fact]
