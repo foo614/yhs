@@ -88,13 +88,16 @@ public sealed class BusinessRulesTests
     [Fact]
     public void Lead_capture_requires_customer_contact_and_vehicle()
     {
-        var request = new LeadRequest(Guid.NewGuid(), "Ali Tan", "0123456789", "Trade-in question");
+        var request = new LeadRequest(Guid.NewGuid(), "Ali Tan", "0123456789", "Trade-in question", " /vehicles/abc?utm_source=fb ", " https://example.test/ad ", " utm_source=fb ");
 
         var lead = LeadCapture.Create(request);
 
         Assert.Equal(request.VehicleId, lead.VehicleId);
         Assert.Equal("Ali Tan", lead.CustomerName);
         Assert.Equal("0123456789", lead.Phone);
+        Assert.Equal("/vehicles/abc?utm_source=fb", lead.SourcePage);
+        Assert.Equal("https://example.test/ad", lead.SourceReferrer);
+        Assert.Equal("utm_source=fb", lead.SourceCampaign);
         Assert.Equal(LeadStatus.New, lead.Status);
     }
 
@@ -222,7 +225,10 @@ public sealed class BusinessRulesTests
             CustomerName = "Ali Tan",
             Phone = "0123456789",
             Status = LeadStatus.New,
-            CreatedAt = createdAt
+            CreatedAt = createdAt,
+            SourcePage = "/vehicles/vehicle-1",
+            SourceReferrer = "https://example.test/",
+            SourceCampaign = "utm_source=facebook"
         };
         var incoming = existing with { Status = LeadStatus.Contacted };
         var takenAt = DateTime.UtcNow;
@@ -231,6 +237,9 @@ public sealed class BusinessRulesTests
 
         Assert.Equal(LeadStatus.Contacted, result.Status);
         Assert.Equal(createdAt, result.CreatedAt);
+        Assert.Equal("/vehicles/vehicle-1", result.SourcePage);
+        Assert.Equal("https://example.test/", result.SourceReferrer);
+        Assert.Equal("utm_source=facebook", result.SourceCampaign);
         Assert.Equal("staff-1", result.TakenByUserId);
         Assert.Equal("Jason Tan", result.TakenByName);
         Assert.Equal(takenAt, result.TakenAt);
@@ -867,7 +876,155 @@ public sealed class BusinessRulesTests
         Assert.Contains(result.Errors, error => error.Code == "payment_documents_prepared_required");
         Assert.Contains(result.Errors, error => error.Code == "payment_checklist_validated_required");
         Assert.Contains(result.Errors, error => error.Code == "payment_invoice_generated_required");
-        Assert.Contains(result.Errors, error => error.Code == "payment_autocount_keyed_required");
+    }
+
+    [Fact]
+    public void Reconciled_payment_requires_generated_invoice_and_synced_autocount_job()
+    {
+        var payment = new PaymentRecord
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = Guid.NewGuid(),
+            NettPrice = 58000m,
+            Status = PaymentStatus.Reconciled,
+            ReceiptNumber = "RCPT-1001",
+            InvoiceNumber = "INV-1001",
+            BossChecked = true,
+            DocumentsPrepared = true,
+            ChecklistValidated = true,
+            InvoiceGenerated = false,
+            AutoCountKeyed = false
+        };
+        var invoice = new FinanceInvoice
+        {
+            Id = Guid.NewGuid(),
+            PaymentRecordId = payment.Id,
+            VehicleId = payment.VehicleId,
+            CustomerId = Guid.NewGuid(),
+            InvoiceNumber = "INV-1001",
+            Amount = payment.NettPrice
+        };
+        var failedSync = new AutoCountSyncJob
+        {
+            FinanceInvoiceId = invoice.Id,
+            PaymentRecordId = payment.Id,
+            Status = AutoCountSyncStatus.Failed
+        };
+        var syncedJob = failedSync with
+        {
+            Id = Guid.NewGuid(),
+            Status = AutoCountSyncStatus.Synced,
+            UpdatedAt = failedSync.UpdatedAt.AddMinutes(1)
+        };
+
+        var missingInvoice = FinanceRules.ValidatePayment(payment, [], [], []);
+        var failedAutoCountSync = FinanceRules.ValidatePayment(payment, [], [invoice], [failedSync]);
+        var synced = FinanceRules.ValidatePayment(payment, [], [invoice], [failedSync, syncedJob]);
+
+        Assert.False(missingInvoice.IsValid);
+        Assert.Contains(missingInvoice.Errors, error => error.Code == "payment_invoice_generated_required");
+        Assert.False(failedAutoCountSync.IsValid);
+        Assert.Contains(failedAutoCountSync.Errors, error => error.Code == "payment_autocount_sync_required");
+        Assert.True(synced.IsValid);
+    }
+
+    [Fact]
+    public void Finance_invoice_generation_uses_payment_vehicle_customer_data()
+    {
+        var customer = new Customer
+        {
+            Id = Guid.NewGuid(),
+            Name = "Ali Tan",
+            Phone = "0123456789"
+        };
+        var vehicle = VehicleSeed.Sold(publicVisible: false) with
+        {
+            CustomerId = customer.Id,
+            PlateNumber = "VPK1234",
+            Make = "Toyota",
+            Model = "Vios",
+            Year = 2021
+        };
+        var payment = new PaymentRecord
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = vehicle.Id,
+            NettPrice = 58000m,
+            InvoiceNumber = "INV-1001",
+            SalesPrice = 56000m,
+            InterestAdditionalCharges = 1500m,
+            NcdAmount = 500m,
+            WindscreenCharges = 1000m
+        };
+
+        var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, "finance-user", new DateTime(2026, 6, 27, 9, 30, 0, DateTimeKind.Utc));
+
+        Assert.Equal(payment.Id, invoice.PaymentRecordId);
+        Assert.Equal(vehicle.Id, invoice.VehicleId);
+        Assert.Equal(customer.Id, invoice.CustomerId);
+        Assert.Equal("INV-1001", invoice.InvoiceNumber);
+        Assert.Equal(new DateOnly(2026, 6, 27), invoice.InvoiceDate);
+        Assert.Equal(58000m, invoice.Amount);
+        Assert.Equal("application/pdf", invoice.ContentMimeType);
+        Assert.StartsWith("%PDF", Encoding.ASCII.GetString(invoice.Content));
+    }
+
+    [Fact]
+    public async Task AutoCount_client_submits_sales_invoice_and_parses_success_response()
+    {
+        HttpRequestMessage? submittedRequest = null;
+        var handler = new StubHttpMessageHandler(async (request, _) =>
+        {
+            submittedRequest = request;
+            var body = await request.Content!.ReadAsStringAsync();
+            Assert.Contains("INV-1001", body);
+            Assert.DoesNotContain("secret-token", body);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"documentId":"AC-1001","documentNumber":"SI-1001","message":"created","apiToken":"secret-token"}""", Encoding.UTF8, "application/json")
+            };
+        });
+        var client = CreateAutoCountClient(handler);
+        var (invoice, payment, vehicle, customer) = AutoCountFixture();
+
+        var result = await client.SubmitSalesInvoiceAsync(invoice, payment, vehicle, customer, CancellationToken.None);
+
+        Assert.Equal(AutoCountSyncStatus.Synced, result.Status);
+        Assert.Equal("AC-1001", result.ExternalDocumentId);
+        Assert.Equal("SI-1001", result.ExternalDocumentNumber);
+        Assert.DoesNotContain("secret-token", result.ResponseSummary);
+        Assert.Contains("[redacted]", result.ResponseSummary);
+        Assert.Equal("Bearer", submittedRequest?.Headers.Authorization?.Scheme);
+        Assert.Equal("secret-token", submittedRequest?.Headers.Authorization?.Parameter);
+    }
+
+    [Fact]
+    public async Task AutoCount_client_returns_failed_status_for_validation_duplicate_and_timeout()
+    {
+        var (invoice, payment, vehicle, customer) = AutoCountFixture();
+        var validationClient = CreateAutoCountClient(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"message":"validation failed"}""", Encoding.UTF8, "application/json")
+            })));
+        var duplicateClient = CreateAutoCountClient(new StubHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)
+            {
+                Content = new StringContent("""{"message":"duplicate document","documentNumber":"INV-1001"}""", Encoding.UTF8, "application/json")
+            })));
+        var timeoutClient = CreateAutoCountClient(new StubHttpMessageHandler((_, _) => throw new TaskCanceledException("timeout")));
+
+        var validation = await validationClient.SubmitSalesInvoiceAsync(invoice, payment, vehicle, customer, CancellationToken.None);
+        var duplicate = await duplicateClient.SubmitSalesInvoiceAsync(invoice, payment, vehicle, customer, CancellationToken.None);
+        var timeout = await timeoutClient.SubmitSalesInvoiceAsync(invoice, payment, vehicle, customer, CancellationToken.None);
+
+        Assert.Equal(AutoCountSyncStatus.Failed, validation.Status);
+        Assert.Contains("validation failed", validation.ResponseSummary);
+        Assert.Equal(AutoCountSyncStatus.Failed, duplicate.Status);
+        Assert.Equal("INV-1001", duplicate.ExternalDocumentNumber);
+        Assert.Contains("409", duplicate.Error);
+        Assert.Equal(AutoCountSyncStatus.Failed, timeout.Status);
+        Assert.Equal("AutoCount request timed out.", timeout.Error);
     }
 
     [Fact]
@@ -910,6 +1067,114 @@ public sealed class BusinessRulesTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "duplicate_receipt_number");
         Assert.Contains(result.Errors, error => error.Code == "duplicate_payment_invoice_number");
+    }
+
+    [Fact]
+    public void Reconciled_payment_requires_override_for_failed_sync_or_amount_mismatch()
+    {
+        var payment = new PaymentRecord
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = Guid.NewGuid(),
+            NettPrice = 58000m,
+            Status = PaymentStatus.Reconciled,
+            ReceiptNumber = "RCPT-1001",
+            InvoiceNumber = "INV-1001",
+            BossChecked = true,
+            DocumentsPrepared = true,
+            ChecklistValidated = true,
+            InvoiceGenerated = true,
+            AutoCountKeyed = true,
+            ExternalSyncStatus = PaymentExternalSyncStatus.Failed,
+            ExternalDocumentAmount = 57000m
+        };
+        var invoice = new FinanceInvoice
+        {
+            Id = Guid.NewGuid(),
+            PaymentRecordId = payment.Id,
+            VehicleId = payment.VehicleId,
+            CustomerId = Guid.NewGuid(),
+            InvoiceNumber = "INV-1001",
+            Amount = payment.NettPrice
+        };
+        var syncedJob = new AutoCountSyncJob
+        {
+            FinanceInvoiceId = invoice.Id,
+            PaymentRecordId = payment.Id,
+            Status = AutoCountSyncStatus.Synced
+        };
+
+        var result = FinanceRules.ValidatePayment(payment);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "payment_external_sync_failed");
+        Assert.Contains(result.Errors, error => error.Code == "external_amount_mismatch");
+        Assert.True(FinanceRules.ValidatePayment(
+            payment with { ReconciliationOverrideReason = "Admin approved bank mismatch" },
+            [],
+            [invoice],
+            [syncedJob]).IsValid);
+    }
+
+    [Fact]
+    public void Reconciled_payment_rejects_duplicate_external_document_number()
+    {
+        var existing = new[]
+        {
+            new PaymentRecord
+            {
+                Id = Guid.NewGuid(),
+                VehicleId = Guid.NewGuid(),
+                NettPrice = 58000m,
+                Status = PaymentStatus.Reconciled,
+                ExternalDocumentNumber = "EXT-1001"
+            }
+        };
+        var payment = new PaymentRecord
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = Guid.NewGuid(),
+            NettPrice = 58000m,
+            Status = PaymentStatus.Reconciled,
+            ReceiptNumber = "RCPT-1001",
+            InvoiceNumber = "INV-1001",
+            BossChecked = true,
+            DocumentsPrepared = true,
+            ChecklistValidated = true,
+            InvoiceGenerated = true,
+            AutoCountKeyed = true,
+            ExternalDocumentNumber = " ext-1001 "
+        };
+
+        var result = FinanceRules.ValidatePayment(payment, existing);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "duplicate_external_document_number");
+    }
+
+    [Fact]
+    public void Finance_csv_exports_sensitive_payment_rows_with_escaping()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false);
+        var payment = new PaymentRecord
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = vehicle.Id,
+            NettPrice = 58000m,
+            Status = PaymentStatus.Disbursed,
+            ReceiptNumber = "RCPT-1001",
+            InvoiceNumber = "INV-1001",
+            ExternalSyncStatus = PaymentExternalSyncStatus.Synced,
+            ExternalDocumentNumber = "EXT,1001",
+            ExternalDocumentAmount = 58000m,
+            BankName = "Maybank"
+        };
+
+        var csv = FinanceCsv.ExportPayments([payment], [vehicle]);
+
+        Assert.Contains("PaymentId,CarPlate,Status,NettPrice", csv);
+        Assert.Contains("\"EXT,1001\"", csv);
+        Assert.Contains(vehicle.PlateNumber, csv);
     }
 
     [Fact]
@@ -1483,6 +1748,26 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Repair_validation_requires_approval_before_high_cost_completion()
+    {
+        var repair = new RepairJob
+        {
+            VehicleId = Guid.NewGuid(),
+            WhatToDo = "Gearbox repair",
+            Cost = 1500m,
+            ChecklistDone = true,
+            ApprovalStatus = RepairApprovalStatus.Pending
+        };
+
+        var result = RepairRules.Validate(repair);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "repair_approval_required");
+        Assert.False(RepairRules.IsCostFinal(repair));
+        Assert.True(RepairRules.IsCostFinal(repair with { ApprovalStatus = RepairApprovalStatus.Approved }));
+    }
+
+    [Fact]
     public void Supplier_invoice_validation_rejects_duplicate_invoice_for_same_supplier()
     {
         var vehicle = VehicleSeed.Available(publicVisible: true);
@@ -1568,6 +1853,28 @@ public sealed class BusinessRulesTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "supplier_name_required");
         Assert.Contains(result.Errors, error => error.Code == "invoice_number_required");
+    }
+
+    [Fact]
+    public void Supplier_invoice_helpers_create_master_summary_and_aging_view()
+    {
+        var vehicleId = Guid.NewGuid();
+        var invoices = new[]
+        {
+            new SupplierInvoice { VehicleId = vehicleId, SupplierName = "ABC Spray", InvoiceNumber = "S-1", Amount = 500m, DueDate = new DateOnly(2026, 6, 9) },
+            new SupplierInvoice { VehicleId = vehicleId, SupplierName = " abc spray ", InvoiceNumber = "S-2", Amount = 700m, PaidAt = new DateOnly(2026, 6, 10) },
+            new SupplierInvoice { VehicleId = vehicleId, SupplierName = "Tint Shop", InvoiceNumber = "T-1", Amount = 300m, DueDate = new DateOnly(2026, 6, 15) }
+        };
+
+        var summaries = SupplierInvoiceRules.CreateSupplierSummaries(invoices).ToArray();
+        var overdue = SupplierInvoiceRules.CreateAgingView(invoices[0], new DateOnly(2026, 6, 10));
+        var paid = SupplierInvoiceRules.CreateAgingView(invoices[1], new DateOnly(2026, 6, 10));
+        var dueSoon = SupplierInvoiceRules.CreateAgingView(invoices[2], new DateOnly(2026, 6, 10));
+
+        Assert.Contains(summaries, item => item.SupplierName == "ABC Spray" && item.InvoiceCount == 2 && item.TotalAmount == 1200m);
+        Assert.Equal(SupplierInvoiceAgingStatus.Overdue, overdue.Status);
+        Assert.Equal(SupplierInvoiceAgingStatus.Paid, paid.Status);
+        Assert.Equal(SupplierInvoiceAgingStatus.DueSoon, dueSoon.Status);
     }
 
     [Fact]
@@ -1682,8 +1989,15 @@ public sealed class BusinessRulesTests
             InspectionReportReference = "INSPECT-1001",
             TwoDayNoticeSent = true,
             InsuranceHandled = true,
+            InsuranceExpiryDate = new DateOnly(2026, 6, 30),
             RoadTaxHandled = true,
-            WindscreenInsuranceHandled = true
+            RoadTaxExpiryDate = new DateOnly(2026, 6, 30),
+            WindscreenInsuranceHandled = true,
+            WindscreenInsuranceExpiryDate = new DateOnly(2026, 6, 30),
+            HandoverPhotoCaptured = true,
+            SignedHandoverReceived = true,
+            CustomerAcknowledged = true,
+            FinalChecklistConfirmed = true
         };
 
         Assert.True(DeliveryRules.IsReadyForRelease(delivery));
@@ -1692,6 +2006,10 @@ public sealed class BusinessRulesTests
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { WindscreenInsuranceHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { InspectionReportReference = " " }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { SignedHandoverReceived = false }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxExpiryDate = new DateOnly(2026, 6, 1) }));
+        Assert.Contains("Signed handover document", DeliveryRules.MissingReleaseEvidence(delivery with { SignedHandoverReceived = false }));
+        Assert.Contains("Road tax expired before scheduled delivery", DeliveryRules.ExpiredDeliveryDocuments(delivery with { RoadTaxExpiryDate = new DateOnly(2026, 6, 1) }));
     }
 
     [Fact]
@@ -1780,9 +2098,25 @@ public sealed class BusinessRulesTests
             Status = DeliveryStatus.ReadyForRelease,
             ScheduledDate = new DateOnly(2026, 6, 3)
         };
+        var oldPolicy = new DocumentBlob
+        {
+            VehicleId = delivery.VehicleId,
+            Category = FileCategory.Policy,
+            FileName = "old-policy.pdf",
+            UploadedBy = "delivery@ysheng.local",
+            UploadedAt = new DateTime(2026, 6, 1, 8, 0, 0, DateTimeKind.Utc)
+        };
+        var latestPolicy = oldPolicy with
+        {
+            Id = Guid.NewGuid(),
+            FileName = "latest-policy.pdf",
+            Checksum = "policy-checksum",
+            UploadedAt = new DateTime(2026, 6, 2, 8, 0, 0, DateTimeKind.Utc)
+        };
         var documents = new[]
         {
-            new DocumentBlob { VehicleId = delivery.VehicleId, Category = FileCategory.Policy }
+            oldPolicy,
+            latestPolicy
         };
 
         var result = DeliveryDocumentRules.CheckCompleteness(delivery, documents);
@@ -1790,6 +2124,15 @@ public sealed class BusinessRulesTests
         Assert.False(result.IsComplete);
         Assert.Contains(FileCategory.RoadTaxReceipt, result.MissingCategories);
         Assert.DoesNotContain(FileCategory.Policy, result.MissingCategories);
+        var policyEvidence = result.Evidence.First(item => item.Category == FileCategory.Policy);
+        Assert.True(policyEvidence.IsPresent);
+        Assert.Equal(latestPolicy.Id, policyEvidence.DocumentId);
+        Assert.Equal("latest-policy.pdf", policyEvidence.FileName);
+        Assert.Equal("policy-checksum", policyEvidence.Checksum);
+        Assert.Equal("delivery@ysheng.local", policyEvidence.UploadedBy);
+        var roadTaxEvidence = result.Evidence.First(item => item.Category == FileCategory.RoadTaxReceipt);
+        Assert.False(roadTaxEvidence.IsPresent);
+        Assert.Null(roadTaxEvidence.DocumentId);
     }
 
     [Fact]
@@ -2220,12 +2563,68 @@ public sealed class BusinessRulesTests
         Assert.False(ReminderRules.IsPaymentStatusFollowUpDue(payment, new DateOnly(2026, 5, 31)));
         Assert.False(ReminderRules.IsPaymentStatusFollowUpDue(payment with { Status = PaymentStatus.Reconciled }, new DateOnly(2026, 6, 1)));
     }
+
+    private static AutoCountAotgClient CreateAutoCountClient(HttpMessageHandler handler) =>
+        new(
+            new HttpClient(handler),
+            Options.Create(new AutoCountAotgOptions
+            {
+                Endpoint = "https://autocount.example",
+                ApiToken = "secret-token",
+                CompanyCode = "YSH",
+                AccountBookId = "MAIN",
+                CreateSalesInvoicePath = "/CreateARInvoice"
+            }));
+
+    private static (FinanceInvoice Invoice, PaymentRecord Payment, Vehicle Vehicle, Customer Customer) AutoCountFixture()
+    {
+        var customer = new Customer
+        {
+            Id = Guid.NewGuid(),
+            Name = "Ali Tan",
+            Phone = "0123456789",
+            IcNumber = "900101-01-1234"
+        };
+        var vehicle = VehicleSeed.Sold(publicVisible: false) with
+        {
+            CustomerId = customer.Id,
+            PlateNumber = "VPK1234",
+            Make = "Toyota",
+            Model = "Vios",
+            Year = 2021
+        };
+        var payment = new PaymentRecord
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = vehicle.Id,
+            NettPrice = 58000m,
+            InvoiceNumber = "INV-1001",
+            SalesPrice = 56000m,
+            InterestAdditionalCharges = 1500m,
+            NcdAmount = 500m,
+            WindscreenCharges = 1000m
+        };
+        var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, "finance-user", new DateTime(2026, 6, 27, 9, 30, 0, DateTimeKind.Utc));
+        return (invoice, payment, vehicle, customer);
+    }
 }
 
-internal sealed class StubHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler) : HttpMessageHandler
+internal sealed class StubHttpMessageHandler : HttpMessageHandler
 {
+    private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler;
+
+    public StubHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler)
+        : this((request, _) => handler(request))
+    {
+    }
+
+    public StubHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)
+    {
+        this.handler = handler;
+    }
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-        handler(request);
+        handler(request, cancellationToken);
 }
 
 internal static class VehicleSeed

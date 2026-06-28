@@ -50,6 +50,17 @@ export function findLeadVehicle(lead: Lead, vehicles: LeadVehicleInfo[]) {
   return vehicles.find((vehicle) => vehicle.id === lead.vehicleId);
 }
 
+
+export function leadSourceSummary(lead: Lead) {
+  const parts = [
+    lead.sourcePage ? `Page: ${lead.sourcePage}` : undefined,
+    lead.sourceCampaign ? `Campaign: ${lead.sourceCampaign}` : undefined,
+    lead.sourceReferrer ? `Referrer: ${lead.sourceReferrer}` : undefined
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" | ") : "No public source captured";
+}
+
 export function leadVehicleLabel(lead: Lead, vehicles: LeadVehicleInfo[]) {
   const vehicle = findLeadVehicle(lead, vehicles);
   if (!vehicle) {

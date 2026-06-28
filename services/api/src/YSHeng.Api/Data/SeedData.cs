@@ -17,6 +17,8 @@ public static class SeedData
         await EnsureLeadSchemaAsync(db);
         await EnsureHrSchemaAsync(db);
         await EnsureOcrSchemaAsync(db);
+        await EnsureVehicleEnhancementSchemaAsync(db);
+        await EnsureFinanceRepairEnhancementSchemaAsync(db);
 
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         foreach (var role in Roles)
@@ -114,6 +116,7 @@ public static class SeedData
                 Model = "Vios",
                 Year = 2021,
                 StockOwner = StockOwner.YSHeng,
+                StockLocation = "Main Yard",
                 Status = VehicleStatus.Available,
                 IsPublic = true,
                 PurchasePrice = 42000m,
@@ -166,6 +169,9 @@ public static class SeedData
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenByUserId" text NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenByName" text NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenAt" timestamp with time zone NULL;
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourcePage" text NULL;
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourceReferrer" text NULL;
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourceCampaign" text NULL;
         """);
     }
 
@@ -302,7 +308,103 @@ public static class SeedData
                 CONSTRAINT "PK_OcrJobs" PRIMARY KEY ("Id")
             );
 
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewDecision" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewNotes" text NULL;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewedBy" text NULL;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewedAt" timestamp with time zone NULL;
+
             CREATE INDEX IF NOT EXISTS "IX_OcrJobs_DocumentId" ON "OcrJobs" ("DocumentId");
+        """);
+    }
+
+    private static async Task EnsureVehicleEnhancementSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "StockLocation" text NOT NULL DEFAULT '';
+
+            CREATE TABLE IF NOT EXISTS "StockMovements" (
+                "Id" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "FieldName" text NOT NULL,
+                "PreviousValue" text NOT NULL,
+                "NewValue" text NOT NULL,
+                "Reason" text NOT NULL,
+                "Actor" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_StockMovements" PRIMARY KEY ("Id")
+            );
+
+            CREATE INDEX IF NOT EXISTS "IX_StockMovements_VehicleId_CreatedAt" ON "StockMovements" ("VehicleId", "CreatedAt");
+        """);
+    }
+
+    private static async Task EnsureFinanceRepairEnhancementSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ExternalSyncStatus" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ExternalDocumentNumber" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ExternalDocumentAmount" numeric NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideReason" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideBy" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideAt" timestamp with time zone NULL;
+
+            ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "ApprovalStatus" integer NOT NULL DEFAULT 1;
+            ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "ApprovalNotes" text NULL;
+            ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "ApprovedBy" text NULL;
+            ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "ApprovedAt" timestamp with time zone NULL;
+
+            ALTER TABLE "SupplierInvoices" ADD COLUMN IF NOT EXISTS "DueDate" date NULL;
+            ALTER TABLE "SupplierInvoices" ADD COLUMN IF NOT EXISTS "PaidAt" date NULL;
+
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsuranceExpiryDate" date NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxExpiryDate" date NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "WindscreenInsuranceExpiryDate" date NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "HandoverPhotoCaptured" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "SignedHandoverReceived" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CustomerAcknowledged" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "FinalChecklistConfirmed" boolean NOT NULL DEFAULT false;
+
+            CREATE TABLE IF NOT EXISTS "FinanceInvoices" (
+                "Id" uuid NOT NULL,
+                "PaymentRecordId" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "CustomerId" uuid NOT NULL,
+                "InvoiceNumber" text NOT NULL,
+                "InvoiceDate" date NOT NULL,
+                "Amount" numeric NOT NULL,
+                "SalesPrice" numeric NOT NULL,
+                "InterestAdditionalCharges" numeric NOT NULL,
+                "NcdAmount" numeric NOT NULL,
+                "WindscreenCharges" numeric NOT NULL,
+                "Content" bytea NOT NULL,
+                "ContentMimeType" text NOT NULL,
+                "CreatedBy" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_FinanceInvoices" PRIMARY KEY ("Id")
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_FinanceInvoices_PaymentRecordId" ON "FinanceInvoices" ("PaymentRecordId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_FinanceInvoices_InvoiceNumber" ON "FinanceInvoices" ("InvoiceNumber");
+
+            CREATE TABLE IF NOT EXISTS "AutoCountSyncJobs" (
+                "Id" uuid NOT NULL,
+                "FinanceInvoiceId" uuid NOT NULL,
+                "PaymentRecordId" uuid NOT NULL,
+                "Status" integer NOT NULL,
+                "ExternalDocumentId" text NULL,
+                "ExternalDocumentNumber" text NULL,
+                "ResponseSummary" text NULL,
+                "LastError" text NULL,
+                "RetryCount" integer NOT NULL,
+                "SubmittedBy" text NULL,
+                "SubmittedAt" timestamp with time zone NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_AutoCountSyncJobs" PRIMARY KEY ("Id")
+            );
+
+            CREATE INDEX IF NOT EXISTS "IX_AutoCountSyncJobs_FinanceInvoiceId" ON "AutoCountSyncJobs" ("FinanceInvoiceId");
+            CREATE INDEX IF NOT EXISTS "IX_AutoCountSyncJobs_PaymentRecordId" ON "AutoCountSyncJobs" ("PaymentRecordId");
         """);
     }
 }

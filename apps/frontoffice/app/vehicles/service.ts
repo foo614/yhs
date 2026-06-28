@@ -37,6 +37,9 @@ export type PublicLeadPayload = {
   customerName: string;
   phone: string;
   message?: string;
+  sourcePage?: string;
+  sourceReferrer?: string;
+  sourceCampaign?: string;
 };
 
 export type PublicLeadErrorCode = "vehicle_required" | "customer_name_required" | "phone_required" | "submit_failed" | "validation_failed";
@@ -221,7 +224,10 @@ export async function submitPublicLead(payload: PublicLeadPayload, baseUrl = api
     vehicleId: payload.vehicleId.trim(),
     customerName: payload.customerName.trim(),
     phone: payload.phone.trim(),
-    message: payload.message?.trim() ?? ""
+    message: payload.message?.trim() ?? "",
+    sourcePage: payload.sourcePage?.trim().slice(0, 500) ?? "",
+    sourceReferrer: payload.sourceReferrer?.trim().slice(0, 500) ?? "",
+    sourceCampaign: payload.sourceCampaign?.trim().slice(0, 500) ?? ""
   };
 
   const blockReason = publicLeadBlockReason(cleanedPayload);

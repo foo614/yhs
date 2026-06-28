@@ -17,6 +17,10 @@ Create a short implementation plan before making risky or multi-file YS Heng cha
 4. Call out any high-risk gate from `codex-agent.md` and pause for approval when required.
 5. Present the plan briefly, then proceed when the user asked for execution or has already approved the direction.
 
+## Product Briefs
+
+For major new modules, cross-role workflows, or unclear product scope, use `.agents/skills/prd-development/SKILL.md` as an auxiliary PRD workflow before implementation. Keep the result lightweight and YS Heng-specific; do not turn small bug fixes into PRD work.
+
 ## Plan Shape
 
 - Scope: what behavior changes and what stays untouched.

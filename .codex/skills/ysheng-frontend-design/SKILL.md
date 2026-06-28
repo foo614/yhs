@@ -30,6 +30,8 @@ Design YS Heng interfaces that match their job: public vehicle sales pages shoul
 - Keep responsive layouts stable; text must fit within buttons, cards, tables, and forms on mobile and desktop.
 - Do not create marketing landing pages for operational tasks.
 - Avoid decorative gradients, generic hero sections, and over-carded layouts in the back office.
+- Use `.agents/skills/shadcn-ui/SKILL.md` only when the target surface already uses shadcn/ui or the user explicitly asks for it; otherwise keep the back office Ant Design-first.
+- When a frontend task needs visual assets or richer page design, pair this skill with image generation or asset search so the UI uses meaningful vehicle, staff, document, or workflow imagery instead of generic decoration.
 
 ## Verification
 

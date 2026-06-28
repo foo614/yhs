@@ -1,12 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { frontofficeCopy, type Language } from "../../i18n";
 import { submitPublicLead } from "../service";
 
 export function LeadForm({ vehicleId, language = "en" }: { vehicleId: string; language?: Language }) {
   const t = frontofficeCopy[language].leadForm;
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const attribution = useMemo(() => {
+    if (typeof window === "undefined") return { sourcePage: `/vehicles/${vehicleId}` };
+    const sourcePage = `${window.location.pathname}${window.location.search}`.slice(0, 500);
+    const params = new URLSearchParams(window.location.search);
+    const campaign = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]
+      .map((key) => [key, params.get(key)] as const)
+      .filter(([, value]) => Boolean(value))
+      .map(([key, value]) => `${key}=${value}`)
+      .join("&");
+    return {
+      sourcePage,
+      sourceReferrer: document.referrer.slice(0, 500),
+      sourceCampaign: campaign.slice(0, 500)
+    };
+  }, [vehicleId]);
   const [errorMessage, setErrorMessage] = useState<string>(t.defaultError);
 
   async function submitLead(formData: FormData) {
@@ -16,7 +31,8 @@ export function LeadForm({ vehicleId, language = "en" }: { vehicleId: string; la
       vehicleId,
       customerName: String(formData.get("customerName") ?? ""),
       phone: String(formData.get("phone") ?? ""),
-      message: String(formData.get("message") ?? "")
+      message: String(formData.get("message") ?? ""),
+      ...attribution
     });
 
     if (result.ok) {

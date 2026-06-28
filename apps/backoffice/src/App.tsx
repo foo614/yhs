@@ -7,6 +7,7 @@ import {
   DashboardOutlined,
   DownloadOutlined,
   FileDoneOutlined,
+  LockOutlined,
   LogoutOutlined,
   MenuOutlined,
   SettingOutlined,
@@ -22,13 +23,16 @@ import {
   Checkbox,
   Descriptions,
   Drawer,
+  Empty,
   Form,
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Result,
   Select,
   Space,
+  Spin,
   Steps,
   Table as AntTable,
   Tabs,
@@ -50,15 +54,16 @@ import {
   filterLeadsForTriage,
   findCustomerForLead,
   groupLeadsByVehicle,
+  leadSourceSummary,
   leadVehicleLabel,
   sortLeadsByHotCarDemand,
   type LeadVehicleGroup,
   type LeadLinkFilter
 } from "./leads";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
-import { repairCreateBlockReason, repairDocumentCategories, supplierInvoiceCreateBlockReason } from "./repairs";
-import { staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason } from "./staff";
-import { filterDashboardReminders, reminderDueLabel, reminderDueTagColor, type ReminderDueFilter } from "./dashboard";
+import { isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
+import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
+import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, type ReminderDueFilter } from "./dashboard";
 import { FinancePage } from "./modules/finance/FinancePage";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
@@ -66,7 +71,6 @@ import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import {
   checkInHrAttendance,
   checkOutHrAttendance,
-  cancelHrLeaveRequest,
   createHrLeaveAdjustment,
   createHrLeaveRequest,
   createHrPayPeriod,
@@ -88,10 +92,13 @@ import {
   customerFromLead,
   customerSelectLabel,
   decideHrLeaveRequest,
+  exportPaymentsCsv,
+  generatePaymentInvoice,
   generateHrPayslips,
   getAuditLog,
   getCurrentUser,
   getCustomers,
+  getFinanceInvoices,
   getBrokerCommissions,
   getDailySpends,
   getDashboard,
@@ -121,11 +128,13 @@ import {
   getSupplierInvoices,
   getVehicleDocuments,
   getVehicleLookup,
+  getVehicleOcrJobs,
   getVehicles,
   login,
   logout,
   resetStaffUserPassword,
   hrMedicalCertificateContentUrl,
+  submitAutoCountSync,
   updateHrLeaveBalance,
   updateHrLeavePolicy,
   updateHrPayrollProfile,
@@ -162,9 +171,11 @@ import {
   type DashboardReminderFilters,
   type DashboardSummary,
   type DebtRecoveryCase,
+  type DeliveryEvidenceItem,
   type DeliverySchedule,
   type DeliveryReleaseReadiness,
   type DocumentCategory,
+  type FinanceInvoice,
   type HrAttendanceRecord,
   type HrLeaveAdjustment,
   type HrLeaveBalance,
@@ -191,7 +202,8 @@ import {
   type UpdateStaffUserStatusRequest,
   type Vehicle,
   type VehicleLookup,
-  type VehicleDocument
+  type VehicleDocument,
+  type VehicleOcrJob
 } from "./api";
 
 const staffRoles: StaffRole[] = assignableStaffRoles;
@@ -206,6 +218,7 @@ const dashboardReminderTypes: DashboardReminder["type"][] = [
   "DebtRecoveryFollowUp",
   "PaymentVoucherFollowUp"
 ];
+const repairApprovalOptions = ["Pending", "Approved", "Rejected"].map((value) => ({ value, label: value }));
 
 const deliveryChecklistFields = [
   "inspectionDone",
@@ -217,7 +230,11 @@ const deliveryChecklistFields = [
   "roadTaxHandled",
   "windscreenInsuranceHandled",
   "notificationSent",
-  "twoDayNoticeSent"
+  "twoDayNoticeSent",
+  "handoverPhotoCaptured",
+  "signedHandoverReceived",
+  "customerAcknowledged",
+  "finalChecklistConfirmed"
 ] as const;
 
 type DeliveryChecklistField = (typeof deliveryChecklistFields)[number];
@@ -232,7 +249,11 @@ const deliveryFieldLabels: Record<DeliveryChecklistField, string> = {
   roadTaxHandled: "Road Tax Handled / 路税",
   windscreenInsuranceHandled: "Windscreen Insurance / 挡风玻璃保险",
   notificationSent: "Customer Notified / 已通知客户",
-  twoDayNoticeSent: "2-day Notice Sent / 提前2天通知"
+  twoDayNoticeSent: "2-day Notice Sent / 提前2天通知",
+  handoverPhotoCaptured: "Handover Photo",
+  signedHandoverReceived: "Signed Handover",
+  customerAcknowledged: "Customer Acknowledged",
+  finalChecklistConfirmed: "Final Checklist"
 };
 
 const deliveryPreparationChecklist: DeliveryChecklistField[] = [
@@ -248,7 +269,11 @@ const deliveryPreparationChecklist: DeliveryChecklistField[] = [
 
 const deliveryNotificationChecklist: DeliveryChecklistField[] = [
   "notificationSent",
-  "twoDayNoticeSent"
+  "twoDayNoticeSent",
+  "handoverPhotoCaptured",
+  "signedHandoverReceived",
+  "customerAcknowledged",
+  "finalChecklistConfirmed"
 ];
 
 const bilingual = {
@@ -291,7 +316,7 @@ function routeDisplayName(path: AppRoutePath, roles: readonly string[]) {
 }
 
 function normalizeRoutePath(path?: string): AppRoutePath {
-  const candidate = path && path !== "/" ? path : "/dashboard";
+  const candidate = path && path !== "/" ? path.split("?")[0] : "/dashboard";
   return allRoutes.some((route) => route.path === candidate) ? candidate as AppRoutePath : "/dashboard";
 }
 
@@ -334,6 +359,7 @@ export default function App() {
   const [loans, setLoans] = useState<LoanApplication[]>([]);
   const [deliveries, setDeliveries] = useState<DeliverySchedule[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [financeInvoices, setFinanceInvoices] = useState<FinanceInvoice[]>([]);
   const [settlements, setSettlements] = useState<SettlementReminder[]>([]);
   const [dailySpends, setDailySpends] = useState<DailySpend[]>([]);
   const [brokerCommissions, setBrokerCommissions] = useState<BrokerCommission[]>([]);
@@ -353,6 +379,7 @@ export default function App() {
   const [hrPayslips, setHrPayslips] = useState<HrPayslip[]>([]);
   const [vehicleLookup, setVehicleLookup] = useState<VehicleLookup[]>([]);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [logoutSucceeded, setLogoutSucceeded] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
@@ -375,6 +402,7 @@ export default function App() {
       loanData,
       deliveryData,
       paymentData,
+      financeInvoiceData,
       settlementData,
       dailySpendData,
       brokerCommissionData,
@@ -405,6 +433,7 @@ export default function App() {
       canLoad("loans") ? getLoans() : Promise.resolve([]),
       canLoad("deliveries") ? getDeliveries() : Promise.resolve([]),
       canLoad("payments") ? getPayments() : Promise.resolve([]),
+      canLoad("payments") ? getFinanceInvoices() : Promise.resolve([]),
       canLoad("settlements") ? getSettlementReminders() : Promise.resolve([]),
       canLoad("dailySpends") ? getDailySpends() : Promise.resolve([]),
       canLoad("brokerCommissions") ? getBrokerCommissions() : Promise.resolve([]),
@@ -435,6 +464,7 @@ export default function App() {
     setLoans(loanData);
     setDeliveries(deliveryData);
     setPayments(paymentData);
+    setFinanceInvoices(financeInvoiceData);
     setSettlements(settlementData);
     setDailySpends(dailySpendData);
     setBrokerCommissions(brokerCommissionData);
@@ -455,15 +485,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void getCurrentUser()
-      .then((user) => {
+    let active = true;
+
+    void (async () => {
+      let dataRoles: string[] | undefined;
+
+      try {
+        const user = await getCurrentUser();
+        if (!active) return;
+
         setCurrentUser(user);
-        return loadBackOfficeData(user.isAuthenticated ? user.roles : undefined);
-      })
-      .catch(() => {
+        dataRoles = user.isAuthenticated ? user.roles : undefined;
+      } catch {
+        if (!active) return;
+
         setCurrentUser(null);
-        return loadBackOfficeData();
-      });
+      } finally {
+        if (active) setSessionReady(true);
+      }
+
+      if (active) await loadBackOfficeData(dataRoles);
+    })();
+
+    return () => {
+      active = false;
+    };
   }, [loadBackOfficeData]);
 
   useEffect(() => {
@@ -488,9 +534,10 @@ export default function App() {
   const pageTitle = route.routes.find((item) => item.path === pathname)?.name ?? bilingual.dashboard;
   const navigateTo = (path: string) => {
     const nextPath = normalizeRoutePath(path);
+    const nextUrl = path.includes("?") ? path : nextPath;
     setPathname(nextPath);
-    if (window.location.pathname !== nextPath) {
-      window.history.pushState(null, "", nextPath);
+    if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+      window.history.pushState(null, "", nextUrl);
     }
     setMobileNavOpen(false);
   };
@@ -633,6 +680,15 @@ export default function App() {
     }
   }
 
+  if (!sessionReady) {
+    return (
+      <>
+        {notificationContextHolder}
+        <SessionLoading />
+      </>
+    );
+  }
+
   if (!currentUser?.isAuthenticated) {
     return (
       <>
@@ -734,7 +790,7 @@ export default function App() {
             hrLeaveRequests={hrLeaveRequests}
             hrPayslips={hrPayslips}
           />
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} reminders={reminders} onSearch={handleReminderSearch} />}
+          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} reminders={reminders} onSearch={handleReminderSearch} onNavigate={navigateTo} />}
           {pathname === "/vehicles" && (
             <VehiclePage
               vehicles={vehicles}
@@ -797,8 +853,11 @@ export default function App() {
               brokerCommissions={brokerCommissions}
               debtRecoveries={debtRecoveries}
               paymentVouchers={paymentVouchers}
+              financeInvoices={financeInvoices}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
+              onGenerateInvoice={(paymentId) => runCreate(() => generatePaymentInvoice(paymentId), (record) => setFinanceInvoices((items) => replaceByIdOrPrepend(items, record)), "Sales invoice generated")}
+              onSubmitAutoCount={(invoiceId) => runUpdate(() => submitAutoCountSync(invoiceId), (record) => setFinanceInvoices((items) => items.map((invoice) => invoice.id === record.financeInvoiceId ? { ...invoice, latestSync: record } : invoice)), "AutoCount sync updated")}
               onCreateSettlement={(settlement) => runCreate(() => createSettlementReminder(settlement), (record) => setSettlements((items) => [record, ...items]), "Settlement reminder created")}
               onUpdateSettlement={(settlement) => runUpdate(() => updateSettlementReminder(settlement), (record) => setSettlements((items) => replaceById(items, record)), "Settlement reminder updated")}
               onCreateDailySpend={(spend) => runCreate(() => createDailySpend(spend), (record) => setDailySpends((items) => [record, ...items]), "Daily spend created")}
@@ -809,6 +868,7 @@ export default function App() {
               onUpdateDebtRecovery={(debt) => runUpdate(() => updateDebtRecovery(debt), (record) => setDebtRecoveries((items) => replaceById(items, record)), "Debt recovery updated")}
               onCreatePaymentVoucher={(voucher) => runCreate(() => createPaymentVoucher(voucher), (record) => setPaymentVouchers((items) => [record, ...items]), "Payment voucher created")}
               onUpdatePaymentVoucher={(voucher) => runUpdate(() => updatePaymentVoucher(voucher), (record) => setPaymentVouchers((items) => replaceById(items, record)), "Payment voucher updated")}
+              onExportPayments={() => exportPaymentsCsv()}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Finance document uploaded")}
             />
           )}
@@ -851,7 +911,6 @@ export default function App() {
               onCheckOut={() => runUpdate(() => checkOutHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked out")}
               onCreateLeave={(leave) => runCreate(() => createHrLeaveRequest(leave), (record) => setHrLeaveRequests((items) => [record, ...items]), "Leave request submitted")}
               onDecideLeave={(leaveId, status, decisionNotes) => runUpdate(() => decideHrLeaveRequest(leaveId, status, decisionNotes), (record) => setHrLeaveRequests((items) => replaceById(items, record)), status === "Approved" ? "Leave approved" : "Leave rejected")}
-              onCancelLeave={(leaveId) => runUpdate(() => cancelHrLeaveRequest(leaveId), (record) => setHrLeaveRequests((items) => replaceById(items, record)), "Leave request cancelled")}
               onUploadMc={async (leaveId, file) => {
                 await runUpload(() => uploadHrMedicalCertificate(leaveId, file), "MC uploaded");
                 await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
@@ -887,6 +946,18 @@ export default function App() {
   );
 }
 
+function SessionLoading() {
+  return (
+    <main className="sessionLoading" aria-busy="true">
+      <Spin size="large" />
+      <div>
+        <Typography.Title level={3}>Loading back-office session</Typography.Title>
+        <Typography.Text type="secondary">Checking staff access and preparing the operations workspace.</Typography.Text>
+      </div>
+    </main>
+  );
+}
+
 function LoginHome({
   onLogin,
   loginLoading,
@@ -903,17 +974,29 @@ function LoginHome({
   return (
     <main className="loginHome">
       <section className="loginHero">
-        <div className="loginBrand">
-          <span className="loginMark">YS</span>
-          <div>
-            <Typography.Title level={1}>YS Heng Portal</Typography.Title>
-            <Typography.Text>Staff operations login / 员工后台登录</Typography.Text>
+        <div className="loginHeroHeader">
+          <div className="loginBrand">
+            <span className="loginMark"><img src="/ys-heng-logo.png" alt="YS Heng" /></span>
+            <div>
+              <Typography.Text className="loginKicker">Enterprise Back Office</Typography.Text>
+              <Typography.Title level={1}>YS Heng Portal</Typography.Title>
+              <Typography.Text>Vehicle sales, financing, HR, operations, and management workspace.</Typography.Text>
+            </div>
           </div>
+          <span className="loginEnvironmentBadge">Private admin platform</span>
+        </div>
+        <div className="loginWorkflow" aria-label="Portal modules">
+          <span><CarOutlined /> Vehicle sales</span>
+          <span><BankOutlined /> Financing</span>
+          <span><FileDoneOutlined /> Documents</span>
+          <span><CalendarOutlined /> HR payroll</span>
+          <span><ToolOutlined /> Operations</span>
+          <span><DashboardOutlined /> Management</span>
         </div>
         <div className="loginSummary">
-          <span><strong>7</strong> department roles</span>
-          <span><strong>RBAC</strong> protected workflows</span>
-          <span><strong>MVP</strong> vehicle operations</span>
+          <span><strong>7</strong> role groups</span>
+          <span><strong>RBAC</strong> protected</span>
+          <span><strong>Audit</strong> ready</span>
         </div>
       </section>
       <section className="loginPanel">
@@ -930,21 +1013,99 @@ function LoginHome({
         ) : (
           <>
             <div className="loginPanelHeader">
-              <Typography.Title level={2}>Sign in</Typography.Title>
-              <Typography.Text>Access vehicle intake, loan, delivery, finance, and admin tools based on your role.</Typography.Text>
+              <img className="loginPanelLogo" src="/ys-heng-logo.png" alt="YS Heng" />
+              <Typography.Text className="loginPanelEyebrow">Secure staff access</Typography.Text>
+              <Typography.Title level={2}>Sign in to your workspace</Typography.Title>
+              <Typography.Text>Continue operational work with your assigned role and module permissions.</Typography.Text>
             </div>
             <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
-              <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
-                <Input placeholder="admin@ysheng.local" />
+              <Form.Item name="email" label="Work email" rules={[{ required: true, type: "email" }]}>
+                <Input prefix={<UserOutlined />} placeholder="admin@ysheng.local" autoComplete="email" />
               </Form.Item>
               <Form.Item name="password" label="Password" rules={[{ required: true }]}>
-                <Input.Password placeholder="Password" />
+                <Input.Password prefix={<LockOutlined />} placeholder="Password" autoComplete="current-password" />
               </Form.Item>
               {loginError && <Alert className="loginError" message="Login failed" description={loginError} type="error" showIcon />}
               <Button type="primary" htmlType="submit" className="loginButton" loading={loginLoading}>
                 Enter portal
               </Button>
             </Form>
+          </>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function LoginHomeLegacy({
+  onLogin,
+  loginLoading,
+  loginError,
+  logoutSucceeded,
+  onDismissLogoutResult
+}: {
+  onLogin: (values: { email: string; password: string }) => Promise<void>;
+  loginLoading?: boolean;
+  loginError?: string | null;
+  logoutSucceeded?: boolean;
+  onDismissLogoutResult?: () => void;
+}) {
+  return (
+    <main className="loginHome">
+      <section className="loginHero">
+        <div className="loginBrand">
+          <span className="loginMark"><img src="/ys-heng-logo.png" alt="YS Heng" /></span>
+          <div>
+            <Typography.Text className="loginKicker">Back-office operations</Typography.Text>
+            <Typography.Title level={1}>YS Heng Portal</Typography.Title>
+            <Typography.Text>Staff operations login / 员工后台登录</Typography.Text>
+          </div>
+        </div>
+        <div className="loginWorkflow">
+          <span><CarOutlined /> Vehicle intake</span>
+          <span><FileDoneOutlined /> Loan follow-up</span>
+          <span><BankOutlined /> Finance control</span>
+        </div>
+        <div className="loginSummary">
+          <span><strong>7</strong> roles</span>
+          <span><strong>RBAC</strong> access</span>
+          <span><strong>Live</strong> workflow</span>
+        </div>
+      </section>
+      <section className="loginPanel">
+        {logoutSucceeded ? (
+          <Result
+            className="logoutResult"
+            status="success"
+            title="Logged out successfully"
+            subTitle="Your YS Heng back-office session has ended. Sign in again when you are ready to continue."
+            extra={[
+              <Button type="primary" key="signin" onClick={onDismissLogoutResult}>Back to sign in</Button>
+            ]}
+          />
+        ) : (
+          <>
+            <div className="loginPanelHeader">
+              <Typography.Text className="loginPanelEyebrow">Secure staff access</Typography.Text>
+              <Typography.Title level={2}>Welcome back</Typography.Title>
+              <Typography.Text>Sign in to continue vehicle intake, delivery, finance, HR, and admin work.</Typography.Text>
+            </div>
+            <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
+              <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
+                <Input prefix={<UserOutlined />} placeholder="admin@ysheng.local" />
+              </Form.Item>
+              <Form.Item name="password" label="Password" rules={[{ required: true }]}>
+                <Input.Password prefix={<LockOutlined />} placeholder="Password" />
+              </Form.Item>
+              {loginError && <Alert className="loginError" message="Login failed" description={loginError} type="error" showIcon />}
+              <Button type="primary" htmlType="submit" className="loginButton" loading={loginLoading}>
+                Enter portal
+              </Button>
+            </Form>
+            <div className="loginHelpStrip">
+              <span>Cookie session</span>
+              <span>Role-based modules</span>
+            </div>
           </>
         )}
       </section>
@@ -1133,19 +1294,22 @@ function ModuleDocumentList({
   reloadKey?: number;
 }) {
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
+  const [ocrJobs, setOcrJobs] = useState<VehicleOcrJob[]>([]);
 
   useEffect(() => {
     let active = true;
     if (!vehicleId) {
       setDocuments([]);
+      setOcrJobs([]);
       return () => {
         active = false;
       };
     }
 
-    void getVehicleDocuments(vehicleId).then((items) => {
+    void Promise.all([getVehicleDocuments(vehicleId), getVehicleOcrJobs(vehicleId)]).then(([documentItems, ocrItems]) => {
       if (active) {
-        setDocuments(items.filter((document) => categories.includes(document.category)));
+        setDocuments(documentItems.filter((document) => categories.includes(document.category)));
+        setOcrJobs(ocrItems.filter((job) => categories.includes(job.category)));
       }
     });
 
@@ -1189,20 +1353,59 @@ function ModuleDocumentList({
     }
   ];
 
+  const ocrColumns: ColumnsType<VehicleOcrJob> = [
+    { title: "Analyzed / 日期", dataIndex: "completedAt", render: (value, row) => String(value || row.createdAt).slice(0, 10) },
+    { title: "Type / 类型", dataIndex: "category" },
+    { title: "File / 文件", render: (_, row) => row.document.fileName },
+    {
+      title: "Extracted / OCR",
+      render: (_, row) => ocrFieldSummary(row)
+    },
+    {
+      title: "Status / 状态",
+      width: 120,
+      render: (_, row) => <Tag color={row.status === "NeedsReview" ? "green" : "orange"}>{row.status}</Tag>
+    }
+  ];
+
   return (
-    <Table
-      rowKey="id"
-      size="small"
-      columns={columns}
-      dataSource={documents}
-      pagination={tablePagination(5)}
-      scroll={{ x: 760 }}
-      locale={{ emptyText: vehicleId ? "No uploaded documents for this selected record." : "Select a record to view uploaded documents." }}
-    />
+    <Space direction="vertical" size={12} className="fullWidth">
+      <Table
+        rowKey="id"
+        size="small"
+        columns={columns}
+        dataSource={documents}
+        pagination={tablePagination(5)}
+        scroll={{ x: 760 }}
+        locale={{ emptyText: vehicleId ? "No uploaded documents for this selected record." : "Select a record to view uploaded documents." }}
+      />
+      <Table
+        rowKey="id"
+        size="small"
+        columns={ocrColumns}
+        dataSource={ocrJobs}
+        pagination={tablePagination(5)}
+        scroll={{ x: 760 }}
+        locale={{ emptyText: vehicleId ? "No OCR results for these documents yet." : "Select a record to view OCR results." }}
+      />
+    </Space>
   );
 }
 
-function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: DashboardSummary | null; reminders: DashboardReminder[]; onSearch: (filters: DashboardReminderFilters) => Promise<void> }) {
+function ocrFieldSummary(job: VehicleOcrJob) {
+  const fields = job.result?.fields ?? {};
+  const parts = [
+    fields.supplierName ? `Supplier: ${fields.supplierName}` : undefined,
+    fields.invoiceNumber ? `Invoice: ${fields.invoiceNumber}` : undefined,
+    fields.receiptNumber ? `Receipt: ${fields.receiptNumber}` : undefined,
+    fields.plateNumberOnInvoice || fields.plateNumber ? `Plate: ${fields.plateNumberOnInvoice || fields.plateNumber}` : undefined,
+    fields.amount || fields.nettPrice ? `RM ${fields.amount || fields.nettPrice}` : undefined
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(" / ") : "-";
+}
+
+function DashboardPage({ dashboard, reminders, onSearch, onNavigate }: { dashboard: DashboardSummary | null; reminders: DashboardReminder[]; onSearch: (filters: DashboardReminderFilters) => Promise<void>; onNavigate: (path: string) => void }) {
   const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
   const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
   const data = dashboard ?? {
@@ -1262,6 +1465,12 @@ function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: Dashboar
     const dueLabel = reminderDueLabel(reminder.dueDate);
     return dueLabel === "Overdue" || dueLabel === "Due today";
   }).length;
+  const reminderFiltersActive = reminderTypeFilter !== "All" || reminderDueFilter !== "All";
+  const resetReminderFilters = () => {
+    setReminderTypeFilter("All");
+    setReminderDueFilter("All");
+    void onSearch({});
+  };
 
   return (
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
@@ -1272,12 +1481,12 @@ function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: Dashboar
       >
         <Typography.Text type="secondary">Simple daily view for stock, money, profit, and reminders.</Typography.Text>
         <div className="metricGrid dashboardMetricGrid">
-          <Metric label="Total Stock / 总库存" value={data.totalStock} />
-          <Metric label="Pending Loan / 贷款待跟进" value={data.pendingLoan} tone={data.pendingLoan > 0 ? "work" : "neutral"} />
-          <Metric label="Outstanding / 未收款" value={formatCompactMoney(data.outstandingPayment)} tone={data.outstandingPayment > 0 ? "risk" : "neutral"} />
-          <Metric label="Settlement Due / 结算到期" value={data.settlementDue} tone={data.settlementDue > 0 ? "risk" : "neutral"} />
-          <Metric label="Profit / 利润" value={formatCompactMoney(profitValue)} tone={profitValue >= 0 ? "profit" : "risk"} />
-          <Metric label="Aging / 超60天库存" value={data.vehicleAging} tone={data.vehicleAging > 0 ? "work" : "neutral"} />
+          <Metric label="Total Stock / 总库存" value={data.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+          <Metric label="Pending Loan / 贷款待跟进" value={data.pendingLoan} tone={data.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
+          <Metric label="Outstanding / 未收款" value={formatCompactMoney(data.outstandingPayment)} tone={data.outstandingPayment > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("payments"))} />
+          <Metric label="Settlement Due / 结算到期" value={data.settlementDue} tone={data.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
+          <Metric label="Profit / 利润" value={formatCompactMoney(profitValue)} tone={profitValue >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+          <Metric label="Aging / 超60天库存" value={data.vehicleAging} tone={data.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
         </div>
       </ProCard>
 
@@ -1292,6 +1501,7 @@ function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: Dashboar
             ]}
             dataSource={agingBuckets}
             pagination={false}
+            locale={{ emptyText: "No aging buckets available." }}
           />
         </ProCard>
         <ProCard title="Money follow-up / 金额跟进" className="dashboardSimpleCard" extra={<Tag color={riskTotal > 0 ? "volcano" : "green"}>{formatCompactMoney(riskTotal)}</Tag>}>
@@ -1300,10 +1510,12 @@ function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: Dashboar
             size="small"
             columns={[
               { title: "Item / 项目", dataIndex: "label", render: dashboardLabel },
-              { title: "Amount / 金额", dataIndex: "amount", align: "right", render: (value) => formatMoney(Number(value)) }
+              { title: "Amount / 金额", dataIndex: "amount", align: "right", render: (value) => formatMoney(Number(value)) },
+              { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(financeRiskTarget(row.label))}>Open</Button> }
             ]}
             dataSource={moneyRiskBreakdown}
             pagination={false}
+            locale={{ emptyText: "No money follow-up items available." }}
           />
         </ProCard>
       </div>
@@ -1338,6 +1550,7 @@ function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: Dashboar
               }}
               style={{ width: 160 }}
             />
+            <Button size="small" disabled={!reminderFiltersActive} onClick={resetReminderFilters}>Reset</Button>
           </Space>
           <Typography.Text type="secondary">{urgentReminderCount} overdue or due today across all reminders.</Typography.Text>
         </div>
@@ -1348,11 +1561,13 @@ function DashboardPage({ dashboard, reminders, onSearch }: { dashboard: Dashboar
             { title: "Title / 事项", dataIndex: "title" },
             { title: "Car Plate / 车牌", dataIndex: "vehiclePlate" },
             { title: "Due / 到期", dataIndex: "dueDate", render: (value) => <Space><span>{value}</span><Tag color={reminderDueTagColor(value)}>{dashboardLabel(reminderDueLabel(value))}</Tag></Space> },
-            { title: "Amount / 金额", dataIndex: "amount", render: (value) => value ? `RM ${Number(value).toLocaleString()}` : "-" }
+            { title: "Amount / 金额", dataIndex: "amount", render: (value) => value ? `RM ${Number(value).toLocaleString()}` : "-" },
+            { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(dashboardReminderTarget(row))}>Open</Button> }
           ]}
           dataSource={filteredReminders}
           pagination={tablePagination(8)}
           scroll={{ x: 760 }}
+          locale={{ emptyText: "No reminders match the current filters." }}
         />
       </ProCard>
     </Space>
@@ -1415,18 +1630,34 @@ function Metric({
   label,
   value,
   meta,
-  tone = "neutral"
+  tone = "neutral",
+  onClick
 }: {
   label: string;
   value: string | number;
   meta?: string;
   tone?: "neutral" | "risk" | "profit" | "work";
+  onClick?: () => void;
 }) {
-  return (
-    <div className={`metricCard metricCard-${tone}`}>
+  const content = (
+    <>
       <span>{label}</span>
       <strong>{value}</strong>
       {meta ? <small>{meta}</small> : null}
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" className={`metricCard metricCard-${tone} metricCardButton`} onClick={onClick}>
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={`metricCard metricCard-${tone}`}>
+      {content}
     </div>
   );
 }
@@ -1498,38 +1729,87 @@ function RepairPage({
     setRepairEditorOpen(true);
   };
 
-  const columns: ColumnsType<SupplierInvoice> = [
-    { title: "Plate on Invoice / 发票车牌", dataIndex: "plateNumberOnInvoice", render: (value) => value || "-" },
-    { title: "Selected Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Supplier / 供应商", dataIndex: "supplierName" },
-    { title: "Invoice / 单据", dataIndex: "invoiceNumber" },
-    { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Plate Check / 车牌检查", render: (_, row) => {
-      const status = supplierInvoicePlateStatus(row, vehicles);
-      return <Tag color={status.color}>{status.label}</Tag>;
-    } },
-    { title: "Action / 操作", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectSupplierInvoice(row.id)}>Details</Button></Space> }
+  const pendingRepairs = repairs.filter((repair) => !repair.checklistDone).length;
+  const repairTotal = repairs.filter(isRepairCostFinal).reduce((sum, repair) => sum + repair.cost, 0);
+  type RefurbishmentRecord =
+    | { key: string; kind: "repair"; repair: RepairJob }
+    | { key: string; kind: "supplierInvoice"; invoice: SupplierInvoice };
+  const refurbishmentRecords: RefurbishmentRecord[] = [
+    ...repairs.map((repair) => ({ key: `repair-${repair.id}`, kind: "repair" as const, repair })),
+    ...supplierInvoices.map((invoice) => ({ key: `supplier-${invoice.id}`, kind: "supplierInvoice" as const, invoice }))
   ];
-  const repairColumns: ColumnsType<RepairJob> = [
-    { title: "Repair Part / 配件", dataIndex: "repairPart", render: (value) => value || "-" },
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "What To Do / 整备事项", dataIndex: "whatToDo" },
-    { title: "Cost / 费用", dataIndex: "cost", render: (value) => `RM ${value.toLocaleString()}` },
-    { title: "Checklist / 检查表", dataIndex: "checklistDone", render: (done) => <Tag color={done ? "green" : "orange"}>{done ? "Done" : "Pending"}</Tag> },
+  const refurbishmentColumns: ColumnsType<RefurbishmentRecord> = [
+    {
+      title: "Type / 类型",
+      width: 150,
+      render: (_, row) => row.kind === "repair" ? <Tag color="blue">Repair Task</Tag> : <Tag color="purple">Supplier Invoice</Tag>
+    },
+    {
+      title: "Car Plate / 车牌",
+      render: (_, row) => plateFor(vehicles, row.kind === "repair" ? row.repair.vehicleId : row.invoice.vehicleId)
+    },
+    {
+      title: "Record / 记录",
+      render: (_, row) => row.kind === "repair"
+        ? (
+          <Space direction="vertical" size={0}>
+            <Typography.Text strong>{row.repair.repairPart || "Repair task"}</Typography.Text>
+            <Typography.Text type="secondary">{row.repair.whatToDo}</Typography.Text>
+          </Space>
+        )
+        : (
+          <Space direction="vertical" size={0}>
+            <Typography.Text strong>{row.invoice.supplierName}</Typography.Text>
+            <Typography.Text type="secondary">Invoice: {row.invoice.invoiceNumber}</Typography.Text>
+          </Space>
+        )
+    },
+    {
+      title: "Amount / 金额",
+      render: (_, row) => `RM ${(row.kind === "repair" ? row.repair.cost : row.invoice.amount).toLocaleString()}`
+    },
+    {
+      title: "Status / 状态",
+      render: (_, row) => {
+        if (row.kind === "repair") {
+          return (
+            <Space wrap size={4}>
+              <Tag color={row.repair.checklistDone ? "green" : "orange"}>{row.repair.checklistDone ? "Done" : "Pending"}</Tag>
+              <Tag color={row.repair.approvalStatus === "Rejected" ? "red" : row.repair.approvalStatus === "Pending" ? "gold" : "blue"}>
+                {row.repair.approvalStatus ?? "Approved"}
+              </Tag>
+            </Space>
+          );
+        }
+
+        const status = supplierInvoicePlateStatus(row.invoice, vehicles);
+        const aging = supplierInvoiceAgingStatus(row.invoice);
+        return (
+          <Space wrap size={4}>
+            <Tag color={status.color}>{status.label}</Tag>
+            <Tag color={aging === "Overdue" ? "red" : aging === "DueSoon" ? "gold" : aging === "Paid" ? "green" : "default"}>{aging}</Tag>
+          </Space>
+        );
+      }
+    },
     {
       title: "Action / 操作",
       fixed: "right",
       width: 220,
       render: (_, row) => (
         <Space className="tableActionGroup" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => setUploadRepairId(row.id)}>Details</Button>
-          <Button size="small" onClick={() => onUpdateRepair({ ...row, checklistDone: true })} disabled={row.checklistDone}>Mark Done</Button>
+          {row.kind === "repair" ? (
+            <>
+              <Button size="small" type="primary" onClick={() => setUploadRepairId(row.repair.id)}>Details</Button>
+              <Button size="small" onClick={() => onUpdateRepair({ ...row.repair, checklistDone: true })} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Mark Done</Button>
+            </>
+          ) : (
+            <Button size="small" type="primary" onClick={() => selectSupplierInvoice(row.invoice.id)}>Details</Button>
+          )}
         </Space>
       )
     }
   ];
-  const pendingRepairs = repairs.filter((repair) => !repair.checklistDone).length;
-  const repairTotal = repairs.reduce((sum, repair) => sum + repair.cost, 0);
 
   if (selectedRepair) {
     return (
@@ -1543,6 +1823,9 @@ function RepairPage({
             <Descriptions.Item label="Checklist / 检查表">
               <Tag color={selectedRepair.checklistDone ? "green" : "orange"}>{selectedRepair.checklistDone ? "Done" : "Pending"}</Tag>
             </Descriptions.Item>
+            <Descriptions.Item label="Approval / 审批">
+              <Tag color={selectedRepair.approvalStatus === "Rejected" ? "red" : selectedRepair.approvalStatus === "Pending" ? "gold" : "blue"}>{selectedRepair.approvalStatus ?? "Approved"}</Tag>
+            </Descriptions.Item>
             <Descriptions.Item label="What To Do / 整备事项">{selectedRepair.whatToDo}</Descriptions.Item>
           </Descriptions>
         </ProCard>
@@ -1551,7 +1834,7 @@ function RepairPage({
             key={`${selectedRepair.id}-repair-record`}
             layout="vertical"
             className="formGrid"
-            initialValues={{ ...selectedRepair, checklistDone: selectedRepair.checklistDone ? "done" : "pending" }}
+            initialValues={{ ...selectedRepair, checklistDone: selectedRepair.checklistDone ? "done" : "pending", approvalStatus: selectedRepair.approvalStatus ?? "Approved" }}
             onFinish={async (values) => {
               const repair: RepairJob = {
                 ...selectedRepair,
@@ -1559,7 +1842,9 @@ function RepairPage({
                 repairPart: values.repairPart,
                 whatToDo: values.whatToDo,
                 cost: Number(values.cost ?? 0),
-                checklistDone: values.checklistDone === "done"
+                checklistDone: values.checklistDone === "done",
+                approvalStatus: values.approvalStatus,
+                approvalNotes: values.approvalNotes?.trim() || undefined
               };
               const repairBlockReason = repairCreateBlockReason(repair);
               if (repairBlockReason) {
@@ -1578,6 +1863,8 @@ function RepairPage({
             <Form.Item name="whatToDo" label="What To Do" rules={[{ required: true }]}><Input placeholder="Polish, wash, spare part..." /></Form.Item>
             <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
             <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
+            <Form.Item name="approvalStatus" label="Approval"><Select options={repairApprovalOptions} /></Form.Item>
+            <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Repair</Button></Form.Item>
           </Form>
         </ProCard>
@@ -1629,114 +1916,64 @@ function RepairPage({
         <Metric label="Repair Cost / 整备费用" value={`RM ${repairTotal.toLocaleString()}`} />
       </div>
       <ProCard
-        title="Repair Checklist / 整备检查表"
-        extra={<Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button>}
+        id="repair-supplier-card"
+        title="Supplier & Refurbishment / 供应商与整备"
+        extra={<Space wrap><Tag color="blue">{refurbishmentRecords.length} records</Tag><Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button></Space>}
       >
         <div className="mobileRecordList">
-          {repairs.map((repair) => (
-            <article className="mobileRecordCard" key={repair.id}>
-              <div className="mobileRecordHeader">
-                <div>
-                  <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                  <Typography.Title level={5}>{plateFor(vehicles, repair.vehicleId)}</Typography.Title>
+          {refurbishmentRecords.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No repair or supplier invoice records yet." />}
+          {refurbishmentRecords.map((record) => {
+            const isRepair = record.kind === "repair";
+            const status = isRepair ? undefined : supplierInvoicePlateStatus(record.invoice, vehicles);
+            return (
+              <article className="mobileRecordCard" key={record.key}>
+                <div className="mobileRecordHeader">
+                  <div>
+                    <Typography.Text className="mobileRecordEyebrow">{isRepair ? "Repair Task" : "Supplier Invoice"}</Typography.Text>
+                    <Typography.Title level={5}>{plateFor(vehicles, isRepair ? record.repair.vehicleId : record.invoice.vehicleId)}</Typography.Title>
+                  </div>
+                  {isRepair ? <Tag color="blue">Repair Task</Tag> : <Tag color={status?.color}>{status?.label}</Tag>}
                 </div>
-                <Tag color={repair.checklistDone ? "green" : "orange"}>{repair.checklistDone ? "Done" : "Pending"}</Tag>
-              </div>
-              <div className="mobileRecordMeta">
-                <span>
-                  <small>Repair Part / 配件</small>
-                  <strong>{repair.repairPart || "-"}</strong>
-                </span>
-                <span>
-                  <small>Cost / 费用</small>
-                  <strong>RM {repair.cost.toLocaleString()}</strong>
-                </span>
-              </div>
-              <div className="mobileRecordSection">
-                <Typography.Text className="mobileRecordLabel">What To Do / 整备事项</Typography.Text>
-                <div className="mobileRecordTextBlock"><span>{repair.whatToDo}</span></div>
-              </div>
-              <div className="mobileRecordFooter">
-                <Space className="tableActionGroup" wrap size={6}>
-                  <Button size="small" type="primary" onClick={() => setUploadRepairId(repair.id)}>Details</Button>
-                  <Button size="small" onClick={() => onUpdateRepair({ ...repair, checklistDone: true })} disabled={repair.checklistDone}>Mark Done</Button>
-                </Space>
-              </div>
-            </article>
-          ))}
+                <div className="mobileRecordMeta">
+                  <span>
+                    <small>{isRepair ? "Repair Part" : "Supplier"}</small>
+                    <strong>{isRepair ? record.repair.repairPart || "-" : record.invoice.supplierName}</strong>
+                  </span>
+                  <span>
+                    <small>Amount / 金额</small>
+                    <strong>RM {(isRepair ? record.repair.cost : record.invoice.amount).toLocaleString()}</strong>
+                  </span>
+                </div>
+                <div className="mobileRecordSection">
+                  <Typography.Text className="mobileRecordLabel">{isRepair ? "What To Do / 整备事项" : "Invoice / 单据"}</Typography.Text>
+                  <div className="mobileRecordTextBlock">
+                    {isRepair ? (
+                      <span>{record.repair.whatToDo}</span>
+                    ) : (
+                      <>
+                        <span>Invoice No: {record.invoice.invoiceNumber}</span>
+                        <span>Plate on invoice: {record.invoice.plateNumberOnInvoice || "Not entered"}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="mobileRecordFooter">
+                  <Space className="tableActionGroup" wrap size={6}>
+                    {isRepair ? (
+                      <>
+                        <Button size="small" type="primary" onClick={() => setUploadRepairId(record.repair.id)}>Details</Button>
+                        <Button size="small" onClick={() => onUpdateRepair({ ...record.repair, checklistDone: true })} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Mark Done</Button>
+                      </>
+                    ) : (
+                      <Button size="small" type="primary" onClick={() => selectSupplierInvoice(record.invoice.id)}>Details</Button>
+                    )}
+                  </Space>
+                </div>
+              </article>
+            );
+          })}
         </div>
-        <Table className="desktopDataTable" rowKey="id" columns={repairColumns} dataSource={repairs} pagination={tablePagination(8)} scroll={{ x: 760 }} />
-      </ProCard>
-      <ProCard id="repair-supplier-card" title="Supplier & Refurbishment / 供应商与整备">
-        <div className="mobileRecordList">
-          {supplierInvoices.map((invoice) => (
-            <article className="mobileRecordCard" key={invoice.id}>
-              <div className="mobileRecordHeader">
-                <div>
-                  <Typography.Text className="mobileRecordEyebrow">Supplier / 供应商</Typography.Text>
-                  <Typography.Title level={5}>{invoice.supplierName}</Typography.Title>
-                </div>
-                {(() => {
-                  const status = supplierInvoicePlateStatus(invoice, vehicles);
-                  return <Tag color={status.color}>{status.label}</Tag>;
-                })()}
-              </div>
-              <div className="mobileRecordMeta">
-                <span>
-                  <small>Selected Car Plate / 车牌</small>
-                  <strong>{plateFor(vehicles, invoice.vehicleId)}</strong>
-                </span>
-                <span>
-                  <small>Amount / 金额</small>
-                  <strong>RM {invoice.amount.toLocaleString()}</strong>
-                </span>
-              </div>
-              <div className="mobileRecordSection">
-                <Typography.Text className="mobileRecordLabel">Invoice / 单据</Typography.Text>
-                <div className="mobileRecordTextBlock">
-                  <span>Invoice No: {invoice.invoiceNumber}</span>
-                  <span>Plate on invoice: {invoice.plateNumberOnInvoice || "Not entered"}</span>
-                </div>
-              </div>
-              <div className="mobileRecordFooter">
-                  <Button size="small" type="primary" onClick={() => selectSupplierInvoice(invoice.id)}>Details</Button>
-              </div>
-            </article>
-          ))}
-        </div>
-        <Table className="desktopDataTable" rowKey="id" columns={columns} dataSource={supplierInvoices} pagination={tablePagination(8)} scroll={{ x: 760 }} />
-        {false && <Form
-          key={selectedSupplierInvoice?.id ?? "supplier-invoice-edit"}
-          layout="vertical"
-          className="formGrid"
-          initialValues={selectedSupplierInvoice}
-          onFinish={async (values) => {
-            if (!selectedSupplierInvoice) return;
-            const invoice: SupplierInvoice = {
-              ...selectedSupplierInvoice,
-              vehicleId: values.vehicleId,
-              supplierName: values.supplierName,
-              invoiceNumber: values.invoiceNumber,
-              plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined,
-              amount: Number(values.amount ?? 0)
-            };
-            const blockReason = supplierInvoiceCreateBlockReason(invoice, supplierInvoices, vehicles);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-
-            await onUpdateInvoice(invoice);
-          }}
-        >
-          <Form.Item name="id" label="Edit Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
-          <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
-        </Form>}
+        <Table className="desktopDataTable" rowKey="key" columns={refurbishmentColumns} dataSource={refurbishmentRecords} pagination={tablePagination(8)} scroll={{ x: 820 }} locale={{ emptyText: "No repair or supplier invoice records yet." }} />
       </ProCard>
       <Drawer
         title="Supplier Invoice Details / 供应商发票详情"
@@ -1759,7 +1996,9 @@ function RepairPage({
               supplierName: values.supplierName,
               invoiceNumber: values.invoiceNumber,
               plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined,
-              amount: Number(values.amount ?? 0)
+              amount: Number(values.amount ?? 0),
+              dueDate: values.dueDate?.trim() || undefined,
+              paidAt: values.paidAt?.trim() || undefined
             };
             const blockReason = supplierInvoiceCreateBlockReason(invoice, supplierInvoices, vehicles);
             if (blockReason) {
@@ -1777,6 +2016,8 @@ function RepairPage({
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
           <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="dueDate" label="Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+          <Form.Item name="paidAt" label="Paid Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
         </Form>
       </Drawer>
@@ -1793,14 +2034,32 @@ function RepairPage({
         className="recordCreateModal"
       >
         <Form layout="vertical" className="modalForm formGrid" onFinish={async (values) => {
-          const invoice: SupplierInvoice = { id: newId(), vehicleId: values.vehicleId, supplierName: values.supplierName, invoiceNumber: values.invoiceNumber, plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined, amount: Number(values.amount ?? 0) };
+          const invoice: SupplierInvoice = {
+            id: newId(),
+            vehicleId: values.vehicleId,
+            supplierName: values.supplierName,
+            invoiceNumber: values.invoiceNumber,
+            plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined,
+            amount: Number(values.amount ?? 0),
+            dueDate: values.dueDate?.trim() || undefined,
+            paidAt: values.paidAt?.trim() || undefined
+          };
           const blockReason = supplierInvoiceCreateBlockReason(invoice, supplierInvoices, vehicles);
           if (blockReason) {
             message.warning(blockReason);
             return;
           }
 
-          const repair: RepairJob = { id: newId(), vehicleId: values.vehicleId, repairPart: values.repairPart, whatToDo: values.whatToDo, cost: invoice.amount, checklistDone: values.checklistDone === "done" };
+          const repair: RepairJob = {
+            id: newId(),
+            vehicleId: values.vehicleId,
+            repairPart: values.repairPart,
+            whatToDo: values.whatToDo,
+            cost: invoice.amount,
+            checklistDone: values.checklistDone === "done",
+            approvalStatus: values.approvalStatus,
+            approvalNotes: values.approvalNotes?.trim() || undefined
+          };
           const repairBlockReason = repairCreateBlockReason(repair);
           if (repairBlockReason) {
             message.warning(repairBlockReason);
@@ -1811,15 +2070,19 @@ function RepairPage({
           await onCreateRepair(repair);
           setSupplierInvoiceOcrDraft(null);
           setRepairCreateOpen(false);
-        }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", ...supplierInvoiceOcrDraft }}>
+        }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", approvalStatus: "Pending", ...supplierInvoiceOcrDraft }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
           <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="dueDate" label="Invoice Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+          <Form.Item name="paidAt" label="Paid Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
+          <Form.Item name="approvalStatus" label="Repair Approval"><Select options={repairApprovalOptions} /></Form.Item>
+          <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
         </Form>
       </Modal>
@@ -1835,7 +2098,7 @@ function RepairPage({
           key={selectedEditRepair?.id ?? "repair-edit"}
           layout="vertical"
           className="drawerForm"
-          initialValues={selectedEditRepair ? { ...selectedEditRepair, checklistDone: selectedEditRepair.checklistDone ? "done" : "pending" } : undefined}
+          initialValues={selectedEditRepair ? { ...selectedEditRepair, checklistDone: selectedEditRepair.checklistDone ? "done" : "pending", approvalStatus: selectedEditRepair.approvalStatus ?? "Approved" } : undefined}
           onFinish={async (values) => {
             if (!selectedEditRepair) return;
             const repair: RepairJob = {
@@ -1844,7 +2107,9 @@ function RepairPage({
               repairPart: values.repairPart,
               whatToDo: values.whatToDo,
               cost: Number(values.cost ?? 0),
-              checklistDone: values.checklistDone === "done"
+              checklistDone: values.checklistDone === "done",
+              approvalStatus: values.approvalStatus,
+              approvalNotes: values.approvalNotes?.trim() || undefined
             };
             const repairBlockReason = repairCreateBlockReason(repair);
             if (repairBlockReason) {
@@ -1862,6 +2127,8 @@ function RepairPage({
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
+          <Form.Item name="approvalStatus" label="Approval"><Select options={repairApprovalOptions} /></Form.Item>
+          <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditRepair}>Update Repair</Button></Form.Item>
         </Form>
       </Drawer>
@@ -2113,9 +2380,10 @@ function LoanPage({
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
         title="Loan Workflow / 贷款流程"
-        extra={<Button type="primary" onClick={() => setLoanCreateOpen(true)}>New Loan</Button>}
+        extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending").length} pending</Tag><Button type="primary" onClick={() => setLoanCreateOpen(true)}>New Loan</Button></Space>}
       >
         <div className="mobileRecordList loanMobileList">
+          {loans.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No loan records yet." />}
           {loans.map((loan) => {
             const check = documentChecks[loan.id];
             const isPending = loan.status === "Pending";
@@ -2160,7 +2428,7 @@ function LoanPage({
             );
           })}
         </div>
-        <Table className="desktopDataTable loanWorkflowTable" rowKey="id" columns={columns} dataSource={loans} pagination={tablePagination(8)} scroll={{ x: "max-content" }} />
+        <Table className="desktopDataTable loanWorkflowTable" rowKey="id" columns={columns} dataSource={loans} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No loan records yet." }} />
       </ProCard>
       <Modal
         title="Submit Loan / 提交贷款"
@@ -2282,7 +2550,11 @@ function DeliveryPage({
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const selectedDelivery: DeliverySchedule | undefined = deliveries.find((delivery) => delivery.id === uploadDeliveryId);
   const selectedEditDelivery: DeliverySchedule | undefined = deliveries.find((delivery) => delivery.id === editDeliveryId) ?? deliveries[0];
-  const selectedDeliveryReadiness = selectedEditDelivery ? releaseReadiness[selectedEditDelivery.id] : undefined;
+  const selectedDeliveryReadiness = selectedDelivery
+    ? releaseReadiness[selectedDelivery.id]
+    : selectedEditDelivery
+      ? releaseReadiness[selectedEditDelivery.id]
+      : undefined;
 
   useEffect(() => {
     let active = true;
@@ -2347,9 +2619,18 @@ function DeliveryPage({
   })[status] ?? "default";
 
   const deliveryActionDisabledReason = (row: DeliverySchedule) => {
-    const missingDocuments = releaseReadiness[row.id]?.missingCategories ?? [];
+    const readiness = releaseReadiness[row.id];
+    const missingDocuments = readiness?.missingCategories ?? [];
+    const missingEvidence = readiness?.missingEvidence ?? [];
+    const expiredDocuments = readiness?.expiredDocuments ?? [];
     if (missingDocuments.length > 0) {
       return `Missing ${missingDocuments.map(documentCategoryLabel).join(", ")}`;
+    }
+    if (missingEvidence.length > 0) {
+      return `Missing ${missingEvidence.join(", ")}`;
+    }
+    if (expiredDocuments.length > 0) {
+      return expiredDocuments.join(", ");
     }
     if (!canMarkDeliveryReady(row) && !canReleaseDelivery(row)) {
       return "Finish the previous delivery steps first.";
@@ -2358,8 +2639,11 @@ function DeliveryPage({
   };
 
   const renderNextDeliveryAction = (row: DeliverySchedule) => {
-    const missingDocuments = releaseReadiness[row.id]?.missingCategories ?? [];
-    const blocksReleaseStep = missingDocuments.length > 0;
+    const readiness = releaseReadiness[row.id];
+    const missingDocuments = readiness?.missingCategories ?? [];
+    const missingEvidence = readiness?.missingEvidence ?? [];
+    const expiredDocuments = readiness?.expiredDocuments ?? [];
+    const blocksReleaseStep = missingDocuments.length > 0 || missingEvidence.length > 0 || expiredDocuments.length > 0;
     const blockedReason = deliveryActionDisabledReason(row);
 
     if (canMarkNotificationSent(row)) {
@@ -2441,6 +2725,8 @@ function DeliveryPage({
         const readiness = releaseReadiness[row.id];
         const ready = readiness?.isReady ?? isDeliveryReady(row);
         const missingCategories = readiness?.missingCategories ?? [];
+        const missingEvidence = readiness?.missingEvidence ?? [];
+        const expiredDocuments = readiness?.expiredDocuments ?? [];
         const missingLabel = missingCategories.map(documentCategoryLabel).join(", ");
         return (
           <Space direction="vertical" size={3} className="deliveryReadinessCell">
@@ -2452,6 +2738,8 @@ function DeliveryPage({
                 </Typography.Text>
               </Tooltip>
             )}
+            {missingEvidence.length > 0 && <Typography.Text type="danger" className="deliveryTableText">{missingEvidence.length} evidence</Typography.Text>}
+            {expiredDocuments.length > 0 && <Typography.Text type="danger" className="deliveryTableText">{expiredDocuments.length} expired</Typography.Text>}
           </Space>
         );
       }
@@ -2510,10 +2798,17 @@ function DeliveryPage({
                 twoDayNoticeSent: values.twoDayNoticeSent,
                 insuranceHandled: values.insuranceHandled,
                 insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
+                insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
                 roadTaxHandled: values.roadTaxHandled,
                 roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
+                roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
                 windscreenInsuranceHandled: values.windscreenInsuranceHandled,
-                windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined
+                windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
+                windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
+                handoverPhotoCaptured: Boolean(values.handoverPhotoCaptured),
+                signedHandoverReceived: Boolean(values.signedHandoverReceived),
+                customerAcknowledged: Boolean(values.customerAcknowledged),
+                finalChecklistConfirmed: Boolean(values.finalChecklistConfirmed)
               };
               const blockReason = deliveryCreateBlockReason(delivery);
               if (blockReason) {
@@ -2541,8 +2836,11 @@ function DeliveryPage({
             <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
             <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
             <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
+            <Form.Item name="insuranceExpiryDate" label="Insurance Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
+            <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
+            <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             {deliveryChecklistFields.map((field) => (
               <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
             ))}
@@ -2577,6 +2875,50 @@ function DeliveryPage({
               showIcon
               message="Upload Policy and Road Tax Receipt before marking a delivery Ready or Released."
             />
+            {selectedDeliveryReadiness?.evidence.length ? (
+              <AntTable<DeliveryEvidenceItem>
+                size="small"
+                rowKey="category"
+                pagination={false}
+                scroll={{ x: "max-content" }}
+                dataSource={selectedDeliveryReadiness.evidence}
+                columns={[
+                  {
+                    title: "Required Evidence / 必需文件",
+                    dataIndex: "category",
+                    render: (category: DocumentCategory) => documentCategoryLabel(category)
+                  },
+                  {
+                    title: "Status / 状态",
+                    dataIndex: "isPresent",
+                    render: (isPresent: boolean) => <Tag color={isPresent ? "green" : "red"}>{isPresent ? "Uploaded" : "Missing"}</Tag>
+                  },
+                  {
+                    title: "Latest File / 最新文件",
+                    render: (_, item) => item.documentId ? (
+                      <Button
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        href={vehicleDocumentContentUrl(selectedDelivery.vehicleId, item.documentId)}
+                        target="_blank"
+                      >
+                        {item.fileName || "Open file"}
+                      </Button>
+                    ) : <Typography.Text type="secondary">-</Typography.Text>
+                  },
+                  {
+                    title: "Uploaded / 日期",
+                    dataIndex: "uploadedAt",
+                    render: (value?: string | null) => value ? String(value).slice(0, 10) : "-"
+                  },
+                  {
+                    title: "Uploaded By / 上传者",
+                    dataIndex: "uploadedBy",
+                    render: (value?: string | null) => value || "-"
+                  }
+                ]}
+              />
+            ) : null}
             <ModuleDocumentList
               vehicleId={selectedDelivery.vehicleId}
               categories={deliveryDocumentCategories}
@@ -2599,6 +2941,12 @@ function DeliveryPage({
               </Tag>
               {selectedDeliveryReadiness?.missingCategories.map((category) => (
                 <Tag color="red" key={category}>Missing {documentCategoryLabel(category)}</Tag>
+              ))}
+              {selectedDeliveryReadiness?.missingEvidence.map((item) => (
+                <Tag color="red" key={item}>Missing {item}</Tag>
+              ))}
+              {selectedDeliveryReadiness?.expiredDocuments.map((item) => (
+                <Tag color="volcano" key={item}>{item}</Tag>
               ))}
             </Space>
             <Form
@@ -2664,15 +3012,16 @@ function DeliveryPage({
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
         title="Delivery Workflow / 出车流程"
-        extra={<Button type="primary" onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button>}
+        extra={<Space wrap><Tag color="blue">{deliveries.length} deliveries</Tag><Tag color={deliveries.some((delivery) => delivery.status !== "Released") ? "orange" : "default"}>{deliveries.filter((delivery) => delivery.status !== "Released").length} open</Tag><Button type="primary" onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button></Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <Alert
             type="info"
             showIcon
-            message="Click Open to view delivery documents, edit the record, and update the final checklist."
+            message="Click Details to view delivery documents, edit the record, and update the final checklist."
           />
           <div className="mobileRecordList">
+            {deliveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No delivery records yet." />}
             {deliveries.map((delivery) => {
               const readiness = releaseReadiness[delivery.id];
               const ready = readiness?.isReady ?? isDeliveryReady(delivery);
@@ -2724,6 +3073,7 @@ function DeliveryPage({
             dataSource={deliveries}
             pagination={tablePagination(8)}
             scroll={{ x: "max-content" }}
+            locale={{ emptyText: "No delivery records yet." }}
           />
         </Space>
       </ProCard>
@@ -2754,10 +3104,17 @@ function DeliveryPage({
             twoDayNoticeSent: values.twoDayNoticeSent,
             insuranceHandled: values.insuranceHandled,
             insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
+            insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
             roadTaxHandled: values.roadTaxHandled,
             roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
+            roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
             windscreenInsuranceHandled: values.windscreenInsuranceHandled,
-            windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined
+            windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
+            windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
+            handoverPhotoCaptured: Boolean(values.handoverPhotoCaptured),
+            signedHandoverReceived: Boolean(values.signedHandoverReceived),
+            customerAcknowledged: Boolean(values.customerAcknowledged),
+            finalChecklistConfirmed: Boolean(values.finalChecklistConfirmed)
           };
           const blockReason = deliveryCreateBlockReason(delivery);
           if (blockReason) {
@@ -2766,7 +3123,7 @@ function DeliveryPage({
           }
           onCreate(delivery);
           setDeliveryCreateOpen(false);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", roadTaxReceiptReference: "", windscreenPolicyReference: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false }}>
+        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
           <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
             <Select
               showSearch
@@ -2781,8 +3138,11 @@ function DeliveryPage({
           <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
           <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
           <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
+          <Form.Item name="insuranceExpiryDate" label="Insurance Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
+          <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
+          <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           {deliveryChecklistFields.map((field) => (
             <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
           ))}
@@ -2821,10 +3181,17 @@ function DeliveryPage({
               twoDayNoticeSent: values.twoDayNoticeSent,
               insuranceHandled: values.insuranceHandled,
               insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
+              insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
               roadTaxHandled: values.roadTaxHandled,
               roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
+              roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
               windscreenInsuranceHandled: values.windscreenInsuranceHandled,
-              windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined
+              windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
+              windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
+              handoverPhotoCaptured: Boolean(values.handoverPhotoCaptured),
+              signedHandoverReceived: Boolean(values.signedHandoverReceived),
+              customerAcknowledged: Boolean(values.customerAcknowledged),
+              finalChecklistConfirmed: Boolean(values.finalChecklistConfirmed)
             };
             const blockReason = deliveryCreateBlockReason(delivery);
             if (blockReason) {
@@ -2857,8 +3224,11 @@ function DeliveryPage({
           <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
           <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
           <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
+          <Form.Item name="insuranceExpiryDate" label="Insurance Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
+          <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
+          <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           {deliveryChecklistFields.map((field) => (
             <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
           ))}
@@ -2882,6 +3252,12 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
   const openLeadCount = leads.filter((lead) => lead.status !== "Closed").length;
   const multiLeadVehicleCount = Object.values(activeCounts).filter((count) => count > 1).length;
   const hotVehicleCount = vehicles.filter((vehicle) => vehicle.status === "Available" && vehicle.isPublic && (activeCounts[vehicle.id] ?? 0) > 1).length;
+  const leadFiltersActive = leadStatusFilter !== "All" || leadLinkFilter !== "All" || leadSortMode !== "CloseAsap";
+  const clearLeadFilters = () => {
+    setLeadStatusFilter("All");
+    setLeadLinkFilter("All");
+    setLeadSortMode("CloseAsap");
+  };
   const customerRecordForLead = (lead: Lead) => lead.customerId ? customers.find((customer) => customer.id === lead.customerId) : undefined;
   const currentUserId = currentUser?.id ?? "";
   const isTakenByCurrentUser = (lead: Lead) => Boolean(lead.takenByUserId && lead.takenByUserId === currentUserId);
@@ -2966,6 +3342,15 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
     },
     { title: "Received / 日期", dataIndex: "createdAt", render: (value) => String(value).slice(0, 10) },
     { title: "Message / 询问", dataIndex: "message", render: (value) => value || "-" },
+    {
+      title: "Source / 来源",
+      width: 260,
+      render: (_, row) => (
+        <Tooltip title={leadSourceSummary(row)}>
+          <Typography.Text className="leadSourceText">{leadSourceSummary(row)}</Typography.Text>
+        </Tooltip>
+      )
+    },
     {
       title: "Status / 状态",
       dataIndex: "status",
@@ -3074,8 +3459,10 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
             style={{ width: 180 }}
           />
           <Tag color="blue">{groupedLeadRows.length} cars / {displayedLeads.length} leads</Tag>
+          <Button size="small" disabled={!leadFiltersActive} onClick={clearLeadFilters}>Clear filters</Button>
         </Space>
         <div className="mobileRecordList">
+          {groupedLeadRows.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No leads match the current filters." />}
           {groupedLeadRows.map((group) => (
             <article className="mobileRecordCard" key={group.vehicleId}>
               <div className="mobileRecordHeader">
@@ -3106,6 +3493,7 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
                         <strong>{lead.customerName}</strong>
                         <span>{lead.phone}</span>
                         <small>{lead.message || "No message"}</small>
+                        <small>{leadSourceSummary(lead)}</small>
                         {leadOwnerLabel(lead) ? <small>{leadOwnerLabel(lead)}</small> : null}
                       </div>
                       <Space wrap size={4}>
@@ -3143,10 +3531,12 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
                 columns={leadDetailColumns}
                 dataSource={group.leads}
                 pagination={false}
-                scroll={{ x: 900 }}
+                scroll={{ x: 1120 }}
+                locale={{ emptyText: "No lead details in this group." }}
               />
             )
           }}
+          locale={{ emptyText: "No leads match the current filters." }}
         />
       </ProCard>
     </Space>
@@ -3154,10 +3544,13 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
 }
 
 function AuditLogPage({ auditLog, onSearch }: { auditLog: AuditLog[]; onSearch: (filters: AuditLogFilters) => Promise<void> }) {
+  const [form] = Form.useForm();
+
   return (
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard title={bilingual.auditLog}>
         <Form
+          form={form}
           layout="inline"
           className="toolbarForm"
           onFinish={(values) => onSearch({
@@ -3179,10 +3572,15 @@ function AuditLogPage({ auditLog, onSearch }: { auditLog: AuditLog[]; onSearch: 
             <Button type="primary" htmlType="submit">Filter</Button>
           </Form.Item>
           <Form.Item>
-            <Button htmlType="button" onClick={() => onSearch({})}>Reset</Button>
+            <Button htmlType="button" onClick={() => {
+              form.resetFields();
+              void onSearch({});
+            }}>Reset</Button>
           </Form.Item>
+          <Tag color="blue">{auditLog.length} records</Tag>
         </Form>
         <div className="mobileRecordList">
+          {auditLog.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No audit records match the current filters." />}
           {auditLog.slice(0, 12).map((entry) => (
             <article className="mobileRecordCard" key={entry.id}>
               <div className="mobileRecordHeader">
@@ -3203,7 +3601,7 @@ function AuditLogPage({ auditLog, onSearch }: { auditLog: AuditLog[]; onSearch: 
             </article>
           ))}
         </div>
-        <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={tablePagination(12)} scroll={{ x: 900 }} />
+        <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={tablePagination(12)} scroll={{ x: 900 }} locale={{ emptyText: "No audit records match the current filters." }} />
       </ProCard>
       <Alert
         type="info"
@@ -3236,7 +3634,19 @@ function AdminPage({
   const [staffEditorOpen, setStaffEditorOpen] = useState(false);
   const [passwordResetOpen, setPasswordResetOpen] = useState(false);
   const [staffCreateOpen, setStaffCreateOpen] = useState(false);
+  const [staffKeywordFilter, setStaffKeywordFilter] = useState("");
+  const [staffStatusFilter, setStaffStatusFilter] = useState<StaffStatusFilter>("All");
+  const [staffRoleFilter, setStaffRoleFilter] = useState<StaffRole | "All">("All");
   const selectedEditStaffUser = staffUsers.find((user) => user.id === editStaffUserId) ?? staffUsers[0];
+  const filteredStaffUsers = filterStaffUsers(staffUsers, {
+    keyword: staffKeywordFilter,
+    status: staffStatusFilter,
+    role: staffRoleFilter
+  });
+  const staffFiltersActive = Boolean(staffKeywordFilter.trim()) || staffStatusFilter !== "All" || staffRoleFilter !== "All";
+  const activeStaffCount = staffUsers.filter((user) => user.isActive).length;
+  const disabledStaffCount = staffUsers.filter((user) => !user.isActive).length;
+  const adminStaffCount = staffUsers.filter((user) => user.roles.includes("BossAdmin")).length;
 
   useEffect(() => {
     if (!editStaffUserId && staffUsers[0]?.id) {
@@ -3252,6 +3662,27 @@ function AdminPage({
   const openPasswordReset = (userId: string) => {
     setEditStaffUserId(userId);
     setPasswordResetOpen(true);
+  };
+
+  const clearStaffFilters = () => {
+    setStaffKeywordFilter("");
+    setStaffStatusFilter("All");
+    setStaffRoleFilter("All");
+  };
+
+  const confirmStaffRoleChange = (row: StaffUser, roles: StaffRole[]) => {
+    if (!canAssignStaffRoles(roles)) {
+      message.warning("Select at least one department role before saving staff access.");
+      return;
+    }
+
+    Modal.confirm({
+      title: "Update staff roles?",
+      content: `${row.displayName} will have: ${roles.map(roleLabel).join(", ")}.`,
+      okText: "Update roles",
+      cancelText: "Cancel",
+      onOk: () => onUpdateStaffRoles(row.id, roles)
+    });
   };
 
   const staffColumns: ColumnsType<StaffUser> = [
@@ -3270,13 +3701,7 @@ function AdminPage({
             className="fullWidth"
             value={row.roles}
             options={staffRoles.map((role) => ({ value: role, label: roleLabel(role) }))}
-            onChange={(roles) => {
-              if (!canAssignStaffRoles(roles)) {
-                message.warning("Select at least one department role before saving staff access.");
-                return;
-              }
-              onUpdateStaffRoles(row.id, roles);
-            }}
+            onChange={(roles) => confirmStaffRoleChange(row, roles)}
           />
         </Space.Compact>
       )
@@ -3289,9 +3714,17 @@ function AdminPage({
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectStaffUser(row.id)}>Details</Button>
           <Button size="small" onClick={() => openPasswordReset(row.id)}>Reset</Button>
-          <Button size="small" danger={row.isActive} onClick={() => onUpdateStaffStatus(row.id, { isActive: !row.isActive })}>
-            {row.isActive ? "Disable" : "Enable"}
-          </Button>
+          <Popconfirm
+            title={row.isActive ? "Disable staff user?" : "Enable staff user?"}
+            description={row.isActive ? "The staff member will no longer be able to sign in." : "The staff member will be able to sign in again."}
+            okText={row.isActive ? "Disable" : "Enable"}
+            cancelText="Cancel"
+            onConfirm={() => onUpdateStaffStatus(row.id, { isActive: !row.isActive })}
+          >
+            <Button size="small" danger={row.isActive}>
+              {row.isActive ? "Disable" : "Enable"}
+            </Button>
+          </Popconfirm>
         </Space>
       )
     }
@@ -3311,8 +3744,45 @@ function AdminPage({
                   <Typography.Text type="secondary">Create users from this list, then adjust RBAC roles directly in the table.</Typography.Text>
                   <Button type="primary" onClick={() => setStaffCreateOpen(true)}>New Staff</Button>
                 </div>
+                <div className="staffSummaryStrip">
+                  <span><strong>{staffUsers.length}</strong>Total staff</span>
+                  <span><strong>{activeStaffCount}</strong>Active</span>
+                  <span><strong>{disabledStaffCount}</strong>Disabled</span>
+                  <span><strong>{adminStaffCount}</strong>Admin</span>
+                </div>
+                <Space className="toolbarForm staffFilterBar" wrap>
+                  <Input.Search
+                    allowClear
+                    placeholder="Search name, email, or role"
+                    value={staffKeywordFilter}
+                    onChange={(event) => setStaffKeywordFilter(event.target.value)}
+                    style={{ width: 240 }}
+                  />
+                  <Select
+                    value={staffStatusFilter}
+                    options={[
+                      { value: "All", label: "All status" },
+                      { value: "Active", label: "Active" },
+                      { value: "Disabled", label: "Disabled" }
+                    ]}
+                    onChange={setStaffStatusFilter}
+                    style={{ width: 150 }}
+                  />
+                  <Select<StaffRole | "All">
+                    value={staffRoleFilter}
+                    options={[
+                      { value: "All", label: "All roles" },
+                      ...staffRoles.map((role) => ({ value: role, label: roleLabel(role) }))
+                    ]}
+                    onChange={setStaffRoleFilter}
+                    style={{ width: 180 }}
+                  />
+                  <Tag color={staffFiltersActive ? "blue" : "default"}>{filteredStaffUsers.length} / {staffUsers.length} shown</Tag>
+                  <Button size="small" disabled={!staffFiltersActive} onClick={clearStaffFilters}>Clear filters</Button>
+                </Space>
                 <div className="mobileRecordList">
-                  {staffUsers.map((user) => (
+                  {filteredStaffUsers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No staff users match the current filters." />}
+                  {filteredStaffUsers.map((user) => (
                     <article className="mobileRecordCard" key={user.id}>
                       <div className="mobileRecordHeader">
                         <div>
@@ -3332,15 +3802,23 @@ function AdminPage({
                         <Space className="tableActionGroup" wrap size={6}>
                           <Button size="small" type="primary" onClick={() => selectStaffUser(user.id)}>Details</Button>
                           <Button size="small" onClick={() => openPasswordReset(user.id)}>Reset</Button>
-                          <Button size="small" danger={user.isActive} onClick={() => onUpdateStaffStatus(user.id, { isActive: !user.isActive })}>
-                            {user.isActive ? "Disable" : "Enable"}
-                          </Button>
+                          <Popconfirm
+                            title={user.isActive ? "Disable staff user?" : "Enable staff user?"}
+                            description={user.isActive ? "The staff member will no longer be able to sign in." : "The staff member will be able to sign in again."}
+                            okText={user.isActive ? "Disable" : "Enable"}
+                            cancelText="Cancel"
+                            onConfirm={() => onUpdateStaffStatus(user.id, { isActive: !user.isActive })}
+                          >
+                            <Button size="small" danger={user.isActive}>
+                              {user.isActive ? "Disable" : "Enable"}
+                            </Button>
+                          </Popconfirm>
                         </Space>
                       </div>
                     </article>
                   ))}
                 </div>
-                <Table className="desktopDataTable" rowKey="id" size="small" columns={staffColumns} dataSource={staffUsers} pagination={tablePagination(6)} scroll={{ x: 1200 }} />
+                <Table className="desktopDataTable" rowKey="id" size="small" columns={staffColumns} dataSource={filteredStaffUsers} pagination={tablePagination(6)} scroll={{ x: 1200 }} locale={{ emptyText: "No staff users match the current filters." }} />
                 <Drawer
                   title="Staff Details / 员工详情"
                   width={520}
@@ -3418,8 +3896,13 @@ function AdminPage({
                         return;
                       }
 
-                      onResetStaffPassword(selectedEditStaffUser.id, requestBody);
-                      setPasswordResetOpen(false);
+                      Modal.confirm({
+                        title: "Reset staff password?",
+                        content: `Reset password for ${selectedEditStaffUser.displayName}. The new password will take effect immediately.`,
+                        okText: "Reset password",
+                        cancelText: "Cancel",
+                        onOk: () => onResetStaffPassword(selectedEditStaffUser.id, requestBody).then(() => setPasswordResetOpen(false))
+                      });
                     }}
                   >
                     <Form.Item name="id" label="Staff / 员工">
@@ -3477,7 +3960,7 @@ function AdminPage({
             )
           },
           { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
-          { key: "audit", label: "Audit Log / 操作记录", children: <Table rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={tablePagination(8)} scroll={{ x: 900 }} /> }
+          { key: "audit", label: "Audit Log / 操作记录", children: <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={tablePagination(8)} scroll={{ x: 900 }} locale={{ emptyText: "No audit records yet." }} /> }
         ]}
       />
     </ProCard>
@@ -3641,6 +4124,7 @@ function SystemFlowReference() {
         dataSource={ownershipRows}
         pagination={tablePagination(8)}
         scroll={{ x: 900 }}
+        locale={{ emptyText: "No ownership rows configured." }}
       />
       <Alert
         type="info"
@@ -3746,7 +4230,7 @@ function RbacListing() {
           </article>
         ))}
       </div>
-      <Table className="rbacTable desktopDataTable" rowKey="role" columns={columns} dataSource={rows} pagination={tablePagination(8)} scroll={{ x: 980 }} />
+      <Table className="rbacTable desktopDataTable" rowKey="role" columns={columns} dataSource={rows} pagination={tablePagination(8)} scroll={{ x: 980 }} locale={{ emptyText: "No role access rows configured." }} />
       <Alert
         type="info"
         showIcon
@@ -3968,7 +4452,14 @@ function isDeliveryReady(delivery: DeliverySchedule) {
     delivery.insuranceHandled &&
     delivery.roadTaxHandled &&
     delivery.windscreenInsuranceHandled &&
-    delivery.twoDayNoticeSent;
+    delivery.twoDayNoticeSent &&
+    delivery.handoverPhotoCaptured &&
+    delivery.signedHandoverReceived &&
+    delivery.customerAcknowledged &&
+    delivery.finalChecklistConfirmed &&
+    Boolean(delivery.insuranceExpiryDate && delivery.insuranceExpiryDate >= delivery.scheduledDate) &&
+    Boolean(delivery.roadTaxExpiryDate && delivery.roadTaxExpiryDate >= delivery.scheduledDate) &&
+    Boolean(delivery.windscreenInsuranceExpiryDate && delivery.windscreenInsuranceExpiryDate >= delivery.scheduledDate);
 }
 
 function deliveryReferenceChecklist(delivery: DeliverySchedule) {
@@ -3976,8 +4467,11 @@ function deliveryReferenceChecklist(delivery: DeliverySchedule) {
     { label: "Inspection Booking / 验车预约", done: Boolean(delivery.inspectionBookingReference?.trim()) },
     { label: "Inspection Report / 检查报告", done: Boolean(delivery.inspectionReportReference?.trim()) },
     { label: `Policy Ref / 保单: ${delivery.insurancePolicyReference?.trim() || "-"}`, done: Boolean(delivery.insurancePolicyReference?.trim()) },
+    { label: `Policy Expiry: ${delivery.insuranceExpiryDate || "-"}`, done: Boolean(delivery.insuranceExpiryDate && delivery.insuranceExpiryDate >= delivery.scheduledDate) },
     { label: `Road Tax Receipt / 路税收据: ${delivery.roadTaxReceiptReference?.trim() || "-"}`, done: Boolean(delivery.roadTaxReceiptReference?.trim()) },
-    { label: `Windscreen Ref: ${delivery.windscreenPolicyReference?.trim() || "-"}`, done: Boolean(delivery.windscreenPolicyReference?.trim()) }
+    { label: `Road Tax Expiry: ${delivery.roadTaxExpiryDate || "-"}`, done: Boolean(delivery.roadTaxExpiryDate && delivery.roadTaxExpiryDate >= delivery.scheduledDate) },
+    { label: `Windscreen Ref: ${delivery.windscreenPolicyReference?.trim() || "-"}`, done: Boolean(delivery.windscreenPolicyReference?.trim()) },
+    { label: `Windscreen Expiry: ${delivery.windscreenInsuranceExpiryDate || "-"}`, done: Boolean(delivery.windscreenInsuranceExpiryDate && delivery.windscreenInsuranceExpiryDate >= delivery.scheduledDate) }
   ];
 }
 

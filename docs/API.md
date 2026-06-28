@@ -43,9 +43,14 @@ Public lead payload:
   "vehicleId": "guid",
   "customerName": "Buyer name",
   "phone": "012-3456789",
-  "message": "Optional enquiry"
+  "message": "Optional enquiry",
+  "sourcePage": "/vehicles/guid?utm_source=facebook",
+  "sourceReferrer": "https://facebook.com/",
+  "sourceCampaign": "utm_source=facebook&utm_campaign=vios"
 }
 ```
+
+`sourcePage`, `sourceReferrer`, and `sourceCampaign` are optional public enquiry attribution fields. The API trims them, stores at most 500 characters each, and keeps them on the lead record for Sales triage. They must not contain internal back-office URLs or private workflow data.
 
 ## Back-Office Role Policies
 
@@ -74,6 +79,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `POST` | `/api/vehicles` | `Vehicles` | Create vehicle intake. |
 | `PUT` | `/api/vehicles/{id}` | `Vehicles` | Update vehicle intake and public status. |
 | `GET` | `/api/vehicle-lookup` | `VehicleRead` | Plate/make/model/status lookup for workflow selectors. |
+| `GET` | `/api/vehicles/{id}/stock-movements` | `VehicleRead` | List stock owner, status, and location movement history with actor, timestamp, previous value, new value, and reason. |
 | `GET` | `/api/customers` | `CustomerRead` | Customer lookup/list. |
 | `POST` | `/api/customers` | `Vehicles` | Create customer. |
 | `PUT` | `/api/customers/{id}` | `Vehicles` | Update customer. |
@@ -97,7 +103,8 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `GET` | `/api/vehicles/{id}/documents` | `BackOffice` | List document metadata. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | `BackOffice` | Download document content. |
 | `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start Baidu Unlimited-OCR analysis for receipt or invoice review. |
-| `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, warnings, and extracted draft fields. |
+| `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, warnings, extracted draft fields, and review decision. |
+| `PUT` | `/api/ocr-jobs/{jobId}/review` | Category-specific role | Accept or reject OCR-extracted draft fields with audit context before applying them to operational records. |
 | `GET` | `/api/vehicles/{id}/ocr-jobs` | Category-specific role | List captured OCR receipt or invoice data for uploaded vehicle documents visible to the signed-in department. |
 
 OCR runtime:
@@ -131,17 +138,27 @@ Document upload ownership:
 | `GET` | `/api/deliveries` | `Deliveries` | List delivery schedules. |
 | `POST` | `/api/deliveries` | `Deliveries` | Create delivery workflow record. |
 | `PUT` | `/api/deliveries/{id}` | `Deliveries` | Update delivery workflow record. |
-| `GET` | `/api/deliveries/{id}/release-readiness` | `Deliveries` | Check delivery checklist and required documents. |
+| `GET` | `/api/deliveries/{id}/release-readiness` | `Deliveries` | Check delivery checklist, required documents, and release evidence metadata. |
 | `GET` | `/api/repairs` | `Repairs` | List repair jobs. |
 | `POST` | `/api/repairs` | `Repairs` | Create repair job. |
 | `PUT` | `/api/repairs/{id}` | `Repairs` | Update repair job. |
+| `GET` | `/api/suppliers` | `Repairs` | Derived supplier master summary from supplier invoices. |
 | `GET` | `/api/supplier-invoices` | `Repairs` | List supplier invoices. |
+| `GET` | `/api/supplier-invoices/aging` | `Repairs` | Supplier invoice aging view for unmatched, due-soon, overdue, and paid states. |
 | `POST` | `/api/supplier-invoices` | `Repairs` | Create supplier invoice. |
 | `PUT` | `/api/supplier-invoices/{id}` | `Repairs` | Update supplier invoice. |
 | `GET` | `/api/leads` | `Sales` | List public and back-office leads. |
 | `PUT` | `/api/leads/{id}` | `Sales` | Update lead/customer link/status. |
 
 Lead status ownership: the first staff member who moves a lead out of `New` is recorded as the taker. After that, only that same staff member can change the lead status.
+
+Delivery release-readiness responses include:
+
+- `isReady`: true only when the release checklist is complete and required release documents are uploaded.
+- `missingCategories`: required release document categories still missing.
+- `missingEvidence`: release evidence flags still incomplete, such as handover photo, signed handover, customer acknowledgement, or final checklist.
+- `expiredDocuments`: delivery-critical expiry blockers for insurance, road tax, or windscreen insurance.
+- `evidence`: one item for each required release document category, with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`.
 
 ## Finance
 
@@ -150,7 +167,12 @@ All finance endpoints require the `Finance` policy.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` / `POST` | `/api/payments` | List/create payment records. |
+| `GET` | `/api/payments/export` | Export payment CSV after Finance/Admin authorization and audit logging. |
 | `PUT` | `/api/payments/{id}` | Update payment workflow/reconciliation. |
+| `GET` | `/api/finance-invoices` | List generated sales invoices with latest AutoCount sync state. |
+| `GET` / `POST` | `/api/payments/{paymentId}/invoice` | Fetch or generate the sales invoice for a payment. |
+| `GET` | `/api/finance-invoices/{invoiceId}/content` | Download the generated invoice PDF. |
+| `GET` / `POST` | `/api/finance-invoices/{invoiceId}/autocount-sync` | List sync jobs or submit/retry AutoCount AOTG sales invoice sync. |
 | `GET` / `POST` | `/api/settlement-reminders` | List/create settlement reminders. |
 | `PUT` | `/api/settlement-reminders/{id}` | Update settlement reminder. |
 | `GET` / `POST` | `/api/daily-spends` | List/create daily spend rows. |
@@ -225,14 +247,19 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `LoanStatus`: `Draft`, `Pending`, `Approved`, `Rejected`, `Done`
 - `DeliveryStatus`: `BookingInspection`, `Scheduled`, `Inspection`, `PreparingDocuments`, `CarPreparation`, `ReadyForRelease`, `Released`
 - `PaymentStatus`: `Pending`, `Approved`, `Disbursed`, `Reconciled`
+- `PaymentExternalSyncStatus`: `NotSynced`, `Synced`, `Failed`
+- `AutoCountSyncStatus`: `Draft`, `Ready`, `Submitted`, `Synced`, `Failed`
 - `PaymentVoucherStatus`: `Pending`, `Approved`, `Paid`
 - `DebtRecoveryStatus`: `Open`, `FollowedUp`, `Closed`
+- `RepairApprovalStatus`: `Pending`, `Approved`, `Rejected`
+- `SupplierInvoiceAgingStatus`: `Unmatched`, `DueSoon`, `Overdue`, `Paid`
 - `HrAttendanceStatus`: `Present`, `Late`, `HalfDay`, `Absent`
 - `HrLeaveType`: `AnnualLeave`, `MedicalLeave`, `EmergencyLeave`, `UnpaidLeave`
 - `HrLeaveStatus`: `Pending`, `Approved`, `Rejected`, `Cancelled`
 - `HrPayslipStatus`: `Draft`, `Generated`
 - `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`
 - `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`
+- `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`
 
 ## Error Shape
 

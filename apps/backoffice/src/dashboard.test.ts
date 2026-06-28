@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterDashboardReminders, reminderDueLabel, reminderDueTagColor } from "./dashboard";
+import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor } from "./dashboard";
 import type { DashboardReminder } from "./api";
 
 describe("dashboard reminder helpers", () => {
@@ -25,5 +25,14 @@ describe("dashboard reminder helpers", () => {
     expect(filterDashboardReminders(reminders, { due: "Overdue" }, "2026-05-31").map((reminder) => reminder.title)).toEqual(["Loan"]);
     expect(filterDashboardReminders(reminders, { type: "SettlementDue", due: "DueToday" }, "2026-05-31").map((reminder) => reminder.title)).toEqual(["Settlement"]);
     expect(filterDashboardReminders(reminders, { type: "All", due: "Upcoming" }, "2026-05-31").map((reminder) => reminder.title)).toEqual(["Bank"]);
+  });
+
+  it("maps dashboard drill-downs to module targets", () => {
+    expect(dashboardMetricTarget("payments")).toBe("/finance?tab=payments&status=open");
+    expect(financeRiskTarget("Unpaid Settlement")).toBe("/finance?tab=settlements&status=due");
+    expect(dashboardReminderTarget({
+      type: "DebtRecoveryFollowUp",
+      vehicleId: "vehicle 1"
+    })).toBe("/finance?tab=debt&vehicleId=vehicle%201");
   });
 });

@@ -10,12 +10,17 @@ const apiTypeByDomainEnum = {
   LoanStatus: "LoanStatus",
   DeliveryStatus: "DeliveryStatus",
   PaymentStatus: "PaymentStatus",
+  PaymentExternalSyncStatus: "PaymentExternalSyncStatus",
+  AutoCountSyncStatus: "AutoCountSyncStatus",
   PaymentVoucherStatus: "PaymentVoucherStatus",
   DebtRecoveryStatus: "DebtRecoveryStatus",
+  RepairApprovalStatus: "RepairApprovalStatus",
+  SupplierInvoiceAgingStatus: "SupplierInvoiceAgingStatus",
   HrAttendanceStatus: "HrAttendanceStatus",
   HrLeaveType: "HrLeaveType",
   HrLeaveStatus: "HrLeaveStatus",
-  HrPayslipStatus: "HrPayslipStatus"
+  HrPayslipStatus: "HrPayslipStatus",
+  OcrReviewDecision: "OcrReviewDecision"
 } as const;
 
 describe("backoffice API contract types", () => {

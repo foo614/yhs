@@ -24,6 +24,7 @@ Convert review feedback into scoped fixes while preserving the original change i
 - Treat auth, finance, uploads, database, deployment, and public data exposure as high-risk.
 - Prefer tiny targeted patches over unrelated cleanup.
 - Do not resolve comments or push changes unless the user explicitly asks.
+- Use `.agents/skills/code-review-testing/SKILL.md` only as an auxiliary checklist for review and test coverage; YS Heng domain rules remain the source of truth.
 
 ## GitHub Help
 

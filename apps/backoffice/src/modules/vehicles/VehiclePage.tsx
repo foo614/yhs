@@ -9,7 +9,9 @@ import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../.
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import {
   customerSelectLabel,
+  getStockMovements,
   getVehicleDocuments,
+  getVehicleOcrJobs,
   getVehiclePhotos,
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
@@ -19,8 +21,10 @@ import {
   type Lead,
   type Owner,
   type PurchaseInvoice,
+  type StockMovement,
   type Vehicle,
   type VehicleDocument,
+  type VehicleOcrJob,
   type VehiclePhoto
 } from "../../api";
 
@@ -122,7 +126,9 @@ export function VehiclePage({
   const [uploadVehicleId, setUploadVehicleId] = useState(vehicles[0]?.id ?? "");
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PurchaseInvoice");
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
+  const [ocrJobs, setOcrJobs] = useState<VehicleOcrJob[]>([]);
   const [photos, setPhotos] = useState<VehiclePhoto[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [editVehicleId, setEditVehicleId] = useState(vehicles[0]?.id ?? "");
   const [editPurchaseInvoiceId, setEditPurchaseInvoiceId] = useState(purchaseInvoices[0]?.id ?? "");
   const [editCustomerId, setEditCustomerId] = useState(customers[0]?.id ?? "");
@@ -158,6 +164,7 @@ export function VehiclePage({
     : 0;
   const selectedVehicleInvoiceCount = selectedVehicleInvoices.length;
   const selectedVehicleDocumentCount = documents.length;
+  const selectedVehicleCaptureCount = ocrJobs.length;
   const selectedVehiclePhotoCount = photos.length;
   const selectedVehicleHasOutstationPickup = selectedVehicle ? hasOutstationPickup(selectedVehicle) : false;
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
@@ -282,6 +289,38 @@ export function VehiclePage({
 
   const loanActionLabel = (vehicle: Vehicle) => vehicle.status === "LoanProcessing" ? "Open Loan" : "Start Loan";
 
+  const renderVehicleNextAction = (vehicle: Vehicle) => {
+    if (vehicle.status === "Sold") return null;
+
+    if (vehicle.status === "LoanProcessing") {
+      return (
+        <Button size="small" onClick={() => handleStartLoan(vehicle)}>
+          Open Loan
+        </Button>
+      );
+    }
+
+    if (!vehicle.isPublic) {
+      return (
+        <Button
+          size="small"
+          onClick={() => onUpdate({ ...vehicle, status: "Available", isPublic: true })}
+          disabled={!vehicle.bossConfirmed}
+        >
+          Publish
+        </Button>
+      );
+    }
+
+    return (
+      <Tooltip title={!vehicle.customerId ? "Link customer first" : ""}>
+        <Button size="small" onClick={() => handleStartLoan(vehicle)}>
+          {loanActionLabel(vehicle)}
+        </Button>
+      </Tooltip>
+    );
+  };
+
   const vehicleWorkflowGuide = (vehicle: Vehicle) => {
     if (vehicle.status === "Sold") {
       return {
@@ -325,29 +364,7 @@ export function VehiclePage({
   const renderVehicleActions = (vehicle: Vehicle) => (
     <Space className="tableActionGroup vehicleActionGroup" wrap size={6}>
       <Button size="small" type="primary" onClick={() => openVehicleDetails(vehicle.id)}>Details</Button>
-      <Button
-        size="small"
-        onClick={() => onUpdate({ ...vehicle, status: "Available", isPublic: true })}
-        disabled={vehicle.status === "Sold" || (vehicle.status === "Available" && vehicle.isPublic)}
-      >
-        {vehicle.status === "Available" && vehicle.isPublic ? "Published" : "Publish"}
-      </Button>
-      <Tooltip title={!vehicle.customerId ? "Link customer first" : vehicle.status === "Sold" ? "Sold vehicle cannot start loan" : ""}>
-        <Button
-          size="small"
-          onClick={() => handleStartLoan(vehicle)}
-          disabled={vehicle.status === "Sold"}
-        >
-          {loanActionLabel(vehicle)}
-        </Button>
-      </Tooltip>
-      <Button
-        size="small"
-        onClick={() => onUpdate({ ...vehicle, status: "Sold", isPublic: false })}
-        disabled={vehicle.status === "Sold"}
-      >
-        {vehicle.status === "Sold" ? "Sold" : "Mark Sold"}
-      </Button>
+      {renderVehicleNextAction(vehicle)}
     </Space>
   );
 
@@ -369,15 +386,21 @@ export function VehiclePage({
   const loadUploads = useCallback(async () => {
     if (!selectedVehicleId) {
       setDocuments([]);
+      setOcrJobs([]);
       setPhotos([]);
+      setStockMovements([]);
       return;
     }
-    const [photoData, documentData] = await Promise.all([
+    const [photoData, documentData, ocrJobData, movementData] = await Promise.all([
       getVehiclePhotos(selectedVehicleId),
-      getVehicleDocuments(selectedVehicleId)
+      getVehicleDocuments(selectedVehicleId),
+      getVehicleOcrJobs(selectedVehicleId),
+      getStockMovements(selectedVehicleId)
     ]);
     setPhotos(photoData);
     setDocuments(documentData);
+    setOcrJobs(ocrJobData);
+    setStockMovements(movementData);
   }, [selectedVehicleId]);
 
   useEffect(() => {
@@ -618,6 +641,88 @@ export function VehiclePage({
     }
   ];
 
+  const compactOperationIntakeColumns: ColumnsType<Vehicle> = [
+    {
+      title: "Plate / 车牌",
+      dataIndex: "plateNumber",
+      fixed: "left",
+      width: 130,
+      sorter: (a, b) => a.plateNumber.localeCompare(b.plateNumber),
+      filters: textFilters(vehicles.map((vehicle) => vehicle.plateNumber)),
+      filterSearch: true,
+      onFilter: (value, row) => row.plateNumber === value
+    },
+    {
+      title: "Vehicle / 车辆",
+      width: 230,
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text strong>{vehicleName(row)}</Typography.Text>
+          <Tag color={row.stockOwner === "YSHeng" ? "green" : "blue"}>{row.stockOwner}</Tag>
+        </Space>
+      ),
+      sorter: (a, b) => vehicleName(a).localeCompare(vehicleName(b)),
+      filters: textFilters(vehicles.map(vehicleName)),
+      filterSearch: true,
+      onFilter: (value, row) => vehicleName(row) === value
+    },
+    {
+      title: "Contacts / 联系人",
+      width: 240,
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>Owner: {contactFor(owners, row.ownerId)}</Typography.Text>
+          <Typography.Text type="secondary">Buyer: {contactFor(customers, row.customerId)}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Pricing / 金额",
+      width: 170,
+      sorter: (a, b) => estimatedVehicleProfit(a) - estimatedVehicleProfit(b),
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>Sell RM {Number(row.sellingPrice ?? 0).toLocaleString()}</Typography.Text>
+          <Typography.Text type="secondary">Profit RM {estimatedVehicleProfit(row).toLocaleString()}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Status / 状态",
+      dataIndex: "status",
+      width: 150,
+      filters: ["Available", "LoanProcessing", "Sold"].map((value) => ({ text: value, value })),
+      onFilter: (value, row) => row.status === value,
+      render: (status: Vehicle["status"]) => <Tag color={vehicleStatusColor[status]}>{status}</Tag>
+    },
+    {
+      title: "Ready / 准备",
+      width: 190,
+      render: (_, row) => (
+        <Space direction="vertical" size={2}>
+          <Badge status={row.bossConfirmed ? "success" : "warning"} text={row.bossConfirmed ? "Approved" : "Approval pending"} />
+          <Badge status={row.isPublic ? "success" : "default"} text={row.isPublic ? "Website visible" : "Website hidden"} />
+          <Badge status={invoiceCountForVehicle(row.id) > 0 ? "success" : "warning"} text={invoiceCountForVehicle(row.id) > 0 ? "Invoice linked" : "Invoice missing"} />
+        </Space>
+      )
+    },
+    {
+      title: "Leads / 线索",
+      width: 100,
+      sorter: (a, b) => activeLeadCountForVehicle(a.id) - activeLeadCountForVehicle(b.id),
+      render: (_, row) => {
+        const count = activeLeadCountForVehicle(row.id);
+        return <Tag color={count > 0 ? "green" : "default"}>{count}</Tag>;
+      }
+    },
+    {
+      title: "Action / 操作",
+      fixed: "right",
+      width: 220,
+      render: (_, row) => renderVehicleActions(row)
+    }
+  ];
+
   const documentColumns: ColumnsType<VehicleDocument> = [
     { title: "Uploaded / 日期", dataIndex: "uploadedAt", render: (value) => String(value).slice(0, 10) },
     {
@@ -653,6 +758,33 @@ export function VehiclePage({
         >
           Open
         </Button>
+      )
+    }
+  ];
+  const ocrColumns: ColumnsType<VehicleOcrJob> = [
+    { title: "Captured / 日期", dataIndex: "createdAt", render: (value) => String(value).slice(0, 10) },
+    { title: "Type / 类型", dataIndex: "category", render: (value) => <Tag>{value}</Tag> },
+    { title: "File / 文件", render: (_, row) => row.document?.fileName ?? "-" },
+    { title: "Plate / 车牌", render: (_, row) => ocrField(row, "plateNumber") || "-" },
+    { title: "Invoice / Receipt", render: (_, row) => ocrField(row, "invoiceNumber") || ocrField(row, "receiptNumber") || "-" },
+    { title: "Amount / 金额", render: (_, row) => ocrAmount(row) },
+    { title: "Bank", render: (_, row) => ocrField(row, "bankName") || "-" },
+    {
+      title: "Confidence",
+      width: 120,
+      render: (_, row) => (
+        <Tag color={(row.result?.confidence ?? 0) >= 0.75 ? "green" : "orange"}>
+          {Math.round((row.result?.confidence ?? 0) * 100)}%
+        </Tag>
+      )
+    },
+    {
+      title: "Status / 状态",
+      render: (_, row) => (
+        <Space wrap size={4}>
+          <Tag color={row.status === "NeedsReview" ? "blue" : row.status === "Failed" ? "red" : "orange"}>{row.status}</Tag>
+          {row.warnings?.length ? <Tooltip title={row.warnings.join(" ")}><Tag color="orange">Warning</Tag></Tooltip> : null}
+        </Space>
       )
     }
   ];
@@ -724,6 +856,38 @@ export function VehiclePage({
             >
               Open Document
             </Button>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+  const ocrMobileCards = (
+    <div className="mobileRecordList vehicleOcrMobileList">
+      {ocrJobs.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No captured receipt or invoice data yet" />}
+      {ocrJobs.map((job) => (
+        <article className="mobileRecordCard" key={job.id}>
+          <div className="mobileRecordHeader">
+            <div>
+              <Typography.Text className="mobileRecordEyebrow">Captured Data</Typography.Text>
+              <Typography.Title level={5}>{job.document?.fileName ?? job.category}</Typography.Title>
+            </div>
+            <Tag>{job.category}</Tag>
+          </div>
+          <div className="mobileRecordGrid">
+            <div><span>Plate</span><strong>{ocrField(job, "plateNumber") || "-"}</strong></div>
+            <div><span>Invoice / Receipt</span><strong>{ocrField(job, "invoiceNumber") || ocrField(job, "receiptNumber") || "-"}</strong></div>
+            <div><span>Amount</span><strong>{ocrAmount(job)}</strong></div>
+            <div><span>Confidence</span><strong>{Math.round((job.result?.confidence ?? 0) * 100)}%</strong></div>
+          </div>
+          <div className="mobileRecordSection">
+            <Typography.Text className="mobileRecordLabel">Raw Text</Typography.Text>
+            <div className="mobileRecordTextBlock"><span>{job.result?.rawText || "-"}</span></div>
+          </div>
+          <div className="mobileRecordFooter">
+            <Space wrap size={6}>
+              <Tag color={job.status === "NeedsReview" ? "blue" : job.status === "Failed" ? "red" : "orange"}>{job.status}</Tag>
+              {job.warnings?.length ? <Tag color="orange">Warning</Tag> : null}
+            </Space>
           </div>
         </article>
       ))}
@@ -807,6 +971,10 @@ export function VehiclePage({
                   <strong>{selectedVehiclePhotoCount} / {selectedVehicleDocumentCount}</strong>
                 </span>
                 <span>
+                  <small>Captured data</small>
+                  <strong>{selectedVehicleCaptureCount}</strong>
+                </span>
+                <span>
                   <small>Outstation</small>
                   <strong>{selectedVehicleHasOutstationPickup ? "Scheduled" : "None"}</strong>
                 </span>
@@ -850,6 +1018,7 @@ export function VehiclePage({
           </div>
         </div>
         <div className="mobileRecordList">
+          {filteredVehicles.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No vehicles match the current filters." />}
           {filteredVehicles.map((vehicle) => {
             const workflow = vehicleWorkflowGuide(vehicle);
 
@@ -917,7 +1086,7 @@ export function VehiclePage({
         <Table
           className="desktopDataTable"
           rowKey="id"
-          columns={operationIntakeColumns}
+          columns={compactOperationIntakeColumns}
           dataSource={filteredVehicles}
           pagination={tablePagination(8)}
           scroll={{ x: 1980 }}
@@ -925,6 +1094,7 @@ export function VehiclePage({
           onRow={(row) => ({
             onClick: () => selectVehicle(row.id)
           })}
+          locale={{ emptyText: "No vehicles match the current filters." }}
         />
       </ProCard>
       <Drawer
@@ -974,6 +1144,11 @@ export function VehiclePage({
                   <strong>{selectedVehiclePhotoCount}</strong>
                   <span>{selectedVehiclePhotoCount > 0 ? "Photo gallery started." : "Upload photos before publishing the car."}</span>
                 </section>
+                <section className={selectedVehicleCaptureCount > 0 ? "ready" : "attention"}>
+                  <small>Captured data</small>
+                  <strong>{selectedVehicleCaptureCount}</strong>
+                  <span>{selectedVehicleCaptureCount > 0 ? "OCR captured fields are ready to review." : "Upload and OCR invoices or receipts to capture fields."}</span>
+                </section>
                 <section className={selectedVehicle.bossConfirmed ? "ready" : "attention"}>
                   <small>Management approval</small>
                   <strong>{selectedVehicle.bossConfirmed ? "Confirmed" : "Pending"}</strong>
@@ -1007,7 +1182,7 @@ export function VehiclePage({
               initialValues={selectedVehicle}
               onFinish={(values) => {
                 if (!selectedVehicle) return;
-                const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: selectedVehicle.stockOwner || "YSHeng" }, selectedVehicle.id);
+                const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: values.stockOwner || selectedVehicle.stockOwner || "YSHeng" }, selectedVehicle.id);
                 const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
                 if (blockReason) {
                   message.warning(blockReason);
@@ -1025,6 +1200,8 @@ export function VehiclePage({
               <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} /></Form.Item>
               <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} /></Form.Item>
               <Form.Item name="bossConfirmed" label="Management Approval / 管理层审批"><Select options={[{ value: true, label: "Approved" }, { value: false, label: "Pending" }]} /></Form.Item>
+              <Form.Item name="stockOwner" label="Stock Owner / 库存方"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
+              <Form.Item name="stockLocation" label="Stock Location / 停放地点"><Input placeholder="Main Yard / KS Yard / Workshop" /></Form.Item>
               <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} /></Form.Item>
               <Form.Item name="ucdStatus" label={shortformLabel("UCD Status Tracking", "Used car department status tracking")}><Input placeholder="Ready / Pending / Submitted" /></Form.Item>
               <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -1044,12 +1221,30 @@ export function VehiclePage({
               <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
             </Form>
           </ProCard>
+          <ProCard title="Stock Movement History / 库存变动记录">
+            <Table
+              rowKey="id"
+              size="small"
+              columns={[
+                { title: "Time / 时间", dataIndex: "createdAt", render: (value) => String(value).replace("T", " ").slice(0, 16) },
+                { title: "Field / 字段", dataIndex: "fieldName" },
+                { title: "Previous / 旧值", dataIndex: "previousValue", render: (value) => value || "-" },
+                { title: "New / 新值", dataIndex: "newValue", render: (value) => value || "-" },
+                { title: "Actor / 操作人", dataIndex: "actor", render: (value) => value || "System" },
+                { title: "Reason / 原因", dataIndex: "reason" }
+              ]}
+              dataSource={stockMovements}
+              pagination={tablePagination(5)}
+              scroll={{ x: 820 }}
+              locale={{ emptyText: "No stock movements recorded yet" }}
+            />
+          </ProCard>
           <ProCard
             id="purchase-invoice-list-card"
             title="Purchase Invoice / 收车发票"
             extra={<Button type="primary" onClick={() => setPurchaseInvoiceCreateOpen(true)}>New Purchase Invoice</Button>}
           >
-            <Table rowKey="id" columns={purchaseInvoiceColumns} dataSource={selectedVehicleInvoices} pagination={tablePagination(5)} scroll={{ x: 560 }} />
+            <Table rowKey="id" columns={purchaseInvoiceColumns} dataSource={selectedVehicleInvoices} pagination={tablePagination(5)} scroll={{ x: 560 }} locale={{ emptyText: "No purchase invoice linked to this vehicle yet." }} />
           </ProCard>
           <ProCard id="linked-people-card" title="Linked People / 关联人员">
             <Typography.Text type="secondary">
@@ -1197,6 +1392,7 @@ export function VehiclePage({
                     onApply={(values) => {
                       setPurchaseInvoiceOcrDraft(values);
                       setPurchaseInvoiceCreateOpen(true);
+                      void loadUploads();
                     }}
                   />
                 ) : (
@@ -1221,7 +1417,15 @@ export function VehiclePage({
               </Form.Item>
             </Form>
             {documentMobileCards}
-            <Table className="vehicleDocumentTable desktopDataTable" rowKey="id" columns={documentColumns} dataSource={documents} pagination={tablePagination(5)} scroll={{ x: 760 }} />
+            <Table className="vehicleDocumentTable desktopDataTable" rowKey="id" columns={documentColumns} dataSource={documents} pagination={tablePagination(5)} scroll={{ x: 760 }} locale={{ emptyText: "No documents uploaded yet." }} />
+            <div className="vehicleCapturedDataSection">
+              <div>
+                <Typography.Text className="moduleEyebrow">Captured Receipt / Invoice Data</Typography.Text>
+                <Typography.Text type="secondary">OCR values saved with uploaded documents. Staff can review them before applying values into invoice or payment records.</Typography.Text>
+              </div>
+              {ocrMobileCards}
+              <Table className="vehicleOcrTable desktopDataTable" rowKey="id" columns={ocrColumns} dataSource={ocrJobs} pagination={tablePagination(5)} scroll={{ x: 980 }} locale={{ emptyText: "No captured receipt or invoice data yet." }} />
+            </div>
           </ProCard>
         </Space>
       </Drawer>
@@ -1235,7 +1439,7 @@ export function VehiclePage({
         className="recordCreateModal"
       >
         <Form layout="vertical" className="modalForm formGrid" onFinish={(values) => {
-          const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: "YSHeng" }, newId());
+          const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: values.stockOwner || "YSHeng" }, newId());
           const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
           if (blockReason) {
             message.warning(blockReason);
@@ -1244,7 +1448,7 @@ export function VehiclePage({
 
           onCreate(vehicle);
           setVehicleCreateOpen(false);
-        }} initialValues={{ status: "Available", isPublic: true, bossConfirmed: false, contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}>
+        }} initialValues={{ status: "Available", stockOwner: "YSHeng", stockLocation: "Main Yard", isPublic: true, bossConfirmed: false, contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}>
           <Form.Item name="plateNumber" label="Plate / 车牌" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>
           <Form.Item name="model" label="Model"><Input placeholder="Vios" /></Form.Item>
@@ -1252,6 +1456,8 @@ export function VehiclePage({
           <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="bossConfirmed" label="Management Approval / 管理层审批"><Select options={[{ value: true, label: "Approved" }, { value: false, label: "Pending" }]} /></Form.Item>
+          <Form.Item name="stockOwner" label="Stock Owner / 库存方"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="stockLocation" label="Stock Location / 停放地点"><Input placeholder="Main Yard / KS Yard / Workshop" /></Form.Item>
           <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="ucdStatus" label={shortformLabel("UCD Status Tracking", "Used car department status tracking")}><Input placeholder="Ready / Pending / Submitted" /></Form.Item>
           <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -1363,7 +1569,7 @@ export function VehiclePage({
                     <Typography.Text type="secondary">Customer records used by leads, loans, delivery and finance.</Typography.Text>
                     <Button type="primary" onClick={() => setCustomerCreateOpen(true)}>New Customer</Button>
                   </div>
-                  <Table rowKey="id" columns={customerColumns} dataSource={customers} pagination={tablePagination(5)} scroll={{ x: 720 }} />
+                  <Table rowKey="id" columns={customerColumns} dataSource={customers} pagination={tablePagination(5)} scroll={{ x: 720 }} locale={{ emptyText: "No customer records yet." }} />
                   <Modal
                     title="New Customer / 新增客户"
                     width={620}
@@ -1447,7 +1653,7 @@ export function VehiclePage({
                     <Typography.Text type="secondary">Previous owner records for vehicle intake and settlement.</Typography.Text>
                     <Button type="primary" onClick={() => setOwnerCreateOpen(true)}>New Owner</Button>
                   </div>
-                  <Table rowKey="id" columns={ownerColumns} dataSource={owners} pagination={tablePagination(5)} scroll={{ x: 520 }} />
+                  <Table rowKey="id" columns={ownerColumns} dataSource={owners} pagination={tablePagination(5)} scroll={{ x: 520 }} locale={{ emptyText: "No previous owner records yet." }} />
                   <Modal
                     title="New Owner / 新增原车主"
                     width={560}
@@ -1766,6 +1972,18 @@ function plateFor(vehicles: Vehicle[], vehicleId: string) {
 function contactFor<T extends { id: string; name: string; phone: string }>(contacts: T[], contactId?: string) {
   const contact = contacts.find((item) => item.id === contactId);
   return contact ? `${contact.name} / ${contact.phone}` : "-";
+}
+
+function ocrField(job: VehicleOcrJob, fieldName: string) {
+  const value = job.result?.fields?.[fieldName];
+  return value === undefined || value === null || value === "" ? undefined : String(value);
+}
+
+function ocrAmount(job: VehicleOcrJob) {
+  const value = ocrField(job, "amount") ?? ocrField(job, "nettPrice") ?? ocrField(job, "salesPrice");
+  if (!value) return "-";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `RM ${numeric.toLocaleString()}` : value;
 }
 
 function estimatedVehicleProfit(vehicle: Vehicle) {

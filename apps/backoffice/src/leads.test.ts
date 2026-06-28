@@ -8,6 +8,7 @@ import {
   leadCustomerLinkLabel,
   leadCustomerLinkTagColor,
   leadPriorityLabel,
+  leadSourceSummary,
   leadVehicleLabel,
   sortLeadsByHotCarDemand
 } from "./leads";
@@ -113,6 +114,16 @@ describe("lead customer link display", () => {
     ]);
     expect(leadPriorityLabel(leads[1], leads, vehicles)).toBe("Hot");
     expect(leadPriorityLabel(leads[0], leads, vehicles)).toBe("Follow up");
+  });
+
+  it("summarizes public source attribution for sales triage", () => {
+    expect(leadSourceSummary({
+      ...baseLead,
+      sourcePage: "/vehicles/vehicle-1?utm_source=facebook",
+      sourceCampaign: "utm_source=facebook",
+      sourceReferrer: "https://facebook.com/"
+    })).toBe("Page: /vehicles/vehicle-1?utm_source=facebook | Campaign: utm_source=facebook | Referrer: https://facebook.com/");
+    expect(leadSourceSummary(baseLead)).toBe("No public source captured");
   });
 
   it("falls back clearly when a lead references an unknown vehicle", () => {

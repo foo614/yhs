@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepairJob, SupplierInvoice } from "./api";
-import { repairCreateBlockReason, repairDocumentCategories, supplierInvoiceCreateBlockReason } from "./repairs";
+import { isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
 
 const baseInvoice: SupplierInvoice = {
   id: "supplier-1",
@@ -61,6 +61,22 @@ describe("repair supplier invoice helpers", () => {
     expect(repairCreateBlockReason({ ...baseRepair, cost: -1 })).toBe("Repair cost cannot be negative.");
     expect(repairCreateBlockReason({ ...baseRepair, cost: 0 })).toBeUndefined();
     expect(repairCreateBlockReason(baseRepair)).toBeUndefined();
+  });
+
+  it("requires approval before high-cost repairs are final", () => {
+    const highCostRepair = { ...baseRepair, cost: 1500, checklistDone: true, approvalStatus: "Pending" as const };
+
+    expect(repairCreateBlockReason(highCostRepair)).toBe("High-cost repair must be approved before it is completed or treated as final.");
+    expect(isRepairCostFinal(highCostRepair)).toBe(false);
+    expect(repairCreateBlockReason({ ...highCostRepair, approvalStatus: "Approved" })).toBeUndefined();
+    expect(isRepairCostFinal({ ...highCostRepair, approvalStatus: "Approved" })).toBe(true);
+  });
+
+  it("labels supplier invoice aging states", () => {
+    expect(supplierInvoiceAgingStatus({ ...baseInvoice, dueDate: undefined, paidAt: undefined }, "2026-06-10")).toBe("Unmatched");
+    expect(supplierInvoiceAgingStatus({ ...baseInvoice, dueDate: "2026-06-09" }, "2026-06-10")).toBe("Overdue");
+    expect(supplierInvoiceAgingStatus({ ...baseInvoice, dueDate: "2026-06-15" }, "2026-06-10")).toBe("DueSoon");
+    expect(supplierInvoiceAgingStatus({ ...baseInvoice, dueDate: "2026-06-09", paidAt: "2026-06-10" }, "2026-06-10")).toBe("Paid");
   });
 
   it("limits repair uploads to repair invoice documents", () => {

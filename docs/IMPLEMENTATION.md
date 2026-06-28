@@ -32,6 +32,9 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Public vehicle listings now request the latest uploaded vehicle thumbnail from `/api/public/vehicles/{id}/photo` and gracefully fall back to initials when no photo exists.
 - Public vehicle detail pages now fetch `GET /api/public/vehicles/{id}` directly and return not-found for vehicles the public API rejects.
 - Public vehicle detail pages now check the detail endpoint before loading inventory for related vehicles, avoiding list fetches for rejected/non-public vehicles.
+- Public home, inventory, and vehicle detail pages now expose canonical and social metadata for public search and sharing.
+- Public vehicle detail pages now use a selectable in-page gallery for multiple uploaded photos while preserving the missing-photo fallback.
+- Public lead submissions now capture optional source page, referrer, and UTM campaign context for Sales triage without expanding public vehicle DTOs.
 - The API now applies defensive response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy`) to reduce production browser exposure for the public and back-office API surface.
 - The front-office standalone production server has been browser-verified for English home, Chinese inventory, and Chinese vehicle detail/lead form rendering.
 - Public vehicle API responses now use a public DTO that excludes purchase price, charges, refurbishment, commission, and visibility internals.
@@ -46,7 +49,8 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Back-office API failures now surface the first structured backend validation error message from `errors[]`, including upload failures, instead of a generic HTTP status message.
 - Finance payment records now track receipt number, invoice number, bank name, and bank follow-up date; reconciled payments require receipt and invoice references before saving.
 - Finance payment records now track Boss Check, and final reconciliation is blocked until the boss verification step is marked checked.
-- Finance payment records now track Prepare Document, Checklist Validation, Invoice Generated, and AutoCount Key In as manual Bank workflow checklist states; final reconciliation is blocked until all four are checked.
+- Finance payment records now track Prepare Document and Checklist Validation as manual Bank workflow checklist states; generated sales invoices and AutoCount AOTG sync jobs now replace manual invoice/key-in as final reconciliation gates.
+- Finance can generate a sales invoice PDF from a valid payment, linked vehicle, and customer, then submit or retry AutoCount AOTG sync from environment-configured endpoint/token/company/account-book settings.
 - Finance payment records now also capture customer invoice detail fields from the portal requirement docs: sales price, interest/additional charges, NCD amount, windscreen charges, and outstation delivery date.
 - Finance payment validation rejects negative customer invoice detail amounts before they enter payment tracking.
 - Finance payment records can now be edited from the Finance screen so staff can correct car plate, nett price, receipt/invoice references, bank follow-up metadata, customer invoice fields, and reconciliation checklist state without recreating the payment.
@@ -68,7 +72,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Dashboard reminder due dates are tagged as overdue, due today, or upcoming for faster Boss/Admin triage.
 - Dashboard reminder inbox can be filtered by reminder type and due state so Boss/Admin can focus on overdue, due-today, or upcoming work.
 - The dashboard reminder API also accepts `type` and `due` query filters; the back-office reminder controls call that filtered endpoint, and the smoke suite checks an overdue bank follow-up filter against the running stack.
-- The Finance table disables one-click reconciliation until the payment has receipt and invoice references, matching the API validation rule.
+- The Finance table disables one-click reconciliation until the payment has receipt and invoice references, a generated sales invoice, and latest AutoCount sync status `Synced`, matching the API validation rule.
 - The Finance table also disables one-click reconciliation when the receipt or payment invoice reference is already used by another row.
 - The Finance payment entry form warns before submitting a new reconciled payment with duplicate receipt or payment invoice references.
 - The Finance payment entry form warns before submitting non-positive nett prices.
@@ -103,6 +107,9 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Vehicle intake now tracks outstation pickup allowance, scheduled pickup date/time, and booking slip reference from the 收车 workflow.
 - The Vehicle intake form warns before submitting blank identity fields, invalid years, invalid price totals, or duplicate car plates.
 - Vehicle intake now includes structured purchase invoice tracking linked to the car plate, alongside purchase invoice document upload.
+
+- Vehicle master profiles now include stock location and an auditable stock movement history for stock owner, status, and physical location changes.
+- OCR review now records accepted/rejected decisions, reviewer context, and review timestamps before extracted invoice fields are applied to vehicle workflows.
 - Purchase invoices can now be edited from the Vehicles screen so staff can correct purchase amount, invoice number, or car-plate linkage without duplicate invoice records.
 - Purchase invoices reject duplicate invoice numbers with normalized spacing/case before purchase costs are recorded twice.
 - The Vehicles purchase invoice form warns before submitting duplicate invoice numbers, blank invoice numbers, or non-positive purchase amounts.
@@ -123,8 +130,10 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Delivery readiness now also requires insurance, road tax, and windscreen insurance handover checks before Ready for Release or Released status.
 - Delivery inspection completion now requires an inspection report reference before Ready for Release or Released status, with back-office capture and smoke-test validation.
 - Delivery Ready for Release and Released API updates now also require uploaded Policy and Road Tax Receipt document blobs for the vehicle.
+- Delivery release readiness now returns required evidence rows with latest upload metadata for Policy and Road Tax Receipt, so staff can see exactly which release documents are present or missing.
 - Document upload authorization is category-aware: Sales owns intake documents, Loan owns loan documents, Delivery owns delivery/policy/road-tax uploads, Repair owns repair invoices, and Boss/Admin can upload any document category.
 - The Delivery screen now exposes delivery-owned document uploads so Delivery staff can attach Policy and Road Tax Receipt files without needing Sales vehicle-intake access.
+- The Delivery detail screen now shows required release evidence status, latest file, upload date, and uploader beside the document list.
 - The Delivery scheduling form warns before submitting a manual Ready for Release or Released status with an incomplete checklist.
 - Delivery preparation reminders stop after staff mark the 2-day notice as sent.
 - Delivery records now track the general send-notification step separately from the final 2-day release notice.
@@ -220,14 +229,20 @@ The smoke test checks:
 - Repair part persistence is smoke-tested by creating a repair row and verifying the Repair Part and What To Do values return from the Repairs API.
 - Duplicate supplier invoices are smoke-tested with alternate spacing/case before repair costs enter the workflow.
 - Wrong-plate supplier invoices are smoke-tested before repair costs enter the workflow.
+- Supplier invoice rows now expose a derived supplier master summary and aging states for unmatched, due-soon, overdue, and paid invoices.
+- High-cost repair tasks require approval before they can be completed or counted as final repair cost/profit.
 - Delivery release is blocked by the API until inspection, documents, preparation checklist, and 2-day notice are complete.
 - Delivery Ready for Release status is blocked by the API until the same release checklist is complete.
+- Delivery release readiness now also reports missing handover evidence and expired/missing insurance, road tax, and windscreen insurance expiry dates before release.
 - Delivery records with missing PIC or schedule date return structured validation errors.
 - Delivery inspection booking reference persistence is smoke-tested separately from inspection report validation.
 - Delivery 2-day notice reminders are smoke-tested before and after the notice is marked sent.
-- Payment, broker commission, debt recovery, payment voucher, and settlement APIs reject invalid finance amounts and missing required references before they affect dashboard totals; settlement owner links and broker CP58 state are validated, and reconciled payment validation also checks receipt and invoice references, Boss Check, finance checklist completion, duplicate receipt/invoice reuse, and bank follow-up reminders.
+- Payment, broker commission, debt recovery, payment voucher, and settlement APIs reject invalid finance amounts and missing required references before they affect dashboard totals; settlement owner links and broker CP58 state are validated, and reconciled payment validation also checks receipt and invoice references, Boss Check, finance checklist completion, generated invoice and synced AutoCount job, duplicate receipt/invoice reuse, and bank follow-up reminders.
+- Payment reconciliation also checks external sync failure, duplicate external document numbers, and external amount mismatches; failed or mismatched sync requires a recorded override reason with server-stamped actor/time.
+- Finance/Admin users can export payment CSV from `/api/payments/export`; unauthorized back-office users receive a structured 403 before payment rows are loaded, and successful exports write audit records.
 - Payment Pending/Approved/Disbursed status reminders are smoke-tested through the dashboard reminder inbox.
 - Dashboard reminder type/due filtering is smoke-tested through `/api/dashboard/reminders?type=PaymentBankFollowUp&due=Overdue`.
+- Dashboard metrics and reminder rows now include module drill-down targets, and API failure fallback uses empty dashboard values instead of demo management totals.
 - Payment voucher and broker commission profit impacts are smoke-tested through the dashboard `totalProfit` field, with the backward-compatible `estimatedProfit` field checked for alignment.
 - Payment voucher follow-up reminders are smoke-tested before and after the voucher is marked Paid.
 - Customer invoice detail fields on payment records are smoke-tested for persistence and negative-amount validation.

@@ -41,10 +41,13 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<LoanStatus>(apiDocs);
         AssertDocumentedEnum<DeliveryStatus>(apiDocs);
         AssertDocumentedEnum<PaymentStatus>(apiDocs);
+        AssertDocumentedEnum<PaymentExternalSyncStatus>(apiDocs);
+        AssertDocumentedEnum<AutoCountSyncStatus>(apiDocs);
         AssertDocumentedEnum<PaymentVoucherStatus>(apiDocs);
         AssertDocumentedEnum<DebtRecoveryStatus>(apiDocs);
         AssertDocumentedEnum<FileCategory>(apiDocs);
         AssertDocumentedEnum<OcrJobStatus>(apiDocs);
+        AssertDocumentedEnum<OcrReviewDecision>(apiDocs);
     }
 
     [Fact]

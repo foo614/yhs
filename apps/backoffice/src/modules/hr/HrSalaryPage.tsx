@@ -37,7 +37,6 @@ type HrSalaryPageProps = {
   onCheckOut: () => Promise<void>;
   onCreateLeave: (leave: HrLeaveRequest) => Promise<void>;
   onDecideLeave: (leaveId: string, status: HrLeaveStatus, decisionNotes?: string) => Promise<void>;
-  onCancelLeave: (leaveId: string) => Promise<void>;
   onUploadMc: (leaveId: string, file: File) => Promise<void>;
   mcContentUrl: (leaveId: string) => string;
   onUpdateBalance: (balance: HrLeaveBalance) => Promise<void>;
@@ -82,7 +81,6 @@ export function HrSalaryPage({
   onCheckOut,
   onCreateLeave,
   onDecideLeave,
-  onCancelLeave,
   onUploadMc,
   mcContentUrl,
   onUpdateBalance,
@@ -103,6 +101,11 @@ export function HrSalaryPage({
   const canCheckInToday = !openSession;
   const canCheckOutToday = Boolean(openSession);
   const attendanceActionText = openSession ? "Checked in now / 已上班" : "Ready to check in / 可以打卡";
+  const checkInHelpText = canCheckInToday ? "" : "Already checked in. Check out before starting a new session.";
+  const checkOutHelpText = canCheckOutToday ? "" : "Check in first before checking out.";
+  const attendanceActionHint = openSession
+    ? "Check out when the shift ends."
+    : "Start today attendance with Check In.";
   const visibleStaff = staffUsers.length ? staffUsers : [{ id: selfId, email: currentUser?.name ?? "", displayName: selfName, roles: [], isActive: true }];
   const leaveStartDate = Form.useWatch("startDate", leaveForm) as string | undefined;
   const leaveEndDate = Form.useWatch("endDate", leaveForm) as string | undefined;
@@ -112,7 +115,6 @@ export function HrSalaryPage({
     () => calculateLeaveDays(leaveStartDate || today, leaveEndDate || today, leaveStartHalf || "AM", leaveEndHalf || "PM"),
     [leaveEndDate, leaveEndHalf, leaveStartDate, leaveStartHalf, today]
   );
-  const canCancelLeave = (record: HrLeaveRequest) => record.status === "Pending" && (isHrManager || record.staffUserId === selfId);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(new Date()), 1000);
@@ -150,7 +152,6 @@ export function HrSalaryPage({
         <Space className="tableActionGroup" wrap size={6}>
           {isHrManager && <Button type="primary" onClick={() => onDecideLeave(record.id, "Approved")}>Approve / 批准</Button>}
           {isHrManager && <Button danger onClick={() => onDecideLeave(record.id, "Rejected")}>Reject / 拒绝</Button>}
-          {canCancelLeave(record) && <Button onClick={() => onCancelLeave(record.id)}>Cancel / 取消</Button>}
         </Space>
       ) : record.decisionNotes || "-"
     }
@@ -227,6 +228,7 @@ export function HrSalaryPage({
     { dataIndex: "staffUserId", filters: textFilters(payslips.map((record) => staffName(record.staffUserId, visibleStaff))), filterSearch: true, onFilter: (value, row) => staffName(row.staffUserId, visibleStaff) === value },
     { dataIndex: "payPeriodId", filters: textFilters(payslips.map((record) => payPeriods.find((period) => period.id === record.payPeriodId)?.name ?? record.payPeriodId)), filterSearch: true, onFilter: (value, row) => (payPeriods.find((period) => period.id === row.payPeriodId)?.name ?? row.payPeriodId) === value }
   ]);
+  const tabLabel = (label: string, count: number) => <span className="tabLabelWithCount">{label}<Tag>{count}</Tag></span>;
 
   const attendanceMobileCards = (
     <div className="mobileRecordList">
@@ -284,7 +286,6 @@ export function HrSalaryPage({
                 <Button size="small" danger onClick={() => onDecideLeave(record.id, "Rejected")}>Reject / 拒绝</Button>
               </>
             )}
-            {canCancelLeave(record) && <Button size="small" onClick={() => onCancelLeave(record.id)}>Cancel / 取消</Button>}
           </div>
         </article>
       ))}
@@ -410,6 +411,7 @@ export function HrSalaryPage({
           <div className="attendancePunchStatus">
             <Typography.Text className="mobileRecordEyebrow">Current Status / 当前状态</Typography.Text>
             <Typography.Title level={4}>{attendanceActionText}</Typography.Title>
+            <Typography.Text type="secondary">{attendanceActionHint}</Typography.Text>
             <div className="attendanceLiveClock" aria-label="Current time">
               <ClockCircleOutlined />
               <span>{formatLiveClock(clockNow)}</span>
@@ -417,8 +419,12 @@ export function HrSalaryPage({
             </div>
           </div>
           <div className="attendancePunchActions">
-            <Button type="primary" icon={<ClockCircleOutlined />} onClick={onCheckIn} disabled={!canCheckInToday}>Check In / 上班打卡</Button>
-            <Button onClick={onCheckOut} disabled={!canCheckOutToday}>Check Out / 下班打卡</Button>
+            <Tooltip title={checkInHelpText}>
+              <Button type="primary" icon={<ClockCircleOutlined />} onClick={onCheckIn} disabled={!canCheckInToday}>Check In / 上班打卡</Button>
+            </Tooltip>
+            <Tooltip title={checkOutHelpText}>
+              <Button onClick={onCheckOut} disabled={!canCheckOutToday}>Check Out / 下班打卡</Button>
+            </Tooltip>
           </div>
         </Space>
       </ProCard>
@@ -428,17 +434,17 @@ export function HrSalaryPage({
         items={[
           {
             key: "attendance",
-            label: "Attendance / 打卡记录",
+            label: tabLabel("Attendance / 打卡记录", attendance.length),
             children: (
               <>
                 {attendanceMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={attendanceTableColumns} dataSource={attendance} pagination={tablePagination(8)} scroll={{ x: "max-content" }} />
+                <Table className="desktopDataTable" rowKey="id" columns={attendanceTableColumns} dataSource={attendance} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No attendance records yet." }} />
               </>
             )
           },
           {
             key: "leave",
-            label: shortformLabel("Leave / MC", "请假与病假单"),
+            label: tabLabel("Leave / MC", leaveRequests.length),
             children: (
               <Space direction="vertical" size={16} className="fullWidth">
                 <ProCard title="Submit Leave Request / 提交请假申请" className="leaveRequestCard">
@@ -481,13 +487,13 @@ export function HrSalaryPage({
                   </ProCard>
                 )}
                 {leaveMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={leaveTableColumns} dataSource={leaveRequests} pagination={tablePagination(8)} scroll={{ x: "max-content" }} />
+                <Table className="desktopDataTable" rowKey="id" columns={leaveTableColumns} dataSource={leaveRequests} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No leave requests yet." }} />
               </Space>
             )
           },
           {
             key: "balances",
-            label: shortformLabel("AL/MC Control", "年假与病假管理"),
+            label: tabLabel("AL/MC Control", leaveBalances.length),
             children: (
               <Space direction="vertical" size={16} className="fullWidth">
                 {isHrManager && (
@@ -501,7 +507,7 @@ export function HrSalaryPage({
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Policy / 保存政策</Button></Form.Item>
                       </Form>
                       {policyMobileCards}
-                      <Table className="desktopDataTable" rowKey="id" columns={policyTableColumns} dataSource={leavePolicies} pagination={tablePagination(8)} />
+                      <Table className="desktopDataTable" rowKey="id" columns={policyTableColumns} dataSource={leavePolicies} pagination={tablePagination(8)} locale={{ emptyText: "No leave policies yet." }} />
                     </ProCard>
 
                     <ProCard title="Apply Default Balance / 套用默认假期">
@@ -525,15 +531,15 @@ export function HrSalaryPage({
                   </>
                 )}
                 {balanceMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={balanceTableColumns} dataSource={leaveBalances} pagination={tablePagination(8)} />
+                <Table className="desktopDataTable" rowKey="id" columns={balanceTableColumns} dataSource={leaveBalances} pagination={tablePagination(8)} locale={{ emptyText: "No leave balances yet." }} />
                 {adjustmentMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={adjustmentTableColumns} dataSource={leaveAdjustments} pagination={tablePagination(8)} scroll={{ x: "max-content" }} />
+                <Table className="desktopDataTable" rowKey="id" columns={adjustmentTableColumns} dataSource={leaveAdjustments} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No leave adjustments yet." }} />
               </Space>
             )
           },
           {
             key: "payroll",
-            label: "Pay Slip / 薪资单",
+            label: tabLabel("Pay Slip / 薪资单", payslips.length),
             children: (
               <Space direction="vertical" size={16} className="fullWidth">
                 {isHrManager && (
@@ -568,7 +574,7 @@ export function HrSalaryPage({
                   </>
                 )}
                 {payslipMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={payslipTableColumns} dataSource={payslips} pagination={tablePagination(8)} scroll={{ x: "max-content" }} />
+                <Table className="desktopDataTable" rowKey="id" columns={payslipTableColumns} dataSource={payslips} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No payslips yet." }} />
               </Space>
             )
           }

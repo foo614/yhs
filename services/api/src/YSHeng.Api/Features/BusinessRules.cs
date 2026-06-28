@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using YSHeng.Api.Domain;
@@ -5,7 +6,7 @@ using SkiaSharp;
 
 namespace YSHeng.Api.Features;
 
-public sealed record LeadRequest(Guid VehicleId, string CustomerName, string Phone, string? Message);
+public sealed record LeadRequest(Guid VehicleId, string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
 public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
 public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice);
 public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status);
@@ -34,6 +35,8 @@ public sealed record DashboardCountSlice(string Label, int Count);
 public sealed record DashboardAmountSlice(string Label, decimal Amount);
 public sealed record DashboardWorkflowBlockers(DashboardCountSlice[] ByType, DashboardCountSlice[] DueBuckets);
 public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal ConversionRate);
+public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
+public sealed record SupplierInvoiceAgingView(Guid InvoiceId, string SupplierName, string InvoiceNumber, Guid VehicleId, SupplierInvoiceAgingStatus Status, DateOnly? DueDate, DateOnly? PaidAt, decimal Amount);
 public sealed record ReminderItem(string Type, string Title, string VehiclePlate, Guid VehicleId, DateOnly DueDate, decimal? Amount);
 public sealed record ValidationError(string Code, string Message);
 public sealed record ApiError(string Message);
@@ -42,7 +45,16 @@ public sealed record ValidationResult(IReadOnlyList<ValidationError> Errors)
     public bool IsValid => Errors.Count == 0;
 }
 public sealed record LoanDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories);
-public sealed record DeliveryDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories);
+public sealed record DeliveryEvidenceItem(
+    FileCategory Category,
+    bool IsPresent,
+    Guid? DocumentId,
+    string? FileName,
+    string? MimeType,
+    string? Checksum,
+    string? UploadedBy,
+    DateTime? UploadedAt);
+public sealed record DeliveryDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories, IReadOnlyList<DeliveryEvidenceItem> Evidence);
 public sealed record HealthPayload(string Service, string Status, DateTimeOffset CheckedAt);
 public sealed record PublicPhotoPayload(Guid Id, string MimeType, byte[] Bytes);
 public sealed record PublicPhotoSummary(Guid Id, string FileName, string MimeType, DateTime UploadedAt);
@@ -293,8 +305,18 @@ public static class LeadCapture
             CustomerName = request.CustomerName.Trim(),
             Phone = request.Phone.Trim(),
             Message = request.Message?.Trim(),
+            SourcePage = TrimToNull(request.SourcePage, 500),
+            SourceReferrer = TrimToNull(request.SourceReferrer, 500),
+            SourceCampaign = TrimToNull(request.SourceCampaign, 500),
             Status = LeadStatus.New
         };
+    }
+
+    private static string? TrimToNull(string? value, int maxLength)
+    {
+        var trimmed = value?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) return null;
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
 }
 
@@ -368,6 +390,9 @@ public static class LeadRules
         return incoming with
         {
             CreatedAt = existing.CreatedAt,
+            SourcePage = existing.SourcePage,
+            SourceReferrer = existing.SourceReferrer,
+            SourceCampaign = existing.SourceCampaign,
             TakenByUserId = takenByUserId,
             TakenByName = takenByName,
             TakenAt = takenAt
@@ -1077,10 +1102,19 @@ public static class FinanceRules
 {
     public static ValidationResult ValidatePayment(PaymentRecord payment)
     {
-        return ValidatePayment(payment, []);
+        return ValidatePayment(payment, [], [], []);
     }
 
     public static ValidationResult ValidatePayment(PaymentRecord payment, IEnumerable<PaymentRecord> existing)
+    {
+        return ValidatePayment(payment, existing, [], []);
+    }
+
+    public static ValidationResult ValidatePayment(
+        PaymentRecord payment,
+        IEnumerable<PaymentRecord> existing,
+        IEnumerable<FinanceInvoice> invoices,
+        IEnumerable<AutoCountSyncJob> syncJobs)
     {
         var errors = new List<ValidationError>();
         if (payment.NettPrice <= 0)
@@ -1110,6 +1144,8 @@ public static class FinanceRules
 
         if (payment.Status == PaymentStatus.Reconciled)
         {
+            var hasOverride = !string.IsNullOrWhiteSpace(payment.ReconciliationOverrideReason);
+
             if (!payment.BossChecked)
             {
                 errors.Add(new ValidationError("payment_boss_check_required", "Boss check is required before payment reconciliation."));
@@ -1125,14 +1161,18 @@ public static class FinanceRules
                 errors.Add(new ValidationError("payment_checklist_validated_required", "Finance checklist must be validated before payment reconciliation."));
             }
 
-            if (!payment.InvoiceGenerated)
+            var invoice = invoices.FirstOrDefault(item => item.PaymentRecordId == payment.Id);
+            if (invoice is null)
             {
-                errors.Add(new ValidationError("payment_invoice_generated_required", "Payment invoice must be generated before reconciliation."));
+                errors.Add(new ValidationError("payment_invoice_generated_required", "Generated sales invoice is required before payment reconciliation."));
             }
-
-            if (!payment.AutoCountKeyed)
+            else
             {
-                errors.Add(new ValidationError("payment_autocount_keyed_required", "AutoCount key-in must be marked before payment reconciliation."));
+                var latestSync = FinanceInvoiceMapping.LatestSync(invoice.Id, syncJobs);
+                if (latestSync?.Status != AutoCountSyncStatus.Synced)
+                {
+                    errors.Add(new ValidationError("payment_autocount_sync_required", "AutoCount sales invoice sync must be completed before payment reconciliation."));
+                }
             }
 
             if (string.IsNullOrWhiteSpace(payment.ReceiptNumber))
@@ -1167,6 +1207,30 @@ public static class FinanceRules
                 {
                     errors.Add(new ValidationError("duplicate_payment_invoice_number", "Payment invoice number already exists on another payment."));
                 }
+            }
+
+            if (payment.ExternalSyncStatus == PaymentExternalSyncStatus.Failed && !hasOverride)
+            {
+                errors.Add(new ValidationError("payment_external_sync_failed", "External sync failure needs an override reason before reconciliation."));
+            }
+
+            if (!string.IsNullOrWhiteSpace(payment.ExternalDocumentNumber))
+            {
+                var externalDocumentNumber = payment.ExternalDocumentNumber.Trim();
+                if (existing.Any(item =>
+                    item.Id != payment.Id &&
+                    !string.IsNullOrWhiteSpace(item.ExternalDocumentNumber) &&
+                    item.ExternalDocumentNumber.Trim().Equals(externalDocumentNumber, StringComparison.OrdinalIgnoreCase)))
+                {
+                    errors.Add(new ValidationError("duplicate_external_document_number", "External document number already exists on another payment."));
+                }
+            }
+
+            if (payment.ExternalDocumentAmount is { } externalAmount &&
+                externalAmount != payment.NettPrice &&
+                !hasOverride)
+            {
+                errors.Add(new ValidationError("external_amount_mismatch", "External document amount must match payment nett price unless an override reason is recorded."));
             }
         }
 
@@ -1380,6 +1444,8 @@ public static class ProfitCalculator
 
 public static class RepairRules
 {
+    public const decimal ApprovalThreshold = 1000m;
+
     public static ValidationResult Validate(RepairJob repair)
     {
         var errors = new List<ValidationError>();
@@ -1393,8 +1459,16 @@ public static class RepairRules
             errors.Add(new ValidationError("invalid_repair_cost", "Repair cost cannot be negative."));
         }
 
+        if (repair.Cost >= ApprovalThreshold && repair.ChecklistDone && repair.ApprovalStatus != RepairApprovalStatus.Approved)
+        {
+            errors.Add(new ValidationError("repair_approval_required", "High-cost repair must be approved before it is completed or treated as final."));
+        }
+
         return new ValidationResult(errors);
     }
+
+    public static bool IsCostFinal(RepairJob repair) =>
+        repair.Cost < ApprovalThreshold || repair.ApprovalStatus == RepairApprovalStatus.Approved;
 }
 
 public static class SupplierInvoiceRules
@@ -1444,8 +1518,77 @@ public static class SupplierInvoiceRules
         return new ValidationResult(errors);
     }
 
+    public static IEnumerable<SupplierSummary> CreateSupplierSummaries(IEnumerable<SupplierInvoice> invoices) =>
+        invoices
+            .Where(invoice => !string.IsNullOrWhiteSpace(invoice.SupplierName))
+            .GroupBy(invoice => invoice.SupplierName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new SupplierSummary(group.First().SupplierName.Trim(), group.Count(), group.Sum(invoice => invoice.Amount)))
+            .OrderBy(item => item.SupplierName);
+
+    public static SupplierInvoiceAgingView CreateAgingView(SupplierInvoice invoice, DateOnly today) =>
+        new(
+            invoice.Id,
+            invoice.SupplierName,
+            invoice.InvoiceNumber,
+            invoice.VehicleId,
+            AgingStatus(invoice, today),
+            invoice.DueDate,
+            invoice.PaidAt,
+            invoice.Amount);
+
+    public static SupplierInvoiceAgingStatus AgingStatus(SupplierInvoice invoice, DateOnly today)
+    {
+        if (invoice.PaidAt is not null) return SupplierInvoiceAgingStatus.Paid;
+        if (invoice.DueDate is null) return SupplierInvoiceAgingStatus.Unmatched;
+        if (invoice.DueDate < today) return SupplierInvoiceAgingStatus.Overdue;
+        return invoice.DueDate.Value.DayNumber - today.DayNumber <= 7
+            ? SupplierInvoiceAgingStatus.DueSoon
+            : SupplierInvoiceAgingStatus.Unmatched;
+    }
+
     private static string NormalizePlate(string value) =>
         new(value.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
+}
+
+public static class FinanceCsv
+{
+    public static string ExportPayments(IEnumerable<PaymentRecord> payments, IEnumerable<Vehicle> vehicles)
+    {
+        var vehicleLookup = vehicles.ToDictionary(vehicle => vehicle.Id, vehicle => vehicle.PlateNumber);
+        var rows = new List<string>
+        {
+            "PaymentId,CarPlate,Status,NettPrice,ReceiptNumber,InvoiceNumber,ExternalSyncStatus,ExternalDocumentNumber,ExternalDocumentAmount,BankName,BankFollowUpDate,OverrideReason,CreatedAt"
+        };
+
+        rows.AddRange(payments
+            .OrderByDescending(payment => payment.CreatedAt)
+            .Select(payment => string.Join(",", new[]
+            {
+                Csv(payment.Id.ToString()),
+                Csv(vehicleLookup.TryGetValue(payment.VehicleId, out var plate) ? plate : ""),
+                Csv(payment.Status.ToString()),
+                Csv(payment.NettPrice.ToString("0.00", CultureInfo.InvariantCulture)),
+                Csv(payment.ReceiptNumber),
+                Csv(payment.InvoiceNumber),
+                Csv(payment.ExternalSyncStatus.ToString()),
+                Csv(payment.ExternalDocumentNumber),
+                Csv(payment.ExternalDocumentAmount?.ToString("0.00", CultureInfo.InvariantCulture)),
+                Csv(payment.BankName),
+                Csv(payment.BankFollowUpDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+                Csv(payment.ReconciliationOverrideReason),
+                Csv(payment.CreatedAt.ToString("O", CultureInfo.InvariantCulture))
+            })));
+
+        return string.Join(Environment.NewLine, rows) + Environment.NewLine;
+    }
+
+    private static string Csv(string? value)
+    {
+        var text = value ?? "";
+        return text.Contains(',') || text.Contains('"') || text.Contains('\n') || text.Contains('\r')
+            ? $"\"{text.Replace("\"", "\"\"", StringComparison.Ordinal)}\""
+            : text;
+    }
 }
 
 public static class PurchaseInvoiceRules
@@ -1515,7 +1658,28 @@ public static class DeliveryRules
         delivery.InsuranceHandled &&
         delivery.RoadTaxHandled &&
         delivery.WindscreenInsuranceHandled &&
-        delivery.TwoDayNoticeSent;
+        delivery.TwoDayNoticeSent &&
+        MissingReleaseEvidence(delivery).Count == 0 &&
+        ExpiredDeliveryDocuments(delivery).Count == 0;
+
+    public static IReadOnlyList<string> MissingReleaseEvidence(DeliverySchedule delivery)
+    {
+        var missing = new List<string>();
+        if (!delivery.HandoverPhotoCaptured) missing.Add("Handover photo");
+        if (!delivery.SignedHandoverReceived) missing.Add("Signed handover document");
+        if (!delivery.CustomerAcknowledged) missing.Add("Customer acknowledgement");
+        if (!delivery.FinalChecklistConfirmed) missing.Add("Final checklist");
+        return missing;
+    }
+
+    public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery)
+    {
+        var issues = new List<string>();
+        AddExpiryIssue(issues, delivery.InsuranceExpiryDate, delivery.ScheduledDate, "Insurance policy");
+        AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, delivery.ScheduledDate, "Road tax");
+        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, delivery.ScheduledDate, "Windscreen insurance");
+        return issues;
+    }
 
     public static ValidationResult Validate(DeliverySchedule delivery)
     {
@@ -1556,8 +1720,22 @@ public static class DeliveryRules
             : new ValidationResult([new ValidationError("delivery_not_ready", DeliveryReleaseBlockedMessage)]);
     }
 
-    public const string DeliveryNotReadyMessage = "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.";
-    public const string DeliveryReleaseBlockedMessage = "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.";
+    private static void AddExpiryIssue(ICollection<string> issues, DateOnly? expiryDate, DateOnly scheduledDate, string label)
+    {
+        if (expiryDate is null)
+        {
+            issues.Add($"{label} expiry date missing");
+            return;
+        }
+
+        if (expiryDate < scheduledDate)
+        {
+            issues.Add($"{label} expired before scheduled delivery");
+        }
+    }
+
+    public const string DeliveryNotReadyMessage = "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
+    public const string DeliveryReleaseBlockedMessage = "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
 }
 
 public static class DeliveryDocumentRules
@@ -1570,12 +1748,29 @@ public static class DeliveryDocumentRules
 
     public static DeliveryDocumentCheck CheckCompleteness(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
     {
-        var attachedCategories = documents
+        var deliveryDocuments = documents
             .Where(document => document.VehicleId == delivery.VehicleId)
-            .Select(document => document.Category)
-            .ToHashSet();
-        var missing = RequiredCategories.Where(category => !attachedCategories.Contains(category)).ToList();
-        return new DeliveryDocumentCheck(missing.Count == 0, missing);
+            .ToList();
+        var evidence = RequiredCategories
+            .Select(category =>
+            {
+                var document = deliveryDocuments
+                    .Where(item => item.Category == category)
+                    .OrderByDescending(item => item.UploadedAt)
+                    .FirstOrDefault();
+                return new DeliveryEvidenceItem(
+                    category,
+                    document is not null,
+                    document?.Id,
+                    document?.FileName,
+                    document?.MimeType,
+                    document?.Checksum,
+                    document?.UploadedBy,
+                    document?.UploadedAt);
+            })
+            .ToList();
+        var missing = evidence.Where(item => !item.IsPresent).Select(item => item.Category).ToList();
+        return new DeliveryDocumentCheck(missing.Count == 0, missing, evidence);
     }
 
     public static ValidationResult ValidateReadyDocuments(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
@@ -1631,6 +1826,7 @@ public static class DashboardMetrics
             .ToArray();
         var topSupplier = supplierSpendTop.FirstOrDefault()?.Label ?? "-";
         var repairCostsByVehicle = repairList
+            .Where(RepairRules.IsCostFinal)
             .GroupBy(repair => repair.VehicleId)
             .ToDictionary(group => group.Key, group => group.Sum(repair => repair.Cost));
         var commissionsByVehicle = brokerCommissionList

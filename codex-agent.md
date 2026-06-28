@@ -32,6 +32,7 @@ services/api          .NET 10 Minimal API, EF Core, ASP.NET Identity, PostgreSQL
 infra                 Docker Compose, smoke tests, deployment, backup, and validation scripts
 docs                  API, implementation, deployment, source requirement, and trace docs
 .codex/skills         Project-local Codex workflow skills
+.codex/agents         Project-local custom Codex subagents for bounded review and exploration
 ```
 
 Local service URLs:
@@ -59,12 +60,34 @@ Use these project-local skills for repeatable YS Heng workflows:
 - `.codex/skills/ysheng-frontoffice/SKILL.md`: public vehicle sales app, public API usage, lead capture, photos, and public-data safety.
 - `.codex/skills/ysheng-plan-change/SKILL.md`: substantial, multi-file, or high-risk work before implementation.
 - `.codex/skills/ysheng-fix-ci/SKILL.md`: CI, build, lint, test, or smoke-check failures.
+- `.codex/skills/ysheng-loop-triage/SKILL.md`: read-only loop-engineering discovery, recurring automation triage, and guidance-drift checks.
 - `.codex/skills/ysheng-address-review/SKILL.md`: PR review feedback and requested changes.
 - `.codex/skills/ysheng-frontend-design/SKILL.md`: front-office and back-office UI or interaction design.
 - `.codex/skills/ysheng-polish-prose/SKILL.md`: docs, comments, commit text, skill text, and user-facing copy.
 - `.codex/skills/ysheng-security-review/SKILL.md`: security reviews involving auth, finance, uploads, public data, persistence, deployment, secrets, or backups.
 
+Project-installed ecosystem skills:
+
+- `.agents/skills/prd-development/SKILL.md`: auxiliary PRD workflow for major product initiatives, especially when requirements are still scattered.
+- `.agents/skills/code-review-testing/SKILL.md`: auxiliary review/testing checklist for agent or workflow logic changes.
+- `.agents/skills/shadcn-ui/SKILL.md`: optional shadcn/ui reference for projects that already use shadcn and Tailwind.
+
+The `.codex/skills/ysheng-*` files remain authoritative for YS Heng architecture, contracts, validation, and risk gates. Ecosystem skills may shape process, but must not override repository-specific rules.
+
 Personal integrations such as external code search, web research, and hosted MCP services may be useful, but do not make required project behavior depend on teammate-specific API keys or global `~/.codex` configuration.
+
+## Loop engineering
+
+Use `docs/CODEX_LOOP_ENGINEERING.md` for project-shared loop design, automation prompts, worktree expectations, subagent roles, and state handling.
+
+Loop defaults:
+
+- Define the workflow in a project skill first; use automations only after the workflow is predictable.
+- Keep scheduled discovery loops read-only unless the user explicitly approves implementation.
+- Run implementation loops in isolated worktrees or dedicated Codex threads so parallel work does not modify the main checkout.
+- Keep maker/checker roles separate for non-trivial changes by using a reviewer subagent, `/review`, or a fresh review thread.
+- Record durable decisions in repo-local docs or issue/PR systems, not personal global configuration.
+- Do not let loops bypass high-risk gates for auth, finance, uploads, database, deployment, backups, public data exposure, secrets, staging, commits, pushes, or pull requests.
 
 ## Allowed actions
 
@@ -96,6 +119,8 @@ File access and modification scope:
 
 - Root project instructions belong in `AGENTS.md` and `codex-agent.md`.
 - Task-specific reusable workflows belong in `.codex/skills/*/SKILL.md`.
+- Loop-engineering prompts and operating rules belong in `docs/CODEX_LOOP_ENGINEERING.md`.
+- Project-scoped custom subagents belong in `.codex/agents/*.toml`.
 - Front-office work belongs primarily under `apps/frontoffice`.
 - Back-office work belongs primarily under `apps/backoffice`.
 - Backend API work belongs primarily under `services/api`.
@@ -183,6 +208,7 @@ Use `.codex/skills/ysheng-backoffice/SKILL.md` for back-office tasks.
 - Surface backend validation messages to users.
 - Do not let fallback/demo data hide mutation failures.
 - Treat finance screens, payment mutations, and staff role management as permission-sensitive.
+- Do not introduce shadcn/ui into the back office unless the user explicitly requests a design-system migration; current screens are Ant Design-first.
 
 ## Front-office implementation rules
 
@@ -322,7 +348,7 @@ Local Docker-independent verification may use the infra validation scripts docum
 - Public data exposure restrictions are documented.
 - Required quality gates are documented.
 - Docker, smoke, backup, restore, and deployment risk gates are documented.
-- Local skill files exist for project, API, back office, front office, planning, CI repair, review feedback, frontend design, prose cleanup, and security review workflows.
+- Local skill files exist for project, API, back office, front office, planning, CI repair, loop triage, review feedback, frontend design, prose cleanup, and security review workflows.
 
 ## Summary of project-specific customizations
 
@@ -332,6 +358,7 @@ This ruleset customizes the official Codex project-instruction pattern for YS He
 - Keeping a comprehensive `codex-agent.md` specification for teammate readability.
 - Adding project-local skills for repeatable YS Heng workflows.
 - Adding project-local workflow skills for planning, CI repair, review feedback, frontend design, prose cleanup, and security review.
+- Adding a project-local loop triage workflow and scoped subagents for controlled recurring discovery.
 - Encoding the monorepo architecture and local service URLs.
 - Capturing strict public/private data boundaries for vehicle sales operations.
 - Capturing role-policy expectations for Boss/Admin, Sales, Loan, Delivery, Finance, Repair, Dashboard, and HR-adjacent extension areas.
