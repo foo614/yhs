@@ -12,6 +12,7 @@ export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated";
 export type DocumentCategory = "PurchaseInvoice" | "Voc" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed";
+export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected";
 
 export type OcrExtractionResult = {
   documentCategory: DocumentCategory;
@@ -32,6 +33,10 @@ export type OcrJob = {
   warnings: string[];
   createdAt: string;
   completedAt?: string;
+  reviewDecision: OcrReviewDecision;
+  reviewNotes?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
 };
 
 export type UploadProgressHandler = (percent: number) => void;
@@ -43,6 +48,7 @@ export type Vehicle = {
   model: string;
   year: number;
   stockOwner: StockOwner;
+  stockLocation?: string;
   status: VehicleStatus;
   isPublic: boolean;
   purchasePrice: number;
@@ -61,6 +67,17 @@ export type Vehicle = {
 };
 
 export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status">;
+
+export type StockMovement = {
+  id: string;
+  vehicleId: string;
+  fieldName: "Status" | "StockOwner" | "StockLocation" | string;
+  previousValue: string;
+  newValue: string;
+  reason: string;
+  actor: string;
+  createdAt: string;
+};
 
 export type VehicleIntakeValues = Omit<Vehicle, "id">;
 
@@ -764,6 +781,7 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
     model: values.model,
     year: Number(values.year),
     stockOwner: values.stockOwner,
+    stockLocation: values.stockLocation?.trim() || undefined,
     status: values.status,
     isPublic: values.isPublic,
     purchasePrice: Number(values.purchasePrice ?? 0),
@@ -1029,6 +1047,16 @@ export async function getVehicleDocuments(vehicleId: string): Promise<VehicleDoc
   return [];
 }
 
+export async function getStockMovements(vehicleId: string): Promise<StockMovement[]> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/stock-movements`, { credentials: "include" });
+    if (response.ok) return response.json();
+  } catch {
+    return [];
+  }
+  return [];
+}
+
 export async function getVehiclePhotos(vehicleId: string): Promise<VehiclePhoto[]> {
   try {
     const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/photos`, { credentials: "include" });
@@ -1065,6 +1093,13 @@ export async function startOcrJob(documentId: string): Promise<OcrJob> {
 
 export async function getOcrJob(jobId: string): Promise<OcrJob> {
   return request<OcrJob>(`/api/ocr-jobs/${jobId}`);
+}
+
+export async function reviewOcrJob(jobId: string, decision: Exclude<OcrReviewDecision, "Pending">, notes?: string): Promise<OcrJob> {
+  return request<OcrJob>(`/api/ocr-jobs/${jobId}/review`, {
+    method: "PUT",
+    body: JSON.stringify({ decision, notes })
+  });
 }
 
 async function request<T = unknown>(path: string, init: RequestInit = {}, errorMessage = `Request failed with status`): Promise<T> {

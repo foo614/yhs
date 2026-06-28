@@ -12,6 +12,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<VehiclePhoto> VehiclePhotos => Set<VehiclePhoto>();
     public DbSet<DocumentBlob> DocumentBlobs => Set<DocumentBlob>();
+    public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<PurchaseInvoice> PurchaseInvoices => Set<PurchaseInvoice>();
     public DbSet<RepairJob> RepairJobs => Set<RepairJob>();
     public DbSet<SupplierInvoice> SupplierInvoices => Set<SupplierInvoice>();
@@ -38,6 +39,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     {
         base.OnModelCreating(builder);
         builder.Entity<Vehicle>().HasIndex(vehicle => vehicle.PlateNumber).IsUnique();
+        builder.Entity<StockMovement>().HasIndex(movement => new { movement.VehicleId, movement.CreatedAt });
         builder.Entity<Lead>().HasIndex(lead => lead.VehicleId);
         builder.Entity<VehiclePhoto>().Property(photo => photo.Content).HasColumnType("bytea");
         builder.Entity<VehiclePhoto>().Property(photo => photo.Thumbnail).HasColumnType("bytea");

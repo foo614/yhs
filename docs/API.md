@@ -74,6 +74,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `POST` | `/api/vehicles` | `Vehicles` | Create vehicle intake. |
 | `PUT` | `/api/vehicles/{id}` | `Vehicles` | Update vehicle intake and public status. |
 | `GET` | `/api/vehicle-lookup` | `VehicleRead` | Plate/make/model/status lookup for workflow selectors. |
+| `GET` | `/api/vehicles/{id}/stock-movements` | `VehicleRead` | List stock owner, status, and location movement history with actor, timestamp, previous value, new value, and reason. |
 | `GET` | `/api/customers` | `CustomerRead` | Customer lookup/list. |
 | `POST` | `/api/customers` | `Vehicles` | Create customer. |
 | `PUT` | `/api/customers/{id}` | `Vehicles` | Update customer. |
@@ -97,7 +98,8 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `GET` | `/api/vehicles/{id}/documents` | `BackOffice` | List document metadata. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | `BackOffice` | Download document content. |
 | `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start Baidu Unlimited-OCR analysis for receipt or invoice review. |
-| `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, warnings, and extracted draft fields. |
+| `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, warnings, extracted draft fields, and review decision. |
+| `PUT` | `/api/ocr-jobs/{jobId}/review` | Category-specific role | Accept or reject OCR-extracted draft fields with audit context before applying them to operational records. |
 | `GET` | `/api/vehicles/{id}/ocr-jobs` | Category-specific role | List captured OCR receipt or invoice data for uploaded vehicle documents visible to the signed-in department. |
 
 OCR runtime:
@@ -233,6 +235,7 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `HrPayslipStatus`: `Draft`, `Generated`
 - `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`
 - `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`
+- `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`
 
 ## Error Shape
 

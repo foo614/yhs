@@ -17,6 +17,7 @@ public static class SeedData
         await EnsureLeadSchemaAsync(db);
         await EnsureHrSchemaAsync(db);
         await EnsureOcrSchemaAsync(db);
+        await EnsureVehicleEnhancementSchemaAsync(db);
 
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         foreach (var role in Roles)
@@ -114,6 +115,7 @@ public static class SeedData
                 Model = "Vios",
                 Year = 2021,
                 StockOwner = StockOwner.YSHeng,
+                StockLocation = "Main Yard",
                 Status = VehicleStatus.Available,
                 IsPublic = true,
                 PurchasePrice = 42000m,
@@ -302,7 +304,33 @@ public static class SeedData
                 CONSTRAINT "PK_OcrJobs" PRIMARY KEY ("Id")
             );
 
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewDecision" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewNotes" text NULL;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewedBy" text NULL;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewedAt" timestamp with time zone NULL;
+
             CREATE INDEX IF NOT EXISTS "IX_OcrJobs_DocumentId" ON "OcrJobs" ("DocumentId");
+        """);
+    }
+
+    private static async Task EnsureVehicleEnhancementSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "StockLocation" text NOT NULL DEFAULT '';
+
+            CREATE TABLE IF NOT EXISTS "StockMovements" (
+                "Id" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "FieldName" text NOT NULL,
+                "PreviousValue" text NOT NULL,
+                "NewValue" text NOT NULL,
+                "Reason" text NOT NULL,
+                "Actor" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_StockMovements" PRIMARY KEY ("Id")
+            );
+
+            CREATE INDEX IF NOT EXISTS "IX_StockMovements_VehicleId_CreatedAt" ON "StockMovements" ("VehicleId", "CreatedAt");
         """);
     }
 }

@@ -14,6 +14,7 @@ public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrPayslipStatus { Draft, Generated }
 public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
+public enum OcrReviewDecision { Pending, Accepted, Rejected }
 
 public sealed record Vehicle
 {
@@ -23,6 +24,7 @@ public sealed record Vehicle
     public string Model { get; init; } = "";
     public int Year { get; init; }
     public StockOwner StockOwner { get; init; }
+    public string StockLocation { get; init; } = "";
     public VehicleStatus Status { get; init; }
     public bool IsPublic { get; init; }
     public decimal PurchasePrice { get; init; }
@@ -39,6 +41,18 @@ public sealed record Vehicle
     public DateTime? OutstationPickupScheduledAt { get; init; }
     public string? OutstationPickupBookingSlip { get; init; }
     public DateOnly IntakeDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+}
+
+public sealed record StockMovement
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid VehicleId { get; init; }
+    public string FieldName { get; init; } = "";
+    public string PreviousValue { get; init; } = "";
+    public string NewValue { get; init; } = "";
+    public string Reason { get; init; } = "";
+    public string Actor { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record Customer
@@ -112,6 +126,10 @@ public sealed record OcrJob
     public string[] Warnings { get; init; } = [];
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; init; }
+    public OcrReviewDecision ReviewDecision { get; init; } = OcrReviewDecision.Pending;
+    public string? ReviewNotes { get; init; }
+    public string? ReviewedBy { get; init; }
+    public DateTime? ReviewedAt { get; init; }
 }
 
 public sealed record PurchaseInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string InvoiceNumber { get; init; } = ""; public decimal Amount { get; init; } }
