@@ -9,6 +9,7 @@ import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../.
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import {
   customerSelectLabel,
+  getStockMovements,
   getVehicleDocuments,
   getVehiclePhotos,
   vehicleDocumentContentUrl,
@@ -19,6 +20,7 @@ import {
   type Lead,
   type Owner,
   type PurchaseInvoice,
+  type StockMovement,
   type Vehicle,
   type VehicleDocument,
   type VehiclePhoto
@@ -123,6 +125,7 @@ export function VehiclePage({
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PurchaseInvoice");
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
   const [photos, setPhotos] = useState<VehiclePhoto[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [editVehicleId, setEditVehicleId] = useState(vehicles[0]?.id ?? "");
   const [editPurchaseInvoiceId, setEditPurchaseInvoiceId] = useState(purchaseInvoices[0]?.id ?? "");
   const [editCustomerId, setEditCustomerId] = useState(customers[0]?.id ?? "");
@@ -370,14 +373,17 @@ export function VehiclePage({
     if (!selectedVehicleId) {
       setDocuments([]);
       setPhotos([]);
+      setStockMovements([]);
       return;
     }
-    const [photoData, documentData] = await Promise.all([
+    const [photoData, documentData, movementData] = await Promise.all([
       getVehiclePhotos(selectedVehicleId),
-      getVehicleDocuments(selectedVehicleId)
+      getVehicleDocuments(selectedVehicleId),
+      getStockMovements(selectedVehicleId)
     ]);
     setPhotos(photoData);
     setDocuments(documentData);
+    setStockMovements(movementData);
   }, [selectedVehicleId]);
 
   useEffect(() => {
@@ -1007,7 +1013,7 @@ export function VehiclePage({
               initialValues={selectedVehicle}
               onFinish={(values) => {
                 if (!selectedVehicle) return;
-                const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: selectedVehicle.stockOwner || "YSHeng" }, selectedVehicle.id);
+                const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: values.stockOwner || selectedVehicle.stockOwner || "YSHeng" }, selectedVehicle.id);
                 const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
                 if (blockReason) {
                   message.warning(blockReason);
@@ -1025,6 +1031,8 @@ export function VehiclePage({
               <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} /></Form.Item>
               <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} /></Form.Item>
               <Form.Item name="bossConfirmed" label="Management Approval / 管理层审批"><Select options={[{ value: true, label: "Approved" }, { value: false, label: "Pending" }]} /></Form.Item>
+              <Form.Item name="stockOwner" label="Stock Owner / 库存方"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
+              <Form.Item name="stockLocation" label="Stock Location / 停放地点"><Input placeholder="Main Yard / KS Yard / Workshop" /></Form.Item>
               <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} /></Form.Item>
               <Form.Item name="ucdStatus" label={shortformLabel("UCD Status Tracking", "Used car department status tracking")}><Input placeholder="Ready / Pending / Submitted" /></Form.Item>
               <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -1043,6 +1051,24 @@ export function VehiclePage({
               <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
               <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
             </Form>
+          </ProCard>
+          <ProCard title="Stock Movement History / 库存变动记录">
+            <Table
+              rowKey="id"
+              size="small"
+              columns={[
+                { title: "Time / 时间", dataIndex: "createdAt", render: (value) => String(value).replace("T", " ").slice(0, 16) },
+                { title: "Field / 字段", dataIndex: "fieldName" },
+                { title: "Previous / 旧值", dataIndex: "previousValue", render: (value) => value || "-" },
+                { title: "New / 新值", dataIndex: "newValue", render: (value) => value || "-" },
+                { title: "Actor / 操作人", dataIndex: "actor", render: (value) => value || "System" },
+                { title: "Reason / 原因", dataIndex: "reason" }
+              ]}
+              dataSource={stockMovements}
+              pagination={tablePagination(5)}
+              scroll={{ x: 820 }}
+              locale={{ emptyText: "No stock movements recorded yet" }}
+            />
           </ProCard>
           <ProCard
             id="purchase-invoice-list-card"
@@ -1235,7 +1261,7 @@ export function VehiclePage({
         className="recordCreateModal"
       >
         <Form layout="vertical" className="modalForm formGrid" onFinish={(values) => {
-          const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: "YSHeng" }, newId());
+          const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: values.stockOwner || "YSHeng" }, newId());
           const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
           if (blockReason) {
             message.warning(blockReason);
@@ -1244,7 +1270,7 @@ export function VehiclePage({
 
           onCreate(vehicle);
           setVehicleCreateOpen(false);
-        }} initialValues={{ status: "Available", isPublic: true, bossConfirmed: false, contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}>
+        }} initialValues={{ status: "Available", stockOwner: "YSHeng", stockLocation: "Main Yard", isPublic: true, bossConfirmed: false, contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}>
           <Form.Item name="plateNumber" label="Plate / 车牌" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>
           <Form.Item name="model" label="Model"><Input placeholder="Vios" /></Form.Item>
@@ -1252,6 +1278,8 @@ export function VehiclePage({
           <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="bossConfirmed" label="Management Approval / 管理层审批"><Select options={[{ value: true, label: "Approved" }, { value: false, label: "Pending" }]} /></Form.Item>
+          <Form.Item name="stockOwner" label="Stock Owner / 库存方"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="stockLocation" label="Stock Location / 停放地点"><Input placeholder="Main Yard / KS Yard / Workshop" /></Form.Item>
           <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="ucdStatus" label={shortformLabel("UCD Status Tracking", "Used car department status tracking")}><Input placeholder="Ready / Pending / Submitted" /></Form.Item>
           <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} /></Form.Item>

@@ -45,6 +45,7 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<DebtRecoveryStatus>(apiDocs);
         AssertDocumentedEnum<FileCategory>(apiDocs);
         AssertDocumentedEnum<OcrJobStatus>(apiDocs);
+        AssertDocumentedEnum<OcrReviewDecision>(apiDocs);
     }
 
     [Fact]

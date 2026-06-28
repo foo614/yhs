@@ -103,6 +103,9 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Vehicle intake now tracks outstation pickup allowance, scheduled pickup date/time, and booking slip reference from the 收车 workflow.
 - The Vehicle intake form warns before submitting blank identity fields, invalid years, invalid price totals, or duplicate car plates.
 - Vehicle intake now includes structured purchase invoice tracking linked to the car plate, alongside purchase invoice document upload.
+
+- Vehicle master profiles now include stock location and an auditable stock movement history for stock owner, status, and physical location changes.
+- OCR review now records accepted/rejected decisions, reviewer context, and review timestamps before extracted invoice fields are applied to vehicle workflows.
 - Purchase invoices can now be edited from the Vehicles screen so staff can correct purchase amount, invoice number, or car-plate linkage without duplicate invoice records.
 - Purchase invoices reject duplicate invoice numbers with normalized spacing/case before purchase costs are recorded twice.
 - The Vehicles purchase invoice form warns before submitting duplicate invoice numbers, blank invoice numbers, or non-positive purchase amounts.

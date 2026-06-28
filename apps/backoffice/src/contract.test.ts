@@ -15,7 +15,8 @@ const apiTypeByDomainEnum = {
   HrAttendanceStatus: "HrAttendanceStatus",
   HrLeaveType: "HrLeaveType",
   HrLeaveStatus: "HrLeaveStatus",
-  HrPayslipStatus: "HrPayslipStatus"
+  HrPayslipStatus: "HrPayslipStatus",
+  OcrReviewDecision: "OcrReviewDecision"
 } as const;
 
 describe("backoffice API contract types", () => {

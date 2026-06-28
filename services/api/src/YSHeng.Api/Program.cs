@@ -172,6 +172,7 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
     var uniquePlateValidation = VehicleRules.ValidateUniquePlate(vehicle, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!uniquePlateValidation.IsValid) return Results.BadRequest(uniquePlateValidation);
     db.Vehicles.Add(vehicle);
+    StockMovementAudit.AddInitial(db, vehicle, context.User, "Vehicle intake created");
     ApiAudit.Add(db, context.User, "vehicle.created", nameof(Vehicle), vehicle.Id);
     await db.SaveChangesAsync();
     return Results.Created($"/api/vehicles/{vehicle.Id}", vehicle);
@@ -180,7 +181,8 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
 {
     update = VehicleRules.NormalizeDateTimes(update);
     if (id != update.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("vehicle"));
-    if (!await db.Vehicles.AnyAsync(item => item.Id == id)) return Results.NotFound();
+    var existingVehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (existingVehicle is null) return Results.NotFound();
     var validation = VehicleRules.ValidateIntake(update);
     if (!validation.IsValid) return Results.BadRequest(validation);
     var contactLinkValidation = VehicleRules.ValidateContactLinks(
@@ -191,10 +193,22 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var uniquePlateValidation = VehicleRules.ValidateUniquePlate(update, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!uniquePlateValidation.IsValid) return Results.BadRequest(uniquePlateValidation);
     db.Vehicles.Update(update);
+    StockMovementAudit.AddChanges(db, existingVehicle, update, context.User, "Vehicle record updated");
     ApiAudit.Add(db, context.User, "vehicle.updated", nameof(Vehicle), update.Id);
     await db.SaveChangesAsync();
     return Results.Ok(update);
 }).RequireAuthorization("Vehicles");
+
+backOffice.MapGet("/vehicles/{id:guid}/stock-movements", async (Guid id, AppDbContext db) =>
+{
+    var exists = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id);
+    if (!exists) return Results.NotFound();
+
+    return Results.Ok(await db.StockMovements.AsNoTracking()
+        .Where(movement => movement.VehicleId == id)
+        .OrderByDescending(movement => movement.CreatedAt)
+        .ToListAsync());
+}).RequireAuthorization("VehicleRead");
 
 backOffice.MapPost("/vehicles/{id:guid}/photos", async (Guid id, IFormFile file, AppDbContext db, HttpContext context) =>
 {
@@ -331,6 +345,29 @@ backOffice.MapGet("/ocr-jobs/{jobId:guid}", async (Guid jobId, AppDbContext db, 
     if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
 
     return Results.Ok(OcrJobResponses.ToResponse(job));
+});
+
+backOffice.MapPut("/ocr-jobs/{jobId:guid}/review", async (Guid jobId, OcrReviewRequest request, AppDbContext db, HttpContext context) =>
+{
+    var job = await db.OcrJobs.FirstOrDefaultAsync(item => item.Id == jobId);
+    if (job is null) return Results.NotFound();
+    var document = await db.DocumentBlobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == job.DocumentId);
+    if (document is null) return Results.NotFound();
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
+    if (request.Decision == OcrReviewDecision.Pending) return Results.BadRequest(new { message = "OCR review must be accepted or rejected." });
+
+    var reviewed = job with
+    {
+        ReviewDecision = request.Decision,
+        ReviewNotes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+        ReviewedBy = AuditTrail.ActorFrom(context.User),
+        ReviewedAt = DateTime.UtcNow
+    };
+    db.Entry(job).CurrentValues.SetValues(reviewed);
+    ApiAudit.Add(db, context.User, request.Decision == OcrReviewDecision.Accepted ? "document.ocr.accepted" : "document.ocr.rejected", nameof(OcrJob), job.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(OcrJobResponses.ToResponse(reviewed));
 });
 
 backOffice.MapGet("/vehicles/{id:guid}/ocr-jobs", async (Guid id, AppDbContext db, HttpContext context) =>
@@ -1360,6 +1397,42 @@ internal static class StaffIdentity
         context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
 }
 
+public sealed record OcrReviewRequest(OcrReviewDecision Decision, string? Notes);
+
+internal static class StockMovementAudit
+{
+    public static void AddInitial(AppDbContext db, Vehicle vehicle, System.Security.Claims.ClaimsPrincipal actor, string reason)
+    {
+        Add(db, vehicle.Id, "Status", "", vehicle.Status.ToString(), actor, reason);
+        Add(db, vehicle.Id, "StockOwner", "", vehicle.StockOwner.ToString(), actor, reason);
+        if (!string.IsNullOrWhiteSpace(vehicle.StockLocation)) Add(db, vehicle.Id, "StockLocation", "", vehicle.StockLocation, actor, reason);
+    }
+
+    public static void AddChanges(AppDbContext db, Vehicle before, Vehicle after, System.Security.Claims.ClaimsPrincipal actor, string reason)
+    {
+        AddIfChanged(db, after.Id, "Status", before.Status.ToString(), after.Status.ToString(), actor, reason);
+        AddIfChanged(db, after.Id, "StockOwner", before.StockOwner.ToString(), after.StockOwner.ToString(), actor, reason);
+        AddIfChanged(db, after.Id, "StockLocation", before.StockLocation, after.StockLocation, actor, reason);
+    }
+
+    private static void AddIfChanged(AppDbContext db, Guid vehicleId, string fieldName, string? previousValue, string? newValue, System.Security.Claims.ClaimsPrincipal actor, string reason)
+    {
+        if (string.Equals(previousValue ?? "", newValue ?? "", StringComparison.Ordinal)) return;
+        Add(db, vehicleId, fieldName, previousValue ?? "", newValue ?? "", actor, reason);
+    }
+
+    private static void Add(AppDbContext db, Guid vehicleId, string fieldName, string previousValue, string newValue, System.Security.Claims.ClaimsPrincipal actor, string reason) =>
+        db.StockMovements.Add(new StockMovement
+        {
+            VehicleId = vehicleId,
+            FieldName = fieldName,
+            PreviousValue = previousValue,
+            NewValue = newValue,
+            Reason = reason,
+            Actor = AuditTrail.ActorFrom(actor)
+        });
+}
+
 internal static class ApiAudit
 {
     public static void Add(AppDbContext db, System.Security.Claims.ClaimsPrincipal actor, string action, string entityName, Guid entityId) =>
@@ -1381,7 +1454,11 @@ internal static class OcrJobResponses
         Result = string.IsNullOrWhiteSpace(job.ResultJson) ? null : JsonSerializer.Deserialize<OcrExtractionResult>(job.ResultJson),
         job.Warnings,
         job.CreatedAt,
-        job.CompletedAt
+        job.CompletedAt,
+        job.ReviewDecision,
+        job.ReviewNotes,
+        job.ReviewedBy,
+        job.ReviewedAt
     };
 
     public static object ToVehicleResponse(OcrJob job, DocumentBlob document) => new
@@ -1395,6 +1472,10 @@ internal static class OcrJobResponses
         job.Warnings,
         job.CreatedAt,
         job.CompletedAt,
+        job.ReviewDecision,
+        job.ReviewNotes,
+        job.ReviewedBy,
+        job.ReviewedAt,
         Document = new
         {
             document.Id,

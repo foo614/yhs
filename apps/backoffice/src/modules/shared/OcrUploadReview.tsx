@@ -4,6 +4,7 @@ import { Alert, Button, Drawer, Form, Input, InputNumber, Progress, Select, Spac
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import {
   getOcrJob,
+  reviewOcrJob,
   startOcrJob,
   uploadVehicleDocumentWithProgress,
   type DocumentCategory,
@@ -78,9 +79,19 @@ export function OcrUploadReview({
   async function applyResult() {
     if (!job) return;
     const values = await form.validateFields();
-    onApply(values, job);
+    const reviewedJob = await reviewOcrJob(job.id, "Accepted", "Accepted from OCR review drawer");
+    setJob(reviewedJob);
+    onApply(values, reviewedJob);
     setReviewOpen(false);
-    message.success("OCR values applied. Review and save the form when ready.");
+    message.success("OCR values accepted. Review and save the form when ready.");
+  }
+
+  async function rejectResult() {
+    if (!job) return;
+    const reviewedJob = await reviewOcrJob(job.id, "Rejected", "Rejected from OCR review drawer");
+    setJob(reviewedJob);
+    setReviewOpen(false);
+    message.warning("OCR values rejected. The uploaded document remains available for audit.");
   }
 
   return (
@@ -104,7 +115,7 @@ export function OcrUploadReview({
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
         className="recordEditDrawer"
-        extra={<Button type="primary" onClick={() => void applyResult()}>{applyLabel}</Button>}
+        extra={<Space><Button danger onClick={() => void rejectResult()} disabled={!job}>Reject</Button><Button type="primary" onClick={() => void applyResult()}>{applyLabel}</Button></Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <Alert
@@ -118,6 +129,7 @@ export function OcrUploadReview({
           <Space wrap>
             <Tag color="blue">{job?.category}</Tag>
             <Tag color={job?.status === "NeedsReview" ? "green" : "orange"}>{job?.status}</Tag>
+            <Tag color={job?.reviewDecision === "Accepted" ? "green" : job?.reviewDecision === "Rejected" ? "red" : "gold"}>{job?.reviewDecision ?? "Pending"}</Tag>
             <Tag>Confidence {Math.round((job?.result?.confidence ?? 0) * 100)}%</Tag>
           </Space>
           <Form form={form} layout="vertical" className="drawerForm">
