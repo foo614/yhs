@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { brokerCommissionCreateBlockReason, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, settlementCreateBlockReason } from "./finance";
-import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
+import { brokerCommissionCreateBlockReason, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, paymentCreateBlockReason, paymentRecoveryAction, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, settlementCreateBlockReason } from "./finance";
+import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, FinanceInvoice, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
 
 const basePayment: PaymentRecord = {
   id: "payment-1",
@@ -13,6 +13,33 @@ const basePayment: PaymentRecord = {
   invoiceGenerated: true,
   autoCountKeyed: true,
   createdAt: "2026-05-30T00:00:00Z"
+};
+
+const baseFinanceInvoice: FinanceInvoice = {
+  id: "invoice-1",
+  paymentRecordId: basePayment.id,
+  vehicleId: basePayment.vehicleId,
+  customerId: "customer-1",
+  invoiceNumber: "INV-1001",
+  invoiceDate: "2026-06-01",
+  amount: 58000,
+  salesPrice: 58000,
+  interestAdditionalCharges: 0,
+  ncdAmount: 0,
+  windscreenCharges: 0,
+  contentMimeType: "application/pdf",
+  createdBy: "finance-user",
+  createdAt: "2026-06-01T00:00:00Z",
+  latestSync: {
+    id: "sync-1",
+    financeInvoiceId: "invoice-1",
+    paymentRecordId: basePayment.id,
+    status: "Synced",
+    externalDocumentNumber: "SI-1001",
+    retryCount: 0,
+    createdAt: "2026-06-01T00:00:00Z",
+    updatedAt: "2026-06-01T00:00:00Z"
+  }
 };
 
 const baseSettlement: SettlementReminder = {
@@ -78,7 +105,7 @@ describe("finance workflow helpers", () => {
       ...basePayment,
       receiptNumber: "RCPT-1001",
       invoiceNumber: "INV-1001"
-    })).toBe(true);
+    }, [], baseFinanceInvoice)).toBe(true);
 
     expect(canReconcilePayment({ ...basePayment, receiptNumber: " ", invoiceNumber: "INV-1001" })).toBe(false);
     expect(canReconcilePayment({ ...basePayment, receiptNumber: "RCPT-1001", invoiceNumber: "" })).toBe(false);
@@ -86,7 +113,7 @@ describe("finance workflow helpers", () => {
 
   it("explains why a payment cannot be reconciled", () => {
     expect(paymentReconcileBlockReason({ ...basePayment, receiptNumber: "", invoiceNumber: "" })).toBe("Receipt and invoice are required before reconciliation.");
-    expect(paymentReconcileBlockReason({ ...basePayment, receiptNumber: "RCPT-1001", invoiceNumber: "INV-1001" })).toBeUndefined();
+    expect(paymentReconcileBlockReason({ ...basePayment, receiptNumber: "RCPT-1001", invoiceNumber: "INV-1001" }, [], baseFinanceInvoice)).toBeUndefined();
     expect(paymentReconcileBlockReason({ ...basePayment, status: "Reconciled" })).toBe("Payment is already reconciled.");
   });
 
@@ -102,8 +129,8 @@ describe("finance workflow helpers", () => {
 
     expect(paymentReconcileBlockReason({ ...base, documentsPrepared: false })).toBe("Finance documents must be prepared before reconciliation.");
     expect(paymentReconcileBlockReason({ ...base, checklistValidated: false })).toBe("Finance checklist must be validated before reconciliation.");
-    expect(paymentReconcileBlockReason({ ...base, invoiceGenerated: false })).toBe("Payment invoice must be generated before reconciliation.");
-    expect(paymentReconcileBlockReason({ ...base, autoCountKeyed: false })).toBe("AutoCount key-in must be marked before reconciliation.");
+    expect(paymentReconcileBlockReason({ ...base, invoiceGenerated: false })).toBe("Generated sales invoice is required before reconciliation.");
+    expect(paymentReconcileBlockReason(base, [], { ...baseFinanceInvoice, latestSync: { ...baseFinanceInvoice.latestSync!, status: "Failed" } })).toBe("AutoCount sync failed; retry before reconciliation.");
   });
 
   it("blocks reconciliation when receipt or invoice references already exist", () => {
@@ -123,11 +150,45 @@ describe("finance workflow helpers", () => {
       invoiceNumber: " inv-1001 "
     };
 
-    expect(canReconcilePayment(duplicate, existing)).toBe(false);
-    expect(paymentReconcileBlockReason(duplicate, existing)).toBe("Receipt or invoice is already used by another payment.");
+    const invoice = { ...baseFinanceInvoice, paymentRecordId: duplicate.id };
+
+    expect(canReconcilePayment(duplicate, existing, invoice)).toBe(false);
+    expect(paymentReconcileBlockReason(duplicate, existing, invoice)).toBe("Receipt or invoice is already used by another payment.");
   });
 
-  it("blocks creating a reconciled payment with duplicate receipt or invoice references", () => {
+  it("blocks failed or mismatched external sync without an override reason", () => {
+    const payment = {
+      ...basePayment,
+      receiptNumber: "RCPT-1001",
+      invoiceNumber: "INV-1001",
+      externalSyncStatus: "Failed" as const
+    };
+
+    expect(paymentReconcileBlockReason(payment, [], baseFinanceInvoice)).toBe("Failed external sync needs an override reason before reconciliation.");
+    expect(paymentRecoveryAction(payment)).toBe("Retry sync or record an override reason.");
+    expect(paymentReconcileBlockReason({
+      ...payment,
+      externalSyncStatus: "Synced",
+      externalDocumentAmount: 57000
+    }, [], baseFinanceInvoice)).toBe("External document amount must match nett price unless an override reason is recorded.");
+    expect(paymentReconcileBlockReason({
+      ...payment,
+      reconciliationOverrideReason: "Manager approved bank rounding check"
+    }, [], baseFinanceInvoice)).toBeUndefined();
+  });
+
+  it("blocks duplicate external document numbers", () => {
+    const existing: PaymentRecord[] = [{ ...basePayment, id: "payment-2", externalDocumentNumber: "EXT-1001" }];
+
+    expect(paymentReconcileBlockReason({
+      ...basePayment,
+      receiptNumber: "RCPT-1001",
+      invoiceNumber: "INV-1001",
+      externalDocumentNumber: " ext-1001 "
+    }, existing, baseFinanceInvoice)).toBe("External document number is already used by another payment.");
+  });
+
+  it("blocks creating a payment with duplicate receipt or invoice references", () => {
     const existing: PaymentRecord[] = [
       {
         ...basePayment,
@@ -152,6 +213,24 @@ describe("finance workflow helpers", () => {
       status: "Disbursed",
       receiptNumber: " rcpt-1001 ",
       invoiceNumber: " inv-1001 "
+    }, existing)).toBe("Receipt or invoice is already used by another payment.");
+  });
+
+  it("does not treat missing receipt and invoice references as duplicates", () => {
+    const existing: PaymentRecord[] = [
+      {
+        ...basePayment,
+        id: "payment-2",
+        receiptNumber: undefined,
+        invoiceNumber: undefined
+      }
+    ];
+
+    expect(paymentCreateBlockReason({
+      ...basePayment,
+      id: "payment-new",
+      receiptNumber: undefined,
+      invoiceNumber: undefined
     }, existing)).toBeUndefined();
   });
 

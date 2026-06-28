@@ -28,8 +28,8 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Available vehicle inventory | Implemented, verified | `GET /api/public/vehicles`; front-office inventory page; smoke checks public inventory and filtered inventory. |
-| Vehicle detail pages | Implemented, verified | `GET /api/public/vehicles/{id}`; `/vehicles/[id]`; smoke and browser checks for seeded vehicle detail. |
-| Public lead/enquiry capture | Implemented, verified | `POST /api/public/leads`; lead form validation and i18n errors; smoke checks valid and invalid public lead creation. |
+| Vehicle detail pages | Implemented, verified | `GET /api/public/vehicles/{id}`; `/vehicles/[id]`; public metadata and selectable gallery behavior; smoke and browser checks for seeded vehicle detail. |
+| Public lead/enquiry capture | Implemented, verified | `POST /api/public/leads`; lead form validation, i18n errors, and optional source page/referrer/campaign attribution; smoke checks valid and invalid public lead creation. |
 | Hide sold/non-public/internal data | Implemented, verified | Public DTO and front-office filtering strip internal purchase/refurbishment/commission fields; smoke checks public DTO does not expose internal values. |
 | Vehicle photos/thumbnails | Implemented, verified | Public photo endpoint returns latest thumbnail/photo; upload/download smoke checks; UI fallback for missing photos. |
 | English/Chinese public UI | Implemented, verified | `apps/frontoffice/app/i18n.ts`; language switch; smoke checks Chinese home, inventory, detail; browser check for Chinese detail lead form. |
@@ -40,10 +40,10 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | --- | --- | --- |
 | Dashboard | Implemented, verified | Summary metrics including Total Profit, aging buckets, reminder inbox filters; backend tests and smoke checks. |
 | Vehicles/intake | Implemented, verified | Vehicle CRUD, customer/owner links, purchase invoice tracking, duplicate plate validation, upload metadata. |
-| Repairs/refurbishment | Implemented, verified | Repair jobs, repair parts, supplier invoices, duplicate/wrong-plate validation, repair document uploads. |
+| Repairs/refurbishment | Implemented, verified | Repair jobs, repair parts, supplier invoices, duplicate/wrong-plate validation, derived supplier summary, supplier invoice aging, high-cost repair approval gates, repair document uploads. |
 | Loan workflow | Implemented, verified | Loan CRUD, LOU status rules, document completeness check, 3-day reminders, loan-owned uploads. |
 | Delivery workflow | Implemented, verified | Scheduling, PIC, inspection booking/report, handover refs, preparation checklist, release readiness, 2-day notice. |
-| Finance/payment tracking | Implemented, verified | Payments, reconciliation prerequisites, settlements, daily spend, broker commissions/CP58 state, debt recovery, payment vouchers, finance document uploads. |
+| Finance/payment tracking | Implemented, verified | Payments, generated sales invoices, AutoCount AOTG sync jobs, reconciliation prerequisites, external sync/reconciliation blockers, audited payment CSV export, settlements, daily spend, broker commissions/CP58 state, debt recovery, payment vouchers, finance document uploads. |
 | Leads triage | Implemented, verified | Public enquiries appear in back office, lead/customer linking, status/customer-link filters, duplicate phone reuse. |
 | Audit log | Implemented, verified | Authenticated mutations write staff actor; Boss/Admin audit log filters by actor/action/entity. |
 | Admin users/roles | Implemented, verified | Staff creation, role update, display-name update, password reset, enable/disable, validation, role enforcement. |
@@ -77,10 +77,10 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| Rules-based reminders | Implemented, verified | Reminder worker and dashboard reminder inbox; smoke checks loan, delivery, payment, spend, debt, voucher reminders. |
+| Rules-based reminders | Implemented, verified | Reminder worker and dashboard reminder inbox with due/type filters and dashboard drill-down targets; smoke checks loan, delivery, payment, spend, debt, voucher reminders. |
 | Workflow validations/status changes | Implemented, verified | Loan moves vehicles to LoanProcessing/private; reconciled/corrected payments update sold/loan-processing state; smoke checks automation. |
 | Audit trails | Implemented, verified | Mutation audit records with authenticated staff email; public lead audit actor. |
-| OCR/AI/WhatsApp/AutoCount | OCR implemented for document review; other AI/automation remains extension point | Document OCR uses a Baidu Unlimited-OCR-compatible backend service and stores extracted draft fields in `OcrJobs`; AutoCount key-in is tracked manually, while WhatsApp, loan eligibility prediction, photo optimization, and profit prediction remain extension points. |
+| OCR/AI/WhatsApp/AutoCount | OCR and AutoCount sales invoice sync implemented for first scope; other automation remains extension point | Document OCR uses a Baidu Unlimited-OCR-compatible backend service and stores extracted draft fields in `OcrJobs`; AutoCount AOTG sales invoice generation/sync is available from Finance, while WhatsApp, loan eligibility prediction, photo optimization, and profit prediction remain extension points. |
 | Salary/pay slip/CP58 generation | Implemented for HR payslips; CP58 remains extension point | HR payslips calculate daily salary from configured working days and exclude statutory payroll formulas; CP58 state remains represented without generating statutory forms. |
 
 ## Verification Evidence

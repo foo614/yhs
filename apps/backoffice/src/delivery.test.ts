@@ -35,10 +35,17 @@ const completeDelivery: DeliverySchedule = {
   twoDayNoticeSent: true,
   insuranceHandled: true,
   insurancePolicyReference: "POL-1001",
+  insuranceExpiryDate: "2026-06-30",
   roadTaxHandled: true,
   roadTaxReceiptReference: "RT-1001",
+  roadTaxExpiryDate: "2026-06-30",
   windscreenInsuranceHandled: true,
-  windscreenPolicyReference: "WS-1001"
+  windscreenPolicyReference: "WS-1001",
+  windscreenInsuranceExpiryDate: "2026-06-30",
+  handoverPhotoCaptured: true,
+  signedHandoverReceived: true,
+  customerAcknowledged: true,
+  finalChecklistConfirmed: true
 };
 
 describe("delivery workflow helpers", () => {
@@ -79,6 +86,8 @@ describe("delivery workflow helpers", () => {
     expect(canReleaseDelivery({ ...readyDelivery, roadTaxHandled: false })).toBe(false);
     expect(canReleaseDelivery({ ...readyDelivery, windscreenInsuranceHandled: false })).toBe(false);
     expect(canReleaseDelivery({ ...readyDelivery, inspectionReportReference: " " })).toBe(false);
+    expect(canReleaseDelivery({ ...readyDelivery, signedHandoverReceived: false })).toBe(false);
+    expect(canReleaseDelivery({ ...readyDelivery, roadTaxExpiryDate: "2026-06-01" })).toBe(false);
     expect(canReleaseDelivery({ ...readyDelivery, status: "Released" })).toBe(false);
   });
 
@@ -92,6 +101,8 @@ describe("delivery workflow helpers", () => {
     expect(canMarkDeliveryReady(checklistComplete)).toBe(true);
     expect(canMarkDeliveryReady({ ...checklistComplete, inspectionReportReference: undefined })).toBe(false);
     expect(canMarkDeliveryReady({ ...checklistComplete, roadTaxHandled: false })).toBe(false);
+    expect(canMarkDeliveryReady({ ...checklistComplete, finalChecklistConfirmed: false })).toBe(false);
+    expect(canMarkDeliveryReady({ ...checklistComplete, insuranceExpiryDate: undefined })).toBe(false);
     expect(canMarkDeliveryReady({ ...checklistComplete, status: "ReadyForRelease" })).toBe(false);
 
     const ready = markDeliveryReady(checklistComplete);
@@ -116,7 +127,7 @@ describe("delivery workflow helpers", () => {
       ...completeDelivery,
       status: "ReadyForRelease",
       roadTaxHandled: false
-    })).toBe("Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.");
+    })).toBe("Delivery cannot be marked ready or released until inspection, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.");
 
     expect(deliveryCreateBlockReason({
       ...completeDelivery,
@@ -129,7 +140,7 @@ describe("delivery workflow helpers", () => {
       ...completeDelivery,
       status: "Released",
       windscreenInsuranceHandled: false
-    })).toBe("Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.");
+    })).toBe("Delivery cannot be marked ready or released until inspection, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.");
 
     expect(deliveryCreateBlockReason({
       ...completeDelivery,

@@ -367,7 +367,42 @@ describe("submitPublicLead", () => {
         vehicleId: "vehicle-1",
         customerName: "Ali Tan",
         phone: "0123456789",
-        message: "Loan question"
+        message: "Loan question",
+        sourcePage: "",
+        sourceReferrer: "",
+        sourceCampaign: ""
+      })
+    }));
+  });
+
+  it("trims public lead source attribution before submitting", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ id: "lead-1" })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const longCampaign = `utm_campaign=${"sale".repeat(160)}`;
+
+    const result = await submitPublicLead({
+      vehicleId: "vehicle-1",
+      customerName: "Ali Tan",
+      phone: "0123456789",
+      sourcePage: " /vehicles/vehicle-1?utm_source=facebook ",
+      sourceReferrer: " https://facebook.com/ ",
+      sourceCampaign: ` ${longCampaign} `
+    }, "http://localhost:5000");
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/public/leads", expect.objectContaining({
+      body: JSON.stringify({
+        vehicleId: "vehicle-1",
+        customerName: "Ali Tan",
+        phone: "0123456789",
+        message: "",
+        sourcePage: "/vehicles/vehicle-1?utm_source=facebook",
+        sourceReferrer: "https://facebook.com/",
+        sourceCampaign: longCampaign.slice(0, 500)
       })
     }));
   });

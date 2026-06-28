@@ -36,3 +36,4 @@ npm run lint
 - If GitHub Actions context is needed and the GitHub plugin or `gh` is available, inspect the failing job before editing.
 - If local Next or Vitest fails with environment-specific `spawn EPERM`, use the logs carefully and prefer GitHub Actions as the decisive verifier when available.
 - Keep unrelated workspace changes unstaged and untouched.
+- Use `.agents/skills/code-review-testing/SKILL.md` as auxiliary guidance when failures involve agent workflow logic or test coverage, but follow the failing YS Heng command first.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "YS Heng Loop Triage"
+  short_description: "Triage recurring YS Heng engineering work"
+  default_prompt: "Use $ysheng-loop-triage to inspect YS Heng engineering signals and report actionable findings without editing files."

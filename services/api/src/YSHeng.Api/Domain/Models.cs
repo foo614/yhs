@@ -6,14 +6,19 @@ public enum LeadStatus { New, Contacted, Closed }
 public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
 public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
+public enum PaymentExternalSyncStatus { NotSynced, Synced, Failed }
+public enum AutoCountSyncStatus { Draft, Ready, Submitted, Synced, Failed }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
+public enum RepairApprovalStatus { Pending, Approved, Rejected }
+public enum SupplierInvoiceAgingStatus { Unmatched, DueSoon, Overdue, Paid }
 public enum HrAttendanceStatus { Present, Late, HalfDay, Absent }
 public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave }
 public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrPayslipStatus { Draft, Generated }
 public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
+public enum OcrReviewDecision { Pending, Accepted, Rejected }
 
 public sealed record Vehicle
 {
@@ -23,6 +28,7 @@ public sealed record Vehicle
     public string Model { get; init; } = "";
     public int Year { get; init; }
     public StockOwner StockOwner { get; init; }
+    public string StockLocation { get; init; } = "";
     public VehicleStatus Status { get; init; }
     public bool IsPublic { get; init; }
     public decimal PurchasePrice { get; init; }
@@ -39,6 +45,18 @@ public sealed record Vehicle
     public DateTime? OutstationPickupScheduledAt { get; init; }
     public string? OutstationPickupBookingSlip { get; init; }
     public DateOnly IntakeDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+}
+
+public sealed record StockMovement
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid VehicleId { get; init; }
+    public string FieldName { get; init; } = "";
+    public string PreviousValue { get; init; } = "";
+    public string NewValue { get; init; } = "";
+    public string Reason { get; init; } = "";
+    public string Actor { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record Customer
@@ -67,6 +85,9 @@ public sealed record Lead
     public string CustomerName { get; init; } = "";
     public string Phone { get; init; } = "";
     public string? Message { get; init; }
+    public string? SourcePage { get; init; }
+    public string? SourceReferrer { get; init; }
+    public string? SourceCampaign { get; init; }
     public LeadStatus Status { get; init; } = LeadStatus.New;
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public string? TakenByUserId { get; init; }
@@ -112,11 +133,15 @@ public sealed record OcrJob
     public string[] Warnings { get; init; } = [];
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; init; }
+    public OcrReviewDecision ReviewDecision { get; init; } = OcrReviewDecision.Pending;
+    public string? ReviewNotes { get; init; }
+    public string? ReviewedBy { get; init; }
+    public DateTime? ReviewedAt { get; init; }
 }
 
 public sealed record PurchaseInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string InvoiceNumber { get; init; } = ""; public decimal Amount { get; init; } }
-public sealed record RepairJob { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string RepairPart { get; init; } = ""; public string WhatToDo { get; init; } = ""; public decimal Cost { get; init; } public bool ChecklistDone { get; init; } }
-public sealed record SupplierInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string SupplierName { get; init; } = ""; public string InvoiceNumber { get; init; } = ""; public string? PlateNumberOnInvoice { get; init; } public decimal Amount { get; init; } }
+public sealed record RepairJob { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string RepairPart { get; init; } = ""; public string WhatToDo { get; init; } = ""; public decimal Cost { get; init; } public bool ChecklistDone { get; init; } public RepairApprovalStatus ApprovalStatus { get; init; } = RepairApprovalStatus.Approved; public string? ApprovalNotes { get; init; } public string? ApprovedBy { get; init; } public DateTime? ApprovedAt { get; init; } }
+public sealed record SupplierInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string SupplierName { get; init; } = ""; public string InvoiceNumber { get; init; } = ""; public string? PlateNumberOnInvoice { get; init; } public decimal Amount { get; init; } public DateOnly? DueDate { get; init; } public DateOnly? PaidAt { get; init; } }
 
 public sealed record LoanApplication
 {
@@ -147,10 +172,17 @@ public sealed record DeliverySchedule
     public bool TwoDayNoticeSent { get; init; }
     public bool InsuranceHandled { get; init; }
     public string? InsurancePolicyReference { get; init; }
+    public DateOnly? InsuranceExpiryDate { get; init; }
     public bool RoadTaxHandled { get; init; }
     public string? RoadTaxReceiptReference { get; init; }
+    public DateOnly? RoadTaxExpiryDate { get; init; }
     public bool WindscreenInsuranceHandled { get; init; }
     public string? WindscreenPolicyReference { get; init; }
+    public DateOnly? WindscreenInsuranceExpiryDate { get; init; }
+    public bool HandoverPhotoCaptured { get; init; }
+    public bool SignedHandoverReceived { get; init; }
+    public bool CustomerAcknowledged { get; init; }
+    public bool FinalChecklistConfirmed { get; init; }
 }
 
 public sealed record PaymentRecord
@@ -166,6 +198,12 @@ public sealed record PaymentRecord
     public bool ChecklistValidated { get; init; }
     public bool InvoiceGenerated { get; init; }
     public bool AutoCountKeyed { get; init; }
+    public PaymentExternalSyncStatus ExternalSyncStatus { get; init; } = PaymentExternalSyncStatus.NotSynced;
+    public string? ExternalDocumentNumber { get; init; }
+    public decimal? ExternalDocumentAmount { get; init; }
+    public string? ReconciliationOverrideReason { get; init; }
+    public string? ReconciliationOverrideBy { get; init; }
+    public DateTime? ReconciliationOverrideAt { get; init; }
     public decimal SalesPrice { get; init; }
     public decimal InterestAdditionalCharges { get; init; }
     public decimal NcdAmount { get; init; }
@@ -174,6 +212,42 @@ public sealed record PaymentRecord
     public string? BankName { get; init; }
     public DateOnly? BankFollowUpDate { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record FinanceInvoice
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid PaymentRecordId { get; init; }
+    public Guid VehicleId { get; init; }
+    public Guid CustomerId { get; init; }
+    public string InvoiceNumber { get; init; } = "";
+    public DateOnly InvoiceDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public decimal Amount { get; init; }
+    public decimal SalesPrice { get; init; }
+    public decimal InterestAdditionalCharges { get; init; }
+    public decimal NcdAmount { get; init; }
+    public decimal WindscreenCharges { get; init; }
+    public byte[] Content { get; init; } = [];
+    public string ContentMimeType { get; init; } = "application/pdf";
+    public string CreatedBy { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record AutoCountSyncJob
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid FinanceInvoiceId { get; init; }
+    public Guid PaymentRecordId { get; init; }
+    public AutoCountSyncStatus Status { get; init; } = AutoCountSyncStatus.Draft;
+    public string? ExternalDocumentId { get; init; }
+    public string? ExternalDocumentNumber { get; init; }
+    public string? ResponseSummary { get; init; }
+    public string? LastError { get; init; }
+    public int RetryCount { get; init; }
+    public string? SubmittedBy { get; init; }
+    public DateTime? SubmittedAt { get; init; }
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record SettlementReminder

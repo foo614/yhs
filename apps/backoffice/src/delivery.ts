@@ -35,11 +35,11 @@ export function deliveryCreateBlockReason(delivery: DeliverySchedule) {
   }
 
   if (delivery.status === "ReadyForRelease" && !canReleaseDelivery(delivery)) {
-    return "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.";
+    return deliveryBlockedMessage;
   }
 
   if (delivery.status === "Released" && !isChecklistComplete(delivery)) {
-    return "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, and 2-day notice are complete.";
+    return deliveryBlockedMessage;
   }
 
   return undefined;
@@ -55,8 +55,29 @@ function isChecklistComplete(delivery: DeliverySchedule) {
     delivery.insuranceHandled &&
     delivery.roadTaxHandled &&
     delivery.windscreenInsuranceHandled &&
-    delivery.twoDayNoticeSent;
+    delivery.twoDayNoticeSent &&
+    releaseEvidenceComplete(delivery) &&
+    expiryDatesCurrent(delivery);
 }
+
+function releaseEvidenceComplete(delivery: DeliverySchedule) {
+  return delivery.handoverPhotoCaptured &&
+    delivery.signedHandoverReceived &&
+    delivery.customerAcknowledged &&
+    delivery.finalChecklistConfirmed;
+}
+
+function expiryDatesCurrent(delivery: DeliverySchedule) {
+  return isCurrentOnDeliveryDate(delivery.insuranceExpiryDate, delivery.scheduledDate) &&
+    isCurrentOnDeliveryDate(delivery.roadTaxExpiryDate, delivery.scheduledDate) &&
+    isCurrentOnDeliveryDate(delivery.windscreenInsuranceExpiryDate, delivery.scheduledDate);
+}
+
+function isCurrentOnDeliveryDate(expiryDate: string | undefined, scheduledDate: string) {
+  return Boolean(expiryDate) && expiryDate! >= scheduledDate;
+}
+
+const deliveryBlockedMessage = "Delivery cannot be marked ready or released until inspection, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
 
 export function markTwoDayNoticeSent(delivery: DeliverySchedule): DeliverySchedule {
   return {

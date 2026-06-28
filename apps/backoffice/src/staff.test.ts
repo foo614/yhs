@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CreateStaffUserRequest, StaffUser } from "./api";
-import { staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason } from "./staff";
+import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason } from "./staff";
 
 const baseStaffRequest: CreateStaffUserRequest = {
   email: "sales@ysheng.local",
@@ -16,6 +16,24 @@ const existingStaff: StaffUser[] = [
     displayName: "Sales User",
     roles: ["Sales"],
     isActive: true
+  }
+];
+
+const staffDirectory: StaffUser[] = [
+  existingStaff[0],
+  {
+    id: "staff-2",
+    email: "finance@ysheng.local",
+    displayName: "Finance Lead",
+    roles: ["Finance", "HrSalary"],
+    isActive: true
+  },
+  {
+    id: "staff-3",
+    email: "disabled@ysheng.local",
+    displayName: "Disabled Admin",
+    roles: ["BossAdmin"],
+    isActive: false
   }
 ];
 
@@ -44,5 +62,12 @@ describe("staff creation helpers", () => {
     expect(staffPasswordResetBlockReason({ password: " " })).toBe("New password is required.");
     expect(staffPasswordResetBlockReason({ password: "short" })).toBe("New password must be at least 8 characters.");
     expect(staffPasswordResetBlockReason({ password: "NewPass123!" })).toBeUndefined();
+  });
+
+  it("filters staff by keyword, status, and role", () => {
+    expect(filterStaffUsers(staffDirectory, { keyword: "finance" }).map((staff) => staff.id)).toEqual(["staff-2"]);
+    expect(filterStaffUsers(staffDirectory, { status: "Disabled" }).map((staff) => staff.id)).toEqual(["staff-3"]);
+    expect(filterStaffUsers(staffDirectory, { role: "HrSalary" }).map((staff) => staff.id)).toEqual(["staff-2"]);
+    expect(filterStaffUsers(staffDirectory, { keyword: "admin", status: "Disabled", role: "BossAdmin" }).map((staff) => staff.id)).toEqual(["staff-3"]);
   });
 });

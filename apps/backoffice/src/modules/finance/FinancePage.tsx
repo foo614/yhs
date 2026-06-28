@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, Descriptions, Drawer, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import {
   brokerCommissionCreateBlockReason,
-  canCorrectReconciledPayment,
   canReconcilePayment,
   canReopenPaidDailySpend,
   canReopenPaidSettlement,
@@ -14,17 +13,20 @@ import {
   debtRecoveryCreateBlockReason,
   financeDocumentCategories,
   paymentCreateBlockReason,
+  paymentRecoveryAction,
   paymentReconcileBlockReason,
   paymentVoucherCreateBlockReason,
   settlementCreateBlockReason
 } from "../../finance";
 import {
   customerSelectLabel,
+  financeInvoiceContentUrl,
   type BrokerCommission,
   type Customer,
   type DailySpend,
   type DebtRecoveryCase,
   type DocumentCategory,
+  type FinanceInvoice,
   type Owner,
   type PaymentRecord,
   type PaymentVoucher,
@@ -42,8 +44,11 @@ export function FinancePage({
   brokerCommissions,
   debtRecoveries,
   paymentVouchers,
+  financeInvoices,
   onCreate,
   onUpdate,
+  onGenerateInvoice,
+  onSubmitAutoCount,
   onCreateSettlement,
   onUpdateSettlement,
   onCreateDailySpend,
@@ -54,6 +59,7 @@ export function FinancePage({
   onUpdateDebtRecovery,
   onCreatePaymentVoucher,
   onUpdatePaymentVoucher,
+  onExportPayments,
   onUploadDocument: _onUploadDocument
 }: {
   vehicles: VehicleLookup[];
@@ -65,8 +71,11 @@ export function FinancePage({
   brokerCommissions: BrokerCommission[];
   debtRecoveries: DebtRecoveryCase[];
   paymentVouchers: PaymentVoucher[];
+  financeInvoices: FinanceInvoice[];
   onCreate: (payment: PaymentRecord) => void;
   onUpdate: (payment: PaymentRecord) => void;
+  onGenerateInvoice: (paymentId: string) => void;
+  onSubmitAutoCount: (invoiceId: string) => void;
   onCreateSettlement: (settlement: SettlementReminder) => void;
   onUpdateSettlement: (settlement: SettlementReminder) => void;
   onCreateDailySpend: (spend: DailySpend) => void;
@@ -77,6 +86,7 @@ export function FinancePage({
   onUpdateDebtRecovery: (debt: DebtRecoveryCase) => void;
   onCreatePaymentVoucher: (voucher: PaymentVoucher) => void;
   onUpdatePaymentVoucher: (voucher: PaymentVoucher) => void;
+  onExportPayments: () => Promise<string>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
@@ -88,11 +98,13 @@ export function FinancePage({
   const [editPaymentVoucherId, setEditPaymentVoucherId] = useState(paymentVouchers[0]?.id ?? "");
   const [financeEditorOpen, setFinanceEditorOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [financeCreateOpen, setFinanceCreateOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
-  const [financeTab, setFinanceTab] = useState("payments");
+  const [financeTab, setFinanceTab] = useState(() => financeTabFromLocation());
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PaymentReceipt");
   const [paymentOcrDraft, setPaymentOcrDraft] = useState<OcrReviewValues | null>(null);
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
+  const invoiceForPayment = (paymentId: string) => financeInvoices.find((invoice) => invoice.paymentRecordId === paymentId);
+  const selectedEditPaymentInvoice = selectedEditPayment ? invoiceForPayment(selectedEditPayment.id) : undefined;
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
   const selectedEditSettlement = settlements.find((settlement) => settlement.id === editSettlementId) ?? settlements[0];
   const selectedEditDailySpend = dailySpends.find((spend) => spend.id === editDailySpendId) ?? dailySpends[0];
@@ -172,34 +184,86 @@ export function FinancePage({
     setFinanceEditorOpen("paymentVoucher");
   };
 
+  const handleExportPayments = async () => {
+    try {
+      const csv = await onExportPayments();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `payments-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      message.success("Payment CSV exported");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Payment CSV export failed");
+    }
+  };
+
   const columns: ColumnsType<PaymentRecord> = [
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Nett Price / 净价", dataIndex: "nettPrice", render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Collection / 收款", dataIndex: "nettPrice", render: (value) => `RM ${value.toLocaleString()}` },
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Reconciled" ? "green" : "orange"}>{status}</Tag> },
-    { title: "Receipt", dataIndex: "receiptNumber", render: (value) => value || "-" },
-    { title: "Invoice", dataIndex: "invoiceNumber", render: (value) => value || "-" },
-    { title: "Management Review / 管理层审核", dataIndex: "bossChecked", render: (value) => <Tag color={value ? "green" : "orange"}>{value ? "Reviewed" : "Pending"}</Tag> },
-    { title: "Finance Checklist", render: (_, row) => <Space wrap>{paymentChecklistTags(row)}</Space> },
-    { title: shortformLabel("NCD / 无索偿折扣", "No claim discount"), dataIndex: "ncdAmount", render: (value) => `RM ${Number(value ?? 0).toLocaleString()}` },
-    { title: "Windscreen / 挡风玻璃", dataIndex: "windscreenCharges", render: (value) => `RM ${Number(value ?? 0).toLocaleString()}` },
-    { title: "Outstation Delivery / 外地送车", dataIndex: "outstationDeliveryDate", render: (value) => value || "-" },
-    { title: "Bank", dataIndex: "bankName", render: (value) => value || "-" },
-    { title: "Follow Up", dataIndex: "bankFollowUpDate", render: (value) => value || "-" },
-    { title: "Created / 日期", dataIndex: "createdAt", render: (value) => String(value).slice(0, 10) },
+    {
+      title: "Reference / 单据",
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>{row.receiptNumber || "No receipt"}</Typography.Text>
+          <Typography.Text type="secondary">{row.invoiceNumber || "No invoice"}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Bank Follow-up / 银行跟进",
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>{row.bankName || "-"}</Typography.Text>
+          <Typography.Text type="secondary">{row.bankFollowUpDate || "No follow-up"}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Sync / 同步",
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Tag color={(row.externalSyncStatus ?? "NotSynced") === "Synced" ? "green" : (row.externalSyncStatus ?? "NotSynced") === "Failed" ? "red" : "default"}>
+            {row.externalSyncStatus ?? "NotSynced"}
+          </Tag>
+          <Typography.Text type="secondary">{paymentRecoveryAction(row, payments)}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Sales Invoice / 销售发票",
+      render: (_, row) => <Space wrap size={4}>{invoiceStatusTags(invoiceForPayment(row.id))}</Space>
+    },
+    {
+      title: "Ready / 准备",
+      render: (_, row) => (
+        <Space wrap size={4}>
+          <Tag color={row.bossChecked ? "green" : "orange"}>{row.bossChecked ? "Reviewed" : "Review pending"}</Tag>
+          {paymentChecklistReady(row) ? <Tag color="green">Checklist done</Tag> : <Tag color="gold">Checklist pending</Tag>}
+        </Space>
+      )
+    },
     {
       title: "Action / 操作",
       fixed: "right",
-      width: 380,
-      render: (_, row) => (
-        <Space className="tableActionGroup" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => selectPayment(row.id)}>Details</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Disbursed" })} disabled={row.status === "Disbursed" || row.status === "Reconciled"}>Disbursed</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, bossChecked: true })} disabled={row.bossChecked || row.status === "Reconciled"}>Review</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, documentsPrepared: true, checklistValidated: true, invoiceGenerated: true, autoCountKeyed: true })} disabled={row.status === "Reconciled" || (row.documentsPrepared && row.checklistValidated && row.invoiceGenerated && row.autoCountKeyed)}>Checklist</Button>
-          <Button size="small" onClick={() => onUpdate({ ...row, status: "Disbursed" })} disabled={!canCorrectReconciledPayment(row)}>Undo</Button>
-          <Button size="small" title={paymentReconcileBlockReason(row, payments)} onClick={() => onUpdate({ ...row, status: "Reconciled" })} disabled={!canReconcilePayment(row, payments)}>Reconcile</Button>
-        </Space>
-      )
+      width: 190,
+      render: (_, row) => {
+        const invoice = invoiceForPayment(row.id);
+        const reconcileReason = paymentReconcileBlockReason(row, payments, invoice);
+        return (
+          <Space className="tableActionGroup" wrap size={6}>
+            <Button size="small" type="primary" onClick={() => selectPayment(row.id)}>Details</Button>
+            <Tooltip title={reconcileReason ?? ""}>
+              <span>
+                <Button size="small" onClick={() => onUpdate({ ...row, status: "Reconciled" })} disabled={!canReconcilePayment(row, payments, invoice)}>Reconcile</Button>
+              </span>
+            </Tooltip>
+          </Space>
+        );
+      }
     }
   ];
   const settlementColumns: ColumnsType<SettlementReminder> = [
@@ -216,7 +280,6 @@ export function FinancePage({
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectSettlement(row.id)}>Details</Button>
           <Button size="small" onClick={() => onUpdateSettlement({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
-          <Button size="small" onClick={() => onUpdateSettlement({ ...row, isPaid: false })} disabled={!canReopenPaidSettlement(row)}>Reopen</Button>
         </Space>
       )
     }
@@ -234,7 +297,6 @@ export function FinancePage({
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectDailySpend(row.id)}>Details</Button>
           <Button size="small" onClick={() => onUpdateDailySpend({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
-          <Button size="small" onClick={() => onUpdateDailySpend({ ...row, isPaid: false })} disabled={!canReopenPaidDailySpend(row)}>Reopen</Button>
         </Space>
       )
     }
@@ -258,12 +320,6 @@ export function FinancePage({
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectBrokerCommission(row.id)}>Details</Button>
           <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
-          <Tooltip title="Malaysian commission tax form">
-            <span>
-              <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, cp58Required: true, cp58Prepared: true })} disabled={!row.cp58Required || row.cp58Prepared}>CP58</Button>
-            </span>
-          </Tooltip>
-          <Button size="small" onClick={() => onUpdateBrokerCommission({ ...row, isPaid: false })} disabled={!row.isPaid}>Reopen</Button>
         </Space>
       )
     }
@@ -282,9 +338,11 @@ export function FinancePage({
       render: (_, row) => (
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectDebtRecovery(row.id)}>Details</Button>
-          <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "FollowedUp" })} disabled={row.status !== "Open"}>Followed</Button>
-          <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "Closed" })} disabled={row.status === "Closed"}>Close</Button>
-          <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "Open" })} disabled={row.status === "Open"}>Reopen</Button>
+          {row.status === "Open" ? (
+            <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "FollowedUp" })}>Followed</Button>
+          ) : (
+            <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "Closed" })} disabled={row.status === "Closed"}>Close</Button>
+          )}
         </Space>
       )
     }
@@ -304,20 +362,18 @@ export function FinancePage({
       render: (_, row) => (
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectPaymentVoucher(row.id)}>Details</Button>
-          <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Approved" })} disabled={row.status !== "Pending"}>Approve</Button>
-          <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Paid" })} disabled={row.status === "Paid"}>Paid</Button>
-          <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Pending" })} disabled={row.status === "Pending"}>Reopen</Button>
+          {row.status === "Pending" ? (
+            <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Approved" })}>Approve</Button>
+          ) : (
+            <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Paid" })} disabled={row.status === "Paid"}>Paid</Button>
+          )}
         </Space>
       )
     }
   ];
   const paymentTableColumns = withColumnFilters(columns, [
     { dataIndex: "vehicleId", filters: textFilters(payments.map((payment) => plateFor(vehicles, payment.vehicleId))), filterSearch: true, onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === value },
-    { dataIndex: "status", filters: ["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ text: value, value })), onFilter: (value, row) => row.status === value },
-    { dataIndex: "receiptNumber", filters: textFilters(payments.map((payment) => payment.receiptNumber || "No receipt")), filterSearch: true, onFilter: (value, row) => (row.receiptNumber || "No receipt") === value },
-    { dataIndex: "invoiceNumber", filters: textFilters(payments.map((payment) => payment.invoiceNumber || "No invoice")), filterSearch: true, onFilter: (value, row) => (row.invoiceNumber || "No invoice") === value },
-    { dataIndex: "bossChecked", filters: [{ text: "Checked", value: true }, { text: "Pending", value: false }], onFilter: (value, row) => row.bossChecked === value },
-    { dataIndex: "bankName", filters: textFilters(payments.map((payment) => payment.bankName || "No bank")), filterSearch: true, onFilter: (value, row) => (row.bankName || "No bank") === value }
+    { dataIndex: "status", filters: ["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ text: value, value })), onFilter: (value, row) => row.status === value }
   ]);
   const settlementTableColumns = withColumnFilters(settlementColumns, [
     { dataIndex: "ownerId", filters: textFilters(settlements.map((settlement) => contactFor(owners, settlement.ownerId))), filterSearch: true, onFilter: (value, row) => contactFor(owners, row.ownerId) === value },
@@ -350,6 +406,46 @@ export function FinancePage({
   const brokerCommissionOutstanding = brokerCommissions.filter((commission) => !commission.isPaid).reduce((sum, commission) => sum + commission.amount, 0);
   const debtOutstanding = debtRecoveries.filter((debt) => debt.status !== "Closed").reduce((sum, debt) => sum + debt.balanceAmount, 0);
   const voucherOutstanding = paymentVouchers.filter((voucher) => voucher.status !== "Paid").reduce((sum, voucher) => sum + voucher.amount, 0);
+  const activeFinanceSummary = (() => {
+    switch (financeTab) {
+      case "settlements":
+        return [
+          { label: "Rows", value: settlements.length },
+          { label: "Due", value: settlements.filter((settlement) => !settlement.isPaid).length },
+          { label: "Outstanding", value: `RM ${settlementOutstanding.toLocaleString()}` }
+        ];
+      case "commissions":
+        return [
+          { label: "Rows", value: brokerCommissions.length },
+          { label: "Unpaid", value: brokerCommissions.filter((commission) => !commission.isPaid).length },
+          { label: "Outstanding", value: `RM ${brokerCommissionOutstanding.toLocaleString()}` }
+        ];
+      case "debt":
+        return [
+          { label: "Cases", value: debtRecoveries.length },
+          { label: "Open", value: debtRecoveries.filter((debt) => debt.status !== "Closed").length },
+          { label: "Balance", value: `RM ${debtOutstanding.toLocaleString()}` }
+        ];
+      case "vouchers":
+        return [
+          { label: "Rows", value: paymentVouchers.length },
+          { label: "Open", value: paymentVouchers.filter((voucher) => voucher.status !== "Paid").length },
+          { label: "Amount", value: `RM ${voucherOutstanding.toLocaleString()}` }
+        ];
+      case "daily":
+        return [
+          { label: "Rows", value: dailySpends.length },
+          { label: "Due", value: dailySpends.filter((spend) => !spend.isPaid).length },
+          { label: "Amount", value: `RM ${dailySpendOutstanding.toLocaleString()}` }
+        ];
+      default:
+        return [
+          { label: "Rows", value: payments.length },
+          { label: "Open bank", value: payments.filter((payment) => payment.status !== "Reconciled").length },
+          { label: "Outstanding", value: `RM ${outstanding.toLocaleString()}` }
+        ];
+    }
+  })();
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
@@ -366,13 +462,24 @@ export function FinancePage({
             { key: "daily", label: "Daily Spend / 日常支出" }
           ]}
         />
+        <div className="financeSummaryStrip">
+          {activeFinanceSummary.map((item) => (
+            <span key={item.label}>
+              <strong>{item.value}</strong>
+              {item.label}
+            </span>
+          ))}
+        </div>
       </ProCard>
       {financeTab === "payments" && <ProCard
         title="Bank Collection / 收款Bank"
-        extra={<Button type="primary" onClick={() => setFinanceCreateOpen("payment")}>New Payment</Button>}
+        extra={<Space wrap><Button onClick={handleExportPayments}>Export CSV</Button><Button type="primary" onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button></Space>}
       >
         <div className="mobileRecordList">
-          {payments.map((payment) => (
+          {payments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No bank collection records yet." />}
+          {payments.map((payment) => {
+            const invoice = invoiceForPayment(payment.id);
+            return (
             <article className="mobileRecordCard" key={payment.id}>
               <div className="mobileRecordHeader">
                 <div>
@@ -389,6 +496,10 @@ export function FinancePage({
                 <Typography.Text className="mobileRecordLabel">Finance Checklist / 财务检查</Typography.Text>
                 <Space wrap size={4}>{paymentChecklistTags(payment)}</Space>
               </div>
+              <div className="mobileRecordSection">
+                <Typography.Text className="mobileRecordLabel">Sales Invoice</Typography.Text>
+                <Space wrap size={4}>{invoiceStatusTags(invoice)}</Space>
+              </div>
               <div className="mobileRecordFooter">
                 <Space wrap size={6}>
                   <Badge status={payment.bossChecked ? "success" : "warning"} text={payment.bossChecked ? "Management reviewed" : "Review pending"} />
@@ -397,18 +508,21 @@ export function FinancePage({
                 </Space>
                 <Space className="tableActionGroup" wrap size={6}>
                   <Button size="small" type="primary" onClick={() => selectPayment(payment.id)}>Details</Button>
-                  <Button size="small" onClick={() => onUpdate({ ...payment, status: "Disbursed" })} disabled={payment.status === "Disbursed" || payment.status === "Reconciled"}>Disbursed</Button>
-                  <Button size="small" onClick={() => onUpdate({ ...payment, bossChecked: true })} disabled={payment.bossChecked || payment.status === "Reconciled"}>Review</Button>
-                  <Button size="small" onClick={() => onUpdate({ ...payment, status: "Reconciled" })} disabled={!canReconcilePayment(payment, payments)}>Reconcile</Button>
+                  <Tooltip title={paymentReconcileBlockReason(payment, payments, invoice) ?? ""}>
+                    <span>
+                      <Button size="small" onClick={() => onUpdate({ ...payment, status: "Reconciled" })} disabled={!canReconcilePayment(payment, payments, invoice)}>Reconcile</Button>
+                    </span>
+                  </Tooltip>
                 </Space>
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
-        <Table className="desktopDataTable" rowKey="id" columns={paymentTableColumns} dataSource={payments} pagination={tablePagination(8)} scroll={{ x: 1040 }} />
+        <Table className="desktopDataTable" rowKey="id" columns={paymentTableColumns} dataSource={payments} pagination={tablePagination(8)} scroll={{ x: 960 }} locale={{ emptyText: "No bank collection records yet." }} />
       </ProCard>}
       <Modal
-        title="New Payment / 新增收款"
+        title="New Bank Collection / 新增收款"
         width={680}
         open={financeCreateOpen === "payment"}
         onCancel={() => setFinanceCreateOpen(null)}
@@ -421,21 +535,23 @@ export function FinancePage({
             id: newId(),
             vehicleId: values.vehicleId,
             nettPrice: Number(values.nettPrice ?? 0),
-            status: values.status,
-            receiptNumber: values.receiptNumber,
-            invoiceNumber: values.invoiceNumber,
-            bossChecked: values.bossChecked,
-            documentsPrepared: values.documentsPrepared,
-            checklistValidated: values.checklistValidated,
-            invoiceGenerated: values.invoiceGenerated,
-            autoCountKeyed: values.autoCountKeyed,
-            salesPrice: Number(values.salesPrice ?? 0),
-            interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
-            ncdAmount: Number(values.ncdAmount ?? 0),
-            windscreenCharges: Number(values.windscreenCharges ?? 0),
-            outstationDeliveryDate: values.outstationDeliveryDate,
-            bankName: values.bankName,
-            bankFollowUpDate: values.bankFollowUpDate,
+            status: "Pending",
+            receiptNumber: values.receiptNumber?.trim() || undefined,
+            invoiceNumber: values.invoiceNumber?.trim() || undefined,
+            bossChecked: false,
+            documentsPrepared: false,
+            checklistValidated: false,
+            invoiceGenerated: false,
+            autoCountKeyed: false,
+            externalSyncStatus: values.externalSyncStatus ?? "NotSynced",
+            externalDocumentNumber: values.externalDocumentNumber?.trim() || undefined,
+            externalDocumentAmount: values.externalDocumentAmount == null ? undefined : Number(values.externalDocumentAmount),
+            salesPrice: 0,
+            interestAdditionalCharges: 0,
+            ncdAmount: 0,
+            windscreenCharges: 0,
+            bankName: values.bankName?.trim() || undefined,
+            bankFollowUpDate: values.bankFollowUpDate?.format("YYYY-MM-DD"),
             createdAt: new Date().toISOString()
           };
           const blockReason = paymentCreateBlockReason(payment, payments);
@@ -445,25 +561,18 @@ export function FinancePage({
           }
           onCreate(payment);
           setFinanceCreateOpen(null);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Pending", bossChecked: false, documentsPrepared: false, checklistValidated: false, invoiceGenerated: false, autoCountKeyed: false }}>
+        }} initialValues={{ vehicleId: vehicles[0]?.id, externalSyncStatus: "NotSynced" }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="nettPrice" label="Collection Amount / Nett Price" rules={[{ required: true, message: "Collection amount is required." }]}><InputNumber className="fullWidth" min={0.01} /></Form.Item>
+          <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
+          <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><DatePicker className="fullWidth" /></Form.Item>
           <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
-          <Form.Item name="bossChecked" label="Management Review / 管理层审核"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Reviewed" }]} /></Form.Item>
-          <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="invoiceGenerated" label="Invoice Generated"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="autoCountKeyed" label={shortformLabel("AutoCount Key In", "Accounting system entry status")}><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
-          <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Payment</Button></Form.Item>
+          <Form.Item name="externalSyncStatus" label="External Sync"><Select options={paymentExternalSyncOptions} /></Form.Item>
+          <Form.Item name="externalDocumentNumber" label="External Document No."><Input placeholder="AutoCount/LHDN reference" /></Form.Item>
+          <Form.Item name="externalDocumentAmount" label="External Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Alert type="info" showIcon message="Collection starts as Pending. Use row actions after creation for disbursement, management review, checklist, and reconciliation." />
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Collection</Button></Form.Item>
         </Form>
       </Modal>
       {false && <ProCard title="Payment Entry / 收款记录">
@@ -478,8 +587,8 @@ export function FinancePage({
             bossChecked: values.bossChecked,
             documentsPrepared: values.documentsPrepared,
             checklistValidated: values.checklistValidated,
-            invoiceGenerated: values.invoiceGenerated,
-            autoCountKeyed: values.autoCountKeyed,
+            invoiceGenerated: false,
+            autoCountKeyed: false,
             salesPrice: Number(values.salesPrice ?? 0),
             interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
             ncdAmount: Number(values.ncdAmount ?? 0),
@@ -495,7 +604,7 @@ export function FinancePage({
             return;
           }
           onCreate(payment);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Pending", bossChecked: false, documentsPrepared: false, checklistValidated: false, invoiceGenerated: false, autoCountKeyed: false }}>
+        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Pending", bossChecked: false, documentsPrepared: false, checklistValidated: false }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
@@ -504,8 +613,6 @@ export function FinancePage({
           <Form.Item name="bossChecked" label="Management Review / 管理层审核"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Reviewed" }]} /></Form.Item>
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="invoiceGenerated" label="Invoice Generated"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="autoCountKeyed" label={shortformLabel("AutoCount Key In", "Accounting system entry status")}><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -527,11 +634,43 @@ export function FinancePage({
         destroyOnClose
         className="recordEditDrawer"
       >
+        {selectedEditPayment && (
+          <Space direction="vertical" size={12} className="fullWidth">
+            <Descriptions size="small" column={1} bordered title="Sales Invoice / AutoCount">
+              <Descriptions.Item label="Invoice">{selectedEditPaymentInvoice?.invoiceNumber ?? "Not generated"}</Descriptions.Item>
+              <Descriptions.Item label="Invoice Date">{selectedEditPaymentInvoice?.invoiceDate ?? "-"}</Descriptions.Item>
+              <Descriptions.Item label="Amount">{selectedEditPaymentInvoice ? `RM ${selectedEditPaymentInvoice.amount.toLocaleString()}` : "-"}</Descriptions.Item>
+              <Descriptions.Item label="AutoCount">{autoCountStatusTag(selectedEditPaymentInvoice)}</Descriptions.Item>
+              <Descriptions.Item label="External Doc">{selectedEditPaymentInvoice?.latestSync?.externalDocumentNumber ?? selectedEditPaymentInvoice?.latestSync?.externalDocumentId ?? "-"}</Descriptions.Item>
+            </Descriptions>
+            {selectedEditPaymentInvoice?.latestSync?.lastError && (
+              <Alert type="error" showIcon message={selectedEditPaymentInvoice.latestSync.lastError} />
+            )}
+            {selectedEditPaymentInvoice?.latestSync?.responseSummary && !selectedEditPaymentInvoice.latestSync.lastError && (
+              <Alert type="info" showIcon message={selectedEditPaymentInvoice.latestSync.responseSummary} />
+            )}
+            <Space wrap size={8}>
+              <Button onClick={() => onGenerateInvoice(selectedEditPayment.id)} disabled={Boolean(selectedEditPaymentInvoice) || selectedEditPayment.status === "Reconciled"}>Generate Invoice</Button>
+              {selectedEditPaymentInvoice && (
+                <Button href={financeInvoiceContentUrl(selectedEditPaymentInvoice.id)} target="_blank" rel="noreferrer">Download PDF</Button>
+              )}
+              {selectedEditPaymentInvoice && (
+                <Button
+                  type={selectedEditPaymentInvoice.latestSync?.status === "Failed" ? "primary" : "default"}
+                  onClick={() => onSubmitAutoCount(selectedEditPaymentInvoice.id)}
+                  disabled={selectedEditPaymentInvoice.latestSync?.status === "Synced" || selectedEditPaymentInvoice.latestSync?.status === "Submitted" || selectedEditPayment.status === "Reconciled"}
+                >
+                  {selectedEditPaymentInvoice.latestSync?.status === "Failed" ? "Retry AutoCount" : "Submit AutoCount"}
+                </Button>
+              )}
+            </Space>
+          </Space>
+        )}
         <Form
           key={`${selectedEditPayment?.id ?? "payment-edit"}-${paymentOcrDraft ? "ocr" : "manual"}`}
           layout="vertical"
           className="drawerForm"
-          initialValues={{ ...selectedEditPayment, ...paymentOcrDraft }}
+          initialValues={{ ...selectedEditPayment, externalSyncStatus: selectedEditPayment?.externalSyncStatus ?? "NotSynced", ...paymentOcrDraft }}
           onFinish={(values) => {
             if (!selectedEditPayment) return;
             const payment: PaymentRecord = {
@@ -544,8 +683,12 @@ export function FinancePage({
               bossChecked: values.bossChecked,
               documentsPrepared: values.documentsPrepared,
               checklistValidated: values.checklistValidated,
-              invoiceGenerated: values.invoiceGenerated,
-              autoCountKeyed: values.autoCountKeyed,
+              invoiceGenerated: selectedEditPayment.invoiceGenerated,
+              autoCountKeyed: selectedEditPayment.autoCountKeyed,
+              externalSyncStatus: values.externalSyncStatus ?? "NotSynced",
+              externalDocumentNumber: values.externalDocumentNumber?.trim() || undefined,
+              externalDocumentAmount: values.externalDocumentAmount == null ? undefined : Number(values.externalDocumentAmount),
+              reconciliationOverrideReason: values.reconciliationOverrideReason?.trim() || undefined,
               salesPrice: Number(values.salesPrice ?? 0),
               interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
               ncdAmount: Number(values.ncdAmount ?? 0),
@@ -554,7 +697,7 @@ export function FinancePage({
               bankName: values.bankName?.trim() || undefined,
               bankFollowUpDate: values.bankFollowUpDate?.trim() || undefined
             };
-            const blockReason = paymentCreateBlockReason(payment, payments);
+            const blockReason = paymentCreateBlockReason(payment, payments, selectedEditPaymentInvoice);
             if (blockReason) {
               message.warning(blockReason);
               return;
@@ -573,8 +716,10 @@ export function FinancePage({
           <Form.Item name="bossChecked" label="Management Review / 管理层审核"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Reviewed" }]} /></Form.Item>
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="invoiceGenerated" label="Invoice Generated"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="autoCountKeyed" label={shortformLabel("AutoCount Key In", "Accounting system entry status")}><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
+          <Form.Item name="externalSyncStatus" label="External Sync"><Select options={paymentExternalSyncOptions} /></Form.Item>
+          <Form.Item name="externalDocumentNumber" label="External Document No."><Input placeholder="AutoCount/LHDN reference" /></Form.Item>
+          <Form.Item name="externalDocumentAmount" label="External Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="reconciliationOverrideReason" label="Override Reason"><Input.TextArea rows={2} placeholder="Required when failed sync or amount mismatch is intentionally overridden" /></Form.Item>
           <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -616,6 +761,8 @@ export function FinancePage({
                   { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
                   { name: "receiptNumber", label: "Receipt No." },
                   { name: "invoiceNumber", label: "Invoice No." },
+                  { name: "externalDocumentNumber", label: "External Document No." },
+                  { name: "externalDocumentAmount", label: "External Amount", type: "number" },
                   { name: "nettPrice", label: "Nett Price", type: "number" },
                   { name: "salesPrice", label: "Sales Price", type: "number" },
                   { name: "bankName", label: "Bank" },
@@ -644,7 +791,7 @@ export function FinancePage({
         <Space direction="vertical" size={16} className="fullWidth">
           <Descriptions bordered column={1}>
             <Descriptions.Item label="Deadline Popup">Admin receives reminder when settlement deadline is due.</Descriptions.Item>
-            <Descriptions.Item label={shortformLabel("AutoCount", "Accounting system")}>Extension point prepared; MVP tracks key-in status manually.</Descriptions.Item>
+            <Descriptions.Item label={shortformLabel("AutoCount", "Accounting system")}>Sales invoice sync is generated from the Finance payment workflow.</Descriptions.Item>
             <Descriptions.Item label="Outstanding Bank Collection">RM {outstanding.toLocaleString()}</Descriptions.Item>
             <Descriptions.Item label="Outstanding Settlement">RM {settlementOutstanding.toLocaleString()}</Descriptions.Item>
             <Descriptions.Item label="Daily Spend Due">RM {dailySpendOutstanding.toLocaleString()}</Descriptions.Item>
@@ -653,6 +800,7 @@ export function FinancePage({
             <Descriptions.Item label="Payment Voucher Open">RM {voucherOutstanding.toLocaleString()}</Descriptions.Item>
           </Descriptions>
           <div className="mobileRecordList">
+            {settlements.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No settlement reminders yet." />}
             {settlements.map((settlement) => (
               <article className="mobileRecordCard" key={settlement.id}>
                 <div className="mobileRecordHeader">
@@ -677,7 +825,7 @@ export function FinancePage({
               </article>
             ))}
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={settlementTableColumns} dataSource={settlements} pagination={tablePagination(8)} scroll={{ x: 640 }} />
+          <Table className="desktopDataTable" rowKey="id" columns={settlementTableColumns} dataSource={settlements} pagination={tablePagination(8)} scroll={{ x: 640 }} locale={{ emptyText: "No settlement reminders yet." }} />
           <Modal
             title="New Settlement / 新增结算提醒"
             width={620}
@@ -762,6 +910,7 @@ export function FinancePage({
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <div className="mobileRecordList">
+            {brokerCommissions.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No broker commissions yet." />}
             {brokerCommissions.map((commission) => (
               <article className="mobileRecordCard" key={commission.id}>
                 <div className="mobileRecordHeader">
@@ -793,7 +942,7 @@ export function FinancePage({
               </article>
             ))}
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={brokerCommissionTableColumns} dataSource={brokerCommissions} pagination={tablePagination(8)} scroll={{ x: 760 }} />
+          <Table className="desktopDataTable" rowKey="id" columns={brokerCommissionTableColumns} dataSource={brokerCommissions} pagination={tablePagination(8)} scroll={{ x: 760 }} locale={{ emptyText: "No broker commissions yet." }} />
           <Modal
             title="New Broker Commission / 新增经纪人佣金"
             width={620}
@@ -882,6 +1031,7 @@ export function FinancePage({
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <div className="mobileRecordList">
+            {debtRecoveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No debt recovery cases yet." />}
             {debtRecoveries.map((debt) => (
               <article className="mobileRecordCard" key={debt.id}>
                 <div className="mobileRecordHeader">
@@ -906,7 +1056,7 @@ export function FinancePage({
               </article>
             ))}
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={debtRecoveryTableColumns} dataSource={debtRecoveries} pagination={tablePagination(8)} scroll={{ x: 960 }} />
+          <Table className="desktopDataTable" rowKey="id" columns={debtRecoveryTableColumns} dataSource={debtRecoveries} pagination={tablePagination(8)} scroll={{ x: 960 }} locale={{ emptyText: "No debt recovery cases yet." }} />
           <Modal
             title="New Debt Recovery Case / 新增欠款追讨"
             width={620}
@@ -995,6 +1145,7 @@ export function FinancePage({
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <div className="mobileRecordList">
+            {paymentVouchers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No payment vouchers yet." />}
             {paymentVouchers.map((voucher) => (
               <article className="mobileRecordCard" key={voucher.id}>
                 <div className="mobileRecordHeader">
@@ -1019,7 +1170,7 @@ export function FinancePage({
               </article>
             ))}
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={paymentVoucherTableColumns} dataSource={paymentVouchers} pagination={tablePagination(8)} scroll={{ x: 960 }} />
+          <Table className="desktopDataTable" rowKey="id" columns={paymentVoucherTableColumns} dataSource={paymentVouchers} pagination={tablePagination(8)} scroll={{ x: 960 }} locale={{ emptyText: "No payment vouchers yet." }} />
           <Modal
             title="New Payment Voucher / 新增付款凭证"
             width={620}
@@ -1112,6 +1263,7 @@ export function FinancePage({
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <div className="mobileRecordList">
+            {dailySpends.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No daily spend records yet." />}
             {dailySpends.map((spend) => (
               <article className="mobileRecordCard" key={spend.id}>
                 <div className="mobileRecordHeader">
@@ -1135,7 +1287,7 @@ export function FinancePage({
               </article>
             ))}
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={dailySpendTableColumns} dataSource={dailySpends} pagination={tablePagination(8)} scroll={{ x: 640 }} />
+          <Table className="desktopDataTable" rowKey="id" columns={dailySpendTableColumns} dataSource={dailySpends} pagination={tablePagination(8)} scroll={{ x: 640 }} locale={{ emptyText: "No daily spend records yet." }} />
           <Modal
             title="New Daily Spend / 新增日常支出"
             width={560}
@@ -1241,6 +1393,14 @@ function shortformLabel(label: string, title: string) {
   );
 }
 
+const paymentExternalSyncOptions = ["NotSynced", "Synced", "Failed"].map((value) => ({ value, label: value }));
+
+function financeTabFromLocation() {
+  if (typeof window === "undefined") return "payments";
+  const tab = new URLSearchParams(window.location.search).get("tab");
+  return ["payments", "settlements", "commissions", "debt", "vouchers", "daily"].includes(tab ?? "") ? tab ?? "payments" : "payments";
+}
+
 function plateFor(vehicles: VehicleLookup[], vehicleId: string) {
   return vehicles.find((vehicle) => vehicle.id === vehicleId)?.plateNumber ?? "Unknown";
 }
@@ -1252,13 +1412,32 @@ function customerLabel(customers: Customer[], customerId: string) {
 function paymentChecklistTags(payment: PaymentRecord) {
   return [
     ["Docs", payment.documentsPrepared, "Documents prepared"],
-    ["Checklist", payment.checklistValidated],
-    ["Invoice", payment.invoiceGenerated],
-    ["AutoCount", payment.autoCountKeyed, "Accounting system entry status"]
+    ["Checklist", payment.checklistValidated]
   ].map(([label, done, tooltip]) => {
     const tag = <Tag key={String(label)} color={done ? "green" : "orange"}>{String(label)}</Tag>;
     return tooltip ? <Tooltip key={String(label)} title={String(tooltip)}>{tag}</Tooltip> : tag;
   });
+}
+
+function paymentChecklistReady(payment: PaymentRecord) {
+  return payment.documentsPrepared && payment.checklistValidated;
+}
+
+function invoiceStatusTags(invoice?: FinanceInvoice) {
+  if (!invoice) {
+    return [<Tag key="invoice-missing" color="orange">Invoice Missing</Tag>, <Tag key="autocount-waiting">AutoCount Waiting</Tag>];
+  }
+
+  return [
+    <Tag key="invoice-generated" color="green">Invoice Generated</Tag>,
+    autoCountStatusTag(invoice)
+  ];
+}
+
+function autoCountStatusTag(invoice?: FinanceInvoice | null) {
+  const status = invoice?.latestSync?.status ?? "Draft";
+  const color = status === "Synced" ? "green" : status === "Failed" ? "red" : status === "Submitted" ? "blue" : "orange";
+  return <Tag color={color}>{status}</Tag>;
 }
 
 function contactFor<T extends { id: string; name: string; phone: string }>(contacts: T[], contactId?: string) {

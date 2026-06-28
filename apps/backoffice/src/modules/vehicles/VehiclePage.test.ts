@@ -9,6 +9,7 @@ const baseVehicle: Vehicle = {
   model: "Vios",
   year: 2022,
   stockOwner: "YSHeng",
+  stockLocation: "Main Yard",
   status: "Available",
   isPublic: true,
   purchasePrice: 52000,

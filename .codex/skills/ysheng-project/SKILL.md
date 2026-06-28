@@ -1,6 +1,6 @@
 ---
 name: ysheng-project
-description: Work in the YS Heng MVP monorepo. Use for repository orientation, local commands, repo layout, deployment shape, verification steps, Docker Compose, and cross-app changes.
+description: Work in the YS Heng MVP monorepo. Use for repository orientation, local commands, repo layout, deployment shape, verification steps, Docker Compose, Linear ticket execution, and cross-app changes.
 ---
 
 # YS Heng Project
@@ -36,6 +36,17 @@ npm run lint
 npm run dev:frontoffice
 npm run dev:backoffice
 ```
+
+## Linear tickets
+
+When the user asks to get or implement a Linear ticket:
+
+- Read the issue details before editing and prefer `codex-ready` issues for implementation.
+- When creating or updating YS Heng Linear issues from Codex, set the assignee to `me` unless the user names a different owner.
+- For implementation tickets, define done as local code/docs updated, focused validation run or explicitly blocked, Linear result comment posted, and the Linear issue state updated.
+- Before the final response, use Linear issue update tooling to move completed work to `Done` or the team's completed equivalent, then re-read the issue and confirm the status is completed.
+- If label updates are supported, replace `codex-ready` with `codex-done`; do not create missing labels unless the user asks.
+- If the status update fails or a Linear permission prompt blocks it, report that blocker and the exact next action.
 
 ## Docker verification
 

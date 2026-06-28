@@ -32,9 +32,34 @@ body {
   background: var(--surface);
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
 }
-a { color: inherit; text-decoration: none; }
+a {
+  color: inherit;
+  text-decoration: none;
+  transition: color .2s ease, border-color .2s ease, background-color .2s ease;
+}
 button, input, select, textarea { font: inherit; }
 img { max-width: 100%; display: block; }
+
+@keyframes motionRise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes motionFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes heroDrift {
+  from { transform: scale(1.03) translate3d(-8px, 0, 0); }
+  to { transform: scale(1.08) translate3d(8px, 0, 0); }
+}
 
 .atelierPage,
 .atelierSubPage {
@@ -59,6 +84,7 @@ img { max-width: 100%; display: block; }
   border-bottom: 1px solid rgba(228, 222, 223, .92);
   box-shadow: 0 2px 8px rgba(17, 17, 18, .04);
   backdrop-filter: blur(18px);
+  animation: motionFade .45s ease both;
 }
 
 .atelierBrand {
@@ -166,6 +192,1346 @@ img { max-width: 100%; display: block; }
   color: var(--primary);
   background: none;
   border: 0;
+  cursor: pointer;
+}
+
+.mobileDrawerBackdrop,
+.atelierHeader .mobileDrawer {
+  display: none;
+}
+
+.premiumHome {
+  min-height: 100vh;
+  color: #f8f7f2;
+  background: #f5f3f0;
+  overflow: hidden;
+  --spotlight-x: 50vw;
+  --spotlight-y: 24vh;
+  --premium-ink: #080a0d;
+  --premium-red: #e41940;
+  --premium-red-dark: #a9082d;
+  --premium-gold: #e5c15b;
+  --premium-cyan: #70e6ff;
+  --premium-silver: #dbe4ed;
+}
+
+.premiumHome::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at var(--spotlight-x) var(--spotlight-y), rgba(255, 255, 255, .16), rgba(255, 255, 255, 0) 28rem),
+    linear-gradient(125deg, rgba(228, 25, 64, .16), rgba(112, 230, 255, .07) 48%, rgba(229, 193, 91, .11));
+  mix-blend-mode: screen;
+  opacity: .72;
+}
+
+.premiumHome .atelierHeader {
+  color: #fff;
+  background:
+    linear-gradient(180deg, rgba(8, 10, 13, .86), rgba(8, 10, 13, .68)),
+    rgba(8, 10, 13, .74);
+  border-bottom-color: rgba(255, 255, 255, .1);
+  box-shadow: 0 16px 46px rgba(0, 0, 0, .26);
+}
+
+.premiumHome .atelierBrand {
+  width: 156px;
+  min-width: 156px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .2);
+}
+
+.premiumHome .atelierBrand img {
+  max-height: 42px;
+}
+
+.premiumHome .atelierHeader nav a,
+.premiumHome .headerSearch {
+  color: rgba(255, 255, 255, .76);
+}
+
+.premiumHome .atelierHeader nav {
+  gap: 24px;
+  font-size: 12px;
+  letter-spacing: .02em;
+}
+
+.premiumHome .atelierHeader nav a {
+  padding-top: 12px;
+  padding-bottom: 10px;
+}
+
+.premiumHome .atelierHeader nav a:hover,
+.premiumHome .atelierHeader nav a.active {
+  color: #fff;
+}
+
+.premiumHome .headerSearch,
+.premiumHome .languageSwitch {
+  background: rgba(255, 255, 255, .09);
+  border-color: rgba(255, 255, 255, .16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+
+.premiumHome .headerSearch {
+  width: 250px;
+}
+
+.premiumHome .languageSwitch a {
+  color: rgba(255, 255, 255, .66);
+}
+
+.premiumHome .languageSwitch a.active {
+  color: #080a0d;
+  background: #fff;
+}
+
+.premiumHome .mobileMenu {
+  color: #fff;
+}
+
+.premiumHome .mobileMenu:hover,
+.premiumHome .mobileMenu[aria-expanded="true"] {
+  color: #080a0d;
+  background: #fff;
+}
+
+.premiumHero {
+  position: relative;
+  z-index: 1;
+  min-height: 742px;
+  padding: 112px 24px 28px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(8, 10, 13, .98), rgba(17, 19, 25, .92) 68%, rgba(8, 10, 13, 0)),
+    linear-gradient(135deg, #07080b, #12161d 54%, #1c1415);
+}
+
+.premiumHero::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: 186px;
+  background:
+    radial-gradient(80% 110% at 50% 0, rgba(255, 255, 255, .12), rgba(255, 255, 255, 0) 58%),
+    linear-gradient(180deg, rgba(8, 10, 13, 0), rgba(245, 243, 240, .86) 70%, #f5f3f0 100%);
+  pointer-events: none;
+}
+
+.premiumAurora {
+  position: absolute;
+  inset: -24% -20% 30%;
+  background:
+    conic-gradient(from 170deg at 28% 44%, rgba(228, 25, 64, .52), rgba(112, 230, 255, .22), rgba(229, 193, 91, .28), rgba(228, 25, 64, .52)),
+    linear-gradient(115deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, 0));
+  filter: blur(58px);
+  opacity: .78;
+  animation: premiumAuroraDrift 18s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.roadLines {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 56px;
+  height: 250px;
+  opacity: .38;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .25) 0 72px, transparent 72px 152px),
+    linear-gradient(90deg, transparent 0 17%, rgba(255, 255, 255, .28) 17% 18%, transparent 18% 82%, rgba(255, 255, 255, .24) 82% 83%, transparent 83%),
+    linear-gradient(180deg, transparent, rgba(228, 25, 64, .18));
+  clip-path: polygon(39% 0, 61% 0, 98% 100%, 2% 100%);
+  transform: perspective(700px) rotateX(58deg);
+  transform-origin: bottom center;
+  animation: roadPulse 3.6s linear infinite;
+}
+
+.premiumHeroInner {
+  position: relative;
+  z-index: 2;
+  width: min(1240px, 100%);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(500px, 1.1fr);
+  gap: 48px;
+  align-items: center;
+}
+
+.heroCopy,
+.heroVehicleStage,
+.premiumSearchPanel,
+.premiumBrandRail,
+.premiumSection,
+.premiumStats,
+.finalCta {
+  position: relative;
+  z-index: 2;
+}
+
+.premiumKicker {
+  margin: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--premium-gold);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.heroCopy {
+  animation: heroCopyEntrance .82s cubic-bezier(.17, .9, .24, 1) both;
+}
+
+.heroCopy h1 {
+  max-width: 650px;
+  margin: 0;
+  color: #fff;
+  font-family: "Segoe UI", Inter, system-ui, sans-serif;
+  font-size: clamp(54px, 5.7vw, 72px);
+  line-height: .99;
+  letter-spacing: 0;
+  font-weight: 880;
+  text-shadow: 0 18px 56px rgba(0, 0, 0, .28);
+}
+
+.heroSubline {
+  max-width: 620px;
+  margin: 22px 0 0;
+  color: rgba(255, 255, 255, .78);
+  font-size: 18px;
+  line-height: 1.66;
+}
+
+.premiumHeroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.shineButton,
+.searchSubmit,
+.cardCta {
+  position: relative;
+  isolation: isolate;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  overflow: hidden;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform .24s ease, box-shadow .24s ease, border-color .24s ease, background-color .24s ease;
+}
+
+.shineButton {
+  padding: 0 20px;
+}
+
+.shineButton::after,
+.searchSubmit::after,
+.cardCta::after {
+  content: "";
+  position: absolute;
+  inset: -50% auto -50% -40%;
+  width: 36%;
+  transform: skewX(-22deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .62), transparent);
+  opacity: 0;
+  transition: opacity .22s ease, transform .48s ease;
+  z-index: -1;
+}
+
+.shineButton:hover::after,
+.searchSubmit:hover::after,
+.cardCta:hover::after,
+.shineButton:focus-visible::after,
+.searchSubmit:focus-visible::after,
+.cardCta:focus-visible::after {
+  opacity: .85;
+  transform: translateX(370%) skewX(-22deg);
+}
+
+.shineButton.primary,
+.searchSubmit,
+.cardCta {
+  color: #fff;
+  background: linear-gradient(135deg, var(--premium-red), var(--premium-red-dark));
+  border: 1px solid rgba(255, 255, 255, .1);
+  box-shadow: 0 16px 34px rgba(228, 25, 64, .24);
+}
+
+.shineButton.secondary {
+  color: #fff;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .24);
+  backdrop-filter: blur(16px);
+}
+
+.shineButton.secondary.dark {
+  color: #fff;
+  background: rgba(8, 10, 13, .34);
+}
+
+.shineButton:hover,
+.searchSubmit:hover,
+.cardCta:hover {
+  transform: translateY(-2px);
+}
+
+.shineButton:focus-visible,
+.searchSubmit:focus-visible,
+.cardCta:focus-visible,
+.dashboardField input:focus-visible,
+.dashboardField select:focus-visible,
+.premiumBrandRail a:focus-visible {
+  outline: 3px solid rgba(112, 230, 255, .68);
+  outline-offset: 3px;
+}
+
+.heroProof {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.heroProof span {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: rgba(255, 255, 255, .8);
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.heroVehicleStage {
+  min-height: 452px;
+  display: grid;
+  place-items: center;
+  animation: heroStageEntrance .9s cubic-bezier(.16, .94, .22, 1) .08s both;
+  perspective: 1100px;
+  transform-style: preserve-3d;
+}
+
+.stageSpotlight {
+  position: absolute;
+  width: min(620px, 90%);
+  height: 360px;
+  top: 16px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(255, 255, 255, .34), rgba(255, 255, 255, .08) 34%, rgba(228, 25, 64, .16) 55%, rgba(255, 255, 255, 0) 74%),
+    radial-gradient(circle at 70% 44%, rgba(112, 230, 255, .2), rgba(112, 230, 255, 0) 46%);
+  filter: blur(12px);
+  opacity: .9;
+  animation: spotlightBreath 6.8s ease-in-out infinite;
+}
+
+.stageGrid {
+  position: absolute;
+  inset: 14px 0 22px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(255, 255, 255, .08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .08) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(circle at center, #000 0, transparent 70%);
+  opacity: .48;
+}
+
+.roadRibbon {
+  position: absolute;
+  left: 3%;
+  right: 3%;
+  bottom: 30px;
+  height: 178px;
+  opacity: .62;
+  background:
+    linear-gradient(90deg, transparent 0 9%, rgba(255, 255, 255, .18) 10% 10.5%, transparent 11% 89%, rgba(255, 255, 255, .16) 89.5% 90%, transparent 91%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .34) 0 56px, transparent 56px 128px),
+    linear-gradient(180deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, 0));
+  clip-path: polygon(40% 0, 60% 0, 100% 100%, 0 100%);
+  transform: rotateX(68deg) translateY(18px);
+  transform-origin: bottom center;
+  filter: blur(.2px);
+  animation: roadRibbonDrift 3.4s linear infinite;
+}
+
+.speedTrace {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 47%;
+  height: 190px;
+  background:
+    linear-gradient(90deg, transparent, rgba(112, 230, 255, .26), transparent),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .16) 0 1px, transparent 1px 22px);
+  transform: skewY(-8deg);
+  animation: speedTrace 5.8s ease-in-out infinite alternate;
+}
+
+.heroCarCard {
+  position: relative;
+  width: min(720px, 100%);
+  min-height: 326px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(ellipse at center, rgba(255, 255, 255, .13), rgba(255, 255, 255, .04) 42%, rgba(255, 255, 255, 0) 68%),
+    linear-gradient(145deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .03));
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  box-shadow:
+    0 42px 100px rgba(0, 0, 0, .34),
+    inset 0 1px 0 rgba(255, 255, 255, .2);
+  backdrop-filter: blur(18px);
+  transform: rotateX(0deg) rotateY(-4deg);
+  animation: heroCarFloat 6.2s ease-in-out infinite;
+}
+
+.heroCarCard::before {
+  content: "";
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  top: 18%;
+  height: 42%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .18), transparent);
+  filter: blur(16px);
+  opacity: .74;
+}
+
+.heroCarCard::after {
+  content: "";
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 46px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .4), transparent);
+  opacity: .72;
+}
+
+.heroCarCard .carSilhouette {
+  z-index: 1;
+  filter:
+    drop-shadow(0 30px 26px rgba(0, 0, 0, .42))
+    drop-shadow(0 0 30px rgba(112, 230, 255, .18));
+}
+
+.heroCarGlow {
+  position: absolute;
+  left: 9%;
+  right: 9%;
+  bottom: 78px;
+  height: 42px;
+  background: linear-gradient(90deg, transparent, rgba(112, 230, 255, .48), rgba(255, 255, 255, .34), rgba(228, 25, 64, .34), transparent);
+  filter: blur(20px);
+  opacity: .88;
+}
+
+.heroCarReflection {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 36px;
+  height: 58px;
+  background:
+    radial-gradient(ellipse at center, rgba(255, 255, 255, .16), rgba(255, 255, 255, 0) 68%),
+    linear-gradient(90deg, transparent, rgba(112, 230, 255, .16), rgba(228, 25, 64, .12), transparent);
+  filter: blur(9px);
+  opacity: .78;
+  transform: perspective(600px) rotateX(68deg);
+}
+
+.heroFloorShadow {
+  position: absolute;
+  left: 20%;
+  right: 17%;
+  bottom: 78px;
+  height: 48px;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, .48), rgba(0, 0, 0, 0) 68%);
+  filter: blur(10px);
+}
+
+.floatingSpec,
+.brandStack {
+  position: absolute;
+  display: grid;
+  gap: 4px;
+  color: #fff;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 8px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .22);
+  backdrop-filter: blur(18px);
+}
+
+.floatingSpec {
+  min-width: 112px;
+  padding: 10px 12px;
+  animation: floatShowcase 6.8s ease-in-out infinite;
+}
+
+.floatingSpec.top {
+  right: 2%;
+  top: 78px;
+}
+
+.floatingSpec.bottom {
+  left: 2%;
+  bottom: 104px;
+  animation-delay: -.8s;
+}
+
+.floatingSpec span,
+.brandStack span,
+.premiumCarTitle p {
+  color: rgba(255, 255, 255, .62);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.floatingSpec strong {
+  color: #fff;
+  font-size: 24px;
+  letter-spacing: 0;
+}
+
+.brandStack {
+  right: 12%;
+  bottom: 42px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 9px;
+}
+
+.brandStack span {
+  min-width: 78px;
+  min-height: 28px;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, .8);
+  background: rgba(8, 10, 13, .28);
+  border-radius: 6px;
+}
+
+.premiumSearchPanel {
+  width: min(1180px, calc(100% - 48px));
+  margin: -38px auto 0;
+  padding: 16px;
+  color: #fff;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(24px);
+  animation: searchSpring .78s cubic-bezier(.17, 1.08, .32, 1) .18s both;
+}
+
+.searchPanelHeader {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.searchPanelHeader > span {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #080a0d;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.searchPanelHeader p,
+.searchPanelHeader strong {
+  margin: 0;
+}
+
+.searchPanelHeader p {
+  color: var(--premium-gold);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.searchPanelHeader strong {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, .78);
+  font-size: 14px;
+}
+
+.premiumSearchGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr)) 144px;
+  gap: 12px;
+  align-items: end;
+}
+
+.dashboardField {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.dashboardField span {
+  color: rgba(255, 255, 255, .68);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.dashboardField input,
+.dashboardField select {
+  width: 100%;
+  min-height: 48px;
+  color: #fff;
+  background: rgba(8, 10, 13, .42);
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 8px;
+  padding: 0 12px;
+  outline: 0;
+  transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
+}
+
+.dashboardField input::placeholder {
+  color: rgba(255, 255, 255, .42);
+}
+
+.dashboardField input:hover,
+.dashboardField select:hover,
+.dashboardField input:focus,
+.dashboardField select:focus {
+  border-color: rgba(112, 230, 255, .42);
+  background: rgba(8, 10, 13, .64);
+  box-shadow: 0 0 0 3px rgba(112, 230, 255, .1);
+}
+
+.searchSubmit {
+  width: 100%;
+  min-height: 48px;
+}
+
+.heroSignalStrip {
+  position: relative;
+  z-index: 2;
+  width: min(1120px, calc(100% - 48px));
+  margin: 12px auto 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  color: rgba(255, 255, 255, .78);
+}
+
+.heroSignalStrip span {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: .02em;
+  backdrop-filter: blur(16px);
+}
+
+.heroSignalStrip svg {
+  color: var(--premium-gold);
+  flex: 0 0 auto;
+}
+
+.premiumBrandRail {
+  width: min(1240px, calc(100% - 48px));
+  margin: -6px auto 0;
+  padding: 10px 0 4px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  color: var(--premium-ink);
+}
+
+.premiumBrandRail p {
+  margin: 0;
+  color: #7d182a;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.premiumBrandRail div {
+  display: flex;
+  gap: 10px;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+.premiumBrandRail a {
+  flex: 0 0 auto;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  color: #17191d;
+  background: rgba(255, 255, 255, .82);
+  border: 1px solid rgba(15, 17, 21, .08);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(15, 17, 21, .06);
+  font-size: 13px;
+  font-weight: 850;
+  animation: brandDrift 22s linear infinite;
+}
+
+.premiumSection {
+  width: min(1240px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 84px 0;
+  color: var(--premium-ink);
+}
+
+.featuredCars {
+  padding-top: 54px;
+}
+
+.premiumSectionHeading {
+  width: min(760px, 100%);
+  margin: 0 auto 36px;
+  text-align: center;
+}
+
+.premiumSectionHeading .premiumKicker {
+  color: #a9082d;
+}
+
+.premiumSectionHeading h2,
+.finalCta h2 {
+  margin: 0;
+  color: var(--premium-ink);
+  font-family: "Segoe UI", Inter, system-ui, sans-serif;
+  font-size: 54px;
+  line-height: 1.02;
+  letter-spacing: 0;
+  font-weight: 950;
+}
+
+.premiumSectionHeading > p:last-child,
+.finalCta > p {
+  margin: 16px auto 0;
+  max-width: 720px;
+  color: #5f6269;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+.premiumCarGrid,
+.trustGrid,
+.stepTrack {
+  display: grid;
+  gap: 18px;
+}
+
+.premiumCarGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.premiumCarCard,
+.premiumTrustCard,
+.premiumStep,
+.premiumStat,
+.finalCta {
+  border-radius: 8px;
+  transition: transform .28s ease, box-shadow .28s ease, border-color .28s ease;
+}
+
+.premiumCarCard {
+  overflow: hidden;
+  background: rgba(255, 255, 255, .86);
+  border: 1px solid rgba(20, 23, 28, .08);
+  box-shadow: 0 18px 36px rgba(15, 17, 21, .08);
+}
+
+.premiumCarMedia {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  display: block;
+  overflow: hidden;
+  background: #15181e;
+}
+
+.verifiedBadge {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  z-index: 2;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: #fff;
+  background: rgba(8, 10, 13, .62);
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  backdrop-filter: blur(14px);
+  animation: verifiedPulse 2.8s ease-in-out infinite;
+}
+
+.carArt {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  transition: transform .5s ease, filter .5s ease;
+}
+
+.carArt::before {
+  content: "";
+  position: absolute;
+  inset: 16% -12% -20%;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, .2), transparent 32%),
+    linear-gradient(90deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, 0) 55%);
+  transform: skewY(-9deg);
+}
+
+.carArt.graphite { background: linear-gradient(135deg, #11151b, #3c4651 55%, #090a0c); }
+.carArt.crimson { background: linear-gradient(135deg, #1c0b10, #a9082d 56%, #080a0d); }
+.carArt.steel { background: linear-gradient(135deg, #10151d, #526777 56%, #0a0d10); }
+.carArt.champagne { background: linear-gradient(135deg, #16120c, #c5a45d 58%, #0b0a08); }
+.carArt.oxide { background: linear-gradient(135deg, #15100d, #a96b2c 58%, #090807); }
+.carArt.emerald { background: linear-gradient(135deg, #071414, #187664 56%, #07090b); }
+
+.premiumCarCard:hover,
+.premiumTrustCard:hover,
+.premiumStep:hover {
+  transform: translateY(-6px);
+  border-color: rgba(228, 25, 64, .22);
+  box-shadow: 0 28px 60px rgba(15, 17, 21, .14);
+}
+
+.premiumCarCard:hover .carArt {
+  transform: scale(1.05);
+  filter: saturate(1.1);
+}
+
+.premiumCarBody {
+  padding: 18px;
+}
+
+.premiumCarTitle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.premiumCarTitle p {
+  margin: 0 0 7px;
+  color: #8b2839;
+}
+
+.premiumCarTitle h3 {
+  margin: 0;
+  color: var(--premium-ink);
+  font-size: 21px;
+  line-height: 1.15;
+}
+
+.premiumCarTitle strong {
+  color: #a9082d;
+  font-size: 19px;
+  white-space: nowrap;
+}
+
+.carSpecs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.carSpecs div {
+  min-width: 0;
+  padding: 11px;
+  background: #f5f3f0;
+  border: 1px solid rgba(15, 17, 21, .06);
+  border-radius: 8px;
+}
+
+.carSpecs dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #6e7278;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.carSpecs dd {
+  margin: 6px 0 0;
+  color: #16181d;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.cardCta {
+  width: 100%;
+}
+
+.trustGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.premiumTrustCard,
+.premiumStep {
+  padding: 24px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .88), rgba(255, 255, 255, .64)),
+    linear-gradient(135deg, rgba(228, 25, 64, .08), rgba(112, 230, 255, .06));
+  border: 1px solid rgba(15, 17, 21, .08);
+  box-shadow: 0 16px 36px rgba(15, 17, 21, .07);
+}
+
+.premiumTrustCard > span,
+.premiumStep > div {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, #e41940, #a9082d);
+  border-radius: 8px;
+  box-shadow: 0 12px 26px rgba(228, 25, 64, .22);
+}
+
+.premiumTrustCard h3,
+.premiumStep h3 {
+  margin: 20px 0 9px;
+  color: var(--premium-ink);
+  font-size: 21px;
+}
+
+.premiumTrustCard p,
+.premiumStep p {
+  margin: 0;
+  color: #62666f;
+  line-height: 1.65;
+}
+
+.premiumStats {
+  width: min(1140px, calc(100% - 48px));
+  margin: 10px auto 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  color: #fff;
+}
+
+.premiumStat {
+  min-height: 150px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 22px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .05)),
+    linear-gradient(135deg, #0c0f14, #191d25);
+  border: 1px solid rgba(255, 255, 255, .14);
+  box-shadow: 0 22px 60px rgba(15, 17, 21, .24);
+  text-align: center;
+}
+
+.premiumStat strong {
+  color: #fff;
+  font-size: 43px;
+  line-height: 1;
+}
+
+.premiumStat span {
+  color: rgba(255, 255, 255, .68);
+  font-size: 13px;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.stepTrack {
+  position: relative;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stepTrack::before {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 72px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(228, 25, 64, .45), rgba(112, 230, 255, .42), transparent);
+}
+
+.premiumStep {
+  position: relative;
+  min-height: 248px;
+}
+
+.stepNumber {
+  position: absolute;
+  right: 22px;
+  top: 20px;
+  color: rgba(169, 8, 45, .12);
+  font-size: 52px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.finalCta {
+  width: min(1120px, calc(100% - 48px));
+  margin: 30px auto 86px;
+  padding: 58px;
+  overflow: hidden;
+  color: #fff;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .06)),
+    linear-gradient(135deg, #090b10, #1b1115 58%, #111a1e);
+  border: 1px solid rgba(255, 255, 255, .16);
+  box-shadow: 0 30px 80px rgba(15, 17, 21, .24);
+  text-align: center;
+}
+
+.finalCtaGlow {
+  position: absolute;
+  inset: -36% -10% auto;
+  height: 300px;
+  background: linear-gradient(115deg, rgba(228, 25, 64, .46), rgba(112, 230, 255, .2), rgba(229, 193, 91, .28));
+  filter: blur(46px);
+  opacity: .82;
+  animation: premiumAuroraDrift 14s ease-in-out infinite alternate;
+}
+
+.finalCta h2,
+.finalCta > p,
+.finalCta .premiumHeroActions,
+.finalCta .premiumKicker {
+  position: relative;
+  z-index: 1;
+}
+
+.finalCta h2 {
+  color: #fff;
+}
+
+.finalCta > p {
+  color: rgba(255, 255, 255, .72);
+}
+
+.finalCta .premiumHeroActions {
+  justify-content: center;
+}
+
+.premiumHome .atelierFooter {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+}
+
+.carSilhouette {
+  position: relative;
+  width: 78%;
+  max-width: 360px;
+  aspect-ratio: 3 / 1;
+  transform: translate3d(0, -2px, 0);
+}
+
+.carSilhouette.hero {
+  width: 86%;
+  max-width: 590px;
+  aspect-ratio: 3.35 / 1;
+}
+
+.carRoof,
+.carGlass,
+.carBody,
+.carBeltline,
+.carHighlight,
+.carMirror,
+.carWheel,
+.carLight,
+.carGround {
+  position: absolute;
+  display: block;
+}
+
+.carBody {
+  left: 3%;
+  right: 3%;
+  bottom: 20%;
+  height: 38%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .96), rgba(211, 221, 232, .96) 32%, rgba(120, 135, 151, .95) 70%, rgba(38, 45, 56, .98)),
+    linear-gradient(90deg, rgba(112, 230, 255, .18), rgba(255, 255, 255, 0) 24%, rgba(255, 255, 255, .22) 58%, rgba(228, 25, 64, .14));
+  border-radius: 42% 46% 18px 18px / 82% 82% 18px 18px;
+  clip-path: polygon(2% 68%, 8% 40%, 23% 27%, 45% 19%, 70% 22%, 88% 35%, 98% 60%, 96% 82%, 10% 84%);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, .92),
+    inset 0 -13px 20px rgba(0, 0, 0, .18),
+    0 18px 34px rgba(0, 0, 0, .32);
+}
+
+.carRoof {
+  left: 25%;
+  right: 26%;
+  bottom: 51%;
+  height: 32%;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(178, 193, 207, .92) 56%, rgba(70, 82, 96, .96));
+  clip-path: polygon(8% 100%, 29% 5%, 66% 7%, 92% 100%);
+  border-radius: 18px 18px 0 0;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .74);
+}
+
+.carGlass {
+  left: 31%;
+  right: 31%;
+  bottom: 56%;
+  height: 23%;
+  background:
+    linear-gradient(135deg, rgba(212, 244, 255, .82), rgba(58, 74, 88, .88)),
+    linear-gradient(90deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0));
+  clip-path: polygon(4% 100%, 24% 8%, 70% 8%, 98% 100%);
+  border-radius: 12px 12px 0 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .72);
+}
+
+.carBeltline {
+  left: 14%;
+  right: 14%;
+  bottom: 46%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .86), rgba(112, 230, 255, .36), transparent);
+  border-radius: 999px;
+}
+
+.carHighlight {
+  left: 11%;
+  right: 18%;
+  bottom: 42%;
+  height: 9%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, .72), rgba(255, 255, 255, .12), transparent);
+  border-radius: 999px;
+  filter: blur(2px);
+}
+
+.carMirror {
+  bottom: 45%;
+  width: 4.5%;
+  height: 8%;
+  background: linear-gradient(180deg, #eef6fb, #778594);
+  border-radius: 999px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .22);
+}
+
+.carMirror.left {
+  left: 22%;
+}
+
+.carMirror.right {
+  right: 22%;
+}
+
+.carWheel {
+  bottom: 7%;
+  width: 15%;
+  aspect-ratio: 1;
+  z-index: 2;
+  background:
+    radial-gradient(circle, #eef7ff 0 10%, #657487 11% 22%, #171c24 23% 42%, #030405 43% 58%, #2d333d 59% 70%, #06080a 71%);
+  border: 5px solid rgba(255, 255, 255, .24);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 5px rgba(255, 255, 255, .04),
+    0 10px 18px rgba(0, 0, 0, .36);
+}
+
+.carWheel.front {
+  right: 17%;
+}
+
+.carWheel.rear {
+  left: 17%;
+}
+
+.carLight {
+  bottom: 43%;
+  width: 9%;
+  height: 4%;
+  background: linear-gradient(90deg, #70e6ff, rgba(112, 230, 255, 0));
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(112, 230, 255, .64);
+}
+
+.carLight.left {
+  left: 8%;
+  transform: rotate(180deg);
+}
+
+.carLight.right {
+  right: 8%;
+}
+
+.carGround {
+  left: 10%;
+  right: 10%;
+  bottom: 0;
+  height: 18%;
+  border-radius: 999px;
+  background:
+    radial-gradient(ellipse at center, rgba(0, 0, 0, .36), rgba(0, 0, 0, 0) 68%),
+    linear-gradient(90deg, transparent, rgba(112, 230, 255, .18), rgba(228, 25, 64, .12), transparent);
+  filter: blur(6px);
+}
+
+@keyframes premiumRise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 26px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes heroCopyEntrance {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 22px, 0);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: blur(0);
+  }
+}
+
+@keyframes heroStageEntrance {
+  from {
+    opacity: 0;
+    transform: translate3d(24px, 22px, 0) scale(.96);
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes searchSpring {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 34px, 0) scale(.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes premiumAuroraDrift {
+  from { transform: translate3d(-2%, -1%, 0) rotate(-2deg); }
+  to { transform: translate3d(3%, 2%, 0) rotate(2deg); }
+}
+
+@keyframes spotlightBreath {
+  0%, 100% {
+    transform: scale(.98);
+    opacity: .72;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: .96;
+  }
+}
+
+@keyframes roadPulse {
+  from { background-position: 0 0, 0 0, 0 0; }
+  to { background-position: 152px 0, 0 0, 0 0; }
+}
+
+@keyframes roadRibbonDrift {
+  from { background-position: 0 0, 0 0, 0 0; }
+  to { background-position: 0 0, 128px 0, 0 0; }
+}
+
+@keyframes speedTrace {
+  from { transform: translateX(-18px) skewY(-8deg); opacity: .42; }
+  to { transform: translateX(18px) skewY(-8deg); opacity: .74; }
+}
+
+@keyframes heroCarFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(-4deg); }
+  50% { transform: translate3d(0, -10px, 0) rotateX(1deg) rotateY(-2deg); }
+}
+
+@keyframes floatShowcase {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -12px, 0); }
+}
+
+@keyframes verifiedPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(112, 230, 255, .26); }
+  50% { box-shadow: 0 0 0 8px rgba(112, 230, 255, 0); }
+}
+
+@keyframes brandDrift {
+  from { transform: translateX(0); }
+  to { transform: translateX(-120px); }
 }
 
 .atelierHero {
@@ -187,6 +1553,9 @@ img { max-width: 100%; display: block; }
   object-position: center;
   opacity: .78;
   filter: saturate(.82) contrast(1.02);
+  transform-origin: center;
+  animation: heroDrift 18s ease-in-out both infinite alternate;
+  will-change: transform;
 }
 
 .heroOverlay {
@@ -231,6 +1600,22 @@ img { max-width: 100%; display: block; }
   font-style: italic;
 }
 
+.atelierHero .atelierKicker,
+.atelierSubHeroInner .atelierKicker,
+.backLink {
+  animation: motionRise .55s ease both;
+}
+
+.atelierHero h1,
+.atelierSubHeroInner h1 {
+  animation: motionRise .65s ease .06s both;
+}
+
+.atelierSubHeroInner > p:not(.atelierKicker),
+.subHeroActions {
+  animation: motionRise .65s ease .12s both;
+}
+
 .atelierSearch {
   width: min(1120px, 100%);
   margin-top: 34px;
@@ -242,6 +1627,7 @@ img { max-width: 100%; display: block; }
   border: 1px solid var(--outline);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  animation: motionRise .7s ease .16s both;
 }
 
 .atelierSearch label,
@@ -307,6 +1693,7 @@ img { max-width: 100%; display: block; }
   font-weight: 900;
   cursor: pointer;
   box-shadow: 0 6px 12px rgba(186, 0, 47, .18);
+  transition: transform .2s ease, background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
 }
 
 .atelierSearch button:hover,
@@ -314,6 +1701,8 @@ img { max-width: 100%; display: block; }
 .leadForm button:hover {
   background: var(--primary-strong);
   border-color: var(--primary-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(186, 0, 47, .22);
 }
 
 .secondaryAction,
@@ -335,11 +1724,13 @@ img { max-width: 100%; display: block; }
   background: #fff;
   border: 1px solid var(--outline);
   border-radius: 4px;
+  transition: transform .2s ease, color .2s ease, border-color .2s ease;
 }
 
 .secondaryAction:hover {
   color: var(--primary);
   border-color: rgba(186, 0, 47, .34);
+  transform: translateY(-1px);
 }
 
 .backLink {
@@ -371,6 +1762,7 @@ img { max-width: 100%; display: block; }
   border: 1px solid var(--outline);
   border-radius: var(--radius);
   box-shadow: var(--soft-shadow);
+  animation: motionRise .65s ease .2s both;
 }
 
 .marqueBand p {
@@ -489,6 +1881,7 @@ img { max-width: 100%; display: block; }
   border: 1px solid var(--outline);
   border-radius: var(--radius);
   box-shadow: var(--soft-shadow);
+  transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease;
 }
 
 .personaCard {
@@ -497,6 +1890,7 @@ img { max-width: 100%; display: block; }
   align-content: end;
   overflow: hidden;
   position: relative;
+  animation: motionRise .6s ease both;
 }
 
 .personaCard img {
@@ -505,6 +1899,7 @@ img { max-width: 100%; display: block; }
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform .45s ease;
 }
 
 .personaCard::after {
@@ -563,6 +1958,54 @@ img { max-width: 100%; display: block; }
 .solutionGrid article,
 .serviceTiles article {
   padding: 26px;
+}
+
+.personaCard:hover,
+.vehicleCard:hover,
+.solutionGrid article:hover,
+.serviceTiles article:hover {
+  transform: translateY(-4px);
+  border-color: rgba(186, 0, 47, .28);
+  box-shadow: 0 10px 24px rgba(22, 18, 19, .12);
+}
+
+.personaCard:hover img,
+.vehicleImage:hover img,
+.detailPhotoStrip button:hover img {
+  transform: scale(1.04);
+}
+
+.motionReady .motionReveal {
+  opacity: 0;
+  transform: translate3d(0, 24px, 0);
+  animation: none;
+  transition:
+    opacity .55s ease,
+    transform .55s ease,
+    box-shadow .22s ease,
+    border-color .22s ease;
+  transition-delay: calc(var(--motion-order, 0) * 60ms);
+  will-change: opacity, transform;
+}
+
+.motionReveal.isVisible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  will-change: auto;
+}
+
+.motionReady .motionReveal.isVisible.personaCard:hover,
+.motionReady .motionReveal.isVisible.vehicleCard:hover,
+.motionReady .solutionGrid article.motionReveal.isVisible:hover,
+.motionReady .serviceTiles span.motionReveal.isVisible:hover,
+.motionReady .serviceTiles article.motionReveal.isVisible:hover {
+  transform: translateY(-4px);
+}
+
+.motionReady .motionReveal.isVisible.premiumCarCard:hover,
+.motionReady .motionReveal.isVisible.premiumTrustCard:hover,
+.motionReady .motionReveal.isVisible.premiumStep:hover {
+  transform: translateY(-6px);
 }
 
 .solutionGrid article > span,
@@ -932,6 +2375,7 @@ img { max-width: 100%; display: block; }
 
 .vehicleCard {
   overflow: hidden;
+  animation: motionRise .55s ease both;
 }
 
 .featuredVehicleCard {
@@ -952,6 +2396,7 @@ img { max-width: 100%; display: block; }
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform .45s ease;
 }
 
 .stockBadge {
@@ -1381,6 +2826,110 @@ img { max-width: 100%; display: block; }
   .mobileMenu {
     display: inline-flex;
     justify-self: end;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    transition: color .2s ease, background-color .2s ease, transform .2s ease;
+  }
+
+  .mobileMenu:hover,
+  .mobileMenu[aria-expanded="true"] {
+    color: #fff;
+    background: var(--primary);
+  }
+
+  .mobileDrawerBackdrop {
+    position: fixed;
+    inset: 76px 0 0;
+    display: block;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    background: rgba(17, 17, 18, .22);
+    border: 0;
+    padding: 0;
+    transition: opacity .22s ease, visibility .22s ease;
+  }
+
+  .mobileDrawerBackdrop.open {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .atelierHeader .mobileDrawer {
+    position: fixed;
+    top: 88px;
+    right: max(24px, calc((100vw - 1280px) / 2 + 24px));
+    display: grid;
+    visibility: hidden;
+    width: min(360px, calc(100vw - 48px));
+    gap: 8px;
+    padding: 18px;
+    opacity: 0;
+    pointer-events: none;
+    color: var(--ink);
+    background: rgba(255, 255, 255, .97);
+    border: 1px solid var(--outline);
+    border-radius: var(--radius);
+    box-shadow: 0 18px 42px rgba(22, 18, 19, .16);
+    transform: translateY(-8px) scale(.98);
+    transition: opacity .22s ease, transform .22s ease, visibility .22s ease;
+    backdrop-filter: blur(18px);
+  }
+
+  .atelierHeader .mobileDrawer.open {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+  }
+
+  .atelierHeader .mobileDrawer a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    color: var(--text);
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 850;
+    border-bottom: 0;
+  }
+
+  .atelierHeader .mobileDrawer a:hover,
+  .atelierHeader .mobileDrawer a.active {
+    color: var(--primary);
+    background: var(--primary-soft);
+  }
+
+  .mobileDrawerSearch {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-top: 6px;
+    padding: 0 12px;
+    color: var(--muted);
+    background: var(--surface-low);
+    border: 1px solid var(--outline);
+    border-radius: 6px;
+  }
+
+  .mobileDrawerSearch input {
+    width: 100%;
+    color: var(--text);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font-size: 14px;
+  }
+
+  .atelierHeader .mobileDrawer .languageSwitch {
+    width: max-content;
+    margin-top: 6px;
   }
 
   .atelierSearch {
@@ -1431,6 +2980,11 @@ img { max-width: 100%; display: block; }
     padding: 104px 18px 72px;
   }
 
+  .atelierHero {
+    min-height: auto;
+    padding-bottom: 48px;
+  }
+
   .atelierHero h1,
   .atelierSubHeroInner h1 {
     font-size: clamp(40px, 14vw, 62px);
@@ -1460,6 +3014,27 @@ img { max-width: 100%; display: block; }
   .inventoryToolbar {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .atelierSearch {
+    gap: 10px;
+    margin-top: 22px;
+    padding: 12px;
+  }
+
+  .atelierSearch input,
+  .atelierSearch select {
+    min-height: 42px;
+  }
+
+  .mobileDrawerBackdrop {
+    inset: 66px 0 0;
+  }
+
+  .atelierHeader .mobileDrawer {
+    top: 78px;
+    right: 14px;
+    width: calc(100vw - 28px);
   }
 
   .marqueBand {
@@ -1528,5 +3103,323 @@ img { max-width: 100%; display: block; }
 
   .atelierMobileNav a.active {
     color: var(--primary);
+  }
+}
+
+@media (max-width: 1120px) {
+  .premiumHome .atelierHeader .mobileDrawer {
+    color: #fff;
+    background: rgba(8, 10, 13, .94);
+    border-color: rgba(255, 255, 255, .16);
+  }
+
+  .premiumHome .atelierHeader .mobileDrawer a {
+    color: rgba(255, 255, 255, .82);
+  }
+
+  .premiumHome .atelierHeader .mobileDrawer a:hover,
+  .premiumHome .atelierHeader .mobileDrawer a.active {
+    color: #fff;
+    background: rgba(228, 25, 64, .24);
+  }
+
+  .premiumHome .mobileDrawerSearch {
+    color: rgba(255, 255, 255, .68);
+    background: rgba(255, 255, 255, .08);
+    border-color: rgba(255, 255, 255, .14);
+  }
+
+  .premiumHome .mobileDrawerSearch input {
+    color: #fff;
+  }
+
+  .premiumHero {
+    min-height: auto;
+    padding-top: 112px;
+  }
+
+  .premiumHeroInner {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+
+  .heroCopy h1 {
+    max-width: 760px;
+    font-size: 62px;
+  }
+
+  .heroVehicleStage {
+    min-height: 360px;
+  }
+
+  .premiumSearchGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .heroSignalStrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .searchSubmit {
+    grid-column: 1 / -1;
+  }
+
+  .premiumCarGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trustGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .premiumStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .premiumBrandRail {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .stepTrack {
+    grid-template-columns: 1fr;
+  }
+
+  .stepTrack::before {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .premiumHero {
+    display: flex;
+    flex-direction: column;
+    padding: 98px 14px 28px;
+  }
+
+  .premiumHome .atelierBrand {
+    width: 136px;
+    min-width: 136px;
+    padding: 5px 8px;
+  }
+
+  .premiumHeroInner {
+    display: contents;
+  }
+
+  .heroCopy {
+    order: 1;
+    width: min(100% - 28px, 1240px);
+    margin: 0 auto;
+  }
+
+  .premiumSearchPanel {
+    order: 2;
+  }
+
+  .heroVehicleStage {
+    order: 3;
+    width: min(100% - 28px, 1240px);
+    margin: 20px auto 0;
+  }
+
+  .premiumAurora {
+    inset: -18% -64% 44%;
+    filter: blur(42px);
+  }
+
+  .roadLines {
+    bottom: 180px;
+    height: 180px;
+    opacity: .34;
+  }
+
+  .heroCopy h1 {
+    font-size: 43px;
+    line-height: 1.04;
+  }
+
+  .heroSubline {
+    font-size: 16px;
+  }
+
+  .premiumHeroActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .shineButton {
+    width: 100%;
+  }
+
+  .heroProof {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .heroVehicleStage {
+    min-height: 252px;
+  }
+
+  .stageGrid {
+    inset: 4px;
+  }
+
+  .heroCarCard {
+    min-height: 184px;
+  }
+
+  .floatingSpec {
+    min-width: 110px;
+    padding: 11px 12px;
+  }
+
+  .floatingSpec.top {
+    top: 34px;
+    right: 0;
+  }
+
+  .floatingSpec.bottom {
+    left: 0;
+    bottom: 42px;
+  }
+
+  .floatingSpec strong {
+    font-size: 22px;
+  }
+
+  .brandStack {
+    display: none;
+  }
+
+  .premiumSearchPanel,
+  .premiumBrandRail,
+  .heroSignalStrip,
+  .premiumSection,
+  .premiumStats,
+  .finalCta {
+    width: min(100% - 28px, 1240px);
+  }
+
+  .premiumSearchPanel {
+    margin-top: 20px;
+    padding: 14px;
+  }
+
+  .heroSignalStrip {
+    order: 4;
+    grid-template-columns: 1fr;
+    margin-top: 10px;
+  }
+
+  .heroSignalStrip span {
+    justify-content: flex-start;
+  }
+
+  .searchPanelHeader {
+    align-items: flex-start;
+  }
+
+  .premiumSearchGrid,
+  .premiumCarGrid,
+  .trustGrid,
+  .premiumStats {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboardField input,
+  .dashboardField select,
+  .searchSubmit {
+    min-height: 46px;
+  }
+
+  .premiumSection {
+    padding: 50px 0;
+  }
+
+  .featuredCars {
+    padding-top: 38px;
+  }
+
+  .premiumSectionHeading h2,
+  .finalCta h2 {
+    font-size: 34px;
+  }
+
+  .premiumSectionHeading {
+    margin-bottom: 26px;
+  }
+
+  .premiumCarTitle {
+    grid-template-columns: 1fr;
+  }
+
+  .premiumCarTitle strong {
+    white-space: normal;
+  }
+
+  .carSpecs {
+    grid-template-columns: 1fr;
+  }
+
+  .premiumStat {
+    min-height: 124px;
+  }
+
+  .premiumStat strong {
+    font-size: 36px;
+  }
+
+  .finalCta {
+    margin-bottom: 108px;
+    padding: 34px 18px;
+  }
+
+  .premiumHome .atelierMobileNav {
+    color: #fff;
+    background: rgba(8, 10, 13, .88);
+    border-color: rgba(255, 255, 255, .16);
+  }
+
+  .premiumHome .atelierMobileNav a {
+    color: rgba(255, 255, 255, .62);
+  }
+
+  .premiumHome .atelierMobileNav a.active {
+    color: #fff;
+  }
+}
+
+.detailPhotoStrip button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.detailPhotoStrip button:focus-visible {
+  outline: 3px solid #f59e0b;
+  outline-offset: 3px;
+}
+
+.detailPhotoStrip button[aria-pressed="true"] {
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  .heroMedia {
+    transform: none !important;
+    will-change: auto;
   }
 }

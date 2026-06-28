@@ -1,15 +1,26 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Banknote, CalendarDays, Car, ChevronLeft, Gauge, ShieldCheck } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../../PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type SearchParams } from "../../i18n";
 import { relatedVehicles } from "../listing";
-import { getPublicVehicleDetailPageData, getPublicVehicles } from "../service";
-import { VehiclePhoto } from "../VehiclePhoto";
+import { vehicleMetadata } from "../../seo";
+import { getPublicVehicle, getPublicVehicleDetailPageData, getPublicVehicles } from "../service";
 import { VehicleCard } from "../VehicleCard";
 import { LeadForm } from "./LeadForm";
+import { VehicleGallery } from "./VehicleGallery";
 
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const vehicle = await getPublicVehicle(id);
+  if (!vehicle) {
+    return { title: "Vehicle not found | YS Heng Cars", robots: { index: false, follow: false } };
+  }
+  return vehicleMetadata(vehicle);
+}
 
 export default async function VehicleDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams?: Promise<SearchParams> }) {
   const { id } = await params;
@@ -48,28 +59,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
       </header>
       <section className="detailPage">
       <section className="detailGrid">
-        <div className="detailGallery">
-          <div className="detailImage">
-            <VehiclePhoto
-              src={gallery[0]}
-              alt={`${make} ${model}`}
-              fallback={fallbackLetters}
-            />
-          </div>
-          {gallery.length > 1 && (
-            <div className="detailPhotoStrip" aria-label="Vehicle photo gallery">
-              {gallery.map((photoUrl, index) => (
-                <a href={photoUrl} target="_blank" rel="noreferrer" className={index === 0 ? "isPrimary" : ""} key={photoUrl}>
-                  <VehiclePhoto
-                    src={photoUrl}
-                    alt={`${make} ${model} photo ${index + 1}`}
-                    fallback={fallbackLetters}
-                  />
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
+        <VehicleGallery photos={gallery} title={`${make} ${model}`} fallback={fallbackLetters} />
         <div className="detailInfo">
           <p className="plate">{plateNumber}</p>
           <h1>{title}</h1>

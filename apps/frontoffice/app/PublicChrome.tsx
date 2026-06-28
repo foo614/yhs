@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Banknote, Car, Home, Menu, Search, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { Banknote, Car, Home, Menu, Search, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { frontofficeCopy, hrefWithLanguage, languages, type Language } from "./i18n";
 
 const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
@@ -13,6 +13,8 @@ type ContactSection = "services" | "workshop" | "contact";
 export function PublicHeader({ language, active = "home" }: { language: Language; active?: "home" | "vehicles" | "contact" }) {
   const t = frontofficeCopy[language].nav;
   const [contactSection, setContactSection] = useContactSection(active);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const closeMobileMenu = () => setMobileMenuOpen(false);
 
   return (
     <header className="atelierHeader">
@@ -31,7 +33,39 @@ export function PublicHeader({ language, active = "home" }: { language: Language
         </form>
         <LanguageSwitch language={language} />
       </div>
-      <button className="mobileMenu" aria-label="Open menu"><Menu size={22} /></button>
+      <button
+        className="mobileMenu"
+        type="button"
+        aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+        aria-expanded={mobileMenuOpen}
+        aria-controls="mobile-header-menu"
+        onClick={() => setMobileMenuOpen((open) => !open)}
+      >
+        {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+      </button>
+      <button
+        className={mobileMenuOpen ? "mobileDrawerBackdrop open" : "mobileDrawerBackdrop"}
+        type="button"
+        aria-label="Close menu"
+        onClick={closeMobileMenu}
+      />
+      <nav
+        id="mobile-header-menu"
+        className={mobileMenuOpen ? "mobileDrawer open" : "mobileDrawer"}
+        aria-label="Mobile menu"
+        aria-hidden={!mobileMenuOpen}
+      >
+        <Link href={hrefWithLanguage("/", language)} onClick={closeMobileMenu} className={active === "home" ? "active" : undefined}>{t.home}</Link>
+        <Link href={hrefWithLanguage("/vehicles", language)} onClick={closeMobileMenu} className={active === "vehicles" ? "active" : undefined}>{t.buyCar}</Link>
+        <Link href={hrefWithLanguage("/contact#services", language)} onClick={() => { setContactSection("services"); closeMobileMenu(); }} className={active === "contact" && contactSection === "services" ? "active" : undefined}>{t.services}</Link>
+        <Link href={hrefWithLanguage("/contact#workshop", language)} onClick={() => { setContactSection("workshop"); closeMobileMenu(); }} className={active === "contact" && contactSection === "workshop" ? "active" : undefined}>{t.workshop}</Link>
+        <Link href={hrefWithLanguage("/contact#contact", language)} onClick={() => { setContactSection("contact"); closeMobileMenu(); }} className={active === "contact" && contactSection === "contact" ? "active" : undefined}>{t.contact}</Link>
+        <form className="mobileDrawerSearch" action={hrefWithLanguage("/vehicles", language)} onSubmit={closeMobileMenu}>
+          <Search size={14} />
+          <input name="q" placeholder={t.searchPlaceholder} />
+        </form>
+        <LanguageSwitch language={language} />
+      </nav>
     </header>
   );
 }

@@ -24,7 +24,9 @@ import {
   customerFromLead,
   customerSelectLabel,
   decideHrLeaveRequest,
+  exportPaymentsCsv,
   generateHrPayslips,
+  generatePaymentInvoice,
   getAuditLog,
   getCurrentUser,
   getCustomers,
@@ -36,6 +38,7 @@ import {
   getDeliveries,
   getLeads,
   getDeliveryReleaseReadiness,
+  getFinanceInvoices,
   getHrAttendance,
   getHrLeaveAdjustments,
   getHrLeaveBalances,
@@ -48,22 +51,29 @@ import {
   getLoanDocumentCheck,
   getLoans,
   getOwners,
+  getPaymentInvoice,
   getPayments,
   getPaymentVouchers,
   getPurchaseInvoices,
   getRepairs,
   getSettlementReminders,
+  getSupplierInvoiceAging,
   getSupplierInvoices,
+  getSuppliers,
   getOcrJob,
+  getAutoCountSyncJobs,
   getVehicleLookup,
   getStaffUsers,
   getVehicleDocuments,
+  getVehicleOcrJobs,
   getVehiclePhotos,
   vehicleDocumentContentUrl,
+  financeInvoiceContentUrl,
   vehiclePhotoContentUrl,
   login,
   logout,
   hrMedicalCertificateContentUrl,
+  submitAutoCountSync,
   updateHrLeaveBalance,
   updateHrLeavePolicy,
   updateHrPayrollProfile,
@@ -101,6 +111,8 @@ import {
   type HrPayPeriod,
   type LoanApplication,
   type DeliveryReleaseReadiness,
+  type AutoCountSyncJob,
+  type FinanceInvoice,
   type LoanDocumentCheck,
   type PaymentRecord,
   type PaymentVoucher,
@@ -467,7 +479,8 @@ describe("backoffice api client", () => {
       supplierName: "Demo Workshop",
       invoiceNumber: "SUP-1001",
       plateNumberOnInvoice: "VPK1234",
-      amount: 650
+      amount: 650,
+      dueDate: "2026-06-15"
     };
     const fetchMock = mockFetch([invoice]);
 
@@ -478,6 +491,31 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/supplier-invoices", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/supplier-invoices", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(invoice) }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/supplier-invoices/${invoice.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify({ ...invoice, amount: 700 }) }));
+  });
+
+  it("loads supplier summaries and invoice aging views", async () => {
+    const fetchMock = mockFetch([{ supplierName: "Demo Workshop", invoiceCount: 2, totalAmount: 1300 }]);
+
+    expect(await getSuppliers()).toEqual([{ supplierName: "Demo Workshop", invoiceCount: 2, totalAmount: 1300 }]);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/suppliers", { credentials: "include" });
+
+    const agingFetch = mockFetch([{ invoiceId: "invoice-1", supplierName: "Demo Workshop", invoiceNumber: "SUP-1001", vehicleId: "vehicle-1", status: "DueSoon", dueDate: "2026-06-15", amount: 650 }]);
+    expect(await getSupplierInvoiceAging()).toEqual([{ invoiceId: "invoice-1", supplierName: "Demo Workshop", invoiceNumber: "SUP-1001", vehicleId: "vehicle-1", status: "DueSoon", dueDate: "2026-06-15", amount: 650 }]);
+    expect(agingFetch).toHaveBeenCalledWith("http://localhost:5000/api/supplier-invoices/aging", { credentials: "include" });
+  });
+
+  it("exports payment CSV as authenticated text", async () => {
+    const csv = "PaymentId,CarPlate\npayment-1,VPK1234";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn(),
+      text: vi.fn().mockResolvedValue(csv)
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(exportPaymentsCsv()).resolves.toBe(csv);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/payments/export", { credentials: "include" });
   });
 
   it("uploads vehicle photos and documents as authenticated multipart form data", async () => {
@@ -746,7 +784,25 @@ describe("backoffice api client", () => {
   it("loads delivery release readiness with missing handover document categories", async () => {
     const readiness: DeliveryReleaseReadiness = {
       isReady: false,
-      missingCategories: ["Policy", "RoadTaxReceipt"]
+      missingCategories: ["RoadTaxReceipt"],
+      missingEvidence: ["Signed handover document"],
+      expiredDocuments: ["Road tax expired before scheduled delivery"],
+      evidence: [
+        {
+          category: "Policy",
+          isPresent: true,
+          documentId: "document-1",
+          fileName: "policy.pdf",
+          mimeType: "application/pdf",
+          checksum: "policy-checksum",
+          uploadedBy: "delivery@ysheng.local",
+          uploadedAt: "2026-06-02T08:00:00Z"
+        },
+        {
+          category: "RoadTaxReceipt",
+          isPresent: false
+        }
+      ]
     };
     const fetchMock = mockFetch(readiness);
 
@@ -1088,6 +1144,64 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/payments/${payment.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify(payment) }));
   });
 
+  it("loads and updates finance invoice AutoCount sync workflow", async () => {
+    const syncJob: AutoCountSyncJob = {
+      id: "sync-1",
+      financeInvoiceId: "invoice-1",
+      paymentRecordId: "payment-1",
+      status: "Synced",
+      externalDocumentId: "AC-1001",
+      externalDocumentNumber: "SI-1001",
+      responseSummary: "created",
+      retryCount: 1,
+      submittedBy: "finance-user",
+      submittedAt: "2026-06-01T01:00:00Z",
+      createdAt: "2026-06-01T00:00:00Z",
+      updatedAt: "2026-06-01T01:00:00Z"
+    };
+    const invoice: FinanceInvoice = {
+      id: "invoice-1",
+      paymentRecordId: "payment-1",
+      vehicleId: "vehicle-1",
+      customerId: "customer-1",
+      invoiceNumber: "INV-1001",
+      invoiceDate: "2026-06-01",
+      amount: 58000,
+      salesPrice: 58000,
+      interestAdditionalCharges: 0,
+      ncdAmount: 0,
+      windscreenCharges: 0,
+      contentMimeType: "application/pdf",
+      createdBy: "finance-user",
+      createdAt: "2026-06-01T00:00:00Z",
+      latestSync: syncJob
+    };
+    const responses: unknown[] = [[invoice], invoice, invoice, [syncJob], syncJob];
+    const fetchMock = vi.fn().mockImplementation(() => {
+      const response = responses.shift();
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue(response),
+        text: vi.fn().mockResolvedValue(JSON.stringify(response))
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await getFinanceInvoices()).toEqual([invoice]);
+    expect(await getPaymentInvoice("payment-1")).toEqual(invoice);
+    expect(await generatePaymentInvoice("payment-1")).toEqual(invoice);
+    expect(await getAutoCountSyncJobs("invoice-1")).toEqual([syncJob]);
+    expect(await submitAutoCountSync("invoice-1")).toEqual(syncJob);
+    expect(financeInvoiceContentUrl("invoice-1")).toBe("http://localhost:5000/api/finance-invoices/invoice-1/content");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/finance-invoices", { credentials: "include" });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/payments/payment-1/invoice", expect.objectContaining({ credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/payments/payment-1/invoice", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/finance-invoices/invoice-1/autocount-sync", expect.objectContaining({ credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:5000/api/finance-invoices/invoice-1/autocount-sync", expect.objectContaining({ method: "POST", credentials: "include" }));
+  });
+
   it("loads, creates, and updates settlement reminders for finance tracking", async () => {
     const settlement: SettlementReminder = {
       id: "00000000-0000-0000-0000-000000000013",
@@ -1239,6 +1353,44 @@ describe("backoffice api client", () => {
     expect(result[0].checksum).toBe("ABCDEF0123456789");
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicles/vehicle-1/documents", { credentials: "include" });
     expect(vehicleDocumentContentUrl("vehicle-1", documents[0].id)).toBe("http://localhost:5000/api/vehicles/vehicle-1/documents/00000000-0000-0000-0000-000000000010/content");
+  });
+
+  it("loads captured OCR data for a vehicle", async () => {
+    const jobs = [
+      {
+        id: "ocr-1",
+        documentId: "doc-1",
+        category: "PurchaseInvoice",
+        status: "NeedsReview",
+        progress: 100,
+        result: {
+          documentCategory: "PurchaseInvoice",
+          confidence: 0.82,
+          fieldConfidence: { invoiceNumber: 0.8, amount: 0.8 },
+          fields: { invoiceNumber: "PI-1001", amount: "25000.00", plateNumber: "VPK1234" },
+          rawText: "Purchase Invoice PI-1001 Amount RM 25000",
+          warnings: []
+        },
+        warnings: [],
+        createdAt: "2026-06-08T00:00:00Z",
+        document: {
+          id: "doc-1",
+          fileName: "purchase-invoice.pdf",
+          mimeType: "application/pdf",
+          category: "PurchaseInvoice",
+          uploadedBy: "sales@ysheng.local",
+          checksum: "ABCDEF0123456789",
+          uploadedAt: "2026-06-08T00:00:00Z"
+        }
+      }
+    ];
+    const fetchMock = mockFetch(jobs);
+
+    const result = await getVehicleOcrJobs("vehicle-1");
+
+    expect(result).toEqual(jobs);
+    expect(result[0].result?.fields.invoiceNumber).toBe("PI-1001");
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicles/vehicle-1/ocr-jobs", { credentials: "include" });
   });
 
   it("loads vehicle photo metadata and builds a photo content url", async () => {

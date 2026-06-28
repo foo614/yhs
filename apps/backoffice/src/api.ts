@@ -4,20 +4,35 @@ export type LeadStatus = "New" | "Contacted" | "Closed";
 export type LoanStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Done";
 export type DeliveryStatus = "BookingInspection" | "Scheduled" | "Inspection" | "PreparingDocuments" | "CarPreparation" | "ReadyForRelease" | "Released";
 export type PaymentStatus = "Pending" | "Approved" | "Disbursed" | "Reconciled";
+export type PaymentExternalSyncStatus = "NotSynced" | "Synced" | "Failed";
+export type AutoCountSyncStatus = "Draft" | "Ready" | "Submitted" | "Synced" | "Failed";
 export type PaymentVoucherStatus = "Pending" | "Approved" | "Paid";
 export type DebtRecoveryStatus = "Open" | "FollowedUp" | "Closed";
+export type RepairApprovalStatus = "Pending" | "Approved" | "Rejected";
+export type SupplierInvoiceAgingStatus = "Unmatched" | "DueSoon" | "Overdue" | "Paid";
 export type HrAttendanceStatus = "Present" | "Late" | "HalfDay" | "Absent";
 export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "UnpaidLeave";
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated";
 export type DocumentCategory = "PurchaseInvoice" | "Voc" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed";
+export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected";
+
+export type OcrLineItem = {
+  description: string;
+  quantity?: string | null;
+  unitPrice?: string | null;
+  amount?: string | null;
+  confidence?: number;
+  rawText?: string;
+};
 
 export type OcrExtractionResult = {
   documentCategory: DocumentCategory;
   confidence: number;
   fieldConfidence: Record<string, number>;
   fields: Record<string, string | null | undefined>;
+  lineItems?: OcrLineItem[];
   rawText: string;
   warnings: string[];
 };
@@ -32,6 +47,24 @@ export type OcrJob = {
   warnings: string[];
   createdAt: string;
   completedAt?: string;
+  reviewDecision: OcrReviewDecision;
+  reviewNotes?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+};
+
+export type OcrDocumentSummary = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  category: DocumentCategory;
+  checksum: string;
+  uploadedBy: string;
+  uploadedAt: string;
+};
+
+export type VehicleOcrJob = OcrJob & {
+  document: OcrDocumentSummary;
 };
 
 export type UploadProgressHandler = (percent: number) => void;
@@ -43,6 +76,7 @@ export type Vehicle = {
   model: string;
   year: number;
   stockOwner: StockOwner;
+  stockLocation?: string;
   status: VehicleStatus;
   isPublic: boolean;
   purchasePrice: number;
@@ -61,6 +95,17 @@ export type Vehicle = {
 };
 
 export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status">;
+
+export type StockMovement = {
+  id: string;
+  vehicleId: string;
+  fieldName: "Status" | "StockOwner" | "StockLocation" | string;
+  previousValue: string;
+  newValue: string;
+  reason: string;
+  actor: string;
+  createdAt: string;
+};
 
 export type VehicleIntakeValues = Omit<Vehicle, "id">;
 
@@ -133,6 +178,25 @@ export type SupplierInvoice = {
   invoiceNumber: string;
   plateNumberOnInvoice?: string;
   amount: number;
+  dueDate?: string;
+  paidAt?: string;
+};
+
+export type SupplierSummary = {
+  supplierName: string;
+  invoiceCount: number;
+  totalAmount: number;
+};
+
+export type SupplierInvoiceAgingView = {
+  invoiceId: string;
+  supplierName: string;
+  invoiceNumber: string;
+  vehicleId: string;
+  status: SupplierInvoiceAgingStatus;
+  dueDate?: string;
+  paidAt?: string;
+  amount: number;
 };
 
 export type PurchaseInvoice = {
@@ -165,6 +229,10 @@ export type RepairJob = {
   whatToDo: string;
   cost: number;
   checklistDone: boolean;
+  approvalStatus?: RepairApprovalStatus;
+  approvalNotes?: string;
+  approvedBy?: string;
+  approvedAt?: string;
 };
 
 export type LoanApplication = {
@@ -194,10 +262,17 @@ export type DeliverySchedule = {
   twoDayNoticeSent: boolean;
   insuranceHandled: boolean;
   insurancePolicyReference?: string;
+  insuranceExpiryDate?: string;
   roadTaxHandled: boolean;
   roadTaxReceiptReference?: string;
+  roadTaxExpiryDate?: string;
   windscreenInsuranceHandled: boolean;
   windscreenPolicyReference?: string;
+  windscreenInsuranceExpiryDate?: string;
+  handoverPhotoCaptured?: boolean;
+  signedHandoverReceived?: boolean;
+  customerAcknowledged?: boolean;
+  finalChecklistConfirmed?: boolean;
 };
 
 export type PaymentRecord = {
@@ -212,6 +287,12 @@ export type PaymentRecord = {
   checklistValidated: boolean;
   invoiceGenerated: boolean;
   autoCountKeyed: boolean;
+  externalSyncStatus?: PaymentExternalSyncStatus;
+  externalDocumentNumber?: string;
+  externalDocumentAmount?: number;
+  reconciliationOverrideReason?: string;
+  reconciliationOverrideBy?: string;
+  reconciliationOverrideAt?: string;
   salesPrice?: number;
   interestAdditionalCharges?: number;
   ncdAmount?: number;
@@ -220,6 +301,40 @@ export type PaymentRecord = {
   bankName?: string;
   bankFollowUpDate?: string;
   createdAt: string;
+};
+
+export type AutoCountSyncJob = {
+  id: string;
+  financeInvoiceId: string;
+  paymentRecordId: string;
+  status: AutoCountSyncStatus;
+  externalDocumentId?: string;
+  externalDocumentNumber?: string;
+  responseSummary?: string;
+  lastError?: string;
+  retryCount: number;
+  submittedBy?: string;
+  submittedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FinanceInvoice = {
+  id: string;
+  paymentRecordId: string;
+  vehicleId: string;
+  customerId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  amount: number;
+  salesPrice: number;
+  interestAdditionalCharges: number;
+  ncdAmount: number;
+  windscreenCharges: number;
+  contentMimeType: string;
+  createdBy: string;
+  createdAt: string;
+  latestSync?: AutoCountSyncJob | null;
 };
 
 export type SettlementReminder = {
@@ -388,6 +503,9 @@ export type Lead = {
   customerName: string;
   phone: string;
   message?: string;
+  sourcePage?: string;
+  sourceReferrer?: string;
+  sourceCampaign?: string;
   status: LeadStatus;
   createdAt: string;
   takenByUserId?: string;
@@ -420,6 +538,17 @@ export type VehicleDocument = {
   uploadedAt: string;
 };
 
+export type DeliveryEvidenceItem = {
+  category: DocumentCategory;
+  isPresent: boolean;
+  documentId?: string | null;
+  fileName?: string | null;
+  mimeType?: string | null;
+  checksum?: string | null;
+  uploadedBy?: string | null;
+  uploadedAt?: string | null;
+};
+
 export type VehiclePhoto = {
   id: string;
   fileName: string;
@@ -437,6 +566,9 @@ export type LoanDocumentCheck = {
 export type DeliveryReleaseReadiness = {
   isReady: boolean;
   missingCategories: DocumentCategory[];
+  missingEvidence: string[];
+  expiredDocuments: string[];
+  evidence: DeliveryEvidenceItem[];
 };
 
 export type CurrentUser = {
@@ -529,7 +661,7 @@ export async function getLoanDocumentCheck(loanId: string): Promise<LoanDocument
 }
 
 export async function getDeliveryReleaseReadiness(deliveryId: string): Promise<DeliveryReleaseReadiness> {
-  return getWithNetworkFallback(`/api/deliveries/${deliveryId}/release-readiness`, { isReady: false, missingCategories: [] });
+  return getWithNetworkFallback(`/api/deliveries/${deliveryId}/release-readiness`, { isReady: false, missingCategories: [], missingEvidence: [], expiredDocuments: [], evidence: [] });
 }
 
 export async function login(email: string, password: string) {
@@ -567,8 +699,16 @@ export async function getPurchaseInvoices(): Promise<PurchaseInvoice[]> {
   return getWithNetworkFallback("/api/purchase-invoices", fallbackPurchaseInvoices());
 }
 
+export async function getSuppliers(): Promise<SupplierSummary[]> {
+  return getWithNetworkFallback("/api/suppliers", []);
+}
+
 export async function getSupplierInvoices(): Promise<SupplierInvoice[]> {
   return getWithNetworkFallback("/api/supplier-invoices", fallbackSupplierInvoices());
+}
+
+export async function getSupplierInvoiceAging(): Promise<SupplierInvoiceAgingView[]> {
+  return getWithNetworkFallback("/api/supplier-invoices/aging", []);
 }
 
 export async function getRepairs(): Promise<RepairJob[]> {
@@ -585,6 +725,18 @@ export async function getDeliveries(): Promise<DeliverySchedule[]> {
 
 export async function getPayments(): Promise<PaymentRecord[]> {
   return getWithNetworkFallback("/api/payments", fallbackPayments());
+}
+
+export async function getFinanceInvoices(): Promise<FinanceInvoice[]> {
+  return getWithNetworkFallback("/api/finance-invoices", fallbackFinanceInvoices(), { onNotFoundFallback: true });
+}
+
+export async function exportPaymentsCsv(): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}/api/payments/export`, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Export failed with status ${response.status}`));
+  }
+  return response.text();
 }
 
 export async function getSettlementReminders(): Promise<SettlementReminder[]> {
@@ -764,6 +916,7 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
     model: values.model,
     year: Number(values.year),
     stockOwner: values.stockOwner,
+    stockLocation: values.stockLocation?.trim() || undefined,
     status: values.status,
     isPublic: values.isPublic,
     purchasePrice: Number(values.purchasePrice ?? 0),
@@ -886,6 +1039,14 @@ export async function createPayment(payment: PaymentRecord): Promise<PaymentReco
   });
 }
 
+export async function getPaymentInvoice(paymentId: string): Promise<FinanceInvoice> {
+  return request<FinanceInvoice>(`/api/payments/${paymentId}/invoice`);
+}
+
+export async function generatePaymentInvoice(paymentId: string): Promise<FinanceInvoice> {
+  return request<FinanceInvoice>(`/api/payments/${paymentId}/invoice`, { method: "POST" });
+}
+
 export async function createStaffUser(user: CreateStaffUserRequest): Promise<StaffUser> {
   return request<StaffUser>("/api/admin/users", {
     method: "POST",
@@ -947,6 +1108,14 @@ export async function updatePayment(payment: PaymentRecord): Promise<PaymentReco
     method: "PUT",
     body: JSON.stringify(payment)
   });
+}
+
+export async function getAutoCountSyncJobs(invoiceId: string): Promise<AutoCountSyncJob[]> {
+  return request<AutoCountSyncJob[]>(`/api/finance-invoices/${invoiceId}/autocount-sync`);
+}
+
+export async function submitAutoCountSync(invoiceId: string): Promise<AutoCountSyncJob> {
+  return request<AutoCountSyncJob>(`/api/finance-invoices/${invoiceId}/autocount-sync`, { method: "POST" });
 }
 
 export async function createSettlementReminder(reminder: SettlementReminder): Promise<SettlementReminder> {
@@ -1029,6 +1198,26 @@ export async function getVehicleDocuments(vehicleId: string): Promise<VehicleDoc
   return [];
 }
 
+export async function getVehicleOcrJobs(vehicleId: string): Promise<VehicleOcrJob[]> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/ocr-jobs`, { credentials: "include" });
+    if (response.ok) return response.json();
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+export async function getStockMovements(vehicleId: string): Promise<StockMovement[]> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/stock-movements`, { credentials: "include" });
+    if (response.ok) return response.json();
+  } catch {
+    return [];
+  }
+  return [];
+}
+
 export async function getVehiclePhotos(vehicleId: string): Promise<VehiclePhoto[]> {
   try {
     const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/photos`, { credentials: "include" });
@@ -1041,6 +1230,10 @@ export async function getVehiclePhotos(vehicleId: string): Promise<VehiclePhoto[
 
 export function vehicleDocumentContentUrl(vehicleId: string, documentId: string) {
   return `${apiBaseUrl}/api/vehicles/${vehicleId}/documents/${documentId}/content`;
+}
+
+export function financeInvoiceContentUrl(invoiceId: string) {
+  return `${apiBaseUrl}/api/finance-invoices/${invoiceId}/content`;
 }
 
 export function vehiclePhotoContentUrl(vehicleId: string, photoId: string) {
@@ -1065,6 +1258,13 @@ export async function startOcrJob(documentId: string): Promise<OcrJob> {
 
 export async function getOcrJob(jobId: string): Promise<OcrJob> {
   return request<OcrJob>(`/api/ocr-jobs/${jobId}`);
+}
+
+export async function reviewOcrJob(jobId: string, decision: Exclude<OcrReviewDecision, "Pending">, notes?: string): Promise<OcrJob> {
+  return request<OcrJob>(`/api/ocr-jobs/${jobId}/review`, {
+    method: "PUT",
+    body: JSON.stringify({ decision, notes })
+  });
 }
 
 async function request<T = unknown>(path: string, init: RequestInit = {}, errorMessage = `Request failed with status`): Promise<T> {
@@ -1214,20 +1414,20 @@ async function responseErrorMessage(response: Response, fallback: string) {
 
 function fallbackDashboard(): DashboardSummary {
   return {
-    totalStock: 1,
-    pendingLoan: 1,
-    outstandingPayment: 58000,
-    settlementDue: 1,
-    repairCost: 3500,
-    estimatedProfit: 11900,
-    totalProfit: 11900,
-    vehicleAging: 1,
+    totalStock: 0,
+    pendingLoan: 0,
+    outstandingPayment: 0,
+    settlementDue: 0,
+    repairCost: 0,
+    estimatedProfit: 0,
+    totalProfit: 0,
+    vehicleAging: 0,
     agingBuckets: [
       { label: "0-30", count: 0 },
       { label: "31-60", count: 0 },
-      { label: "61+", count: 1 }
+      { label: "61+", count: 0 }
     ],
-    topSupplier: "ABC Spray",
+    topSupplier: "-",
     salesPerformance: 0,
     stockStatusMix: [
       { label: "Available", count: 1 },
@@ -1238,22 +1438,12 @@ function fallbackDashboard(): DashboardSummary {
       { label: "YSHeng", count: 1 },
       { label: "KS", count: 0 }
     ],
-    moneyRiskBreakdown: [
-      { label: "Outstanding Payment", amount: 58000 },
-      { label: "Unpaid Settlement", amount: 25000 },
-      { label: "Open Debt Recovery", amount: 3200 },
-      { label: "Unpaid Daily Spend", amount: 480 },
-      { label: "Open Payment Voucher", amount: 180 }
-    ],
+    moneyRiskBreakdown: [],
     workflowBlockers: {
-      byType: [
-        { label: "LoanFollowUp", count: 1 },
-        { label: "SettlementDue", count: 1 },
-        { label: "PaymentBankFollowUp", count: 1 }
-      ],
+      byType: [],
       dueBuckets: [
-        { label: "Overdue", count: 1 },
-        { label: "DueToday", count: 2 },
+        { label: "Overdue", count: 0 },
+        { label: "DueToday", count: 0 },
         { label: "Upcoming", count: 0 }
       ]
     },
@@ -1265,17 +1455,8 @@ function fallbackDashboard(): DashboardSummary {
       ],
       conversionRate: 0
     },
-    profitBreakdown: [
-      { label: "Selling + Charges", amount: 58600 },
-      { label: "Purchase Cost", amount: 42000 },
-      { label: "Repair Cost", amount: 3500 },
-      { label: "Commission", amount: 1200 },
-      { label: "Pickup Allowance", amount: 0 },
-      { label: "Estimated Profit", amount: 11900 }
-    ],
-    supplierSpendTop: [
-      { label: "ABC Spray", amount: 800 }
-    ]
+    profitBreakdown: [],
+    supplierSpendTop: []
   };
 }
 
@@ -1287,7 +1468,8 @@ function fallbackSupplierInvoices(): SupplierInvoice[] {
       supplierName: "ABC Spray",
       invoiceNumber: "INV-1001",
       plateNumberOnInvoice: sampleVehicle.plateNumber,
-      amount: 800
+      amount: 800,
+      dueDate: "2026-06-07"
     }
   ];
 }
@@ -1336,10 +1518,17 @@ function fallbackDeliveries(): DeliverySchedule[] {
       twoDayNoticeSent: true,
       insuranceHandled: true,
       insurancePolicyReference: "POL-DEMO-1001",
+      insuranceExpiryDate: "2026-06-30",
       roadTaxHandled: true,
       roadTaxReceiptReference: "RT-DEMO-1001",
+      roadTaxExpiryDate: "2026-06-30",
       windscreenInsuranceHandled: true,
-      windscreenPolicyReference: "WS-DEMO-1001"
+      windscreenPolicyReference: "WS-DEMO-1001",
+      windscreenInsuranceExpiryDate: "2026-06-30",
+      handoverPhotoCaptured: true,
+      signedHandoverReceived: true,
+      customerAcknowledged: true,
+      finalChecklistConfirmed: true
     }
   ];
 }
@@ -1358,6 +1547,7 @@ function fallbackPayments(): PaymentRecord[] {
       checklistValidated: true,
       invoiceGenerated: true,
       autoCountKeyed: false,
+      externalSyncStatus: "NotSynced",
       salesPrice: 58000,
       interestAdditionalCharges: 600,
       ncdAmount: 1200,
@@ -1370,6 +1560,36 @@ function fallbackPayments(): PaymentRecord[] {
   ];
 }
 
+function fallbackFinanceInvoices(): FinanceInvoice[] {
+  return [
+    {
+      id: "b9a39374-16d3-44d7-984a-010b9ff9b51f",
+      paymentRecordId: "7e0dcbee-5369-4f26-a97f-46f3c7784c6d",
+      vehicleId: sampleVehicle.id,
+      customerId: "d686b3e3-b0fb-47c2-8f26-58c8bd9466bb",
+      invoiceNumber: "INV-DEMO-1001",
+      invoiceDate: "2026-06-01",
+      amount: 58000,
+      salesPrice: 58000,
+      interestAdditionalCharges: 600,
+      ncdAmount: 1200,
+      windscreenCharges: 450,
+      contentMimeType: "application/pdf",
+      createdBy: "demo-finance",
+      createdAt: "2026-06-01T00:00:00Z",
+      latestSync: {
+        id: "f6c75e4f-1d51-4378-8a68-e17327d1f81b",
+        financeInvoiceId: "b9a39374-16d3-44d7-984a-010b9ff9b51f",
+        paymentRecordId: "7e0dcbee-5369-4f26-a97f-46f3c7784c6d",
+        status: "Ready",
+        retryCount: 0,
+        createdAt: "2026-06-01T00:00:00Z",
+        updatedAt: "2026-06-01T00:00:00Z"
+      }
+    }
+  ];
+}
+
 function fallbackLeads(): Lead[] {
   return [
     {
@@ -1378,6 +1598,9 @@ function fallbackLeads(): Lead[] {
       customerName: "Tan Wei Sheng",
       phone: "012-345 6789",
       message: "Wants to view after work in Kluang and check loan monthly payment.",
+      sourcePage: "/vehicles/9f5d6f16-9bb5-46b9-bb13-e8a8b3534737?utm_source=facebook&utm_campaign=vios",
+      sourceReferrer: "https://facebook.com/",
+      sourceCampaign: "utm_source=facebook&utm_campaign=vios",
       status: "New",
       createdAt: "2026-05-30T00:00:00Z"
     },

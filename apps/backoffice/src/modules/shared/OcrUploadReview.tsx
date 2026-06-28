@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { UploadOutlined } from "@ant-design/icons";
-import { Alert, Button, Drawer, Form, Input, InputNumber, Progress, Select, Space, Tag, Typography, Upload, message } from "antd";
+import { Alert, Button, Drawer, Form, Input, InputNumber, Progress, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import {
   getOcrJob,
+  reviewOcrJob,
   startOcrJob,
   uploadVehicleDocumentWithProgress,
   type DocumentCategory,
-  type OcrJob
+  type OcrJob,
+  type OcrLineItem
 } from "../../api";
 
 export type OcrFieldConfig = {
@@ -42,8 +45,10 @@ export function OcrUploadReview({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
   const [job, setJob] = useState<OcrJob | null>(null);
+  const [lineItems, setLineItems] = useState<OcrLineItem[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const lineItemColumns = ocrLineItemColumns(updateLineItem);
 
   async function handleUpload(option: UploadRequestOption) {
     if (!vehicleId) {
@@ -54,16 +59,17 @@ export function OcrUploadReview({
     try {
       setBusy(true);
       setJob(null);
+      setLineItems([]);
       setUploadProgress(0);
       setAnalyzeProgress(0);
-      const document = await uploadVehicleDocumentWithProgress(vehicleId, option.file as File, category, setUploadProgress);
+      const file = option.file as File;
+      const document = await uploadVehicleDocumentWithProgress(vehicleId, file, category, setUploadProgress);
       onUploaded?.();
-      setAnalyzeProgress(25);
-      const createdJob = await startOcrJob(document.id);
-      setAnalyzeProgress(70);
-      const loadedJob = await getOcrJob(createdJob.id);
-      setAnalyzeProgress(loadedJob.progress || 100);
+      const loadedJob = await analyzeUploadedDocument(document.id, async (progress) => {
+        setAnalyzeProgress(progress);
+      });
       setJob(loadedJob);
+      setLineItems(loadedJob.result?.lineItems ?? []);
       form.setFieldsValue(initialValuesFromJob(loadedJob, fields));
       setReviewOpen(true);
       option.onSuccess?.({ ok: true });
@@ -78,9 +84,25 @@ export function OcrUploadReview({
   async function applyResult() {
     if (!job) return;
     const values = await form.validateFields();
-    onApply(values, job);
+    const localJob: OcrJob = job.result
+      ? { ...job, result: { ...job.result, lineItems } }
+      : job;
+    const reviewedJob = await reviewOcrJob(job.id, "Accepted", "Accepted from OCR review drawer");
+    const mergedJob: OcrJob = reviewedJob.result && localJob.result
+      ? { ...reviewedJob, result: { ...reviewedJob.result, lineItems } }
+      : reviewedJob;
+    setJob(mergedJob);
+    onApply(values, mergedJob);
     setReviewOpen(false);
-    message.success("OCR values applied. Review and save the form when ready.");
+    message.success("OCR values accepted. Review and save the form when ready.");
+  }
+
+  async function rejectResult() {
+    if (!job) return;
+    const reviewedJob = await reviewOcrJob(job.id, "Rejected", "Rejected from OCR review drawer");
+    setJob(reviewedJob);
+    setReviewOpen(false);
+    message.warning("OCR values rejected. The uploaded document remains available for audit.");
   }
 
   return (
@@ -104,7 +126,7 @@ export function OcrUploadReview({
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
         className="recordEditDrawer"
-        extra={<Button type="primary" onClick={() => void applyResult()}>{applyLabel}</Button>}
+        extra={<Space><Button danger onClick={() => void rejectResult()} disabled={!job}>Reject</Button><Button type="primary" disabled={!job?.result} onClick={() => void applyResult()}>{applyLabel}</Button></Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <Alert
@@ -118,6 +140,7 @@ export function OcrUploadReview({
           <Space wrap>
             <Tag color="blue">{job?.category}</Tag>
             <Tag color={job?.status === "NeedsReview" ? "green" : "orange"}>{job?.status}</Tag>
+            <Tag color={job?.reviewDecision === "Accepted" ? "green" : job?.reviewDecision === "Rejected" ? "red" : "gold"}>{job?.reviewDecision ?? "Pending"}</Tag>
             <Tag>Confidence {Math.round((job?.result?.confidence ?? 0) * 100)}%</Tag>
           </Space>
           <Form form={form} layout="vertical" className="drawerForm">
@@ -132,6 +155,17 @@ export function OcrUploadReview({
                 )}
               </Form.Item>
             ))}
+            <Form.Item label="Line Items">
+              <Table
+                size="small"
+                rowKey={(_, index) => String(index)}
+                columns={lineItemColumns}
+                dataSource={lineItems}
+                pagination={false}
+                scroll={{ x: 760 }}
+                locale={{ emptyText: "No line item descriptions detected." }}
+              />
+            </Form.Item>
             <Form.Item label="Raw OCR Text">
               <Input.TextArea rows={5} value={job?.result?.rawText ?? ""} readOnly />
             </Form.Item>
@@ -141,6 +175,24 @@ export function OcrUploadReview({
       </Drawer>
     </>
   );
+
+  function updateLineItem(index: number, field: keyof OcrLineItem, value: string | number | null) {
+    setLineItems((current) => current.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, [field]: value === null ? undefined : String(value) } : item
+    )));
+  }
+}
+
+async function analyzeUploadedDocument(
+  documentId: string,
+  setProgress: (progress: number) => Promise<void>
+) {
+  await setProgress(20);
+  const createdJob = await startOcrJob(documentId);
+  await setProgress(70);
+  const loadedJob = await getOcrJob(createdJob.id);
+  await setProgress(loadedJob.progress || 100);
+  return loadedJob;
 }
 
 function initialValuesFromJob(job: OcrJob, fields: OcrFieldConfig[]) {
@@ -166,4 +218,55 @@ function fieldLabel(field: OcrFieldConfig, job: OcrJob | null) {
       <Tag color={confidence >= 0.75 ? "green" : "orange"}>{Math.round(confidence * 100)}%</Tag>
     </Space>
   );
+}
+
+function ocrLineItemColumns(
+  updateLineItem: (index: number, field: keyof OcrLineItem, value: string | number | null) => void
+): ColumnsType<OcrLineItem> {
+  return [
+    {
+      title: "Description",
+      dataIndex: "description",
+      width: 260,
+      render: (value: string, _record, index) => (
+        <Input value={value} onChange={(event) => updateLineItem(index, "description", event.target.value)} />
+      )
+    },
+    {
+      title: "Qty",
+      dataIndex: "quantity",
+      width: 90,
+      render: (value: string | null | undefined, _record, index) => (
+        <Input value={value ?? ""} onChange={(event) => updateLineItem(index, "quantity", event.target.value)} />
+      )
+    },
+    {
+      title: "Unit",
+      dataIndex: "unitPrice",
+      width: 110,
+      render: (value: string | null | undefined, _record, index) => (
+        <Input value={value ?? ""} onChange={(event) => updateLineItem(index, "unitPrice", event.target.value)} />
+      )
+    },
+    {
+      title: "Amount",
+      dataIndex: "amount",
+      width: 120,
+      render: (value: string | null | undefined, _record, index) => (
+        <Input value={value ?? ""} onChange={(event) => updateLineItem(index, "amount", event.target.value)} />
+      )
+    },
+    {
+      title: "Conf.",
+      dataIndex: "confidence",
+      width: 90,
+      render: (value?: number) => value === undefined ? "-" : `${Math.round(value * 100)}%`
+    },
+    {
+      title: "Raw Line",
+      dataIndex: "rawText",
+      width: 220,
+      render: (value?: string) => <Typography.Text type="secondary">{value ?? "-"}</Typography.Text>
+    }
+  ];
 }

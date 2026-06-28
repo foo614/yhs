@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "code-review-testing": {
+      "source": "openai/codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/code-review-testing/SKILL.md",
+      "computedHash": "a56ec27977ec246ea1df843c0ed18ad73d6ebb16dc862718449bff1dc027da66"
+    },
+    "prd-development": {
+      "source": "deanpeters/product-manager-skills",
+      "sourceType": "github",
+      "skillPath": "skills/prd-development/SKILL.md",
+      "computedHash": "1b7f6de0d407c7ed581ab96fcdd332392f4552ddafa26da5fe29eff863123c7f"
+    },
+    "shadcn-ui": {
+      "source": "jezweb/claude-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/frontend/skills/shadcn-ui/SKILL.md",
+      "computedHash": "f86d41cbe62c1224b77b673413a0141930a7d5d7054ea60a8192e354198cd71e"
+    }
+  }
+}

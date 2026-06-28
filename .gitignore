@@ -6,9 +6,17 @@ bin/
 obj/
 *.tsbuildinfo
 *.log
+__pycache__/
+*.pyc
 .env
 .env.local
 .tmp-*/
 .tmp-*
 backups/
 .superpowers/
+.codex/playwright/
+.codex/run-logs/
+.codex/screenshots/
+apps/frontoffice/out/
+artifacts/
+test-results/

@@ -1,12 +1,20 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Car, ChevronLeft, Search } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type SearchParams } from "../i18n";
 import { InventoryBrowser } from "./InventoryBrowser";
 import { listingFiltersFromSearchParams } from "./listing";
+import { pageMetadata } from "../seo";
 import { getPublicVehicles } from "./service";
 
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
+
+export const metadata: Metadata = pageMetadata({
+  title: "Used cars for sale | YS Heng Cars",
+  description: "Browse YS Heng available public inventory with prices, photos, and enquiry support for used cars in Johor.",
+  path: "/vehicles"
+});
 
 export default async function VehiclesPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   const resolvedSearchParams = isStaticExport ? undefined : await searchParams;

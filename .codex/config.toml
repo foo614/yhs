@@ -1,0 +1,31 @@
+[features]
+hooks = true
+
+[[hooks.SessionStart]]
+matcher = "startup|resume|compact"
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = 'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/ysheng_project_guard.py" session-start'
+command_windows = 'py -3 "$(git rev-parse --show-toplevel)\.codex\hooks\ysheng_project_guard.py" session-start'
+timeout = 10
+statusMessage = "Loading YS Heng guardrails"
+
+[[hooks.UserPromptSubmit]]
+
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = 'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/ysheng_project_guard.py" user-prompt-submit'
+command_windows = 'py -3 "$(git rev-parse --show-toplevel)\.codex\hooks\ysheng_project_guard.py" user-prompt-submit'
+timeout = 10
+statusMessage = "Checking prompt for secrets"
+
+[[hooks.PreToolUse]]
+matcher = "^(Bash|apply_patch)$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = 'python3 "$(git rev-parse --show-toplevel)/.codex/hooks/ysheng_project_guard.py" pre-tool-use'
+command_windows = 'py -3 "$(git rev-parse --show-toplevel)\.codex\hooks\ysheng_project_guard.py" pre-tool-use'
+timeout = 10
+statusMessage = "Checking YS Heng policy"

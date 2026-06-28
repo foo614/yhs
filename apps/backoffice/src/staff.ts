@@ -1,5 +1,34 @@
-import type { CreateStaffUserRequest, ResetStaffPasswordRequest, StaffUser, UpdateStaffUserRequest } from "./api";
+import type { CreateStaffUserRequest, ResetStaffPasswordRequest, StaffRole, StaffUser, UpdateStaffUserRequest } from "./api";
 import { canAssignStaffRoles } from "./access";
+
+export type StaffStatusFilter = "All" | "Active" | "Disabled";
+
+export type StaffUserFilters = {
+  keyword?: string;
+  status?: StaffStatusFilter;
+  role?: StaffRole | "All";
+};
+
+export function filterStaffUsers(staffUsers: StaffUser[], filters: StaffUserFilters) {
+  const keyword = filters.keyword?.trim().toLowerCase();
+  const status = filters.status ?? "All";
+  const role = filters.role ?? "All";
+
+  return staffUsers.filter((staff) => {
+    const searchable = [
+      staff.displayName,
+      staff.email,
+      ...staff.roles
+    ].join(" ").toLowerCase();
+
+    if (keyword && !searchable.includes(keyword)) return false;
+    if (status === "Active" && !staff.isActive) return false;
+    if (status === "Disabled" && staff.isActive) return false;
+    if (role !== "All" && !staff.roles.includes(role)) return false;
+
+    return true;
+  });
+}
 
 export function staffCreateBlockReason(request: CreateStaffUserRequest, existing: StaffUser[] = []) {
   if (!request.email?.trim()) {
