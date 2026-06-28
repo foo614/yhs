@@ -168,7 +168,7 @@ public sealed class ApiDocumentationTests
     {
         var policies = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var section = ExtractMarkdownSection(apiDocs, "## Back-Office Role Policies");
-        var rowPattern = new Regex(@"^\| `(?<policy>[^`]+)` \| (?<roles>.+) \|$", RegexOptions.Compiled | RegexOptions.Multiline);
+        var rowPattern = new Regex(@"^\| `(?<policy>[^`]+)` \| (?<roles>.+) \|\s*$", RegexOptions.Compiled | RegexOptions.Multiline);
 
         foreach (Match match in rowPattern.Matches(section))
         {
@@ -198,7 +198,7 @@ public sealed class ApiDocumentationTests
     {
         var section = ExtractMarkdownSubsection(apiDocs, "Document upload ownership:");
         var ownership = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        var rowPattern = new Regex(@"^\| (?<categories>.+) \| (?<roles>.+) \|$", RegexOptions.Compiled | RegexOptions.Multiline);
+        var rowPattern = new Regex(@"^\| (?<categories>.+) \| (?<roles>.+) \|\s*$", RegexOptions.Compiled | RegexOptions.Multiline);
 
         foreach (Match match in rowPattern.Matches(section))
         {
