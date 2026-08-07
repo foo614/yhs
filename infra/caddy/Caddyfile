@@ -1,0 +1,29 @@
+{
+	email {$TLS_EMAIL}
+}
+
+(security_headers) {
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+	encode zstd gzip
+}
+
+{$FRONTOFFICE_DOMAIN} {
+	import security_headers
+	reverse_proxy frontoffice:3000
+}
+
+{$BACKOFFICE_DOMAIN} {
+	import security_headers
+	reverse_proxy backoffice:3001
+}
+
+{$API_DOMAIN} {
+	import security_headers
+	reverse_proxy api:8080
+}

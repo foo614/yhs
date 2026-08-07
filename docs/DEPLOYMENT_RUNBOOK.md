@@ -2,6 +2,29 @@
 
 This runbook is the operator checklist for proving and deploying the Docker VPS stack.
 
+## Shinjiru Ubuntu CI/CD (Production)
+
+The production path deploys a verified `main` commit to an Ubuntu VPS through GitHub Actions. It keeps PostgreSQL, API, front office, and back office host ports on `127.0.0.1`; only Caddy exposes ports 80 and 443. Caddy obtains and renews the TLS certificates after the DNS records resolve to the VPS.
+
+Before the first deployment:
+
+1. Create an Ubuntu 22.04 or 24.04 Shinjiru VPS and a dedicated Linux deployment user with SSH-key login. The user must be able to run `sudo -n` for the first bootstrap. Docker group access is effectively privileged access, so restrict this SSH key and protect the `main` branch.
+2. Point the DNS A records for the front office, back office, and API domains to the VPS public IPv4 address. Add matching AAAA records only when IPv6 is configured and reachable. Ensure Shinjiru permits inbound TCP 80 and 443.
+3. In GitHub, create the `production` environment. Configure required reviewers before adding secrets so production deployments are explicitly approved.
+4. Add these `production` environment secrets:
+   - `SHIJIRU_HOST`: the VPS hostname or IP address.
+   - `SHIJIRU_SSH_PORT`: SSH port, normally `22`.
+   - `SHIJIRU_DEPLOY_USER`: dedicated Linux deployment user.
+   - `SHIJIRU_SSH_PRIVATE_KEY`: private key for that user.
+   - `SHIJIRU_KNOWN_HOSTS`: the exact known-hosts line obtained out-of-band for the configured host and port. Do not use `StrictHostKeyChecking=no` or accept a host key during deployment.
+   - `PRODUCTION_ENV_FILE`: the complete production environment file based on `infra/compose.env.example`, with real secrets and DNS names.
+
+`PRODUCTION_ENV_FILE` must make the URL and hostname pairs identical, for example `PUBLIC_API_BASE_URL=https://api.company.my` with `API_DOMAIN=api.company.my`. The PowerShell and Ubuntu production validators reject default passwords, example/localhost domains, mismatched hostnames, non-HTTPS URLs, and trailing slashes before the stack starts.
+
+After the three CI jobs succeed on `main`, the `Deploy production (Shinjiru Ubuntu)` job uploads that verified commit, installs Docker Engine/Compose from Docker's signed Ubuntu repository if absent, enables UFW for the configured SSH port plus 80/443, configures the daily backup timer, builds the Compose stack, obtains TLS through Caddy, and runs read-only HTTPS smoke checks. `workflow_dispatch` supports an approved retry from `main`; pull requests never receive production secrets.
+
+The bootstrap intentionally does not alter `sshd_config`, disable password login, or add offsite backup storage. Confirm a separate break-glass SSH session first, then apply SSH hardening under an approved server-access change. Copy `/var/lib/ysheng-backups` to encrypted offsite storage and test a restore before treating backups as recoverable.
+
 ## Prerequisites
 
 - A VPS or local machine with Docker Compose and a responding Linux Docker engine.
@@ -37,6 +60,10 @@ Before production deploy, replace:
 - `PUBLIC_API_BASE_URL`
 - `FRONTOFFICE_ORIGIN`
 - `BACKOFFICE_ORIGIN`
+- `API_DOMAIN`
+- `FRONTOFFICE_DOMAIN`
+- `BACKOFFICE_DOMAIN`
+- `TLS_EMAIL`
 
 Validation rejects placeholder passwords, `example.com`, localhost public URLs, loopback public URLs, and trailing slashes on public URLs.
 
@@ -93,6 +120,8 @@ The deployment is not proven until this succeeds against the deployed stack:
 
 The smoke suite verifies API health/readiness, defensive headers, credentialed CORS, public inventory and leads, back-office login, role enforcement, workflows, upload/download blobs, dashboard reminders, audit logs, and status automation.
 
+For the Shinjiru CI/CD path, the deployment job uses the smaller read-only `infra/ubuntu/production-smoke.sh` because the full PowerShell smoke suite creates workflow data and is not suitable for automatic production runs.
+
 ## Existing Database Deploy
 
 For an existing live database:
@@ -131,6 +160,7 @@ After the first successful smoke proof:
 - Change the seeded admin password.
 - Set `SEED_DATA_ENABLED=false` if future restarts should skip seed checks.
 - Schedule regular `infra/backup-postgres.ps1` backups because MVP photos and documents are PostgreSQL blobs.
+- On Shinjiru, verify `systemctl list-timers ysheng-backup.timer` and copy `/var/lib/ysheng-backups` to encrypted offsite storage with a defined retention policy.
 - Keep `PUBLIC_API_BASE_URL`, `FRONTOFFICE_ORIGIN`, and `BACKOFFICE_ORIGIN` aligned so cookie-auth CORS remains valid.
 - Keep the latest successful GitHub Actions CI run attached to the deployed commit.
 

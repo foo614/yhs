@@ -1,0 +1,9 @@
+[Unit]
+Description=YS Heng PostgreSQL backup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=__DEPLOY_USER__
+ExecStart=/usr/bin/env bash /opt/ysheng/current/infra/ubuntu/backup-postgres.sh

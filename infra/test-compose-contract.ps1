@@ -98,7 +98,7 @@ Assert-Contains -Name "postgres image" -Text $postgres -Expected "image: postgre
 Assert-Contains -Name "postgres database env" -Text $postgres -Expected 'POSTGRES_DB: ${POSTGRES_DB:-ysheng}'
 Assert-Contains -Name "postgres user env" -Text $postgres -Expected 'POSTGRES_USER: ${POSTGRES_USER:-ysheng}'
 Assert-Contains -Name "postgres password env" -Text $postgres -Expected 'POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ysheng_dev}'
-Assert-Contains -Name "postgres port" -Text $postgres -Expected '"${POSTGRES_PORT:-5432}:5432"'
+Assert-Contains -Name "postgres loopback port" -Text $postgres -Expected '"127.0.0.1:${POSTGRES_PORT:-5432}:5432"'
 Assert-Contains -Name "postgres data volume" -Text $postgres -Expected "postgres_data:/var/lib/postgresql/data"
 Assert-Contains -Name "postgres healthcheck" -Text $postgres -Expected "pg_isready"
 
@@ -111,7 +111,7 @@ Assert-Contains -Name "api front-office CORS" -Text $api -Expected 'AllowedOrigi
 Assert-Contains -Name "api back-office CORS" -Text $api -Expected 'AllowedOrigins__1: ${BACKOFFICE_ORIGIN:-http://localhost:3001}'
 Assert-Contains -Name "api seed email" -Text $api -Expected 'SeedAdmin__Email: ${SEED_ADMIN_EMAIL:-admin@ysheng.local}'
 Assert-Contains -Name "api seed password" -Text $api -Expected 'SeedAdmin__Password: ${SEED_ADMIN_PASSWORD:-ChangeMe123!}'
-Assert-Contains -Name "api port" -Text $api -Expected '"${API_PORT:-5000}:8080"'
+Assert-Contains -Name "api loopback port" -Text $api -Expected '"127.0.0.1:${API_PORT:-5000}:8080"'
 Assert-Contains -Name "api depends on postgres health" -Text $api -Expected "postgres:"
 Assert-Contains -Name "api health dependency condition" -Text $api -Expected "condition: service_healthy"
 Assert-Contains -Name "api readiness healthcheck" -Text $api -Expected "http://localhost:8080/health/ready"
@@ -128,14 +128,14 @@ if ($worker -match "(?m)^    ports:") {
 $frontoffice = Get-ServiceBlock "frontoffice"
 Assert-Contains -Name "frontoffice dockerfile" -Text $frontoffice -Expected "dockerfile: apps/frontoffice/Dockerfile"
 Assert-Contains -Name "frontoffice build API URL" -Text $frontoffice -Expected 'NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}'
-Assert-Contains -Name "frontoffice port" -Text $frontoffice -Expected '"${FRONTOFFICE_PORT:-3000}:3000"'
+Assert-Contains -Name "frontoffice loopback port" -Text $frontoffice -Expected '"127.0.0.1:${FRONTOFFICE_PORT:-3000}:3000"'
 Assert-Contains -Name "frontoffice depends on api health" -Text $frontoffice -Expected "api:"
 Assert-Contains -Name "frontoffice healthcheck" -Text $frontoffice -Expected 'http://$$(hostname):3000'
 
 $backoffice = Get-ServiceBlock "backoffice"
 Assert-Contains -Name "backoffice dockerfile" -Text $backoffice -Expected "dockerfile: apps/backoffice/Dockerfile"
 Assert-Contains -Name "backoffice build API URL" -Text $backoffice -Expected 'VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}'
-Assert-Contains -Name "backoffice port" -Text $backoffice -Expected '"${BACKOFFICE_PORT:-3001}:3001"'
+Assert-Contains -Name "backoffice loopback port" -Text $backoffice -Expected '"127.0.0.1:${BACKOFFICE_PORT:-3001}:3001"'
 Assert-Contains -Name "backoffice depends on api health" -Text $backoffice -Expected "api:"
 Assert-Contains -Name "backoffice healthcheck" -Text $backoffice -Expected "http://localhost:3001"
 

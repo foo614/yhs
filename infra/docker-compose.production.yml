@@ -1,0 +1,43 @@
+services:
+  postgres:
+    restart: unless-stopped
+
+  api:
+    restart: unless-stopped
+
+  worker:
+    restart: unless-stopped
+
+  frontoffice:
+    restart: unless-stopped
+
+  backoffice:
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      TLS_EMAIL: ${TLS_EMAIL}
+      API_DOMAIN: ${API_DOMAIN}
+      FRONTOFFICE_DOMAIN: ${FRONTOFFICE_DOMAIN}
+      BACKOFFICE_DOMAIN: ${BACKOFFICE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      frontoffice:
+        condition: service_healthy
+      backoffice:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:

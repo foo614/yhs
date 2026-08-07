@@ -33,7 +33,11 @@ $requiredKeys = @(
   "ASPNETCORE_ENVIRONMENT",
   "PUBLIC_API_BASE_URL",
   "FRONTOFFICE_ORIGIN",
-  "BACKOFFICE_ORIGIN"
+  "BACKOFFICE_ORIGIN",
+  "API_DOMAIN",
+  "FRONTOFFICE_DOMAIN",
+  "BACKOFFICE_DOMAIN",
+  "TLS_EMAIL"
 )
 
 $errors = New-Object System.Collections.Generic.List[string]
@@ -70,6 +74,38 @@ foreach ($key in @("PUBLIC_API_BASE_URL", "FRONTOFFICE_ORIGIN", "BACKOFFICE_ORIG
   }
 }
 
+foreach ($key in @("API_DOMAIN", "FRONTOFFICE_DOMAIN", "BACKOFFICE_DOMAIN")) {
+  if ($values.ContainsKey($key) -and $values[$key] -notmatch "^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$") {
+    $errors.Add("$key must be a hostname without a scheme, path, or port.")
+  }
+}
+
+if ($values.ContainsKey("TLS_EMAIL") -and $values["TLS_EMAIL"] -notmatch "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$") {
+  $errors.Add("TLS_EMAIL must be a valid email address for certificate notices.")
+}
+
+$originDomainPairs = @(
+  @{ Origin = "PUBLIC_API_BASE_URL"; Domain = "API_DOMAIN" },
+  @{ Origin = "FRONTOFFICE_ORIGIN"; Domain = "FRONTOFFICE_DOMAIN" },
+  @{ Origin = "BACKOFFICE_ORIGIN"; Domain = "BACKOFFICE_DOMAIN" }
+)
+foreach ($pair in $originDomainPairs) {
+  if ($values.ContainsKey($pair.Origin) -and $values.ContainsKey($pair.Domain)) {
+    try {
+      $originUri = [Uri]$values[$pair.Origin]
+      if (-not [string]::Equals($originUri.Host, $values[$pair.Domain], [System.StringComparison]::OrdinalIgnoreCase)) {
+        $errors.Add("$($pair.Domain) must match the hostname in $($pair.Origin).")
+      }
+      if (-not $AllowExampleValues -and $originUri.Scheme -ne "https") {
+        $errors.Add("$($pair.Origin) must use https for production TLS.")
+      }
+    }
+    catch {
+      $errors.Add("$($pair.Origin) must be a valid URL.")
+    }
+  }
+}
+
 if (-not $AllowExampleValues) {
   foreach ($key in @("PUBLIC_API_BASE_URL", "FRONTOFFICE_ORIGIN", "BACKOFFICE_ORIGIN")) {
     if ($values.ContainsKey($key) -and $values[$key] -match "^https?://(localhost|127\.0\.0\.1|\[::1\])(:|/|$)") {
@@ -78,6 +114,14 @@ if (-not $AllowExampleValues) {
     if ($values.ContainsKey($key) -and $values[$key] -match "^https?://([^/:]+\.)?example\.(com|org|net)(:|/|$)") {
       $errors.Add("$key still uses an example domain. Use the VPS public domain or IP address.")
     }
+  }
+  foreach ($key in @("API_DOMAIN", "FRONTOFFICE_DOMAIN", "BACKOFFICE_DOMAIN")) {
+    if ($values.ContainsKey($key) -and ($values[$key] -match "^(localhost|127\.0\.0\.1|::1)$" -or $values[$key] -match "(^|\.)example\.(com|org|net)$")) {
+      $errors.Add("$key still uses a local-only or example domain. Use the VPS public domain.")
+    }
+  }
+  if ($values.ContainsKey("TLS_EMAIL") -and $values["TLS_EMAIL"] -match "@example\.(com|org|net)$") {
+    $errors.Add("TLS_EMAIL still uses an example domain. Use a real certificate contact address.")
   }
 }
 

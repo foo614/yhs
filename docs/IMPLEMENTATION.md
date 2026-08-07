@@ -7,14 +7,14 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - `apps/frontoffice`: public Next.js vehicle inventory and lead capture.
 - `apps/backoffice`: Ant Design Pro-style operations portal for dashboard, vehicles, repair, loan, delivery, finance, leads, audit log, and admin roles.
 - `services/api`: .NET 10 Web API with PostgreSQL, ASP.NET Identity, EF Core models, public endpoints, back-office endpoints, upload limits, and dashboard business rules.
-- `infra/docker-compose.yml`: Docker VPS deployment shape for PostgreSQL, API, worker container, front office, and back office.
+- `infra/docker-compose.yml` plus `infra/docker-compose.production.yml`: Docker VPS deployment shape for PostgreSQL, API, worker container, front office, back office, and production Caddy TLS termination. Application and database ports bind only to loopback; Caddy is the only public ingress on 80/443.
 - `infra/test-dockerfiles.ps1`: static Dockerfile contract checks for .NET 10 images, React app build/runtime commands, ports, API health dependency tooling, and public API URL build arguments.
 - `infra/test-compose-contract.ps1`: static Compose contract checks for required services, Dockerfile references, ports, healthchecks, API/worker environment wiring, and service dependencies when Docker Desktop is unavailable.
 - `infra/test-compose-env.ps1`: regression checks for production `.env` validation, including required keys, placeholder secrets, public URL shape, local-only/example domains, trailing slashes, and local Docker example override behavior.
 - `infra/test-deployment-scripts.ps1`: static deployment script checks for deploy ordering, smoke-test URL wiring, PostgreSQL backup custom-format dumps, restore confirmation, and temporary dump cleanup.
 - `infra/test-deployment-runbook.ps1`: static deployment runbook check for VPS env setup, preflight, deploy, smoke proof, backup/restore, Docker Desktop service warning behavior, and clean local Compose proof instructions.
 - `infra/test-requirements-trace.ps1`: static requirements trace check for the main MVP platform, workflow, API, file-handling, automation, verification, and Docker-blocker evidence.
-- `.github/workflows/ci.yml`: GitHub Actions CI for web type-checks/tests/builds, .NET 10 API tests, and Docker-independent deployment contract checks on pushes and pull requests.
+- `.github/workflows/ci.yml`: GitHub Actions CI for web type-checks/tests/builds, .NET 10 API tests, Docker-independent deployment contract checks, and the production-environment-gated Shinjiru Ubuntu deployment job for verified `main` commits.
 - `docs/SOURCE_REQUIREMENTS_CROSSCHECK.md`: source-document workflow mapping for the supplied YS Heng requirement Word documents, guarded by `infra/test-source-requirements-crosscheck.ps1`.
 - `docs/STITCH_VISUAL_REFERENCE.md`: Google Stitch visual-reference access result and asset handoff, guarded by `infra/test-stitch-reference-handoff.ps1`.
 - API endpoint, role-policy, upload-category, enum, and validation-shape reference is maintained in `docs/API.md`.

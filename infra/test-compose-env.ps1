@@ -25,6 +25,10 @@ function New-TestEnvFile {
     PUBLIC_API_BASE_URL = "https://api.ysheng.example.my"
     FRONTOFFICE_ORIGIN = "https://www.ysheng.example.my"
     BACKOFFICE_ORIGIN = "https://admin.ysheng.example.my"
+    API_DOMAIN = "api.ysheng.example.my"
+    FRONTOFFICE_DOMAIN = "www.ysheng.example.my"
+    BACKOFFICE_DOMAIN = "admin.ysheng.example.my"
+    TLS_EMAIL = "admin@ysheng.example.my"
   }
 
   foreach ($key in $Overrides.Keys) {
@@ -118,6 +122,16 @@ $trailingSlash = New-TestEnvFile -Name "trailing-slash" -Overrides @{
   BACKOFFICE_ORIGIN = "https://admin.ysheng.example.my/"
 }
 Assert-ValidationFails -Name "Trailing slash" -Path $trailingSlash -ExpectedMessage "BACKOFFICE_ORIGIN must not end with a trailing slash."
+
+$mismatchedDomain = New-TestEnvFile -Name "mismatched-domain" -Overrides @{
+  API_DOMAIN = "other.ysheng.example.my"
+}
+Assert-ValidationFails -Name "Mismatched Caddy domain" -Path $mismatchedDomain -ExpectedMessage "API_DOMAIN must match the hostname in PUBLIC_API_BASE_URL."
+
+$exampleTlsEmail = New-TestEnvFile -Name "example-tls-email" -Overrides @{
+  TLS_EMAIL = "admin@example.com"
+}
+Assert-ValidationFails -Name "Example TLS email" -Path $exampleTlsEmail -ExpectedMessage "TLS_EMAIL still uses an example domain."
 
 $badSeedBoolean = New-TestEnvFile -Name "bad-seed-bool" -Overrides @{
   SEED_DATA_ENABLED = "yes"

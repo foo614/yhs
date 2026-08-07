@@ -30,6 +30,15 @@ foreach ($expected in @(
   "SEED_DATA_ENABLED=false",
   "PostgreSQL blobs",
   "GitHub Actions CI run",
+  "Shinjiru Ubuntu CI/CD (Production)",
+  "SHIJIRU_HOST",
+  "SHIJIRU_KNOWN_HOSTS",
+  "PRODUCTION_ENV_FILE",
+  "API_DOMAIN",
+  "FRONTOFFICE_DOMAIN",
+  "BACKOFFICE_DOMAIN",
+  "TLS_EMAIL",
+  "ysheng-backup.timer",
   "yshengproof",
   "YS Heng stack smoke test passed."
 )) {
