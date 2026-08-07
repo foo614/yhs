@@ -50,7 +50,7 @@ bash "$RELEASE_DIR/infra/ubuntu/validate-production-env.sh" --env-file "$ENV_FIL
 COMPOSE=(
   docker compose
   --project-name ysheng
-  --project-directory "$RELEASE_DIR"
+  --project-directory "$RELEASE_DIR/infra"
   --env-file "$ENV_FILE"
   -f "$RELEASE_DIR/infra/docker-compose.yml"
   -f "$RELEASE_DIR/infra/docker-compose.production.yml"

@@ -78,6 +78,7 @@ foreach ($expected in @(
 
 foreach ($expected in @(
   "--project-name ysheng",
+  '--project-directory "$RELEASE_DIR/infra"',
   "docker-compose.production.yml",
   "validate-production-env.sh",
   "backup-postgres.sh",
