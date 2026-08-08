@@ -21,6 +21,14 @@ export function hrefWithLanguage(path: string, language: Language) {
   return `${basePath}${languageQuery(language)}${hash ? `#${hash}` : ""}`;
 }
 
+export function languageSwitchHref(pathname: string | null, search: string, language: Language, hash = "") {
+  const params = new URLSearchParams(search);
+  if (language === "zh") params.set("lang", "zh");
+  else params.delete("lang");
+  const query = params.toString();
+  return `${pathname ?? "/"}${query ? `?${query}` : ""}${hash}`;
+}
+
 export const frontofficeCopy = {
   en: {
     nav: {
@@ -33,7 +41,7 @@ export const frontofficeCopy = {
       mobileCars: "Cars",
       mobileSell: "Sell",
       mobileFinance: "Finance",
-      mobileProfile: "Profile"
+      mobileProfile: "Contact"
     },
     footer: {
       description: "Second-hand car sales, loan assistance, trade-in discussion, and handover support in Malaysia.",
@@ -130,8 +138,14 @@ export const frontofficeCopy = {
       newestFirst: "Newest first",
       priceLow: "Price low to high",
       priceHigh: "Price high to low",
+      showingVehicles: "Showing {visible} of {total} cars",
+      loadMore: "Load more cars",
+      allLoaded: "All matching cars loaded",
       emptyTitle: "No vehicles match those filters",
-      emptyText: "Adjust the search or send us an enquiry and the team will help shortlist suitable cars."
+      emptyText: "Adjust the search or send us an enquiry and the team will help shortlist suitable cars.",
+      unavailableTitle: "The showroom is temporarily unavailable",
+      unavailableText: "Live vehicle inventory could not be loaded. Please try again shortly or message Sales for current availability.",
+      contactSales: "Message Sales"
     },
     detail: {
       back: "Back to showroom",
@@ -192,7 +206,28 @@ export const frontofficeCopy = {
       reviewSnippet: "Not yet rated (4 reviews)",
       callNow: "Call now",
       openMap: "Open map",
-      facebook: "Facebook"
+      facebook: "Facebook",
+      formKicker: "Message YS Heng",
+      formTitle: "Tell us how we can help.",
+      formIntro: "Ask about buying, selling, trade-in, financing, viewing, or after-sales support. Sales will receive your enquiry in the portal.",
+      formName: "Name",
+      formPhone: "Phone",
+      formMessage: "Message",
+      formNamePlaceholder: "Your name",
+      formMessagePlaceholder: "Tell us what you need help with...",
+      formSubmitting: "Sending...",
+      formSubmit: "Send message",
+      formPrivacy: "Submitted only to YS Heng Automotive for sales follow-up.",
+      formSuccess: "Received. Our sales team will follow up shortly.",
+      formDefaultError: "Could not send your message. Please try again.",
+      formErrors: {
+        customer_name_required: "Name is required.",
+        phone_required: "Phone is required.",
+        message_required: "Message is required.",
+        message_too_long: "Please keep your message to 2,000 characters or fewer.",
+        submit_failed: "Could not send your message. Please try again.",
+        validation_failed: "Could not send your message. Please check the form and try again."
+      }
     }
   },
   zh: {
@@ -206,7 +241,7 @@ export const frontofficeCopy = {
       mobileCars: "车源",
       mobileSell: "卖车",
       mobileFinance: "贷款",
-      mobileProfile: "我的"
+      mobileProfile: "\u8054\u7cfb"
     },
     footer: {
       description: "马来西亚二手车销售、贷款协助、Trade-in 咨询与交车跟进。",
@@ -303,8 +338,14 @@ export const frontofficeCopy = {
       newestFirst: "年份最新",
       priceLow: "价格低至高",
       priceHigh: "价格高至低",
+      showingVehicles: "已显示 {visible} / {total} 辆车",
+      loadMore: "加载更多车辆",
+      allLoaded: "已显示所有符合条件的车辆",
       emptyTitle: "没有符合筛选的车辆",
-      emptyText: "调整搜寻条件，或发送询问让团队协助筛选合适车源。"
+      emptyText: "调整搜寻条件，或发送询问让团队协助筛选合适车源。",
+      unavailableTitle: "展厅资料暂时无法显示",
+      unavailableText: "暂时无法载入实时车源。请稍后再试，或直接留言向销售团队查询现车。",
+      contactSales: "联络销售团队"
     },
     detail: {
       back: "返回车源",
@@ -365,7 +406,28 @@ export const frontofficeCopy = {
       reviewSnippet: "\u5c1a\u672a\u8a55\u5206\uff084 \u689d\u8a55\u8a9e\uff09",
       callNow: "\u7acb\u5373\u81f4\u96fb",
       openMap: "\u6253\u958b\u5730\u5716",
-      facebook: "Facebook"
+      facebook: "Facebook",
+      formKicker: "\u7559\u8a00\u7d66 YS Heng",
+      formTitle: "\u544a\u8bc9\u6211\u4eec\u5982\u4f55\u534f\u52a9\u4f60\u3002",
+      formIntro: "\u8d2d\u8f66\u3001\u5356\u8f66\u3001Trade-in\u3001\u8d37\u6b3e\u3001\u770b\u8f66\u6216\u552e\u540e\u95ee\u9898\u90fd\u53ef\u4ee5\u7559\u8a00\u3002\u9500\u552e\u56e2\u961f\u4f1a\u5728\u7cfb\u7edf\u5185\u8ddf\u8fdb\u3002",
+      formName: "\u59d3\u540d",
+      formPhone: "\u7535\u8bdd",
+      formMessage: "\u7559\u8a00",
+      formNamePlaceholder: "\u60a8\u7684\u59d3\u540d",
+      formMessagePlaceholder: "\u8bf7\u544a\u8bc9\u6211\u4eec\u60a8\u9700\u8981\u4ec0\u4e48\u534f\u52a9...",
+      formSubmitting: "\u6b63\u5728\u53d1\u9001...",
+      formSubmit: "\u53d1\u9001\u7559\u8a00",
+      formPrivacy: "\u4ec5\u63d0\u4ea4\u7ed9 YS Heng Automotive \u4f5c\u9500\u552e\u8ddf\u8fdb\u3002",
+      formSuccess: "\u5df2\u6536\u5230\u3002\u9500\u552e\u56e2\u961f\u4f1a\u5c3d\u5feb\u4e0e\u60a8\u8054\u7cfb\u3002",
+      formDefaultError: "\u65e0\u6cd5\u53d1\u9001\u7559\u8a00\u3002\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002",
+      formErrors: {
+        customer_name_required: "\u8bf7\u586b\u5199\u59d3\u540d\u3002",
+        phone_required: "\u8bf7\u586b\u5199\u7535\u8bdd\u3002",
+        message_required: "\u8bf7\u586b\u5199\u7559\u8a00\u3002",
+        message_too_long: "\u8bf7\u5c06\u7559\u8a00\u63a7\u5236\u5728 2,000 \u5b57\u4ee5\u5185\u3002",
+        submit_failed: "\u65e0\u6cd5\u53d1\u9001\u7559\u8a00\u3002\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002",
+        validation_failed: "\u8bf7\u68c0\u67e5\u7559\u8a00\u5185\u5bb9\u540e\u518d\u8bd5\u3002"
+      }
     }
   }
 } as const;

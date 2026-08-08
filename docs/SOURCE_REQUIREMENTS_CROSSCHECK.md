@@ -11,11 +11,11 @@ It is intended to keep the implementation aligned with the original business voc
 
 | Source requirement area | MVP handling | Evidence |
 | --- | --- | --- |
-| Website plus internal portal | Implemented as public front office plus internal back office | `apps/frontoffice`, `apps/backoffice`; `infra/verify-local.ps1` builds and smokes both apps. |
+| Website plus internal portal | Implemented as public front office plus internal back office | `apps/frontoffice`, `apps/backoffice`; public contact enquiries are routed to the existing Sales lead triage queue; `infra/verify-local.ps1` builds and smokes both apps. |
 | Upload to website / inventory sync | Implemented | Vehicle intake controls public visibility and `Available` status; public API and front office hide sold/private inventory. |
 | Purchase invoice | Implemented | Purchase invoice CRUD, duplicate validation, document category ownership, smoke coverage. |
 | Customer details, IC, status receipt | Implemented for MVP | Customer records, status receipt document category, document-check workflow; IC/OCR extraction remains extension scope. |
-| Vehicle details, VOC, AP, photo, status | Implemented | Vehicle records include stock owner, status, public photo endpoint, VOC/AP/status receipt uploads, document completeness checks. |
+| Vehicle details, VOC, AP, photo, status | Implemented | Vehicle records include stock owner, status, public primary and gallery photo endpoints, VOC/AP/status receipt uploads, document completeness checks. |
 | Available / Loan Processing / Sold | Implemented | Backend enum, public filtering, loan/payment automation, TypeScript contract tests. |
 | Price / Purchase / Selling | Implemented | Vehicle purchase/selling values, finance invoice detail fields, dashboard profit metrics. |
 | Boss Confirm / Contra range price | Implemented | Vehicle intake fields, edit flow, smoke round trip. |

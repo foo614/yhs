@@ -7,9 +7,10 @@ using SkiaSharp;
 namespace YSHeng.Api.Features;
 
 public sealed record LeadRequest(Guid VehicleId, string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
+public sealed record ContactEnquiryRequest(string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
 public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
 public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice);
-public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status);
+public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId);
 public sealed record DashboardSummary(
     int TotalStock,
     int PendingLoan,
@@ -57,7 +58,7 @@ public sealed record DeliveryEvidenceItem(
 public sealed record DeliveryDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories, IReadOnlyList<DeliveryEvidenceItem> Evidence);
 public sealed record HealthPayload(string Service, string Status, DateTimeOffset CheckedAt);
 public sealed record PublicPhotoPayload(Guid Id, string MimeType, byte[] Bytes);
-public sealed record PublicPhotoSummary(Guid Id, string FileName, string MimeType, DateTime UploadedAt);
+public sealed record PublicPhotoSummary(Guid Id, string FileName, string MimeType, DateTime UploadedAt, bool IsRepresentativeImage, string? SourceName, string? SourceUrl, string? CreatorAttribution, string? LicenseName, string? LicenseUrl);
 public sealed record PhotoThumbnailResult(bool IsValid, byte[]? Thumbnail, ValidationError? Error);
 
 public static class DepartmentAccess
@@ -65,6 +66,7 @@ public static class DepartmentAccess
     public static readonly string[] VehicleReaders = ["BossAdmin", "Sales", "Loan", "Delivery", "Finance", "Repair"];
     public static readonly string[] VehicleWriters = ["BossAdmin", "Sales"];
     public static readonly string[] CustomerReaders = ["BossAdmin", "Sales", "Loan", "Finance"];
+    public static readonly string[] CustomerProfileReaders = ["BossAdmin", "Sales", "Loan", "Delivery", "Finance"];
     public static readonly string[] OwnerReaders = ["BossAdmin", "Sales", "Finance"];
     public static readonly string[] HrManagers = ["BossAdmin", "HrSalary"];
 
@@ -78,7 +80,7 @@ public static class DepartmentAccess
 
         return category switch
         {
-            FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.ApDocument or FileCategory.StatusReceipt => roleSet.Contains("Sales"),
+            FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.IdentityCard or FileCategory.ApDocument or FileCategory.StatusReceipt => roleSet.Contains("Sales"),
             FileCategory.LoanDocument => roleSet.Contains("Loan"),
             FileCategory.DeliveryDocument or FileCategory.Policy or FileCategory.RoadTaxReceipt => roleSet.Contains("Delivery"),
             FileCategory.RepairInvoice => roleSet.Contains("Repair"),
@@ -93,6 +95,30 @@ public static class DepartmentAccess
 
     public static bool CanAccessHrStaff(ClaimsPrincipal principal, string staffUserId) =>
         IsHrManager(principal) || string.Equals(principal.FindFirstValue(ClaimTypes.NameIdentifier), staffUserId, StringComparison.Ordinal);
+}
+
+public static class DocumentOwnershipRules
+{
+    public static ValidationResult Validate(FileCategory category, Guid? repairJobId, Guid? paymentRecordId)
+    {
+        var errors = new List<ValidationError>();
+        if (repairJobId.HasValue && paymentRecordId.HasValue)
+        {
+            errors.Add(new("document_owner_conflict", "A document can be linked to either a repair job or a payment record, not both."));
+        }
+
+        if (repairJobId.HasValue && category != FileCategory.RepairInvoice)
+        {
+            errors.Add(new("repair_document_category_invalid", "Repair job documents must use the RepairInvoice category."));
+        }
+
+        if (paymentRecordId.HasValue && category is not (FileCategory.PaymentReceipt or FileCategory.PaymentInvoice))
+        {
+            errors.Add(new("payment_document_category_invalid", "Payment documents must use the PaymentReceipt or PaymentInvoice category."));
+        }
+
+        return new ValidationResult(errors);
+    }
 }
 
 public static class ApiErrors
@@ -127,7 +153,8 @@ public static class BackOfficeVehicleLookup
             vehicle.Make,
             vehicle.Model,
             vehicle.StockOwner,
-            vehicle.Status);
+            vehicle.Status,
+            vehicle.CustomerId);
 }
 
 public static class PublicVehiclePhotos
@@ -136,7 +163,7 @@ public static class PublicVehiclePhotos
         photos
             .Where(item => item.VehicleId == vehicleId)
             .OrderByDescending(item => item.UploadedAt)
-            .Select(item => new PublicPhotoSummary(item.Id, item.FileName, item.MimeType, item.UploadedAt))
+            .Select(item => new PublicPhotoSummary(item.Id, item.FileName, item.MimeType, item.UploadedAt, item.IsRepresentativeImage, item.SourceName, item.SourceUrl, item.CreatorAttribution, item.LicenseName, item.LicenseUrl))
             .ToList();
 
     public static PublicPhotoPayload? SelectPrimary(Guid vehicleId, IEnumerable<VehiclePhoto> photos)
@@ -293,6 +320,8 @@ public static class RuntimeMode
 
 public static class LeadCapture
 {
+    public static readonly Guid GeneralContactVehicleId = Guid.Empty;
+
     public static Lead Create(LeadRequest request)
     {
         if (request.VehicleId == Guid.Empty) throw new ArgumentException("Vehicle is required.", nameof(request));
@@ -305,6 +334,25 @@ public static class LeadCapture
             CustomerName = request.CustomerName.Trim(),
             Phone = request.Phone.Trim(),
             Message = request.Message?.Trim(),
+            SourcePage = TrimToNull(request.SourcePage, 500),
+            SourceReferrer = TrimToNull(request.SourceReferrer, 500),
+            SourceCampaign = TrimToNull(request.SourceCampaign, 500),
+            Status = LeadStatus.New
+        };
+    }
+
+    public static Lead CreateContactEnquiry(ContactEnquiryRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.CustomerName)) throw new ArgumentException("Customer name is required.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.Phone)) throw new ArgumentException("Phone is required.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.Message)) throw new ArgumentException("Message is required.", nameof(request));
+
+        return new Lead
+        {
+            VehicleId = GeneralContactVehicleId,
+            CustomerName = request.CustomerName.Trim(),
+            Phone = request.Phone.Trim(),
+            Message = TrimToNull(request.Message, 2000),
             SourcePage = TrimToNull(request.SourcePage, 500),
             SourceReferrer = TrimToNull(request.SourceReferrer, 500),
             SourceCampaign = TrimToNull(request.SourceCampaign, 500),
@@ -335,7 +383,7 @@ public static class LeadRules
             errors.Add(new ValidationError("phone_required", "Phone is required."));
         }
 
-        if (!vehicles.Any(vehicle => vehicle.Id == lead.VehicleId))
+        if (lead.VehicleId != LeadCapture.GeneralContactVehicleId && !vehicles.Any(vehicle => vehicle.Id == lead.VehicleId))
         {
             errors.Add(new ValidationError("vehicle_not_found", "Lead must be linked to an existing vehicle."));
         }
@@ -827,6 +875,31 @@ public static class WorkflowReferenceRules
         if (vehicle is not { IsPublic: true, Status: VehicleStatus.Available })
         {
             errors.Add(new ValidationError("vehicle_not_public", "Lead vehicle is not available on the public website."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidatePublicContactEnquiry(ContactEnquiryRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(request.CustomerName))
+        {
+            errors.Add(new ValidationError("customer_name_required", "Customer name is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Phone))
+        {
+            errors.Add(new ValidationError("phone_required", "Phone is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Message))
+        {
+            errors.Add(new ValidationError("message_required", "Message is required."));
+        }
+        else if (request.Message.Trim().Length > 2000)
+        {
+            errors.Add(new ValidationError("message_too_long", "Message must be 2,000 characters or fewer."));
         }
 
         return new ValidationResult(errors);

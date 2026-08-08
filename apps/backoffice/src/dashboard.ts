@@ -1,8 +1,17 @@
-import type { DashboardReminder, DashboardReminderFilters } from "./api";
+import type { DashboardReminder, DashboardReminderFilters, Vehicle } from "./api";
 
 export type ReminderDueFilter = NonNullable<DashboardReminderFilters["due"]>;
 
 export type ReminderInboxFilters = DashboardReminderFilters;
+
+export function safeDashboardStockSummary(vehicles: Vehicle[]) {
+  return {
+    totalStock: vehicles.length,
+    available: vehicles.filter((vehicle) => vehicle.status === "Available").length,
+    loanProcessing: vehicles.filter((vehicle) => vehicle.status === "LoanProcessing").length,
+    sold: vehicles.filter((vehicle) => vehicle.status === "Sold").length
+  };
+}
 
 export function reminderDueLabel(dueDate: string, today = todayIsoDate()) {
   if (dueDate < today) {

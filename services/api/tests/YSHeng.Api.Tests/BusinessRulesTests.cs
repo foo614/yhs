@@ -48,6 +48,7 @@ public sealed class BusinessRulesTests
     {
         var vehicle = VehicleSeed.Available(publicVisible: true) with
         {
+            CustomerId = Guid.NewGuid(),
             PurchasePrice = 42000m,
             AdditionalCharges = 600m,
             RefurbishmentTotal = 3500m,
@@ -82,7 +83,64 @@ public sealed class BusinessRulesTests
         Assert.Equal(vehicle.Make, result.Make);
         Assert.Equal(vehicle.Model, result.Model);
         Assert.Equal(vehicle.Status, result.Status);
+        Assert.Equal(vehicle.CustomerId, result.CustomerId);
         Assert.DoesNotContain(result.GetType().GetProperties(), property => property.Name is "PurchasePrice" or "SellingPrice" or "AdditionalCharges" or "RefurbishmentTotal" or "CommissionTotal" or "IsPublic");
+    }
+
+    [Fact]
+    public void Customer_profile_uses_the_canonical_customer_id_and_scopes_sensitive_sections_by_role()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789", IcNumber = "900101-01-1234", Email = "ali@example.test", Address = "Demo address" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = customer.Id, PlateNumber = "WXY1234" };
+        var loan = new LoanApplication { CustomerId = customer.Id, VehicleId = vehicle.Id, Status = LoanStatus.Pending };
+        var delivery = new DeliverySchedule { VehicleId = vehicle.Id, Pic = "Delivery Team", ScheduledDate = new DateOnly(2026, 8, 20), Status = DeliveryStatus.Scheduled, InsuranceHandled = true };
+        var payment = new PaymentRecord { VehicleId = vehicle.Id, NettPrice = 55000m, Status = PaymentStatus.Approved, ReceiptNumber = "R-100" };
+        var invoice = new FinanceInvoice { CustomerId = customer.Id, VehicleId = vehicle.Id, PaymentRecordId = payment.Id, InvoiceNumber = "INV-100", Amount = 55000m };
+        var handover = new CashHandover { CustomerId = customer.Id, VehicleId = vehicle.Id, PaymentRecordId = payment.Id, Amount = 55000m, CollectedByUserId = "sales-1" };
+        var receipt = new OfficialReceipt { CashHandoverId = handover.Id, PaymentRecordId = payment.Id, ReceiptNumber = "YSR-100", Amount = 55000m };
+        var documents = new[]
+        {
+            new DocumentBlob { VehicleId = vehicle.Id, Category = FileCategory.IdentityCard, FileName = "ic.png", MimeType = "image/png", Checksum = "ic" },
+            new DocumentBlob { VehicleId = vehicle.Id, Category = FileCategory.Policy, FileName = "policy.pdf", MimeType = "application/pdf", Checksum = "policy" }
+        };
+        var lead = new Lead { CustomerId = customer.Id, VehicleId = vehicle.Id, CustomerName = customer.Name, Phone = customer.Phone };
+
+        var deliveryProfile = CustomerProfileFactory.Create(customer, ["Delivery"], [vehicle], [loan], [delivery], [payment], [invoice], [handover], [receipt], documents, [lead]);
+        var financeProfile = CustomerProfileFactory.Create(customer, ["Finance"], [vehicle], [loan], [delivery], [payment], [invoice], [handover], [receipt], documents, [lead]);
+
+        Assert.Equal(customer.Id, deliveryProfile.Contact.Id);
+        Assert.Equal(customer.Name, deliveryProfile.Contact.Name);
+        Assert.Equal(customer.Phone, deliveryProfile.Contact.Phone);
+        Assert.Null(deliveryProfile.Contact.IcNumber);
+        Assert.Null(deliveryProfile.Contact.Email);
+        Assert.Empty(deliveryProfile.Loans);
+        Assert.Single(deliveryProfile.Deliveries);
+        Assert.Empty(deliveryProfile.Payments);
+        Assert.Empty(deliveryProfile.Enquiries);
+        Assert.Single(deliveryProfile.Documents);
+        Assert.Equal(FileCategory.Policy, deliveryProfile.Documents[0].Category);
+        Assert.Contains(deliveryProfile.MissingDocuments, item => item.Category == FileCategory.RoadTaxReceipt);
+
+        Assert.Equal(customer.IcNumber, financeProfile.Contact.IcNumber);
+        Assert.Single(financeProfile.Payments);
+        Assert.Single(financeProfile.Invoices);
+        Assert.Single(financeProfile.OfficialReceipts);
+        Assert.Empty(financeProfile.Deliveries);
+        Assert.Empty(financeProfile.Documents);
+        Assert.Empty(financeProfile.Enquiries);
+    }
+
+    [Fact]
+    public void Customer_profile_options_keep_duplicate_names_distinct_by_id()
+    {
+        var first = new Customer { Id = Guid.NewGuid(), Name = "Alex Lim", Phone = "0111111111" };
+        var second = new Customer { Id = Guid.NewGuid(), Name = "Alex Lim", Phone = "0222222222" };
+
+        var options = CustomerProfileFactory.CreateOptions([first, second]);
+
+        Assert.Equal(2, options.Count);
+        Assert.Contains(options, option => option.Id == first.Id && option.Name == "Alex Lim");
+        Assert.Contains(options, option => option.Id == second.Id && option.Name == "Alex Lim");
     }
 
     [Fact]
@@ -129,6 +187,42 @@ public sealed class BusinessRulesTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "customer_name_required");
         Assert.Contains(result.Errors, error => error.Code == "phone_required");
+    }
+
+    [Fact]
+    public void Public_contact_enquiry_requires_customer_contact_and_message()
+    {
+        var request = new ContactEnquiryRequest(" Ali Tan ", " 0123456789 ", " Trade-in question ", " /contact ");
+
+        var validation = WorkflowReferenceRules.ValidatePublicContactEnquiry(request);
+        var lead = LeadCapture.CreateContactEnquiry(request);
+
+        Assert.True(validation.IsValid);
+        Assert.Equal(Guid.Empty, lead.VehicleId);
+        Assert.Equal("Ali Tan", lead.CustomerName);
+        Assert.Equal("0123456789", lead.Phone);
+        Assert.Equal("Trade-in question", lead.Message);
+        Assert.Equal("/contact", lead.SourcePage);
+    }
+
+    [Fact]
+    public void Public_contact_enquiry_validation_requires_customer_contact_and_message()
+    {
+        var result = WorkflowReferenceRules.ValidatePublicContactEnquiry(new ContactEnquiryRequest(" ", "", " "));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "customer_name_required");
+        Assert.Contains(result.Errors, error => error.Code == "phone_required");
+        Assert.Contains(result.Errors, error => error.Code == "message_required");
+    }
+
+    [Fact]
+    public void Public_contact_enquiry_message_is_limited_to_2000_characters()
+    {
+        var result = WorkflowReferenceRules.ValidatePublicContactEnquiry(new ContactEnquiryRequest("Ali Tan", "0123456789", new string('x', 2001)));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "message_too_long");
     }
 
     [Fact]
@@ -1380,6 +1474,74 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Document_ownership_validation_requires_one_compatible_workflow_record()
+    {
+        var repairId = Guid.NewGuid();
+        var paymentId = Guid.NewGuid();
+
+        var conflict = DocumentOwnershipRules.Validate(FileCategory.RepairInvoice, repairId, paymentId);
+        var invalidRepairCategory = DocumentOwnershipRules.Validate(FileCategory.PaymentReceipt, repairId, null);
+        var invalidPaymentCategory = DocumentOwnershipRules.Validate(FileCategory.Voc, null, paymentId);
+        var validRepair = DocumentOwnershipRules.Validate(FileCategory.RepairInvoice, repairId, null);
+        var validPayment = DocumentOwnershipRules.Validate(FileCategory.PaymentReceipt, null, paymentId);
+
+        Assert.False(conflict.IsValid);
+        Assert.Contains(conflict.Errors, error => error.Code == "document_owner_conflict");
+        Assert.Contains(invalidRepairCategory.Errors, error => error.Code == "repair_document_category_invalid");
+        Assert.Contains(invalidPaymentCategory.Errors, error => error.Code == "payment_document_category_invalid");
+        Assert.True(validRepair.IsValid);
+        Assert.True(validPayment.IsValid);
+    }
+
+    [Fact]
+    public void Cash_custody_requires_matching_amount_and_separation_of_duties()
+    {
+        var customerId = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = customerId };
+        var payment = new PaymentRecord { Id = Guid.NewGuid(), VehicleId = vehicle.Id, NettPrice = 58000m };
+        var request = new CashHandoverCreateRequest(payment.Id, 58000m, "Customer paid cash at showroom");
+        var handover = new CashHandover
+        {
+            PaymentRecordId = payment.Id,
+            VehicleId = vehicle.Id,
+            CustomerId = customerId,
+            Amount = request.Amount,
+            CollectedByUserId = "sales-1",
+            Status = CashHandoverStatus.ReceivedBySales
+        };
+
+        Assert.True(CashCustodyRules.ValidateCreate(request, payment, vehicle).IsValid);
+        Assert.Contains(CashCustodyRules.ValidateCreate(request with { Amount = 57000m }, payment, vehicle).Errors, error => error.Code == "cash_handover_amount_mismatch");
+        Assert.True(CashCustodyRules.ValidateRequestHandover(handover, "sales-1").IsValid);
+        Assert.Contains(CashCustodyRules.ValidateHandOver(handover with { Status = CashHandoverStatus.PendingHandover }, "sales-1").Errors, error => error.Code == "cash_handover_self_approval_forbidden");
+        Assert.True(CashCustodyRules.ValidateHandOver(handover with { Status = CashHandoverStatus.PendingHandover }, "finance-1").IsValid);
+        Assert.True(CashCustodyRules.ValidateAccept(handover with { Status = CashHandoverStatus.HandedOver }, "finance-1").IsValid);
+        Assert.Contains(CashCustodyRules.ValidateReject(handover with { Status = CashHandoverStatus.HandedOver }, "finance-1", " ").Errors, error => error.Code == "cash_handover_rejection_reason_required");
+    }
+
+    [Fact]
+    public void Official_receipt_is_stable_and_contains_a_pdf_for_the_accepted_handover()
+    {
+        var handover = new CashHandover
+        {
+            Id = Guid.Parse("efb192b3-c5f8-41ec-827f-56769a8c5f59"),
+            PaymentRecordId = Guid.NewGuid(),
+            Amount = 58000m
+        };
+        var vehicle = VehicleSeed.Available(publicVisible: false);
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var now = new DateTime(2026, 8, 8, 9, 30, 0, DateTimeKind.Utc);
+
+        var first = OfficialReceiptFactory.Create(handover, vehicle, customer, "finance-1", now);
+        var second = OfficialReceiptFactory.Create(handover, vehicle, customer, "finance-1", now.AddHours(1));
+
+        Assert.Equal(first.ReceiptNumber, second.ReceiptNumber);
+        Assert.Equal("YSR-20260808-EFB192", first.ReceiptNumber);
+        Assert.StartsWith("%PDF-", System.Text.Encoding.ASCII.GetString(first.Content));
+        Assert.Equal(handover.Amount, first.Amount);
+    }
+
+    [Fact]
     public void Photo_upload_validation_rejects_unsupported_image_bytes()
     {
         var result = PhotoUploadRules.CreateThumbnail([1, 2, 3, 4]);
@@ -2428,6 +2590,51 @@ public sealed class BusinessRulesTests
         Assert.Equal("VPK1234", result.Fields["plateNumber"]);
         Assert.Equal("52000.00", result.Fields["amount"]);
         Assert.True(result.Confidence > 0);
+    }
+
+    [Fact]
+    public void Local_mock_ocr_extracts_typed_identity_card_fields_without_invoice_values()
+    {
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.IdentityCard,
+            FileName = "ic.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes("Identity Card Name Ali Tan IC 900101-01-1234 Address 12 Jalan Demo")
+        };
+
+        var result = new LocalMockOcrExtractor().Analyze(document, []);
+
+        Assert.Equal("900101-01-1234", result.Fields["icNumber"]);
+        Assert.Equal("Ali Tan", result.Fields["customerName"]);
+        Assert.Equal("12 Jalan Demo", result.Fields["address"]);
+        Assert.Null(result.Fields["invoiceNumber"]);
+        Assert.Null(result.Fields["amount"]);
+    }
+
+    [Fact]
+    public void Local_mock_ocr_extracts_typed_voc_fields_without_invoice_values()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "WXY1234" };
+        var document = new DocumentBlob
+        {
+            VehicleId = vehicle.Id,
+            Category = FileCategory.Voc,
+            FileName = "voc.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes("Vehicle Ownership Certificate Registration WXY1234 Chassis MMBXUFG2WNH123456 Engine 4B11T123456 Make Proton Model X70 Year 2024 Owner Ali Tan")
+        };
+
+        var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
+
+        Assert.Equal("WXY1234", result.Fields["plateNumber"]);
+        Assert.Equal("MMBXUFG2WNH123456", result.Fields["chassisNumber"]);
+        Assert.Equal("4B11T123456", result.Fields["engineNumber"]);
+        Assert.Equal("Proton", result.Fields["make"]);
+        Assert.Equal("X70", result.Fields["model"]);
+        Assert.Equal("2024", result.Fields["year"]);
+        Assert.Equal("Ali Tan", result.Fields["ownerName"]);
+        Assert.Null(result.Fields["invoiceNumber"]);
     }
 
     [Fact]

@@ -62,6 +62,10 @@ export function leadSourceSummary(lead: Lead) {
 }
 
 export function leadVehicleLabel(lead: Lead, vehicles: LeadVehicleInfo[]) {
+  if (!lead.vehicleId || lead.vehicleId === "00000000-0000-0000-0000-000000000000") {
+    return "Website contact enquiry";
+  }
+
   const vehicle = findLeadVehicle(lead, vehicles);
   if (!vehicle) {
     return "Unknown vehicle";

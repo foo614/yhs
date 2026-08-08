@@ -133,6 +133,11 @@ describe("lead customer link display", () => {
     expect(leadPriorityLabel(lead, [lead], vehicles)).toBe("Follow up");
   });
 
+  it("labels general website contact enquiries for sales triage", () => {
+    expect(leadVehicleLabel({ ...baseLead, vehicleId: "00000000-0000-0000-0000-000000000000" }, vehicles))
+      .toBe("Website contact enquiry");
+  });
+
   it("groups leads under the same vehicle for expandable sales triage", () => {
     const leads: Lead[] = [
       { ...baseLead, id: "lead-hot-older", createdAt: "2026-06-02T00:00:00Z" },

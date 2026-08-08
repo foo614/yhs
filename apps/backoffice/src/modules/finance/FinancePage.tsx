@@ -4,6 +4,7 @@ import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, In
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
+import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import {
   brokerCommissionCreateBlockReason,
   canReconcilePayment,
@@ -21,6 +22,7 @@ import {
 import {
   customerSelectLabel,
   financeInvoiceContentUrl,
+  getVehicleDocuments,
   type BrokerCommission,
   type Customer,
   type DailySpend,
@@ -31,6 +33,7 @@ import {
   type PaymentRecord,
   type PaymentVoucher,
   type SettlementReminder,
+  type VehicleDocument,
   type VehicleLookup
 } from "../../api";
 
@@ -47,6 +50,7 @@ export function FinancePage({
   financeInvoices,
   onCreate,
   onUpdate,
+  onOpenCustomer,
   onGenerateInvoice,
   onSubmitAutoCount,
   onCreateSettlement,
@@ -74,6 +78,7 @@ export function FinancePage({
   financeInvoices: FinanceInvoice[];
   onCreate: (payment: PaymentRecord) => void;
   onUpdate: (payment: PaymentRecord) => void;
+  onOpenCustomer: (customerId: string) => void;
   onGenerateInvoice: (paymentId: string) => void;
   onSubmitAutoCount: (invoiceId: string) => void;
   onCreateSettlement: (settlement: SettlementReminder) => void;
@@ -100,6 +105,8 @@ export function FinancePage({
   const [financeCreateOpen, setFinanceCreateOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [financeTab, setFinanceTab] = useState(() => financeTabFromLocation());
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PaymentReceipt");
+  const [documentReloadKey, setDocumentReloadKey] = useState(0);
+  const [paymentDocuments, setPaymentDocuments] = useState<VehicleDocument[]>([]);
   const [paymentOcrDraft, setPaymentOcrDraft] = useState<OcrReviewValues | null>(null);
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
@@ -153,6 +160,24 @@ export function FinancePage({
       setEditPaymentVoucherId(paymentVouchers[0].id);
     }
   }, [editPaymentVoucherId, paymentVouchers]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedPayment) {
+      setPaymentDocuments([]);
+      return () => {
+        active = false;
+      };
+    }
+
+    void getVehicleDocuments(selectedPayment.vehicleId).then((documents) => {
+      if (active) setPaymentDocuments(documents.filter((document) => document.paymentRecordId === selectedPayment.id));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [documentReloadKey, selectedPayment?.id, selectedPayment?.vehicleId]);
 
   const selectPayment = (paymentId: string) => {
     setEditPaymentId(paymentId);
@@ -334,10 +359,11 @@ export function FinancePage({
     {
       title: "Action / 操作",
       fixed: "right",
-      width: 210,
+      width: 290,
       render: (_, row) => (
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectDebtRecovery(row.id)}>Details</Button>
+          <Button size="small" onClick={() => onOpenCustomer(row.customerId)}>Customer 360</Button>
           {row.status === "Open" ? (
             <Button size="small" onClick={() => onUpdateDebtRecovery({ ...row, status: "FollowedUp" })}>Followed</Button>
           ) : (
@@ -732,6 +758,15 @@ export function FinancePage({
       </Drawer>
       {financeTab === "payments" && <ProCard title="Finance Documents / 财务文件">
         <Space direction="vertical" size={12} className="fullWidth">
+          <MissingUploadReminder
+            title="Payment evidence required"
+            description="Attach the receipt or invoice to this collection record before finance reconciliation."
+            items={financeDocumentCategories.map((category) => ({
+              label: documentCategoryLabel(category),
+              isPresent: paymentDocuments.some((document) => document.category === category)
+            }))}
+            onAction={() => setDocumentCategory(financeDocumentCategories.find((category) => !paymentDocuments.some((document) => document.category === category)) ?? "PaymentReceipt")}
+          />
           <Form layout="vertical" className="formGrid">
             <Form.Item label="Payment Record / 收款记录">
               <Select
@@ -755,6 +790,7 @@ export function FinancePage({
                 vehicleId={selectedPayment?.vehicleId}
                 category={documentCategory}
                 disabled={!selectedPayment}
+                uploadOwner={selectedPayment ? { paymentRecordId: selectedPayment.id } : undefined}
                 buttonLabel="Upload & OCR Finance Document"
                 applyLabel="Apply to Payment"
                 fields={[
@@ -773,6 +809,7 @@ export function FinancePage({
                   setPaymentOcrDraft(values);
                   setFinanceEditorOpen("payment");
                 }}
+                onUploaded={() => setDocumentReloadKey((value) => value + 1)}
               />
             </Form.Item>
           </Form>
@@ -1370,6 +1407,7 @@ function documentCategoryLabel(category: DocumentCategory) {
   const labels: Record<DocumentCategory, string> = {
     PurchaseInvoice: "Purchase Invoice",
     Voc: "VOC",
+    IdentityCard: "Identity Card",
     ApDocument: "AP Document",
     StatusReceipt: "Status Receipt",
     LoanDocument: "Loan Document",

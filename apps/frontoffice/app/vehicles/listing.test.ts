@@ -3,8 +3,10 @@ import { filterAndSortVehicles, listingFiltersFromSearchParams, type ListingFilt
 import {
   getPublicVehicle,
   getPublicVehicleDetailPageData,
+  getPublicInventory,
   getPublicVehicles,
   publicVehicleFromApi,
+  submitPublicContact,
   submitPublicLead,
   type PublicVehicle
 } from "./service";
@@ -86,8 +88,20 @@ describe("filterAndSortVehicles", () => {
     expect(result.map((vehicle) => vehicle.id)).toEqual(["three", "one"]);
   });
 
+  it("filters by maximum year, minimum price, and all stock owners", () => {
+    const result = filterAndSortVehicles(vehicles, {
+      maxYear: 2021,
+      minPrice: 60000,
+      stockOwner: "All",
+      sort: "year-desc"
+    });
+
+    expect(result.map((vehicle) => vehicle.id)).toEqual(["two"]);
+  });
+
   it("sorts vehicles by newest and price", () => {
     expect(filterAndSortVehicles(vehicles, { sort: "year-desc" }).map((vehicle) => vehicle.id)).toEqual(["three", "one", "two"]);
+    expect(filterAndSortVehicles(vehicles, { sort: "price-asc" }).map((vehicle) => vehicle.id)).toEqual(["three", "one", "two"]);
     expect(filterAndSortVehicles(vehicles, { sort: "price-desc" }).map((vehicle) => vehicle.id)).toEqual(["two", "one", "three"]);
   });
 });
@@ -101,7 +115,7 @@ describe("listingFiltersFromSearchParams", () => {
       maxYear: "2022",
       minPrice: "30000",
       maxPrice: "60000",
-      stockOwner: "YSHeng",
+      stockOwner: "All",
       sort: "price-asc"
     });
 
@@ -112,7 +126,7 @@ describe("listingFiltersFromSearchParams", () => {
       maxYear: 2022,
       minPrice: 30000,
       maxPrice: 60000,
-      stockOwner: "YSHeng",
+      stockOwner: "All",
       sort: "price-asc"
     });
   });
@@ -160,7 +174,7 @@ describe("publicVehicleFromApi", () => {
     } as const;
     const result = publicVehicleFromApi(apiVehicle, "http://localhost:5000");
 
-    expect(result).toEqual({
+    expect(result).toEqual(expect.objectContaining({
       id: "one",
       plateNumber: "VPK1234",
       make: "Toyota",
@@ -170,8 +184,11 @@ describe("publicVehicleFromApi", () => {
       status: "Available",
       sellingPrice: 58000,
       photoUrl: "http://localhost:5000/api/public/vehicles/one/photo",
-      photoUrls: ["http://localhost:5000/api/public/vehicles/one/photo"]
-    });
+      photoUrls: [],
+      fallbackPhotoUrl: "/vehicle-photo-pending.svg"
+    }));
+    expect(result.fallbackPhotoUrls).toEqual(["/vehicle-photo-pending.svg"]);
+    expect(result.fallbackPhotoUrls?.[0]).toBe(result.fallbackPhotoUrl);
     expect("purchasePrice" in result).toBe(false);
     expect("refurbishmentTotal" in result).toBe(false);
     expect("commissionTotal" in result).toBe(false);
@@ -179,6 +196,42 @@ describe("publicVehicleFromApi", () => {
 });
 
 describe("getPublicVehicles", () => {
+  it("uses uploaded public photo URLs for inventory cards when available", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          {
+            id: "available",
+            plateNumber: "VPK1234",
+            make: "Toyota",
+            model: "Vios",
+            year: 2021,
+            stockOwner: "YSHeng",
+            status: "Available",
+            sellingPrice: 58000
+          }
+        ])
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([
+          { id: "photo-1", fileName: "front.jpg", mimeType: "image/jpeg", uploadedAt: "2026-06-04T00:00:00Z" }
+        ])
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getPublicVehicles("http://localhost:5000");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/public/vehicles", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/public/vehicles/available/photos", { cache: "no-store" });
+    expect(result[0]).toEqual(expect.objectContaining({
+      id: "available",
+      photoUrl: "http://localhost:5000/api/public/vehicles/available/photos/photo-1",
+      photoUrls: ["http://localhost:5000/api/public/vehicles/available/photos/photo-1"]
+    }));
+  });
+
   it("only returns available vehicles from API inventory responses", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -221,14 +274,14 @@ describe("getPublicVehicles", () => {
     expect(result.map((vehicle) => vehicle.id)).toEqual(["available"]);
   });
 
-  it("keeps fallback inventory limited to available vehicles", async () => {
+  it("reports an unavailable inventory instead of showing sample vehicles", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("API unavailable")));
 
-    const result = await getPublicVehicles();
+    const inventory = await getPublicInventory();
+    const vehicles = await getPublicVehicles();
 
-    expect(result.length).toBeGreaterThan(0);
-    expect(result.every((vehicle) => vehicle.status === "Available")).toBe(true);
-    expect(result.map((vehicle) => vehicle.id)).not.toContain("f8df54c3-7073-48e8-988f-67f249334b9c");
+    expect(inventory).toEqual({ vehicles: [], unavailable: true });
+    expect(vehicles).toEqual([]);
   });
 });
 
@@ -259,8 +312,8 @@ describe("getPublicVehicle", () => {
 
     const result = await getPublicVehicle("vehicle-1", "http://localhost:5000");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/public/vehicles/vehicle-1", { next: { revalidate: 30 } });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/public/vehicles/vehicle-1/photos", { next: { revalidate: 30 } });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/public/vehicles/vehicle-1", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/public/vehicles/vehicle-1/photos", { cache: "no-store" });
     expect(result).toEqual(expect.objectContaining({
       id: "vehicle-1",
       plateNumber: "VPK1234",
@@ -270,6 +323,38 @@ describe("getPublicVehicle", () => {
         "http://localhost:5000/api/public/vehicles/vehicle-1/photos/photo-2"
       ]
     }));
+  });
+
+  it("keeps the uploaded gallery empty and uses a labelled neutral image when there are no uploaded photos", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          id: "vehicle-1",
+          plateNumber: "VPK1234",
+          make: "Toyota",
+          model: "Vios",
+          year: 2021,
+          stockOwner: "YSHeng",
+          status: "Available",
+          sellingPrice: 58000
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([])
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getPublicVehicle("vehicle-1", "http://localhost:5000");
+
+    expect(result).toEqual(expect.objectContaining({
+      photoUrl: "/vehicle-photo-pending.svg",
+      photoUrls: [],
+      isRepresentativePhoto: true
+    }));
+    expect(result?.fallbackPhotoUrls).toEqual(["/vehicle-photo-pending.svg"]);
+    expect(result?.fallbackPhotoUrls?.[0]).toBe(result?.fallbackPhotoUrl);
   });
 
   it("returns null when the public detail endpoint rejects the vehicle", async () => {
@@ -328,9 +413,9 @@ describe("getPublicVehicleDetailPageData", () => {
 
     const result = await getPublicVehicleDetailPageData("vehicle-1", "http://localhost:5000");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/public/vehicles/vehicle-1", { next: { revalidate: 30 } });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/public/vehicles/vehicle-1/photos", { next: { revalidate: 30 } });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/public/vehicles", { next: { revalidate: 30 } });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/public/vehicles/vehicle-1", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/public/vehicles/vehicle-1/photos", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/public/vehicles", { cache: "no-store" });
     expect(result?.vehicle.id).toBe("vehicle-1");
     expect(result?.vehicles.map((vehicle) => vehicle.id)).toEqual(["vehicle-1", "vehicle-2"]);
   });
@@ -473,5 +558,51 @@ describe("submitPublicLead", () => {
     }, "http://localhost:5000");
 
     expect(result).toEqual({ ok: false, code: "customer_name_required", message: "Customer name is required." });
+  });
+});
+
+describe("submitPublicContact", () => {
+  it("trims and submits a general public contact enquiry", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await submitPublicContact({
+      customerName: "  Ali Tan  ",
+      phone: " 0123456789 ",
+      message: " Trade-in question ",
+      sourcePage: " /contact?utm_source=facebook ",
+      sourceReferrer: " https://facebook.com/ ",
+      sourceCampaign: " utm_source=facebook "
+    }, "http://localhost:5000");
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/public/contact-enquiries", expect.objectContaining({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        customerName: "Ali Tan",
+        phone: "0123456789",
+        message: "Trade-in question",
+        sourcePage: "/contact?utm_source=facebook",
+        sourceReferrer: "https://facebook.com/",
+        sourceCampaign: "utm_source=facebook"
+      })
+    }));
+  });
+
+  it("blocks incomplete and overlong contact enquiries before calling the API", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(submitPublicContact({ customerName: " ", phone: "0123456789", message: "Help" }))
+      .resolves.toEqual({ ok: false, code: "customer_name_required", message: "Name is required." });
+    await expect(submitPublicContact({ customerName: "Ali Tan", phone: " ", message: "Help" }))
+      .resolves.toEqual({ ok: false, code: "phone_required", message: "Phone is required." });
+    await expect(submitPublicContact({ customerName: "Ali Tan", phone: "0123456789", message: " " }))
+      .resolves.toEqual({ ok: false, code: "message_required", message: "Message is required." });
+    await expect(submitPublicContact({ customerName: "Ali Tan", phone: "0123456789", message: "x".repeat(2001) }))
+      .resolves.toEqual({ ok: false, code: "message_too_long", message: "Message must be 2,000 characters or fewer." });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

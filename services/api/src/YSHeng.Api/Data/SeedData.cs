@@ -17,8 +17,11 @@ public static class SeedData
         await EnsureLeadSchemaAsync(db);
         await EnsureHrSchemaAsync(db);
         await EnsureOcrSchemaAsync(db);
+        await EnsureDocumentOwnershipSchemaAsync(db);
+        await EnsureCashCustodySchemaAsync(db);
         await EnsureVehicleEnhancementSchemaAsync(db);
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
+        await EnsureVehiclePhotoAttributionSchemaAsync(db);
 
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         foreach (var role in Roles)
@@ -169,6 +172,7 @@ public static class SeedData
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenByUserId" text NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenByName" text NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "TakenAt" timestamp with time zone NULL;
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "CustomerId" uuid NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourcePage" text NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourceReferrer" text NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourceCampaign" text NULL;
@@ -321,6 +325,8 @@ public static class SeedData
     {
         await db.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "StockLocation" text NOT NULL DEFAULT '';
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "ChassisNumber" text NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "EngineNumber" text NULL;
 
             CREATE TABLE IF NOT EXISTS "StockMovements" (
                 "Id" uuid NOT NULL,
@@ -338,6 +344,76 @@ public static class SeedData
         """);
     }
 
+    private static async Task EnsureVehiclePhotoAttributionSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "IsRepresentativeImage" boolean NOT NULL DEFAULT FALSE;
+            ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "SourceName" text NULL;
+            ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "SourceUrl" text NULL;
+            ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "CreatorAttribution" text NULL;
+            ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "LicenseName" text NULL;
+            ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "LicenseUrl" text NULL;
+        """);
+    }
+
+    private static async Task EnsureDocumentOwnershipSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "RepairJobId" uuid NULL;
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "PaymentRecordId" uuid NULL;
+
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_RepairJobId" ON "DocumentBlobs" ("RepairJobId");
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_PaymentRecordId" ON "DocumentBlobs" ("PaymentRecordId");
+        """);
+    }
+
+    private static async Task EnsureCashCustodySchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "CashHandovers" (
+                "Id" uuid NOT NULL,
+                "PaymentRecordId" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "CustomerId" uuid NOT NULL,
+                "Amount" numeric NOT NULL,
+                "Status" integer NOT NULL,
+                "CollectedByUserId" text NOT NULL,
+                "CollectedAt" timestamp with time zone NOT NULL,
+                "HandoverRequestedAt" timestamp with time zone NULL,
+                "HandedOverToUserId" text NULL,
+                "HandedOverAt" timestamp with time zone NULL,
+                "AcceptedByUserId" text NULL,
+                "AcceptedAt" timestamp with time zone NULL,
+                "RejectedByUserId" text NULL,
+                "RejectedAt" timestamp with time zone NULL,
+                "RejectionReason" text NULL,
+                "Notes" text NULL,
+                "OfficialReceiptId" uuid NULL,
+                "OfficialReceiptNumber" text NULL,
+                CONSTRAINT "PK_CashHandovers" PRIMARY KEY ("Id")
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_CashHandovers_PaymentRecordId" ON "CashHandovers" ("PaymentRecordId");
+            CREATE INDEX IF NOT EXISTS "IX_CashHandovers_Status_CollectedAt" ON "CashHandovers" ("Status", "CollectedAt");
+
+            CREATE TABLE IF NOT EXISTS "OfficialReceipts" (
+                "Id" uuid NOT NULL,
+                "CashHandoverId" uuid NOT NULL,
+                "PaymentRecordId" uuid NOT NULL,
+                "ReceiptNumber" text NOT NULL,
+                "Amount" numeric NOT NULL,
+                "Content" bytea NOT NULL,
+                "ContentMimeType" text NOT NULL,
+                "CreatedBy" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_OfficialReceipts" PRIMARY KEY ("Id")
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_OfficialReceipts_CashHandoverId" ON "OfficialReceipts" ("CashHandoverId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_OfficialReceipts_ReceiptNumber" ON "OfficialReceipts" ("ReceiptNumber");
+        """);
+    }
+
     private static async Task EnsureFinanceRepairEnhancementSchemaAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("""
@@ -347,18 +423,46 @@ public static class SeedData
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideReason" text NULL;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideBy" text NULL;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideAt" timestamp with time zone NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReceiptNumber" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "InvoiceNumber" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "BossChecked" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "DocumentsPrepared" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ChecklistValidated" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "InvoiceGenerated" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "AutoCountKeyed" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "SalesPrice" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "InterestAdditionalCharges" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NcdAmount" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "WindscreenCharges" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "OutstationDeliveryDate" date NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "BankName" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "BankFollowUpDate" date NULL;
 
+            ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "RepairPart" text NOT NULL DEFAULT '';
             ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "ApprovalStatus" integer NOT NULL DEFAULT 1;
             ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "ApprovalNotes" text NULL;
             ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "ApprovedBy" text NULL;
             ALTER TABLE "RepairJobs" ADD COLUMN IF NOT EXISTS "ApprovedAt" timestamp with time zone NULL;
 
+            ALTER TABLE "SupplierInvoices" ADD COLUMN IF NOT EXISTS "PlateNumberOnInvoice" text NULL;
             ALTER TABLE "SupplierInvoices" ADD COLUMN IF NOT EXISTS "DueDate" date NULL;
             ALTER TABLE "SupplierInvoices" ADD COLUMN IF NOT EXISTS "PaidAt" date NULL;
+
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
 
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsuranceExpiryDate" date NULL;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxExpiryDate" date NULL;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "WindscreenInsuranceExpiryDate" date NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InspectionBookingReference" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InspectionReportReference" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "NotificationSent" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "TwoDayNoticeSent" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsurancePolicyReference" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsuranceHandled" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxReceiptReference" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxHandled" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "WindscreenPolicyReference" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "WindscreenInsuranceHandled" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "HandoverPhotoCaptured" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "SignedHandoverReceived" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CustomerAcknowledged" boolean NOT NULL DEFAULT false;
@@ -405,6 +509,49 @@ public static class SeedData
 
             CREATE INDEX IF NOT EXISTS "IX_AutoCountSyncJobs_FinanceInvoiceId" ON "AutoCountSyncJobs" ("FinanceInvoiceId");
             CREATE INDEX IF NOT EXISTS "IX_AutoCountSyncJobs_PaymentRecordId" ON "AutoCountSyncJobs" ("PaymentRecordId");
+
+            CREATE TABLE IF NOT EXISTS "DailySpends" (
+                "Id" uuid NOT NULL,
+                "Description" text NOT NULL,
+                "Amount" numeric NOT NULL,
+                "DueDate" date NOT NULL,
+                "IsPaid" boolean NOT NULL,
+                CONSTRAINT "PK_DailySpends" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "BrokerCommissions" (
+                "Id" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "BrokerName" text NOT NULL,
+                "Amount" numeric NOT NULL,
+                "IsPaid" boolean NOT NULL,
+                "Cp58Required" boolean NOT NULL,
+                "Cp58Prepared" boolean NOT NULL,
+                CONSTRAINT "PK_BrokerCommissions" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "DebtRecoveryCases" (
+                "Id" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "CustomerId" uuid NOT NULL,
+                "BalanceAmount" numeric NOT NULL,
+                "Status" integer NOT NULL,
+                "FollowUpDate" date NOT NULL,
+                "Notes" text NULL,
+                CONSTRAINT "PK_DebtRecoveryCases" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "PaymentVouchers" (
+                "Id" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "PayeeName" text NOT NULL,
+                "Amount" numeric NOT NULL,
+                "Purpose" text NOT NULL,
+                "Status" integer NOT NULL,
+                "IssuedDate" date NOT NULL,
+                "Notes" text NULL,
+                CONSTRAINT "PK_PaymentVouchers" PRIMARY KEY ("Id")
+            );
         """);
     }
 }

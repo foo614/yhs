@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Banknote, Car, Home, Menu, Search, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
-import { frontofficeCopy, hrefWithLanguage, languages, type Language } from "./i18n";
+import { Banknote, Car, Home, MessageCircle, Search, Sparkles } from "lucide-react";
+import { frontofficeCopy, hrefWithLanguage, languages, languageSwitchHref, type Language } from "./i18n";
 
 const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
 const publicBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -41,7 +41,11 @@ export function PublicHeader({ language, active = "home" }: { language: Language
         aria-controls="mobile-header-menu"
         onClick={() => setMobileMenuOpen((open) => !open)}
       >
-        {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+        <span className="menuGlyph" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
       </button>
       <button
         className={mobileMenuOpen ? "mobileDrawerBackdrop open" : "mobileDrawerBackdrop"}
@@ -92,18 +96,13 @@ export function PublicSubNav({ language, active = "home" }: { language: Language
 export function LanguageSwitch({ language }: { language: Language }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [hash, setHash] = useState("");
 
-  const getSwitchHref = (entry: Language) => {
-    const params = new URLSearchParams(searchParams?.toString());
-    if (entry === "zh") {
-      params.set("lang", "zh");
-    } else {
-      params.delete("lang");
-    }
-    const query = params.toString();
-    const hash = typeof window === "undefined" ? "" : window.location.hash;
-    return `${pathname}${query ? `?${query}` : ""}${hash || ""}`;
-  };
+  useEffect(() => {
+    setHash(window.location.hash);
+  }, []);
+
+  const getSwitchHref = (entry: Language) => languageSwitchHref(pathname, searchParams?.toString() ?? "", entry, hash);
 
   return (
     <div className="languageSwitch" aria-label="Language">
@@ -152,7 +151,7 @@ export function PublicMobileNav({ language, active = "home" }: { language: Langu
     { key: "vehicles", href: hrefWithLanguage("/vehicles", language), icon: <Car size={18} />, label: t.mobileCars },
     { key: "sell", href: hrefWithLanguage("/contact#contact", language), icon: <Sparkles size={18} />, label: t.mobileSell },
     { key: "finance", href: hrefWithLanguage("/contact#services", language), icon: <Banknote size={18} />, label: t.mobileFinance },
-    { key: "profile", href: hrefWithLanguage("/contact", language), icon: <UserRound size={18} />, label: t.mobileProfile }
+    { key: "contact", href: hrefWithLanguage("/contact", language), icon: <MessageCircle size={18} />, label: t.mobileProfile }
   ];
 
   return (

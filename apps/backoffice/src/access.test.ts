@@ -3,7 +3,7 @@ import { backOfficeDataKeysForRoles, canAccessRoute, canAssignStaffRoles, firstA
 
 describe("backoffice role access", () => {
   it("allows Boss/Admin to access every implemented module", () => {
-    for (const path of ["/dashboard", "/vehicles", "/repairs", "/loans", "/delivery", "/finance", "/leads", "/audit-log", "/hr-salary", "/admin"]) {
+    for (const path of ["/dashboard", "/vehicles", "/repairs", "/loans", "/delivery", "/finance", "/cash-custody", "/customer-360", "/leads", "/audit-log", "/hr-salary", "/admin"]) {
       expect(canAccessRoute(["BossAdmin"], path)).toBe(true);
     }
   });
@@ -13,11 +13,17 @@ describe("backoffice role access", () => {
     expect(canAccessRoute(["Sales"], "/leads")).toBe(true);
     expect(canAccessRoute(["Sales"], "/audit-log")).toBe(false);
     expect(canAccessRoute(["Sales"], "/finance")).toBe(false);
+    expect(canAccessRoute(["Sales"], "/cash-custody")).toBe(true);
+    expect(canAccessRoute(["Sales"], "/customer-360")).toBe(true);
     expect(canAccessRoute(["Finance"], "/finance")).toBe(true);
+    expect(canAccessRoute(["Finance"], "/cash-custody")).toBe(true);
     expect(canAccessRoute(["Finance"], "/loans")).toBe(false);
     expect(canAccessRoute(["Loan"], "/loans")).toBe(true);
+    expect(canAccessRoute(["Loan"], "/customer-360")).toBe(true);
     expect(canAccessRoute(["Repair"], "/repairs")).toBe(true);
+    expect(canAccessRoute(["Repair"], "/customer-360")).toBe(false);
     expect(canAccessRoute(["Delivery"], "/delivery")).toBe(true);
+    expect(canAccessRoute(["Delivery"], "/customer-360")).toBe(true);
     expect(canAccessRoute(["HrSalary"], "/hr-salary")).toBe(true);
     expect(canAccessRoute(["HrSalary"], "/vehicles")).toBe(false);
     expect(canAccessRoute(["Sales"], "/hr-salary")).toBe(true);
@@ -39,11 +45,11 @@ describe("backoffice role access", () => {
   });
 
   it("loads only the data sets needed by department roles", () => {
-    expect(backOfficeDataKeysForRoles(["Finance"])).toEqual(["vehicleLookup", "customers", "owners", "payments", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["Finance"])).toEqual(["vehicleLookup", "customers", "owners", "payments", "cashHandovers", "cashHandoverPaymentLookup", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["Loan"])).toEqual(["vehicleLookup", "customers", "loans", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["Repair"])).toEqual(["vehicleLookup", "supplierInvoices", "repairs", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["Delivery"])).toEqual(["vehicleLookup", "deliveries", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
-    expect(backOfficeDataKeysForRoles(["Sales"])).toEqual(["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "leads", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["Sales"])).toEqual(["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "cashHandovers", "cashHandoverPaymentLookup", "leads", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["HrSalary"])).toEqual(["hrStaffUsers", "hrAttendance", "hrLeaveRequests", "hrLeaveBalances", "hrLeavePolicies", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
   });
 

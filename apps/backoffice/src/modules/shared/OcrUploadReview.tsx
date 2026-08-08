@@ -9,6 +9,7 @@ import {
   startOcrJob,
   uploadVehicleDocumentWithProgress,
   type DocumentCategory,
+  type DocumentUploadOwner,
   type OcrJob,
   type OcrLineItem
 } from "../../api";
@@ -22,6 +23,42 @@ export type OcrFieldConfig = {
 
 export type OcrReviewValues = Record<string, string | number | undefined>;
 
+export type OcrFieldConflict = {
+  name: string;
+  label: string;
+  existingValue: string | number;
+  extractedValue: string | number;
+};
+
+export const ocrImageMimeTypes = ["image/jpeg", "image/png", "image/webp"] as const;
+
+export function isOcrImageMimeType(mimeType: string) {
+  return ocrImageMimeTypes.includes(mimeType as (typeof ocrImageMimeTypes)[number]);
+}
+
+export function ocrFieldConflicts(fields: OcrFieldConfig[], existingValues: OcrReviewValues | undefined, extractedValues: OcrReviewValues): OcrFieldConflict[] {
+  if (!existingValues) return [];
+
+  return fields.flatMap((field) => {
+    const existingValue = existingValues[field.name];
+    const extractedValue = extractedValues[field.name];
+    if (existingValue === undefined || extractedValue === undefined || String(existingValue).trim() === "" || String(extractedValue).trim() === "" || valuesMatch(existingValue, extractedValue)) return [];
+    return [{ name: field.name, label: field.label, existingValue, extractedValue }];
+  });
+}
+
+export function resolveOcrReviewValues(
+  values: OcrReviewValues,
+  conflicts: OcrFieldConflict[],
+  choices: Record<string, "existing" | "ocr">
+): OcrReviewValues {
+  const resolved = { ...values };
+  for (const conflict of conflicts) {
+    if (choices[conflict.name] !== "ocr") resolved[conflict.name] = conflict.existingValue;
+  }
+  return resolved;
+}
+
 export function OcrUploadReview({
   vehicleId,
   category,
@@ -29,6 +66,8 @@ export function OcrUploadReview({
   applyLabel = "Apply to Form",
   disabled,
   fields,
+  existingValues,
+  uploadOwner,
   onUploaded,
   onApply
 }: {
@@ -38,6 +77,8 @@ export function OcrUploadReview({
   applyLabel?: string;
   disabled?: boolean;
   fields: OcrFieldConfig[];
+  existingValues?: OcrReviewValues;
+  uploadOwner?: DocumentUploadOwner;
   onUploaded?: () => void;
   onApply: (values: OcrReviewValues, job: OcrJob) => void;
 }) {
@@ -48,6 +89,7 @@ export function OcrUploadReview({
   const [lineItems, setLineItems] = useState<OcrLineItem[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [conflictChoices, setConflictChoices] = useState<Record<string, "existing" | "ocr">>({});
   const lineItemColumns = ocrLineItemColumns(updateLineItem);
 
   async function handleUpload(option: UploadRequestOption) {
@@ -63,14 +105,16 @@ export function OcrUploadReview({
       setUploadProgress(0);
       setAnalyzeProgress(0);
       const file = option.file as File;
-      const document = await uploadVehicleDocumentWithProgress(vehicleId, file, category, setUploadProgress);
+      const document = await uploadVehicleDocumentWithProgress(vehicleId, file, category, setUploadProgress, uploadOwner);
       onUploaded?.();
       const loadedJob = await analyzeUploadedDocument(document.id, async (progress) => {
         setAnalyzeProgress(progress);
       });
       setJob(loadedJob);
       setLineItems(loadedJob.result?.lineItems ?? []);
-      form.setFieldsValue(initialValuesFromJob(loadedJob, fields));
+      const initialValues = initialValuesFromJob(loadedJob, fields);
+      form.setFieldsValue(initialValues);
+      setConflictChoices(Object.fromEntries(ocrFieldConflicts(fields, existingValues, initialValues).map((conflict) => [conflict.name, "existing"])));
       setReviewOpen(true);
       option.onSuccess?.({ ok: true });
     } catch (error) {
@@ -84,17 +128,22 @@ export function OcrUploadReview({
   async function applyResult() {
     if (!job) return;
     const values = await form.validateFields();
+    const conflicts = ocrFieldConflicts(fields, existingValues, values);
+    const resolvedValues = resolveOcrReviewValues(values, conflicts, conflictChoices);
     const localJob: OcrJob = job.result
       ? { ...job, result: { ...job.result, lineItems } }
       : job;
-    const reviewedJob = await reviewOcrJob(job.id, "Accepted", "Accepted from OCR review drawer");
+    const reviewNotes = conflicts.length === 0
+      ? "Accepted from OCR review drawer"
+      : `Accepted from OCR review drawer; ${conflicts.map((conflict) => `${conflict.name}: ${conflictChoices[conflict.name] === "ocr" ? "use-ocr" : "keep-existing"}`).join(", ")}`;
+    const reviewedJob = await reviewOcrJob(job.id, "Accepted", reviewNotes);
     const mergedJob: OcrJob = reviewedJob.result && localJob.result
       ? { ...reviewedJob, result: { ...reviewedJob.result, lineItems } }
       : reviewedJob;
     setJob(mergedJob);
-    onApply(values, mergedJob);
+    onApply(resolvedValues, mergedJob);
     setReviewOpen(false);
-    message.success("OCR values accepted. Review and save the form when ready.");
+    message.success("OCR values accepted. Confirm the target workflow result before continuing.");
   }
 
   async function rejectResult() {
@@ -108,7 +157,17 @@ export function OcrUploadReview({
   return (
     <>
       <Space direction="vertical" size={8} className="fullWidth">
-        <Upload maxCount={1} showUploadList={false} customRequest={(option) => void handleUpload(option)}>
+        <Upload
+          accept={ocrImageMimeTypes.join(",")}
+          maxCount={1}
+          showUploadList={false}
+          beforeUpload={(file) => {
+            if (isOcrImageMimeType(file.type)) return true;
+            message.error("OCR currently accepts JPG, PNG, or WebP images. Upload PDFs through Document Upload instead.");
+            return Upload.LIST_IGNORE;
+          }}
+          customRequest={(option) => void handleUpload(option)}
+        >
           <Button icon={<UploadOutlined />} disabled={disabled || busy}>{buttonLabel}</Button>
         </Upload>
         {(busy || uploadProgress > 0 || analyzeProgress > 0) && (
@@ -132,7 +191,7 @@ export function OcrUploadReview({
           <Alert
             type="info"
             showIcon
-            message="OCR suggestions are editable. They will not be saved until you apply them and submit the normal form."
+          message="OCR suggestions are editable. Differences from an existing record default to keeping the current value until you explicitly choose the OCR value."
           />
           {job?.warnings?.length ? (
             <Alert type="warning" showIcon message={job.warnings.join(" ")} />
@@ -144,6 +203,31 @@ export function OcrUploadReview({
             <Tag>Confidence {Math.round((job?.result?.confidence ?? 0) * 100)}%</Tag>
           </Space>
           <Form form={form} layout="vertical" className="drawerForm">
+            {ocrFieldConflicts(fields, existingValues, form.getFieldsValue()).length > 0 ? (
+              <Form.Item label="Conflicting fields">
+                <Space direction="vertical" size={8} className="fullWidth">
+                  {ocrFieldConflicts(fields, existingValues, form.getFieldsValue()).map((conflict) => (
+                    <Alert
+                      key={conflict.name}
+                      type="warning"
+                      showIcon
+                      message={`${conflict.label}: existing ${conflict.existingValue} / OCR ${conflict.extractedValue}`}
+                      description={(
+                        <Select
+                          aria-label={`${conflict.label} conflict choice`}
+                          value={conflictChoices[conflict.name] ?? "existing"}
+                          options={[
+                            { value: "existing", label: "Keep current value" },
+                            { value: "ocr", label: "Use reviewed OCR value" }
+                          ]}
+                          onChange={(value) => setConflictChoices((current) => ({ ...current, [conflict.name]: value }))}
+                        />
+                      )}
+                    />
+                  ))}
+                </Space>
+              </Form.Item>
+            ) : null}
             {fields.map((field) => (
               <Form.Item key={field.name} name={field.name} label={fieldLabel(field, job)}>
                 {field.type === "number" ? (
@@ -181,6 +265,10 @@ export function OcrUploadReview({
       itemIndex === index ? { ...item, [field]: value === null ? undefined : String(value) } : item
     )));
   }
+}
+
+function valuesMatch(left: string | number, right: string | number) {
+  return String(left).trim().toLocaleLowerCase() === String(right).trim().toLocaleLowerCase();
 }
 
 async function analyzeUploadedDocument(

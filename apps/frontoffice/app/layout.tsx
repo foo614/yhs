@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { MotionEnhancer } from "./MotionEnhancer";
+import { organizationStructuredData, structuredDataJson } from "./seo";
 import "./styles.css";
 
 export const metadata: Metadata = {
@@ -20,8 +21,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" data-scroll-behavior="smooth">
       <body>
-        {children}
-        <MotionEnhancer />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataJson(organizationStructuredData()) }} />
+        <MotionEnhancer>{children}</MotionEnhancer>
       </body>
     </html>
   );

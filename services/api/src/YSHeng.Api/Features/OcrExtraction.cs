@@ -170,6 +170,8 @@ public sealed class LocalMockOcrExtractor : IOcrExtractor
         return document.Category switch
         {
             FileCategory.PurchaseInvoice => $"Purchase Invoice {MockReference(document, "PI")} Amount RM {MockAmount(document)}",
+            FileCategory.IdentityCard => "Identity Card Name Ali Tan IC 900101-01-1234 Address Demo customer address",
+            FileCategory.Voc => "Vehicle Ownership Certificate Registration WXY1234 Chassis MMBXUFG2WNH123456 Engine 4B11T123456 Make Proton Model X70 Year 2024 Owner Ali Tan",
             FileCategory.RepairInvoice => $"Supplier OCR Demo Supplier Invoice {MockReference(document, "SUP")} Amount RM {MockAmount(document)}",
             FileCategory.PaymentReceipt => $"Payment Receipt {MockReference(document, "RCPT")} Bank Maybank Amount RM {MockAmount(document)}",
             FileCategory.PaymentInvoice => $"Payment Invoice {MockReference(document, "PINV")} Bank Maybank Amount RM {MockAmount(document)}",
@@ -224,8 +226,36 @@ public static class OcrExtractionParser
             fields["invoiceNumber"] ??= MockReference(document, "PINV", allowMockFallbacks);
         }
 
+        if (document.Category == FileCategory.IdentityCard)
+        {
+            fields["customerName"] = FindIdentityName(text);
+            fields["icNumber"] = FindIdentityCardNumber(text);
+            fields["address"] = FindAddress(text);
+            fields["invoiceNumber"] = null;
+            fields["receiptNumber"] = null;
+            fields["amount"] = null;
+            fields["nettPrice"] = null;
+            fields["salesPrice"] = null;
+        }
+
+        if (document.Category == FileCategory.Voc)
+        {
+            fields["plateNumber"] = FindValue(text, "registration", "plate") ?? fields["plateNumber"];
+            fields["chassisNumber"] = FindValue(text, "chassis", "vin");
+            fields["engineNumber"] = FindValue(text, "engine");
+            fields["make"] = FindLabeledText(text, "make");
+            fields["model"] = FindLabeledText(text, "model");
+            fields["year"] = FindVehicleYear(text);
+            fields["ownerName"] = FindLabeledText(text, "owner", "registered owner");
+            fields["invoiceNumber"] = null;
+            fields["receiptNumber"] = null;
+            fields["amount"] = null;
+            fields["nettPrice"] = null;
+            fields["salesPrice"] = null;
+        }
+
         var warnings = new List<string>(initialWarnings);
-        if (string.IsNullOrWhiteSpace(fields["plateNumber"]))
+        if (document.Category != FileCategory.IdentityCard && string.IsNullOrWhiteSpace(fields["plateNumber"]))
         {
             warnings.Add("No car plate was detected. Please confirm the linked vehicle before saving.");
         }
@@ -233,6 +263,17 @@ public static class OcrExtractionParser
         if (document.Category == FileCategory.RepairInvoice && string.IsNullOrWhiteSpace(fields["supplierName"]))
         {
             warnings.Add("Supplier name was not detected.");
+        }
+
+        if (document.Category == FileCategory.IdentityCard && string.IsNullOrWhiteSpace(fields["icNumber"]))
+        {
+            warnings.Add("No identity card number was detected. Confirm the document manually before saving customer details.");
+        }
+
+        if (document.Category == FileCategory.Voc)
+        {
+            if (string.IsNullOrWhiteSpace(fields["chassisNumber"])) warnings.Add("No chassis number was detected. Confirm the VOC manually before saving vehicle details.");
+            if (string.IsNullOrWhiteSpace(fields["engineNumber"])) warnings.Add("No engine number was detected. Confirm the VOC manually before saving vehicle details.");
         }
 
         return new OcrExtractionResult(
@@ -253,6 +294,44 @@ public static class OcrExtractionParser
         }
 
         return null;
+    }
+
+    private static string? FindIdentityCardNumber(string text)
+    {
+        var match = Regex.Match(text, @"\b\d{6}-?\d{2}-?\d{4}\b");
+        return match.Success ? match.Value : null;
+    }
+
+    private static string? FindIdentityName(string text)
+    {
+        var match = Regex.Match(text, @"\bname\s*[:#-]?\s*(?<value>[A-Za-z][A-Za-z .'-]{1,80}?)(?=\s+(?:IC|Address)\b|$)", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["value"].Value.Trim() : null;
+    }
+
+    private static string? FindAddress(string text)
+    {
+        var match = Regex.Match(text, @"\baddress\s*[:#-]?\s*(?<value>[^\r\n]{3,200})", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["value"].Value.Trim() : null;
+    }
+
+    private static string? FindLabeledText(string text, params string[] labels)
+    {
+        foreach (var label in labels)
+        {
+            var match = Regex.Match(
+                text,
+                $@"\b{Regex.Escape(label)}\b\s*[:#-]?\s*(?<value>[A-Za-z0-9][A-Za-z0-9 ./'-]{{0,100}}?)(?=\s+(?:Registration|Plate|Chassis|VIN|Engine|Make|Model|Year|Owner)\b|$)",
+                RegexOptions.IgnoreCase);
+            if (match.Success) return match.Groups["value"].Value.Trim();
+        }
+
+        return null;
+    }
+
+    private static string? FindVehicleYear(string text)
+    {
+        var match = Regex.Match(text, @"\b(?:year|manufactured)\s*[:#-]?\s*(?<year>(?:19|20)\d{2})\b", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["year"].Value : null;
     }
 
     private static string? FindAmount(string text)

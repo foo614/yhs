@@ -63,14 +63,19 @@ import {
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
 import { isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
-import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, type ReminderDueFilter } from "./dashboard";
+import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, type ReminderDueFilter } from "./dashboard";
 import { FinancePage } from "./modules/finance/FinancePage";
+import { CashCustodyPage } from "./modules/finance/CashCustodyPage";
+import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
+import { MissingUploadReminder } from "./modules/shared/MissingUploadReminder";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import {
   checkInHrAttendance,
   checkOutHrAttendance,
+  acceptCashHandover,
+  createCashHandover,
   createHrLeaveAdjustment,
   createHrLeaveRequest,
   createHrPayPeriod,
@@ -100,6 +105,8 @@ import {
   getCustomers,
   getFinanceInvoices,
   getBrokerCommissions,
+  getCashHandovers,
+  getCashHandoverPaymentLookup,
   getDailySpends,
   getDashboard,
   getDebtRecoveries,
@@ -133,6 +140,9 @@ import {
   login,
   logout,
   resetStaffUserPassword,
+  recordCashHandover,
+  rejectCashHandover,
+  requestCashHandover,
   hrMedicalCertificateContentUrl,
   submitAutoCountSync,
   updateHrLeaveBalance,
@@ -163,6 +173,8 @@ import {
   type AuditLog,
   type AuditLogFilters,
   type BrokerCommission,
+  type CashHandover,
+  type CashHandoverPaymentLookup,
   type CreateStaffUserRequest,
   type CurrentUser,
   type Customer,
@@ -283,6 +295,7 @@ const bilingual = {
   loans: "Loan / 贷款",
   delivery: "Delivery / 出车",
   finance: "Finance / 收款Bank",
+  cashCustody: "Cash Custody / 现金交接",
   leads: "Leads / 客户询问",
   auditLog: "Audit Log / 操作记录",
   settings: "Settings / 系统设置"
@@ -298,6 +311,8 @@ const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
   { path: "/loans", name: bilingual.loans, icon: <FileDoneOutlined /> },
   { path: "/delivery", name: bilingual.delivery, icon: <AuditOutlined /> },
   { path: "/finance", name: bilingual.finance, icon: <BankOutlined /> },
+  { path: "/cash-custody", name: bilingual.cashCustody, icon: <BankOutlined /> },
+  { path: "/customer-360", name: "Customer 360", icon: <UserOutlined /> },
   { path: "/leads", name: bilingual.leads, icon: <UserOutlined /> },
   { path: "/audit-log", name: bilingual.auditLog, icon: <AuditOutlined /> },
   { path: "/hr-salary", name: staffSelfServiceRouteName, icon: <CalendarOutlined /> },
@@ -359,6 +374,8 @@ export default function App() {
   const [loans, setLoans] = useState<LoanApplication[]>([]);
   const [deliveries, setDeliveries] = useState<DeliverySchedule[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [cashHandovers, setCashHandovers] = useState<CashHandover[]>([]);
+  const [cashHandoverPaymentLookup, setCashHandoverPaymentLookup] = useState<CashHandoverPaymentLookup[]>([]);
   const [financeInvoices, setFinanceInvoices] = useState<FinanceInvoice[]>([]);
   const [settlements, setSettlements] = useState<SettlementReminder[]>([]);
   const [dailySpends, setDailySpends] = useState<DailySpend[]>([]);
@@ -402,6 +419,8 @@ export default function App() {
       loanData,
       deliveryData,
       paymentData,
+      cashHandoverData,
+      cashHandoverPaymentLookupData,
       financeInvoiceData,
       settlementData,
       dailySpendData,
@@ -433,6 +452,8 @@ export default function App() {
       canLoad("loans") ? getLoans() : Promise.resolve([]),
       canLoad("deliveries") ? getDeliveries() : Promise.resolve([]),
       canLoad("payments") ? getPayments() : Promise.resolve([]),
+      canLoad("cashHandovers") ? getCashHandovers() : Promise.resolve([]),
+      canLoad("cashHandoverPaymentLookup") ? getCashHandoverPaymentLookup() : Promise.resolve([]),
       canLoad("payments") ? getFinanceInvoices() : Promise.resolve([]),
       canLoad("settlements") ? getSettlementReminders() : Promise.resolve([]),
       canLoad("dailySpends") ? getDailySpends() : Promise.resolve([]),
@@ -464,6 +485,8 @@ export default function App() {
     setLoans(loanData);
     setDeliveries(deliveryData);
     setPayments(paymentData);
+    setCashHandovers(cashHandoverData);
+    setCashHandoverPaymentLookup(cashHandoverPaymentLookupData);
     setFinanceInvoices(financeInvoiceData);
     setSettlements(settlementData);
     setDailySpends(dailySpendData);
@@ -783,6 +806,7 @@ export default function App() {
             loans={loans}
             deliveries={deliveries}
             payments={payments}
+            cashHandovers={cashHandovers}
             settlements={settlements}
             leads={leads}
             staffUsers={staffUsers}
@@ -790,7 +814,7 @@ export default function App() {
             hrLeaveRequests={hrLeaveRequests}
             hrPayslips={hrPayslips}
           />
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} reminders={reminders} onSearch={handleReminderSearch} onNavigate={navigateTo} />}
+          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} reminders={reminders} vehicles={vehicles} onSearch={handleReminderSearch} onNavigate={navigateTo} />}
           {pathname === "/vehicles" && (
             <VehiclePage
               vehicles={vehicles}
@@ -801,6 +825,7 @@ export default function App() {
               onCreate={(vehicle) => runCreate(() => createVehicle(vehicle), (record) => setVehicles((items) => [record, ...items]), "Vehicle created")}
               onUpdate={(vehicle) => runUpdate(() => updateVehicle(vehicle), (record) => setVehicles((items) => replaceById(items, record)), "Vehicle updated")}
               onStartLoan={handleStartVehicleLoan}
+              onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
               onCreateCustomer={(customer) => runCreate(() => createCustomer(customer), (record) => setCustomers((items) => [record, ...items]), "Customer created")}
               onUpdateCustomer={(customer) => runUpdate(() => updateCustomer(customer), (record) => setCustomers((items) => replaceById(items, record)), "Customer updated")}
               onCreateOwner={(owner) => runCreate(() => createOwner(owner), (record) => setOwners((items) => [record, ...items]), "Owner created")}
@@ -839,6 +864,7 @@ export default function App() {
               deliveries={deliveries}
               onCreate={(delivery) => runCreate(() => createDelivery(delivery), (record) => setDeliveries((items) => [record, ...items]), "Delivery scheduled")}
               onUpdate={(delivery) => runUpdate(() => updateDelivery(delivery), (record) => setDeliveries((items) => replaceById(items, record)), "Delivery updated")}
+              onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Delivery document uploaded")}
             />
           )}
@@ -856,6 +882,7 @@ export default function App() {
               financeInvoices={financeInvoices}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
+              onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
               onGenerateInvoice={(paymentId) => runCreate(() => generatePaymentInvoice(paymentId), (record) => setFinanceInvoices((items) => replaceByIdOrPrepend(items, record)), "Sales invoice generated")}
               onSubmitAutoCount={(invoiceId) => runUpdate(() => submitAutoCountSync(invoiceId), (record) => setFinanceInvoices((items) => items.map((invoice) => invoice.id === record.financeInvoiceId ? { ...invoice, latestSync: record } : invoice)), "AutoCount sync updated")}
               onCreateSettlement={(settlement) => runCreate(() => createSettlementReminder(settlement), (record) => setSettlements((items) => [record, ...items]), "Settlement reminder created")}
@@ -870,6 +897,26 @@ export default function App() {
               onUpdatePaymentVoucher={(voucher) => runUpdate(() => updatePaymentVoucher(voucher), (record) => setPaymentVouchers((items) => replaceById(items, record)), "Payment voucher updated")}
               onExportPayments={() => exportPaymentsCsv()}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Finance document uploaded")}
+            />
+          )}
+          {pathname === "/cash-custody" && (
+            <CashCustodyPage
+              currentUser={currentUser}
+              customers={customers}
+              handovers={cashHandovers}
+              paymentLookup={cashHandoverPaymentLookup}
+              onCreate={(paymentRecordId, amount, notes) => runCreate(() => createCashHandover(paymentRecordId, amount, notes), (record) => setCashHandovers((items) => [record, ...items]), "Cash received recorded")}
+              onRequestHandover={(id) => runUpdate(() => requestCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover requested")}
+              onRecordHandover={(id) => runUpdate(() => recordCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash receipt confirmed")}
+              onAccept={(id) => runUpdate(() => acceptCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Official receipt issued")}
+              onReject={(id, reason) => runUpdate(() => rejectCashHandover(id, reason), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover rejected")}
+            />
+          )}
+          {pathname === "/customer-360" && (
+            <Customer360Page
+              customerId={new URLSearchParams(window.location.search).get("customerId") ?? undefined}
+              onCustomerChange={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
+              onNavigate={navigateTo}
             />
           )}
           {pathname === "/leads" && (
@@ -1126,6 +1173,7 @@ function ModuleCommandBar({
   loans,
   deliveries,
   payments,
+  cashHandovers,
   settlements,
   leads,
   staffUsers,
@@ -1145,6 +1193,7 @@ function ModuleCommandBar({
   loans: LoanApplication[];
   deliveries: DeliverySchedule[];
   payments: PaymentRecord[];
+  cashHandovers: CashHandover[];
   settlements: SettlementReminder[];
   leads: Lead[];
   staffUsers: StaffUser[];
@@ -1162,6 +1211,7 @@ function ModuleCommandBar({
     loans,
     deliveries,
     payments,
+    cashHandovers,
     settlements,
     leads,
     staffUsers,
@@ -1202,6 +1252,7 @@ function moduleStats(pathname: string, data: {
   loans: LoanApplication[];
   deliveries: DeliverySchedule[];
   payments: PaymentRecord[];
+  cashHandovers: CashHandover[];
   settlements: SettlementReminder[];
   leads: Lead[];
   staffUsers: StaffUser[];
@@ -1251,6 +1302,12 @@ function moduleStats(pathname: string, data: {
         { label: "open bank", value: openPayments },
         { label: "settlement due", value: dueSettlements }
       ];
+    case "/cash-custody":
+      return [
+        { label: "open custody", value: data.cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length },
+        { label: "receipts", value: data.cashHandovers.filter((handover) => Boolean(handover.officialReceiptId)).length },
+        { label: "cash value", value: formatMoney(data.cashHandovers.reduce((total, handover) => total + handover.amount, 0)) }
+      ];
     case "/leads":
       return [
         { label: "enquiries", value: data.leads.length },
@@ -1287,10 +1344,14 @@ function moduleStats(pathname: string, data: {
 function ModuleDocumentList({
   vehicleId,
   categories,
+  repairJobId,
+  paymentRecordId,
   reloadKey = 0
 }: {
   vehicleId?: string;
   categories: readonly DocumentCategory[];
+  repairJobId?: string;
+  paymentRecordId?: string;
   reloadKey?: number;
 }) {
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
@@ -1308,15 +1369,21 @@ function ModuleDocumentList({
 
     void Promise.all([getVehicleDocuments(vehicleId), getVehicleOcrJobs(vehicleId)]).then(([documentItems, ocrItems]) => {
       if (active) {
-        setDocuments(documentItems.filter((document) => categories.includes(document.category)));
-        setOcrJobs(ocrItems.filter((job) => categories.includes(job.category)));
+        const matchingDocuments = documentItems.filter((document) =>
+          categories.includes(document.category) &&
+          (!repairJobId || document.repairJobId === repairJobId) &&
+          (!paymentRecordId || document.paymentRecordId === paymentRecordId)
+        );
+        const matchingDocumentIds = new Set(matchingDocuments.map((document) => document.id));
+        setDocuments(matchingDocuments);
+        setOcrJobs(ocrItems.filter((job) => matchingDocumentIds.has(job.document.id)));
       }
     });
 
     return () => {
       active = false;
     };
-  }, [categories, reloadKey, vehicleId]);
+  }, [categories, paymentRecordId, reloadKey, repairJobId, vehicleId]);
 
   const columns: ColumnsType<VehicleDocument> = [
     { title: "Uploaded / 日期", dataIndex: "uploadedAt", render: (value) => String(value).slice(0, 10) },
@@ -1405,61 +1472,14 @@ function ocrFieldSummary(job: VehicleOcrJob) {
   return parts.length ? parts.join(" / ") : "-";
 }
 
-function DashboardPage({ dashboard, reminders, onSearch, onNavigate }: { dashboard: DashboardSummary | null; reminders: DashboardReminder[]; onSearch: (filters: DashboardReminderFilters) => Promise<void>; onNavigate: (path: string) => void }) {
+function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }: { dashboard: DashboardSummary | null; reminders: DashboardReminder[]; vehicles: Vehicle[]; onSearch: (filters: DashboardReminderFilters) => Promise<void>; onNavigate: (path: string) => void }) {
   const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
   const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
-  const data = dashboard ?? {
-    totalStock: 0,
-    pendingLoan: 0,
-    outstandingPayment: 0,
-    settlementDue: 0,
-    repairCost: 0,
-    estimatedProfit: 0,
-    totalProfit: 0,
-    vehicleAging: 0,
-    agingBuckets: [
-      { label: "0-30" as const, count: 0 },
-      { label: "31-60" as const, count: 0 },
-      { label: "61+" as const, count: 0 }
-    ],
-    topSupplier: "-",
-    salesPerformance: 0,
-    stockStatusMix: [
-      { label: "Available", count: 0 },
-      { label: "LoanProcessing", count: 0 },
-      { label: "Sold", count: 0 }
-    ],
-    stockOwnerMix: [
-      { label: "YSHeng", count: 0 },
-      { label: "KS", count: 0 }
-    ],
-    moneyRiskBreakdown: [],
-    workflowBlockers: { byType: [], dueBuckets: [] },
-    salesFunnel: {
-      stages: [
-        { label: "New", count: 0 },
-        { label: "Contacted", count: 0 },
-        { label: "Closed", count: 0 }
-      ],
-      conversionRate: 0
-    },
-    profitBreakdown: [],
-    supplierSpendTop: []
-  };
-  const agingBuckets = data.agingBuckets?.length ? data.agingBuckets : [
-    { label: "0-30" as const, count: 0 },
-    { label: "31-60" as const, count: 0 },
-    { label: "61+" as const, count: data.vehicleAging }
-  ];
-  const moneyRiskBreakdown = data.moneyRiskBreakdown?.length ? data.moneyRiskBreakdown : [
-    { label: "Outstanding Payment", amount: data.outstandingPayment },
-    { label: "Unpaid Settlement", amount: 0 },
-    { label: "Open Debt Recovery", amount: 0 },
-    { label: "Unpaid Daily Spend", amount: 0 },
-    { label: "Open Payment Voucher", amount: 0 }
-  ];
+  const safeStock = safeDashboardStockSummary(vehicles);
+  const agingBuckets = dashboard?.agingBuckets ?? [];
+  const moneyRiskBreakdown = dashboard?.moneyRiskBreakdown ?? [];
   const riskTotal = moneyRiskBreakdown.reduce((sum, item) => sum + Math.max(item.amount, 0), 0);
-  const profitValue = data.totalProfit ?? data.estimatedProfit;
+  const profitValue = dashboard?.totalProfit ?? dashboard?.estimatedProfit ?? 0;
   const filteredReminders = filterDashboardReminders(reminders, { type: reminderTypeFilter, due: reminderDueFilter });
   const urgentReminderCount = reminders.filter((reminder) => {
     const dueLabel = reminderDueLabel(reminder.dueDate);
@@ -1474,24 +1494,25 @@ function DashboardPage({ dashboard, reminders, onSearch, onNavigate }: { dashboa
 
   return (
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
-      <ProCard
-        title="Operations dashboard / 运营看板"
-        className="dashboardOverviewCard"
-        extra={<Tag color={urgentReminderCount > 0 ? "red" : "green"}>{urgentReminderCount} due now</Tag>}
-      >
-        <Typography.Text type="secondary">Simple daily view for stock, money, profit, and reminders.</Typography.Text>
-        <div className="metricGrid dashboardMetricGrid">
-          <Metric label="Total Stock / 总库存" value={data.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-          <Metric label="Pending Loan / 贷款待跟进" value={data.pendingLoan} tone={data.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
-          <Metric label="Outstanding / 未收款" value={formatCompactMoney(data.outstandingPayment)} tone={data.outstandingPayment > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("payments"))} />
-          <Metric label="Settlement Due / 结算到期" value={data.settlementDue} tone={data.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
-          <Metric label="Profit / 利润" value={formatCompactMoney(profitValue)} tone={profitValue >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
-          <Metric label="Aging / 超60天库存" value={data.vehicleAging} tone={data.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
-        </div>
-      </ProCard>
+      {dashboard ? <>
+        <ProCard
+          title="Operations dashboard / 运营看板"
+          className="dashboardOverviewCard"
+          extra={<Tag color={urgentReminderCount > 0 ? "red" : "green"}>{urgentReminderCount} due now</Tag>}
+        >
+          <Typography.Text type="secondary">Simple daily view for stock, money, profit, and reminders.</Typography.Text>
+          <div className="metricGrid dashboardMetricGrid">
+            <Metric label="Total Stock / 总库存" value={dashboard.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+            <Metric label="Pending Loan / 贷款待跟进" value={dashboard.pendingLoan} tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
+            <Metric label="Outstanding / 未收款" value={formatCompactMoney(dashboard.outstandingPayment)} tone={dashboard.outstandingPayment > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("payments"))} />
+            <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
+            <Metric label="Profit / 利润" value={formatCompactMoney(profitValue)} tone={profitValue >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+            <Metric label="Aging / 超60天库存" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
+          </div>
+        </ProCard>
 
-      <div className="dashboardSimpleGrid">
-        <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard">
+        <div className="dashboardSimpleGrid">
+          <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard">
           <Table
             rowKey="label"
             size="small"
@@ -1503,8 +1524,8 @@ function DashboardPage({ dashboard, reminders, onSearch, onNavigate }: { dashboa
             pagination={false}
             locale={{ emptyText: "No aging buckets available." }}
           />
-        </ProCard>
-        <ProCard title="Money follow-up / 金额跟进" className="dashboardSimpleCard" extra={<Tag color={riskTotal > 0 ? "volcano" : "green"}>{formatCompactMoney(riskTotal)}</Tag>}>
+          </ProCard>
+          <ProCard title="Money follow-up / 金额跟进" className="dashboardSimpleCard" extra={<Tag color={riskTotal > 0 ? "volcano" : "green"}>{formatCompactMoney(riskTotal)}</Tag>}>
           <Table
             rowKey="label"
             size="small"
@@ -1517,8 +1538,19 @@ function DashboardPage({ dashboard, reminders, onSearch, onNavigate }: { dashboa
             pagination={false}
             locale={{ emptyText: "No money follow-up items available." }}
           />
+          </ProCard>
+        </div>
+      </> : (
+        <ProCard title="Dashboard summary unavailable / 看板摘要暂不可用" className="dashboardOverviewCard">
+          <Alert type="warning" showIcon message="Live dashboard metrics could not be loaded." description="Only the authorized vehicle counts below are shown; finance, profit, aging, and workflow values are unavailable." />
+          <div className="metricGrid dashboardMetricGrid">
+            <Metric label="Authorized stock / 已加载库存" value={safeStock.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+            <Metric label="Available / 可售" value={safeStock.available} tone={safeStock.available > 0 ? "neutral" : "work"} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+            <Metric label="Loan processing / 贷款处理中" value={safeStock.loanProcessing} tone={safeStock.loanProcessing > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
+            <Metric label="Sold / 已售" value={safeStock.sold} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+          </div>
         </ProCard>
-      </div>
+      )}
 
       <ProCard
         title="Reminder inbox / 提醒事项"
@@ -1702,6 +1734,7 @@ function RepairPage({
   const [supplierInvoiceOcrDraft, setSupplierInvoiceOcrDraft] = useState<OcrReviewValues | null>(null);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("RepairInvoice");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
+  const [repairDocuments, setRepairDocuments] = useState<VehicleDocument[]>([]);
   const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId);
   const selectedSupplierInvoice = supplierInvoices.find((invoice) => invoice.id === editSupplierInvoiceId) ?? supplierInvoices[0];
   const selectedEditRepair = repairs.find((repair) => repair.id === editRepairId) ?? repairs[0];
@@ -1718,6 +1751,24 @@ function RepairPage({
       setEditRepairId(repairs[0].id);
     }
   }, [editRepairId, repairs]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedRepair) {
+      setRepairDocuments([]);
+      return () => {
+        active = false;
+      };
+    }
+
+    void getVehicleDocuments(selectedRepair.vehicleId).then((documents) => {
+      if (active) setRepairDocuments(documents.filter((document) => document.repairJobId === selectedRepair.id));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [documentReloadKey, selectedRepair?.id, selectedRepair?.vehicleId]);
 
   const selectSupplierInvoice = (invoiceId: string) => {
     setEditSupplierInvoiceId(invoiceId);
@@ -1870,6 +1921,15 @@ function RepairPage({
         </ProCard>
         <ProCard title="Repair Documents / 整备文件">
           <Space direction="vertical" size={12} className="fullWidth">
+            <MissingUploadReminder
+              title="Repair invoice required"
+              description="Attach the supplier invoice to this repair record before the refurbishment cost is finalised."
+              items={repairDocumentCategories.map((category) => ({
+                label: documentCategoryLabel(category),
+                isPresent: repairDocuments.some((document) => document.category === category)
+              }))}
+              onAction={() => setDocumentCategory("RepairInvoice")}
+            />
             <Space wrap>
               <Select<DocumentCategory>
                 value={documentCategory}
@@ -1880,6 +1940,7 @@ function RepairPage({
               <OcrUploadReview
                 vehicleId={selectedRepair.vehicleId}
                 category={documentCategory}
+                uploadOwner={{ repairJobId: selectedRepair.id }}
                 buttonLabel="Upload & OCR Repair Invoice"
                 applyLabel="Apply to Supplier Invoice"
                 fields={[
@@ -1900,6 +1961,7 @@ function RepairPage({
             <ModuleDocumentList
               vehicleId={selectedRepair.vehicleId}
               categories={repairDocumentCategories}
+              repairJobId={selectedRepair.id}
               reloadKey={documentReloadKey}
             />
           </Space>
@@ -2177,7 +2239,7 @@ function LoanPage({
     return () => {
       active = false;
     };
-  }, [loanIds, loans]);
+  }, [documentReloadKey, loanIds, loans]);
 
   useEffect(() => {
     if (!editLoanId && loans[0]?.id) {
@@ -2339,6 +2401,12 @@ function LoanPage({
         </ProCard>
         <ProCard title="Loan Documents / 贷款文件">
           <Space direction="vertical" size={12} className="fullWidth">
+            <MissingUploadReminder
+              items={(check?.missingCategories ?? []).map((category) => ({ label: documentCategoryLabel(category), isPresent: false }))}
+              title="Loan documents need attention / 贷款文件需注意"
+              description="Uploads remain optional while the loan is being prepared. Complete the missing documents before the loan follow-up workflow is finished."
+              onAction={check?.missingCategories.length ? () => setDocumentCategory(check.missingCategories[0]) : undefined}
+            />
             <Space wrap>
               <Select<DocumentCategory>
                 value={documentCategory}
@@ -2533,12 +2601,14 @@ function DeliveryPage({
   deliveries,
   onCreate,
   onUpdate,
+  onOpenCustomer,
   onUploadDocument
 }: {
   vehicles: VehicleLookup[];
   deliveries: DeliverySchedule[];
   onCreate: (delivery: DeliverySchedule) => void;
   onUpdate: (delivery: DeliverySchedule) => void;
+  onOpenCustomer: (customerId: string) => void;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [releaseReadiness, setReleaseReadiness] = useState<Record<string, DeliveryReleaseReadiness>>({});
@@ -2555,6 +2625,7 @@ function DeliveryPage({
     : selectedEditDelivery
       ? releaseReadiness[selectedEditDelivery.id]
       : undefined;
+  const customerIdForVehicle = (vehicleId: string) => vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId;
 
   useEffect(() => {
     let active = true;
@@ -2573,7 +2644,7 @@ function DeliveryPage({
     return () => {
       active = false;
     };
-  }, [deliveries]);
+  }, [deliveries, documentReloadKey]);
 
   useEffect(() => {
     if (!editDeliveryId && deliveries[0]?.id) {
@@ -2748,12 +2819,16 @@ function DeliveryPage({
       title: tableHeader("Next Action", "操作"),
       fixed: "right",
       width: 240,
-      render: (_, row) => (
-        <Space className="tableActionGroup deliveryActionCell" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => selectDeliveryRecord(row.id)}>Details</Button>
-          {renderNextDeliveryAction(row) ?? <Typography.Text type="secondary">No workflow action</Typography.Text>}
-        </Space>
-      )
+      render: (_, row) => {
+        const customerId = customerIdForVehicle(row.vehicleId);
+        return (
+          <Space className="tableActionGroup deliveryActionCell" wrap size={6}>
+            <Button size="small" type="primary" onClick={() => selectDeliveryRecord(row.id)}>Details</Button>
+            <Button size="small" disabled={!customerId} onClick={() => customerId && onOpenCustomer(customerId)}>Customer 360</Button>
+            {renderNextDeliveryAction(row) ?? <Typography.Text type="secondary">No workflow action</Typography.Text>}
+          </Space>
+        );
+      }
     }
   ];
 
@@ -2849,6 +2924,12 @@ function DeliveryPage({
         </ProCard>
         <ProCard title="Delivery Documents / 出车文件">
           <Space direction="vertical" size={12} className="fullWidth">
+            <MissingUploadReminder
+              items={(selectedDeliveryReadiness?.missingCategories ?? []).map((category) => ({ label: documentCategoryLabel(category), isPresent: false }))}
+              title="Delivery documents need attention / 出车文件需注意"
+              description="Uploads stay optional until the delivery reaches its release gate. Add the missing documents before marking the vehicle ready or released."
+              onAction={selectedDeliveryReadiness?.missingCategories.length ? () => setDocumentCategory(selectedDeliveryReadiness.missingCategories[0]) : undefined}
+            />
             <Space wrap>
               <Select<DocumentCategory>
                 value={documentCategory}
@@ -4269,6 +4350,8 @@ function dataKeyLabel(key: BackOfficeDataKey) {
     loans: "Loan applications",
     deliveries: "Delivery schedules",
     payments: "Payments",
+    cashHandovers: "Cash custody records",
+    cashHandoverPaymentLookup: "Cash custody payment lookup",
     settlements: "Settlement reminders",
     dailySpends: "Daily spends",
     brokerCommissions: "Broker commissions",
@@ -4302,6 +4385,7 @@ function documentCategoryLabel(category: DocumentCategory) {
   const labels: Record<DocumentCategory, string> = {
     PurchaseInvoice: "Purchase Invoice",
     Voc: "VOC",
+    IdentityCard: "Identity Card",
     ApDocument: "AP Document",
     StatusReceipt: "Status Receipt",
     LoanDocument: "Loan Document",

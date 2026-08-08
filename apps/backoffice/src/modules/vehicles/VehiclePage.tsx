@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, Badge, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "../../contacts";
 import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
+import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import {
   customerSelectLabel,
@@ -29,6 +30,8 @@ import {
 } from "../../api";
 
 const maxWebsitePhotoBytes = 5 * 1024 * 1024;
+const vehicleIntakeDocumentCategories: DocumentCategory[] = ["PurchaseInvoice", "Voc", "IdentityCard", "ApDocument"];
+const mobileVehiclePageSize = 12;
 
 export type OperationIntakeVehicleFilters = {
   keyword?: string;
@@ -97,6 +100,7 @@ export function VehiclePage({
   onCreate,
   onUpdate,
   onStartLoan,
+  onOpenCustomer,
   onCreateCustomer,
   onUpdateCustomer,
   onCreateOwner,
@@ -114,6 +118,7 @@ export function VehiclePage({
   onCreate: (vehicle: Vehicle) => void;
   onUpdate: (vehicle: Vehicle) => void;
   onStartLoan: (vehicle: Vehicle) => Promise<void>;
+  onOpenCustomer: (customerId: string) => void;
   onCreateCustomer: (customer: Customer) => void;
   onUpdateCustomer: (customer: Customer) => void;
   onCreateOwner: (owner: Owner) => void;
@@ -143,6 +148,7 @@ export function VehiclePage({
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const [ownerCreateOpen, setOwnerCreateOpen] = useState(false);
   const [operationFilters, setOperationFilters] = useState<OperationIntakeVehicleFilters>({});
+  const [mobileVehiclePage, setMobileVehiclePage] = useState(1);
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const uploadDisabled = !selectedVehicleId;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
@@ -158,6 +164,9 @@ export function VehiclePage({
   const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
   const filteredVehicles = filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, operationFilters);
+  const mobileVehiclePageCount = Math.max(1, Math.ceil(filteredVehicles.length / mobileVehiclePageSize));
+  const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
+  const mobileVehicles = filteredVehicles.slice((clampedMobileVehiclePage - 1) * mobileVehiclePageSize, clampedMobileVehiclePage * mobileVehiclePageSize);
   const filterActive = Object.values(operationFilters).some((value) => value !== undefined && value !== "");
   const selectedVehicleProfit = selectedVehicle
     ? estimatedVehicleProfit(selectedVehicle)
@@ -166,6 +175,14 @@ export function VehiclePage({
   const selectedVehicleDocumentCount = documents.length;
   const selectedVehicleCaptureCount = ocrJobs.length;
   const selectedVehiclePhotoCount = photos.length;
+  const selectedVehicleMissingDocuments = vehicleIntakeDocumentCategories.filter((category) => !documents.some((document) => document.category === category));
+  const selectedVehicleUploadReminders = [
+    ...vehicleIntakeDocumentCategories.map((category) => ({
+      label: documentCategoryLabel(category),
+      isPresent: !selectedVehicleMissingDocuments.includes(category)
+    })),
+    { label: "Website photos", isPresent: selectedVehiclePhotoCount > 0 }
+  ];
   const selectedVehicleHasOutstationPickup = selectedVehicle ? hasOutstationPickup(selectedVehicle) : false;
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
   const selectedApprovalGaps = selectedVehicle
@@ -260,6 +277,7 @@ export function VehiclePage({
     leadActivity: [{ value: "active", label: "Active leads" }, { value: "none", label: "No active leads" }]
   };
   const updateOperationFilter = <K extends keyof OperationIntakeVehicleFilters>(key: K, value: OperationIntakeVehicleFilters[K] | undefined) => {
+    setMobileVehiclePage(1);
     setOperationFilters((current) => ({ ...current, [key]: value || undefined }));
   };
   const textFilters = (values: Array<string | undefined | null>) =>
@@ -432,6 +450,12 @@ export function VehiclePage({
       setEditOwnerId(owners[0].id);
     }
   }, [editOwnerId, owners]);
+
+  useEffect(() => {
+    if (mobileVehiclePage !== clampedMobileVehiclePage) {
+      setMobileVehiclePage(clampedMobileVehiclePage);
+    }
+  }, [clampedMobileVehiclePage, mobileVehiclePage]);
 
   useEffect(() => {
     void loadUploads();
@@ -1014,12 +1038,12 @@ export function VehiclePage({
           <Select allowClear placeholder="Leads" value={operationFilters.leadActivity} options={operationFilterOptions.leadActivity} onChange={(value) => updateOperationFilter("leadActivity", value)} />
           <div className="vehicleFilterMeta">
             <Tag color={filterActive ? "blue" : "default"}>{filteredVehicles.length} / {vehicles.length} shown</Tag>
-            <Button size="small" disabled={!filterActive} onClick={() => setOperationFilters({})}>Clear filters</Button>
+            <Button size="small" disabled={!filterActive} onClick={() => { setOperationFilters({}); setMobileVehiclePage(1); }}>Clear filters</Button>
           </div>
         </div>
         <div className="mobileRecordList">
           {filteredVehicles.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No vehicles match the current filters." />}
-          {filteredVehicles.map((vehicle) => {
+          {mobileVehicles.map((vehicle) => {
             const workflow = vehicleWorkflowGuide(vehicle);
 
             return (
@@ -1082,6 +1106,15 @@ export function VehiclePage({
             </article>
             );
           })}
+          {filteredVehicles.length > mobileVehiclePageSize && (
+            <Pagination
+              current={clampedMobileVehiclePage}
+              pageSize={mobileVehiclePageSize}
+              total={filteredVehicles.length}
+              showSizeChanger={false}
+              onChange={setMobileVehiclePage}
+            />
+          )}
         </div>
         <Table
           className="desktopDataTable"
@@ -1112,6 +1145,8 @@ export function VehiclePage({
                 <Descriptions.Item label="Car Plate / 车牌">{selectedVehicle.plateNumber}</Descriptions.Item>
                 <Descriptions.Item label="Vehicle / 车辆">{vehicleName(selectedVehicle)}</Descriptions.Item>
                 <Descriptions.Item label="Status / 状态"><Tag color={vehicleStatusColor[selectedVehicle.status]}>{selectedVehicle.status}</Tag></Descriptions.Item>
+                <Descriptions.Item label="Chassis Number">{selectedVehicle.chassisNumber || "-"}</Descriptions.Item>
+                <Descriptions.Item label="Engine Number">{selectedVehicle.engineNumber || "-"}</Descriptions.Item>
                 <Descriptions.Item label="Customer / 客户">{selectedVehicleCustomer ? customerSelectLabel(selectedVehicleCustomer) : "-"}</Descriptions.Item>
                 <Descriptions.Item label="Owner / 原车主">{selectedVehicleOwner ? `${selectedVehicleOwner.name} / ${selectedVehicleOwner.phone}` : "-"}</Descriptions.Item>
                 <Descriptions.Item label="Estimated Profit / 预估利润">RM {selectedVehicleProfit.toLocaleString()}</Descriptions.Item>
@@ -1194,6 +1229,8 @@ export function VehiclePage({
               }}
             >
               <Form.Item name="plateNumber" label="Plate / 车牌" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item name="chassisNumber" label="Chassis Number"><Input /></Form.Item>
+              <Form.Item name="engineNumber" label="Engine Number"><Input /></Form.Item>
               <Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>
               <Form.Item name="model" label="Model"><Input placeholder="Vios" /></Form.Item>
               <Form.Item name="year" label="Year"><InputNumber className="fullWidth" min={1990} max={2030} /></Form.Item>
@@ -1269,6 +1306,7 @@ export function VehiclePage({
                   <Alert type="info" showIcon message="No customer linked" description="Select a customer in Vehicle Record when the buyer is confirmed." />
                 )}
                 <Space wrap>
+                  <Button disabled={!selectedVehicleCustomer} onClick={() => selectedVehicleCustomer && onOpenCustomer(selectedVehicleCustomer.id)}>Customer 360</Button>
                   <Button disabled={!selectedVehicleCustomer} onClick={() => selectedVehicleCustomer && selectCustomer(selectedVehicleCustomer.id)}>Edit Customer</Button>
                   <Button onClick={() => setCustomerCreateOpen(true)}>New Customer</Button>
                 </Space>
@@ -1358,6 +1396,12 @@ export function VehiclePage({
               <div className="vehicleDocumentSection">
                 <Typography.Text className="moduleEyebrow">Documents</Typography.Text>
               </div>
+              <MissingUploadReminder
+                items={selectedVehicleUploadReminders}
+                title="Vehicle uploads need attention / 车辆上传需注意"
+                description="These files are optional during intake. Add them before the relevant downstream workflow needs them."
+                onAction={selectedVehicleMissingDocuments.length > 0 ? () => setDocumentCategory(selectedVehicleMissingDocuments[0]) : undefined}
+              />
               <Form.Item label="Document Type">
                 <Select<DocumentCategory>
                   value={documentCategory}
@@ -1365,6 +1409,7 @@ export function VehiclePage({
                   options={[
                     { value: "PurchaseInvoice", label: "Purchase Invoice" },
                     { value: "Voc", label: shortformLabel("VOC", "Vehicle ownership certificate") },
+                    { value: "IdentityCard", label: shortformLabel("IC", "Customer identity card") },
                     { value: "ApDocument", label: shortformLabel("AP Document", "Approved permit document") },
                     { value: "StatusReceipt", label: "Status Receipt" },
                     { value: "LoanDocument", label: "Loan Document" },
@@ -1376,22 +1421,72 @@ export function VehiclePage({
                 />
               </Form.Item>
               <Form.Item label="Document Upload">
-                {documentCategory === "PurchaseInvoice" ? (
+                {documentCategory === "PurchaseInvoice" || documentCategory === "IdentityCard" || documentCategory === "Voc" ? (
                   <OcrUploadReview
                     vehicleId={selectedVehicleId}
                     category={documentCategory}
                     disabled={uploadDisabled}
-                    buttonLabel="Upload & OCR Purchase Invoice"
-                    applyLabel="Apply to Purchase Invoice"
-                    fields={[
-                      { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
-                      { name: "invoiceNumber", label: "Invoice Number" },
-                      { name: "amount", label: "Purchase Amount", type: "number" }
-                    ]}
+                    buttonLabel={documentCategory === "IdentityCard" ? "Upload & OCR Identity Card" : documentCategory === "Voc" ? "Upload & OCR VOC" : "Upload & OCR Purchase Invoice"}
+                    applyLabel={documentCategory === "IdentityCard" ? "Approve IC Review" : documentCategory === "Voc" ? "Approve VOC Review" : "Apply to Purchase Invoice"}
+                    existingValues={documentCategory === "IdentityCard"
+                      ? selectedVehicleCustomer
+                        ? { customerName: selectedVehicleCustomer.name, icNumber: selectedVehicleCustomer.icNumber, address: selectedVehicleCustomer.address }
+                        : undefined
+                      : documentCategory === "Voc" && selectedVehicle
+                        ? { plateNumber: selectedVehicle.plateNumber, chassisNumber: selectedVehicle.chassisNumber, engineNumber: selectedVehicle.engineNumber, make: selectedVehicle.make, model: selectedVehicle.model, year: selectedVehicle.year }
+                        : undefined}
+                    fields={documentCategory === "IdentityCard"
+                      ? [
+                        { name: "customerName", label: "Customer Name" },
+                        { name: "icNumber", label: "IC Number" },
+                        { name: "address", label: "Address" }
+                      ]
+                      : documentCategory === "Voc"
+                        ? [
+                          { name: "plateNumber", label: "Registration Number" },
+                          { name: "chassisNumber", label: "Chassis Number" },
+                          { name: "engineNumber", label: "Engine Number" },
+                          { name: "make", label: "Make" },
+                          { name: "model", label: "Model" },
+                          { name: "year", label: "Year", type: "number" },
+                          { name: "ownerName", label: "Registered Owner" }
+                        ]
+                      : [
+                        { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
+                        { name: "invoiceNumber", label: "Invoice Number" },
+                        { name: "amount", label: "Purchase Amount", type: "number" }
+                      ]}
                     onUploaded={() => void loadUploads()}
                     onApply={(values) => {
-                      setPurchaseInvoiceOcrDraft(values);
-                      setPurchaseInvoiceCreateOpen(true);
+                      if (documentCategory === "IdentityCard") {
+                        if (!selectedVehicleCustomer) {
+                          message.warning("Link a customer to this vehicle before applying approved IC values.");
+                          return;
+                        }
+                        onUpdateCustomer({
+                          ...selectedVehicleCustomer,
+                          name: ocrText(values.customerName, selectedVehicleCustomer.name),
+                          icNumber: ocrOptionalText(values.icNumber, selectedVehicleCustomer.icNumber),
+                          address: ocrOptionalText(values.address, selectedVehicleCustomer.address)
+                        });
+                        message.success("Approved IC values were saved to the linked customer record.");
+                      } else if (documentCategory === "Voc") {
+                        if (!selectedVehicle) return;
+                        const ocrYear = Number(values.year);
+                        onUpdate({
+                          ...selectedVehicle,
+                          plateNumber: ocrText(values.plateNumber, selectedVehicle.plateNumber),
+                          chassisNumber: ocrOptionalText(values.chassisNumber, selectedVehicle.chassisNumber),
+                          engineNumber: ocrOptionalText(values.engineNumber, selectedVehicle.engineNumber),
+                          make: ocrText(values.make, selectedVehicle.make),
+                          model: ocrText(values.model, selectedVehicle.model),
+                          year: Number.isInteger(ocrYear) && ocrYear > 0 ? ocrYear : selectedVehicle.year
+                        });
+                        message.success("Approved VOC registration, chassis, engine, make, model, and year were saved to the vehicle record. Registered owner remains in the reviewed OCR record for audit.");
+                      } else {
+                        setPurchaseInvoiceOcrDraft(values);
+                        setPurchaseInvoiceCreateOpen(true);
+                      }
                       void loadUploads();
                     }}
                   />
@@ -1450,6 +1545,8 @@ export function VehiclePage({
           setVehicleCreateOpen(false);
         }} initialValues={{ status: "Available", stockOwner: "YSHeng", stockLocation: "Main Yard", isPublic: true, bossConfirmed: false, contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}>
           <Form.Item name="plateNumber" label="Plate / 车牌" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="chassisNumber" label="Chassis Number"><Input /></Form.Item>
+          <Form.Item name="engineNumber" label="Engine Number"><Input /></Form.Item>
           <Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>
           <Form.Item name="model" label="Model"><Input placeholder="Vios" /></Form.Item>
           <Form.Item name="year" label="Year"><InputNumber className="fullWidth" min={1990} max={2030} /></Form.Item>
@@ -1895,9 +1992,10 @@ export function VehiclePage({
               value={documentCategory}
               onChange={setDocumentCategory}
               options={[
-                { value: "PurchaseInvoice", label: "Purchase Invoice" },
-                { value: "Voc", label: shortformLabel("VOC", "Vehicle ownership certificate") },
-                { value: "ApDocument", label: shortformLabel("AP Document", "Approved permit document") },
+                    { value: "PurchaseInvoice", label: "Purchase Invoice" },
+                    { value: "Voc", label: shortformLabel("VOC", "Vehicle ownership certificate") },
+                    { value: "IdentityCard", label: shortformLabel("IC", "Customer identity card") },
+                    { value: "ApDocument", label: shortformLabel("AP Document", "Approved permit document") },
                 { value: "StatusReceipt", label: "Status Receipt" },
                 { value: "LoanDocument", label: "Loan Document" },
                 { value: "DeliveryDocument", label: "Delivery Document" },
@@ -1944,6 +2042,16 @@ export function VehiclePage({
       </ProCard>}
     </Space>
   );
+}
+
+function ocrText(value: string | number | undefined, fallback: string) {
+  const normalized = value === undefined || value === null ? "" : String(value).trim();
+  return normalized || fallback;
+}
+
+function ocrOptionalText(value: string | number | undefined, fallback: string | undefined) {
+  const normalized = value === undefined || value === null ? "" : String(value).trim();
+  return normalized || fallback;
 }
 
 function tablePagination(pageSize = 8): TablePaginationConfig {

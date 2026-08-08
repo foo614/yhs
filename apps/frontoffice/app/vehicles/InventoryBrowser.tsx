@@ -1,14 +1,18 @@
 "use client";
 
-import { Search, SlidersHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
-import { frontofficeCopy, type Language } from "../i18n";
+import { CloudOff, Search, SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { frontofficeCopy, hrefWithLanguage, type Language } from "../i18n";
 import { filterAndSortVehicles, type ListingFilters, type ListingSort } from "./listing";
 import type { PublicVehicle } from "./service";
 import { VehicleCard } from "./VehicleCard";
 
-export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en" }: { vehicles: PublicVehicle[]; initialFilters?: ListingFilters; language?: Language }) {
+const INITIAL_VISIBLE_COUNT = 24;
+const VISIBLE_COUNT_INCREMENT = 12;
+
+export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en", unavailable = false }: { vehicles: PublicVehicle[]; initialFilters?: ListingFilters; language?: Language; unavailable?: boolean }) {
   const t = frontofficeCopy[language].inventory;
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [query, setQuery] = useState(initialFilters.query ?? "");
   const [minYear, setMinYear] = useState(initialFilters.minYear ? String(initialFilters.minYear) : "");
   const [maxYear, setMaxYear] = useState(initialFilters.maxYear ? String(initialFilters.maxYear) : "");
@@ -17,7 +21,28 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
   const [make, setMake] = useState(initialFilters.make ?? "");
   const [stockOwner, setStockOwner] = useState<PublicVehicle["stockOwner"] | "All">(initialFilters.stockOwner ?? "All");
   const [sort, setSort] = useState<ListingSort>(initialFilters.sort ?? "year-desc");
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const makes = useMemo(() => [...new Set(vehicles.map((vehicle) => vehicle.make).filter(Boolean))].sort((left, right) => left.localeCompare(right)), [vehicles]);
+
+  useEffect(() => {
+    setQuery(initialFilters.query ?? "");
+    setMake(initialFilters.make ?? "");
+    setMinYear(initialFilters.minYear ? String(initialFilters.minYear) : "");
+    setMaxYear(initialFilters.maxYear ? String(initialFilters.maxYear) : "");
+    setMinPrice(initialFilters.minPrice ? String(initialFilters.minPrice) : "");
+    setMaxPrice(initialFilters.maxPrice ? String(initialFilters.maxPrice) : "");
+    setStockOwner(initialFilters.stockOwner ?? "All");
+    setSort(initialFilters.sort ?? "year-desc");
+  }, [
+    initialFilters.make,
+    initialFilters.maxPrice,
+    initialFilters.maxYear,
+    initialFilters.minPrice,
+    initialFilters.minYear,
+    initialFilters.query,
+    initialFilters.sort,
+    initialFilters.stockOwner
+  ]);
 
   const filteredVehicles = useMemo(() => filterAndSortVehicles(vehicles, {
     query,
@@ -29,6 +54,25 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
     stockOwner,
     sort
   }), [make, maxPrice, maxYear, minPrice, minYear, query, sort, stockOwner, vehicles]);
+  const visibleVehicles = useMemo(() => filteredVehicles.slice(0, visibleCount), [filteredVehicles, visibleCount]);
+  const hasMoreVehicles = visibleCount < filteredVehicles.length;
+
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE_COUNT);
+  }, [make, maxPrice, maxYear, minPrice, minYear, query, sort, stockOwner, vehicles]);
+
+  useEffect(() => {
+    const marker = loadMoreRef.current;
+    if (!hasMoreVehicles || !marker || typeof IntersectionObserver === "undefined") return undefined;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      setVisibleCount((current) => Math.min(current + VISIBLE_COUNT_INCREMENT, filteredVehicles.length));
+    }, { rootMargin: "420px 0px" });
+
+    observer.observe(marker);
+    return () => observer.disconnect();
+  }, [filteredVehicles.length, hasMoreVehicles]);
 
   return (
     <section className="listingShell" aria-label={t.kicker}>
@@ -101,9 +145,16 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
           </div>
         </div>
 
-        <div className="listingResults">
-          {filteredVehicles.length > 0 ? (
-            filteredVehicles.map((vehicle) => <VehicleCard vehicle={vehicle} language={language} key={vehicle.id} />)
+        <div className="listingResults rednoteFeed">
+          {unavailable ? (
+            <div className="emptyState inventoryUnavailable">
+              <CloudOff size={32} aria-hidden="true" />
+              <h3>{t.unavailableTitle}</h3>
+              <p>{t.unavailableText}</p>
+              <a href={hrefWithLanguage("/contact", language)} className="secondaryAction">{t.contactSales}</a>
+            </div>
+          ) : filteredVehicles.length > 0 ? (
+            visibleVehicles.map((vehicle) => <VehicleCard vehicle={vehicle} language={language} key={vehicle.id} />)
           ) : (
             <div className="emptyState">
               <h3>{t.emptyTitle}</h3>
@@ -111,6 +162,26 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
             </div>
           )}
         </div>
+        {filteredVehicles.length > 0 && (
+          <div className="inventoryLoadMore" ref={loadMoreRef}>
+            <p>
+              {t.showingVehicles
+                .replace("{visible}", String(visibleVehicles.length))
+                .replace("{total}", String(filteredVehicles.length))}
+            </p>
+            {hasMoreVehicles ? (
+              <button
+                className="secondaryAction loadMoreButton"
+                type="button"
+                onClick={() => setVisibleCount((current) => Math.min(current + VISIBLE_COUNT_INCREMENT, filteredVehicles.length))}
+              >
+                {t.loadMore}
+              </button>
+            ) : (
+              <span>{t.allLoaded}</span>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

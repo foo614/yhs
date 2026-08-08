@@ -7,6 +7,7 @@ export type PaymentStatus = "Pending" | "Approved" | "Disbursed" | "Reconciled";
 export type PaymentExternalSyncStatus = "NotSynced" | "Synced" | "Failed";
 export type AutoCountSyncStatus = "Draft" | "Ready" | "Submitted" | "Synced" | "Failed";
 export type PaymentVoucherStatus = "Pending" | "Approved" | "Paid";
+export type CashHandoverStatus = "ReceivedBySales" | "PendingHandover" | "HandedOver" | "Rejected" | "Receipted";
 export type DebtRecoveryStatus = "Open" | "FollowedUp" | "Closed";
 export type RepairApprovalStatus = "Pending" | "Approved" | "Rejected";
 export type SupplierInvoiceAgingStatus = "Unmatched" | "DueSoon" | "Overdue" | "Paid";
@@ -14,7 +15,7 @@ export type HrAttendanceStatus = "Present" | "Late" | "HalfDay" | "Absent";
 export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "UnpaidLeave";
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated";
-export type DocumentCategory = "PurchaseInvoice" | "Voc" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate";
+export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed";
 export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected";
 
@@ -68,10 +69,16 @@ export type VehicleOcrJob = OcrJob & {
 };
 
 export type UploadProgressHandler = (percent: number) => void;
+export type DocumentUploadOwner = {
+  repairJobId?: string;
+  paymentRecordId?: string;
+};
 
 export type Vehicle = {
   id: string;
   plateNumber: string;
+  chassisNumber?: string;
+  engineNumber?: string;
   make: string;
   model: string;
   year: number;
@@ -94,7 +101,7 @@ export type Vehicle = {
   outstationPickupBookingSlip?: string;
 };
 
-export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status">;
+export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status" | "customerId">;
 
 export type StockMovement = {
   id: string;
@@ -385,6 +392,115 @@ export type PaymentVoucher = {
   notes?: string;
 };
 
+export type CustomerProfileOption = Pick<Customer, "id" | "name">;
+
+export type CustomerProfileContact = {
+  id: string;
+  name: string;
+  phone?: string;
+  icNumber?: string;
+  email?: string;
+  address?: string;
+  notes?: string;
+};
+
+export type CustomerProfileVehicle = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "year" | "status">;
+
+export type CustomerProfileLoan = Pick<LoanApplication, "id" | "vehicleId" | "status" | "louApproved" | "louDone" | "submittedAt">;
+
+export type CustomerProfileDelivery = Pick<DeliverySchedule,
+  "id" | "vehicleId" | "status" | "scheduledDate" | "pic" |
+  "insuranceHandled" | "insurancePolicyReference" | "insuranceExpiryDate" |
+  "roadTaxHandled" | "roadTaxReceiptReference" | "roadTaxExpiryDate" |
+  "windscreenInsuranceHandled" | "windscreenPolicyReference" | "windscreenInsuranceExpiryDate">;
+
+export type CustomerProfilePayment = Pick<PaymentRecord, "id" | "vehicleId" | "nettPrice" | "status" | "receiptNumber" | "invoiceNumber" | "createdAt">;
+
+export type CustomerProfileInvoice = Pick<FinanceInvoice, "id" | "paymentRecordId" | "vehicleId" | "invoiceNumber" | "invoiceDate" | "amount">;
+
+export type CustomerProfileReceipt = {
+  cashHandoverId: string;
+  id: string;
+  paymentRecordId: string;
+  receiptNumber: string;
+  amount: number;
+  createdAt: string;
+};
+
+export type CustomerProfileDocument = {
+  id: string;
+  vehicleId: string;
+  category: DocumentCategory;
+  fileName: string;
+  mimeType: string;
+  checksum: string;
+  uploadedBy: string;
+  uploadedAt: string;
+};
+
+export type CustomerProfileEnquiry = Pick<Lead, "id" | "vehicleId" | "status" | "message" | "sourcePage" | "createdAt">;
+
+export type CustomerProfileMissingDocument = {
+  vehicleId?: string;
+  category: DocumentCategory;
+  message: string;
+};
+
+export type CustomerProfilePermissions = {
+  canViewIdentity: boolean;
+  canViewLoans: boolean;
+  canViewDelivery: boolean;
+  canViewFinance: boolean;
+  canViewDocuments: boolean;
+  canViewEnquiries: boolean;
+};
+
+export type CustomerProfile = {
+  contact: CustomerProfileContact;
+  vehicles: CustomerProfileVehicle[];
+  loans: CustomerProfileLoan[];
+  deliveries: CustomerProfileDelivery[];
+  payments: CustomerProfilePayment[];
+  invoices: CustomerProfileInvoice[];
+  officialReceipts: CustomerProfileReceipt[];
+  documents: CustomerProfileDocument[];
+  enquiries: CustomerProfileEnquiry[];
+  missingDocuments: CustomerProfileMissingDocument[];
+  permissions: CustomerProfilePermissions;
+};
+
+export type CashHandover = {
+  id: string;
+  paymentRecordId: string;
+  vehicleId: string;
+  customerId: string;
+  amount: number;
+  status: CashHandoverStatus;
+  collectedByUserId: string;
+  collectedAt: string;
+  handoverRequestedAt?: string;
+  handedOverToUserId?: string;
+  handedOverAt?: string;
+  acceptedByUserId?: string;
+  acceptedAt?: string;
+  rejectedByUserId?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  notes?: string;
+  officialReceiptId?: string;
+  officialReceiptNumber?: string;
+};
+
+export type CashHandoverPaymentLookup = {
+  paymentRecordId: string;
+  vehicleId: string;
+  customerId: string;
+  customerName: string;
+  plateNumber: string;
+  invoiceNumber?: string;
+  nettPrice: number;
+};
+
 export type HrAttendanceRecord = {
   id: string;
   staffUserId: string;
@@ -533,6 +649,8 @@ export type VehicleDocument = {
   fileName: string;
   mimeType: string;
   category: DocumentCategory;
+  repairJobId?: string;
+  paymentRecordId?: string;
   uploadedBy: string;
   checksum: string;
   uploadedAt: string;
@@ -638,14 +756,12 @@ const sampleVehicle: Vehicle = {
     ownerId: undefined
 };
 
-export async function getDashboard(): Promise<DashboardSummary> {
+export async function getDashboard(): Promise<DashboardSummary | null> {
   try {
     const response = await fetch(`${apiBaseUrl}/api/dashboard/summary`, { credentials: "include" });
     if (response.ok) return response.json();
-  } catch {
-    return fallbackDashboard();
-  }
-  return fallbackDashboard();
+  } catch {}
+  return null;
 }
 
 export async function getDashboardReminders(filters: DashboardReminderFilters = {}): Promise<DashboardReminder[]> {
@@ -691,6 +807,14 @@ export async function getCustomers(): Promise<Customer[]> {
   return getWithNetworkFallback("/api/customers", []);
 }
 
+export async function getCustomerProfileOptions(): Promise<CustomerProfileOption[]> {
+  return getWithNetworkFallback("/api/customers/profile-options", []);
+}
+
+export async function getCustomerProfile(customerId: string): Promise<CustomerProfile> {
+  return request<CustomerProfile>(`/api/customers/${customerId}/profile`);
+}
+
 export async function getOwners(): Promise<Owner[]> {
   return getWithNetworkFallback("/api/owners", []);
 }
@@ -725,6 +849,14 @@ export async function getDeliveries(): Promise<DeliverySchedule[]> {
 
 export async function getPayments(): Promise<PaymentRecord[]> {
   return getWithNetworkFallback("/api/payments", fallbackPayments());
+}
+
+export async function getCashHandovers(): Promise<CashHandover[]> {
+  return getWithNetworkFallback("/api/cash-handovers", []);
+}
+
+export async function getCashHandoverPaymentLookup(): Promise<CashHandoverPaymentLookup[]> {
+  return getWithNetworkFallback("/api/cash-handovers/payment-lookup", []);
 }
 
 export async function getFinanceInvoices(): Promise<FinanceInvoice[]> {
@@ -912,6 +1044,8 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
   return {
     id,
     plateNumber: values.plateNumber,
+    chassisNumber: values.chassisNumber?.trim() || undefined,
+    engineNumber: values.engineNumber?.trim() || undefined,
     make: values.make,
     model: values.model,
     year: Number(values.year),
@@ -1110,6 +1244,32 @@ export async function updatePayment(payment: PaymentRecord): Promise<PaymentReco
   });
 }
 
+export async function createCashHandover(paymentRecordId: string, amount: number, notes?: string): Promise<CashHandover> {
+  return request<CashHandover>("/api/cash-handovers", {
+    method: "POST",
+    body: JSON.stringify({ paymentRecordId, amount, notes })
+  });
+}
+
+export async function requestCashHandover(id: string): Promise<CashHandover> {
+  return request<CashHandover>(`/api/cash-handovers/${id}/request-handover`, { method: "POST" });
+}
+
+export async function recordCashHandover(id: string): Promise<CashHandover> {
+  return request<CashHandover>(`/api/cash-handovers/${id}/hand-over`, { method: "POST" });
+}
+
+export async function acceptCashHandover(id: string): Promise<CashHandover> {
+  return request<CashHandover>(`/api/cash-handovers/${id}/accept`, { method: "POST" });
+}
+
+export async function rejectCashHandover(id: string, reason: string): Promise<CashHandover> {
+  return request<CashHandover>(`/api/cash-handovers/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
+  });
+}
+
 export async function getAutoCountSyncJobs(invoiceId: string): Promise<AutoCountSyncJob[]> {
   return request<AutoCountSyncJob[]>(`/api/finance-invoices/${invoiceId}/autocount-sync`);
 }
@@ -1236,6 +1396,10 @@ export function financeInvoiceContentUrl(invoiceId: string) {
   return `${apiBaseUrl}/api/finance-invoices/${invoiceId}/content`;
 }
 
+export function officialReceiptContentUrl(cashHandoverId: string) {
+  return `${apiBaseUrl}/api/cash-handovers/${cashHandoverId}/official-receipt/content`;
+}
+
 export function vehiclePhotoContentUrl(vehicleId: string, photoId: string) {
   return `${apiBaseUrl}/api/vehicles/${vehicleId}/photos/${photoId}/content`;
 }
@@ -1244,12 +1408,19 @@ export async function uploadVehiclePhoto(vehicleId: string, file: File) {
   return uploadFile(`/api/vehicles/${vehicleId}/photos`, file);
 }
 
-export async function uploadVehicleDocument(vehicleId: string, file: File, category: DocumentCategory): Promise<VehicleDocument> {
-  return uploadFile<VehicleDocument>(`/api/vehicles/${vehicleId}/documents?category=${encodeURIComponent(category)}`, file);
+export async function uploadVehicleDocument(vehicleId: string, file: File, category: DocumentCategory, owner?: DocumentUploadOwner): Promise<VehicleDocument> {
+  return uploadFile<VehicleDocument>(documentUploadPath(vehicleId, category, owner), file);
 }
 
-export async function uploadVehicleDocumentWithProgress(vehicleId: string, file: File, category: DocumentCategory, onProgress?: UploadProgressHandler): Promise<VehicleDocument> {
-  return uploadFileWithProgress<VehicleDocument>(`/api/vehicles/${vehicleId}/documents?category=${encodeURIComponent(category)}`, file, onProgress);
+export async function uploadVehicleDocumentWithProgress(vehicleId: string, file: File, category: DocumentCategory, onProgress?: UploadProgressHandler, owner?: DocumentUploadOwner): Promise<VehicleDocument> {
+  return uploadFileWithProgress<VehicleDocument>(documentUploadPath(vehicleId, category, owner), file, onProgress);
+}
+
+function documentUploadPath(vehicleId: string, category: DocumentCategory, owner?: DocumentUploadOwner) {
+  const query = new URLSearchParams({ category });
+  if (owner?.repairJobId) query.set("repairJobId", owner.repairJobId);
+  if (owner?.paymentRecordId) query.set("paymentRecordId", owner.paymentRecordId);
+  return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
 }
 
 export async function startOcrJob(documentId: string): Promise<OcrJob> {
@@ -1410,54 +1581,6 @@ async function responseErrorMessage(response: Response, fallback: string) {
     return `${fallback} (empty or malformed request payload).`;
   }
   return fallback;
-}
-
-function fallbackDashboard(): DashboardSummary {
-  return {
-    totalStock: 0,
-    pendingLoan: 0,
-    outstandingPayment: 0,
-    settlementDue: 0,
-    repairCost: 0,
-    estimatedProfit: 0,
-    totalProfit: 0,
-    vehicleAging: 0,
-    agingBuckets: [
-      { label: "0-30", count: 0 },
-      { label: "31-60", count: 0 },
-      { label: "61+", count: 0 }
-    ],
-    topSupplier: "-",
-    salesPerformance: 0,
-    stockStatusMix: [
-      { label: "Available", count: 1 },
-      { label: "LoanProcessing", count: 0 },
-      { label: "Sold", count: 0 }
-    ],
-    stockOwnerMix: [
-      { label: "YSHeng", count: 1 },
-      { label: "KS", count: 0 }
-    ],
-    moneyRiskBreakdown: [],
-    workflowBlockers: {
-      byType: [],
-      dueBuckets: [
-        { label: "Overdue", count: 0 },
-        { label: "DueToday", count: 0 },
-        { label: "Upcoming", count: 0 }
-      ]
-    },
-    salesFunnel: {
-      stages: [
-        { label: "New", count: 1 },
-        { label: "Contacted", count: 0 },
-        { label: "Closed", count: 0 }
-      ],
-      conversionRate: 0
-    },
-    profitBreakdown: [],
-    supplierSpendTop: []
-  };
 }
 
 function fallbackSupplierInvoices(): SupplierInvoice[] {

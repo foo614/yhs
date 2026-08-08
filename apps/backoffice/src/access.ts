@@ -1,6 +1,6 @@
 import type { StaffRole } from "./api";
 
-export type AppRoutePath = "/dashboard" | "/vehicles" | "/repairs" | "/loans" | "/delivery" | "/finance" | "/leads" | "/audit-log" | "/hr-salary" | "/admin";
+export type AppRoutePath = "/dashboard" | "/vehicles" | "/repairs" | "/loans" | "/delivery" | "/finance" | "/cash-custody" | "/customer-360" | "/leads" | "/audit-log" | "/hr-salary" | "/admin";
 export type BackOfficeDataKey =
   | "dashboard"
   | "reminders"
@@ -14,6 +14,8 @@ export type BackOfficeDataKey =
   | "loans"
   | "deliveries"
   | "payments"
+  | "cashHandovers"
+  | "cashHandoverPaymentLookup"
   | "settlements"
   | "dailySpends"
   | "brokerCommissions"
@@ -46,6 +48,8 @@ export const routeAccess: RouteAccess[] = [
   { path: "/loans", roles: ["BossAdmin", "Loan"] },
   { path: "/delivery", roles: ["BossAdmin", "Delivery"] },
   { path: "/finance", roles: ["BossAdmin", "Finance"] },
+  { path: "/cash-custody", roles: ["BossAdmin", "Sales", "Finance"] },
+  { path: "/customer-360", roles: ["BossAdmin", "Sales", "Loan", "Delivery", "Finance"] },
   { path: "/leads", roles: ["BossAdmin", "Sales"] },
   { path: "/audit-log", roles: ["BossAdmin"] },
   { path: "/hr-salary", roles: assignableStaffRoles },
@@ -65,6 +69,8 @@ const allDataKeys: BackOfficeDataKey[] = [
   "loans",
   "deliveries",
   "payments",
+  "cashHandovers",
+  "cashHandoverPaymentLookup",
   "settlements",
   "dailySpends",
   "brokerCommissions",
@@ -102,10 +108,10 @@ const hrManagementDataKeys: BackOfficeDataKey[] = [
 
 export const roleDataKeys: Record<StaffRole, BackOfficeDataKey[]> = {
   BossAdmin: allDataKeys,
-  Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "leads", ...hrSelfServiceDataKeys],
+  Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "cashHandovers", "cashHandoverPaymentLookup", "leads", ...hrSelfServiceDataKeys],
   Loan: ["vehicleLookup", "customers", "loans", ...hrSelfServiceDataKeys],
   Delivery: ["vehicleLookup", "deliveries", ...hrSelfServiceDataKeys],
-  Finance: ["vehicleLookup", "customers", "owners", "payments", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", ...hrSelfServiceDataKeys],
+  Finance: ["vehicleLookup", "customers", "owners", "payments", "cashHandovers", "cashHandoverPaymentLookup", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", ...hrSelfServiceDataKeys],
   Repair: ["vehicleLookup", "supplierInvoices", "repairs", ...hrSelfServiceDataKeys],
   HrSalary: hrManagementDataKeys
 };

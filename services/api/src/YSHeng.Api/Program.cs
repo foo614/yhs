@@ -46,7 +46,9 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Finance", policy => policy.RequireRole("BossAdmin", "Finance"));
     options.AddPolicy("HrSalary", policy => policy.RequireRole(DepartmentAccess.HrManagers));
     options.AddPolicy("Sales", policy => policy.RequireRole("BossAdmin", "Sales"));
+    options.AddPolicy("CashCustody", policy => policy.RequireRole("BossAdmin", "Sales", "Finance"));
     options.AddPolicy("CustomerRead", policy => policy.RequireRole(DepartmentAccess.CustomerReaders));
+    options.AddPolicy("CustomerProfile", policy => policy.RequireRole(DepartmentAccess.CustomerProfileReaders));
     options.AddPolicy("OwnerRead", policy => policy.RequireRole(DepartmentAccess.OwnerReaders));
     options.AddPolicy("BossAdmin", policy => policy.RequireRole("BossAdmin"));
 });
@@ -155,6 +157,18 @@ app.MapPost("/api/public/leads", async (LeadRequest request, AppDbContext db) =>
     return Results.Created($"/api/leads/{lead.Id}", lead);
 });
 
+app.MapPost("/api/public/contact-enquiries", async (ContactEnquiryRequest request, AppDbContext db) =>
+{
+    var validation = WorkflowReferenceRules.ValidatePublicContactEnquiry(request);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var lead = LeadCapture.CreateContactEnquiry(request);
+    db.Leads.Add(lead);
+    ApiAudit.Add(db, "public", "contactEnquiry.created", nameof(Lead), lead.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/public/contact-enquiries/{lead.Id}", new { id = lead.Id });
+});
+
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
 
 backOffice.MapGet("/vehicles", async (AppDbContext db) => await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync()).RequireAuthorization("Vehicles");
@@ -253,15 +267,32 @@ backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Gu
     return photo is null ? Results.NotFound() : Results.File(photo.Content, photo.MimeType);
 });
 
-backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, AppDbContext db, HttpContext context) =>
 {
     var validation = WorkflowReferenceRules.ValidateVehicleLink(id, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
     if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
+    var ownershipValidation = DocumentOwnershipRules.Validate(category, repairJobId, paymentRecordId);
+    if (!ownershipValidation.IsValid) return Results.BadRequest(ownershipValidation);
     var roles = SeedData.Roles.Where(context.User.IsInRole);
     if (!DepartmentAccess.CanUploadDocument(roles, category)) return Results.Forbid();
     if (!UploadPolicy.IsAllowed(category, file.Length)) return Results.BadRequest(new { message = "Document exceeds 10MB limit." });
+
+    if (repairJobId.HasValue)
+    {
+        var repair = await db.RepairJobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == repairJobId.Value);
+        if (repair is null) return Results.BadRequest(new { message = "Selected repair job does not exist." });
+        if (repair.VehicleId != id) return Results.BadRequest(new { message = "Selected repair job is not linked to this vehicle." });
+    }
+
+    if (paymentRecordId.HasValue)
+    {
+        var payment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == paymentRecordId.Value);
+        if (payment is null) return Results.BadRequest(new { message = "Selected payment record does not exist." });
+        if (payment.VehicleId != id) return Results.BadRequest(new { message = "Selected payment record is not linked to this vehicle." });
+    }
+
     await using var stream = file.OpenReadStream();
     using var memory = new MemoryStream();
     await stream.CopyToAsync(memory);
@@ -269,6 +300,8 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     var document = new DocumentBlob
     {
         VehicleId = id,
+        RepairJobId = repairJobId,
+        PaymentRecordId = paymentRecordId,
         Category = category,
         FileName = file.FileName,
         MimeType = file.ContentType,
@@ -279,20 +312,28 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     db.DocumentBlobs.Add(document);
     ApiAudit.Add(db, context.User, "vehicle.document.uploaded", nameof(DocumentBlob), document.Id);
     await db.SaveChangesAsync();
-    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.Checksum, document.UploadedBy, document.UploadedAt });
+    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt });
 }).DisableAntiforgery();
 
-backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext db) =>
-    await db.DocumentBlobs.AsNoTracking()
+backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    var documents = await db.DocumentBlobs.AsNoTracking()
         .Where(document => document.VehicleId == id)
         .OrderByDescending(document => document.UploadedAt)
-        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.Checksum, document.UploadedBy, document.UploadedAt })
-        .ToListAsync());
+        .ToListAsync();
+    return Results.Ok(documents
+        .Where(document => DepartmentAccess.CanUploadDocument(roles, document.Category))
+        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt }));
+});
 
-backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", async (Guid id, Guid documentId, AppDbContext db) =>
+backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", async (Guid id, Guid documentId, AppDbContext db, HttpContext context) =>
 {
     var document = await db.DocumentBlobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == documentId && item.VehicleId == id);
-    return document is null ? Results.NotFound() : Results.File(document.Content, document.MimeType, document.FileName);
+    if (document is null) return Results.NotFound();
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
+    return Results.File(document.Content, document.MimeType, document.FileName);
 });
 
 backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid documentId, AppDbContext db, HttpContext context, IOcrExtractor extractor, CancellationToken cancellationToken) =>
@@ -393,6 +434,45 @@ backOffice.MapGet("/vehicles/{id:guid}/ocr-jobs", async (Guid id, AppDbContext d
 });
 
 backOffice.MapGet("/customers", async (AppDbContext db) => await db.Customers.AsNoTracking().OrderBy(customer => customer.Name).ToListAsync()).RequireAuthorization("CustomerRead");
+backOffice.MapGet("/customers/profile-options", async (AppDbContext db, HttpContext context) =>
+{
+    var roles = SeedData.Roles.Where(context.User.IsInRole).ToArray();
+    var query = db.Customers.AsNoTracking();
+    if (!roles.Intersect(DepartmentAccess.CustomerReaders).Any())
+    {
+        query = query.Where(customer => db.Vehicles.Any(vehicle =>
+            vehicle.CustomerId == customer.Id &&
+            db.DeliverySchedules.Any(delivery => delivery.VehicleId == vehicle.Id)));
+    }
+
+    return CustomerProfileFactory.CreateOptions(await query.ToListAsync());
+}).RequireAuthorization("CustomerProfile");
+backOffice.MapGet("/customers/{id:guid}/profile", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (customer is null) return Results.NotFound();
+
+    var roles = SeedData.Roles.Where(context.User.IsInRole).ToArray();
+    var vehicles = await db.Vehicles.AsNoTracking().Where(vehicle => vehicle.CustomerId == id).ToListAsync();
+    var vehicleIds = vehicles.Select(vehicle => vehicle.Id).ToList();
+    var loans = await db.LoanApplications.AsNoTracking().Where(loan => loan.CustomerId == id).ToListAsync();
+    var deliveries = await db.DeliverySchedules.AsNoTracking().Where(delivery => vehicleIds.Contains(delivery.VehicleId)).ToListAsync();
+    if (!roles.Intersect(DepartmentAccess.CustomerReaders).Any() && deliveries.Count == 0) return Results.NotFound();
+    var payments = await db.PaymentRecords.AsNoTracking().Where(payment => vehicleIds.Contains(payment.VehicleId)).ToListAsync();
+    var paymentIds = payments.Select(payment => payment.Id).ToList();
+    var invoices = await db.FinanceInvoices.AsNoTracking()
+        .Where(invoice => invoice.CustomerId == id || paymentIds.Contains(invoice.PaymentRecordId))
+        .ToListAsync();
+    var handovers = await db.CashHandovers.AsNoTracking().Where(handover => handover.CustomerId == id).ToListAsync();
+    var handoverIds = handovers.Select(handover => handover.Id).ToList();
+    var receipts = await db.OfficialReceipts.AsNoTracking().Where(receipt => handoverIds.Contains(receipt.CashHandoverId)).ToListAsync();
+    var documents = await db.DocumentBlobs.AsNoTracking().Where(document => document.VehicleId.HasValue && vehicleIds.Contains(document.VehicleId.Value)).ToListAsync();
+    var leads = roles.Any(role => role is "BossAdmin" or "Sales")
+        ? await db.Leads.AsNoTracking().Where(lead => lead.CustomerId == id).ToListAsync()
+        : [];
+
+    return Results.Ok(CustomerProfileFactory.Create(customer, roles, vehicles, loans, deliveries, payments, invoices, handovers, receipts, documents, leads));
+}).RequireAuthorization("CustomerProfile");
 backOffice.MapPost("/customers", async (Customer customer, AppDbContext db, HttpContext context) =>
 {
     var validation = ContactRules.ValidateCustomer(customer);
@@ -679,6 +759,183 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     await db.SaveChangesAsync();
     return Results.Ok(payment);
 }).RequireAuthorization("Finance");
+
+backOffice.MapGet("/cash-handovers", async (AppDbContext db, HttpContext context) =>
+{
+    var handovers = await db.CashHandovers.AsNoTracking().OrderByDescending(handover => handover.CollectedAt).ToListAsync();
+    if (context.User.IsInRole("BossAdmin") || context.User.IsInRole("Finance")) return Results.Ok(handovers);
+
+    var actorUserId = StaffIdentity.CurrentUserId(context);
+    return Results.Ok(handovers.Where(handover => handover.CollectedByUserId == actorUserId));
+}).RequireAuthorization("CashCustody");
+
+backOffice.MapGet("/cash-handovers/payment-lookup", async (AppDbContext db) =>
+{
+    var handedOverPaymentIds = await db.CashHandovers.AsNoTracking().Select(handover => handover.PaymentRecordId).ToListAsync();
+    var payments = await db.PaymentRecords.AsNoTracking()
+        .Where(payment => payment.Status != PaymentStatus.Reconciled && !handedOverPaymentIds.Contains(payment.Id))
+        .OrderByDescending(payment => payment.CreatedAt)
+        .ToListAsync();
+    var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var customers = await db.Customers.AsNoTracking().ToListAsync();
+    return Results.Ok(
+        from payment in payments
+        join vehicle in vehicles on payment.VehicleId equals vehicle.Id
+        where vehicle.CustomerId is not null
+        join customer in customers on vehicle.CustomerId!.Value equals customer.Id
+        select new CashHandoverPaymentLookup(payment.Id, vehicle.Id, customer.Id, customer.Name, vehicle.PlateNumber, payment.InvoiceNumber, payment.NettPrice));
+}).RequireAuthorization("CashCustody");
+
+backOffice.MapPost("/cash-handovers", async (CashHandoverCreateRequest request, AppDbContext db, HttpContext context) =>
+{
+    var payment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.PaymentRecordId);
+    var vehicle = payment is null
+        ? null
+        : await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == payment.VehicleId);
+    var validation = CashCustodyRules.ValidateCreate(request, payment, vehicle);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (await db.CashHandovers.AsNoTracking().AnyAsync(item => item.PaymentRecordId == request.PaymentRecordId))
+    {
+        return Results.Conflict(new ApiError("A cash handover already exists for this payment."));
+    }
+
+    var handover = new CashHandover
+    {
+        PaymentRecordId = payment!.Id,
+        VehicleId = vehicle!.Id,
+        CustomerId = vehicle.CustomerId!.Value,
+        Amount = request.Amount,
+        CollectedByUserId = StaffIdentity.CurrentUserId(context),
+        Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+        CollectedAt = DateTime.UtcNow
+    };
+
+    db.CashHandovers.Add(handover);
+    ApiAudit.Add(db, context.User, "cashHandover.receivedBySales", nameof(CashHandover), handover.Id);
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+        return Results.Conflict(new ApiError("A cash handover already exists for this payment."));
+    }
+
+    return Results.Created($"/api/cash-handovers/{handover.Id}", handover);
+}).RequireAuthorization("Sales");
+
+backOffice.MapPost("/cash-handovers/{id:guid}/request-handover", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var handover = await db.CashHandovers.FirstOrDefaultAsync(item => item.Id == id);
+    if (handover is null) return Results.NotFound();
+    var validation = CashCustodyRules.ValidateRequestHandover(handover, StaffIdentity.CurrentUserId(context));
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var updated = handover with { Status = CashHandoverStatus.PendingHandover, HandoverRequestedAt = DateTime.UtcNow };
+    db.Entry(handover).CurrentValues.SetValues(updated);
+    ApiAudit.Add(db, context.User, "cashHandover.requested", nameof(CashHandover), id);
+    await db.SaveChangesAsync();
+    return Results.Ok(updated);
+}).RequireAuthorization("Sales");
+
+backOffice.MapPost("/cash-handovers/{id:guid}/hand-over", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var handover = await db.CashHandovers.FirstOrDefaultAsync(item => item.Id == id);
+    if (handover is null) return Results.NotFound();
+    var actorUserId = StaffIdentity.CurrentUserId(context);
+    var validation = CashCustodyRules.ValidateHandOver(handover, actorUserId);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var updated = handover with
+    {
+        Status = CashHandoverStatus.HandedOver,
+        HandedOverToUserId = actorUserId,
+        HandedOverAt = DateTime.UtcNow
+    };
+    db.Entry(handover).CurrentValues.SetValues(updated);
+    ApiAudit.Add(db, context.User, "cashHandover.handedOver", nameof(CashHandover), id);
+    await db.SaveChangesAsync();
+    return Results.Ok(updated);
+}).RequireAuthorization("Finance");
+
+backOffice.MapPost("/cash-handovers/{id:guid}/accept", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var handover = await db.CashHandovers.FirstOrDefaultAsync(item => item.Id == id);
+    if (handover is null) return Results.NotFound();
+    if (handover.Status == CashHandoverStatus.Receipted) return Results.Ok(handover);
+
+    var actorUserId = StaffIdentity.CurrentUserId(context);
+    var validation = CashCustodyRules.ValidateAccept(handover, actorUserId);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var payment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == handover.PaymentRecordId);
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == handover.VehicleId);
+    var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == handover.CustomerId);
+    if (payment is null || vehicle is null || customer is null) return Results.BadRequest(new ApiError("Cash handover references an unavailable payment, vehicle, or customer."));
+    var amountValidation = CashCustodyRules.ValidateRecordedAmount(handover, payment);
+    if (!amountValidation.IsValid) return Results.BadRequest(amountValidation);
+
+    var now = DateTime.UtcNow;
+    var receipt = OfficialReceiptFactory.Create(handover, vehicle, customer, actorUserId, now);
+    var updated = handover with
+    {
+        Status = CashHandoverStatus.Receipted,
+        AcceptedByUserId = actorUserId,
+        AcceptedAt = now,
+        OfficialReceiptId = receipt.Id,
+        OfficialReceiptNumber = receipt.ReceiptNumber
+    };
+
+    db.OfficialReceipts.Add(receipt);
+    db.Entry(handover).CurrentValues.SetValues(updated);
+    ApiAudit.Add(db, context.User, "cashHandover.accepted", nameof(CashHandover), id);
+    ApiAudit.Add(db, context.User, "officialReceipt.generated", nameof(OfficialReceipt), receipt.Id);
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateException)
+    {
+        db.ChangeTracker.Clear();
+        var existing = await db.CashHandovers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+        return existing?.Status == CashHandoverStatus.Receipted
+            ? Results.Ok(existing)
+            : Results.Conflict(new ApiError("Official receipt creation conflicted with another request. Retry safely."));
+    }
+
+    return Results.Ok(updated);
+}).RequireAuthorization("Finance");
+
+backOffice.MapPost("/cash-handovers/{id:guid}/reject", async (Guid id, CashHandoverRejectionRequest request, AppDbContext db, HttpContext context) =>
+{
+    var handover = await db.CashHandovers.FirstOrDefaultAsync(item => item.Id == id);
+    if (handover is null) return Results.NotFound();
+    var actorUserId = StaffIdentity.CurrentUserId(context);
+    var validation = CashCustodyRules.ValidateReject(handover, actorUserId, request.Reason);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var updated = handover with
+    {
+        Status = CashHandoverStatus.Rejected,
+        RejectedByUserId = actorUserId,
+        RejectedAt = DateTime.UtcNow,
+        RejectionReason = request.Reason.Trim()
+    };
+    db.Entry(handover).CurrentValues.SetValues(updated);
+    ApiAudit.Add(db, context.User, "cashHandover.rejected", nameof(CashHandover), id);
+    await db.SaveChangesAsync();
+    return Results.Ok(updated);
+}).RequireAuthorization("Finance");
+
+backOffice.MapGet("/cash-handovers/{id:guid}/official-receipt/content", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var handover = await db.CashHandovers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (handover is null || handover.OfficialReceiptId is null) return Results.NotFound();
+    if (!context.User.IsInRole("BossAdmin") && !context.User.IsInRole("Finance") && handover.CollectedByUserId != StaffIdentity.CurrentUserId(context)) return Results.Forbid();
+
+    var receipt = await db.OfficialReceipts.AsNoTracking().FirstOrDefaultAsync(item => item.Id == handover.OfficialReceiptId.Value);
+    return receipt is null ? Results.NotFound() : Results.File(receipt.Content, receipt.ContentMimeType, $"{receipt.ReceiptNumber}.pdf");
+}).RequireAuthorization("CashCustody");
 
 backOffice.MapGet("/finance-invoices", async (AppDbContext db) =>
 {
@@ -1645,6 +1902,12 @@ internal static class StockMovementAudit
         AddIfChanged(db, after.Id, "Status", before.Status.ToString(), after.Status.ToString(), actor, reason);
         AddIfChanged(db, after.Id, "StockOwner", before.StockOwner.ToString(), after.StockOwner.ToString(), actor, reason);
         AddIfChanged(db, after.Id, "StockLocation", before.StockLocation, after.StockLocation, actor, reason);
+        AddIfChanged(db, after.Id, "PlateNumber", before.PlateNumber, after.PlateNumber, actor, reason);
+        AddIfChanged(db, after.Id, "ChassisNumber", before.ChassisNumber, after.ChassisNumber, actor, reason);
+        AddIfChanged(db, after.Id, "EngineNumber", before.EngineNumber, after.EngineNumber, actor, reason);
+        AddIfChanged(db, after.Id, "Make", before.Make, after.Make, actor, reason);
+        AddIfChanged(db, after.Id, "Model", before.Model, after.Model, actor, reason);
+        AddIfChanged(db, after.Id, "Year", before.Year.ToString(), after.Year.ToString(), actor, reason);
     }
 
     private static void AddIfChanged(AppDbContext db, Guid vehicleId, string fieldName, string? previousValue, string? newValue, System.Security.Claims.ClaimsPrincipal actor, string reason)

@@ -17,12 +17,19 @@ describe("frontoffice motion enhancer contract", () => {
 
     expect(motionEnhancer).toContain('"use client"');
     expect(motionEnhancer).toContain("usePathname()");
+    expect(motionEnhancer).toContain("useGSAP");
+    expect(motionEnhancer).toContain("contextSafe");
+    expect(motionEnhancer).toContain("gsap.registerPlugin(useGSAP)");
+    expect(motionEnhancer).toContain("const scope = useRef<HTMLDivElement>(null)");
+    expect(motionEnhancer).toContain("{ scope, dependencies: [pathname], revertOnUpdate: true }");
+    expect(motionEnhancer).toContain('from "gsap"');
     expect(motionEnhancer).toContain("IntersectionObserver");
     expect(motionEnhancer).toContain("motionReady");
     expect(motionEnhancer).toContain("motionReveal");
     expect(motionEnhancer).toContain("prefers-reduced-motion: reduce");
+    expect(motionEnhancer).not.toContain("ScrollTrigger");
     expect(layout).toContain("import { MotionEnhancer } from \"./MotionEnhancer\";");
-    expect(layout).toContain("<MotionEnhancer />");
+    expect(layout).toContain("<MotionEnhancer>{children}</MotionEnhancer>");
     expect(styles).toContain(".motionReady .motionReveal");
     expect(styles).toContain(".motionReveal.isVisible");
   });

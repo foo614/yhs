@@ -203,6 +203,7 @@ try {
 dotnet run --project services/api/src/YSHeng.Api/YSHeng.Api.csproj
 "@
   $frontScript = @"
+`$env:API_BASE_URL='$apiUrl'
 `$env:NEXT_PUBLIC_API_BASE_URL='$apiUrl'
 & 'C:\Program Files\nodejs\npm.cmd' --workspace apps/frontoffice exec next start -- -p $FrontOfficePort
 "@

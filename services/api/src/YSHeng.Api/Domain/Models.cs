@@ -9,6 +9,7 @@ public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
 public enum PaymentExternalSyncStatus { NotSynced, Synced, Failed }
 public enum AutoCountSyncStatus { Draft, Ready, Submitted, Synced, Failed }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
+public enum CashHandoverStatus { ReceivedBySales, PendingHandover, HandedOver, Rejected, Receipted }
 public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
 public enum RepairApprovalStatus { Pending, Approved, Rejected }
 public enum SupplierInvoiceAgingStatus { Unmatched, DueSoon, Overdue, Paid }
@@ -16,7 +17,7 @@ public enum HrAttendanceStatus { Present, Late, HalfDay, Absent }
 public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave }
 public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrPayslipStatus { Draft, Generated }
-public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
+public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
 public enum OcrReviewDecision { Pending, Accepted, Rejected }
 
@@ -24,6 +25,8 @@ public sealed record Vehicle
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string PlateNumber { get; init; } = "";
+    public string? ChassisNumber { get; init; }
+    public string? EngineNumber { get; init; }
     public string Make { get; init; } = "";
     public string Model { get; init; } = "";
     public int Year { get; init; }
@@ -105,6 +108,12 @@ public sealed record VehiclePhoto
     public byte[]? Thumbnail { get; init; }
     public string Checksum { get; init; } = "";
     public string UploadedBy { get; init; } = "";
+    public bool IsRepresentativeImage { get; init; }
+    public string? SourceName { get; init; }
+    public string? SourceUrl { get; init; }
+    public string? CreatorAttribution { get; init; }
+    public string? LicenseName { get; init; }
+    public string? LicenseUrl { get; init; }
     public DateTime UploadedAt { get; init; } = DateTime.UtcNow;
 }
 
@@ -113,6 +122,8 @@ public sealed record DocumentBlob
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid? VehicleId { get; init; }
     public Guid? CustomerId { get; init; }
+    public Guid? RepairJobId { get; init; }
+    public Guid? PaymentRecordId { get; init; }
     public FileCategory Category { get; init; }
     public string FileName { get; init; } = "";
     public string MimeType { get; init; } = "";
@@ -301,6 +312,42 @@ public sealed record PaymentVoucher
     public PaymentVoucherStatus Status { get; init; } = PaymentVoucherStatus.Pending;
     public DateOnly IssuedDate { get; init; }
     public string? Notes { get; init; }
+}
+
+public sealed record CashHandover
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid PaymentRecordId { get; init; }
+    public Guid VehicleId { get; init; }
+    public Guid CustomerId { get; init; }
+    public decimal Amount { get; init; }
+    public CashHandoverStatus Status { get; init; } = CashHandoverStatus.ReceivedBySales;
+    public string CollectedByUserId { get; init; } = "";
+    public DateTime CollectedAt { get; init; } = DateTime.UtcNow;
+    public DateTime? HandoverRequestedAt { get; init; }
+    public string? HandedOverToUserId { get; init; }
+    public DateTime? HandedOverAt { get; init; }
+    public string? AcceptedByUserId { get; init; }
+    public DateTime? AcceptedAt { get; init; }
+    public string? RejectedByUserId { get; init; }
+    public DateTime? RejectedAt { get; init; }
+    public string? RejectionReason { get; init; }
+    public string? Notes { get; init; }
+    public Guid? OfficialReceiptId { get; init; }
+    public string? OfficialReceiptNumber { get; init; }
+}
+
+public sealed record OfficialReceipt
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid CashHandoverId { get; init; }
+    public Guid PaymentRecordId { get; init; }
+    public string ReceiptNumber { get; init; } = "";
+    public decimal Amount { get; init; }
+    public byte[] Content { get; init; } = [];
+    public string ContentMimeType { get; init; } = "application/pdf";
+    public string CreatedBy { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record HrAttendanceRecord

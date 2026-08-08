@@ -3,6 +3,7 @@ import {
   createDelivery,
   createCustomer,
   createBrokerCommission,
+  createCashHandover,
   createDailySpend,
   createDebtRecovery,
   createLoan,
@@ -30,7 +31,11 @@ import {
   getAuditLog,
   getCurrentUser,
   getCustomers,
+  getCustomerProfile,
+  getCustomerProfileOptions,
   getBrokerCommissions,
+  getCashHandovers,
+  getCashHandoverPaymentLookup,
   getDailySpends,
   getDashboard,
   getDashboardReminders,
@@ -69,11 +74,16 @@ import {
   getVehiclePhotos,
   vehicleDocumentContentUrl,
   financeInvoiceContentUrl,
+  officialReceiptContentUrl,
   vehiclePhotoContentUrl,
   login,
   logout,
   hrMedicalCertificateContentUrl,
   submitAutoCountSync,
+  acceptCashHandover,
+  recordCashHandover,
+  rejectCashHandover,
+  requestCashHandover,
   updateHrLeaveBalance,
   updateHrLeavePolicy,
   updateHrPayrollProfile,
@@ -360,6 +370,8 @@ describe("backoffice api client", () => {
   it("maps vehicle intake values into all dashboard pricing fields", () => {
     const vehicle = vehicleFromIntakeValues({
       plateNumber: "ABC1234",
+      chassisNumber: "MMBXY12345678901",
+      engineNumber: "4B11T123456",
       make: "Honda",
       model: "City",
       year: 2022,
@@ -382,6 +394,8 @@ describe("backoffice api client", () => {
     }, "00000000-0000-0000-0000-000000000001");
 
     expect(vehicle.additionalCharges).toBe(650);
+    expect(vehicle.chassisNumber).toBe("MMBXY12345678901");
+    expect(vehicle.engineNumber).toBe("4B11T123456");
     expect(vehicle.refurbishmentTotal).toBe(1200);
     expect(vehicle.commissionTotal).toBe(500);
     expect(vehicle.bossConfirmed).toBe(true);
@@ -426,6 +440,31 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/customers", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(customer) }));
     expect(fetch).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/owners", { credentials: "include" });
     expect(fetch).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/owners", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(owner) }));
+  });
+
+  it("loads the protected Customer 360 selector and canonical profile endpoint", async () => {
+    const customerId = "00000000-0000-0000-0000-000000000011";
+    const optionsFetch = mockFetch([{ id: customerId, name: "Ali Tan" }]);
+    const profile = {
+      contact: { id: customerId, name: "Ali Tan", phone: "0123456789" },
+      vehicles: [],
+      loans: [],
+      deliveries: [],
+      payments: [],
+      invoices: [],
+      officialReceipts: [],
+      documents: [],
+      enquiries: [],
+      missingDocuments: [],
+      permissions: { canViewIdentity: true, canViewLoans: false, canViewDelivery: false, canViewFinance: false, canViewDocuments: true, canViewEnquiries: true }
+    };
+
+    await expect(getCustomerProfileOptions()).resolves.toEqual([{ id: customerId, name: "Ali Tan" }]);
+    expect(optionsFetch).toHaveBeenCalledWith("http://localhost:5000/api/customers/profile-options", { credentials: "include" });
+
+    const profileFetch = mockFetch(profile);
+    await expect(getCustomerProfile(customerId)).resolves.toEqual(profile);
+    expect(profileFetch).toHaveBeenCalledWith(`http://localhost:5000/api/customers/${customerId}/profile`, expect.objectContaining({ credentials: "include" }));
   });
 
   it("loads, creates, and updates purchase invoices for vehicle intake", async () => {
@@ -546,6 +585,47 @@ describe("backoffice api client", () => {
     );
     expect(fetchMock.mock.calls[0][1].headers).toBeUndefined();
     expect(fetchMock.mock.calls[1][1].headers).toBeUndefined();
+  });
+
+  it("uses the protected cash-custody endpoints and official receipt URL", async () => {
+    const handover = { id: "handover-1", status: "ReceivedBySales" };
+    const fetchMock = mockFetch(handover);
+
+    await createCashHandover("payment-1", 58000, "Showroom cash");
+    await getCashHandovers();
+    await getCashHandoverPaymentLookup();
+    await requestCashHandover("handover-1");
+    await recordCashHandover("handover-1");
+    await acceptCashHandover("handover-1");
+    await rejectCashHandover("handover-1", "Amount counted incorrectly");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/cash-handovers", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ paymentRecordId: "payment-1", amount: 58000, notes: "Showroom cash" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/cash-handovers", { credentials: "include" });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/cash-handovers/payment-lookup", { credentials: "include" });
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/cash-handovers/handover-1/request-handover", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:5000/api/cash-handovers/handover-1/hand-over", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:5000/api/cash-handovers/handover-1/accept", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:5000/api/cash-handovers/handover-1/reject", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ reason: "Amount counted incorrectly" }) }));
+    expect(officialReceiptContentUrl("handover-1")).toBe("http://localhost:5000/api/cash-handovers/handover-1/official-receipt/content");
+  });
+
+  it("links repair and payment documents to their selected workflow record", async () => {
+    const fetchMock = mockFetch({ id: "uploaded" });
+    const document = new File(["document-bytes"], "evidence.pdf", { type: "application/pdf" });
+
+    await uploadVehicleDocument("vehicle-1", document, "RepairInvoice", { repairJobId: "repair-1" });
+    await uploadVehicleDocument("vehicle-1", document, "PaymentReceipt", { paymentRecordId: "payment-1" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=RepairInvoice&repairJobId=repair-1",
+      expect.objectContaining({ method: "POST", credentials: "include", body: expect.any(FormData) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=PaymentReceipt&paymentRecordId=payment-1",
+      expect.objectContaining({ method: "POST", credentials: "include", body: expect.any(FormData) })
+    );
   });
 
   it("starts and reads OCR jobs for uploaded documents", async () => {

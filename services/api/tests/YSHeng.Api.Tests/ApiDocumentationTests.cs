@@ -44,6 +44,7 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<PaymentExternalSyncStatus>(apiDocs);
         AssertDocumentedEnum<AutoCountSyncStatus>(apiDocs);
         AssertDocumentedEnum<PaymentVoucherStatus>(apiDocs);
+        AssertDocumentedEnum<CashHandoverStatus>(apiDocs);
         AssertDocumentedEnum<DebtRecoveryStatus>(apiDocs);
         AssertDocumentedEnum<FileCategory>(apiDocs);
         AssertDocumentedEnum<OcrJobStatus>(apiDocs);
@@ -236,12 +237,14 @@ public sealed class ApiDocumentationTests
             ["Vehicles"] = ExtractRequireRoleValues(program, "Vehicles", businessRules),
             ["VehicleRead"] = ExtractRequireRoleValues(program, "VehicleRead", businessRules),
             ["CustomerRead"] = ExtractRequireRoleValues(program, "CustomerRead", businessRules),
+            ["CustomerProfile"] = ExtractRequireRoleValues(program, "CustomerProfile", businessRules),
             ["OwnerRead"] = ExtractRequireRoleValues(program, "OwnerRead", businessRules),
             ["Sales"] = ExtractRequireRoleValues(program, "Sales"),
             ["Repairs"] = ExtractRequireRoleValues(program, "Repairs"),
             ["Loans"] = ExtractRequireRoleValues(program, "Loans"),
             ["Deliveries"] = ExtractRequireRoleValues(program, "Deliveries"),
             ["Finance"] = ExtractRequireRoleValues(program, "Finance", businessRules),
+            ["CashCustody"] = ExtractRequireRoleValues(program, "CashCustody"),
             ["HrSalary"] = ExtractRequireRoleValues(program, "HrSalary", businessRules)
         };
     }

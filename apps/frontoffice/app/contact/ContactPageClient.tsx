@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Banknote, Car, ExternalLink, MapPin, Mail, Phone, ShieldCheck, Wrench } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../PublicChrome";
 import { frontofficeCopy, languageFromSearchParams } from "../i18n";
+import { ContactEnquiryForm } from "./ContactEnquiryForm";
 
 const whatsappNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "60108281218";
 const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
@@ -92,6 +93,16 @@ export default function ContactPageClient() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="atelierServicePanel contactEnquiryPanel" id="enquiry">
+        <div>
+          <p className="atelierKicker">{t.formKicker}</p>
+          <h2>{t.formTitle}</h2>
+          <p>{t.formIntro}</p>
+          <p>{t.formPrivacy}</p>
+        </div>
+        <ContactEnquiryForm language={language} />
       </section>
 
       <section className="contactGrid" id="contact">

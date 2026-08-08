@@ -26,6 +26,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<BrokerCommission> BrokerCommissions => Set<BrokerCommission>();
     public DbSet<DebtRecoveryCase> DebtRecoveryCases => Set<DebtRecoveryCase>();
     public DbSet<PaymentVoucher> PaymentVouchers => Set<PaymentVoucher>();
+    public DbSet<CashHandover> CashHandovers => Set<CashHandover>();
+    public DbSet<OfficialReceipt> OfficialReceipts => Set<OfficialReceipt>();
     public DbSet<HrAttendanceRecord> HrAttendanceRecords => Set<HrAttendanceRecord>();
     public DbSet<HrLeaveRequest> HrLeaveRequests => Set<HrLeaveRequest>();
     public DbSet<HrLeaveBalance> HrLeaveBalances => Set<HrLeaveBalance>();
@@ -46,11 +48,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<VehiclePhoto>().Property(photo => photo.Content).HasColumnType("bytea");
         builder.Entity<VehiclePhoto>().Property(photo => photo.Thumbnail).HasColumnType("bytea");
         builder.Entity<DocumentBlob>().Property(document => document.Content).HasColumnType("bytea");
+        builder.Entity<DocumentBlob>().HasIndex(document => document.RepairJobId);
+        builder.Entity<DocumentBlob>().HasIndex(document => document.PaymentRecordId);
         builder.Entity<FinanceInvoice>().Property(invoice => invoice.Content).HasColumnType("bytea");
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.PaymentRecordId).IsUnique();
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.InvoiceNumber).IsUnique();
         builder.Entity<AutoCountSyncJob>().HasIndex(job => job.FinanceInvoiceId);
         builder.Entity<AutoCountSyncJob>().HasIndex(job => job.PaymentRecordId);
+        builder.Entity<CashHandover>().HasIndex(handover => handover.PaymentRecordId).IsUnique();
+        builder.Entity<CashHandover>().HasIndex(handover => new { handover.Status, handover.CollectedAt });
+        builder.Entity<OfficialReceipt>().Property(receipt => receipt.Content).HasColumnType("bytea");
+        builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.CashHandoverId).IsUnique();
+        builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.ReceiptNumber).IsUnique();
         builder.Entity<HrAttendanceRecord>().HasIndex(record => new { record.StaffUserId, record.AttendanceDate });
         builder.Entity<HrLeaveBalance>().HasIndex(balance => balance.StaffUserId).IsUnique();
         builder.Entity<HrLeavePolicy>().HasIndex(policy => policy.Role).IsUnique();

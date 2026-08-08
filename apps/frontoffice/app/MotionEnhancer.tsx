@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import { useGSAP } from "@gsap/react";
+import { gsap } from "gsap";
 import { usePathname } from "next/navigation";
+import { useRef, type ReactNode } from "react";
+
+gsap.registerPlugin(useGSAP);
 
 const revealSelector = [
   ".premiumReveal",
   ".premiumSearchPanel",
   ".premiumBrandRail",
   ".heroVehicleStage",
+  ".featuredInventorySection .sectionHeading",
   ".premiumSectionHeading",
   ".personaCard",
   ".solutionGrid article",
@@ -15,7 +20,6 @@ const revealSelector = [
   ".workshopSection > *",
   ".trustRow",
   ".testimonialPanel",
-  ".listingShell",
   ".filterPanel",
   ".inventoryToolbar",
   ".vehicleCard",
@@ -28,75 +32,69 @@ const revealSelector = [
   ".locationPanel > *"
 ].join(",");
 
-export function MotionEnhancer() {
+export function MotionEnhancer({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const scope = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const statElements = Array.from(document.querySelectorAll<HTMLElement>("[data-count-to]"));
+  useGSAP((_, contextSafe) => {
+    const root = scope.current;
+    if (!root || !contextSafe) return;
+    const statElements = Array.from(root.querySelectorAll<HTMLElement>("[data-count-to]"));
+    const revealElements = Array.from(root.querySelectorAll<HTMLElement>(revealSelector));
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    if (prefersReducedMotion || !("IntersectionObserver" in window)) {
+    if (reducedMotion || !("IntersectionObserver" in window)) {
       root.classList.remove("motionReady");
       statElements.forEach(setFinalStatValue);
       return;
     }
 
     root.classList.add("motionReady");
-    const elements = Array.from(document.querySelectorAll<HTMLElement>(revealSelector));
-    const animationFrames = new Set<number>();
+    revealElements.forEach((element, index) => {
+      element.classList.add("motionReveal");
+      element.style.setProperty("--motion-order", String(index % 6));
+    });
 
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("isVisible");
-          observer.unobserve(entry.target);
-        }
-      }
+    const reveal = contextSafe((element: HTMLElement) => {
+      gsap.to(element, { autoAlpha: 1, duration: 0.78, ease: "power3.out", y: 0 });
+    });
+    const animateVisibleStat = contextSafe((element: HTMLElement) => animateStat(element));
+
+    const revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting || !(entry.target instanceof HTMLElement)) return;
+        entry.target.classList.add("isVisible");
+        reveal(entry.target);
+        revealObserver.unobserve(entry.target);
+      });
     }, { rootMargin: "0px 0px -10% 0px", threshold: 0.12 });
 
     const statObserver = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting && entry.target instanceof HTMLElement) {
-          animateStat(entry.target, animationFrames);
-          statObserver.unobserve(entry.target);
-        }
-      }
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting || !(entry.target instanceof HTMLElement)) return;
+        animateVisibleStat(entry.target);
+        statObserver.unobserve(entry.target);
+      });
     }, { rootMargin: "0px 0px -12% 0px", threshold: 0.3 });
 
-    const frame = window.requestAnimationFrame(() => {
-      elements.forEach((element, index) => {
-        element.classList.add("motionReveal");
-        element.style.setProperty("--motion-order", String(index % 6));
-        observer.observe(element);
-      });
-      statElements.forEach((element) => statObserver.observe(element));
-    });
-
-    const finePointer = window.matchMedia("(pointer: fine)").matches;
-    const spotlightTarget = document.querySelector<HTMLElement>(".premiumHome") ?? root;
-    const onPointerMove = (event: PointerEvent) => {
-      spotlightTarget.style.setProperty("--spotlight-x", `${event.clientX}px`);
-      spotlightTarget.style.setProperty("--spotlight-y", `${event.clientY}px`);
-    };
-
-    if (finePointer) {
-      window.addEventListener("pointermove", onPointerMove, { passive: true });
-    }
+    revealElements.forEach((element) => revealObserver.observe(element));
+    statElements.forEach((element) => statObserver.observe(element));
 
     return () => {
-      window.cancelAnimationFrame(frame);
-      animationFrames.forEach((animationFrame) => window.cancelAnimationFrame(animationFrame));
-      observer.disconnect();
+      revealObserver.disconnect();
       statObserver.disconnect();
-      window.removeEventListener("pointermove", onPointerMove);
+      root.classList.remove("motionReady");
+      revealElements.forEach((element) => {
+        element.classList.remove("motionReveal", "isVisible");
+        element.style.removeProperty("--motion-order");
+      });
     };
-  }, [pathname]);
+  }, { scope, dependencies: [pathname], revertOnUpdate: true });
 
-  return null;
+  return <div ref={scope}>{children}</div>;
 }
 
-function animateStat(element: HTMLElement, animationFrames: Set<number>) {
+function animateStat(element: HTMLElement) {
   const target = Number(element.dataset.countTo ?? "0");
   if (!Number.isFinite(target)) {
     setFinalStatValue(element);
@@ -105,30 +103,22 @@ function animateStat(element: HTMLElement, animationFrames: Set<number>) {
 
   const suffix = element.dataset.countSuffix ?? "";
   const formatter = new Intl.NumberFormat("en-US");
-  const duration = 1100;
-  const startTime = performance.now();
-
-  const tick = (now: number) => {
-    const progress = Math.min((now - startTime) / duration, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    element.textContent = `${formatter.format(Math.round(target * eased))}${suffix}`;
-    if (progress < 1) {
-      const frame = window.requestAnimationFrame(tick);
-      animationFrames.add(frame);
-    } else {
-      setFinalStatValue(element);
-    }
-  };
-
-  const frame = window.requestAnimationFrame(tick);
-  animationFrames.add(frame);
+  const counter = { value: 0 };
+  gsap.to(counter, {
+    value: target,
+    duration: 1.1,
+    ease: "power3.out",
+    onUpdate: () => {
+      element.textContent = `${formatter.format(Math.round(counter.value))}${suffix}`;
+    },
+    onComplete: () => setFinalStatValue(element)
+  });
 }
 
 function setFinalStatValue(element: HTMLElement) {
   const target = Number(element.dataset.countTo ?? "0");
   const suffix = element.dataset.countSuffix ?? "";
-  if (!Number.isFinite(target)) {
-    return;
+  if (Number.isFinite(target)) {
+    element.textContent = `${new Intl.NumberFormat("en-US").format(target)}${suffix}`;
   }
-  element.textContent = `${new Intl.NumberFormat("en-US").format(target)}${suffix}`;
 }

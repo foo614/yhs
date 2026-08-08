@@ -5,8 +5,8 @@ import { PublicFooter, PublicHeader, PublicMobileNav } from "../PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type SearchParams } from "../i18n";
 import { InventoryBrowser } from "./InventoryBrowser";
 import { listingFiltersFromSearchParams } from "./listing";
-import { pageMetadata } from "../seo";
-import { getPublicVehicles } from "./service";
+import { pageMetadata, structuredDataJson, vehicleListStructuredData } from "../seo";
+import { getPublicInventory } from "./service";
 
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 
@@ -18,7 +18,8 @@ export const metadata: Metadata = pageMetadata({
 
 export default async function VehiclesPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   const resolvedSearchParams = isStaticExport ? undefined : await searchParams;
-  const vehicles = await getPublicVehicles();
+  const inventory = await getPublicInventory();
+  const vehicles = inventory.vehicles;
   const language = languageFromSearchParams(resolvedSearchParams);
   const t = frontofficeCopy[language].inventory;
 
@@ -40,9 +41,11 @@ export default async function VehiclesPage({ searchParams }: { searchParams?: Pr
       </header>
       <InventoryBrowser
         vehicles={vehicles}
+        unavailable={inventory.unavailable}
         initialFilters={listingFiltersFromSearchParams(resolvedSearchParams ?? {})}
         language={language}
       />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataJson(vehicleListStructuredData(vehicles)) }} />
       <PublicFooter language={language} />
 
       <PublicMobileNav language={language} active="vehicles" />

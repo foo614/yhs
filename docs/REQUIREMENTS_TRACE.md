@@ -29,9 +29,10 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | --- | --- | --- |
 | Available vehicle inventory | Implemented, verified | `GET /api/public/vehicles`; front-office inventory page; smoke checks public inventory and filtered inventory. |
 | Vehicle detail pages | Implemented, verified | `GET /api/public/vehicles/{id}`; `/vehicles/[id]`; public metadata and selectable gallery behavior; smoke and browser checks for seeded vehicle detail. |
-| Public lead/enquiry capture | Implemented, verified | `POST /api/public/leads`; lead form validation, i18n errors, and optional source page/referrer/campaign attribution; smoke checks valid and invalid public lead creation. |
+| Public lead/enquiry capture | Implemented | Vehicle-specific `POST /api/public/leads` plus general `POST /api/public/contact-enquiries`; both validate public fields and retain optional source attribution. General enquiries appear in Sales triage as `Website contact enquiry`. |
 | Hide sold/non-public/internal data | Implemented, verified | Public DTO and front-office filtering strip internal purchase/refurbishment/commission fields; smoke checks public DTO does not expose internal values. |
-| Vehicle photos/thumbnails | Implemented, verified | Public photo endpoint returns latest thumbnail/photo; upload/download smoke checks; UI fallback for missing photos. |
+| Vehicle photos/thumbnails | Implemented | Public primary-photo endpoint plus gallery metadata and full-photo routes; upload/download smoke checks; UI fallback for a vehicle without uploaded photos. |
+| Search indexing | Implemented | Dynamic `sitemap.ts`, `robots.ts`, organization JSON-LD, available-vehicle `ItemList`, and per-vehicle `Vehicle` structured data. |
 | English/Chinese public UI | Implemented, verified | `apps/frontoffice/app/i18n.ts`; language switch; smoke checks Chinese home, inventory, detail; browser check for Chinese detail lead form. |
 
 ## Back Office Modules

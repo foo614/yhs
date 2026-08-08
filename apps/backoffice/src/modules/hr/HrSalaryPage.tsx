@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { staffRoleValues } from "../../api";
+import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import type {
   CurrentUser,
   HrAttendanceRecord,
@@ -107,6 +108,7 @@ export function HrSalaryPage({
     ? "Check out when the shift ends."
     : "Start today attendance with Check In.";
   const visibleStaff = staffUsers.length ? staffUsers : [{ id: selfId, email: currentUser?.name ?? "", displayName: selfName, roles: [], isActive: true }];
+  const missingMedicalCertificateCount = leaveRequests.filter((record) => record.type === "MedicalLeave" && !record.medicalCertificateDocumentId).length;
   const leaveStartDate = Form.useWatch("startDate", leaveForm) as string | undefined;
   const leaveEndDate = Form.useWatch("endDate", leaveForm) as string | undefined;
   const leaveStartHalf = Form.useWatch("startHalf", leaveForm) as "AM" | "PM" | undefined;
@@ -139,7 +141,7 @@ export function HrSalaryPage({
       title: "MC",
       render: (_, record) => (
         <Space className="tableActionGroup" wrap size={6}>
-          {record.medicalCertificateDocumentId ? <Button icon={<DownloadOutlined />} href={mcContentUrl(record.id)} target="_blank" /> : <Tag>None / 没有</Tag>}
+          {record.medicalCertificateDocumentId ? <Button icon={<DownloadOutlined />} href={mcContentUrl(record.id)} target="_blank" /> : record.type === "MedicalLeave" ? <Tag color="red">MC Missing / 缺少</Tag> : <Tag>Not required / 不需要</Tag>}
           <Upload beforeUpload={(file) => { void onUploadMc(record.id, file); return false; }} showUploadList={false}>
             <Button icon={<UploadOutlined />} disabled={record.type !== "MedicalLeave"} />
           </Upload>
@@ -274,7 +276,7 @@ export function HrSalaryPage({
             <div className="mobileRecordTextBlock"><span>{record.reason || "-"}</span></div>
           </div>
           <div className="mobileRecordFooter hrMobileActions">
-            {record.medicalCertificateDocumentId ? <Tooltip title="Medical certificate / 病假单"><Button size="small" icon={<DownloadOutlined />} href={mcContentUrl(record.id)} target="_blank">MC</Button></Tooltip> : <Tooltip title="Medical certificate / 病假单"><Tag>MC: None / 没有</Tag></Tooltip>}
+            {record.medicalCertificateDocumentId ? <Tooltip title="Medical certificate / 病假单"><Button size="small" icon={<DownloadOutlined />} href={mcContentUrl(record.id)} target="_blank">MC</Button></Tooltip> : <Tooltip title="Medical certificate / 病假单"><Tag color={record.type === "MedicalLeave" ? "red" : undefined}>MC: {record.type === "MedicalLeave" ? "Missing / 缺少" : "Not required / 不需要"}</Tag></Tooltip>}
             <Upload beforeUpload={(file) => { void onUploadMc(record.id, file); return false; }} showUploadList={false}>
               <Tooltip title="Upload medical certificate / 上传病假单">
                 <Button size="small" icon={<UploadOutlined />} disabled={record.type !== "MedicalLeave"}>Upload MC / 上传MC</Button>
@@ -486,6 +488,11 @@ export function HrSalaryPage({
                     </Space>
                   </ProCard>
                 )}
+                <MissingUploadReminder
+                  items={missingMedicalCertificateCount > 0 ? [{ label: `${missingMedicalCertificateCount} medical leave request${missingMedicalCertificateCount === 1 ? "" : "s"}`, isPresent: false }] : []}
+                  title="Medical certificates need attention / 病假单需注意"
+                  description="Medical certificate uploads are optional when a request is created. Use Upload MC in the corresponding leave row when the certificate is available."
+                />
                 {leaveMobileCards}
                 <Table className="desktopDataTable" rowKey="id" columns={leaveTableColumns} dataSource={leaveRequests} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No leave requests yet." }} />
               </Space>
