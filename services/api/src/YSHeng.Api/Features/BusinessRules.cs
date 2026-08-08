@@ -10,6 +10,7 @@ public sealed record LeadRequest(Guid VehicleId, string CustomerName, string Pho
 public sealed record ContactEnquiryRequest(string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
 public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
 public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice);
+public sealed record PublicVehicleDetailResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice, string? DescriptionMarkdown);
 public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId);
 public sealed record DashboardSummary(
     int TotalStock,
@@ -142,6 +143,18 @@ public static class PublicInventory
             vehicle.StockOwner,
             vehicle.Status,
             vehicle.SellingPrice);
+
+    public static PublicVehicleDetailResponse ToDetailResponse(Vehicle vehicle) =>
+        new(
+            vehicle.Id,
+            vehicle.PlateNumber,
+            vehicle.Make,
+            vehicle.Model,
+            vehicle.Year,
+            vehicle.StockOwner,
+            vehicle.Status,
+            vehicle.SellingPrice,
+            vehicle.PublicDescriptionMarkdown);
 }
 
 public static class BackOfficeVehicleLookup
@@ -183,10 +196,19 @@ public static class PublicVehiclePhotos
 
 public static class VehicleRules
 {
-    public static Vehicle NormalizeDateTimes(Vehicle vehicle) =>
-        vehicle.OutstationPickupScheduledAt is { } pickupAt
-            ? vehicle with { OutstationPickupScheduledAt = NormalizeDateTime(pickupAt) }
-            : vehicle;
+    public static Vehicle NormalizeDateTimes(Vehicle vehicle)
+    {
+        var normalized = vehicle with
+        {
+            PublicDescriptionMarkdown = string.IsNullOrWhiteSpace(vehicle.PublicDescriptionMarkdown)
+                ? null
+                : vehicle.PublicDescriptionMarkdown.Trim()
+        };
+
+        return normalized.OutstationPickupScheduledAt is { } pickupAt
+            ? normalized with { OutstationPickupScheduledAt = NormalizeDateTime(pickupAt) }
+            : normalized;
+    }
 
     public static ValidationResult ValidateIntake(Vehicle vehicle)
     {
@@ -244,6 +266,11 @@ public static class VehicleRules
         if (vehicle.OutstationPickupAllowance < 0)
         {
             errors.Add(new ValidationError("invalid_outstation_pickup_allowance", "Outstation pickup allowance cannot be negative."));
+        }
+
+        if (vehicle.PublicDescriptionMarkdown?.Length > 6000)
+        {
+            errors.Add(new ValidationError("public_description_too_long", "Public vehicle description must be 6,000 characters or fewer."));
         }
 
         return new ValidationResult(errors);

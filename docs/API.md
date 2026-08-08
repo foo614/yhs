@@ -39,6 +39,8 @@ Public endpoints are unauthenticated and must not expose purchase price, refurbi
 | `POST` | `/api/public/leads` | Create a public lead for a visible available vehicle. |
 | `POST` | `/api/public/contact-enquiries` | Create a general website contact enquiry for Sales triage. |
 
+`GET /api/public/vehicles` returns the compact inventory DTO. `GET /api/public/vehicles/{id}` additionally returns optional `descriptionMarkdown`, the staff-authored public listing description. It is returned only after the existing visible-and-available vehicle filter; it must contain marketing copy only and never internal vehicle, customer, finance, repair, audit, or workflow information.
+
 Public lead payload:
 
 ```json

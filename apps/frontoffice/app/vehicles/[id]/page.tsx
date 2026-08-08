@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Banknote, CalendarDays, Car, CheckCircle2, ChevronLeft, Gauge, ShieldCheck, Tag, WalletCards } from "lucide-react";
+import { CalendarDays, Car, CheckCircle2, ChevronLeft, Gauge, ShieldCheck, Tag, WalletCards } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../../PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type SearchParams } from "../../i18n";
 import { relatedVehicles } from "../listing";
@@ -9,6 +9,8 @@ import { structuredDataJson, vehicleMetadata, vehicleStructuredData } from "../.
 import { getPublicVehicle, getPublicVehicleDetailPageData } from "../service";
 import { VehiclePhoto } from "../VehiclePhoto";
 import { LeadForm } from "./LeadForm";
+import { LoanCalculator } from "../LoanCalculator";
+import { MarketingDescription } from "../MarketingDescription";
 import { VehicleGallery } from "./VehicleGallery";
 
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
@@ -38,15 +40,12 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
   const plateNumber = typeof vehicle.plateNumber === "string" ? vehicle.plateNumber : "N/A";
   const fallbackLetters = `${make.slice(0, 1)}${model.slice(0, 1)}` || "YH";
   const related = relatedVehicles(vehicles, vehicle);
-  const monthlyEstimate = Number.isFinite(vehicle.sellingPrice) ? Math.round((vehicle.sellingPrice * 0.9) / 84) : 0;
-  const estimatedDownPayment = Number.isFinite(vehicle.sellingPrice) ? Math.round((vehicle.sellingPrice * 0.1) / 100) * 100 : 0;
   const currentYear = new Date().getFullYear();
   const ageText = year > 0 ? `${Math.max(0, currentYear - year)} years` : "To confirm";
   const stockLabel = vehicle.stockOwner === "KS" ? "Partner stock" : "YS Heng stock";
   const availabilityText = vehicle.status === "Available" ? "Available for enquiry" : vehicle.status;
   const leadText = t.lead ?? "A used-car listing prepared for enquiry, viewing, financing guidance, and delivery follow-up.";
   const introText = t.intro ?? "Ready-to-view second-hand car with enquiry and loan follow-up guidance.";
-  const loanText = t.loanText ?? "Estimated from RM {amount} / month, subject to approval and final bank terms.";
   const nextTitle = t.nextTitle ?? "What happens next";
   const nextText = t.nextText ?? "Sales follow up, confirms viewing, and guides loan, documents, payment, insurance, transfer, and delivery steps.";
   const highlightsTitle = t.highlights ?? "Vehicle highlights";
@@ -105,7 +104,15 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
       </header>
       <section className="detailPage">
       <section className="detailGrid">
-        <VehicleGallery photos={gallery} title={`${make} ${model}`} fallback={fallbackLetters} fallbackSrc={vehicle.fallbackPhotoUrl} />
+        <div className="detailGalleryColumn">
+          <VehicleGallery photos={gallery} title={`${make} ${model}`} fallback={fallbackLetters} fallbackSrc={vehicle.fallbackPhotoUrl} />
+          {vehicle.descriptionMarkdown && (
+            <section className="vehicleDescriptionSection" aria-label="Vehicle description">
+              <h2>Vehicle description</h2>
+              <MarketingDescription markdown={vehicle.descriptionMarkdown} />
+            </section>
+          )}
+        </div>
         <div className="detailInfo">
           <p className="plate">{plateNumber}</p>
           <h1>{title}</h1>
@@ -120,23 +127,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
             <span><Tag size={17} /> {availabilityText}</span>
             <span><Car size={17} /> {stockLabel}</span>
           </div>
-          <div className="financeBox">
-            <Banknote size={22} />
-            <div>
-              <h2>{t.loanTitle}</h2>
-              <p>{loanText.replace("{amount}", monthlyEstimate.toLocaleString())}</p>
-            </div>
-          </div>
-          <div className="detailPaymentGrid">
-            <div>
-              <span>Est. 10% down payment</span>
-              <strong>RM {estimatedDownPayment.toLocaleString()}</strong>
-            </div>
-            <div>
-              <span>Public listing price</span>
-              <strong>RM {vehicle.sellingPrice.toLocaleString()}</strong>
-            </div>
-          </div>
+          <LoanCalculator sellingPrice={vehicle.sellingPrice} />
           <a className="primaryAction wideAction" href="#enquire">{t.enquire}</a>
         </div>
       </section>
@@ -188,7 +179,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
               </span>
               <span>
                 {enquiryCopy.monthlyLabel}
-                <strong>RM {monthlyEstimate.toLocaleString()} / mo</strong>
+                <strong>See calculator above</strong>
               </span>
             </div>
           </div>

@@ -10,6 +10,7 @@ export type PublicVehicle = {
   stockOwner: PublicStockOwner;
   status: PublicVehicleStatus;
   sellingPrice: number;
+  descriptionMarkdown?: string;
   photoUrl: string;
   photoUrls: string[];
   fallbackPhotoUrl?: string;
@@ -33,6 +34,7 @@ type ApiVehicle = {
   stockOwner: PublicStockOwner;
   status: PublicVehicleStatus;
   sellingPrice: number;
+  descriptionMarkdown?: string;
 };
 
 type VehiclePhotoIdentity = Pick<ApiVehicle, "make" | "model"> & Partial<Pick<ApiVehicle, "id" | "plateNumber">>;
@@ -265,6 +267,7 @@ export function publicVehicleFromApi(vehicle: ApiVehicle, baseUrl = apiBaseUrl):
     stockOwner: vehicle.stockOwner,
     status: vehicle.status,
     sellingPrice: vehicle.sellingPrice,
+    descriptionMarkdown: vehicle.descriptionMarkdown,
     photoUrl,
     photoUrls: [],
     fallbackPhotoUrl: fallbackPhotoUrls[0],

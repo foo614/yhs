@@ -32,6 +32,8 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Back-office vehicle intake shows uploaded website photo metadata, including uploader and checksum, next to document metadata and download/preview links.
 - Public vehicle listings now request the latest uploaded vehicle thumbnail from `/api/public/vehicles/{id}/photo` and gracefully fall back to initials when no photo exists.
 - Public vehicle detail pages now fetch `GET /api/public/vehicles/{id}` directly and return not-found for vehicles the public API rejects.
+- Vehicle staff can now author an optional public listing description in a restricted Markdown subset with a matching preview; the public detail response returns it only for visible available vehicles, and raw HTML/unsafe links are not rendered.
+- Public vehicle detail pages now include a client-side flat-rate loan estimate calculator with bounded down payment, rate, and tenure inputs plus a clear estimate-only disclosure; it does not create or persist a loan application or quote.
 - Public vehicle detail pages now check the detail endpoint before loading inventory for related vehicles, avoiding list fetches for rejected/non-public vehicles.
 - Public home, inventory, and vehicle detail pages now expose canonical and social metadata for public search and sharing.
 - Public vehicle detail pages now use a selectable in-page gallery for multiple uploaded photos while preserving the missing-photo fallback.

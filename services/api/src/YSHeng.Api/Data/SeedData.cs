@@ -327,6 +327,7 @@ public static class SeedData
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "StockLocation" text NOT NULL DEFAULT '';
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "ChassisNumber" text NULL;
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "EngineNumber" text NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "PublicDescriptionMarkdown" text NULL;
 
             CREATE TABLE IF NOT EXISTS "StockMovements" (
                 "Id" uuid NOT NULL,

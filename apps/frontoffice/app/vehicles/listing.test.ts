@@ -167,6 +167,7 @@ describe("publicVehicleFromApi", () => {
       status: "Available",
       isPublic: true,
       sellingPrice: 58000,
+      descriptionMarkdown: "## Ready stock\n\n- Reverse camera",
       purchasePrice: 42000,
       additionalCharges: 600,
       refurbishmentTotal: 3500,
@@ -183,6 +184,7 @@ describe("publicVehicleFromApi", () => {
       stockOwner: "YSHeng",
       status: "Available",
       sellingPrice: 58000,
+      descriptionMarkdown: "## Ready stock\n\n- Reverse camera",
       photoUrl: "http://localhost:5000/api/public/vehicles/one/photo",
       photoUrls: [],
       fallbackPhotoUrl: "/vehicle-photo-pending.svg"

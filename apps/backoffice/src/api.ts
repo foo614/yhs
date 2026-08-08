@@ -86,6 +86,7 @@ export type Vehicle = {
   stockLocation?: string;
   status: VehicleStatus;
   isPublic: boolean;
+  publicDescriptionMarkdown?: string;
   purchasePrice: number;
   sellingPrice: number;
   additionalCharges: number;
@@ -739,8 +740,9 @@ const sampleVehicle: Vehicle = {
   model: "Vios",
   year: 2021,
   stockOwner: "YSHeng",
-  status: "Available",
-  isPublic: true,
+    status: "Available",
+    isPublic: true,
+    publicDescriptionMarkdown: "## Ready to view\n\n- Full service history available\n- Viewing by appointment",
   purchasePrice: 42000,
     sellingPrice: 58000,
     additionalCharges: 600,
@@ -1053,6 +1055,7 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
     stockLocation: values.stockLocation?.trim() || undefined,
     status: values.status,
     isPublic: values.isPublic,
+    publicDescriptionMarkdown: values.publicDescriptionMarkdown?.trim() || undefined,
     purchasePrice: Number(values.purchasePrice ?? 0),
     sellingPrice: Number(values.sellingPrice ?? 0),
     additionalCharges: Number(values.additionalCharges ?? 0),

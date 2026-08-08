@@ -115,7 +115,7 @@ app.MapGet("/api/public/vehicles", async (AppDbContext db) =>
 app.MapGet("/api/public/vehicles/{id:guid}", async (Guid id, AppDbContext db) =>
 {
     var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id && item.IsPublic && item.Status == VehicleStatus.Available);
-    return vehicle is null ? Results.NotFound() : Results.Ok(PublicInventory.ToResponse(vehicle));
+    return vehicle is null ? Results.NotFound() : Results.Ok(PublicInventory.ToDetailResponse(vehicle));
 });
 
 app.MapGet("/api/public/vehicles/{id:guid}/photo", async (Guid id, AppDbContext db) =>

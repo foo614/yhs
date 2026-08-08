@@ -8,6 +8,7 @@ import { customerCreateBlockReason, ownerCreateBlockReason } from "../../contact
 import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
+import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import {
   customerSelectLabel,
   getStockMovements,
@@ -1255,6 +1256,10 @@ export function VehiclePage({
               </Form.Item>
               <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
               <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
+              <Form.Item name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text."><Input.TextArea rows={8} maxLength={6000} showCount placeholder="## Ready stock\n\n- Key feature\n- Viewing by appointment" /></Form.Item>
+              <Form.Item noStyle shouldUpdate={(previous, current) => previous.publicDescriptionMarkdown !== current.publicDescriptionMarkdown}>
+                {({ getFieldValue }) => <MarketingDescription markdown={getFieldValue("publicDescriptionMarkdown")} className="backofficeMarketingPreview" />}
+              </Form.Item>
               <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
             </Form>
           </ProCard>
@@ -1571,6 +1576,10 @@ export function VehiclePage({
           </Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
+          <Form.Item name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Optional public copy. Raw HTML is displayed as text."><Input.TextArea rows={8} maxLength={6000} showCount placeholder="## Ready stock\n\n- Key feature\n- Viewing by appointment" /></Form.Item>
+          <Form.Item noStyle shouldUpdate={(previous, current) => previous.publicDescriptionMarkdown !== current.publicDescriptionMarkdown}>
+            {({ getFieldValue }) => <MarketingDescription markdown={getFieldValue("publicDescriptionMarkdown")} className="backofficeMarketingPreview" />}
+          </Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Vehicle</Button></Form.Item>
         </Form>
       </Modal>

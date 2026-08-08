@@ -65,6 +65,22 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Public_vehicle_detail_response_includes_only_the_marketing_description()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: true) with
+        {
+            PublicDescriptionMarkdown = "## Ready stock\n\n- Reverse camera",
+            PurchasePrice = 42000m,
+            CommissionTotal = 1200m
+        };
+
+        var result = PublicInventory.ToDetailResponse(vehicle);
+
+        Assert.Equal(vehicle.PublicDescriptionMarkdown, result.DescriptionMarkdown);
+        Assert.DoesNotContain(result.GetType().GetProperties(), property => property.Name is "PurchasePrice" or "CommissionTotal" or "IsPublic");
+    }
+
+    [Fact]
     public void Backoffice_vehicle_lookup_excludes_internal_pricing_fields()
     {
         var vehicle = VehicleSeed.Available(publicVisible: true) with
@@ -777,6 +793,18 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "invalid_outstation_pickup_allowance");
+    }
+
+    [Fact]
+    public void Vehicle_intake_validation_limits_public_marketing_description_length()
+    {
+        var result = VehicleRules.ValidateIntake(VehicleSeed.Available(publicVisible: true) with
+        {
+            PublicDescriptionMarkdown = new string('x', 6001)
+        });
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "public_description_too_long");
     }
 
     [Fact]
