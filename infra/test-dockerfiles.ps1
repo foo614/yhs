@@ -67,7 +67,9 @@ Assert-Order -Name "Front-office Dockerfile" -Text $frontoffice -Steps @(
   "RUN npm install --workspace apps/frontoffice",
   "FROM node:25-alpine AS build",
   "ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:5000",
+  "ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000",
   'ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL',
+  'ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL',
   "RUN npm run build",
   "WORKDIR /app/apps/frontoffice",
   "ENV NODE_ENV=production",
@@ -78,6 +80,7 @@ Assert-Order -Name "Front-office Dockerfile" -Text $frontoffice -Steps @(
 Assert-Contains -Name "Front-office standalone output" -Text $frontoffice -Expected "COPY --from=build /app/apps/frontoffice/.next/standalone ./"
 Assert-Contains -Name "Front-office static assets" -Text $frontoffice -Expected "COPY --from=build /app/apps/frontoffice/.next/static ./apps/frontoffice/.next/static"
 Assert-Contains -Name "Front-office public assets" -Text $frontoffice -Expected "COPY --from=build /app/apps/frontoffice/public ./apps/frontoffice/public"
+Assert-Contains -Name "Front-office runtime site URL" -Text $frontoffice -Expected 'ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL'
 
 Assert-Order -Name "Back-office Dockerfile" -Text $backoffice -Steps @(
   "FROM node:25-alpine AS deps",

@@ -17,13 +17,14 @@ const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ id: string }>; searchParams?: Promise<SearchParams> }): Promise<Metadata> {
   const { id } = await params;
+  const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
   const vehicle = await getPublicVehicle(id);
   if (!vehicle) {
     return { title: "Vehicle not found | YS Heng Cars", robots: { index: false, follow: false } };
   }
-  return vehicleMetadata(vehicle);
+  return vehicleMetadata(vehicle, language);
 }
 
 export default async function VehicleDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams?: Promise<SearchParams> }) {
@@ -90,7 +91,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
   const readyStockLabel = language === "zh" ? "现车可询问" : "Ready stock";
 
   return (
-    <main className="atelierSubPage">
+    <main className="atelierSubPage" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
       <PublicHeader language={language} active="vehicles" />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataJson(vehicleStructuredData(vehicle)) }} />
 

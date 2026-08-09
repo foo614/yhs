@@ -44,26 +44,59 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     if (reducedMotion || !("IntersectionObserver" in window)) {
-      root.classList.remove("motionReady");
       statElements.forEach(setFinalStatValue);
       return;
     }
 
-    root.classList.add("motionReady");
-    revealElements.forEach((element, index) => {
-      element.classList.add("motionReveal");
-      element.style.setProperty("--motion-order", String(index % 6));
-    });
+    const hero = root.querySelector<HTMLElement>(".atelierHero");
+    hero?.classList.remove("heroAmbient");
+
+    const heroTimeline = hero
+      ? gsap.timeline({
+          defaults: { ease: "power3.out" },
+          onComplete: () => hero.classList.add("heroAmbient")
+        })
+      : null;
+
+    if (hero && heroTimeline) {
+      heroTimeline
+        .fromTo(hero.querySelector(".heroMedia"),
+          { scale: 1.018, filter: "saturate(.88) contrast(1.02) brightness(.94)" },
+          { scale: 1, filter: "saturate(.92) contrast(1.04) brightness(1)", duration: 1.15 })
+        .fromTo(hero.querySelector(".heroDepthGlow"),
+          { scale: .9, opacity: .42 },
+          { scale: 1, opacity: .74, duration: .9 }, "<.12")
+        .fromTo(hero.querySelector(".heroReflection"),
+          { scaleX: .82, opacity: .44 },
+          { scaleX: 1, opacity: .7, duration: .82 }, "<.08")
+        .fromTo(hero.querySelector(".atelierHeroInner"),
+          { y: 12 },
+          { y: 0, duration: .72 }, "<.18");
+
+      const inventorySignal = hero.querySelector(".heroInventorySignal");
+      if (inventorySignal) {
+        heroTimeline.fromTo(inventorySignal,
+          { autoAlpha: .94, y: 10 },
+          { autoAlpha: 1, duration: .48, y: 0, clearProps: "opacity,visibility,transform" }, ">-.08");
+      }
+    }
 
     const reveal = contextSafe((element: HTMLElement) => {
-      gsap.to(element, { autoAlpha: 1, duration: 0.78, ease: "power3.out", y: 0 });
+      gsap.fromTo(element,
+        { autoAlpha: .94, y: 18 },
+        {
+          autoAlpha: 1,
+          duration: .72,
+          ease: "power3.out",
+          y: 0,
+          clearProps: "opacity,visibility,transform"
+        });
     });
     const animateVisibleStat = contextSafe((element: HTMLElement) => animateStat(element));
 
     const revealObserver = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (!entry.isIntersecting || !(entry.target instanceof HTMLElement)) return;
-        entry.target.classList.add("isVisible");
         reveal(entry.target);
         revealObserver.unobserve(entry.target);
       });
@@ -83,11 +116,8 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
     return () => {
       revealObserver.disconnect();
       statObserver.disconnect();
-      root.classList.remove("motionReady");
-      revealElements.forEach((element) => {
-        element.classList.remove("motionReveal", "isVisible");
-        element.style.removeProperty("--motion-order");
-      });
+      heroTimeline?.kill();
+      hero?.classList.remove("heroAmbient");
     };
   }, { scope, dependencies: [pathname], revertOnUpdate: true });
 

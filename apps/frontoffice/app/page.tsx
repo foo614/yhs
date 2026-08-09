@@ -1,8 +1,10 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { BadgeCheck, Banknote, Car, MapPin, Search, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type Language, type SearchParams } from "./i18n";
+import { pageMetadata } from "./seo";
 import { distinctMakes, priceRange } from "./vehicles/listing";
 import { getPublicInventory, type PublicVehicle } from "./vehicles/service";
 import { VehicleCard } from "./vehicles/VehicleCard";
@@ -24,6 +26,18 @@ const categoryImages = [
 const fallbackMakes = ["Toyota", "Honda", "Perodua", "Proton", "Nissan", "Mazda"];
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
+
+export async function generateMetadata({ searchParams }: { searchParams?: Promise<SearchParams> }): Promise<Metadata> {
+  const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
+  return pageMetadata({
+    title: language === "zh" ? "居銮二手车买卖 | YS Heng Cars" : "Used cars in Kluang | YS Heng Cars",
+    description: language === "zh"
+      ? "浏览居銮 YS Heng 的二手车源、透明售价，并咨询看车、贷款与 trade-in 流程。"
+      : "Browse YS Heng used cars in Kluang with clear prices and support for viewing, financing, trade-in, and handover.",
+    path: "/",
+    language
+  });
+}
 
 export const previewFeaturedVehicles: PublicVehicle[] = [
   {
@@ -129,7 +143,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   const featuredVehicles = featuredVehiclesFrom(vehicles);
 
   return (
-    <main className="atelierPage">
+    <main className="atelierPage" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
       <PublicHeader language={language} active="home" />
 
       <section className="atelierHero">
@@ -138,7 +152,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <div className="heroRoadLines" aria-hidden="true" />
         <div className="heroReflection" aria-hidden="true" />
         <div className="heroOverlay" />
-        <HeroFloatCards language={language} />
+        <HeroFloatCards language={language} inventoryCount={vehicles.length} unavailable={inventory.unavailable} />
         <div className="atelierHeroInner">
           <p className="atelierKicker">{t.home.kicker}</p>
           <h1>
@@ -314,26 +328,28 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   );
 }
 
-function HeroFloatCards({ language }: { language: Language }) {
-  const cards = language === "zh"
-    ? [
-      { label: "已筛选车源", value: "6+", text: "热门选择" },
-      { label: "看车地点", value: "Kluang", text: "YS Heng Automotive" }
-    ]
-    : [
-      { label: "Curated stock", value: "6+", text: "Popular picks" },
-      { label: "Viewing hub", value: "Kluang", text: "YS Heng Automotive" }
-    ];
+function HeroFloatCards({ language, inventoryCount, unavailable }: { language: Language; inventoryCount: number; unavailable: boolean }) {
+  const availability = language === "zh"
+    ? { label: "今日可看车", text: "查看在售车源", ariaLabel: `查看 ${inventoryCount} 辆可看车` }
+    : { label: "Available today", text: "View ready cars", ariaLabel: `View ${inventoryCount} ready cars` };
+  const location = language === "zh"
+    ? { label: "看车地点", value: "Kluang", text: "YS Heng Automotive" }
+    : { label: "Viewing hub", value: "Kluang", text: "YS Heng Automotive" };
 
   return (
     <>
-      {cards.map((card, index) => (
-        <div className={index === 0 ? "heroFloatCard top" : "heroFloatCard bottom"} key={card.label}>
-          <span>{card.label}</span>
-          <strong>{card.value}</strong>
-          <small>{card.text}</small>
-        </div>
-      ))}
+      {!unavailable && inventoryCount > 0 && (
+        <Link href={hrefWithLanguage("/vehicles", language)} className="heroFloatCard heroInventorySignal top" aria-label={availability.ariaLabel}>
+          <span>{availability.label}</span>
+          <strong>{inventoryCount.toLocaleString()}</strong>
+          <small>{availability.text}</small>
+        </Link>
+      )}
+      <div className="heroFloatCard bottom">
+        <span>{location.label}</span>
+        <strong>{location.value}</strong>
+        <small>{location.text}</small>
+      </div>
     </>
   );
 }

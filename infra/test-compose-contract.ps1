@@ -128,7 +128,9 @@ if ($worker -match "(?m)^    ports:") {
 $frontoffice = Get-ServiceBlock "frontoffice"
 Assert-Contains -Name "frontoffice dockerfile" -Text $frontoffice -Expected "dockerfile: apps/frontoffice/Dockerfile"
 Assert-Contains -Name "frontoffice build API URL" -Text $frontoffice -Expected 'NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}'
+Assert-Contains -Name "frontoffice build site URL" -Text $frontoffice -Expected 'NEXT_PUBLIC_SITE_URL: ${FRONTOFFICE_ORIGIN:-http://localhost:3000}'
 Assert-Contains -Name "frontoffice internal API URL" -Text $frontoffice -Expected "API_BASE_URL: http://api:8080"
+Assert-Contains -Name "frontoffice runtime site URL" -Text $frontoffice -Expected 'NEXT_PUBLIC_SITE_URL: ${FRONTOFFICE_ORIGIN:-http://localhost:3000}'
 Assert-Contains -Name "frontoffice loopback port" -Text $frontoffice -Expected '"127.0.0.1:${FRONTOFFICE_PORT:-3000}:3000"'
 Assert-Contains -Name "frontoffice depends on api health" -Text $frontoffice -Expected "api:"
 Assert-Contains -Name "frontoffice healthcheck" -Text $frontoffice -Expected 'http://$$(hostname):3000'

@@ -6,6 +6,18 @@ import { describe, expect, it } from "vitest";
 const appRoot = dirname(fileURLToPath(import.meta.url));
 
 describe("public chrome mobile motion contract", () => {
+  it("renders only footer links with explicit destinations", () => {
+    const publicChrome = readFileSync(join(appRoot, "PublicChrome.tsx"), "utf8");
+    const copy = readFileSync(join(appRoot, "i18n.ts"), "utf8");
+
+    expect(publicChrome).not.toContain("footerHref");
+    expect(publicChrome).toContain('item.href.startsWith("http")');
+    expect(copy).not.toContain("Privacy Policy");
+    expect(copy).not.toContain("Terms of Service");
+    expect(copy).not.toContain("Buying Guide");
+    expect(copy).not.toContain("FAQ");
+  });
+
   it("keeps the mobile drawer wired to hamburger state", () => {
     const publicChrome = readFileSync(join(appRoot, "PublicChrome.tsx"), "utf8");
     const styles = readFileSync(join(appRoot, "styles.css"), "utf8");

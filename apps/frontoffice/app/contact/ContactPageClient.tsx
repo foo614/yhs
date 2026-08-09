@@ -35,7 +35,7 @@ export default function ContactPageClient() {
   const workshopText = t.workshopText ?? "We coordinate workshop support for inspections and preparation.";
 
   return (
-    <main className="atelierSubPage">
+    <main className="atelierSubPage" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
       <PublicHeader language={language} active="contact" />
 
       <header className="atelierSubHero contactAtelierHero">

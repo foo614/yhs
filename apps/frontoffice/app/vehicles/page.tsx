@@ -10,11 +10,17 @@ import { getPublicInventory } from "./service";
 
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 
-export const metadata: Metadata = pageMetadata({
-  title: "Used cars for sale | YS Heng Cars",
-  description: "Browse YS Heng available public inventory with prices, photos, and enquiry support for used cars in Johor.",
-  path: "/vehicles"
-});
+export async function generateMetadata({ searchParams }: { searchParams?: Promise<SearchParams> }): Promise<Metadata> {
+  const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
+  return pageMetadata({
+    title: language === "zh" ? "居銮二手车源 | YS Heng Cars" : "Used cars for sale in Johor | YS Heng Cars",
+    description: language === "zh"
+      ? "浏览 YS Heng 在售二手车的价格、照片与看车咨询服务。"
+      : "Browse YS Heng available used-car inventory with prices, photos, and enquiry support in Johor.",
+    path: "/vehicles",
+    language
+  });
+}
 
 export default async function VehiclesPage({ searchParams }: { searchParams?: Promise<SearchParams> }) {
   const resolvedSearchParams = isStaticExport ? undefined : await searchParams;
@@ -24,7 +30,7 @@ export default async function VehiclesPage({ searchParams }: { searchParams?: Pr
   const t = frontofficeCopy[language].inventory;
 
   return (
-    <main className="atelierSubPage">
+    <main className="atelierSubPage" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
       <PublicHeader language={language} active="vehicles" />
 
       <header className="atelierSubHero inventoryAtelierHero">

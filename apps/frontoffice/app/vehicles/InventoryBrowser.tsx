@@ -1,9 +1,16 @@
 "use client";
 
-import { CloudOff, Search, SlidersHorizontal } from "lucide-react";
+import { CircleAlert, CloudOff, RotateCcw, Search, SearchX, SlidersHorizontal } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { frontofficeCopy, hrefWithLanguage, type Language } from "../i18n";
-import { filterAndSortVehicles, type ListingFilters, type ListingSort } from "./listing";
+import {
+  filterAndSortVehicles,
+  validateListingFilterInputs,
+  type ListingFilters,
+  type ListingFilterValidationError,
+  type ListingSort
+} from "./listing";
 import type { PublicVehicle } from "./service";
 import { VehicleCard } from "./VehicleCard";
 
@@ -12,6 +19,7 @@ const VISIBLE_COUNT_INCREMENT = 12;
 
 export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en", unavailable = false }: { vehicles: PublicVehicle[]; initialFilters?: ListingFilters; language?: Language; unavailable?: boolean }) {
   const t = frontofficeCopy[language].inventory;
+  const router = useRouter();
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [query, setQuery] = useState(initialFilters.query ?? "");
   const [minYear, setMinYear] = useState(initialFilters.minYear ? String(initialFilters.minYear) : "");
@@ -23,6 +31,7 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
   const [sort, setSort] = useState<ListingSort>(initialFilters.sort ?? "year-desc");
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const makes = useMemo(() => [...new Set(vehicles.map((vehicle) => vehicle.make).filter(Boolean))].sort((left, right) => left.localeCompare(right)), [vehicles]);
+  const latestModelYear = new Date().getFullYear() + 1;
 
   useEffect(() => {
     setQuery(initialFilters.query ?? "");
@@ -44,18 +53,40 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
     initialFilters.stockOwner
   ]);
 
+  const numericValidation = useMemo(() => validateListingFilterInputs({ minYear, maxYear, minPrice, maxPrice }, latestModelYear), [latestModelYear, maxPrice, maxYear, minPrice, minYear]);
   const filteredVehicles = useMemo(() => filterAndSortVehicles(vehicles, {
     query,
     make,
-    minYear: toNumber(minYear),
-    maxYear: toNumber(maxYear),
-    minPrice: toNumber(minPrice),
-    maxPrice: toNumber(maxPrice),
+    ...numericValidation.filters,
     stockOwner,
     sort
-  }), [make, maxPrice, maxYear, minPrice, minYear, query, sort, stockOwner, vehicles]);
+  }), [make, numericValidation.filters, query, sort, stockOwner, vehicles]);
   const visibleVehicles = useMemo(() => filteredVehicles.slice(0, visibleCount), [filteredVehicles, visibleCount]);
   const hasMoreVehicles = visibleCount < filteredVehicles.length;
+  const activeFilterLabels = useMemo(() => {
+    const labels: string[] = [];
+    if (query.trim()) labels.push(`${t.search}: ${query.trim()}`);
+    if (make) labels.push(make);
+    if (numericValidation.filters.minYear !== undefined) labels.push(`${t.yearFrom} ${numericValidation.filters.minYear}`);
+    if (numericValidation.filters.maxYear !== undefined) labels.push(`${t.yearTo} ${numericValidation.filters.maxYear}`);
+    if (numericValidation.filters.minPrice !== undefined) labels.push(`${t.priceFrom} RM ${numericValidation.filters.minPrice.toLocaleString()}`);
+    if (numericValidation.filters.maxPrice !== undefined) labels.push(`${t.priceTo} RM ${numericValidation.filters.maxPrice.toLocaleString()}`);
+    if (stockOwner !== "All") labels.push(stockOwner);
+    return labels;
+  }, [make, numericValidation.filters, query, stockOwner, t]);
+  const noVehiclesAvailable = vehicles.length === 0 && activeFilterLabels.length === 0;
+
+  function clearFilters() {
+    setQuery("");
+    setMake("");
+    setMinYear("");
+    setMaxYear("");
+    setMinPrice("");
+    setMaxPrice("");
+    setStockOwner("All");
+    setSort("year-desc");
+    router.replace(hrefWithLanguage("/vehicles", language), { scroll: false });
+  }
 
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_COUNT);
@@ -98,22 +129,64 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
             {makes.map((entry) => <option value={entry} key={entry}>{entry}</option>)}
           </select>
         </label>
-        <label>
-          {t.yearFrom}
-          <input value={minYear} onChange={(event) => setMinYear(event.target.value)} inputMode="numeric" placeholder="2020" />
-        </label>
-        <label>
-          {t.yearTo}
-          <input value={maxYear} onChange={(event) => setMaxYear(event.target.value)} inputMode="numeric" placeholder="2024" />
-        </label>
-        <label>
-          {t.priceFrom}
-          <input value={minPrice} onChange={(event) => setMinPrice(event.target.value)} inputMode="numeric" placeholder="30000" />
-        </label>
-        <label>
-          {t.priceTo}
-          <input value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} inputMode="numeric" placeholder="60000" />
-        </label>
+        <div className="filterField">
+          <label>
+            {t.yearFrom}
+            <input
+              value={minYear}
+              onChange={(event) => setMinYear(event.target.value)}
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="2020"
+              aria-invalid={Boolean(numericValidation.errors.minYear)}
+              aria-describedby={numericValidation.errors.minYear ? "min-year-error" : undefined}
+            />
+          </label>
+          {numericValidation.errors.minYear && <FilterValidationMessage id="min-year-error" error={numericValidation.errors.minYear} t={t} />}
+        </div>
+        <div className="filterField">
+          <label>
+            {t.yearTo}
+            <input
+              value={maxYear}
+              onChange={(event) => setMaxYear(event.target.value)}
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="2024"
+              aria-invalid={Boolean(numericValidation.errors.maxYear)}
+              aria-describedby={numericValidation.errors.maxYear ? "max-year-error" : undefined}
+            />
+          </label>
+          {numericValidation.errors.maxYear && <FilterValidationMessage id="max-year-error" error={numericValidation.errors.maxYear} t={t} />}
+        </div>
+        <div className="filterField">
+          <label>
+            {t.priceFrom}
+            <input
+              value={minPrice}
+              onChange={(event) => setMinPrice(event.target.value)}
+              inputMode="numeric"
+              placeholder="30000"
+              aria-invalid={Boolean(numericValidation.errors.minPrice)}
+              aria-describedby={numericValidation.errors.minPrice ? "min-price-error" : undefined}
+            />
+          </label>
+          {numericValidation.errors.minPrice && <FilterValidationMessage id="min-price-error" error={numericValidation.errors.minPrice} t={t} />}
+        </div>
+        <div className="filterField">
+          <label>
+            {t.priceTo}
+            <input
+              value={maxPrice}
+              onChange={(event) => setMaxPrice(event.target.value)}
+              inputMode="numeric"
+              placeholder="60000"
+              aria-invalid={Boolean(numericValidation.errors.maxPrice)}
+              aria-describedby={numericValidation.errors.maxPrice ? "max-price-error" : undefined}
+            />
+          </label>
+          {numericValidation.errors.maxPrice && <FilterValidationMessage id="max-price-error" error={numericValidation.errors.maxPrice} t={t} />}
+        </div>
         <label>
           {t.stockOwner}
           <select value={stockOwner} onChange={(event) => setStockOwner(event.target.value as PublicVehicle["stockOwner"] | "All")}>
@@ -156,9 +229,24 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
           ) : filteredVehicles.length > 0 ? (
             visibleVehicles.map((vehicle) => <VehicleCard vehicle={vehicle} language={language} key={vehicle.id} />)
           ) : (
-            <div className="emptyState">
-              <h3>{t.emptyTitle}</h3>
-              <p>{t.emptyText}</p>
+            <div className="emptyState inventoryNoMatches">
+              <div className="emptyStateIcon" aria-hidden="true"><SearchX size={30} /></div>
+              <p className="atelierKicker">{t.emptyKicker}</p>
+              <h3>{noVehiclesAvailable ? t.emptyInventoryTitle : t.emptyTitle}</h3>
+              <p>{noVehiclesAvailable ? t.emptyInventoryText : t.emptyText}</p>
+              {!noVehiclesAvailable && activeFilterLabels.length > 0 && (
+                <div className="emptyFilterSummary" aria-label={t.activeFilters}>
+                  {activeFilterLabels.map((label) => <span key={label}>{label}</span>)}
+                </div>
+              )}
+              <div className="emptyStateActions">
+                {!noVehiclesAvailable && (
+                  <button type="button" className="secondaryAction" onClick={clearFilters}>
+                    <RotateCcw size={16} /> {t.clearFilters}
+                  </button>
+                )}
+                <a href={hrefWithLanguage("/contact", language)} className="secondaryAction">{t.contactSales}</a>
+              </div>
             </div>
           )}
         </div>
@@ -187,7 +275,14 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
   );
 }
 
-function toNumber(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+function FilterValidationMessage({ id, error, t }: { id: string; error: ListingFilterValidationError; t: typeof frontofficeCopy.en.inventory | typeof frontofficeCopy.zh.inventory }) {
+  const message = error === "invalid-year"
+    ? t.invalidYear
+    : error === "invalid-price"
+      ? t.invalidPrice
+      : error === "year-range"
+        ? t.invalidYearRange
+        : t.invalidPriceRange;
+
+  return <span className="filterValidationMessage" id={id} role="alert"><CircleAlert size={14} /> {message}</span>;
 }

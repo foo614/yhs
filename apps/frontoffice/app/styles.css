@@ -293,7 +293,6 @@ textarea:focus-visible {
   opacity: .86;
   filter: saturate(.92) contrast(1.04);
   transform-origin: center;
-  animation: heroDrift 18s var(--ease-premium) infinite alternate;
 }
 
 .heroDepthGlow,
@@ -315,7 +314,6 @@ textarea:focus-visible {
     radial-gradient(circle at 76% 42%, rgba(186, 0, 47, .22), rgba(186, 0, 47, 0) 48%);
   filter: blur(20px);
   opacity: .74;
-  animation: heroGlowBreath 7.5s var(--ease-premium) infinite alternate;
 }
 
 .heroRoadLines {
@@ -333,7 +331,6 @@ textarea:focus-visible {
   filter: blur(.2px);
   transform: perspective(680px) rotateX(64deg);
   transform-origin: bottom center;
-  animation: roadLineDrift 3.4s linear infinite;
 }
 
 .heroReflection {
@@ -382,7 +379,34 @@ textarea:focus-visible {
   border-radius: 18px;
   box-shadow: var(--glass-shadow);
   backdrop-filter: blur(18px);
-  animation: floatCardDrift 6.8s var(--ease-premium) infinite alternate;
+}
+
+.heroInventorySignal {
+  text-decoration: none;
+  transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+
+.heroInventorySignal:hover {
+  border-color: rgba(186, 0, 47, .34);
+  box-shadow: 0 20px 42px rgba(98, 14, 37, .18);
+  transform: translateY(-2px);
+}
+
+.heroInventorySignal:focus-visible {
+  outline: 3px solid rgba(186, 0, 47, .38);
+  outline-offset: 3px;
+}
+
+.atelierHero.heroAmbient .heroMedia {
+  animation: heroDrift 18s var(--ease-premium) infinite alternate;
+}
+
+.atelierHero.heroAmbient .heroDepthGlow {
+  animation: heroGlowBreath 7.5s var(--ease-premium) infinite alternate;
+}
+
+.atelierHero.heroAmbient .heroRoadLines {
+  animation: roadLineDrift 3.4s linear infinite;
 }
 
 .heroFloatCard.top {
@@ -392,8 +416,7 @@ textarea:focus-visible {
 
 .heroFloatCard.bottom {
   right: max(110px, calc((100vw - 1240px) / 2 + 150px));
-  bottom: 188px;
-  animation-delay: -1.4s;
+  bottom: 288px;
 }
 
 .heroFloatCard span,
@@ -428,10 +451,6 @@ textarea:focus-visible {
   box-shadow: 0 10px 26px rgba(93, 24, 38, .08);
 }
 
-.atelierHero .atelierKicker {
-  animation: motionRise .62s var(--ease-premium) .03s both;
-}
-
 .atelierHero h1,
 .atelierSubHeroInner h1 {
   max-width: 760px;
@@ -443,10 +462,6 @@ textarea:focus-visible {
   letter-spacing: -.045em;
   font-weight: 900;
   text-wrap: balance;
-}
-
-.atelierHero h1 {
-  animation: motionRise .72s var(--ease-premium) .08s both;
 }
 
 .atelierHero h1 span {
@@ -474,7 +489,6 @@ textarea:focus-visible {
     0 26px 70px rgba(93, 24, 38, .18),
     0 0 0 8px rgba(255, 255, 255, .26),
     inset 0 1px 0 rgba(255, 255, 255, .95);
-  animation: searchSpring .78s var(--ease-premium) .12s both;
 }
 
 .atelierSearch::before {
@@ -663,22 +677,12 @@ textarea:focus-visible {
     transform .36s var(--ease-premium),
     box-shadow .36s var(--ease-premium),
     border-color .36s var(--ease-premium);
-  animation: motionRise .68s var(--ease-premium) both;
-  animation-delay: .2s;
 }
 
 .heroTrustStrip span:hover {
   transform: translateY(-3px);
   border-color: rgba(186, 0, 47, .26);
   box-shadow: 0 20px 42px rgba(93, 24, 38, .13);
-}
-
-.heroTrustStrip span:nth-child(2) {
-  animation-delay: .27s;
-}
-
-.heroTrustStrip span:nth-child(3) {
-  animation-delay: .34s;
 }
 
 .heroTrustStrip svg {
@@ -1439,6 +1443,34 @@ textarea:focus-visible {
   padding-left: 40px;
 }
 
+.filterPanel input[aria-invalid="true"] {
+  border-color: rgba(186, 0, 47, .62);
+  background: #fff7f8;
+  box-shadow: 0 0 0 4px rgba(186, 0, 47, .08);
+}
+
+.filterField {
+  display: grid;
+  gap: 7px;
+}
+
+.filterValidationMessage {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: #a4002a;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.filterValidationMessage svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .listingContent {
   display: grid;
   gap: 18px;
@@ -1520,20 +1552,39 @@ textarea:focus-visible {
 
 .rednoteFeed .vehicleBody {
   display: grid;
-  gap: 13px;
-  padding: 16px 17px 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "header header"
+    "highlights action";
+  gap: 12px;
+  padding: 16px;
 }
 
 .rednoteFeed .vehicleHeader {
-  display: block;
+  grid-area: header;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rednoteFeed .vehicleHeader > div:first-child {
+  min-width: 0;
 }
 
 .rednoteFeed .vehicleHeader h3 {
   font-size: 18px;
   line-height: 1.2;
+  text-wrap: balance;
+}
+
+.rednoteFeed .vehiclePrice {
+  min-width: max-content;
 }
 
 .rednoteFeed .specPills {
+  grid-area: highlights;
+  align-self: center;
   margin: 0;
 }
 
@@ -1543,6 +1594,8 @@ textarea:focus-visible {
 }
 
 .rednoteFeed .vehicleFooter {
+  grid-area: action;
+  align-self: center;
   margin-top: 0;
 }
 
@@ -1558,6 +1611,24 @@ textarea:focus-visible {
 @media (max-width: 760px) {
   .rednoteFeed {
     columns: 1;
+  }
+}
+
+@media (max-width: 440px) {
+  .rednoteFeed .vehicleBody {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header"
+      "highlights"
+      "action";
+  }
+
+  .rednoteFeed .vehicleFooter {
+    justify-content: stretch;
+  }
+
+  .rednoteFeed .secondaryAction {
+    width: 100%;
   }
 }
 
@@ -2564,6 +2635,75 @@ textarea:focus-visible {
   border-radius: var(--radius);
 }
 
+.inventoryNoMatches {
+  display: grid;
+  justify-items: center;
+  gap: 13px;
+  padding: clamp(34px, 6vw, 58px);
+  border-color: rgba(186, 0, 47, .18);
+  box-shadow: 0 18px 46px rgba(69, 18, 29, .06);
+}
+
+.rednoteFeed .inventoryNoMatches {
+  break-inside: avoid;
+  column-span: all;
+}
+
+.emptyStateIcon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  color: var(--primary);
+  background: #fff5f7;
+  border: 1px solid rgba(186, 0, 47, .15);
+  border-radius: 50%;
+}
+
+.inventoryNoMatches .atelierKicker {
+  margin: 2px 0 0;
+}
+
+.inventoryNoMatches > p:not(.atelierKicker) {
+  max-width: 540px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.emptyFilterSummary {
+  display: flex;
+  max-width: 620px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.emptyFilterSummary span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  color: #7b454f;
+  font-size: 12px;
+  font-weight: 750;
+  background: #fff7f8;
+  border: 1px solid rgba(186, 0, 47, .12);
+  border-radius: 999px;
+}
+
+.emptyStateActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.inventoryNoMatches .secondaryAction {
+  padding: 0 18px;
+  font-size: 13px;
+}
+
 .inventoryUnavailable {
   display: grid;
   justify-items: center;
@@ -3281,11 +3421,6 @@ textarea:focus-visible {
   to { background-position: 160px 0, 0 0, 0 0; }
 }
 
-@keyframes floatCardDrift {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(0, -10px, 0); }
-}
-
 @keyframes searchSpring {
   from {
     opacity: 0;
@@ -3305,7 +3440,7 @@ textarea:focus-visible {
 
 @keyframes motionRise {
   from {
-    opacity: 0;
+    opacity: 1;
     transform: translate3d(0, 26px, 0);
   }
 
@@ -3313,30 +3448,6 @@ textarea:focus-visible {
     opacity: 1;
     transform: translate3d(0, 0, 0);
   }
-}
-
-.motionReady .motionReveal {
-  opacity: 0;
-  transform: translate3d(0, 26px, 0);
-  transition:
-    opacity .78s var(--ease-premium),
-    transform .78s var(--ease-premium),
-    box-shadow .36s var(--ease-premium),
-    border-color .36s var(--ease-premium);
-  transition-delay: calc(var(--motion-order, 0) * 55ms);
-}
-
-.motionReveal.isVisible {
-  opacity: 1;
-  transform: translate3d(0, 0, 0);
-}
-
-.motionReady .motionReveal.isVisible.personaCard:hover,
-.motionReady .motionReveal.isVisible.vehicleCard:hover,
-.motionReady .solutionGrid article.motionReveal.isVisible:hover,
-.motionReady .motionReveal.isVisible.trustRow:hover,
-.motionReady .motionReveal.isVisible.reviewBlock:hover {
-  transform: translateY(-6px);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3353,9 +3464,7 @@ textarea:focus-visible {
   .heroDepthGlow,
   .heroRoadLines,
   .heroReflection,
-  .heroFloatCard,
-  .motionReady .motionReveal,
-  .motionReveal.isVisible {
+  .heroFloatCard {
     transform: none !important;
   }
 }

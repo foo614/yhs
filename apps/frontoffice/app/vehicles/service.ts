@@ -23,6 +23,7 @@ export type PublicVehiclePhoto = {
   fileName: string;
   mimeType: string;
   uploadedAt: string;
+  isRepresentativeImage?: boolean;
 };
 
 type ApiVehicle = {
@@ -233,10 +234,12 @@ export async function getPublicVehicle(id: string, fetchBaseUrl = apiBaseUrl, as
     const payload = await response.json();
     if (!isValidApiVehicle(payload)) return null;
     const vehicle = publicVehicleFromApi(payload, assetBaseUrl);
-    const photoUrls = await getPublicVehiclePhotoUrls(id, fetchBaseUrl, assetBaseUrl);
+    const photoData = await getPublicVehiclePhotoData(id, fetchBaseUrl, assetBaseUrl);
+    const photoUrls = photoData.urls;
     if (photoUrls.length > 0) {
       vehicle.photoUrls = photoUrls;
       vehicle.photoUrl = photoUrls[0];
+      vehicle.isRepresentativePhoto = photoData.isRepresentative;
     }
     return vehicle.status === "Available"
       ? photoUrls.length > 0 ? vehicle : { ...vehicle, photoUrl: vehicle.fallbackPhotoUrl ?? neutralVehicleFallbackPhotoUrl, isRepresentativePhoto: true }
@@ -276,16 +279,22 @@ export function publicVehicleFromApi(vehicle: ApiVehicle, baseUrl = apiBaseUrl):
 }
 
 export async function getPublicVehiclePhotoUrls(id: string, fetchBaseUrl = apiBaseUrl, assetBaseUrl = publicApiBaseUrl): Promise<string[]> {
+  return (await getPublicVehiclePhotoData(id, fetchBaseUrl, assetBaseUrl)).urls;
+}
+
+async function getPublicVehiclePhotoData(id: string, fetchBaseUrl = apiBaseUrl, assetBaseUrl = publicApiBaseUrl): Promise<{ urls: string[]; isRepresentative: boolean }> {
   try {
     const response = await fetch(`${fetchBaseUrl}/api/public/vehicles/${id}/photos`, { cache: "no-store" });
-    if (!response.ok) return [];
+    if (!response.ok) return { urls: [], isRepresentative: false };
     const photos = await response.json();
-    if (!Array.isArray(photos)) return [];
-    return photos
-      .filter(isValidPublicVehiclePhoto)
-      .map((photo) => `${assetBaseUrl}/api/public/vehicles/${id}/photos/${photo.id}`);
+    if (!Array.isArray(photos)) return { urls: [], isRepresentative: false };
+    const publicPhotos = photos.filter(isValidPublicVehiclePhoto);
+    return {
+      urls: publicPhotos.map((photo) => `${assetBaseUrl}/api/public/vehicles/${id}/photos/${photo.id}`),
+      isRepresentative: publicPhotos[0]?.isRepresentativeImage === true
+    };
   } catch {
-    return [];
+    return { urls: [], isRepresentative: false };
   }
 }
 
@@ -359,12 +368,14 @@ async function withPhotoUrls(vehicles: ApiVehicle[], fetchBaseUrl = apiBaseUrl, 
   const publicVehicles = availableVehicles(vehicles.map((vehicle) => publicVehicleFromApi(vehicle, assetBaseUrl)));
 
   return Promise.all(publicVehicles.map(async (vehicle) => {
-    const photoUrls = await getPublicVehiclePhotoUrls(vehicle.id, fetchBaseUrl, assetBaseUrl);
+    const photoData = await getPublicVehiclePhotoData(vehicle.id, fetchBaseUrl, assetBaseUrl);
+    const photoUrls = photoData.urls;
     if (photoUrls.length > 0) {
       return {
         ...vehicle,
         photoUrl: photoUrls[0],
-        photoUrls
+        photoUrls,
+        isRepresentativePhoto: photoData.isRepresentative
       };
     }
 

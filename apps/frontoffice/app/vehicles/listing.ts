@@ -14,21 +14,74 @@ export type ListingFilters = {
 };
 
 export type ListingSearchParams = Record<string, string | string[] | undefined>;
+export type ListingFilterInputName = "minYear" | "maxYear" | "minPrice" | "maxPrice";
+export type ListingFilterInputs = Record<ListingFilterInputName, string>;
+export type ListingFilterValidationError = "invalid-year" | "invalid-price" | "year-range" | "price-range";
+export type ListingFilterValidation = {
+  filters: Pick<ListingFilters, ListingFilterInputName>;
+  errors: Partial<Record<ListingFilterInputName, ListingFilterValidationError>>;
+};
+
+const EARLIEST_VEHICLE_YEAR = 1886;
+const LOWEST_VEHICLE_PRICE = 1;
+
+export function validateListingFilterInputs(inputs: ListingFilterInputs, latestModelYear = new Date().getFullYear() + 1): ListingFilterValidation {
+  const minYear = parseWholeNumber(inputs.minYear, EARLIEST_VEHICLE_YEAR, latestModelYear);
+  const maxYear = parseWholeNumber(inputs.maxYear, EARLIEST_VEHICLE_YEAR, latestModelYear);
+  const minPrice = parseWholeNumber(inputs.minPrice, LOWEST_VEHICLE_PRICE, Number.MAX_SAFE_INTEGER);
+  const maxPrice = parseWholeNumber(inputs.maxPrice, LOWEST_VEHICLE_PRICE, Number.MAX_SAFE_INTEGER);
+  const errors: ListingFilterValidation["errors"] = {};
+
+  if (!minYear.valid) errors.minYear = "invalid-year";
+  if (!maxYear.valid) errors.maxYear = "invalid-year";
+  if (!minPrice.valid) errors.minPrice = "invalid-price";
+  if (!maxPrice.valid) errors.maxPrice = "invalid-price";
+
+  if (!errors.minYear && !errors.maxYear && minYear.value !== undefined && maxYear.value !== undefined && minYear.value > maxYear.value) {
+    errors.minYear = "year-range";
+    errors.maxYear = "year-range";
+  }
+
+  if (!errors.minPrice && !errors.maxPrice && minPrice.value !== undefined && maxPrice.value !== undefined && minPrice.value > maxPrice.value) {
+    errors.minPrice = "price-range";
+    errors.maxPrice = "price-range";
+  }
+
+  return {
+    filters: {
+      minYear: errors.minYear || errors.maxYear ? undefined : minYear.value,
+      maxYear: errors.minYear || errors.maxYear ? undefined : maxYear.value,
+      minPrice: errors.minPrice || errors.maxPrice ? undefined : minPrice.value,
+      maxPrice: errors.minPrice || errors.maxPrice ? undefined : maxPrice.value
+    },
+    errors
+  };
+}
 
 export function listingFiltersFromSearchParams(params: ListingSearchParams): ListingFilters {
+  const rangeFilters = validateListingFilterInputs({
+    minYear: firstParam(params.minYear) ?? "",
+    maxYear: firstParam(params.maxYear) ?? "",
+    minPrice: firstParam(params.minPrice) ?? "",
+    maxPrice: firstParam(params.maxPrice) ?? ""
+  });
+
   return {
     query: [firstParam(params.q), firstParam(params.model)].map((value) => value?.trim()).filter(Boolean).join(" ") || undefined,
     make: firstParam(params.make)?.trim() || undefined,
-    minYear: numericParam(params.minYear),
-    maxYear: numericParam(params.maxYear),
-    minPrice: numericParam(params.minPrice),
-    maxPrice: numericParam(params.maxPrice),
+    ...rangeFilters.filters,
     stockOwner: stockOwnerParam(params.stockOwner),
     sort: sortParam(params.sort)
   };
 }
 
 export function filterAndSortVehicles(vehicles: PublicVehicle[], filters: ListingFilters): PublicVehicle[] {
+  const rangeFilters = validateListingFilterInputs({
+    minYear: filters.minYear === undefined ? "" : String(filters.minYear),
+    maxYear: filters.maxYear === undefined ? "" : String(filters.maxYear),
+    minPrice: filters.minPrice === undefined ? "" : String(filters.minPrice),
+    maxPrice: filters.maxPrice === undefined ? "" : String(filters.maxPrice)
+  }).filters;
   const queryTokens = filters.query?.trim().toLowerCase().split(/\s+/).filter(Boolean) ?? [];
   const make = filters.make?.trim().toLowerCase();
 
@@ -37,10 +90,10 @@ export function filterAndSortVehicles(vehicles: PublicVehicle[], filters: Listin
       const searchable = [vehicle.make, vehicle.model, vehicle.plateNumber, String(vehicle.year)].join(" ").toLowerCase();
       const matchesQuery = queryTokens.length === 0 || queryTokens.every((token) => searchable.includes(token));
       const matchesMake = !make || vehicle.make.toLowerCase() === make;
-      const matchesMinYear = filters.minYear === undefined || vehicle.year >= filters.minYear;
-      const matchesMaxYear = filters.maxYear === undefined || vehicle.year <= filters.maxYear;
-      const matchesMinPrice = filters.minPrice === undefined || vehicle.sellingPrice >= filters.minPrice;
-      const matchesMaxPrice = filters.maxPrice === undefined || vehicle.sellingPrice <= filters.maxPrice;
+      const matchesMinYear = rangeFilters.minYear === undefined || vehicle.year >= rangeFilters.minYear;
+      const matchesMaxYear = rangeFilters.maxYear === undefined || vehicle.year <= rangeFilters.maxYear;
+      const matchesMinPrice = rangeFilters.minPrice === undefined || vehicle.sellingPrice >= rangeFilters.minPrice;
+      const matchesMaxPrice = rangeFilters.maxPrice === undefined || vehicle.sellingPrice <= rangeFilters.maxPrice;
       const matchesStockOwner = !filters.stockOwner || filters.stockOwner === "All" || vehicle.stockOwner === filters.stockOwner;
 
       return matchesQuery && matchesMake && matchesMinYear && matchesMaxYear && matchesMinPrice && matchesMaxPrice && matchesStockOwner;
@@ -80,9 +133,15 @@ function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function numericParam(value: string | string[] | undefined) {
-  const parsed = Number(firstParam(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+function parseWholeNumber(value: string, minimum: number, maximum: number) {
+  const trimmed = value.trim();
+  if (!trimmed) return { valid: true, value: undefined };
+  if (!/^\d+$/.test(trimmed)) return { valid: false, value: undefined };
+
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum
+    ? { valid: true, value: parsed }
+    : { valid: false, value: undefined };
 }
 
 function stockOwnerParam(value: string | string[] | undefined): ListingFilters["stockOwner"] {

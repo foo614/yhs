@@ -11,6 +11,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - `infra/test-dockerfiles.ps1`: static Dockerfile contract checks for .NET 10 images, React app build/runtime commands, ports, API health dependency tooling, and public API URL build arguments.
 - `infra/test-compose-contract.ps1`: static Compose contract checks for required services, Dockerfile references, ports, healthchecks, API/worker environment wiring, and service dependencies when Docker Desktop is unavailable.
 - The front-office container uses `API_BASE_URL=http://api:8080` only for server-side public-data fetches. Browser and rendered photo URLs continue to use `PUBLIC_API_BASE_URL`.
+- The front-office container maps the already validated `FRONTOFFICE_ORIGIN` into `NEXT_PUBLIC_SITE_URL` at build and runtime so production canonicals, social metadata, robots, sitemap, and structured-data URLs cannot silently retain the localhost development fallback.
 - `infra/test-compose-env.ps1`: regression checks for production `.env` validation, including required keys, placeholder secrets, public URL shape, local-only/example domains, trailing slashes, and local Docker example override behavior.
 - `infra/test-deployment-scripts.ps1`: static deployment script checks for deploy ordering, smoke-test URL wiring, PostgreSQL backup custom-format dumps, restore confirmation, and temporary dump cleanup.
 - `infra/test-deployment-runbook.ps1`: static deployment runbook check for VPS env setup, preflight, deploy, smoke proof, backup/restore, Docker Desktop service warning behavior, and clean local Compose proof instructions.
@@ -35,7 +36,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Vehicle staff can now author an optional public listing description in a restricted Markdown subset with a matching preview; the public detail response returns it only for visible available vehicles, and raw HTML/unsafe links are not rendered.
 - Public vehicle detail pages now include a client-side flat-rate loan estimate calculator with bounded down payment, rate, and tenure inputs plus a clear estimate-only disclosure; it does not create or persist a loan application or quote.
 - Public vehicle detail pages now check the detail endpoint before loading inventory for related vehicles, avoiding list fetches for rejected/non-public vehicles.
-- Public home, inventory, and vehicle detail pages now expose canonical and social metadata for public search and sharing.
+- Public home, inventory, contact, and vehicle detail pages now expose localized English/Chinese canonicals, reciprocal language alternates, social metadata, a branded browser icon, and verifiable AutoDealer/Product/Car structured data for public search and sharing; representative fallback photos are not claimed as actual vehicle images.
 - Public vehicle detail pages now use a selectable in-page gallery for multiple uploaded photos while preserving the missing-photo fallback.
 - Public lead submissions now capture optional source page, referrer, and UTM campaign context for Sales triage without expanding public vehicle DTOs.
 - The API now applies defensive response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy`) to reduce production browser exposure for the public and back-office API surface.

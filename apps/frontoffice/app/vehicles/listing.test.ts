@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { filterAndSortVehicles, listingFiltersFromSearchParams, type ListingFilters } from "./listing";
+import { filterAndSortVehicles, listingFiltersFromSearchParams, validateListingFilterInputs, type ListingFilters } from "./listing";
 import {
   getPublicVehicle,
   getPublicVehicleDetailPageData,
@@ -104,6 +104,53 @@ describe("filterAndSortVehicles", () => {
     expect(filterAndSortVehicles(vehicles, { sort: "price-asc" }).map((vehicle) => vehicle.id)).toEqual(["three", "one", "two"]);
     expect(filterAndSortVehicles(vehicles, { sort: "price-desc" }).map((vehicle) => vehicle.id)).toEqual(["two", "one", "three"]);
   });
+
+  it("does not turn an invalid range into a misleading empty result", () => {
+    const result = filterAndSortVehicles(vehicles, { minYear: 2023, maxYear: 2021 });
+
+    expect(result.map((vehicle) => vehicle.id)).toEqual(["three", "one", "two"]);
+  });
+});
+
+describe("validateListingFilterInputs", () => {
+  it("keeps complete year and price ranges as usable filters", () => {
+    expect(validateListingFilterInputs({
+      minYear: "2020",
+      maxYear: "2024",
+      minPrice: "30000",
+      maxPrice: "60000"
+    }, 2026)).toEqual({
+      filters: { minYear: 2020, maxYear: 2024, minPrice: 30000, maxPrice: 60000 },
+      errors: {}
+    });
+  });
+
+  it("flags invalid values and discards each invalid range until it is corrected", () => {
+    expect(validateListingFilterInputs({
+      minYear: "2024",
+      maxYear: "2020",
+      minPrice: "60000",
+      maxPrice: "30000"
+    }, 2026)).toEqual({
+      filters: { minYear: undefined, maxYear: undefined, minPrice: undefined, maxPrice: undefined },
+      errors: {
+        minYear: "year-range",
+        maxYear: "year-range",
+        minPrice: "price-range",
+        maxPrice: "price-range"
+      }
+    });
+
+    expect(validateListingFilterInputs({
+      minYear: "202",
+      maxYear: "2020",
+      minPrice: "30.5",
+      maxPrice: "60000"
+    }, 2026).errors).toEqual({
+      minYear: "invalid-year",
+      minPrice: "invalid-price"
+    });
+  });
 });
 
 describe("listingFiltersFromSearchParams", () => {
@@ -145,6 +192,24 @@ describe("listingFiltersFromSearchParams", () => {
 
     expect(result).toEqual({
       query: "Honda City",
+      minYear: undefined,
+      maxYear: undefined,
+      minPrice: undefined,
+      maxPrice: undefined,
+      stockOwner: undefined,
+      sort: undefined
+    });
+  });
+
+  it("ignores reversed numeric ranges passed in URL filters", () => {
+    expect(listingFiltersFromSearchParams({
+      minYear: "2024",
+      maxYear: "2020",
+      minPrice: "60000",
+      maxPrice: "30000"
+    })).toEqual({
+      query: undefined,
+      make: undefined,
       minYear: undefined,
       maxYear: undefined,
       minPrice: undefined,
@@ -218,7 +283,7 @@ describe("getPublicVehicles", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: vi.fn().mockResolvedValue([
-          { id: "photo-1", fileName: "front.jpg", mimeType: "image/jpeg", uploadedAt: "2026-06-04T00:00:00Z" }
+          { id: "photo-1", fileName: "front.jpg", mimeType: "image/jpeg", uploadedAt: "2026-06-04T00:00:00Z", isRepresentativeImage: true }
         ])
       });
     vi.stubGlobal("fetch", fetchMock);
@@ -230,7 +295,8 @@ describe("getPublicVehicles", () => {
     expect(result[0]).toEqual(expect.objectContaining({
       id: "available",
       photoUrl: "http://localhost:5000/api/public/vehicles/available/photos/photo-1",
-      photoUrls: ["http://localhost:5000/api/public/vehicles/available/photos/photo-1"]
+      photoUrls: ["http://localhost:5000/api/public/vehicles/available/photos/photo-1"],
+      isRepresentativePhoto: true
     }));
   });
 
@@ -607,4 +673,5 @@ describe("submitPublicContact", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
 });

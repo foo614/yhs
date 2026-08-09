@@ -12,13 +12,14 @@ export function languageFromSearchParams(params?: SearchParams): Language {
   return value === "zh" ? "zh" : "en";
 }
 
-export function languageQuery(language: Language) {
-  return language === "zh" ? "?lang=zh" : "";
-}
-
 export function hrefWithLanguage(path: string, language: Language) {
-  const [basePath, hash] = path.split("#");
-  return `${basePath}${languageQuery(language)}${hash ? `#${hash}` : ""}`;
+  const [pathAndQuery, hash] = path.split("#");
+  const [basePath, query] = pathAndQuery.split("?");
+  const params = new URLSearchParams(query);
+  if (language === "zh") params.set("lang", "zh");
+  else params.delete("lang");
+  const search = params.toString();
+  return `${basePath}${search ? `?${search}` : ""}${hash ? `#${hash}` : ""}`;
 }
 
 export function languageSwitchHref(pathname: string | null, search: string, language: Language, hash = "") {
@@ -46,13 +47,25 @@ export const frontofficeCopy = {
     footer: {
       description: "Second-hand car sales, loan assistance, trade-in discussion, and handover support in Malaysia.",
       quickLinks: "Quick Links",
-      quickItems: ["Used Cars Under 30k", "New Arrivals", "Sell Your Car", "Popular Cars", "Loan Help"],
+      quickItems: [
+        { label: "Used Cars Under 30k", href: "/vehicles?maxPrice=30000" },
+        { label: "Sell Your Car", href: "/contact#contact" },
+        { label: "Loan Help", href: "/contact#services" }
+      ],
       services: "Services",
-      serviceItems: ["Loan Assistance", "Trade-in", "Insurance", "JPJ & Puspakom", "Workshop Support"],
+      serviceItems: [
+        { label: "Loan Assistance", href: "/contact#services" },
+        { label: "Trade-in", href: "/contact#services" },
+        { label: "Insurance", href: "/contact#services" },
+        { label: "JPJ & Puspakom", href: "/contact#services" },
+        { label: "Workshop Support", href: "/contact#workshop" }
+      ],
       company: "Company",
-      companyItems: ["About Us", "Showroom", "Workshop Support", "Facebook Page", "Contact Us"],
-      support: "Support",
-      supportItems: ["Privacy Policy", "Terms of Service", "Buying Guide", "FAQ", "Loan Calculator"]
+      companyItems: [
+        { label: "Showroom", href: "/contact#workshop" },
+        { label: "Facebook Page", href: "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/" },
+        { label: "Contact Us", href: "/contact#contact" }
+      ]
     },
     vehicleCard: {
       readyStock: "Ready stock",
@@ -141,8 +154,17 @@ export const frontofficeCopy = {
       showingVehicles: "Showing {visible} of {total} cars",
       loadMore: "Load more cars",
       allLoaded: "All matching cars loaded",
+      emptyKicker: "Search update",
       emptyTitle: "No vehicles match those filters",
-      emptyText: "Adjust the search or send us an enquiry and the team will help shortlist suitable cars.",
+      emptyText: "Clear a filter to see the full selection, or send us an enquiry and the team will help shortlist suitable cars.",
+      emptyInventoryTitle: "No vehicles are available right now",
+      emptyInventoryText: "Please check back shortly or message Sales for current availability.",
+      activeFilters: "Current filters",
+      clearFilters: "Clear all filters",
+      invalidYear: "Enter a four-digit year between 1886 and next year's model year.",
+      invalidPrice: "Enter a whole price of RM 1 or more.",
+      invalidYearRange: "Year from cannot be later than year to.",
+      invalidPriceRange: "Price from cannot be higher than price to.",
       unavailableTitle: "The showroom is temporarily unavailable",
       unavailableText: "Live vehicle inventory could not be loaded. Please try again shortly or message Sales for current availability.",
       contactSales: "Message Sales"
@@ -246,13 +268,25 @@ export const frontofficeCopy = {
     footer: {
       description: "马来西亚二手车销售、贷款协助、Trade-in 咨询与交车跟进。",
       quickLinks: "快捷链接",
-      quickItems: ["RM30k 以下车源", "最新车源", "卖车咨询", "热门车型", "贷款协助"],
+      quickItems: [
+        { label: "RM30k 以下车源", href: "/vehicles?maxPrice=30000" },
+        { label: "卖车咨询", href: "/contact#contact" },
+        { label: "贷款协助", href: "/contact#services" }
+      ],
       services: "服务",
-      serviceItems: ["贷款协助", "Trade-in", "保险", "JPJ 与 Puspakom", "维修厂支援"],
+      serviceItems: [
+        { label: "贷款协助", href: "/contact#services" },
+        { label: "Trade-in", href: "/contact#services" },
+        { label: "保险", href: "/contact#services" },
+        { label: "JPJ 与 Puspakom", href: "/contact#services" },
+        { label: "维修厂支援", href: "/contact#workshop" }
+      ],
       company: "公司",
-      companyItems: ["关于我们", "YS Heng 展厅", "维修支援", "Facebook", "联络我们"],
-      support: "支援",
-      supportItems: ["隐私政策", "服务条款", "买车指南", "常见问题", "贷款计算"]
+      companyItems: [
+        { label: "YS Heng 展厅", href: "/contact#workshop" },
+        { label: "Facebook", href: "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/" },
+        { label: "联络我们", href: "/contact#contact" }
+      ]
     },
     vehicleCard: {
       readyStock: "现货车源",
@@ -341,8 +375,17 @@ export const frontofficeCopy = {
       showingVehicles: "已显示 {visible} / {total} 辆车",
       loadMore: "加载更多车辆",
       allLoaded: "已显示所有符合条件的车辆",
+      emptyKicker: "搜寻结果",
       emptyTitle: "没有符合筛选的车辆",
-      emptyText: "调整搜寻条件，或发送询问让团队协助筛选合适车源。",
+      emptyText: "清除部分筛选以查看全部车源，或发送询问让团队协助筛选合适车辆。",
+      emptyInventoryTitle: "目前没有可售车辆",
+      emptyInventoryText: "请稍后再试，或直接联络销售团队查询现车。",
+      activeFilters: "目前筛选条件",
+      clearFilters: "清除所有筛选",
+      invalidYear: "请输入 1886 至明年之间的四位年份。",
+      invalidPrice: "请输入 RM 1 或以上的整数价格。",
+      invalidYearRange: "年份起不能晚于年份至。",
+      invalidPriceRange: "最低价不能高于最高价。",
       unavailableTitle: "展厅资料暂时无法显示",
       unavailableText: "暂时无法载入实时车源。请稍后再试，或直接留言向销售团队查询现车。",
       contactSales: "联络销售团队"

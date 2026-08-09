@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
@@ -226,7 +227,7 @@ backOffice.MapGet("/vehicles/{id:guid}/stock-movements", async (Guid id, AppDbCo
         .ToListAsync());
 }).RequireAuthorization("VehicleRead");
 
-backOffice.MapPost("/vehicles/{id:guid}/photos", async (Guid id, IFormFile file, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/vehicles/{id:guid}/photos", async (Guid id, [FromForm] IFormFile file, [FromForm] bool isRepresentativeImage, [FromForm] string? sourceName, [FromForm] string? sourceUrl, [FromForm] string? creatorAttribution, [FromForm] string? licenseName, [FromForm] string? licenseUrl, AppDbContext db, HttpContext context) =>
 {
     var validation = WorkflowReferenceRules.ValidateVehicleLink(id, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -246,7 +247,13 @@ backOffice.MapPost("/vehicles/{id:guid}/photos", async (Guid id, IFormFile file,
         Content = bytes,
         Thumbnail = thumbnail.Thumbnail!,
         Checksum = Convert.ToHexString(SHA256.HashData(bytes)),
-        UploadedBy = UploadMetadata.UploaderFrom(context.User)
+        UploadedBy = UploadMetadata.UploaderFrom(context.User),
+        IsRepresentativeImage = isRepresentativeImage,
+        SourceName = sourceName?.Trim(),
+        SourceUrl = sourceUrl?.Trim(),
+        CreatorAttribution = creatorAttribution?.Trim(),
+        LicenseName = licenseName?.Trim(),
+        LicenseUrl = licenseUrl?.Trim()
     };
     db.VehiclePhotos.Add(photo);
     ApiAudit.Add(db, context.User, "vehicle.photo.uploaded", nameof(VehiclePhoto), photo.Id);

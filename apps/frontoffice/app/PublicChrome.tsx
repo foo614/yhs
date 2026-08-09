@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Banknote, Car, Home, MessageCircle, Search, Sparkles } from "lucide-react";
 import { frontofficeCopy, hrefWithLanguage, languages, languageSwitchHref, type Language } from "./i18n";
 
-const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
 const publicBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 type ContactSection = "services" | "workshop" | "contact";
+type FooterLink = { label: string; href: string };
 
 export function PublicHeader({ language, active = "home" }: { language: Language; active?: "home" | "vehicles" | "contact" }) {
   const t = frontofficeCopy[language].nav;
@@ -31,7 +31,9 @@ export function PublicHeader({ language, active = "home" }: { language: Language
           <Search size={13} />
           <input name="q" placeholder={t.searchPlaceholder} />
         </form>
-        <LanguageSwitch language={language} />
+        <Suspense fallback={null}>
+          <LanguageSwitch language={language} />
+        </Suspense>
       </div>
       <button
         className="mobileMenu"
@@ -68,7 +70,9 @@ export function PublicHeader({ language, active = "home" }: { language: Language
           <Search size={14} />
           <input name="q" placeholder={t.searchPlaceholder} />
         </form>
-        <LanguageSwitch language={language} />
+        <Suspense fallback={null}>
+          <LanguageSwitch language={language} />
+        </Suspense>
       </nav>
     </header>
   );
@@ -88,7 +92,9 @@ export function PublicSubNav({ language, active = "home" }: { language: Language
         <Link href={hrefWithLanguage("/contact#workshop", language)} onClick={() => setContactSection("workshop")} className={active === "contact" && contactSection === "workshop" ? "active" : undefined}>{t.workshop}</Link>
         <Link href={hrefWithLanguage("/contact#contact", language)} onClick={() => setContactSection("contact")} className={active === "contact" && contactSection === "contact" ? "active" : undefined}>{t.contact}</Link>
       </div>
-      <LanguageSwitch language={language} />
+      <Suspense fallback={null}>
+        <LanguageSwitch language={language} />
+      </Suspense>
     </nav>
   );
 }
@@ -131,7 +137,6 @@ export function PublicFooter({ language }: { language: Language }) {
       <FooterLinks title={t.quickLinks} items={t.quickItems} language={language} />
       <FooterLinks title={t.services} items={t.serviceItems} language={language} />
       <FooterLinks title={t.company} items={t.companyItems} language={language} />
-      <FooterLinks title={t.support} items={t.supportItems} language={language} />
     </footer>
   );
 }
@@ -171,32 +176,18 @@ export function PublicMobileNav({ language, active = "home" }: { language: Langu
   );
 }
 
-function FooterLinks({ title, items, language }: { title: string; items: readonly string[]; language: Language }) {
+function FooterLinks({ title, items, language }: { title: string; items: readonly FooterLink[]; language: Language }) {
   return (
     <nav>
       <h3>{title}</h3>
       {items.map((item) => {
-        const href = footerHref(item, language);
+        const href = item.href.startsWith("http") ? item.href : hrefWithLanguage(item.href, language);
         return href.startsWith("http")
-          ? <a href={href} target="_blank" rel="noreferrer" key={item}>{item}</a>
-          : <Link href={href} key={item}>{item}</Link>;
+          ? <a href={href} target="_blank" rel="noreferrer" key={item.label}>{item.label}</a>
+          : <Link href={href} key={item.label}>{item.label}</Link>;
       })}
     </nav>
   );
-}
-
-function footerHref(item: string, language: Language) {
-  const normalized = item.toLowerCase();
-  if (normalized.includes("facebook")) return facebookUrl;
-  if (normalized.includes("sell") || item.includes("卖车")) return hrefWithLanguage("/contact#contact", language);
-  if (normalized.includes("about") || item.includes("关于")) return hrefWithLanguage("/contact#services", language);
-  if (normalized.includes("contact") || item.includes("联络")) return hrefWithLanguage("/contact#contact", language);
-  if (normalized.includes("showroom") || item.includes("展厅")) return hrefWithLanguage("/contact#contact", language);
-  if (normalized.includes("workshop") || item.includes("维修厂")) return hrefWithLanguage("/contact#workshop", language);
-  if (normalized.includes("loan") || item.includes("贷款")) return hrefWithLanguage("/contact#services", language);
-  if (normalized.includes("insurance") || normalized.includes("trade-in") || normalized.includes("jpj") || item.includes("保险")) return hrefWithLanguage("/contact#services", language);
-  if (normalized.includes("privacy") || normalized.includes("terms") || normalized.includes("faq") || normalized.includes("guide") || item.includes("隐私") || item.includes("条款") || item.includes("常见") || item.includes("指南")) return hrefWithLanguage("/contact#services", language);
-  return hrefWithLanguage("/vehicles", language);
 }
 
 function useContactSection(active: "home" | "vehicles" | "contact"): [ContactSection, (section: ContactSection) => void] {
