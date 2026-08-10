@@ -836,7 +836,7 @@ textarea:focus-visible {
 
 .marqueBand {
   width: min(1240px, calc(100% - 48px));
-  margin: -34px auto 0;
+  margin: 14px auto 0;
   position: relative;
   z-index: 4;
   display: grid;
@@ -3470,6 +3470,384 @@ textarea:focus-visible {
 
   .atelierMobileNav a.active {
     color: var(--primary);
+  }
+}
+
+/* Homepage price-bay reference layout. The real inventory supplies tags and count. */
+.atelierHero {
+  min-height: 768px;
+  display: block;
+  padding: 0;
+  background: #f8f7f5;
+}
+
+.atelierHero::before,
+.atelierHero::after {
+  display: none;
+}
+
+.heroMedia {
+  inset: 92px -8px auto auto;
+  width: min(66vw, 960px);
+  height: auto;
+  aspect-ratio: 1672 / 941;
+  object-fit: contain;
+  object-position: center;
+}
+
+.heroOverlay {
+  background: linear-gradient(90deg, #f8f7f5 0%, #f8f7f5 30%, rgba(248, 247, 245, .9) 40%, rgba(248, 247, 245, .18) 58%, rgba(248, 247, 245, 0) 100%);
+}
+
+.atelierHeroInner {
+  width: min(1400px, calc(100% - 40px));
+  height: 768px;
+}
+
+.heroCopy {
+  width: min(540px, 43vw);
+  padding-top: 206px;
+}
+
+.atelierHero .atelierKicker {
+  margin-bottom: 18px;
+  padding: 8px 14px;
+  background: #f4e9eb;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+
+.atelierHero h1 {
+  width: 125%;
+  max-width: 675px;
+  font-family: Impact, sans-serif;
+  font-size: clamp(58px, 5vw, 72px);
+  font-weight: 400;
+  line-height: .9;
+  letter-spacing: .01em;
+  text-transform: uppercase;
+  transform: scaleX(.8);
+  transform-origin: left center;
+}
+
+.atelierHero h1 span {
+  display: block;
+}
+
+.atelierHero h1 .heroTitleLead {
+  color: #1e1d1d;
+  white-space: nowrap;
+}
+
+.heroIntro {
+  max-width: 455px;
+  margin: 26px 0 0;
+  color: #656260;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+.heroActions {
+  align-items: center;
+  gap: 24px;
+  margin-top: 29px;
+}
+
+.heroBrowseAction {
+  min-height: 55px;
+  display: inline-flex;
+  align-items: center;
+  gap: 28px;
+  padding: 0 22px 0 24px;
+  color: #fff;
+  background: var(--primary);
+  border-radius: 8px;
+  box-shadow: 0 14px 24px rgba(186, 0, 47, .18);
+  font-size: 15px;
+  font-weight: 900;
+  transition: background-color .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+
+.heroBrowseAction:hover {
+  color: #fff;
+  background: var(--primary-strong);
+  box-shadow: 0 18px 28px rgba(186, 0, 47, .26);
+  transform: translateY(-2px);
+}
+
+.heroBrowseAction:focus-visible {
+  outline: 3px solid rgba(186, 0, 47, .36);
+  outline-offset: 4px;
+}
+
+.heroLocation {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #615d5d;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.heroLocation svg {
+  color: var(--primary);
+}
+
+.heroPriceTag1 {
+  top: 150px;
+  left: calc(50% + 54px);
+}
+
+.heroPriceTag2 {
+  top: 164px;
+  right: max(48px, calc((100vw - 1400px) / 2 + 52px));
+}
+
+.heroPriceTagMotion {
+  min-width: 166px;
+  gap: 5px;
+  padding: 13px 16px 12px;
+  background: #fff;
+  border-color: rgba(30, 29, 29, .15);
+  border-radius: 11px;
+  box-shadow: 0 14px 26px rgba(22, 18, 19, .12);
+}
+
+.heroPriceTag2 .heroPriceTagMotion {
+  border-color: var(--primary);
+}
+
+.heroPriceTagPrice {
+  font-family: Impact, sans-serif;
+  font-size: 29px;
+  font-weight: 400;
+  letter-spacing: .02em;
+}
+
+.heroPriceTagPrice em {
+  font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+  font-size: 13px;
+  letter-spacing: .03em;
+}
+
+.heroPriceTag small {
+  color: #77716f;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.atelierSearch {
+  position: absolute;
+  right: 0;
+  bottom: 22px;
+  left: 0;
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 150px 176px;
+  gap: 16px;
+  margin: 0;
+  padding: 20px 26px 42px;
+  background: #fff;
+  border: 1px solid #dfd9d7;
+  border-radius: 23px;
+  box-shadow: 0 18px 36px rgba(22, 18, 19, .11);
+}
+
+.atelierSearch::before,
+.atelierSearch::after {
+  display: none;
+}
+
+.atelierSearch label {
+  gap: 9px;
+  color: #3e3938;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: .1em;
+}
+
+.atelierSearch input,
+.atelierSearch select {
+  min-height: 48px;
+  background: #fff;
+  border-color: #ded9d7;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.atelierSearch button {
+  min-height: 50px;
+  align-self: end;
+  border-radius: 9px;
+  padding: 0 18px;
+  font-size: 15px;
+}
+
+.heroInventorySummary {
+  min-width: 0;
+  align-self: end;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 16px;
+  color: #373232;
+  border-left: 1px solid #e1dcd9;
+}
+
+.heroInventorySummary > svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.heroInventorySummary > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.heroInventorySummary strong,
+.heroInventorySummary small {
+  white-space: nowrap;
+}
+
+.heroInventorySummary strong {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.heroInventorySummary small,
+.heroSearchHint {
+  color: #817a78;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.heroSearchHint {
+  position: absolute;
+  right: 0;
+  bottom: 13px;
+  left: 0;
+  text-align: center;
+}
+
+@media (max-width: 1120px) {
+  .atelierHero,
+  .atelierHeroInner {
+    min-height: 800px;
+    height: 800px;
+  }
+
+  .heroMedia {
+    top: 142px;
+    right: -7%;
+    width: min(76vw, 820px);
+  }
+
+  .heroCopy {
+    width: min(500px, 50vw);
+    padding-top: 180px;
+  }
+
+  .atelierSearch {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .atelierSearch button {
+    grid-column: span 2;
+  }
+
+  .heroInventorySummary {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .atelierHero,
+  .atelierHeroInner {
+    min-height: 800px;
+    height: auto;
+  }
+
+  .atelierHero {
+    padding: 0 14px 24px;
+  }
+
+  .atelierHeroInner {
+    width: 100%;
+  }
+
+  .heroMedia {
+    top: 92px;
+    right: -30%;
+    width: 840px;
+    opacity: .5;
+  }
+
+  .heroOverlay {
+    background: linear-gradient(90deg, #f8f7f5 0%, rgba(248, 247, 245, .94) 58%, rgba(248, 247, 245, .48) 100%);
+  }
+
+  .heroCopy {
+    width: min(100%, 430px);
+    padding-top: 112px;
+  }
+
+  .atelierHero h1 {
+    font-size: clamp(48px, 14vw, 64px);
+  }
+
+  .heroIntro {
+    max-width: 350px;
+    margin-top: 20px;
+    font-size: 15px;
+  }
+
+  .heroActions {
+    gap: 16px;
+    margin-top: 24px;
+  }
+
+  .heroBrowseAction {
+    min-height: 50px;
+    gap: 22px;
+    padding-inline: 18px;
+  }
+
+  .heroPriceTags {
+    display: none;
+  }
+
+  .atelierSearch {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 98px;
+    padding: 16px 14px 38px;
+    border-radius: 18px;
+  }
+
+  .atelierSearch button,
+  .heroInventorySummary {
+    grid-column: 1 / -1;
+  }
+
+  .heroInventorySummary {
+    justify-content: center;
+    padding: 0;
+    border-left: 0;
+  }
+
+  .heroSearchHint {
+    bottom: 12px;
+    padding-inline: 8px;
   }
 }
 

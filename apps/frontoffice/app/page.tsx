@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { BadgeCheck, Banknote, Car, MapPin, Search, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
+import { ArrowRight, BadgeCheck, Banknote, Car, MapPin, Search, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type Language, type SearchParams } from "./i18n";
 import { pageMetadata } from "./seo";
@@ -138,6 +138,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   const inventory = await getPublicInventory();
   const vehicles = inventory.vehicles;
   const makes = distinctMakes(vehicles);
+  const models = distinctModels(vehicles);
   const prices = priceRange(vehicles);
   const popularMakes = popularMakesFrom(makes);
   const featuredVehicles = featuredVehiclesFrom(vehicles);
@@ -152,11 +153,20 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <div className="heroOverlay" />
         <HeroPriceTags language={language} vehicles={heroVehicles} />
         <div className="atelierHeroInner">
-          <p className="atelierKicker">{t.home.kicker}</p>
-          <h1>
-            {t.home.titleLineOne} <br />
-            <span>{t.home.titleAccent}</span>
-          </h1>
+          <div className="heroCopy">
+            <p className="atelierKicker">{t.home.kicker}</p>
+            <h1>
+              <span className="heroTitleLead">{t.home.titleLineOne}</span>
+              <span>{t.home.titleAccent}</span>
+            </h1>
+            <p className="heroIntro">{t.home.heroIntro}</p>
+            <div className="heroActions">
+              <Link href={hrefWithLanguage("/vehicles", language)} className="heroBrowseAction">
+                {t.home.browseCars} <ArrowRight size={21} aria-hidden="true" />
+              </Link>
+              <span className="heroLocation"><MapPin size={18} aria-hidden="true" /> {t.home.heroLocation}</span>
+            </div>
+          </div>
           <form className="atelierSearch" action={`${basePath}/vehicles`}>
             {language === "zh" && <input type="hidden" name="lang" value="zh" />}
             <label>
@@ -168,27 +178,36 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
             </label>
             <label>
               <span>{t.home.model}</span>
-              <input name="model" placeholder={t.home.modelPlaceholder} />
+              <select name="model" defaultValue="">
+                <option value="">{t.home.anyModel}</option>
+                {models.map((model) => <option value={model} key={model}>{model}</option>)}
+              </select>
             </label>
             <label>
-              <span>{t.home.priceFrom}</span>
-              <input name="minPrice" inputMode="numeric" placeholder={t.home.minPrice} />
-            </label>
-            <label>
-              <span>{t.home.priceTo}</span>
-              <input name="maxPrice" inputMode="numeric" placeholder={prices.max ? `RM ${prices.max.toLocaleString()}` : t.home.maxPrice} />
+              <span>{t.home.budget}</span>
+              <select name="maxPrice" defaultValue="">
+                <option value="">{t.home.anyBudget}</option>
+                {budgetOptions(prices.max).map((budget) => <option value={budget} key={budget}>RM {budget.toLocaleString()}</option>)}
+              </select>
             </label>
             <label>
               <span>{t.home.yearFrom}</span>
               <select name="minYear" defaultValue="">
-                <option value="">2015</option>
+                <option value="">{t.home.anyYear}</option>
+                <option value="2015">2015</option>
                 <option value="2020">2020</option>
                 <option value="2022">2022</option>
               </select>
             </label>
-            <button type="submit"><Search size={16} /> {t.home.find}</button>
+            <button type="submit"><span>{t.home.find}</span> <Search size={18} /></button>
+            {!inventory.unavailable && vehicles.length > 0 && (
+              <span className="heroInventorySummary">
+                <Car size={28} aria-hidden="true" />
+                <span><strong>{vehicles.length.toLocaleString()} {t.home.readyCars}</strong><small>{t.home.updatedDaily}</small></span>
+              </span>
+            )}
+            <small className="heroSearchHint">{t.home.searchHint}</small>
           </form>
-          <HeroTrustStrip language={language} />
         </div>
       </section>
 
@@ -348,27 +367,6 @@ function HeroPriceTags({ language, vehicles }: { language: Language; vehicles: P
   );
 }
 
-function HeroTrustStrip({ language }: { language: Language }) {
-  const t = frontofficeCopy[language];
-  const items = [
-    { icon: <BadgeCheck size={17} />, title: t.home.trustRows[0].title, text: t.vehicleCard.readyStock },
-    { icon: <Banknote size={17} />, title: t.home.trustRows[1].title, text: t.home.solutions[0].title },
-    { icon: <ShieldCheck size={17} />, title: t.home.trustRows[2].title, text: t.home.solutions[2].title }
-  ];
-
-  return (
-    <div className="heroTrustStrip" aria-label={featuredCopy[language].trustLabel}>
-      {items.map((item) => (
-        <span key={item.title}>
-          {item.icon}
-          <strong>{item.title}</strong>
-          <small>{item.text}</small>
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function SolutionCard({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
     <article>
@@ -405,6 +403,14 @@ function featuredVehiclesFrom(vehicles: PublicVehicle[]) {
   return vehicles
     .filter((vehicle) => vehicle.status === "Available")
     .slice(0, 6);
+}
+
+function distinctModels(vehicles: PublicVehicle[]) {
+  return [...new Set(vehicles.map((vehicle) => vehicle.model.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+}
+
+function budgetOptions(maxPrice: number) {
+  return [30000, 50000, 80000, 120000, 180000].filter((price) => maxPrice === 0 || price <= maxPrice);
 }
 
 function popularMakesFrom(makes: string[]) {

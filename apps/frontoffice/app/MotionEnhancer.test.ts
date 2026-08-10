@@ -40,8 +40,13 @@ describe("frontoffice motion enhancer contract", () => {
     expect(page).toContain('hero-price-bay-option2.png');
     expect(page).toContain("<HeroPriceTags language={language} vehicles={heroVehicles} />");
     expect(page).toContain('hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })');
+    expect(page).toContain('className="heroBrowseAction"');
+    expect(page).toContain('className="heroInventorySummary"');
+    expect(page).toContain("function distinctModels");
     expect(styles).toContain(".heroPriceTagMotion");
     expect(styles).toContain(".heroPriceTags");
+    expect(styles).toContain(".heroBrowseAction");
+    expect(styles).toContain(".heroInventorySummary");
     expect(styles).not.toContain(".motionReady .motionReveal");
     expect(styles).not.toContain(".motionReveal.isVisible");
     expect(styles).not.toMatch(/@keyframes motionRise\s*{\s*from\s*{\s*opacity:\s*0;/);
