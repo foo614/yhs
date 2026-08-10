@@ -26,8 +26,8 @@ describe("frontoffice motion enhancer contract", () => {
     expect(motionEnhancer).toContain('from "gsap"');
     expect(motionEnhancer).toContain("IntersectionObserver");
     expect(motionEnhancer).toContain('querySelector<HTMLElement>(".atelierHero")');
-    expect(motionEnhancer).toContain('hero.classList.add("heroAmbient")');
-    expect(motionEnhancer).toContain('querySelector(".heroInventorySignal")');
+    expect(motionEnhancer).toContain('querySelectorAll<HTMLElement>(".heroPriceTagMotion")');
+    expect(motionEnhancer).toContain('ease: "bounce.out"');
     expect(motionEnhancer).toContain("gsap.fromTo");
     expect(motionEnhancer).toContain('clearProps: "opacity,visibility,transform"');
     expect(motionEnhancer).toContain("prefers-reduced-motion: reduce");
@@ -37,11 +37,11 @@ describe("frontoffice motion enhancer contract", () => {
     expect(motionEnhancer).not.toContain("ScrollTrigger");
     expect(layout).toContain("import { MotionEnhancer } from \"./MotionEnhancer\";");
     expect(layout).toContain("<MotionEnhancer>{children}</MotionEnhancer>");
-    expect(page).toContain("inventoryCount={vehicles.length}");
-    expect(page).toContain("!unavailable && inventoryCount > 0");
-    expect(page).toContain('hrefWithLanguage("/vehicles", language)');
-    expect(styles).toContain(".atelierHero.heroAmbient .heroMedia");
-    expect(styles).not.toContain(".atelierHero.heroAmbient .heroFloatCard");
+    expect(page).toContain('hero-price-bay-option2.png');
+    expect(page).toContain("<HeroPriceTags language={language} vehicles={heroVehicles} />");
+    expect(page).toContain('hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })');
+    expect(styles).toContain(".heroPriceTagMotion");
+    expect(styles).toContain(".heroPriceTags");
     expect(styles).not.toContain(".motionReady .motionReveal");
     expect(styles).not.toContain(".motionReveal.isVisible");
     expect(styles).not.toMatch(/@keyframes motionRise\s*{\s*from\s*{\s*opacity:\s*0;/);

@@ -49,35 +49,35 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
     }
 
     const hero = root.querySelector<HTMLElement>(".atelierHero");
-    hero?.classList.remove("heroAmbient");
-
-    const heroTimeline = hero
-      ? gsap.timeline({
-          defaults: { ease: "power3.out" },
-          onComplete: () => hero.classList.add("heroAmbient")
-        })
-      : null;
+    const heroTimeline = hero ? gsap.timeline({ defaults: { ease: "power3.out" } }) : null;
 
     if (hero && heroTimeline) {
-      heroTimeline
-        .fromTo(hero.querySelector(".heroMedia"),
-          { scale: 1.018, filter: "saturate(.88) contrast(1.02) brightness(.94)" },
-          { scale: 1, filter: "saturate(.92) contrast(1.04) brightness(1)", duration: 1.15 })
-        .fromTo(hero.querySelector(".heroDepthGlow"),
-          { scale: .9, opacity: .42 },
-          { scale: 1, opacity: .74, duration: .9 }, "<.12")
-        .fromTo(hero.querySelector(".heroReflection"),
-          { scaleX: .82, opacity: .44 },
-          { scaleX: 1, opacity: .7, duration: .82 }, "<.08")
-        .fromTo(hero.querySelector(".atelierHeroInner"),
-          { y: 12 },
-          { y: 0, duration: .72 }, "<.18");
+      const heroMedia = hero.querySelector(".heroMedia");
+      const heroInner = hero.querySelector(".atelierHeroInner");
+      const priceTags = hero.querySelectorAll<HTMLElement>(".heroPriceTagMotion");
 
-      const inventorySignal = hero.querySelector(".heroInventorySignal");
-      if (inventorySignal) {
-        heroTimeline.fromTo(inventorySignal,
-          { autoAlpha: .94, y: 10 },
-          { autoAlpha: 1, duration: .48, y: 0, clearProps: "opacity,visibility,transform" }, ">-.08");
+      if (heroMedia) {
+        heroTimeline.fromTo(heroMedia,
+          { scale: 1.012, filter: "saturate(.94) contrast(1.01) brightness(.98)" },
+          { scale: 1, filter: "none", duration: .78 });
+      }
+
+      if (heroInner) {
+        heroTimeline.fromTo(heroInner, { y: 10 }, { y: 0, duration: .62 }, "<.12");
+      }
+
+      if (priceTags.length > 0) {
+        heroTimeline.fromTo(priceTags,
+          { autoAlpha: .96, scale: .94, y: -28 },
+          {
+            autoAlpha: 1,
+            duration: .76,
+            ease: "bounce.out",
+            scale: 1,
+            stagger: .14,
+            y: 0,
+            clearProps: "opacity,visibility,transform"
+          }, "<.04");
       }
     }
 
@@ -117,7 +117,6 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
       revealObserver.disconnect();
       statObserver.disconnect();
       heroTimeline?.kill();
-      hero?.classList.remove("heroAmbient");
     };
   }, { scope, dependencies: [pathname], revertOnUpdate: true });
 

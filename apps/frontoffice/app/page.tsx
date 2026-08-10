@@ -9,7 +9,8 @@ import { distinctMakes, priceRange } from "./vehicles/listing";
 import { getPublicInventory, type PublicVehicle } from "./vehicles/service";
 import { VehicleCard } from "./vehicles/VehicleCard";
 
-const heroImage = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1900&q=88";
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const heroImage = `${basePath}/hero-price-bay-option2.png`;
 const conciergeImage = "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=1200&q=88";
 const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
   "No.6,JALAN PULAI, KAWASAN JALAN MERSING BATU 1 1/2,86000 KLUANG,JOHOR.";
@@ -24,7 +25,6 @@ const categoryImages = [
 ];
 
 const fallbackMakes = ["Toyota", "Honda", "Perodua", "Proton", "Nissan", "Mazda"];
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 
 export async function generateMetadata({ searchParams }: { searchParams?: Promise<SearchParams> }): Promise<Metadata> {
@@ -141,6 +141,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   const prices = priceRange(vehicles);
   const popularMakes = popularMakesFrom(makes);
   const featuredVehicles = featuredVehiclesFrom(vehicles);
+  const heroVehicles = featuredVehicles.slice(0, 2);
 
   return (
     <main className="atelierPage" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
@@ -148,11 +149,8 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
 
       <section className="atelierHero">
         <img src={heroImage} alt="" className="heroMedia" />
-        <div className="heroDepthGlow" aria-hidden="true" />
-        <div className="heroRoadLines" aria-hidden="true" />
-        <div className="heroReflection" aria-hidden="true" />
         <div className="heroOverlay" />
-        <HeroFloatCards language={language} inventoryCount={vehicles.length} unavailable={inventory.unavailable} />
+        <HeroPriceTags language={language} vehicles={heroVehicles} />
         <div className="atelierHeroInner">
           <p className="atelierKicker">{t.home.kicker}</p>
           <h1>
@@ -328,29 +326,25 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   );
 }
 
-function HeroFloatCards({ language, inventoryCount, unavailable }: { language: Language; inventoryCount: number; unavailable: boolean }) {
-  const availability = language === "zh"
-    ? { label: "今日可看车", text: "查看在售车源", ariaLabel: `查看 ${inventoryCount} 辆可看车` }
-    : { label: "Available today", text: "View ready cars", ariaLabel: `View ${inventoryCount} ready cars` };
-  const location = language === "zh"
-    ? { label: "看车地点", value: "Kluang", text: "YS Heng Automotive" }
-    : { label: "Viewing hub", value: "Kluang", text: "YS Heng Automotive" };
+function HeroPriceTags({ language, vehicles }: { language: Language; vehicles: PublicVehicle[] }) {
+  if (vehicles.length === 0) return null;
 
   return (
-    <>
-      {!unavailable && inventoryCount > 0 && (
-        <Link href={hrefWithLanguage("/vehicles", language)} className="heroFloatCard heroInventorySignal top" aria-label={availability.ariaLabel}>
-          <span>{availability.label}</span>
-          <strong>{inventoryCount.toLocaleString()}</strong>
-          <small>{availability.text}</small>
+    <div className="heroPriceTags" aria-label={language === "zh" ? "精选车源价格" : "Featured vehicle prices"}>
+      {vehicles.map((vehicle, index) => (
+        <Link
+          href={hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })}
+          className={`heroPriceTag heroPriceTag${index + 1}`}
+          key={vehicle.id}
+          aria-label={`${vehicle.year} ${vehicle.make} ${vehicle.model}, RM ${vehicle.sellingPrice.toLocaleString()}`}
+        >
+          <span className="heroPriceTagMotion">
+            <span className="heroPriceTagPrice"><em>RM</em>{vehicle.sellingPrice.toLocaleString()}</span>
+            <small>{vehicle.year} {vehicle.make} {vehicle.model}</small>
+          </span>
         </Link>
-      )}
-      <div className="heroFloatCard bottom">
-        <span>{location.label}</span>
-        <strong>{location.value}</strong>
-        <small>{location.text}</small>
-      </div>
-    </>
+      ))}
+    </div>
   );
 }
 
