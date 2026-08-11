@@ -64,6 +64,7 @@ export const frontofficeCopy = {
       companyItems: [
         { label: "Showroom", href: "/contact#workshop" },
         { label: "Facebook Page", href: "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/" },
+        { label: "TikTok Feature", href: "https://www.tiktok.com/@ifyandyfaathir/video/7637074774526577940" },
         { label: "Contact Us", href: "/contact#contact" }
       ]
     },
@@ -295,6 +296,7 @@ export const frontofficeCopy = {
       companyItems: [
         { label: "YS Heng 展厅", href: "/contact#workshop" },
         { label: "Facebook", href: "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/" },
+        { label: "TikTok 介绍", href: "https://www.tiktok.com/@ifyandyfaathir/video/7637074774526577940" },
         { label: "联络我们", href: "/contact#contact" }
       ]
     },

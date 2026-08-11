@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const appRoot = dirname(fileURLToPath(import.meta.url));
+const publicRoot = join(appRoot, "..", "public");
 
 const assets = [
   { file: "icon.png", width: 512, height: 512 },
@@ -23,6 +24,16 @@ describe("frontoffice metadata assets", () => {
     expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     expect(png.readUInt32BE(16)).toBe(width);
     expect(png.readUInt32BE(20)).toBe(height);
+  });
+
+  it("ships the social preview from public static assets", () => {
+    const assetPath = join(publicRoot, "ys-heng-social-preview.png");
+    const png = readFileSync(assetPath);
+
+    expect(existsSync(assetPath)).toBe(true);
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    expect(png.readUInt32BE(16)).toBe(1200);
+    expect(png.readUInt32BE(20)).toBe(630);
   });
 
   it("ships the supplied YS Heng logo as a multi-resolution favicon", () => {

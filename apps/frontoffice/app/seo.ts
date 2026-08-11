@@ -7,9 +7,10 @@ const legalName = "YS HENG AUTOMOTIVE SDN BHD";
 const baseUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000");
 if (!baseUrl.pathname.endsWith("/")) baseUrl.pathname = `${baseUrl.pathname}/`;
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
-const defaultSocialImage = canonicalUrl("/opengraph-image.png");
+const defaultSocialImage = canonicalUrl("/ys-heng-social-preview.png");
 const dealerId = canonicalUrl("/#business");
 const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
+const googleMapsUrl = "https://maps.app.goo.gl/3GGVr6vHLxhGabP28";
 
 export function canonicalUrl(path = "/") {
   return new URL(path.replace(/^\//, ""), baseUrl).toString();
@@ -62,7 +63,7 @@ export function pageMetadata({
       type: "website",
       locale: language === "zh" ? "zh_MY" : "en_MY",
       alternateLocale: language === "zh" ? ["en_MY"] : ["zh_MY"],
-      images: [{ url: socialImage, alt: title }]
+      images: [{ url: socialImage, width: 1200, height: 630, type: "image/png", alt: title }]
     },
     twitter: {
       card: "summary_large_image",
@@ -115,6 +116,7 @@ export function organizationStructuredData() {
       "@type": "AdministrativeArea",
       name: "Johor, Malaysia"
     },
+    hasMap: googleMapsUrl,
     sameAs: [facebookUrl],
     contactPoint: {
       "@type": "ContactPoint",

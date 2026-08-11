@@ -35,7 +35,13 @@ describe("frontoffice SEO", () => {
     expect(metadata.alternates?.languages).toEqual(localizedLanguageUrls("/vehicles"));
     expect(metadata.openGraph?.locale).toBe("zh_MY");
     expect(metadata.openGraph?.images).toEqual([
-      { url: "http://localhost:3000/opengraph-image.png", alt: "测试车辆" }
+      {
+        url: "http://localhost:3000/ys-heng-social-preview.png",
+        width: 1200,
+        height: 630,
+        type: "image/png",
+        alt: "测试车辆"
+      }
     ]);
     expect(metadata.twitter).toMatchObject({ card: "summary_large_image" });
   });
@@ -45,10 +51,22 @@ describe("frontoffice SEO", () => {
     const fallbackMetadata = vehicleMetadata({ ...vehicle, isRepresentativePhoto: true });
 
     expect(realPhotoMetadata.openGraph?.images).toEqual([
-      { url: vehicle.photoUrl, alt: "2021 Toyota Vios for sale | YS Heng Cars" }
+      {
+        url: vehicle.photoUrl,
+        width: 1200,
+        height: 630,
+        type: "image/png",
+        alt: "2021 Toyota Vios for sale | YS Heng Cars"
+      }
     ]);
     expect(fallbackMetadata.openGraph?.images).toEqual([
-      { url: "http://localhost:3000/opengraph-image.png", alt: "2021 Toyota Vios for sale | YS Heng Cars" }
+      {
+        url: "http://localhost:3000/ys-heng-social-preview.png",
+        width: 1200,
+        height: 630,
+        type: "image/png",
+        alt: "2021 Toyota Vios for sale | YS Heng Cars"
+      }
     ]);
   });
 
@@ -92,7 +110,9 @@ describe("frontoffice SEO", () => {
         addressRegion: "Johor",
         postalCode: "86000",
         addressCountry: "MY"
-      }
+      },
+      hasMap: "https://maps.app.goo.gl/3GGVr6vHLxhGabP28",
+      sameAs: ["https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/"]
     });
     expect(listing).toMatchObject({
       "@type": ["Product", "Car"],

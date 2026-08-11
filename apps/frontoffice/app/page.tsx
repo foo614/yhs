@@ -15,7 +15,7 @@ const heroImage = `${basePath}/hero-price-bay-option2.png`;
 const conciergeImage = "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=1200&q=88";
 const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
   "No.6,JALAN PULAI, KAWASAN JALAN MERSING BATU 1 1/2,86000 KLUANG,JOHOR.";
-const mapHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(showroomAddress)}`;
+const mapHref = "https://maps.app.goo.gl/3GGVr6vHLxhGabP28";
 const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(showroomAddress)}&output=embed`;
 
 const categoryImages = [

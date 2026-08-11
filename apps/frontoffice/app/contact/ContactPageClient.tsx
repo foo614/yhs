@@ -12,6 +12,7 @@ const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
 const salesPhone = process.env.NEXT_PUBLIC_SALES_PHONE ?? "010-828 1218";
 const salesEmail = process.env.NEXT_PUBLIC_SALES_EMAIL ?? "yshengauto@gmail.com";
 const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
+const googleMapsUrl = "https://maps.app.goo.gl/3GGVr6vHLxhGabP28";
 const registrationText = "YS HENG AUTOMOTIVE SDN BHD 202301051775 (1545689-H)";
 
 export default function ContactPageClient() {
@@ -19,7 +20,7 @@ export default function ContactPageClient() {
   const language = languageFromSearchParams({ lang: searchParams.get("lang") ?? undefined });
   const t = frontofficeCopy[language].contact;
   const phoneHref = `tel:${salesPhone.replace(/[^\d+]/g, "")}`;
-  const mapHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(showroomAddress)}`;
+  const mapHref = googleMapsUrl;
   const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(showroomAddress)}&output=embed`;
   const salesIntro = t.salesIntro ?? "Nak jual atau beli kereta? Hubungi Ah Boon 010-828 1218.";
   const serviceTiles = Array.isArray(t.tiles) && t.tiles.length >= 4 ? t.tiles : ["Vehicle viewing", "Financing guidance", "Preparation tracking", "Release readiness"];
