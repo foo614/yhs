@@ -3855,7 +3855,14 @@ textarea:focus-visible {
   }
 
   .atelierHero h1 {
-    font-size: clamp(48px, 14vw, 64px);
+    width: 100%;
+    max-width: 100%;
+    font-size: clamp(40px, 10vw, 48px);
+  }
+
+  .atelierHero h1 .heroTitleLead {
+    white-space: normal;
+    text-wrap: balance;
   }
 
   .heroIntro {
