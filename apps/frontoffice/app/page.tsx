@@ -11,7 +11,7 @@ import { getPublicInventory, getPublicVehicleCatalog, type PublicVehicle, type P
 import { VehicleCard } from "./vehicles/VehicleCard";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-const heroImage = `${basePath}/hero-price-bay-option2.png`;
+const heroImage = `${basePath}/hero-price-bay-option2@2x.png`;
 const conciergeImage = "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=1200&q=88";
 const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
   "No.6,JALAN PULAI, KAWASAN JALAN MERSING BATU 1 1/2,86000 KLUANG,JOHOR.";

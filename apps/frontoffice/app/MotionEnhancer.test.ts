@@ -37,7 +37,7 @@ describe("frontoffice motion enhancer contract", () => {
     expect(motionEnhancer).not.toContain("ScrollTrigger");
     expect(layout).toContain("import { MotionEnhancer } from \"./MotionEnhancer\";");
     expect(layout).toContain("<MotionEnhancer>{children}</MotionEnhancer>");
-    expect(page).toContain('hero-price-bay-option2.png');
+    expect(page).toContain('hero-price-bay-option2@2x.png');
     expect(page).toContain("<HeroPriceTags language={language} vehicles={heroVehicles} />");
     expect(page).toContain('hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })');
     expect(page).toContain('className="heroBrowseAction"');
