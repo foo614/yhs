@@ -252,28 +252,25 @@ body {
 .loginHome {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(560px, 1fr) minmax(380px, 460px);
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(390px, 430px);
+  gap: 22px;
   align-items: center;
-  padding: 34px clamp(24px, 4.5vw, 72px);
-  background:
-    linear-gradient(90deg, rgba(11, 112, 92, .045) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(11, 112, 92, .045) 1px, transparent 1px),
-    linear-gradient(135deg, rgba(11, 112, 92, .12), transparent 36%),
-    #f7faf9;
-  background-size: 44px 44px, 44px 44px, auto, auto;
+  padding: 32px clamp(24px, 5vw, 72px);
+  background: #edf3f1;
+  box-sizing: border-box;
 }
 
 .loginHero {
-  min-height: 430px;
-  display: grid;
-  align-content: start;
+  min-height: 548px;
+  display: flex;
+  flex-direction: column;
   gap: 20px;
-  padding: 30px;
-  border: 1px solid rgba(20, 72, 61, .12);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .94);
-  box-shadow: 0 24px 64px rgba(31, 67, 59, .11);
+  padding: clamp(24px, 3vw, 40px);
+  border: 1px solid rgba(10, 72, 59, .12);
+  border-radius: 10px;
+  background: #0c5e4e;
+  box-shadow: 0 26px 64px rgba(20, 68, 58, .18);
+  box-sizing: border-box;
 }
 
 .loginHeroHeader {
@@ -296,14 +293,16 @@ body {
 }
 
 .loginBrand h1 {
-  color: #152822;
+  margin: 0 0 6px !important;
+  color: #f7fffc;
   font-size: 38px !important;
   line-height: 1.05 !important;
   font-weight: 860 !important;
 }
 
-.loginBrand .ant-typography {
-  color: #5f736d;
+.loginBrand > div > .ant-typography:last-child {
+  color: #c6e2da;
+  line-height: 1.5;
 }
 
 .loginKicker,
@@ -324,7 +323,7 @@ body {
   place-items: center;
   border-radius: 8px;
   background: #ffffff;
-  border: 1px solid rgba(20, 72, 61, .12);
+  border: 1px solid rgba(255, 255, 255, .2);
   overflow: hidden;
   box-shadow: 0 14px 28px rgba(11, 112, 92, .22);
 }
@@ -338,13 +337,52 @@ body {
 
 .loginEnvironmentBadge {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(11, 112, 92, .16);
+  border: 1px solid rgba(202, 243, 231, .32);
   border-radius: 999px;
-  background: #eef8f4;
-  color: #0a6b57;
+  background: rgba(233, 255, 248, .1);
+  color: #d9f4ec;
   font-size: 12px;
   font-weight: 800;
+}
+
+.loginHeroIntro {
+  max-width: 720px;
+  margin-top: auto;
+}
+
+.loginHeroIntro h2 {
+  max-width: 720px;
+  margin: 0 0 10px !important;
+  color: #f7fffc;
+  font-size: clamp(28px, 2.7vw, 38px) !important;
+  line-height: 1.08 !important;
+  font-weight: 820 !important;
+}
+
+.loginHeroIntro > .ant-typography:not(.loginHeroIndex) {
+  max-width: 560px;
+  margin: 0;
+  color: #c6e2da;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.loginHeroIndex {
+  display: block;
+  margin-bottom: 13px;
+  color: #9fe5d3 !important;
+  font-size: 11px;
+  font-weight: 820;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.loginHero .loginKicker {
+  color: #9fe5d3;
 }
 
 .loginCommandPreview {
@@ -411,27 +449,64 @@ body {
 
 .loginWorkflow {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
 .loginWorkflow > span {
-  min-height: 88px;
+  box-sizing: border-box;
+  min-height: 92px;
   display: grid;
-  align-content: center;
-  gap: 8px;
+  align-content: start;
+  gap: 5px;
   padding: 13px;
-  border: 1px solid rgba(20, 72, 61, .12);
-  border-radius: 8px;
-  background: #f8fafc;
-  color: #24443c;
+  border: 1px solid rgba(220, 255, 245, .16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .08);
+  color: #f7fffc;
+}
+
+.loginWorkflow > span strong {
   font-size: 12px;
   font-weight: 800;
 }
 
-.loginWorkflow svg {
-  color: #0b705c;
-  font-size: 19px;
+.loginWorkflow > span small {
+  color: #b7d7cf;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.loginWorkflowIcon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 3px;
+  border-radius: 6px;
+  background: rgba(179, 239, 221, .14);
+  color: #9fe5d3;
+  font-size: 15px;
+}
+
+.loginHeroFooter {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 17px;
+  border-top: 1px solid rgba(220, 255, 245, .16);
+  color: #b7d7cf;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.loginHeroFooter span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  color: #e2f7f0;
+  font-weight: 800;
 }
 
 .loginSummary,
@@ -468,15 +543,15 @@ body {
 
 .loginPanel {
   position: relative;
-  padding: 36px;
+  padding: 38px 36px;
   border: 1px solid rgba(20, 72, 61, .12);
-  border-radius: 8px;
+  border-radius: 10px;
   background: #ffffff;
-  box-shadow: 0 24px 58px rgba(31, 67, 59, .12);
+  box-shadow: 0 26px 58px rgba(31, 67, 59, .14);
 }
 
 .loginPanelHeader {
-  margin-bottom: 28px;
+  margin-bottom: 30px;
 }
 
 .loginPanelLogo {
@@ -484,14 +559,43 @@ body {
 }
 
 .loginPanelHeader h2 {
+  margin: 0 0 8px !important;
   color: #152822;
-  font-size: 27px !important;
+  font-size: 30px !important;
   font-weight: 840 !important;
   line-height: 1.15 !important;
 }
 
 .loginPanelHeader .ant-typography {
   color: #5f736d;
+}
+
+.loginPanelEyebrowRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.loginPanelEyebrowRow .loginPanelEyebrow {
+  margin-bottom: 8px;
+}
+
+.loginPanelStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #4b6b61;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.loginPanelStatus span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #0b705c;
+  box-shadow: 0 0 0 3px #e2f3ee;
 }
 
 .loginPanel .ant-input-affix-wrapper {
@@ -527,7 +631,7 @@ body {
   padding-top: 0;
   padding-bottom: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #0b705c;
   font-weight: 820;
   box-shadow: 0 10px 24px rgba(11, 112, 92, .18);
@@ -570,6 +674,30 @@ body {
 .loginSecurityNote svg {
   flex: 0 0 auto;
   color: #0b6f88;
+}
+
+@media (max-width: 1400px) and (min-width: 1025px) {
+  .loginHome {
+    padding-block: 20px;
+  }
+
+  .loginHero {
+    gap: 16px;
+    padding: 28px;
+  }
+
+  .loginHeroIntro h2 {
+    font-size: 32px !important;
+  }
+
+  .loginWorkflow > span {
+    min-height: 86px;
+    padding: 11px;
+  }
+
+  .loginHeroFooter {
+    padding-top: 12px;
+  }
 }
 
 .logoutResult {

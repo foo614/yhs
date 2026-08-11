@@ -1,58 +1,54 @@
-# Homepage hero design QA
+# Admin login redesign QA
 
-**Source visual truth path**
+source visual truth path: `C:\Users\User\AppData\Local\Temp\codex-clipboard-4d3bb234-8b1b-4ac6-b83f-c7a094418049.png`
+implementation screenshot path: `C:\Users\User\AppData\Local\Temp\ysheng-admin-login-desktop.png`
+comparison input: `C:\Users\User\AppData\Local\Temp\ysheng-admin-login-comparison.png`
+mobile screenshot path: `C:\Users\User\AppData\Local\Temp\ysheng-admin-login-mobile.png`
 
-`C:\Users\User\AppData\Local\Temp\codex-clipboard-e11daaa8-a762-4ba1-9366-b94100d6522c.png`
+## Capture setup
 
-**Implementation screenshot path**
+- Desktop viewport: 2048 x 756 CSS pixels.
+- Source pixels: 2048 x 756.
+- Implementation pixels: 2048 x 756.
+- Device pixel ratio: 1; no density normalization required.
+- Responsive check: 1280 x 720 and 390 x 844.
+- Desktop state: normal login state with seeded email visible and password empty.
+- Source state: prefilled credentials with a visible failed-login alert. Password state was not reproduced in the implementation capture because browser QA did not transmit a password merely to manufacture an error state.
 
-In-app Browser capture from `http://localhost:3010/` (ephemeral browser screenshot buffer, captured 2026-08-11; no durable file path was provided by the browser bridge).
+## Full-view comparison evidence
 
-**Viewport and normalization**
+The combined comparison shows the redesigned implementation preserves the reference's two-region login composition while improving hierarchy: a branded workspace surface on the left and a focused staff sign-in card on the right. The implementation uses the supplied YS Heng logo at the same role, keeps the teal brand family, and removes the decorative grid background in favor of a calmer operational surface.
 
-- Source: 1447 x 676 pixels.
-- Implementation: 1280 x 720 CSS pixels at device scale factor 1.
-- State: English home page, API inventory unavailable.
-- Full-view evidence: the source and implementation were placed side-by-side in one normalized 2560 x 720 comparison image. The source was scaled to 1280 x 598 and centered vertically; the implementation retained its 1280 x 720 browser capture.
-- Focused region: hero copy, price-bay art, search dock, CTA, and filter fields were readable in the combined comparison. A separate crop was unnecessary.
+## Focused-region comparison evidence
 
-**Findings**
+- Brand/header: logo, portal name, staff-access badge, and supporting copy remain prominent and readable.
+- Workspace modules: six existing Ant Design icons are retained and grouped into a compact 3 x 2 module grid with truthful descriptions.
+- Sign-in form: work-email and password fields, primary submit action, focus affordance, and error alert styling remain compatible with the existing form behavior.
+- Responsive card: at 390 x 844 the hero is hidden and the form becomes a single readable card with no horizontal overflow.
 
-- [P1] Data-driven price cards and inventory summary cannot be visually verified.
-  Location: `.heroPriceTags` and `.heroInventorySummary`.
-  Evidence: the implementation correctly rendered zero tags and no ready-car summary because the local public API is unavailable. The source has two price cards and a 120-ready-cars summary.
-  Impact: the requested data-rich above-the-fold state cannot be confirmed without a healthy inventory API.
-  Fix: restore the public API and capture the same viewport with two available vehicles. Do not add sample inventory to the production fallback.
+## Findings
 
-- [P3] The supplied source is a hero-only crop, while the production capture includes the existing fixed navigation.
-  Location: page frame.
-  Evidence: the reference begins below the header; the implementation preserves the live navigation above the hero.
-  Impact: this is an intentional product-shell difference, not a hero-layout mismatch.
-  Fix: none unless the header is explicitly included in a replacement visual reference.
+No actionable P0, P1, or P2 visual findings remain.
 
-**Required fidelity surfaces**
+The first rendered pass exposed a P2 laptop issue: the 1280 x 720 viewport had a small vertical overflow. The intermediate desktop breakpoint was tightened, then rechecked at 1280 x 720 with body scroll size exactly matching the viewport.
 
-- Fonts and typography: the hero uses the installed browser display fallback with a condensed horizontal scale to preserve the two-line, high-contrast composition; kicker, body, labels, and CTA hierarchy match the reference's role and scale.
-- Spacing and layout rhythm: the copy begins below the fixed header, the stage occupies the right two-thirds, and the white filter dock is anchored along the hero base with four fields, CTA, and optional inventory rail.
-- Colors and visual tokens: white/warm-gray ground, black display copy, YS Heng red accent, white cards, subtle neutral borders, and shallow shadows were matched.
-- Image quality and asset fidelity: the committed `hero-price-bay-option2.png` is used directly; no CSS or inline-SVG vehicle artwork was introduced. Lucide icons remain the existing product icon library.
-- Copy and content: reference copy is implemented in English and localized in Chinese. Price and ready-car values come only from public inventory.
+## Comparison history
 
-**Comparison history**
+1. Initial implementation at 2048 x 756: overall layout and visual hierarchy were coherent, but the first 1280 x 720 check produced 45px of vertical overflow.
+2. Fix: added a 1025-1400px desktop breakpoint with reduced panel padding, tighter hero gaps, smaller intro heading, and more compact module cards.
+3. Post-fix evidence: 1280 x 720 body scroll size is 1280 x 720; 2048 x 756 body scroll size is 2048 x 756; 390 x 844 body scroll size is 390 x 844. Browser console error log was empty.
 
-1. The first rendered pass wrapped the black title into two lines. It was corrected by keeping the headline on one line and using the condensed display treatment. The revised combined comparison shows the intended two-line black/red headline.
-2. The revised pass has no remaining hero composition mismatch at the tested viewport. The remaining P1 is the unavailable inventory state, which intentionally suppresses price tags and count.
+## Implementation checklist
 
-**Implementation checklist**
+- [x] Preserve cookie-login form behavior and existing auth API contract.
+- [x] Preserve supplied logo and existing Ant Design icon library.
+- [x] Improve desktop hierarchy and operational trust cues.
+- [x] Keep the form responsive on mobile.
+- [x] Check required-field validation without transmitting a password.
+- [x] Run back-office tests, lint, build, and `git diff --check`.
 
-1. Restore the local public API and re-run the same browser comparison with real inventory.
-2. Confirm two price cards bounce in once and each links to its corresponding make/maximum-price search.
-3. Confirm the ready-car count uses the returned inventory length and is never shown from a fallback.
+## Follow-up polish
 
-**Follow-up polish**
+The captured source shows a failed-login state while the implementation capture shows the normal state. If the exact error-state copy/layout needs a pixel-level pass later, capture it from a safe local test fixture rather than submitting credentials through the browser.
 
-- Recheck the display-font rendering on the production browser stack after deployment; the current treatment intentionally relies on a safe local fallback to avoid introducing a new font dependency.
-
-**Final result**
-
-blocked
+final result: passed

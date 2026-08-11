@@ -1020,30 +1020,36 @@ function LoginHome({
 }) {
   return (
     <main className="loginHome">
-      <section className="loginHero">
+      <section className="loginHero" aria-labelledby="login-brand-title">
         <div className="loginHeroHeader">
           <div className="loginBrand">
             <span className="loginMark"><img src="/ys-heng-logo.png" alt="YS Heng" /></span>
             <div>
-              <Typography.Text className="loginKicker">Enterprise Back Office</Typography.Text>
-              <Typography.Title level={1}>YS Heng Portal</Typography.Title>
-              <Typography.Text>Vehicle sales, financing, HR, operations, and management workspace.</Typography.Text>
+              <Typography.Text className="loginKicker">Staff operations</Typography.Text>
+              <Typography.Title id="login-brand-title" level={1}>YS Heng Portal</Typography.Title>
+              <Typography.Text>One calm workspace for the work that keeps every vehicle moving.</Typography.Text>
             </div>
           </div>
-          <span className="loginEnvironmentBadge">Private admin platform</span>
+          <span className="loginEnvironmentBadge"><LockOutlined /> Private staff access</span>
+        </div>
+        <div className="loginHeroIntro">
+          <Typography.Text className="loginHeroIndex">01 / Workspace</Typography.Text>
+          <Typography.Title level={2}>Everything your team needs to keep the day moving.</Typography.Title>
+          <Typography.Paragraph>
+            Work across intake, delivery, finance, and people operations with access shaped by your staff role.
+          </Typography.Paragraph>
         </div>
         <div className="loginWorkflow" aria-label="Portal modules">
-          <span><CarOutlined /> Vehicle sales</span>
-          <span><BankOutlined /> Financing</span>
-          <span><FileDoneOutlined /> Documents</span>
-          <span><CalendarOutlined /> HR payroll</span>
-          <span><ToolOutlined /> Operations</span>
-          <span><DashboardOutlined /> Management</span>
+          <span><span className="loginWorkflowIcon"><CarOutlined /></span><strong>Vehicle sales</strong><small>Stock, intake & listings</small></span>
+          <span><span className="loginWorkflowIcon"><BankOutlined /></span><strong>Financing</strong><small>Payments & follow-up</small></span>
+          <span><span className="loginWorkflowIcon"><FileDoneOutlined /></span><strong>Documents</strong><small>Evidence & audit trail</small></span>
+          <span><span className="loginWorkflowIcon"><CalendarOutlined /></span><strong>HR payroll</strong><small>Attendance & payslips</small></span>
+          <span><span className="loginWorkflowIcon"><ToolOutlined /></span><strong>Operations</strong><small>Repairs & deliveries</small></span>
+          <span><span className="loginWorkflowIcon"><DashboardOutlined /></span><strong>Management</strong><small>Daily command view</small></span>
         </div>
-        <div className="loginSummary">
-          <span><strong>7</strong> role groups</span>
-          <span><strong>RBAC</strong> protected</span>
-          <span><strong>Audit</strong> ready</span>
+        <div className="loginHeroFooter">
+          <span><LockOutlined /> Role-based access</span>
+          <span>Only the modules assigned to your account will appear after sign in.</span>
         </div>
       </section>
       <section className="loginPanel">
@@ -1061,9 +1067,12 @@ function LoginHome({
           <>
             <div className="loginPanelHeader">
               <img className="loginPanelLogo" src="/ys-heng-logo.png" alt="YS Heng" />
-              <Typography.Text className="loginPanelEyebrow">Secure staff access</Typography.Text>
-              <Typography.Title level={2}>Sign in to your workspace</Typography.Title>
-              <Typography.Text>Continue operational work with your assigned role and module permissions.</Typography.Text>
+              <div className="loginPanelEyebrowRow">
+                <Typography.Text className="loginPanelEyebrow">Staff sign in</Typography.Text>
+                <span className="loginPanelStatus"><span /> Secure</span>
+              </div>
+              <Typography.Title level={2}>Welcome back</Typography.Title>
+              <Typography.Text>Sign in to continue your assigned operations workspace.</Typography.Text>
             </div>
             <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
               <Form.Item name="email" label="Work email" rules={[{ required: true, type: "email" }]}>
@@ -1077,6 +1086,10 @@ function LoginHome({
                 Enter portal
               </Button>
             </Form>
+            <div className="loginSecurityNote">
+              <LockOutlined />
+              <span>Access is protected by your department permissions and recorded for audit.</span>
+            </div>
           </>
         )}
       </section>
