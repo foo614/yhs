@@ -1019,39 +1019,7 @@ function LoginHome({
   onDismissLogoutResult?: () => void;
 }) {
   return (
-    <main className="loginHome">
-      <section className="loginHero" aria-labelledby="login-brand-title">
-        <div className="loginHeroHeader">
-          <div className="loginBrand">
-            <span className="loginMark"><img src="/ys-heng-logo.png" alt="YS Heng" /></span>
-            <div>
-              <Typography.Text className="loginKicker">Staff operations</Typography.Text>
-              <Typography.Title id="login-brand-title" level={1}>YS Heng Portal</Typography.Title>
-              <Typography.Text>One calm workspace for the work that keeps every vehicle moving.</Typography.Text>
-            </div>
-          </div>
-          <span className="loginEnvironmentBadge"><LockOutlined /> Private staff access</span>
-        </div>
-        <div className="loginHeroIntro">
-          <Typography.Text className="loginHeroIndex">01 / Workspace</Typography.Text>
-          <Typography.Title level={2}>Everything your team needs to keep the day moving.</Typography.Title>
-          <Typography.Paragraph>
-            Work across intake, delivery, finance, and people operations with access shaped by your staff role.
-          </Typography.Paragraph>
-        </div>
-        <div className="loginWorkflow" aria-label="Portal modules">
-          <span><span className="loginWorkflowIcon"><CarOutlined /></span><strong>Vehicle sales</strong><small>Stock, intake & listings</small></span>
-          <span><span className="loginWorkflowIcon"><BankOutlined /></span><strong>Financing</strong><small>Payments & follow-up</small></span>
-          <span><span className="loginWorkflowIcon"><FileDoneOutlined /></span><strong>Documents</strong><small>Evidence & audit trail</small></span>
-          <span><span className="loginWorkflowIcon"><CalendarOutlined /></span><strong>HR payroll</strong><small>Attendance & payslips</small></span>
-          <span><span className="loginWorkflowIcon"><ToolOutlined /></span><strong>Operations</strong><small>Repairs & deliveries</small></span>
-          <span><span className="loginWorkflowIcon"><DashboardOutlined /></span><strong>Management</strong><small>Daily command view</small></span>
-        </div>
-        <div className="loginHeroFooter">
-          <span><LockOutlined /> Role-based access</span>
-          <span>Only the modules assigned to your account will appear after sign in.</span>
-        </div>
-      </section>
+    <main className="loginHome loginHomeMinimal">
       <section className="loginPanel">
         {logoutSucceeded ? (
           <Result
@@ -1067,12 +1035,7 @@ function LoginHome({
           <>
             <div className="loginPanelHeader">
               <img className="loginPanelLogo" src="/ys-heng-logo.png" alt="YS Heng" />
-              <div className="loginPanelEyebrowRow">
-                <Typography.Text className="loginPanelEyebrow">Staff sign in</Typography.Text>
-                <span className="loginPanelStatus"><span /> Secure</span>
-              </div>
-              <Typography.Title level={2}>Welcome back</Typography.Title>
-              <Typography.Text>Sign in to continue your assigned operations workspace.</Typography.Text>
+              <Typography.Title level={2}>YS Heng Portal</Typography.Title>
             </div>
             <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
               <Form.Item name="email" label="Work email" rules={[{ required: true, type: "email" }]}>
@@ -1083,13 +1046,9 @@ function LoginHome({
               </Form.Item>
               {loginError && <Alert className="loginError" message="Login failed" description={loginError} type="error" showIcon />}
               <Button type="primary" htmlType="submit" className="loginButton" loading={loginLoading}>
-                Enter portal
+                Sign in
               </Button>
             </Form>
-            <div className="loginSecurityNote">
-              <LockOutlined />
-              <span>Access is protected by your department permissions and recorded for audit.</span>
-            </div>
           </>
         )}
       </section>
