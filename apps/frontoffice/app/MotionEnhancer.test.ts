@@ -49,6 +49,8 @@ describe("frontoffice motion enhancer contract", () => {
     expect(styles).toContain(".heroPriceTags");
     expect(styles).toContain(".heroBrowseAction");
     expect(styles).toContain(".heroInventorySummary");
+    expect(styles).toContain("@media (min-width: 1600px)");
+    expect(styles).toContain("width: min(62vw, 1200px)");
     expect(styles).not.toContain(".motionReady .motionReveal");
     expect(styles).not.toContain(".motionReveal.isVisible");
     expect(styles).not.toMatch(/@keyframes motionRise\s*{\s*from\s*{\s*opacity:\s*0;/);

@@ -3754,6 +3754,44 @@ textarea:focus-visible {
   text-align: center;
 }
 
+/* Preserve the approved compact desktop composition, but let the price bay use
+   the available canvas on wide monitors instead of remaining at a 960px cap. */
+@media (min-width: 1600px) {
+  .atelierHero,
+  .atelierHeroInner {
+    min-height: 840px;
+    height: 840px;
+  }
+
+  .atelierHeroInner {
+    width: min(1680px, calc(100% - 80px));
+  }
+
+  .heroMedia {
+    top: 62px;
+    right: 0;
+    width: min(62vw, 1200px);
+  }
+
+  .heroCopy {
+    padding-top: 222px;
+  }
+
+  .heroPriceTag1 {
+    top: 132px;
+    left: calc(50% + 30px);
+  }
+
+  .heroPriceTag2 {
+    top: 148px;
+    right: max(64px, calc((100vw - 1680px) / 2 + 72px));
+  }
+
+  .atelierSearch {
+    bottom: 28px;
+  }
+}
+
 @media (max-width: 1120px) {
   .atelierHero,
   .atelierHeroInner {
