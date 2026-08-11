@@ -87,7 +87,7 @@ foreach ($expected in @(
   "backup-postgres.sh",
   "up -d --build --remove-orphans",
   "production-smoke.sh",
-  "ln -sfn"
+  "sudo -n ln -sfn --"
 )) {
   Assert-Contains -Name "Production deploy script" -Text $deploy -Expected $expected
 }

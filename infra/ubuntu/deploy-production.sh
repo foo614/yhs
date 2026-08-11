@@ -64,6 +64,6 @@ fi
 
 "${COMPOSE[@]}" up -d --build --remove-orphans
 bash "$RELEASE_DIR/infra/ubuntu/production-smoke.sh" --env-file "$ENV_FILE"
-ln -sfn "$RELEASE_DIR" "$APP_ROOT/current"
+sudo -n ln -sfn -- "$RELEASE_DIR" "$APP_ROOT/current"
 
 echo "Production deployment completed: $(basename "$RELEASE_DIR")"
