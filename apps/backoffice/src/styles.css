@@ -1557,6 +1557,15 @@ body {
   min-width: 148px;
 }
 
+.vehicleMarkdownField,
+.vehicleMarkdownPreviewField {
+  grid-column: 1 / -1;
+}
+
+.vehicleMarkdownField .w-md-editor {
+  width: 100%;
+}
+
 .staffCreateCard {
   position: relative;
   padding: 48px 18px 18px;

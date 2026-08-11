@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
+import MDEditor from "@uiw/react-md-editor";
+import "@uiw/react-md-editor/markdown-editor.css";
 import { Alert, Badge, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -1359,10 +1361,14 @@ export function VehiclePage({
               </Form.Item>
               <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
               <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
-              <Form.Item name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text."><Input.TextArea rows={8} maxLength={6000} showCount placeholder="## Ready stock\n\n- Key feature\n- Viewing by appointment" /></Form.Item>
-              <Form.Item noStyle shouldUpdate={(previous, current) => previous.publicDescriptionMarkdown !== current.publicDescriptionMarkdown}>
-                {({ getFieldValue }) => <MarketingDescription markdown={getFieldValue("publicDescriptionMarkdown")} className="backofficeMarketingPreview" />}
+              <Form.Item className="vehicleMarkdownField" name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text.">
+                <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: "## Ready stock\n\n- Key feature\n- Viewing by appointment" }} />
               </Form.Item>
+              <div className="vehicleMarkdownPreviewField">
+                <Form.Item noStyle shouldUpdate={(previous, current) => previous.publicDescriptionMarkdown !== current.publicDescriptionMarkdown}>
+                  {({ getFieldValue }) => <MarketingDescription markdown={getFieldValue("publicDescriptionMarkdown")} className="backofficeMarketingPreview" />}
+                </Form.Item>
+              </div>
               <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedVehicle}>Update Vehicle</Button></Form.Item>
             </Form>
           </ProCard>
@@ -1679,10 +1685,14 @@ export function VehiclePage({
           </Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
-          <Form.Item name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Optional public copy. Raw HTML is displayed as text."><Input.TextArea rows={8} maxLength={6000} showCount placeholder="## Ready stock\n\n- Key feature\n- Viewing by appointment" /></Form.Item>
-          <Form.Item noStyle shouldUpdate={(previous, current) => previous.publicDescriptionMarkdown !== current.publicDescriptionMarkdown}>
-            {({ getFieldValue }) => <MarketingDescription markdown={getFieldValue("publicDescriptionMarkdown")} className="backofficeMarketingPreview" />}
+          <Form.Item className="vehicleMarkdownField" name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Optional public copy. Raw HTML is displayed as text.">
+            <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: "## Ready stock\n\n- Key feature\n- Viewing by appointment" }} />
           </Form.Item>
+          <div className="vehicleMarkdownPreviewField">
+            <Form.Item noStyle shouldUpdate={(previous, current) => previous.publicDescriptionMarkdown !== current.publicDescriptionMarkdown}>
+              {({ getFieldValue }) => <MarketingDescription markdown={getFieldValue("publicDescriptionMarkdown")} className="backofficeMarketingPreview" />}
+            </Form.Item>
+          </div>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Vehicle</Button></Form.Item>
         </Form>
       </Modal>
