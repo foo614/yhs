@@ -51,6 +51,14 @@ public sealed record Vehicle
     public DateOnly IntakeDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
 }
 
+public sealed record VehicleCatalogModel
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string Make { get; init; } = "";
+    public string Model { get; init; } = "";
+    public bool IsActive { get; init; } = true;
+}
+
 public sealed record StockMovement
 {
     public Guid Id { get; init; } = Guid.NewGuid();

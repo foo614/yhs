@@ -393,6 +393,15 @@ export type PaymentVoucher = {
   notes?: string;
 };
 
+export type VehicleCatalogModel = {
+  id: string;
+  make: string;
+  model: string;
+  isActive: boolean;
+};
+
+export type VehicleCatalogModelInput = Omit<VehicleCatalogModel, "id">;
+
 export type CustomerProfileOption = Pick<Customer, "id" | "name">;
 
 export type CustomerProfileContact = {
@@ -799,6 +808,10 @@ export async function getCurrentUser(): Promise<CurrentUser> {
 
 export async function getVehicles(): Promise<Vehicle[]> {
   return getWithNetworkFallback("/api/vehicles", [sampleVehicle]);
+}
+
+export async function getVehicleCatalogModels(): Promise<VehicleCatalogModel[]> {
+  return getWithNetworkFallback("/api/vehicle-catalog/models", []);
 }
 
 export async function getVehicleLookup(): Promise<VehicleLookup[]> {
@@ -1244,6 +1257,20 @@ export async function updatePayment(payment: PaymentRecord): Promise<PaymentReco
   return request<PaymentRecord>(`/api/payments/${payment.id}`, {
     method: "PUT",
     body: JSON.stringify(payment)
+  });
+}
+
+export async function createVehicleCatalogModel(model: VehicleCatalogModelInput): Promise<VehicleCatalogModel> {
+  return request<VehicleCatalogModel>("/api/vehicle-catalog/models", {
+    method: "POST",
+    body: JSON.stringify(model)
+  });
+}
+
+export async function updateVehicleCatalogModel(id: string, model: VehicleCatalogModelInput): Promise<VehicleCatalogModel> {
+  return request<VehicleCatalogModel>(`/api/vehicle-catalog/models/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(model)
   });
 }
 

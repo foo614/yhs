@@ -26,6 +26,16 @@ export type PublicVehiclePhoto = {
   isRepresentativeImage?: boolean;
 };
 
+export type PublicVehicleCatalogModel = {
+  make: string;
+  model: string;
+};
+
+export type PublicVehicleCatalogResult = {
+  models: PublicVehicleCatalogModel[];
+  unavailable: boolean;
+};
+
 type ApiVehicle = {
   id: string;
   plateNumber: string;
@@ -223,6 +233,24 @@ export async function getPublicInventory(fetchBaseUrl = apiBaseUrl, assetBaseUrl
   }
 }
 
+export async function getPublicVehicleCatalog(fetchBaseUrl = apiBaseUrl): Promise<PublicVehicleCatalogResult> {
+  try {
+    const response = await fetch(`${fetchBaseUrl}/api/public/vehicle-catalog/models`, { cache: "no-store" });
+    if (!response.ok) return { models: [], unavailable: true };
+    const payload = await response.json();
+    if (!Array.isArray(payload)) return { models: [], unavailable: true };
+
+    return {
+      models: payload
+        .filter(isValidPublicVehicleCatalogModel)
+        .map((item) => ({ make: item.make.trim(), model: item.model.trim() })),
+      unavailable: false
+    };
+  } catch {
+    return { models: [], unavailable: true };
+  }
+}
+
 export async function getPublicVehicles(fetchBaseUrl = apiBaseUrl, assetBaseUrl = publicApiBaseUrl): Promise<PublicVehicle[]> {
   return (await getPublicInventory(fetchBaseUrl, assetBaseUrl)).vehicles;
 }
@@ -354,6 +382,14 @@ function isValidApiVehicle(vehicle: unknown): vehicle is ApiVehicle {
     && typeof (vehicle as ApiVehicle).stockOwner === "string"
     && typeof (vehicle as ApiVehicle).status === "string"
     && typeof (vehicle as ApiVehicle).sellingPrice === "number";
+}
+
+function isValidPublicVehicleCatalogModel(item: unknown): item is PublicVehicleCatalogModel {
+  return typeof item === "object" && item !== null
+    && typeof (item as PublicVehicleCatalogModel).make === "string"
+    && typeof (item as PublicVehicleCatalogModel).model === "string"
+    && (item as PublicVehicleCatalogModel).make.trim().length > 0
+    && (item as PublicVehicleCatalogModel).model.trim().length > 0;
 }
 
 function isValidPublicVehiclePhoto(photo: unknown): photo is PublicVehiclePhoto {

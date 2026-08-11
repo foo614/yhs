@@ -44,6 +44,32 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Vehicle_catalog_normalizes_and_rejects_duplicate_make_model_pairs()
+    {
+        var existing = new VehicleCatalogModel { Make = "Toyota", Model = "Vios" };
+        var incoming = VehicleCatalogRules.Create(new VehicleCatalogModelRequest(" toyota ", " vios "));
+
+        var validation = VehicleCatalogRules.Validate(incoming);
+
+        Assert.True(validation.IsValid);
+        Assert.Equal("toyota", incoming.Make);
+        Assert.Equal("vios", incoming.Model);
+        Assert.True(VehicleCatalogRules.IsDuplicate(incoming, [existing]));
+    }
+
+    [Fact]
+    public void Vehicle_catalog_public_response_excludes_internal_status()
+    {
+        var item = new VehicleCatalogModel { Make = "Honda", Model = "City", IsActive = false };
+
+        var response = VehicleCatalogRules.ToPublicResponse(item);
+
+        Assert.Equal("Honda", response.Make);
+        Assert.Equal("City", response.Model);
+        Assert.DoesNotContain(response.GetType().GetProperties(), property => property.Name == "IsActive");
+    }
+
+    [Fact]
     public void Public_vehicle_response_excludes_internal_pricing_fields()
     {
         var vehicle = VehicleSeed.Available(publicVisible: true) with

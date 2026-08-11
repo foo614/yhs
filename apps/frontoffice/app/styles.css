@@ -3496,7 +3496,7 @@ textarea:focus-visible {
 }
 
 .heroOverlay {
-  background: linear-gradient(90deg, #f8f7f5 0%, #f8f7f5 30%, rgba(248, 247, 245, .9) 40%, rgba(248, 247, 245, .18) 58%, rgba(248, 247, 245, 0) 100%);
+  background: linear-gradient(90deg, #f8f7f5 0%, #f8f7f5 31%, rgba(248, 247, 245, .24) 37%, rgba(248, 247, 245, 0) 44%);
 }
 
 .atelierHeroInner {
@@ -3540,6 +3540,25 @@ textarea:focus-visible {
 .atelierHero h1 .heroTitleLead {
   color: #1e1d1d;
   white-space: nowrap;
+}
+
+.atelierPage:lang(zh) .atelierHero h1 {
+  width: auto;
+  max-width: 540px;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+  font-size: clamp(54px, 4.5vw, 68px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: .08em;
+  transform: none;
+}
+
+.atelierPage:lang(zh) .atelierHero h1 .heroTitleLead {
+  white-space: normal;
+}
+
+.atelierPage:lang(zh) .atelierHero h1 span + span {
+  margin-top: .13em;
 }
 
 .heroIntro {

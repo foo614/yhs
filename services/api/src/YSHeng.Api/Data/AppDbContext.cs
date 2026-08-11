@@ -7,6 +7,7 @@ namespace YSHeng.Api.Data;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<AppUser>(options)
 {
     public DbSet<Vehicle> Vehicles => Set<Vehicle>();
+    public DbSet<VehicleCatalogModel> VehicleCatalogModels => Set<VehicleCatalogModel>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Owner> Owners => Set<Owner>();
     public DbSet<Lead> Leads => Set<Lead>();
@@ -43,6 +44,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     {
         base.OnModelCreating(builder);
         builder.Entity<Vehicle>().HasIndex(vehicle => vehicle.PlateNumber).IsUnique();
+        builder.Entity<VehicleCatalogModel>().HasIndex(item => new { item.Make, item.Model }).IsUnique();
         builder.Entity<StockMovement>().HasIndex(movement => new { movement.VehicleId, movement.CreatedAt });
         builder.Entity<Lead>().HasIndex(lead => lead.VehicleId);
         builder.Entity<VehiclePhoto>().Property(photo => photo.Content).HasColumnType("bytea");

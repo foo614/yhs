@@ -41,8 +41,10 @@ describe("frontoffice motion enhancer contract", () => {
     expect(page).toContain("<HeroPriceTags language={language} vehicles={heroVehicles} />");
     expect(page).toContain('hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })');
     expect(page).toContain('className="heroBrowseAction"');
-    expect(page).toContain('className="heroInventorySummary"');
-    expect(page).toContain("function distinctModels");
+    expect(page).toContain('import { HeroVehicleFilters } from "./HeroVehicleFilters";');
+    expect(page).toContain("getPublicVehicleCatalog()");
+    expect(page).toContain("catalogModelsFromVehicles");
+    expect(page).toContain("distinctYears");
     expect(styles).toContain(".heroPriceTagMotion");
     expect(styles).toContain(".heroPriceTags");
     expect(styles).toContain(".heroBrowseAction");

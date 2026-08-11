@@ -11,6 +11,8 @@ public sealed record ContactEnquiryRequest(string CustomerName, string Phone, st
 public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
 public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice);
 public sealed record PublicVehicleDetailResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice, string? DescriptionMarkdown);
+public sealed record PublicVehicleCatalogModelResponse(string Make, string Model);
+public sealed record VehicleCatalogModelRequest(string Make, string Model, bool IsActive = true);
 public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId);
 public sealed record DashboardSummary(
     int TotalStock,
@@ -155,6 +157,43 @@ public static class PublicInventory
             vehicle.Status,
             vehicle.SellingPrice,
             vehicle.PublicDescriptionMarkdown);
+}
+
+public static class VehicleCatalogRules
+{
+    public static VehicleCatalogModel Create(VehicleCatalogModelRequest request) =>
+        new()
+        {
+            Make = request.Make?.Trim() ?? "",
+            Model = request.Model?.Trim() ?? "",
+            IsActive = request.IsActive
+        };
+
+    public static VehicleCatalogModel Update(VehicleCatalogModel existing, VehicleCatalogModelRequest request) =>
+        existing with
+        {
+            Make = request.Make?.Trim() ?? "",
+            Model = request.Model?.Trim() ?? "",
+            IsActive = request.IsActive
+        };
+
+    public static ValidationResult Validate(VehicleCatalogModel item)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(item.Make)) errors.Add(new("catalog_make_required", "Make is required."));
+        if (string.IsNullOrWhiteSpace(item.Model)) errors.Add(new("catalog_model_required", "Model is required."));
+        if (item.Make.Length > 80) errors.Add(new("catalog_make_too_long", "Make must be 80 characters or fewer."));
+        if (item.Model.Length > 80) errors.Add(new("catalog_model_too_long", "Model must be 80 characters or fewer."));
+        return new ValidationResult(errors);
+    }
+
+    public static bool IsDuplicate(VehicleCatalogModel candidate, IEnumerable<VehicleCatalogModel> existing) =>
+        existing.Any(item => item.Id != candidate.Id
+            && string.Equals(item.Make, candidate.Make, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(item.Model, candidate.Model, StringComparison.OrdinalIgnoreCase));
+
+    public static PublicVehicleCatalogModelResponse ToPublicResponse(VehicleCatalogModel item) =>
+        new(item.Make, item.Model);
 }
 
 public static class BackOfficeVehicleLookup

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, Badge, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "../../contacts";
@@ -11,6 +11,8 @@ import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import {
   customerSelectLabel,
+  createVehicleCatalogModel,
+  getVehicleCatalogModels,
   getStockMovements,
   getVehicleDocuments,
   getVehicleOcrJobs,
@@ -18,6 +20,7 @@ import {
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
+  updateVehicleCatalogModel,
   type Customer,
   type DocumentCategory,
   type Lead,
@@ -25,6 +28,8 @@ import {
   type PurchaseInvoice,
   type StockMovement,
   type Vehicle,
+  type VehicleCatalogModel,
+  type VehicleCatalogModelInput,
   type VehicleDocument,
   type VehicleOcrJob,
   type VehiclePhoto
@@ -150,6 +155,9 @@ export function VehiclePage({
   const [ownerCreateOpen, setOwnerCreateOpen] = useState(false);
   const [operationFilters, setOperationFilters] = useState<OperationIntakeVehicleFilters>({});
   const [mobileVehiclePage, setMobileVehiclePage] = useState(1);
+  const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
+  const [catalogEditingId, setCatalogEditingId] = useState<string | null>(null);
+  const [catalogForm] = Form.useForm<VehicleCatalogModelInput>();
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const uploadDisabled = !selectedVehicleId;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
@@ -226,6 +234,45 @@ export function VehiclePage({
     sold: "Mark Sold",
     done: "Completed"
   };
+  const loadCatalogModels = useCallback(async () => {
+    try {
+      setCatalogModels(await getVehicleCatalogModels());
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Unable to load the vehicle catalogue.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCatalogModels();
+  }, [loadCatalogModels]);
+
+  async function saveCatalogModel(values: VehicleCatalogModelInput) {
+    try {
+      if (catalogEditingId) {
+        await updateVehicleCatalogModel(catalogEditingId, values);
+        message.success("Vehicle catalogue option updated.");
+      } else {
+        await createVehicleCatalogModel(values);
+        message.success("Vehicle catalogue option added.");
+      }
+      setCatalogEditingId(null);
+      catalogForm.resetFields();
+      catalogForm.setFieldValue("isActive", true);
+      await loadCatalogModels();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Unable to save the vehicle catalogue option.");
+    }
+  }
+
+  async function toggleCatalogModel(item: VehicleCatalogModel) {
+    try {
+      await updateVehicleCatalogModel(item.id, { make: item.make, model: item.model, isActive: !item.isActive });
+      message.success(`Vehicle catalogue option ${item.isActive ? "hidden" : "shown"} on the website.`);
+      await loadCatalogModels();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Unable to update the vehicle catalogue option.");
+    }
+  }
   const photoPreviewGrid = (
     <div className="vehiclePhotoPreviewGrid">
       {photos.length > 0 ? photos.map((photo) => (
@@ -938,6 +985,25 @@ export function VehiclePage({
     { title: "Amount", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectPurchaseInvoice(row.id)}>Details</Button></Space> }
   ];
+  const catalogColumns: ColumnsType<VehicleCatalogModel> = [
+    { title: "Make", dataIndex: "make" },
+    { title: "Model", dataIndex: "model" },
+    { title: "Website filter", dataIndex: "isActive", render: (isActive) => <Tag color={isActive ? "green" : "default"}>{isActive ? "Visible" : "Hidden"}</Tag> },
+    {
+      title: "Action",
+      fixed: "right",
+      width: 190,
+      render: (_, item) => (
+        <Space className="tableActionGroup" wrap size={6}>
+          <Button size="small" type="primary" onClick={() => {
+            setCatalogEditingId(item.id);
+            catalogForm.setFieldsValue({ make: item.make, model: item.model, isActive: item.isActive });
+          }}>Edit</Button>
+          <Button size="small" onClick={() => void toggleCatalogModel(item)}>{item.isActive ? "Hide" : "Show"}</Button>
+        </Space>
+      )
+    }
+  ];
 
   return (
     <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
@@ -1129,6 +1195,43 @@ export function VehiclePage({
             onClick: () => selectVehicle(row.id)
           })}
           locale={{ emptyText: "No vehicles match the current filters." }}
+        />
+      </ProCard>
+      <ProCard
+        title="Website Make & Model Catalogue / 网站品牌车型目录"
+        extra={<Tag color="blue">{catalogModels.filter((item) => item.isActive).length} public options</Tag>}
+      >
+        <Typography.Paragraph type="secondary">
+          These options drive the public Make and Model filters even when there is no matching vehicle in stock. Hiding an option removes it from the website without changing existing vehicle records.
+        </Typography.Paragraph>
+        <Form
+          form={catalogForm}
+          layout="inline"
+          initialValues={{ isActive: true }}
+          onFinish={(values) => void saveCatalogModel(values)}
+        >
+          <Form.Item name="make" label="Make" rules={[{ required: true, message: "Make is required" }]}><Input placeholder="Toyota" maxLength={80} /></Form.Item>
+          <Form.Item name="model" label="Model" rules={[{ required: true, message: "Model is required" }]}><Input placeholder="Vios" maxLength={80} /></Form.Item>
+          <Form.Item name="isActive" label="Public" valuePropName="checked"><Switch /></Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit">{catalogEditingId ? "Update option" : "Add option"}</Button>
+              {catalogEditingId && <Button onClick={() => {
+                setCatalogEditingId(null);
+                catalogForm.resetFields();
+                catalogForm.setFieldValue("isActive", true);
+              }}>Cancel</Button>}
+            </Space>
+          </Form.Item>
+        </Form>
+        <Table
+          className="desktopDataTable"
+          rowKey="id"
+          columns={catalogColumns}
+          dataSource={catalogModels}
+          pagination={tablePagination(8)}
+          scroll={{ x: 640 }}
+          locale={{ emptyText: "No catalogue options yet. Add the makes and models you want customers to filter by." }}
         />
       </ProCard>
       <Drawer

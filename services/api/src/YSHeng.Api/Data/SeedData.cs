@@ -20,6 +20,7 @@ public static class SeedData
         await EnsureDocumentOwnershipSchemaAsync(db);
         await EnsureCashCustodySchemaAsync(db);
         await EnsureVehicleEnhancementSchemaAsync(db);
+        await EnsureVehicleCatalogSchemaAsync(db);
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
 
@@ -162,6 +163,18 @@ public static class SeedData
             db.DebtRecoveryCases.Add(new DebtRecoveryCase { VehicleId = vehicleId, CustomerId = customerId, BalanceAmount = 2500m, Status = DebtRecoveryStatus.Open, FollowUpDate = DateOnly.FromDateTime(DateTime.UtcNow), Notes = "Monthly balance follow-up" });
             db.PaymentVouchers.Add(new PaymentVoucher { VehicleId = vehicleId, PayeeName = "Demo Driver", Amount = 180m, Purpose = "Outstation Pickup Allowance", Status = PaymentVoucherStatus.Pending, IssuedDate = new DateOnly(2026, 6, 3), Notes = "Linked to pickup booking slip" });
             db.AuditLogs.Add(AuditTrail.Record("seed", "vehicle.created", nameof(Vehicle), vehicleId, DateTime.UtcNow));
+            await db.SaveChangesAsync();
+        }
+
+        if (!await db.VehicleCatalogModels.AnyAsync())
+        {
+            var catalogModels = await db.Vehicles.AsNoTracking()
+                .Select(vehicle => new { vehicle.Make, vehicle.Model })
+                .ToListAsync();
+            db.VehicleCatalogModels.AddRange(catalogModels
+                .Where(item => !string.IsNullOrWhiteSpace(item.Make) && !string.IsNullOrWhiteSpace(item.Model))
+                .GroupBy(item => new { Make = item.Make.Trim().ToUpperInvariant(), Model = item.Model.Trim().ToUpperInvariant() })
+                .Select(group => new VehicleCatalogModel { Make = group.First().Make.Trim(), Model = group.First().Model.Trim() }));
             await db.SaveChangesAsync();
         }
     }
@@ -342,6 +355,21 @@ public static class SeedData
             );
 
             CREATE INDEX IF NOT EXISTS "IX_StockMovements_VehicleId_CreatedAt" ON "StockMovements" ("VehicleId", "CreatedAt");
+        """);
+    }
+
+    private static async Task EnsureVehicleCatalogSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "VehicleCatalogModels" (
+                "Id" uuid NOT NULL,
+                "Make" text NOT NULL,
+                "Model" text NOT NULL,
+                "IsActive" boolean NOT NULL,
+                CONSTRAINT "PK_VehicleCatalogModels" PRIMARY KEY ("Id")
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_VehicleCatalogModels_Make_Model" ON "VehicleCatalogModels" ("Make", "Model");
         """);
     }
 

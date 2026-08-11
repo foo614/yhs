@@ -58,8 +58,8 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
 
       if (heroMedia) {
         heroTimeline.fromTo(heroMedia,
-          { scale: 1.012, filter: "saturate(.94) contrast(1.01) brightness(.98)" },
-          { scale: 1, filter: "none", duration: .78 });
+          { scale: 1.006 },
+          { scale: 1, duration: .62 });
       }
 
       if (heroInner) {

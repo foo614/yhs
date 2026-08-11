@@ -32,6 +32,7 @@ Public endpoints are unauthenticated and must not expose purchase price, refurbi
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/public/vehicles` | List public `Available` vehicles. |
+| `GET` | `/api/public/vehicle-catalog/models` | List active, admin-maintained make/model options for public vehicle filters. |
 | `GET` | `/api/public/vehicles/{id}` | Fetch one public available vehicle. |
 | `GET` | `/api/public/vehicles/{id}/photo` | Return the latest public thumbnail/photo for a public available vehicle. |
 | `GET` | `/api/public/vehicles/{id}/photos` | List public gallery photo metadata for a public available vehicle. |
@@ -98,6 +99,9 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/vehicles` | `Vehicles` | Full vehicle records for Boss/Admin and Sales. |
+| `GET` | `/api/vehicle-catalog/models` | `Vehicles` | List active and inactive make/model catalogue entries. |
+| `POST` | `/api/vehicle-catalog/models` | `Vehicles` | Add a make/model option for public filters. |
+| `PUT` | `/api/vehicle-catalog/models/{id}` | `Vehicles` | Edit or deactivate a make/model option without changing existing vehicle records. |
 | `POST` | `/api/vehicles` | `Vehicles` | Create vehicle intake, including optional chassis and engine identifiers. |
 | `PUT` | `/api/vehicles/{id}` | `Vehicles` | Update vehicle intake, chassis/engine identifiers, and public status. |
 | `GET` | `/api/vehicle-lookup` | `VehicleRead` | Plate/make/model/status and linked customer ID lookup for authorized workflow selectors and customer-profile hand-off. |

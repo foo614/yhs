@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { ArrowRight, BadgeCheck, Banknote, Car, MapPin, Search, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
+import { ArrowRight, BadgeCheck, Banknote, Car, MapPin, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
+import { HeroVehicleFilters } from "./HeroVehicleFilters";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type Language, type SearchParams } from "./i18n";
 import { pageMetadata } from "./seo";
 import { distinctMakes, priceRange } from "./vehicles/listing";
-import { getPublicInventory, type PublicVehicle } from "./vehicles/service";
+import { getPublicInventory, getPublicVehicleCatalog, type PublicVehicle, type PublicVehicleCatalogModel } from "./vehicles/service";
 import { VehicleCard } from "./vehicles/VehicleCard";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -135,11 +136,12 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
   const t = frontofficeCopy[language];
   const featureT = featuredCopy[language];
-  const inventory = await getPublicInventory();
+  const [inventory, catalog] = await Promise.all([getPublicInventory(), getPublicVehicleCatalog()]);
   const vehicles = inventory.vehicles;
   const makes = distinctMakes(vehicles);
-  const models = distinctModels(vehicles);
+  const catalogModels = catalog.unavailable ? catalogModelsFromVehicles(vehicles) : catalog.models;
   const prices = priceRange(vehicles);
+  const years = distinctYears(vehicles);
   const popularMakes = popularMakesFrom(makes);
   const featuredVehicles = featuredVehiclesFrom(vehicles);
   const heroVehicles = featuredVehicles.slice(0, 2);
@@ -167,47 +169,16 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
               <span className="heroLocation"><MapPin size={18} aria-hidden="true" /> {t.home.heroLocation}</span>
             </div>
           </div>
-          <form className="atelierSearch" action={`${basePath}/vehicles`}>
-            {language === "zh" && <input type="hidden" name="lang" value="zh" />}
-            <label>
-              <span>{t.home.make}</span>
-              <select name="make" defaultValue="">
-                <option value="">{t.home.anyBrand}</option>
-                {makes.map((make) => <option value={make} key={make}>{make}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>{t.home.model}</span>
-              <select name="model" defaultValue="">
-                <option value="">{t.home.anyModel}</option>
-                {models.map((model) => <option value={model} key={model}>{model}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>{t.home.budget}</span>
-              <select name="maxPrice" defaultValue="">
-                <option value="">{t.home.anyBudget}</option>
-                {budgetOptions(prices.max).map((budget) => <option value={budget} key={budget}>RM {budget.toLocaleString()}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>{t.home.yearFrom}</span>
-              <select name="minYear" defaultValue="">
-                <option value="">{t.home.anyYear}</option>
-                <option value="2015">2015</option>
-                <option value="2020">2020</option>
-                <option value="2022">2022</option>
-              </select>
-            </label>
-            <button type="submit"><span>{t.home.find}</span> <Search size={18} /></button>
-            {!inventory.unavailable && vehicles.length > 0 && (
-              <span className="heroInventorySummary">
-                <Car size={28} aria-hidden="true" />
-                <span><strong>{vehicles.length.toLocaleString()} {t.home.readyCars}</strong><small>{t.home.updatedDaily}</small></span>
-              </span>
-            )}
-            <small className="heroSearchHint">{t.home.searchHint}</small>
-          </form>
+          <HeroVehicleFilters
+            action={`${basePath}/vehicles`}
+            language={language}
+            models={catalogModels}
+            years={years}
+            budgets={budgetOptions(prices.max)}
+            vehicleCount={vehicles.length}
+            showInventorySummary={!inventory.unavailable && vehicles.length > 0}
+            labels={t.home}
+          />
         </div>
       </section>
 
@@ -405,8 +376,21 @@ function featuredVehiclesFrom(vehicles: PublicVehicle[]) {
     .slice(0, 6);
 }
 
-function distinctModels(vehicles: PublicVehicle[]) {
-  return [...new Set(vehicles.map((vehicle) => vehicle.model.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+function catalogModelsFromVehicles(vehicles: PublicVehicle[]): PublicVehicleCatalogModel[] {
+  const seen = new Set<string>();
+  return vehicles
+    .map((vehicle) => ({ make: vehicle.make.trim(), model: vehicle.model.trim() }))
+    .filter((item) => {
+      const key = `${item.make.toLowerCase()}-${item.model.toLowerCase()}`;
+      if (!item.make || !item.model || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => left.make.localeCompare(right.make) || left.model.localeCompare(right.model));
+}
+
+function distinctYears(vehicles: PublicVehicle[]) {
+  return [...new Set(vehicles.map((vehicle) => vehicle.year).filter(Number.isInteger))].sort((left, right) => right - left);
 }
 
 function budgetOptions(maxPrice: number) {

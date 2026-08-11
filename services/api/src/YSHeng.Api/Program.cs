@@ -113,6 +113,16 @@ app.MapGet("/api/public/vehicles", async (AppDbContext db) =>
     return Results.Ok(PublicInventory.Filter(vehicles).Select(PublicInventory.ToResponse));
 });
 
+app.MapGet("/api/public/vehicle-catalog/models", async (AppDbContext db) =>
+{
+    var catalogModels = await db.VehicleCatalogModels.AsNoTracking()
+        .Where(item => item.IsActive)
+        .OrderBy(item => item.Make)
+        .ThenBy(item => item.Model)
+        .ToListAsync();
+    return Results.Ok(catalogModels.Select(VehicleCatalogRules.ToPublicResponse));
+});
+
 app.MapGet("/api/public/vehicles/{id:guid}", async (Guid id, AppDbContext db) =>
 {
     var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id && item.IsPublic && item.Status == VehicleStatus.Available);
@@ -173,6 +183,44 @@ app.MapPost("/api/public/contact-enquiries", async (ContactEnquiryRequest reques
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
 
 backOffice.MapGet("/vehicles", async (AppDbContext db) => await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync()).RequireAuthorization("Vehicles");
+backOffice.MapGet("/vehicle-catalog/models", async (AppDbContext db) =>
+    await db.VehicleCatalogModels.AsNoTracking()
+        .OrderBy(item => item.Make)
+        .ThenBy(item => item.Model)
+        .ToListAsync()).RequireAuthorization("Vehicles");
+backOffice.MapPost("/vehicle-catalog/models", async (VehicleCatalogModelRequest request, AppDbContext db, HttpContext context) =>
+{
+    var item = VehicleCatalogRules.Create(request);
+    var validation = VehicleCatalogRules.Validate(item);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (VehicleCatalogRules.IsDuplicate(item, await db.VehicleCatalogModels.AsNoTracking().ToListAsync()))
+    {
+        return Results.BadRequest(new ValidationResult([new("catalog_model_duplicate", "This make and model already exists in the catalogue.")]));
+    }
+
+    db.VehicleCatalogModels.Add(item);
+    ApiAudit.Add(db, context.User, "vehicleCatalogModel.created", nameof(VehicleCatalogModel), item.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/vehicle-catalog/models/{item.Id}", item);
+}).RequireAuthorization("Vehicles");
+backOffice.MapPut("/vehicle-catalog/models/{id:guid}", async (Guid id, VehicleCatalogModelRequest request, AppDbContext db, HttpContext context) =>
+{
+    var existing = await db.VehicleCatalogModels.FirstOrDefaultAsync(item => item.Id == id);
+    if (existing is null) return Results.NotFound();
+
+    var item = VehicleCatalogRules.Update(existing, request);
+    var validation = VehicleCatalogRules.Validate(item);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (VehicleCatalogRules.IsDuplicate(item, await db.VehicleCatalogModels.AsNoTracking().ToListAsync()))
+    {
+        return Results.BadRequest(new ValidationResult([new("catalog_model_duplicate", "This make and model already exists in the catalogue.")]));
+    }
+
+    db.VehicleCatalogModels.Update(item);
+    ApiAudit.Add(db, context.User, "vehicleCatalogModel.updated", nameof(VehicleCatalogModel), item.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireAuthorization("Vehicles");
 backOffice.MapGet("/vehicle-lookup", async (AppDbContext db) =>
     (await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync())
         .Select(BackOfficeVehicleLookup.ToResponse)).RequireAuthorization("VehicleRead");
