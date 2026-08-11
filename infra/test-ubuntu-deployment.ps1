@@ -53,7 +53,10 @@ foreach ($expected in @(
 foreach ($expected in @(
   '{$FRONTOFFICE_DOMAIN}',
   '{$BACKOFFICE_DOMAIN}',
-  '{$API_DOMAIN}',
+  '@api path /api/*',
+  '@health path /health /health/*',
+  'handle @api',
+  'handle @health',
   "Strict-Transport-Security",
   "X-Content-Type-Options",
   "reverse_proxy frontoffice:3000",

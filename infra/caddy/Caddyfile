@@ -20,10 +20,18 @@
 
 {$BACKOFFICE_DOMAIN} {
 	import security_headers
-	reverse_proxy backoffice:3001
-}
 
-{$API_DOMAIN} {
-	import security_headers
-	reverse_proxy api:8080
+	@api path /api/*
+	handle @api {
+		reverse_proxy api:8080
+	}
+
+	@health path /health /health/*
+	handle @health {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		reverse_proxy backoffice:3001
+	}
 }

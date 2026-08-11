@@ -22,12 +22,12 @@ function New-TestEnvFile {
     SEED_ADMIN_PASSWORD = "S3cure-admin-password!"
     SEED_DATA_ENABLED = "true"
     ASPNETCORE_ENVIRONMENT = "Production"
-    PUBLIC_API_BASE_URL = "https://api.ysheng.example.my"
+    PUBLIC_API_BASE_URL = "https://portal.ysheng.example.my"
     FRONTOFFICE_ORIGIN = "https://www.ysheng.example.my"
-    BACKOFFICE_ORIGIN = "https://admin.ysheng.example.my"
-    API_DOMAIN = "api.ysheng.example.my"
+    BACKOFFICE_ORIGIN = "https://portal.ysheng.example.my"
+    API_DOMAIN = "portal.ysheng.example.my"
     FRONTOFFICE_DOMAIN = "www.ysheng.example.my"
-    BACKOFFICE_DOMAIN = "admin.ysheng.example.my"
+    BACKOFFICE_DOMAIN = "portal.ysheng.example.my"
     TLS_EMAIL = "admin@ysheng.example.my"
   }
 

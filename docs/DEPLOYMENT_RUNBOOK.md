@@ -9,7 +9,7 @@ The production path deploys a verified `main` commit to an Ubuntu VPS through Gi
 Before the first deployment:
 
 1. Create an Ubuntu 22.04 or 24.04 Shinjiru VPS and a dedicated Linux deployment user with SSH-key login. The user must be able to run `sudo -n` for the first bootstrap. Docker group access is effectively privileged access, so restrict this SSH key and protect the `main` branch.
-2. Point the DNS A records for the front office, back office, and API domains to the VPS public IPv4 address. Add matching AAAA records only when IPv6 is configured and reachable. Ensure Shinjiru permits inbound TCP 80 and 443.
+2. Point the DNS A records for the front office and back office domains to the VPS public IPv4 address. The API shares the back office hostname under `/api/*` (and `/health*` for readiness), so it does not need a separate API DNS record. Add matching AAAA records only when IPv6 is configured and reachable. Ensure Shinjiru permits inbound TCP 80 and 443.
 3. In GitHub, create the `production` environment. Configure required reviewers before adding secrets so production deployments are explicitly approved.
 4. Add these `production` environment secrets:
    - `SHIJIRU_HOST`: the VPS hostname or IP address.
@@ -19,7 +19,7 @@ Before the first deployment:
    - `SHIJIRU_KNOWN_HOSTS`: the exact known-hosts line obtained out-of-band for the configured host and port. Do not use `StrictHostKeyChecking=no` or accept a host key during deployment.
    - `PRODUCTION_ENV_FILE`: the complete production environment file based on `infra/compose.env.example`, with real secrets and DNS names.
 
-`PRODUCTION_ENV_FILE` must make the URL and hostname pairs identical, for example `PUBLIC_API_BASE_URL=https://api.company.my` with `API_DOMAIN=api.company.my`. The PowerShell and Ubuntu production validators reject default passwords, example/localhost domains, mismatched hostnames, non-HTTPS URLs, and trailing slashes before the stack starts.
+`PRODUCTION_ENV_FILE` must make the URL and hostname pairs identical. With shared API/back-office routing, for example, use `PUBLIC_API_BASE_URL=https://portal.company.my`, `API_DOMAIN=portal.company.my`, and `BACKOFFICE_DOMAIN=portal.company.my`; Caddy sends `/api/*` and `/health*` to the API and other paths to the back office. The PowerShell and Ubuntu production validators reject default passwords, example/localhost domains, mismatched hostnames, non-HTTPS URLs, and trailing slashes before the stack starts.
 
 After the three CI jobs succeed on `main`, the `Deploy production (Shinjiru Ubuntu)` job uploads that verified commit, installs Docker Engine/Compose from Docker's signed Ubuntu repository if absent, enables UFW for the configured SSH port plus 80/443, configures the daily backup timer, builds the Compose stack, obtains TLS through Caddy, and runs read-only HTTPS smoke checks. `workflow_dispatch` supports an approved retry from `main`; pull requests never receive production secrets.
 
@@ -60,7 +60,7 @@ Before production deploy, replace:
 - `PUBLIC_API_BASE_URL`
 - `FRONTOFFICE_ORIGIN`
 - `BACKOFFICE_ORIGIN`
-- `API_DOMAIN`
+- `API_DOMAIN` (the shared back-office/API hostname)
 - `FRONTOFFICE_DOMAIN`
 - `BACKOFFICE_DOMAIN`
 - `TLS_EMAIL`
