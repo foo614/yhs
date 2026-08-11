@@ -84,7 +84,7 @@ foreach ($expected in @(
   '--project-directory "$RELEASE_DIR/infra"',
   "docker-compose.production.yml",
   "validate-production-env.sh",
-  "backup-postgres.sh",
+  'bash "$APP_ROOT/current/infra/ubuntu/backup-postgres.sh"',
   "up -d --build --remove-orphans",
   "production-smoke.sh",
   "sudo -n ln -sfn --"

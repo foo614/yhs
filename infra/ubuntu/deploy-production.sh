@@ -59,7 +59,7 @@ COMPOSE=(
 "${COMPOSE[@]}" config -q
 
 if [[ -L "$APP_ROOT/current" ]] && "${COMPOSE[@]}" ps -q postgres | grep -q .; then
-  "$APP_ROOT/current/infra/ubuntu/backup-postgres.sh" --env-file "$ENV_FILE"
+  bash "$APP_ROOT/current/infra/ubuntu/backup-postgres.sh" --env-file "$ENV_FILE"
 fi
 
 "${COMPOSE[@]}" up -d --build --remove-orphans
