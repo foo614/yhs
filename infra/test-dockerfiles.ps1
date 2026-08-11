@@ -88,6 +88,7 @@ Assert-Order -Name "Back-office Dockerfile" -Text $backoffice -Steps @(
   "FROM node:25-alpine AS build",
   "ARG VITE_API_BASE_URL=http://localhost:5000",
   'ENV VITE_API_BASE_URL=$VITE_API_BASE_URL',
+  "COPY apps/frontoffice apps/frontoffice",
   "RUN npm run build",
   "WORKDIR /app/apps/backoffice",
   "RUN npm install -g serve",

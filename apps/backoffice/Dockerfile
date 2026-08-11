@@ -12,6 +12,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backoffice/node_modules ./apps/backoffice/node_modules
 COPY package.json ./
 COPY apps/backoffice apps/backoffice
+COPY apps/frontoffice apps/frontoffice
 WORKDIR /app/apps/backoffice
 RUN npm run build
 
