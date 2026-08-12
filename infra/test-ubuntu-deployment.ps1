@@ -111,6 +111,7 @@ foreach ($expected in @(
   "resolver 127.0.0.11",
   "rewrite ^/ops/(.*)$ /`$1 break;",
   "proxy_pass http://`$dashboard_upstream;",
+  "proxy_redirect ~*^/login\?returnUrl=%2f(.+)`$ /ops/login?returnUrl=%2Fops%2F`$1;",
   "proxy_redirect ~^https?://[^/]+(/.*)$ /ops`$1;",
   "proxy_cookie_path / /ops/;",
   "sub_filter '<base href=`"/`">' '<base href=`"/ops/`">';"
