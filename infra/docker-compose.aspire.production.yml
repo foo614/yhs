@@ -58,6 +58,9 @@ services:
       ASPNETCORE_URLS: http://+:18888
       ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL: http://+:18889
       ASPIRE_DASHBOARD_OTLP_HTTP_ENDPOINT_URL: http://+:18890
+      # Run ASP.NET Core's forwarded-header middleware before Aspire evaluates
+      # the browser-token cookie behind the Caddy and Nginx proxy chain.
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
       DASHBOARD__FRONTEND__AUTHMODE: BrowserToken
       DASHBOARD__FRONTEND__BROWSERTOKEN: ${ASPIRE_DASHBOARD_BROWSER_TOKEN}
       DASHBOARD__FRONTEND__PUBLICURL: https://${BACKOFFICE_DOMAIN}/ops

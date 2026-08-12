@@ -92,6 +92,7 @@ try {
   Assert-Equal -Name "Dashboard image" -Actual $dashboard.image -Expected "mcr.microsoft.com/dotnet/aspire-dashboard:13.4.2@sha256:583b33ffe6cf016115bb55dee00d682ab388832eeb6dd55b6df137e8cae1c1ab"
   Assert-Equal -Name "Dashboard frontend endpoint" -Actual $dashboard.environment.ASPNETCORE_URLS -Expected "http://+:18888"
   Assert-Equal -Name "Dashboard OTLP gRPC endpoint" -Actual $dashboard.environment.ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL -Expected "http://+:18889"
+  Assert-Equal -Name "Dashboard ASP.NET Core forwarded headers" -Actual $dashboard.environment.ASPNETCORE_FORWARDEDHEADERS_ENABLED -Expected "true"
   Assert-Equal -Name "Dashboard forwarded headers" -Actual $dashboard.environment.ASPIRE_DASHBOARD_FORWARDEDHEADERS_ENABLED -Expected "true"
   Assert-Equal -Name "Dashboard frontend auth mode" -Actual $dashboard.environment.DASHBOARD__FRONTEND__AUTHMODE -Expected "BrowserToken"
   Assert-Equal -Name "Dashboard public URL" -Actual $dashboard.environment.DASHBOARD__FRONTEND__PUBLICURL -Expected "https://yshenghub.com.my/ops"
