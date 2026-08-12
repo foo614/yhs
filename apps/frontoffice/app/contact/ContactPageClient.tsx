@@ -2,18 +2,22 @@
 
 import { useSearchParams } from "next/navigation";
 import { Banknote, Car, ExternalLink, MapPin, Mail, Phone, ShieldCheck, Wrench } from "lucide-react";
+import {
+  businessName,
+  companyRegistration,
+  facebookUrl,
+  googleMapsUrl,
+  legalBusinessName,
+  salesEmail,
+  salesPhone,
+  showroomAddress,
+  whatsappNumber
+} from "../business";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "../PublicChrome";
 import { frontofficeCopy, languageFromSearchParams } from "../i18n";
 import { ContactEnquiryForm } from "./ContactEnquiryForm";
 
-const whatsappNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "60108281218";
-const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
-  "No.6,JALAN PULAI, KAWASAN JALAN MERSING BATU 1 1/2,86000 KLUANG,JOHOR.";
-const salesPhone = process.env.NEXT_PUBLIC_SALES_PHONE ?? "010-828 1218";
-const salesEmail = process.env.NEXT_PUBLIC_SALES_EMAIL ?? "yshengauto@gmail.com";
-const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
-const googleMapsUrl = "https://maps.app.goo.gl/3GGVr6vHLxhGabP28";
-const registrationText = "YS HENG AUTOMOTIVE SDN BHD 202301051775 (1545689-H)";
+const registrationText = `${legalBusinessName} ${companyRegistration}`;
 
 export default function ContactPageClient() {
   const searchParams = useSearchParams();
@@ -88,7 +92,7 @@ export default function ContactPageClient() {
           <div className="mapLocationCard">
             <span><MapPin size={16} /></span>
             <div>
-              <strong>YS Heng Automotive Sdn Bhd</strong>
+              <strong>{businessName}</strong>
               <p>{showroomAddress}</p>
               <a href={mapHref} target="_blank" rel="noreferrer">{openMap}</a>
             </div>
@@ -109,7 +113,7 @@ export default function ContactPageClient() {
       <section className="contactGrid" id="contact">
         <a className="contactCard" href={mapHref} target="_blank" rel="noreferrer">
           <MapPin size={28} />
-          <h2>Ys Heng Automotive Sdn Bhd</h2>
+          <h2>{businessName}</h2>
           <p>{showroomAddress}</p>
           <p>{registrationText}</p>
           <p>{reviewSnippet}</p>
@@ -127,7 +131,7 @@ export default function ContactPageClient() {
         <a className="contactCard" href={facebookUrl} target="_blank" rel="noreferrer">
           <ExternalLink size={28} />
           <h2>{facebook}</h2>
-          <p>Ys Heng Automotive Sdn Bhd</p>
+          <p>{businessName}</p>
         </a>
       </section>
 

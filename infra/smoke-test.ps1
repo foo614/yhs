@@ -111,6 +111,7 @@ function Invoke-MultipartUpload {
     [string]$FileName,
     [string]$ContentType,
     [byte[]]$Content,
+    [hashtable]$Fields,
     [Microsoft.PowerShell.Commands.WebRequestSession]$Session
   )
 
@@ -126,6 +127,11 @@ function Invoke-MultipartUpload {
   $fileContent = [System.Net.Http.ByteArrayContent]::new($Content)
   $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse($ContentType)
   $multipart.Add($fileContent, "file", $FileName)
+  if ($Fields) {
+    foreach ($fieldName in $Fields.Keys) {
+      $multipart.Add([System.Net.Http.StringContent]::new([string]$Fields[$fieldName]), [string]$fieldName)
+    }
+  }
 
   try {
     $response = $client.PostAsync($targetUri, $multipart).GetAwaiter().GetResult()
@@ -237,9 +243,9 @@ if ($frontFilteredInventory.Content -notmatch "VPK1234" -or $frontFilteredInvent
 Write-Host "Front office filtered inventory OK"
 
 $frontZh = Assert-HttpOk "$FrontOfficeUrl/?lang=zh" "Front office Chinese home"
-$zhHomeTitle = New-UnicodeText @(23547, 25214, 20320, 30340, 19979, 19968, 36742)
-$zhBuyCar = New-UnicodeText @(20080, 36710)
-if ($frontZh.Content -notmatch $zhHomeTitle -or $frontZh.Content -notmatch $zhBuyCar) {
+$zhHomeTitle = New-UnicodeText @(25214, 21040, 20320, 30340, 36710, 12290)
+$zhBrowseCars = New-UnicodeText @(27983, 35272, 36710, 28304)
+if ($frontZh.Content -notmatch $zhHomeTitle -or $frontZh.Content -notmatch $zhBrowseCars) {
   throw "Front office Chinese home did not render bilingual public copy"
 }
 $frontInventoryZh = Assert-HttpOk "$FrontOfficeUrl/vehicles?lang=zh" "Front office Chinese inventory"
@@ -729,7 +735,7 @@ if ($workflowCustomer.StatusCode -lt 200 -or $workflowCustomer.StatusCode -ge 30
   throw "Workflow customer creation returned HTTP $($workflowCustomer.StatusCode)"
 }
 $createdWorkflowCustomer = $workflowCustomer.Content | ConvertFrom-Json
-if ($createdWorkflowCustomer.address -ne "123 Jalan Kluang Jaya" -or $createdWorkflowCustomer.notes -ne "Customer detail note for invoice and delivery") {
+if ($createdWorkflowCustomer.address -ne "123 Jalan Kluang" -or $createdWorkflowCustomer.notes -ne "Customer detail note for invoice and delivery") {
   throw "Workflow customer did not preserve detailed address and notes"
 }
 $updatedWorkflowCustomerBody = @{
@@ -746,7 +752,7 @@ if ($updatedWorkflowCustomer.StatusCode -lt 200 -or $updatedWorkflowCustomer.Sta
   throw "Workflow customer update returned HTTP $($updatedWorkflowCustomer.StatusCode)"
 }
 $updatedWorkflowCustomerContent = $updatedWorkflowCustomer.Content | ConvertFrom-Json
-if ($updatedWorkflowCustomerContent.address -ne "456 Updated Workflow Street" -or $updatedWorkflowCustomerContent.notes -ne "Updated customer detail note") {
+if ($updatedWorkflowCustomerContent.address -ne "456 Jalan Mersing" -or $updatedWorkflowCustomerContent.notes -ne "Updated customer detail note") {
   throw "Workflow customer updates did not round trip"
 }
 $workflowOwnerBody = @{
@@ -1559,6 +1565,7 @@ $photoUpload = Invoke-MultipartUpload `
   -FileName $photoFileName `
   -ContentType "image/png" `
   -Content $photoBytes `
+  -Fields @{ isRepresentativeImage = "false" } `
   -Session $session
 if ($photoUpload.StatusCode -lt 200 -or $photoUpload.StatusCode -ge 300) {
   throw "Vehicle photo upload returned HTTP $($photoUpload.StatusCode)"
@@ -1583,6 +1590,7 @@ $invalidPhotoUpload = Invoke-MultipartUpload `
   -FileName "invalid-photo-$workflowSuffix.jpg" `
   -ContentType "image/jpeg" `
   -Content ([byte[]](1, 2, 3, 4)) `
+  -Fields @{ isRepresentativeImage = "false" } `
   -Session $session
 if ($invalidPhotoUpload.StatusCode -ne 400 -or $invalidPhotoUpload.Content -notmatch "unsupported_image") {
   throw "Invalid vehicle photo upload returned HTTP $($invalidPhotoUpload.StatusCode) instead of structured validation error"

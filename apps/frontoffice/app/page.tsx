@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ArrowRight, BadgeCheck, Banknote, Car, MapPin, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
+import { googleMapsUrl, showroomAddress } from "./business";
 import { HeroVehicleFilters } from "./HeroVehicleFilters";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type Language, type SearchParams } from "./i18n";
@@ -13,9 +14,7 @@ import { VehicleCard } from "./vehicles/VehicleCard";
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const heroImage = `${basePath}/hero-price-bay-option2@2x.png`;
 const conciergeImage = "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=1200&q=88";
-const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS ??
-  "No.6,JALAN PULAI, KAWASAN JALAN MERSING BATU 1 1/2,86000 KLUANG,JOHOR.";
-const mapHref = "https://maps.app.goo.gl/3GGVr6vHLxhGabP28";
+const mapHref = googleMapsUrl;
 const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(showroomAddress)}&output=embed`;
 
 const categoryImages = [

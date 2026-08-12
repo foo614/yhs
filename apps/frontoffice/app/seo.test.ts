@@ -103,6 +103,8 @@ describe("frontoffice SEO", () => {
 
     expect(dealer).toMatchObject({
       "@type": "AutoDealer",
+      name: "YS Heng Automotive",
+      alternateName: ["YS Heng Cars", "YS Heng Auto"],
       legalName: "YS HENG AUTOMOTIVE SDN BHD",
       address: {
         "@type": "PostalAddress",
@@ -112,7 +114,17 @@ describe("frontoffice SEO", () => {
         addressCountry: "MY"
       },
       hasMap: "https://maps.app.goo.gl/3GGVr6vHLxhGabP28",
-      sameAs: ["https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/"]
+      sameAs: ["https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/"],
+      identifier: {
+        "@type": "PropertyValue",
+        propertyID: "Malaysia company registration number",
+        value: "202301051775 (1545689-H)"
+      },
+      subjectOf: {
+        "@type": "VideoObject",
+        name: "YS Heng Automotive TikTok feature",
+        url: "https://www.tiktok.com/@ifyandyfaathir/video/7637074774526577940"
+      }
     });
     expect(listing).toMatchObject({
       "@type": ["Product", "Car"],

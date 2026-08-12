@@ -1,16 +1,24 @@
 import type { Metadata } from "next";
+import {
+  businessName,
+  companyRegistration,
+  facebookUrl,
+  googleMapsUrl,
+  legalBusinessName,
+  salesEmail,
+  salesPhone,
+  showroomAddress,
+  tiktokFeatureUrl
+} from "./business";
 import type { Language } from "./i18n";
 import type { PublicVehicle } from "./vehicles/service";
 
 const siteName = "YS Heng Cars";
-const legalName = "YS HENG AUTOMOTIVE SDN BHD";
 const baseUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000");
 if (!baseUrl.pathname.endsWith("/")) baseUrl.pathname = `${baseUrl.pathname}/`;
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 const defaultSocialImage = canonicalUrl("/ys-heng-social-preview.png");
 const dealerId = canonicalUrl("/#business");
-const facebookUrl = "https://www.facebook.com/p/Ys-Heng-Automotive-Sdn-Bhd-100065128765841/";
-const googleMapsUrl = "https://maps.app.goo.gl/3GGVr6vHLxhGabP28";
 
 export function canonicalUrl(path = "/") {
   return new URL(path.replace(/^\//, ""), baseUrl).toString();
@@ -88,17 +96,13 @@ export function vehicleMetadata(vehicle: PublicVehicle, language: Language = "en
 }
 
 export function organizationStructuredData() {
-  const salesPhone = process.env.NEXT_PUBLIC_SALES_PHONE ?? "010-828 1218";
-  const salesEmail = process.env.NEXT_PUBLIC_SALES_EMAIL ?? "yshengauto@gmail.com";
-  const showroomAddress = process.env.NEXT_PUBLIC_SHOWROOM_ADDRESS
-    ?? "No.6, Jalan Pulai, Kawasan Jalan Mersing Batu 1 1/2, 86000 Kluang, Johor.";
-
   return {
     "@context": "https://schema.org",
     "@type": "AutoDealer",
     "@id": dealerId,
-    name: siteName,
-    legalName,
+    name: businessName,
+    alternateName: ["YS Heng Cars", "YS Heng Auto"],
+    legalName: legalBusinessName,
     url: canonicalUrl("/"),
     logo: canonicalUrl("/ys-heng-logo.png"),
     image: canonicalUrl("/ys-heng-logo.png"),
@@ -118,6 +122,16 @@ export function organizationStructuredData() {
     },
     hasMap: googleMapsUrl,
     sameAs: [facebookUrl],
+    identifier: {
+      "@type": "PropertyValue",
+      propertyID: "Malaysia company registration number",
+      value: companyRegistration
+    },
+    subjectOf: {
+      "@type": "VideoObject",
+      name: "YS Heng Automotive TikTok feature",
+      url: tiktokFeatureUrl
+    },
     contactPoint: {
       "@type": "ContactPoint",
       contactType: "sales",
