@@ -7,7 +7,7 @@
   ],
   "overrides": {
     "path-to-regexp": "8.4.2",
-    "postcss": "8.5.15"
+    "postcss": "8.5.26"
   },
   "scripts": {
     "dev:frontoffice": "npm --workspace apps/frontoffice run dev",
