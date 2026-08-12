@@ -31,6 +31,12 @@
 		reverse_proxy api:8080
 	}
 
+	@ops-root path /ops
+	redir @ops-root /ops/ permanent
+	handle /ops/* {
+		reverse_proxy ops-proxy:8080
+	}
+
 	handle {
 		reverse_proxy backoffice:3001
 	}

@@ -4,7 +4,7 @@ This runbook is the operator checklist for proving and deploying the Docker VPS 
 
 ## Shinjiru Ubuntu CI/CD (Production)
 
-The production path deploys a verified `main` commit to an Ubuntu VPS through GitHub Actions. It keeps PostgreSQL, API, front office, and back office host ports on `127.0.0.1`; only Caddy exposes ports 80 and 443. Caddy obtains and renews the TLS certificates after the DNS records resolve to the VPS.
+The production path publishes the Aspire AppHost into a Docker Compose artifact during CI, then deploys that verified artifact and the matching source commit to an Ubuntu VPS through GitHub Actions. It preserves the `postgres`, `api`, `worker`, `frontoffice`, and `backoffice` service names, PostgreSQL 17, and the `postgres_data` volume. The Aspire dashboard is reachable only through Caddy at `https://<BACKOFFICE_DOMAIN>/ops`; application, database, OTLP, and dashboard services have no public host ports. Caddy obtains and renews TLS certificates after DNS records resolve to the VPS.
 
 Before the first deployment:
 
@@ -19,9 +19,11 @@ Before the first deployment:
    - `SHIJIRU_KNOWN_HOSTS`: the exact known-hosts line obtained out-of-band for the configured host and port. Do not use `StrictHostKeyChecking=no` or accept a host key during deployment.
    - `PRODUCTION_ENV_FILE`: the complete production environment file based on `infra/compose.env.example`, with real secrets and DNS names.
 
-`PRODUCTION_ENV_FILE` must make the URL and hostname pairs identical. With shared API/back-office routing, for example, use `PUBLIC_API_BASE_URL=https://portal.company.my`, `API_DOMAIN=portal.company.my`, and `BACKOFFICE_DOMAIN=portal.company.my`; Caddy sends `/api/*` and `/health*` to the API and other paths to the back office. The PowerShell and Ubuntu production validators reject default passwords, example/localhost domains, mismatched hostnames, non-HTTPS URLs, and trailing slashes before the stack starts.
+`PRODUCTION_ENV_FILE` must make the URL and hostname pairs identical. With shared API/back-office routing, for example, use `PUBLIC_API_BASE_URL=https://portal.company.my`, `API_DOMAIN=portal.company.my`, and `BACKOFFICE_DOMAIN=portal.company.my`; Caddy sends `/api/*` and `/health*` to the API, `/ops/*` to the internal Aspire dashboard adapter, and other paths to the back office. The adapter keeps the dashboard's redirects, HTML base URL, and authentication cookie scoped to `/ops/`. The PowerShell and Ubuntu production validators reject default passwords, example/localhost domains, mismatched hostnames, non-HTTPS URLs, trailing slashes, placeholder dashboard credentials, and short dashboard credentials before the stack starts.
 
-After the three CI jobs succeed on `main`, the `Deploy production (Shinjiru Ubuntu)` job uploads that verified commit, installs Docker Engine/Compose from Docker's signed Ubuntu repository if absent, enables UFW for the configured SSH port plus 80/443, configures the daily backup timer, builds the Compose stack, obtains TLS through Caddy, and runs read-only HTTPS smoke checks. `workflow_dispatch` supports an approved retry from `main`; pull requests never receive production secrets.
+After the CI checks succeed on `main`, production remains paused. To deploy, open **Actions → CI → Run workflow**, select `main`, set `deploy_production` to true, and complete the `production`-environment approval. The job uploads the verified source commit plus its Aspire Compose artifact, installs Docker Engine/Compose from Docker's signed Ubuntu repository if absent, enables UFW for the configured SSH port plus 80/443, builds the images locally on the VPS, obtains TLS through Caddy, and runs read-only HTTPS smoke checks. Pull requests never receive production secrets.
+
+The server never needs the Aspire CLI. CI runs the pinned CLI, writes `infra/aspire-output/docker-compose.yaml`, verifies that artifact, and transfers it with the release. The server combines it with `infra/docker-compose.aspire.production.yml`, which restores the production health checks, Caddy, restart policies, and Dockerfile builds. Direct `aspire deploy` is not part of this production path while that deployment command remains preview. Do not edit the generated output; rerun `./infra/publish-aspire-compose.ps1` after removing its existing output directory explicitly.
 
 The bootstrap intentionally does not alter `sshd_config`, disable password login, or add offsite backup storage. Confirm a separate break-glass SSH session first, then apply SSH hardening under an approved server-access change. Copy `/var/lib/ysheng-backups` to encrypted offsite storage and test a restore before treating backups as recoverable.
 
@@ -57,6 +59,8 @@ Before production deploy, replace:
 
 - `POSTGRES_PASSWORD`
 - `SEED_ADMIN_PASSWORD`
+- `ASPIRE_DASHBOARD_BROWSER_TOKEN`
+- `ASPIRE_DASHBOARD_OTLP_API_KEY`
 - `PUBLIC_API_BASE_URL`
 - `FRONTOFFICE_ORIGIN`
 - `BACKOFFICE_ORIGIN`
@@ -65,7 +69,15 @@ Before production deploy, replace:
 - `BACKOFFICE_DOMAIN`
 - `TLS_EMAIL`
 
-Validation rejects placeholder passwords, `example.com`, localhost public URLs, loopback public URLs, and trailing slashes on public URLs.
+Generate the two dashboard values independently on a secure workstation with `openssl rand -hex 32`. The browser token protects the `/ops` user interface; the OTLP key authenticates only telemetry from the API and worker. Do not reuse either value, put it in a URL, or paste it into tickets, chat, source control, or CI logs.
+
+Validation rejects placeholder passwords, placeholder dashboard credentials, `example.com`, localhost public URLs, loopback public URLs, and trailing slashes on public URLs.
+
+## Aspire Operations Dashboard
+
+After a successful production deployment, open `https://<BACKOFFICE_DOMAIN>/ops/`. The dashboard displays sensitive runtime telemetry, so it is separate from the back-office login. At `/ops/login`, enter `ASPIRE_DASHBOARD_BROWSER_TOKEN` from the protected production secret. Do not use the optional `?t=` login URL because it can leak into browser history, logs, and support messages.
+
+The dashboard image is pinned to the x86_64 digest used by the Ubuntu VPS. It has no direct host port, accepts OTLP only with the separate API key, and disables its Telemetry HTTP API. An internal Nginx adapter is necessary because the dashboard is otherwise root-path-only; it has no host port and only rewrites dashboard paths and cookies to `/ops/`. Automatic production smoke checks intentionally do not authenticate to `/ops`, so they never read or echo either dashboard secret. The dashboard prints a tokenized login URL in its container startup log, so do not paste `docker logs production-dashboard` into tickets or chat. Put the future VPN or identity-aware proxy in front of `/ops` as an additional internal-access control; retain the dashboard token after that change.
 
 For local Docker Desktop smoke testing only:
 

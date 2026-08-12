@@ -6,6 +6,7 @@
     <UserSecretsId>ysheng-mvp-api</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\YSHeng.ServiceDefaults\YSHeng.ServiceDefaults.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
       <PrivateAssets>all</PrivateAssets>

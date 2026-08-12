@@ -1,0 +1,132 @@
+services:
+  postgres:
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d ysheng"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: services/api/src/YSHeng.Api/Dockerfile
+    restart: unless-stopped
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build:
+      context: ..
+      dockerfile: services/api/src/YSHeng.Api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}
+
+  production-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.4.2@sha256:583b33ffe6cf016115bb55dee00d682ab388832eeb6dd55b6df137e8cae1c1ab
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:18888
+      ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL: http://+:18889
+      ASPIRE_DASHBOARD_OTLP_HTTP_ENDPOINT_URL: http://+:18890
+      DASHBOARD__FRONTEND__AUTHMODE: BrowserToken
+      DASHBOARD__FRONTEND__BROWSERTOKEN: ${ASPIRE_DASHBOARD_BROWSER_TOKEN}
+      DASHBOARD__FRONTEND__PUBLICURL: https://${BACKOFFICE_DOMAIN}/ops
+      DASHBOARD__OTLP__AUTHMODE: ApiKey
+      DASHBOARD__OTLP__PRIMARYAPIKEY: ${ASPIRE_DASHBOARD_OTLP_API_KEY}
+      ASPIRE_DASHBOARD_API_DISABLED: "true"
+
+  ops-proxy:
+    image: nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    restart: unless-stopped
+    volumes:
+      - ./nginx/ops-proxy.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - aspire
+    depends_on:
+      production-dashboard:
+        condition: service_started
+
+  frontoffice:
+    build:
+      context: ..
+      dockerfile: apps/frontoffice/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+        NEXT_PUBLIC_SITE_URL: ${FRONTOFFICE_ORIGIN}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://$$(hostname):3000 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  backoffice:
+    build:
+      context: ..
+      dockerfile: apps/backoffice/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      TLS_EMAIL: ${TLS_EMAIL}
+      API_DOMAIN: ${API_DOMAIN}
+      FRONTOFFICE_DOMAIN: ${FRONTOFFICE_DOMAIN}
+      BACKOFFICE_DOMAIN: ${BACKOFFICE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - aspire
+    depends_on:
+      api:
+        condition: service_healthy
+      frontoffice:
+        condition: service_healthy
+      backoffice:
+        condition: service_healthy
+      ops-proxy:
+        condition: service_started
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -73,6 +73,37 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build Aspire AppHost
+        run: dotnet build services/api/src/YSHeng.AppHost/YSHeng.AppHost.csproj
+
+      - name: Check Aspire AppHost contract
+        shell: pwsh
+        run: ./infra/test-aspire-apphost.ps1
+
+      - name: Publish Aspire Docker Compose artifact
+        shell: pwsh
+        run: ./infra/publish-aspire-compose.ps1
+
+      - name: Check Aspire Docker Compose artifact
+        shell: pwsh
+        run: ./infra/test-aspire-compose-artifact.ps1
+
+      - name: Check merged Aspire production Compose dashboard
+        shell: pwsh
+        run: ./infra/test-aspire-production-compose.ps1
+
+      - name: Upload Aspire Compose artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aspire-compose
+          path: infra/aspire-output
+          if-no-files-found: error
+
       - name: Check Dockerfiles
         shell: pwsh
         run: ./infra/test-dockerfiles.ps1
@@ -126,8 +157,8 @@ jobs:
       - deployment-contracts
     if: >-
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy_production))
+      github.event_name == 'workflow_dispatch' &&
+      inputs.deploy_production
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
@@ -138,6 +169,12 @@ jobs:
     steps:
       - name: Check out verified commit
         uses: actions/checkout@v4
+
+      - name: Download verified Aspire Compose artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aspire-compose
+          path: infra/aspire-output
 
       - name: Deploy over verified SSH
         shell: bash
@@ -174,6 +211,7 @@ jobs:
 
           "${ssh_command[@]}" "$ssh_target" "mkdir -p '$remote_stage'"
           git archive --format=tar "$GITHUB_SHA" | "${ssh_command[@]}" "$ssh_target" "tar -xf - -C '$remote_stage'"
+          tar -C infra/aspire-output -cf - . | "${ssh_command[@]}" "$ssh_target" "mkdir -p '$remote_stage/infra/aspire-output'; tar -xf - -C '$remote_stage/infra/aspire-output'"
           "${ssh_command[@]}" "$ssh_target" "sudo -n /bin/bash '$remote_stage/infra/ubuntu/bootstrap-shinjiru.sh' --deploy-user '$DEPLOY_USER' --release-dir '$remote_stage' --ssh-port '$DEPLOY_SSH_PORT'"
           cat "$env_file" | "${ssh_command[@]}" "$ssh_target" "umask 077; cat > /opt/ysheng/shared/.env"
           "${ssh_command[@]}" "$ssh_target" "bash '/opt/ysheng/releases/$GITHUB_SHA/infra/ubuntu/deploy-production.sh' --release-dir '/opt/ysheng/releases/$GITHUB_SHA' --env-file /opt/ysheng/shared/.env"

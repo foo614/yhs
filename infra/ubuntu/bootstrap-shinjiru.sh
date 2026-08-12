@@ -50,6 +50,7 @@ done
 [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && (( SSH_PORT >= 1 && SSH_PORT <= 65535 )) || fail "--ssh-port must be between 1 and 65535."
 [[ -n "$RELEASE_DIR" && -d "$RELEASE_DIR" ]] || fail "--release-dir must be an existing uploaded release directory."
 [[ -f "$RELEASE_DIR/infra/ubuntu/deploy-production.sh" ]] || fail "Release directory is missing deployment scripts."
+[[ -f "$RELEASE_DIR/infra/aspire-output/docker-compose.yaml" ]] || fail "Release directory is missing the Aspire Compose artifact."
 
 source /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || fail "This bootstrap supports Ubuntu only. Detected: ${ID:-unknown}."

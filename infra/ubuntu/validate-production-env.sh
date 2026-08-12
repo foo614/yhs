@@ -34,18 +34,24 @@ require_value() {
 for key in \
   POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD \
   SEED_ADMIN_EMAIL SEED_ADMIN_PASSWORD SEED_DATA_ENABLED ASPNETCORE_ENVIRONMENT \
+  ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY \
   PUBLIC_API_BASE_URL FRONTOFFICE_ORIGIN BACKOFFICE_ORIGIN \
   API_DOMAIN FRONTOFFICE_DOMAIN BACKOFFICE_DOMAIN TLS_EMAIL; do
   require_value "$key"
 done
 
-for key in POSTGRES_PASSWORD SEED_ADMIN_PASSWORD; do
+for key in POSTGRES_PASSWORD SEED_ADMIN_PASSWORD ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY; do
   value="$(read_env "$key")"
   case "$value" in
-    change-this-database-password|change-this-admin-password|ChangeMe123\!|ysheng_dev)
+    change-this-database-password|change-this-admin-password|change-this-dashboard-browser-token|change-this-dashboard-otlp-api-key|ChangeMe123\!|ysheng_dev)
       failures+=("$key still uses an example/default value.")
       ;;
   esac
+done
+
+for key in ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY; do
+  value="$(read_env "$key")"
+  (( ${#value} >= 32 )) || failures+=("$key must be at least 32 characters long.")
 done
 
 [[ "$(read_env ASPNETCORE_ENVIRONMENT)" == "Production" ]] || failures+=("ASPNETCORE_ENVIRONMENT must be Production.")

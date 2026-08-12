@@ -19,4 +19,5 @@ backups/
 .codex/screenshots/
 apps/frontoffice/out/
 artifacts/
+infra/aspire-output/
 test-results/

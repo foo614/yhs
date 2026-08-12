@@ -25,6 +25,14 @@ done
 [[ -f "$ENV_FILE" ]] || { echo "ERROR: Production environment file not found: $ENV_FILE" >&2; exit 1; }
 [[ -d "$APP_ROOT/current" ]] || { echo "ERROR: No deployed release is available at $APP_ROOT/current" >&2; exit 1; }
 
+CURRENT_RELEASE="$(readlink -f "$APP_ROOT/current")"
+RELEASE_NAME="$(basename "$CURRENT_RELEASE")"
+[[ "$RELEASE_NAME" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: Current release name must be the 40-character commit SHA." >&2; exit 1; }
+export API_IMAGE="ysheng-api:$RELEASE_NAME"
+export WORKER_IMAGE="ysheng-worker:$RELEASE_NAME"
+export FRONTOFFICE_IMAGE="ysheng-frontoffice:$RELEASE_NAME"
+export BACKOFFICE_IMAGE="ysheng-backoffice:$RELEASE_NAME"
+
 read_env() {
   local key="$1"
   local value
@@ -45,10 +53,10 @@ final_backup="$BACKUP_DIR/ysheng-$timestamp.dump"
 COMPOSE=(
   docker compose
   --project-name ysheng
-  --project-directory "$APP_ROOT/current"
+  --project-directory "$APP_ROOT/current/infra"
   --env-file "$ENV_FILE"
-  -f "$APP_ROOT/current/infra/docker-compose.yml"
-  -f "$APP_ROOT/current/infra/docker-compose.production.yml"
+  -f "$APP_ROOT/current/infra/aspire-output/docker-compose.yaml"
+  -f "$APP_ROOT/current/infra/docker-compose.aspire.production.yml"
 )
 
 "${COMPOSE[@]}" exec -T postgres pg_dump -U "$user" -d "$database" -Fc > "$partial_backup"

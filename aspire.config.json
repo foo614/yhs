@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "services/api/src/YSHeng.AppHost/YSHeng.AppHost.csproj"
+  }
+}

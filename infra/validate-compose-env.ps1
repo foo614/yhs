@@ -31,6 +31,8 @@ $requiredKeys = @(
   "SEED_ADMIN_PASSWORD",
   "SEED_DATA_ENABLED",
   "ASPNETCORE_ENVIRONMENT",
+  "ASPIRE_DASHBOARD_BROWSER_TOKEN",
+  "ASPIRE_DASHBOARD_OTLP_API_KEY",
   "PUBLIC_API_BASE_URL",
   "FRONTOFFICE_ORIGIN",
   "BACKOFFICE_ORIGIN",
@@ -51,12 +53,19 @@ if (-not $AllowExampleValues) {
   $unsafeValues = @(
     "change-this-database-password",
     "change-this-admin-password",
+    "change-this-dashboard-browser-token",
+    "change-this-dashboard-otlp-api-key",
     "ChangeMe123!",
     "ysheng_dev"
   )
-  foreach ($key in @("POSTGRES_PASSWORD", "SEED_ADMIN_PASSWORD")) {
+  foreach ($key in @("POSTGRES_PASSWORD", "SEED_ADMIN_PASSWORD", "ASPIRE_DASHBOARD_BROWSER_TOKEN", "ASPIRE_DASHBOARD_OTLP_API_KEY")) {
     if ($values.ContainsKey($key) -and $unsafeValues -contains $values[$key]) {
       $errors.Add("$key still uses an example/default value.")
+    }
+  }
+  foreach ($key in @("ASPIRE_DASHBOARD_BROWSER_TOKEN", "ASPIRE_DASHBOARD_OTLP_API_KEY")) {
+    if ($values.ContainsKey($key) -and $values[$key].Length -lt 32) {
+      $errors.Add("$key must be at least 32 characters long.")
     }
   }
 }

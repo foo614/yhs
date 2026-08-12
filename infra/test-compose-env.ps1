@@ -22,6 +22,8 @@ function New-TestEnvFile {
     SEED_ADMIN_PASSWORD = "S3cure-admin-password!"
     SEED_DATA_ENABLED = "true"
     ASPNETCORE_ENVIRONMENT = "Production"
+    ASPIRE_DASHBOARD_BROWSER_TOKEN = "dashboard-browser-token-with-32-characters"
+    ASPIRE_DASHBOARD_OTLP_API_KEY = "dashboard-otlp-key-with-32-characters"
     PUBLIC_API_BASE_URL = "https://portal.ysheng.example.my"
     FRONTOFFICE_ORIGIN = "https://www.ysheng.example.my"
     BACKOFFICE_ORIGIN = "https://portal.ysheng.example.my"
@@ -105,6 +107,16 @@ $placeholderSecrets = New-TestEnvFile -Name "placeholder-secrets" -Overrides @{
   SEED_ADMIN_PASSWORD = "ChangeMe123!"
 }
 Assert-ValidationFails -Name "Placeholder secrets" -Path $placeholderSecrets -ExpectedMessage "POSTGRES_PASSWORD still uses an example/default value."
+
+$placeholderDashboardSecret = New-TestEnvFile -Name "placeholder-dashboard-secret" -Overrides @{
+  ASPIRE_DASHBOARD_OTLP_API_KEY = "change-this-dashboard-otlp-api-key"
+}
+Assert-ValidationFails -Name "Placeholder dashboard secret" -Path $placeholderDashboardSecret -ExpectedMessage "ASPIRE_DASHBOARD_OTLP_API_KEY still uses an example/default value."
+
+$shortDashboardToken = New-TestEnvFile -Name "short-dashboard-token" -Overrides @{
+  ASPIRE_DASHBOARD_BROWSER_TOKEN = "short-dashboard-token"
+}
+Assert-ValidationFails -Name "Short dashboard token" -Path $shortDashboardToken -ExpectedMessage "ASPIRE_DASHBOARD_BROWSER_TOKEN must be at least 32 characters long."
 
 $localUrls = New-TestEnvFile -Name "local-urls" -Overrides @{
   PUBLIC_API_BASE_URL = "http://localhost:5000"

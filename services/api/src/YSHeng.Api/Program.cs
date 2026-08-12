@@ -11,6 +11,7 @@ using YSHeng.Api.Domain;
 using YSHeng.Api.Features;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
