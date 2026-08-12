@@ -39,6 +39,13 @@ $backupService = Read-Text "infra/ubuntu/ysheng-backup.service"
 $backupTimer = Read-Text "infra/ubuntu/ysheng-backup.timer"
 $workflow = Read-Text ".github/workflows/ci.yml"
 
+foreach ($compose in @($productionCompose, $aspireProductionCompose)) {
+  Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected "Ocr__Provider: GoogleDocumentAi"
+  Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected 'source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH}'
+  Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected "target: /run/secrets/google-document-ai.json"
+  Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected "read_only: true"
+}
+
 foreach ($expected in @(
   "caddy:",
   "image: caddy:2.10-alpine",
@@ -156,6 +163,8 @@ Assert-Contains -Name "Production smoke script" -Text $smoke -Expected "strict-t
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "Production environment validation failed:"
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "must equal"
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "ASPIRE_DASHBOARD_BROWSER_TOKEN"
+Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH"
+Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "Google Application Default Credentials file not found"
 Assert-Contains -Name "Backup service" -Text $backupService -Expected "User=__DEPLOY_USER__"
 Assert-Contains -Name "Backup timer" -Text $backupTimer -Expected "OnCalendar=*-*-* 02:15:00 UTC"
 

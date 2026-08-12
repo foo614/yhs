@@ -16,16 +16,24 @@ var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+builder.Services.Configure<GoogleDocumentAiOptions>(builder.Configuration.GetSection("Ocr:GoogleDocumentAi"));
+builder.Services.AddSingleton<IGoogleAccessTokenProvider, GoogleApplicationDefaultAccessTokenProvider>();
+builder.Services.AddHttpClient<GoogleDocumentAiClient>();
+builder.Services.AddScoped<GoogleDocumentAiExtractor>();
 builder.Services.Configure<BaiduUnlimitedOcrOptions>(builder.Configuration.GetSection("Ocr:BaiduUnlimited"));
 builder.Services.AddHttpClient<BaiduUnlimitedOcrClient>();
 builder.Services.AddScoped<BaiduUnlimitedOcrExtractor>();
 builder.Services.AddScoped<LocalMockOcrExtractor>();
 builder.Services.AddScoped<IOcrExtractor>(services =>
 {
-    var provider = services.GetRequiredService<IConfiguration>().GetValue("Ocr:Provider", "BaiduUnlimited");
-    return string.Equals(provider, "LocalMock", StringComparison.OrdinalIgnoreCase)
-        ? services.GetRequiredService<LocalMockOcrExtractor>()
-        : services.GetRequiredService<BaiduUnlimitedOcrExtractor>();
+    var provider = services.GetRequiredService<IConfiguration>().GetValue("Ocr:Provider", "GoogleDocumentAi");
+    return provider?.ToUpperInvariant() switch
+    {
+        "GOOGLEDOCUMENTAI" => services.GetRequiredService<GoogleDocumentAiExtractor>(),
+        "BAIDUUNLIMITED" => services.GetRequiredService<BaiduUnlimitedOcrExtractor>(),
+        "LOCALMOCK" => services.GetRequiredService<LocalMockOcrExtractor>(),
+        _ => throw new InvalidOperationException($"Unsupported OCR provider '{provider}'.")
+    };
 });
 builder.Services.Configure<AutoCountAotgOptions>(builder.Configuration.GetSection("AutoCount:Aotg"));
 builder.Services.AddHttpClient<IAutoCountClient, AutoCountAotgClient>();

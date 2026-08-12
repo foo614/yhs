@@ -68,10 +68,21 @@ Before production deploy, replace:
 - `FRONTOFFICE_DOMAIN`
 - `BACKOFFICE_DOMAIN`
 - `TLS_EMAIL`
+- `GOOGLE_DOCUMENT_AI_PROJECT_ID`
+- `GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID`
+- `GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH`
 
 Generate the two dashboard values independently on a secure workstation with `openssl rand -hex 32`. The browser token protects the `/ops` user interface; the OTLP key authenticates only telemetry from the API and worker. Do not reuse either value, put it in a URL, or paste it into tickets, chat, source control, or CI logs.
 
 Validation rejects placeholder passwords, placeholder dashboard credentials, `example.com`, localhost public URLs, loopback public URLs, and trailing slashes on public URLs.
+
+## Google Document AI OCR
+
+Create an Enterprise Document OCR processor in the configured `GOOGLE_DOCUMENT_AI_LOCATION` (the template uses `asia-southeast1`). Optional Invoice Parser and Expense Parser processor IDs improve structured extraction for invoices and receipts. Use a dedicated service account with only the Document AI API User role needed to process these processors.
+
+Place its Application Default Credentials file at `GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH` on the VPS, outside the release directory, owned by root and readable only by the deployment/runtime account. Do not place the JSON in `PRODUCTION_ENV_FILE`, GitHub logs, tickets, or source control. The production Compose override mounts it read-only at `/run/secrets/google-document-ai.json`.
+
+IC and finance uploads contain personal or financial data and are sent to Google Cloud for processing. Confirm the selected region, retention configuration, customer notice/consent, and organizational privacy requirements before enabling production OCR. Keep the existing staff review step enabled; OCR output is advisory draft data rather than an automatic record update.
 
 ## Aspire Operations Dashboard
 

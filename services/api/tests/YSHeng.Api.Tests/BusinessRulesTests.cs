@@ -2784,6 +2784,139 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public async Task Google_document_ai_extractor_uses_specialized_invoice_processor_and_mapped_entities()
+    {
+        string? requestBody = null;
+        string? authorization = null;
+        Uri? requestUri = null;
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            requestUri = request.RequestUri;
+            authorization = request.Headers.Authorization?.ToString();
+            requestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    {
+                      "document": {
+                        "text": "Purchase invoice OCR-FALLBACK plate VPK1234 amount RM 1.00",
+                        "entities": [
+                          { "type": "invoice_id", "mentionText": "PI-1001", "confidence": 0.98 },
+                          { "type": "supplier_name", "mentionText": "YS Parts", "confidence": 0.91 },
+                          {
+                            "type": "total_amount",
+                            "mentionText": "RM 52,000.00",
+                            "confidence": 0.96,
+                            "normalizedValue": { "moneyValue": { "currencyCode": "MYR", "units": "52000", "nanos": 0 } }
+                          }
+                        ],
+                        "pages": [{ "tokens": [{ "layout": { "confidence": 0.94 } }] }]
+                      }
+                    }
+                    """,
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        });
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions
+            {
+                ProjectId = "ysheng-ocr",
+                Location = "asia-southeast1",
+                DefaultProcessorId = "general-processor",
+                InvoiceProcessorId = "invoice-processor",
+                RequestTimeoutSeconds = 30
+            }));
+        var extractor = new GoogleDocumentAiExtractor(client);
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "VPK1234" };
+        var document = new DocumentBlob
+        {
+            VehicleId = vehicle.Id,
+            Category = FileCategory.PurchaseInvoice,
+            FileName = "purchase.png",
+            MimeType = "image/png",
+            Content = [1, 2, 3]
+        };
+
+        var result = await extractor.AnalyzeAsync(document, [vehicle]);
+
+        Assert.Equal(
+            "https://asia-southeast1-documentai.googleapis.com/v1/projects/ysheng-ocr/locations/asia-southeast1/processors/invoice-processor:process",
+            requestUri?.ToString());
+        Assert.Equal("Bearer test-access-token", authorization);
+        Assert.Contains("\"content\":\"AQID\"", requestBody);
+        Assert.Contains("\"mimeType\":\"image/png\"", requestBody);
+        Assert.DoesNotContain("test-access-token", requestBody);
+        Assert.Equal("PI-1001", result.Fields["invoiceNumber"]);
+        Assert.Equal("YS Parts", result.Fields["supplierName"]);
+        Assert.Equal("52000", result.Fields["amount"]);
+        Assert.Equal(0.98m, result.FieldConfidence["invoiceNumber"]);
+        Assert.DoesNotContain(result.Warnings, warning => warning.Contains("default OCR processor", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Google_document_ai_uses_default_processor_with_warning_when_expense_processor_is_missing()
+    {
+        Uri? requestUri = null;
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            requestUri = request.RequestUri;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"document":{"text":"Receipt RCPT-1001 amount RM 50.00","pages":[]}}""",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        });
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions
+            {
+                ProjectId = "ysheng-ocr",
+                DefaultProcessorId = "general-processor"
+            }));
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.PaymentReceipt,
+            FileName = "receipt.jpg",
+            MimeType = "image/jpeg",
+            Content = [4, 5, 6]
+        };
+
+        var recognition = await client.RecognizeAsync(document);
+
+        Assert.Contains("/processors/general-processor:process", requestUri?.AbsolutePath);
+        Assert.Contains(recognition.Warnings, warning => warning.Contains("specialized expense processor", StringComparison.Ordinal));
+        Assert.Contains(recognition.Warnings, warning => warning.Contains("did not return confidence", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Google_document_ai_rejects_missing_configuration_before_sending_document()
+    {
+        var handler = new StubHttpMessageHandler(_ => throw new InvalidOperationException("HTTP request should not be sent."));
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions()));
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.Voc,
+            FileName = "voc.png",
+            MimeType = "image/png",
+            Content = [1]
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => client.RecognizeAsync(document));
+
+        Assert.Equal("Google Document AI project ID is not configured.", error.Message);
+    }
+
+    [Fact]
     public void Reminder_worker_retries_when_database_schema_is_not_ready()
     {
         Assert.True(ReminderWorkerPolicy.IsMissingSchemaErrorCode("42P01"));
@@ -2886,6 +3019,11 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
         handler(request, cancellationToken);
+}
+
+internal sealed class FixedGoogleAccessTokenProvider(string accessToken) : IGoogleAccessTokenProvider
+{
+    public Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default) => Task.FromResult(accessToken);
 }
 
 internal static class VehicleSeed

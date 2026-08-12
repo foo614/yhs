@@ -16,6 +16,18 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}
+      Ocr__Provider: GoogleDocumentAi
+      Ocr__GoogleDocumentAi__ProjectId: ${GOOGLE_DOCUMENT_AI_PROJECT_ID}
+      Ocr__GoogleDocumentAi__Location: ${GOOGLE_DOCUMENT_AI_LOCATION}
+      Ocr__GoogleDocumentAi__DefaultProcessorId: ${GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID}
+      Ocr__GoogleDocumentAi__InvoiceProcessorId: ${GOOGLE_DOCUMENT_AI_INVOICE_PROCESSOR_ID:-}
+      Ocr__GoogleDocumentAi__ExpenseProcessorId: ${GOOGLE_DOCUMENT_AI_EXPENSE_PROCESSOR_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-document-ai.json
+    volumes:
+      - type: bind
+        source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH}
+        target: /run/secrets/google-document-ai.json
+        read_only: true
     depends_on:
       postgres:
         condition: service_healthy

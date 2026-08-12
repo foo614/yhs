@@ -130,7 +130,7 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}` | Category-specific role | Upload document, max 10 MB; workflow-record IDs are optional and mutually exclusive. |
 | `GET` | `/api/vehicles/{id}/documents` | Category-specific role | List document metadata visible to the signed-in department. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | Category-specific role | Download document content visible to the signed-in department. |
-| `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start Baidu Unlimited-OCR analysis for the authorized uploaded document category, including IC, VOC, invoice, and receipt review. |
+| `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start Google Document AI analysis for the authorized uploaded document category, including IC, VOC, invoice, and receipt review. |
 | `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, warnings, extracted draft fields, and review decision. |
 | `PUT` | `/api/ocr-jobs/{jobId}/review` | Category-specific role | Accept or reject OCR-extracted draft fields with reviewer identity, timestamp, and review notes before applying them to operational records. |
 | `GET` | `/api/vehicles/{id}/ocr-jobs` | Category-specific role | List captured OCR data for uploaded vehicle documents visible to the signed-in department. |
@@ -140,10 +140,11 @@ OCR runtime:
 - IC extraction returns customer name, IC number, and address. VOC extraction returns registration, chassis, engine, make, model, year, and registered-owner suggestions. Invoice and receipt extraction retains the existing finance and supplier fields.
 - The back-office review drawer shows field confidence. When a suggestion differs from the current customer or vehicle master value, `Keep current value` is the default and the reviewer must explicitly select `Use reviewed OCR value` before the accepted values are applied.
 
-- The default OCR provider is `BaiduUnlimited`, configured through `Ocr__BaiduUnlimited__Endpoint` with an OpenAI-compatible Baidu Unlimited-OCR/SGLang server, usually `http://127.0.0.1:10000`.
-- `Ocr__BaiduUnlimited__Model` defaults to `Unlimited-OCR`; `Ocr__BaiduUnlimited__ImageMode` defaults to `gundam`.
-- The current backend adapter sends uploaded image files to the OCR service; PDF conversion must happen before upload or inside a separate OCR gateway.
-- `Ocr__Provider=LocalMock` is only for local deterministic fallback or tests.
+- The default OCR provider is `GoogleDocumentAi`. Configure `Ocr__GoogleDocumentAi__ProjectId`, `Location`, and `DefaultProcessorId`; the deployment environment uses the equivalent `GOOGLE_DOCUMENT_AI_*` values.
+- Configure `InvoiceProcessorId` for purchase, repair, and payment invoices and `ExpenseProcessorId` for payment receipts. When either specialized processor is absent, OCR falls back to `DefaultProcessorId` and adds a review warning.
+- Authentication uses Google Application Default Credentials and the `cloud-platform` OAuth scope. The production container reads a least-privilege credential from `/run/secrets/google-document-ai.json`; never store credential JSON in source control or an environment-file value.
+- The backend sends uploaded image bytes to Google Document AI. Keep the existing manual review step because schema-valid extraction can still be semantically wrong. PDF conversion remains outside this upload flow.
+- `Ocr__Provider=LocalMock` is for deterministic local tests. `BaiduUnlimited` remains an explicit legacy provider during migration but is no longer the default.
 
 Document upload ownership:
 

@@ -111,6 +111,8 @@ Assert-Contains -Name "api front-office CORS" -Text $api -Expected 'AllowedOrigi
 Assert-Contains -Name "api back-office CORS" -Text $api -Expected 'AllowedOrigins__1: ${BACKOFFICE_ORIGIN:-http://localhost:3001}'
 Assert-Contains -Name "api seed email" -Text $api -Expected 'SeedAdmin__Email: ${SEED_ADMIN_EMAIL:-admin@ysheng.local}'
 Assert-Contains -Name "api seed password" -Text $api -Expected 'SeedAdmin__Password: ${SEED_ADMIN_PASSWORD:-ChangeMe123!}'
+Assert-Contains -Name "api local OCR provider" -Text $api -Expected 'Ocr__Provider: ${OCR_PROVIDER:-LocalMock}'
+Assert-Contains -Name "api Google OCR project" -Text $api -Expected 'Ocr__GoogleDocumentAi__ProjectId: ${GOOGLE_DOCUMENT_AI_PROJECT_ID:-}'
 Assert-Contains -Name "api loopback port" -Text $api -Expected '"127.0.0.1:${API_PORT:-5000}:8080"'
 Assert-Contains -Name "api depends on postgres health" -Text $api -Expected "postgres:"
 Assert-Contains -Name "api health dependency condition" -Text $api -Expected "condition: service_healthy"

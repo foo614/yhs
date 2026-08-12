@@ -39,7 +39,7 @@ It is intended to keep the implementation aligned with the original business voc
 | Profit calculation: nett selling price, refurbishment, commission, real-time dashboard | Implemented | Dashboard `totalProfit`/`estimatedProfit`, repair/payment/commission cost impacts. |
 | Debt recovery status, balance reminder, follow-up | Implemented with manual reminder workflow | Debt recovery records and dashboard reminders; WhatsApp automation remains extension scope. |
 | Dashboard: total stock, total profit, pending loan, outstanding payment, settlement due, top supplier, sales performance, vehicle aging | Implemented | Dashboard summary and smoke/test coverage. |
-| AI OCR, loan eligibility prediction, photo optimization, profit prediction, WhatsApp, AutoCount integration | OCR and AutoCount sales invoice sync implemented for first scope; other automation remains extension point | Uploaded receipt/invoice OCR uses a Baidu Unlimited-OCR-compatible backend service and existing `OcrJobs`; AutoCount sales invoice generation/sync is implemented for Finance, while WhatsApp, loan eligibility prediction, photo optimization, and profit prediction remain extension scope. |
+| AI OCR, loan eligibility prediction, photo optimization, profit prediction, WhatsApp, AutoCount integration | OCR and AutoCount sales invoice sync implemented for first scope; other automation remains extension point | Uploaded IC, VOC, receipt, and invoice OCR uses Google Document AI and existing `OcrJobs`; AutoCount sales invoice generation/sync is implemented for Finance, while WhatsApp, loan eligibility prediction, photo optimization, and profit prediction remain extension scope. |
 
 ## Verification
 

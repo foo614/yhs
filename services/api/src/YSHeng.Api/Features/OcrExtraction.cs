@@ -1,6 +1,9 @@
-using System.Text.RegularExpressions;
+using System.Globalization;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.Options;
 using YSHeng.Api.Domain;
 
@@ -18,6 +21,286 @@ public sealed record OcrExtractionResult(
     Dictionary<string, string?> Fields,
     string RawText,
     IReadOnlyList<string> Warnings);
+
+public sealed class GoogleDocumentAiOptions
+{
+    public string ProjectId { get; init; } = "";
+    public string Location { get; init; } = "asia-southeast1";
+    public string DefaultProcessorId { get; init; } = "";
+    public string? InvoiceProcessorId { get; init; }
+    public string? ExpenseProcessorId { get; init; }
+    public int RequestTimeoutSeconds { get; init; } = 120;
+}
+
+public interface IGoogleAccessTokenProvider
+{
+    Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default);
+}
+
+public sealed class GoogleApplicationDefaultAccessTokenProvider : IGoogleAccessTokenProvider
+{
+    private const string CloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform";
+    private readonly Lazy<Task<GoogleCredential>> credential = new(() => GoogleCredential.GetApplicationDefaultAsync());
+
+    public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
+    {
+        var loadedCredential = await credential.Value.WaitAsync(cancellationToken);
+        var scopedCredential = loadedCredential.IsCreateScopedRequired
+            ? loadedCredential.CreateScoped(CloudPlatformScope)
+            : loadedCredential;
+        return await ((ITokenAccess)scopedCredential).GetAccessTokenForRequestAsync(cancellationToken: cancellationToken);
+    }
+}
+
+public sealed record GoogleDocumentAiEntity(string Type, string Value, decimal Confidence);
+
+public sealed record GoogleDocumentAiRecognition(
+    string RawText,
+    decimal Confidence,
+    IReadOnlyList<GoogleDocumentAiEntity> Entities,
+    IReadOnlyList<string> Warnings);
+
+public sealed class GoogleDocumentAiClient(
+    HttpClient httpClient,
+    IGoogleAccessTokenProvider accessTokenProvider,
+    IOptions<GoogleDocumentAiOptions> options)
+{
+    private readonly GoogleDocumentAiOptions options = options.Value;
+
+    public async Task<GoogleDocumentAiRecognition> RecognizeAsync(DocumentBlob document, CancellationToken cancellationToken = default)
+    {
+        if (!document.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Google Document AI requires an uploaded image file for this backend flow.");
+        }
+
+        var processor = SelectProcessor(document.Category);
+        ValidateConfiguration(processor.ProcessorId);
+
+        var endpoint = BuildEndpoint(processor.ProcessorId);
+        var accessToken = await accessTokenProvider.GetAccessTokenAsync(cancellationToken);
+        var payload = new
+        {
+            rawDocument = new
+            {
+                content = Convert.ToBase64String(document.Content),
+                mimeType = document.MimeType
+            },
+            fieldMask = "text,entities,pages"
+        };
+
+        httpClient.Timeout = TimeSpan.FromSeconds(Math.Max(30, options.RequestTimeoutSeconds));
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"Google Document AI request failed with HTTP {(int)response.StatusCode}.");
+        }
+
+        await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var responseJson = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
+        if (!responseJson.RootElement.TryGetProperty("document", out var analyzedDocument))
+        {
+            throw new InvalidOperationException("Google Document AI returned no analyzed document.");
+        }
+
+        var rawText = analyzedDocument.TryGetProperty("text", out var textElement) ? textElement.GetString() : null;
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            throw new InvalidOperationException("Google Document AI returned no readable text.");
+        }
+
+        var entities = ReadEntities(analyzedDocument);
+        var confidence = ReadConfidence(analyzedDocument, entities);
+        var warnings = new List<string> { "Google Document AI result. Review extracted values before saving." };
+        if (processor.UsedDefaultFallback)
+        {
+            warnings.Add($"No specialized {processor.SpecializedProcessorName} processor is configured; the default OCR processor was used.");
+        }
+        if (confidence == 0)
+        {
+            warnings.Add("Google Document AI did not return confidence values for this result.");
+        }
+
+        return new GoogleDocumentAiRecognition(rawText.Trim(), confidence, entities, warnings);
+    }
+
+    private (string ProcessorId, bool UsedDefaultFallback, string SpecializedProcessorName) SelectProcessor(FileCategory category)
+    {
+        if (category is FileCategory.PurchaseInvoice or FileCategory.RepairInvoice or FileCategory.PaymentInvoice)
+        {
+            return !string.IsNullOrWhiteSpace(options.InvoiceProcessorId)
+                ? (options.InvoiceProcessorId, false, "invoice")
+                : (options.DefaultProcessorId, true, "invoice");
+        }
+
+        if (category == FileCategory.PaymentReceipt)
+        {
+            return !string.IsNullOrWhiteSpace(options.ExpenseProcessorId)
+                ? (options.ExpenseProcessorId, false, "expense")
+                : (options.DefaultProcessorId, true, "expense");
+        }
+
+        return (options.DefaultProcessorId, false, "general OCR");
+    }
+
+    private void ValidateConfiguration(string processorId)
+    {
+        if (string.IsNullOrWhiteSpace(options.ProjectId))
+        {
+            throw new InvalidOperationException("Google Document AI project ID is not configured.");
+        }
+        if (string.IsNullOrWhiteSpace(options.Location) || !Regex.IsMatch(options.Location, "^[a-z0-9-]+$"))
+        {
+            throw new InvalidOperationException("Google Document AI location is invalid.");
+        }
+        if (string.IsNullOrWhiteSpace(processorId) || !Regex.IsMatch(processorId, "^[A-Za-z0-9_-]+$"))
+        {
+            throw new InvalidOperationException("Google Document AI processor ID is not configured or invalid.");
+        }
+    }
+
+    private Uri BuildEndpoint(string processorId) => new(
+        $"https://{options.Location}-documentai.googleapis.com/v1/projects/{Uri.EscapeDataString(options.ProjectId)}/locations/{options.Location}/processors/{Uri.EscapeDataString(processorId)}:process");
+
+    private static IReadOnlyList<GoogleDocumentAiEntity> ReadEntities(JsonElement document)
+    {
+        if (!document.TryGetProperty("entities", out var entityArray) || entityArray.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var entities = new List<GoogleDocumentAiEntity>();
+        foreach (var entity in entityArray.EnumerateArray())
+        {
+            var type = entity.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null;
+            var value = ReadEntityValue(entity);
+            var confidence = entity.TryGetProperty("confidence", out var confidenceElement) && confidenceElement.TryGetDecimal(out var parsedConfidence)
+                ? parsedConfidence
+                : 0;
+            if (!string.IsNullOrWhiteSpace(type) && !string.IsNullOrWhiteSpace(value))
+            {
+                entities.Add(new GoogleDocumentAiEntity(type, value, confidence));
+            }
+        }
+        return entities;
+    }
+
+    private static string? ReadEntityValue(JsonElement entity)
+    {
+        if (entity.TryGetProperty("normalizedValue", out var normalized))
+        {
+            if (normalized.TryGetProperty("moneyValue", out var moneyValue))
+            {
+                var units = moneyValue.TryGetProperty("units", out var unitsElement) ? unitsElement.GetString() : "0";
+                var nanos = moneyValue.TryGetProperty("nanos", out var nanosElement) && nanosElement.TryGetInt32(out var parsedNanos) ? parsedNanos : 0;
+                if (decimal.TryParse(units, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedUnits))
+                {
+                    return (parsedUnits + (nanos / 1_000_000_000m)).ToString("0.##", CultureInfo.InvariantCulture);
+                }
+            }
+            if (normalized.TryGetProperty("text", out var normalizedText) && !string.IsNullOrWhiteSpace(normalizedText.GetString()))
+            {
+                return normalizedText.GetString();
+            }
+        }
+        return entity.TryGetProperty("mentionText", out var mentionText) ? mentionText.GetString() : null;
+    }
+
+    private static decimal ReadConfidence(JsonElement document, IReadOnlyList<GoogleDocumentAiEntity> entities)
+    {
+        var values = entities.Where(entity => entity.Confidence > 0).Select(entity => entity.Confidence).ToList();
+        if (document.TryGetProperty("pages", out var pages) && pages.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var page in pages.EnumerateArray())
+            {
+                if (!page.TryGetProperty("tokens", out var tokens) || tokens.ValueKind != JsonValueKind.Array) continue;
+                foreach (var token in tokens.EnumerateArray())
+                {
+                    if (token.TryGetProperty("layout", out var layout)
+                        && layout.TryGetProperty("confidence", out var confidenceElement)
+                        && confidenceElement.TryGetDecimal(out var confidence)
+                        && confidence > 0)
+                    {
+                        values.Add(confidence);
+                    }
+                }
+            }
+        }
+        return values.Count == 0 ? 0 : Math.Round(values.Average(), 4);
+    }
+}
+
+public sealed class GoogleDocumentAiExtractor(GoogleDocumentAiClient client) : IOcrExtractor
+{
+    public async Task<OcrExtractionResult> AnalyzeAsync(DocumentBlob document, IEnumerable<Vehicle> vehicles, CancellationToken cancellationToken = default)
+    {
+        var recognition = await client.RecognizeAsync(document, cancellationToken);
+        var extraction = OcrExtractionParser.Analyze(
+            document,
+            vehicles,
+            recognition.RawText,
+            recognition.Confidence,
+            recognition.Warnings);
+        return GoogleDocumentAiEntityMapper.Apply(extraction, recognition.Entities);
+    }
+}
+
+public static class GoogleDocumentAiEntityMapper
+{
+    public static OcrExtractionResult Apply(OcrExtractionResult extraction, IReadOnlyList<GoogleDocumentAiEntity> entities)
+    {
+        var fields = new Dictionary<string, string?>(extraction.Fields, StringComparer.OrdinalIgnoreCase);
+        var fieldConfidence = new Dictionary<string, decimal>(extraction.FieldConfidence, StringComparer.OrdinalIgnoreCase);
+
+        ApplyFirst(entities, fields, fieldConfidence, "invoiceNumber", "invoice_id");
+        ApplyFirst(entities, fields, fieldConfidence, "receiptNumber", "receipt_id", "expense_id");
+        ApplyFirst(entities, fields, fieldConfidence, "supplierName", "supplier_name");
+
+        var amount = FindFirst(entities, "total_amount", "net_amount", "invoice_amount");
+        if (amount is not null)
+        {
+            foreach (var field in new[] { "amount", "nettPrice", "salesPrice" })
+            {
+                fields[field] = amount.Value.Value;
+                fieldConfidence[field] = amount.Value.Confidence;
+            }
+        }
+
+        var documentDate = FindFirst(entities, "invoice_date", "receipt_date", "expense_date");
+        if (documentDate is not null)
+        {
+            fields["documentDate"] = documentDate.Value.Value;
+            fieldConfidence["documentDate"] = documentDate.Value.Confidence;
+        }
+
+        return extraction with { Fields = fields, FieldConfidence = fieldConfidence };
+    }
+
+    private static void ApplyFirst(
+        IReadOnlyList<GoogleDocumentAiEntity> entities,
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> fieldConfidence,
+        string field,
+        params string[] entityTypes)
+    {
+        var entity = FindFirst(entities, entityTypes);
+        if (entity is null) return;
+        fields[field] = entity.Value.Value;
+        fieldConfidence[field] = entity.Value.Confidence;
+    }
+
+    private static (string Value, decimal Confidence)? FindFirst(IReadOnlyList<GoogleDocumentAiEntity> entities, params string[] types)
+    {
+        var entity = entities.FirstOrDefault(item => types.Contains(item.Type, StringComparer.OrdinalIgnoreCase));
+        return entity is null ? null : (entity.Value, entity.Confidence);
+    }
+}
 
 public sealed class BaiduUnlimitedOcrOptions
 {
