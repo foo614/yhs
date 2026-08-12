@@ -21,6 +21,15 @@
 {$BACKOFFICE_DOMAIN} {
 	import security_headers
 
+	# Aspire's login component dynamically imports this script from an absolute
+	# root path. Rebase only that known dashboard asset before it reaches the
+	# internal /ops adapter; do not expose a general root-path dashboard route.
+	@ops-login-script path /Components/Pages/Login.razor.js
+	handle @ops-login-script {
+		uri replace /Components/Pages/Login.razor.js /ops/Components/Pages/Login.razor.js
+		reverse_proxy ops-proxy:8080
+	}
+
 	@api path /api/*
 	handle @api {
 		reverse_proxy api:8080

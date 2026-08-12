@@ -97,6 +97,10 @@ jobs:
         shell: pwsh
         run: ./infra/test-aspire-production-compose.ps1
 
+      - name: Check Aspire /ops login proxy
+        shell: pwsh
+        run: ./infra/test-ops-dashboard-proxy.ps1
+
       - name: Upload Aspire Compose artifact
         uses: actions/upload-artifact@v4
         with:
