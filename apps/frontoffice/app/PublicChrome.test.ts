@@ -31,6 +31,24 @@ describe("public chrome mobile motion contract", () => {
     expect(styles).toContain(".mobileDrawerBackdrop.open");
   });
 
+  it("keeps short landscape viewports compact and fully navigable", () => {
+    const styles = readFileSync(join(appRoot, "styles.css"), "utf8");
+    const landscapeQuery = "@media (orientation: landscape) and (max-height: 700px) and (max-width: 1120px)";
+    const landscapeStart = styles.indexOf(landscapeQuery);
+    const landscapeEnd = styles.indexOf("@media (orientation: landscape)", landscapeStart + landscapeQuery.length);
+
+    expect(landscapeStart).toBeGreaterThanOrEqual(0);
+    expect(landscapeEnd).toBeGreaterThan(landscapeStart);
+
+    const landscapeStyles = styles.slice(landscapeStart, landscapeEnd);
+
+    expect(landscapeStyles).toContain(".atelierHeader .atelierBrand {");
+    expect(landscapeStyles).toContain(".atelierHeader .atelierBrand img {");
+    expect(landscapeStyles).toContain("max-height: calc(100dvh - 72px)");
+    expect(landscapeStyles).toContain("overflow-y: auto");
+    expect(landscapeStyles).toMatch(/\.atelierMobileNav\s*{\s*display:\s*none;/);
+  });
+
   it("keeps the motion layer safe for reduced-motion users", () => {
     const styles = readFileSync(join(appRoot, "styles.css"), "utf8");
 

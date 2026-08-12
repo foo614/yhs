@@ -3180,7 +3180,7 @@ textarea:focus-visible {
     padding: 8px 9px 8px 10px;
   }
 
-  .atelierBrand {
+  .atelierHeader .atelierBrand {
     width: 128px;
     min-width: 128px;
   }
@@ -3912,6 +3912,197 @@ textarea:focus-visible {
   .heroSearchHint {
     bottom: 12px;
     padding-inline: 8px;
+  }
+}
+
+/* Landscape phones and compact tablets need a shorter chrome and denser content
+   rhythm than portrait mobile, even when their width crosses tablet breakpoints. */
+@media (orientation: landscape) and (max-height: 700px) and (max-width: 1120px) {
+  .atelierHeader {
+    top: 6px;
+    width: calc(100% - 16px);
+    min-height: 56px;
+    padding: 4px 6px 4px 10px;
+  }
+
+  .atelierHeader .atelierBrand {
+    width: 112px;
+    min-width: 112px;
+    padding: 2px 6px;
+  }
+
+  .atelierHeader .atelierBrand img {
+    max-height: 42px;
+  }
+
+  .mobileMenu {
+    width: 38px;
+    height: 38px;
+  }
+
+  .atelierHeader .mobileDrawer {
+    top: 64px;
+    right: 8px;
+    bottom: auto;
+    left: auto;
+    width: min(320px, calc(100vw - 16px));
+    max-height: calc(100dvh - 72px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .atelierHeader .mobileDrawer a {
+    min-height: 38px;
+  }
+
+  .mobileDrawerSearch {
+    min-height: 40px;
+  }
+
+  .atelierMobileNav {
+    display: none;
+  }
+
+  .atelierFooter {
+    padding-bottom: 54px;
+  }
+
+  .atelierHero,
+  .atelierHeroInner {
+    min-height: 650px;
+    height: 650px;
+  }
+
+  .heroMedia {
+    top: 64px;
+  }
+
+  .heroCopy {
+    padding-top: 88px;
+  }
+
+  .atelierHero h1 {
+    font-size: clamp(38px, 7vw, 54px);
+  }
+
+  .heroIntro {
+    margin-top: 14px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .heroActions {
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .heroBrowseAction {
+    min-height: 44px;
+  }
+
+  .atelierSearch {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 10px 32px;
+  }
+
+  .atelierSearch label {
+    gap: 4px;
+  }
+
+  .atelierSearch input,
+  .atelierSearch select,
+  .atelierSearch button {
+    min-height: 42px;
+  }
+
+  .atelierSearch button,
+  .heroInventorySummary {
+    grid-column: span 2;
+  }
+
+  .atelierSearch:not(:has(.heroInventorySummary)) button {
+    grid-column: 1 / -1;
+  }
+
+  .heroSearchHint {
+    bottom: 9px;
+  }
+
+  .atelierSubHero {
+    min-height: auto;
+    padding: 78px 18px 28px;
+  }
+
+  .inventoryAtelierHero {
+    padding-bottom: 24px;
+  }
+
+  .atelierSubHeroInner h1 {
+    font-size: clamp(30px, 6.5vw, 46px);
+    line-height: .98;
+  }
+
+  .atelierSubHeroInner > p:not(.atelierKicker) {
+    margin-top: 12px;
+    line-height: 1.45;
+  }
+
+  .backLink {
+    margin-bottom: 12px;
+  }
+
+  .contactQuickActions {
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .listingShell {
+    margin-top: -16px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 700px) and (min-width: 600px) and (max-width: 1120px) {
+  .featuredHomeGrid,
+  .rednoteFeed {
+    columns: 2;
+  }
+
+  .personaGrid,
+  .solutionGrid,
+  .listingResults,
+  .vehicleGrid,
+  .detailPanels,
+  .detailStatGrid,
+  .detailPaymentGrid,
+  .enquiryPriceRail,
+  .compactCompareGrid,
+  .contactGrid,
+  .serviceTiles,
+  .conciergeList,
+  .atelierFooter {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (orientation: landscape) and (max-height: 700px) and (max-width: 760px) {
+  .atelierHero,
+  .atelierHeroInner {
+    min-height: 650px;
+    height: auto;
+  }
+
+  .heroCopy {
+    padding-top: 88px;
+  }
+
+  .atelierSearch {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-top: 24px;
   }
 }
 
