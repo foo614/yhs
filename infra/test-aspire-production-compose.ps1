@@ -52,6 +52,10 @@ $testEnvironment = [ordered]@{
   WORKER_IMAGE = "ysheng-worker:test"
   FRONTOFFICE_IMAGE = "ysheng-frontoffice:test"
   BACKOFFICE_IMAGE = "ysheng-backoffice:test"
+  GOOGLE_DOCUMENT_AI_PROJECT_ID = "ysheng-test"
+  GOOGLE_DOCUMENT_AI_LOCATION = "asia-southeast1"
+  GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID = "test-ocr-processor"
+  GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH = "/tmp/google-document-ai.json"
 }
 
 $originalEnvironment = @{}
