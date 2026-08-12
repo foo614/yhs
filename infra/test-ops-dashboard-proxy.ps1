@@ -35,6 +35,7 @@ foreach ($expected in @(
   'sub_filter_types text/javascript;',
   "sub_filter `"fetch('/api/validatetoken'`" `"fetch('/ops/api/validatetoken'`";",
   "sub_filter '<base href=`"/`">' '<base href=`"/ops/`">';",
+  'proxy_set_header X-Forwarded-Proto https;',
   'proxy_redirect ~*^(?:https?://[^/]+)?/login\?returnUrl=%2f(.+)$ /ops/login?returnUrl=%2Fops%2F$1;',
   'proxy_cookie_path / /ops/'
 )) {
