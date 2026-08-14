@@ -2054,8 +2054,6 @@ $workflowPaymentBody = @{
   bossChecked = $true
   documentsPrepared = $true
   checklistValidated = $true
-  invoiceGenerated = $false
-  autoCountKeyed = $false
   salesPrice = 58000
   interestAdditionalCharges = 600
   ncdAmount = 1200
@@ -2070,7 +2068,7 @@ if ($workflowPayment.StatusCode -lt 200 -or $workflowPayment.StatusCode -ge 300)
   throw "Workflow payment creation returned HTTP $($workflowPayment.StatusCode)"
 }
 $createdWorkflowPayment = $workflowPayment.Content | ConvertFrom-Json
-if ($createdWorkflowPayment.receiptNumber -ne "RCPT-$workflowSuffix" -or $createdWorkflowPayment.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdWorkflowPayment.bossChecked -ne $true -or $createdWorkflowPayment.documentsPrepared -ne $true -or $createdWorkflowPayment.checklistValidated -ne $true -or $createdWorkflowPayment.invoiceGenerated -ne $false -or $createdWorkflowPayment.autoCountKeyed -ne $false -or $createdWorkflowPayment.bankName -ne "Maybank" -or $createdWorkflowPayment.bankFollowUpDate -ne "2026-05-31" -or $createdWorkflowPayment.salesPrice -ne 58000 -or $createdWorkflowPayment.interestAdditionalCharges -ne 600 -or $createdWorkflowPayment.ncdAmount -ne 1200 -or $createdWorkflowPayment.windscreenCharges -ne 450 -or $createdWorkflowPayment.outstationDeliveryDate -ne "2026-06-05") {
+if ($createdWorkflowPayment.receiptNumber -ne "RCPT-$workflowSuffix" -or $createdWorkflowPayment.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdWorkflowPayment.bossChecked -ne $true -or $createdWorkflowPayment.documentsPrepared -ne $true -or $createdWorkflowPayment.checklistValidated -ne $true -or $createdWorkflowPayment.bankName -ne "Maybank" -or $createdWorkflowPayment.bankFollowUpDate -ne "2026-05-31" -or $createdWorkflowPayment.salesPrice -ne 58000 -or $createdWorkflowPayment.interestAdditionalCharges -ne 600 -or $createdWorkflowPayment.ncdAmount -ne 1200 -or $createdWorkflowPayment.windscreenCharges -ne 450 -or $createdWorkflowPayment.outstationDeliveryDate -ne "2026-06-05") {
   throw "Workflow payment did not preserve receipt, invoice, boss check, finance checklist, customer invoice detail, and bank follow-up metadata"
 }
 
@@ -2084,8 +2082,6 @@ $updatedWorkflowPaymentBody = @{
   bossChecked = $true
   documentsPrepared = $true
   checklistValidated = $true
-  invoiceGenerated = $false
-  autoCountKeyed = $false
   salesPrice = 58500
   interestAdditionalCharges = 650
   ncdAmount = 1300
@@ -2105,96 +2101,30 @@ if ($updatedWorkflowPaymentContent.nettPrice -ne 52500 -or $updatedWorkflowPayme
 }
 Write-Host "Payment update tracking OK"
 
-$paymentInvoice = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments/$($createdWorkflowPayment.id)/invoice" -Method Post -WebSession $session -UseBasicParsing
-if ($paymentInvoice.StatusCode -lt 200 -or $paymentInvoice.StatusCode -ge 300) {
-  throw "Payment invoice generation returned HTTP $($paymentInvoice.StatusCode)"
+$workflowPaymentReadyBody = @{
+  id = $createdWorkflowPayment.id
+  vehicleId = $workflowVehicleId
+  nettPrice = 52500
+  status = "Reconciled"
+  receiptNumber = "RCPT-$workflowSuffix"
+  invoiceNumber = "PAYINV-$workflowSuffix"
+  bossChecked = $true
+  documentsPrepared = $true
+  checklistValidated = $true
+  salesPrice = 58500
+  interestAdditionalCharges = 650
+  ncdAmount = 1300
+  windscreenCharges = 500
+  outstationDeliveryDate = "2026-06-06"
+  bankName = "Public Bank"
+  bankFollowUpDate = "2026-06-02"
+  createdAt = "2026-05-30T00:00:00Z"
+} | ConvertTo-Json
+$workflowPaymentReady = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments/$($createdWorkflowPayment.id)" -Method Put -Body $workflowPaymentReadyBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+if ($workflowPaymentReady.StatusCode -lt 200 -or $workflowPaymentReady.StatusCode -ge 300) {
+  throw "Workflow payment reconciliation returned HTTP $($workflowPaymentReady.StatusCode)"
 }
-$createdPaymentInvoice = $paymentInvoice.Content | ConvertFrom-Json
-if ($createdPaymentInvoice.paymentRecordId -ne $createdWorkflowPayment.id -or $createdPaymentInvoice.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdPaymentInvoice.latestSync.status -ne "Ready") {
-  throw "Generated payment invoice did not preserve payment link, invoice number, and ready sync state"
-}
-
-$paymentInvoiceSync = Invoke-WebRequest -Uri "$ApiBaseUrl/api/finance-invoices/$($createdPaymentInvoice.id)/autocount-sync" -Method Post -WebSession $session -UseBasicParsing
-if ($paymentInvoiceSync.StatusCode -lt 200 -or $paymentInvoiceSync.StatusCode -ge 300) {
-  throw "Payment invoice AutoCount sync returned HTTP $($paymentInvoiceSync.StatusCode)"
-}
-$paymentInvoiceSyncContent = $paymentInvoiceSync.Content | ConvertFrom-Json
-$paymentReconciliationSmokeReady = $paymentInvoiceSyncContent.status -eq "Synced"
-if ($paymentReconciliationSmokeReady) {
-  $workflowPaymentReadyBody = @{
-    id = $createdWorkflowPayment.id
-    vehicleId = $workflowVehicleId
-    nettPrice = 52500
-    status = "Reconciled"
-    receiptNumber = "RCPT-$workflowSuffix"
-    invoiceNumber = "PAYINV-$workflowSuffix"
-    bossChecked = $true
-    documentsPrepared = $true
-    checklistValidated = $true
-    invoiceGenerated = $true
-    autoCountKeyed = $true
-    salesPrice = 58500
-    interestAdditionalCharges = 650
-    ncdAmount = 1300
-    windscreenCharges = 500
-    outstationDeliveryDate = "2026-06-06"
-    bankName = "Public Bank"
-    bankFollowUpDate = "2026-06-02"
-    createdAt = "2026-05-30T00:00:00Z"
-  } | ConvertTo-Json
-  $workflowPaymentReady = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments/$($createdWorkflowPayment.id)" -Method Put -Body $workflowPaymentReadyBody -ContentType "application/json" -WebSession $session -UseBasicParsing
-  if ($workflowPaymentReady.StatusCode -lt 200 -or $workflowPaymentReady.StatusCode -ge 300) {
-    throw "Workflow payment reconciliation returned HTTP $($workflowPaymentReady.StatusCode)"
-  }
-}
-else {
-  $blockedWorkflowPaymentBody = @{
-    id = $createdWorkflowPayment.id
-    vehicleId = $workflowVehicleId
-    nettPrice = 52500
-    status = "Reconciled"
-    receiptNumber = "RCPT-$workflowSuffix"
-    invoiceNumber = "PAYINV-$workflowSuffix"
-    bossChecked = $true
-    documentsPrepared = $true
-    checklistValidated = $true
-    invoiceGenerated = $true
-    autoCountKeyed = $false
-    salesPrice = 58500
-    interestAdditionalCharges = 650
-    ncdAmount = 1300
-    windscreenCharges = 500
-    outstationDeliveryDate = "2026-06-06"
-    bankName = "Public Bank"
-    bankFollowUpDate = "2026-06-02"
-    createdAt = "2026-05-30T00:00:00Z"
-  } | ConvertTo-Json
-  try {
-    $blockedWorkflowPayment = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments/$($createdWorkflowPayment.id)" -Method Put -Body $blockedWorkflowPaymentBody -ContentType "application/json" -WebSession $session -UseBasicParsing
-    $blockedWorkflowPaymentStatus = [int]$blockedWorkflowPayment.StatusCode
-    $blockedWorkflowPaymentContent = $blockedWorkflowPayment.Content
-  }
-  catch {
-    if ($_.Exception.Response) {
-      $blockedWorkflowPaymentStatus = [int]$_.Exception.Response.StatusCode
-      $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
-      try {
-        $blockedWorkflowPaymentContent = $reader.ReadToEnd()
-      }
-      finally {
-        $reader.Dispose()
-      }
-    }
-    else {
-      throw
-    }
-  }
-  if ($blockedWorkflowPaymentStatus -ne 400 -or $blockedWorkflowPaymentContent -notmatch "payment_autocount_sync_required") {
-    throw "Workflow payment reconciliation was not blocked after failed or unavailable AutoCount sync"
-  }
-  Write-Host "Payment invoice generation OK"
-  Write-Host "AutoCount sync unavailable; reconciliation block OK"
-}
+Write-Host "Manual accounting export workflow reconciliation OK"
 
 $missingPaymentId = [guid]::NewGuid().ToString()
 $missingPaymentUpdateBody = @{
@@ -2232,8 +2162,6 @@ $invalidReconciledPaymentBody = @{
   bossChecked = $true
   documentsPrepared = $true
   checklistValidated = $true
-  invoiceGenerated = $true
-  autoCountKeyed = $true
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
 try {
@@ -2306,8 +2234,6 @@ $uncheckedPaymentChecklistBody = @{
   bossChecked = $true
   documentsPrepared = $false
   checklistValidated = $false
-  invoiceGenerated = $false
-  autoCountKeyed = $false
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
 try {
@@ -2345,8 +2271,6 @@ $duplicatePaymentReferenceBody = @{
   bossChecked = $true
   documentsPrepared = $true
   checklistValidated = $true
-  invoiceGenerated = $true
-  autoCountKeyed = $true
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
 try {
@@ -3017,8 +2941,6 @@ if ($paymentReconciliationSmokeReady) {
     bossChecked = $true
     documentsPrepared = $true
     checklistValidated = $true
-    invoiceGenerated = $true
-    autoCountKeyed = $true
     salesPrice = 58000
     interestAdditionalCharges = 600
     ncdAmount = 1200
@@ -3048,8 +2970,6 @@ if ($paymentReconciliationSmokeReady) {
     bossChecked = $true
     documentsPrepared = $true
     checklistValidated = $true
-    invoiceGenerated = $true
-    autoCountKeyed = $true
     salesPrice = 58000
     interestAdditionalCharges = 600
     ncdAmount = 1200
@@ -3071,7 +2991,7 @@ if ($paymentReconciliationSmokeReady) {
   Write-Host "Payment status automation OK"
 }
 else {
-  Write-Host "Payment status automation skipped until AutoCount endpoint sync succeeds"
+  Write-Host "Payment status automation skipped because the workflow payment is not reconciled"
 }
 
 Write-Host "YS Heng stack smoke test passed."

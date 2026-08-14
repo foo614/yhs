@@ -6,8 +6,6 @@ public enum LeadStatus { New, Contacted, Closed }
 public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
 public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
-public enum PaymentExternalSyncStatus { NotSynced, Synced, Failed }
-public enum AutoCountSyncStatus { Draft, Ready, Submitted, Synced, Failed }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum CashHandoverStatus { ReceivedBySales, PendingHandover, HandedOver, Rejected, Receipted }
 public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
@@ -216,14 +214,6 @@ public sealed record PaymentRecord
     public bool BossChecked { get; init; }
     public bool DocumentsPrepared { get; init; }
     public bool ChecklistValidated { get; init; }
-    public bool InvoiceGenerated { get; init; }
-    public bool AutoCountKeyed { get; init; }
-    public PaymentExternalSyncStatus ExternalSyncStatus { get; init; } = PaymentExternalSyncStatus.NotSynced;
-    public string? ExternalDocumentNumber { get; init; }
-    public decimal? ExternalDocumentAmount { get; init; }
-    public string? ReconciliationOverrideReason { get; init; }
-    public string? ReconciliationOverrideBy { get; init; }
-    public DateTime? ReconciliationOverrideAt { get; init; }
     public decimal SalesPrice { get; init; }
     public decimal InterestAdditionalCharges { get; init; }
     public decimal NcdAmount { get; init; }
@@ -251,23 +241,6 @@ public sealed record FinanceInvoice
     public string ContentMimeType { get; init; } = "application/pdf";
     public string CreatedBy { get; init; } = "";
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
-}
-
-public sealed record AutoCountSyncJob
-{
-    public Guid Id { get; init; } = Guid.NewGuid();
-    public Guid FinanceInvoiceId { get; init; }
-    public Guid PaymentRecordId { get; init; }
-    public AutoCountSyncStatus Status { get; init; } = AutoCountSyncStatus.Draft;
-    public string? ExternalDocumentId { get; init; }
-    public string? ExternalDocumentNumber { get; init; }
-    public string? ResponseSummary { get; init; }
-    public string? LastError { get; init; }
-    public int RetryCount { get; init; }
-    public string? SubmittedBy { get; init; }
-    public DateTime? SubmittedAt { get; init; }
-    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
-    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record SettlementReminder

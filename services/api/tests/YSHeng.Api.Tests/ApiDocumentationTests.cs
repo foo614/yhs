@@ -52,8 +52,6 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<LoanStatus>(apiDocs);
         AssertDocumentedEnum<DeliveryStatus>(apiDocs);
         AssertDocumentedEnum<PaymentStatus>(apiDocs);
-        AssertDocumentedEnum<PaymentExternalSyncStatus>(apiDocs);
-        AssertDocumentedEnum<AutoCountSyncStatus>(apiDocs);
         AssertDocumentedEnum<PaymentVoucherStatus>(apiDocs);
         AssertDocumentedEnum<CashHandoverStatus>(apiDocs);
         AssertDocumentedEnum<DebtRecoveryStatus>(apiDocs);

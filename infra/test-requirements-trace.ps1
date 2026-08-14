@@ -44,7 +44,7 @@ foreach ($expected in @(
   "Upload size limits",
   "Rules-based reminders",
   "Workflow validations/status changes",
-  "OCR/AI/WhatsApp/AutoCount",
+  "OCR/AI/WhatsApp/accounting export",
   "Deployment runbook tests: passed.",
   "Requirements trace tests: passed.",
   "GitHub Actions CI verifies the Docker-independent gate on every pushed commit.",

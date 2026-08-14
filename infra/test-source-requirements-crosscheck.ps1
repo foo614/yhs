@@ -42,7 +42,7 @@ foreach ($term in @(
   "Delivery booking inspection, schedule, PIC, notification, inspection, prepare document, report",
   "Polish, tinted, wash, final checklist",
   "Insurance, road tax, windscreen insurance",
-  "Bank prepare document, checklist, invoice generation, payment follow-up, Pending/Approve/Disbursed, AutoCount key-in, nett price",
+  "Bank prepare document, checklist, invoice generation, payment follow-up, Pending/Approve/Disbursed, accounting export, nett price",
   "Car settlement owner, deadline, amount reminder",
   "Supplier/refurbishment duplicate invoice, wrong plate, supplier multi-invoice checks, costs by plate, profit deduction",
   "Broker commission, car plate profit, CP58",
@@ -50,7 +50,7 @@ foreach ($term in @(
   "Salary: working day, leave, MC, attendance, AL/MC control, pay slip",
   "Debt recovery status, balance reminder, follow-up",
   "Dashboard: total stock, total profit, pending loan, outstanding payment, settlement due, top supplier, sales performance, vehicle aging",
-  "AI OCR, loan eligibility prediction, photo optimization, profit prediction, WhatsApp, AutoCount integration"
+  "AI OCR, loan eligibility prediction, photo optimization, profit prediction, WhatsApp, accounting export"
 )) {
   Assert-Contains $term
 }

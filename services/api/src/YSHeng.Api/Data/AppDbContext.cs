@@ -21,7 +21,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
     public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
     public DbSet<FinanceInvoice> FinanceInvoices => Set<FinanceInvoice>();
-    public DbSet<AutoCountSyncJob> AutoCountSyncJobs => Set<AutoCountSyncJob>();
     public DbSet<SettlementReminder> SettlementReminders => Set<SettlementReminder>();
     public DbSet<DailySpend> DailySpends => Set<DailySpend>();
     public DbSet<BrokerCommission> BrokerCommissions => Set<BrokerCommission>();
@@ -55,8 +54,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<FinanceInvoice>().Property(invoice => invoice.Content).HasColumnType("bytea");
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.PaymentRecordId).IsUnique();
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.InvoiceNumber).IsUnique();
-        builder.Entity<AutoCountSyncJob>().HasIndex(job => job.FinanceInvoiceId);
-        builder.Entity<AutoCountSyncJob>().HasIndex(job => job.PaymentRecordId);
         builder.Entity<CashHandover>().HasIndex(handover => handover.PaymentRecordId).IsUnique();
         builder.Entity<CashHandover>().HasIndex(handover => new { handover.Status, handover.CollectedAt });
         builder.Entity<OfficialReceipt>().Property(receipt => receipt.Content).HasColumnType("bytea");

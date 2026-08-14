@@ -147,8 +147,6 @@ public static class SeedData
                 InvoiceNumber = "INV-DEMO-1001",
                 DocumentsPrepared = true,
                 ChecklistValidated = true,
-                InvoiceGenerated = true,
-                AutoCountKeyed = true,
                 SalesPrice = 58000m,
                 InterestAdditionalCharges = 600m,
                 NcdAmount = 1200m,
@@ -446,19 +444,11 @@ public static class SeedData
     private static async Task EnsureFinanceRepairEnhancementSchemaAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("""
-            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ExternalSyncStatus" integer NOT NULL DEFAULT 0;
-            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ExternalDocumentNumber" text NULL;
-            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ExternalDocumentAmount" numeric NULL;
-            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideReason" text NULL;
-            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideBy" text NULL;
-            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReconciliationOverrideAt" timestamp with time zone NULL;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReceiptNumber" text NULL;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "InvoiceNumber" text NULL;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "BossChecked" boolean NOT NULL DEFAULT false;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "DocumentsPrepared" boolean NOT NULL DEFAULT false;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ChecklistValidated" boolean NOT NULL DEFAULT false;
-            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "InvoiceGenerated" boolean NOT NULL DEFAULT false;
-            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "AutoCountKeyed" boolean NOT NULL DEFAULT false;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "SalesPrice" numeric NOT NULL DEFAULT 0;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "InterestAdditionalCharges" numeric NOT NULL DEFAULT 0;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NcdAmount" numeric NOT NULL DEFAULT 0;
@@ -496,48 +486,6 @@ public static class SeedData
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "SignedHandoverReceived" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CustomerAcknowledged" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "FinalChecklistConfirmed" boolean NOT NULL DEFAULT false;
-
-            CREATE TABLE IF NOT EXISTS "FinanceInvoices" (
-                "Id" uuid NOT NULL,
-                "PaymentRecordId" uuid NOT NULL,
-                "VehicleId" uuid NOT NULL,
-                "CustomerId" uuid NOT NULL,
-                "InvoiceNumber" text NOT NULL,
-                "InvoiceDate" date NOT NULL,
-                "Amount" numeric NOT NULL,
-                "SalesPrice" numeric NOT NULL,
-                "InterestAdditionalCharges" numeric NOT NULL,
-                "NcdAmount" numeric NOT NULL,
-                "WindscreenCharges" numeric NOT NULL,
-                "Content" bytea NOT NULL,
-                "ContentMimeType" text NOT NULL,
-                "CreatedBy" text NOT NULL,
-                "CreatedAt" timestamp with time zone NOT NULL,
-                CONSTRAINT "PK_FinanceInvoices" PRIMARY KEY ("Id")
-            );
-
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_FinanceInvoices_PaymentRecordId" ON "FinanceInvoices" ("PaymentRecordId");
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_FinanceInvoices_InvoiceNumber" ON "FinanceInvoices" ("InvoiceNumber");
-
-            CREATE TABLE IF NOT EXISTS "AutoCountSyncJobs" (
-                "Id" uuid NOT NULL,
-                "FinanceInvoiceId" uuid NOT NULL,
-                "PaymentRecordId" uuid NOT NULL,
-                "Status" integer NOT NULL,
-                "ExternalDocumentId" text NULL,
-                "ExternalDocumentNumber" text NULL,
-                "ResponseSummary" text NULL,
-                "LastError" text NULL,
-                "RetryCount" integer NOT NULL,
-                "SubmittedBy" text NULL,
-                "SubmittedAt" timestamp with time zone NULL,
-                "CreatedAt" timestamp with time zone NOT NULL,
-                "UpdatedAt" timestamp with time zone NOT NULL,
-                CONSTRAINT "PK_AutoCountSyncJobs" PRIMARY KEY ("Id")
-            );
-
-            CREATE INDEX IF NOT EXISTS "IX_AutoCountSyncJobs_FinanceInvoiceId" ON "AutoCountSyncJobs" ("FinanceInvoiceId");
-            CREATE INDEX IF NOT EXISTS "IX_AutoCountSyncJobs_PaymentRecordId" ON "AutoCountSyncJobs" ("PaymentRecordId");
 
             CREATE TABLE IF NOT EXISTS "DailySpends" (
                 "Id" uuid NOT NULL,
