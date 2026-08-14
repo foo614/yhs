@@ -29,7 +29,7 @@ The current MVP baseline is documented in `docs/REQUIREMENTS_TRACE.md`, `docs/SO
 | 1 | `FOO-17` | Public website SEO, enquiry attribution, and gallery polish | High user value, clear scope, and can preserve public data boundaries. |
 | 2 | `FOO-22` | Dashboard drill-downs and risk widgets | Helps managers act on existing metrics before adding deeper workflow complexity. |
 | 3 | `FOO-21` | Supplier master, repair approval, and invoice aging | Improves margin control but touches cost and finance-sensitive data. |
-| 4 | `FOO-19` | Finance receipt/payment sync and reconciliation hardening | Important, but should follow or coordinate with AutoCount invoice work. |
+| 4 | `FOO-19` | Finance receipt/payment export and reconciliation hardening | Important, but should follow or coordinate with the manual accounting-export workflow. |
 | 5 | `FOO-23` | Permission audit, role review, and export controls | High value and high risk; needs explicit security review. |
 | 6 | `FOO-18` | Vehicle master profile, OCR review, and stock movement history | Broad cross-module surface; useful after the active vehicle workflow work settles. |
 | 7 | `FOO-20` | Delivery document expiry and release evidence completeness | First release evidence slice is implemented; expiry and override work should stay separate. |
@@ -126,7 +126,7 @@ Risk:
 
 Acceptance criteria:
 
-- Finance can see whether invoice, payment evidence, receipt state, and external sync are complete.
+- Finance can see whether payment evidence, receipt state, and internal reconciliation checks are complete.
 - Reconciliation clearly shows blocked reason and allowed recovery action.
 - Finance or Admin override requires a reason and audit trail.
 - Sensitive payloads, credentials, and external API secrets are not logged.
@@ -138,7 +138,7 @@ Estimated effort:
 
 Dependency:
 
-- Coordinate with `FOO-8` AutoCount sales invoice generation and sync before finalizing receipt/payment sync states.
+- Coordinate with the manual accounting-export workflow before finalizing receipt/payment tracking states.
 
 ## Delivery
 

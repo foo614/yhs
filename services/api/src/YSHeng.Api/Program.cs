@@ -35,8 +35,6 @@ builder.Services.AddScoped<IOcrExtractor>(services =>
         _ => throw new InvalidOperationException($"Unsupported OCR provider '{provider}'.")
     };
 });
-builder.Services.Configure<AutoCountAotgOptions>(builder.Configuration.GetSection("AutoCount:Aotg"));
-builder.Services.AddHttpClient<IAutoCountClient, AutoCountAotgClient>();
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = UploadPolicy.MultipartBodyLimit;
@@ -793,15 +791,10 @@ backOffice.MapGet("/payments/export", async (AppDbContext db, HttpContext contex
 backOffice.MapGet("/payments", async (AppDbContext db) => await db.PaymentRecords.AsNoTracking().ToListAsync()).RequireAuthorization("Finance");
 backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, HttpContext context) =>
 {
-    payment = FinancePaymentAuditStamp.Apply(payment, context.User);
     var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
-    var financeValidation = FinanceRules.ValidatePayment(
-        payment,
-        existingPayments,
-        await db.FinanceInvoices.AsNoTracking().ToListAsync(),
-        await db.AutoCountSyncJobs.AsNoTracking().ToListAsync());
+    var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
     if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
     var vehiclePayments = existingPayments
@@ -811,26 +804,17 @@ backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, H
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyPaymentStatus(vehicle, vehiclePayments));
     db.PaymentRecords.Add(payment);
     ApiAudit.Add(db, context.User, "payment.created", nameof(PaymentRecord), payment.Id);
-    if (!string.IsNullOrWhiteSpace(payment.ReconciliationOverrideReason))
-    {
-        ApiAudit.Add(db, context.User, "payment.reconciliationOverride", nameof(PaymentRecord), payment.Id);
-    }
     await db.SaveChangesAsync();
     return Results.Created($"/api/payments/{payment.Id}", payment);
 }).RequireAuthorization("Finance");
 backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, AppDbContext db, HttpContext context) =>
 {
-    payment = FinancePaymentAuditStamp.Apply(payment, context.User);
     if (id != payment.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("payment"));
     if (!await db.PaymentRecords.AnyAsync(item => item.Id == id)) return Results.NotFound();
     var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
-    var financeValidation = FinanceRules.ValidatePayment(
-        payment,
-        existingPayments,
-        await db.FinanceInvoices.AsNoTracking().ToListAsync(),
-        await db.AutoCountSyncJobs.AsNoTracking().ToListAsync());
+    var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
     if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
     var vehiclePayments = existingPayments
@@ -840,10 +824,6 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyPaymentStatus(vehicle, vehiclePayments));
     db.PaymentRecords.Update(payment);
     ApiAudit.Add(db, context.User, "payment.updated", nameof(PaymentRecord), payment.Id);
-    if (!string.IsNullOrWhiteSpace(payment.ReconciliationOverrideReason))
-    {
-        ApiAudit.Add(db, context.User, "payment.reconciliationOverride", nameof(PaymentRecord), payment.Id);
-    }
     await db.SaveChangesAsync();
     return Results.Ok(payment);
 }).RequireAuthorization("Finance");
@@ -1025,177 +1005,12 @@ backOffice.MapGet("/cash-handovers/{id:guid}/official-receipt/content", async (G
     return receipt is null ? Results.NotFound() : Results.File(receipt.Content, receipt.ContentMimeType, $"{receipt.ReceiptNumber}.pdf");
 }).RequireAuthorization("CashCustody");
 
-backOffice.MapGet("/finance-invoices", async (AppDbContext db) =>
-{
-    var invoices = await db.FinanceInvoices.AsNoTracking().OrderByDescending(invoice => invoice.CreatedAt).ToListAsync();
-    var syncJobs = await db.AutoCountSyncJobs.AsNoTracking().ToListAsync();
-    return Results.Ok(invoices.Select(invoice => FinanceInvoiceMapping.ToResponse(invoice, syncJobs)));
-}).RequireAuthorization("Finance");
-
-backOffice.MapGet("/payments/{paymentId:guid}/invoice", async (Guid paymentId, AppDbContext db) =>
-{
-    var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == paymentId);
-    if (invoice is null) return Results.NotFound();
-
-    var syncJobs = await db.AutoCountSyncJobs.AsNoTracking().Where(job => job.FinanceInvoiceId == invoice.Id).ToListAsync();
-    return Results.Ok(FinanceInvoiceMapping.ToResponse(invoice, syncJobs));
-}).RequireAuthorization("Finance");
-
-backOffice.MapPost("/payments/{paymentId:guid}/invoice", async (Guid paymentId, AppDbContext db, HttpContext context) =>
-{
-    var existingInvoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == paymentId);
-    if (existingInvoice is not null)
-    {
-        var existingJobs = await db.AutoCountSyncJobs.AsNoTracking().Where(job => job.FinanceInvoiceId == existingInvoice.Id).ToListAsync();
-        return Results.Ok(FinanceInvoiceMapping.ToResponse(existingInvoice, existingJobs));
-    }
-
-    var payment = await db.PaymentRecords.FirstOrDefaultAsync(item => item.Id == paymentId);
-    if (payment is null) return Results.NotFound();
-
-    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == payment.VehicleId);
-    if (vehicle is null)
-    {
-        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Payment must reference an existing vehicle.")]));
-    }
-
-    if (vehicle.CustomerId is not { } customerId)
-    {
-        return Results.BadRequest(new ValidationResult([new ValidationError("customer_required", "Vehicle must be linked to a customer before generating a sales invoice.")]));
-    }
-
-    var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == customerId);
-    if (customer is null)
-    {
-        return Results.BadRequest(new ValidationResult([new ValidationError("customer_not_found", "Vehicle customer must exist before generating a sales invoice.")]));
-    }
-
-    var now = DateTime.UtcNow;
-    var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, StaffIdentity.CurrentUserId(context), now);
-    var readyJob = new AutoCountSyncJob
-    {
-        FinanceInvoiceId = invoice.Id,
-        PaymentRecordId = payment.Id,
-        Status = AutoCountSyncStatus.Ready,
-        CreatedAt = now,
-        UpdatedAt = now
-    };
-
-    db.FinanceInvoices.Add(invoice);
-    db.AutoCountSyncJobs.Add(readyJob);
-    db.Entry(payment).CurrentValues.SetValues(payment with
-    {
-        InvoiceNumber = invoice.InvoiceNumber,
-        InvoiceGenerated = true
-    });
-    ApiAudit.Add(db, context.User, "financeInvoice.generated", nameof(FinanceInvoice), invoice.Id);
-    await db.SaveChangesAsync();
-
-    return Results.Created($"/api/finance-invoices/{invoice.Id}", FinanceInvoiceMapping.ToResponse(invoice, [readyJob]));
-}).RequireAuthorization("Finance");
-
 backOffice.MapGet("/finance-invoices/{invoiceId:guid}/content", async (Guid invoiceId, AppDbContext db) =>
 {
     var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoiceId);
-    if (invoice is null) return Results.NotFound();
-
-    return Results.File(invoice.Content, invoice.ContentMimeType, $"{invoice.InvoiceNumber}.pdf");
-}).RequireAuthorization("Finance");
-
-backOffice.MapGet("/finance-invoices/{invoiceId:guid}/autocount-sync", async (Guid invoiceId, AppDbContext db) =>
-{
-    if (!await db.FinanceInvoices.AsNoTracking().AnyAsync(item => item.Id == invoiceId)) return Results.NotFound();
-
-    var jobs = await db.AutoCountSyncJobs.AsNoTracking()
-        .Where(job => job.FinanceInvoiceId == invoiceId)
-        .OrderByDescending(job => job.UpdatedAt)
-        .ThenByDescending(job => job.CreatedAt)
-        .ToListAsync();
-    return Results.Ok(jobs.Select(FinanceInvoiceMapping.ToResponse));
-}).RequireAuthorization("Finance");
-
-backOffice.MapPost("/finance-invoices/{invoiceId:guid}/autocount-sync", async (Guid invoiceId, AppDbContext db, IAutoCountClient autoCountClient, HttpContext context, CancellationToken cancellationToken) =>
-{
-    var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoiceId);
-    if (invoice is null) return Results.NotFound();
-
-    var existingJobs = await db.AutoCountSyncJobs.AsNoTracking().Where(job => job.FinanceInvoiceId == invoice.Id).ToListAsync();
-    var latest = FinanceInvoiceMapping.LatestSync(invoice.Id, existingJobs);
-    if (latest?.Status == AutoCountSyncStatus.Synced)
-    {
-        return Results.Ok(FinanceInvoiceMapping.ToResponse(latest));
-    }
-
-    var payment = await db.PaymentRecords.FirstOrDefaultAsync(item => item.Id == invoice.PaymentRecordId);
-    if (payment is null) return Results.BadRequest(new ValidationResult([new ValidationError("payment_not_found", "Invoice payment must exist before AutoCount sync.")]));
-
-    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.VehicleId);
-    if (vehicle is null) return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Invoice vehicle must exist before AutoCount sync.")]));
-
-    var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.CustomerId);
-    if (customer is null) return Results.BadRequest(new ValidationResult([new ValidationError("customer_not_found", "Invoice customer must exist before AutoCount sync.")]));
-
-    var now = DateTime.UtcNow;
-    var retryCount = existingJobs.Count(job => job.Status == AutoCountSyncStatus.Failed);
-    var submittedJob = new AutoCountSyncJob
-    {
-        FinanceInvoiceId = invoice.Id,
-        PaymentRecordId = invoice.PaymentRecordId,
-        Status = AutoCountSyncStatus.Submitted,
-        RetryCount = retryCount,
-        SubmittedBy = StaffIdentity.CurrentUserId(context),
-        SubmittedAt = now,
-        CreatedAt = now,
-        UpdatedAt = now
-    };
-    db.AutoCountSyncJobs.Add(submittedJob);
-    ApiAudit.Add(db, context.User, "autocountSync.submitted", nameof(AutoCountSyncJob), submittedJob.Id);
-    await db.SaveChangesAsync(cancellationToken);
-
-    var result = await autoCountClient.SubmitSalesInvoiceAsync(invoice, payment, vehicle, customer, cancellationToken);
-    var completedAt = DateTime.UtcNow;
-    db.Entry(submittedJob).CurrentValues.SetValues(submittedJob with
-    {
-        Status = result.Status,
-        ExternalDocumentId = result.ExternalDocumentId,
-        ExternalDocumentNumber = result.ExternalDocumentNumber,
-        ResponseSummary = result.ResponseSummary,
-        LastError = result.Error,
-        UpdatedAt = completedAt
-    });
-
-    if (result.Status == AutoCountSyncStatus.Synced)
-    {
-        db.Entry(payment).CurrentValues.SetValues(payment with
-        {
-            AutoCountKeyed = true,
-            ExternalSyncStatus = PaymentExternalSyncStatus.Synced,
-            ExternalDocumentNumber = result.ExternalDocumentNumber ?? invoice.InvoiceNumber,
-            ExternalDocumentAmount = invoice.Amount
-        });
-        ApiAudit.Add(db, context.User, "autocountSync.synced", nameof(AutoCountSyncJob), submittedJob.Id);
-    }
-    else
-    {
-        db.Entry(payment).CurrentValues.SetValues(payment with
-        {
-            ExternalSyncStatus = PaymentExternalSyncStatus.Failed,
-            ExternalDocumentNumber = result.ExternalDocumentNumber,
-            ExternalDocumentAmount = invoice.Amount
-        });
-        ApiAudit.Add(db, context.User, "autocountSync.failed", nameof(AutoCountSyncJob), submittedJob.Id);
-    }
-
-    await db.SaveChangesAsync(cancellationToken);
-    return Results.Ok(FinanceInvoiceMapping.ToResponse(submittedJob with
-    {
-        Status = result.Status,
-        ExternalDocumentId = result.ExternalDocumentId,
-        ExternalDocumentNumber = result.ExternalDocumentNumber,
-        ResponseSummary = result.ResponseSummary,
-        LastError = result.Error,
-        UpdatedAt = completedAt
-    }));
+    return invoice is null
+        ? Results.NotFound()
+        : Results.File(invoice.Content, invoice.ContentMimeType, $"{invoice.InvoiceNumber}.pdf");
 }).RequireAuthorization("Finance");
 
 backOffice.MapGet("/settlement-reminders", async (AppDbContext db) => await db.SettlementReminders.AsNoTracking().OrderBy(reminder => reminder.Deadline).ToListAsync()).RequireAuthorization("Finance");
@@ -2027,29 +1842,6 @@ internal static class ApiAudit
 
     public static void Add(AppDbContext db, string actor, string action, string entityName, Guid entityId) =>
         db.AuditLogs.Add(AuditTrail.Record(actor, action, entityName, entityId, DateTime.UtcNow));
-}
-
-internal static class FinancePaymentAuditStamp
-{
-    public static PaymentRecord Apply(PaymentRecord payment, ClaimsPrincipal actor)
-    {
-        if (string.IsNullOrWhiteSpace(payment.ReconciliationOverrideReason))
-        {
-            return payment with
-            {
-                ReconciliationOverrideReason = null,
-                ReconciliationOverrideBy = null,
-                ReconciliationOverrideAt = null
-            };
-        }
-
-        return payment with
-        {
-            ReconciliationOverrideReason = payment.ReconciliationOverrideReason.Trim(),
-            ReconciliationOverrideBy = AuditTrail.ActorFrom(actor),
-            ReconciliationOverrideAt = DateTime.UtcNow
-        };
-    }
 }
 
 internal static class RepairAuditStamp

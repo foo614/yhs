@@ -16,14 +16,12 @@ import {
   debtRecoveryCreateBlockReason,
   financeDocumentCategories,
   paymentCreateBlockReason,
-  paymentRecoveryAction,
   paymentReconcileBlockReason,
   paymentVoucherCreateBlockReason,
   settlementCreateBlockReason
 } from "../../finance";
 import {
   customerSelectLabel,
-  financeInvoiceContentUrl,
   getVehicleDocuments,
   humanizeApiError,
   type BrokerCommission,
@@ -34,7 +32,6 @@ import {
   type DailySpend,
   type DebtRecoveryCase,
   type DocumentCategory,
-  type FinanceInvoice,
   type Owner,
   type PaymentRecord,
   type PaymentVoucher,
@@ -53,15 +50,12 @@ export function FinancePage({
   brokerCommissions,
   debtRecoveries,
   paymentVouchers,
-  financeInvoices,
   currentUser,
   cashHandovers,
   cashHandoverPaymentLookup,
   onCreate,
   onUpdate,
   onOpenCustomer,
-  onGenerateInvoice,
-  onSubmitAutoCount,
   onCreateSettlement,
   onUpdateSettlement,
   onCreateDailySpend,
@@ -89,15 +83,12 @@ export function FinancePage({
   brokerCommissions: BrokerCommission[];
   debtRecoveries: DebtRecoveryCase[];
   paymentVouchers: PaymentVoucher[];
-  financeInvoices: FinanceInvoice[];
   currentUser: CurrentUser | null;
   cashHandovers: CashHandover[];
   cashHandoverPaymentLookup: CashHandoverPaymentLookup[];
   onCreate: (payment: PaymentRecord) => void;
   onUpdate: (payment: PaymentRecord) => void;
   onOpenCustomer: (customerId: string) => void;
-  onGenerateInvoice: (paymentId: string) => void;
-  onSubmitAutoCount: (invoiceId: string) => void;
   onCreateSettlement: (settlement: SettlementReminder) => void;
   onUpdateSettlement: (settlement: SettlementReminder) => void;
   onCreateDailySpend: (spend: DailySpend) => void;
@@ -136,8 +127,6 @@ export function FinancePage({
   const [paymentOcrDraft, setPaymentOcrDraft] = useState<OcrReviewValues | null>(null);
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
-  const invoiceForPayment = (paymentId: string) => financeInvoices.find((invoice) => invoice.paymentRecordId === paymentId);
-  const selectedEditPaymentInvoice = selectedEditPayment ? invoiceForPayment(selectedEditPayment.id) : undefined;
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
   const selectedEditSettlement = settlements.find((settlement) => settlement.id === editSettlementId) ?? settlements[0];
   const selectedEditDailySpend = dailySpends.find((spend) => spend.id === editDailySpendId) ?? dailySpends[0];
@@ -266,12 +255,12 @@ export function FinancePage({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `payments-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.download = `bank-collection-${new Date().toISOString().slice(0, 10)}.csv`;
       link.click();
       URL.revokeObjectURL(url);
-      message.success("Payment CSV exported");
+      message.success("Bank collection spreadsheet exported for manual AutoCount submission");
     } catch (error) {
-      message.error(humanizeApiError(error, "Payment CSV export failed. Please try again."));
+      message.error(humanizeApiError(error, "Bank collection export failed. Please try again."));
     }
   };
 
@@ -298,21 +287,6 @@ export function FinancePage({
       )
     },
     {
-      title: "Sync / 同步",
-      render: (_, row) => (
-        <Space direction="vertical" size={0}>
-          <Tag color={(row.externalSyncStatus ?? "NotSynced") === "Synced" ? "green" : (row.externalSyncStatus ?? "NotSynced") === "Failed" ? "red" : "default"}>
-            {row.externalSyncStatus ?? "NotSynced"}
-          </Tag>
-          <Typography.Text type="secondary">{paymentRecoveryAction(row, payments)}</Typography.Text>
-        </Space>
-      )
-    },
-    {
-      title: "Sales Invoice / 销售发票",
-      render: (_, row) => <Space wrap size={4}>{invoiceStatusTags(invoiceForPayment(row.id))}</Space>
-    },
-    {
       title: "Ready / 准备",
       render: (_, row) => (
         <Space wrap size={4}>
@@ -326,14 +300,13 @@ export function FinancePage({
       fixed: "right",
       width: 190,
       render: (_, row) => {
-        const invoice = invoiceForPayment(row.id);
-        const reconcileReason = paymentReconcileBlockReason(row, payments, invoice);
+        const reconcileReason = paymentReconcileBlockReason(row, payments);
         return (
           <Space className="tableActionGroup" wrap size={6}>
             <Button size="small" type="primary" onClick={() => selectPayment(row.id)}>Details</Button>
             <Tooltip title={reconcileReason ?? ""}>
               <span>
-                <Button size="small" onClick={() => onUpdate({ ...row, status: "Reconciled" })} disabled={!canReconcilePayment(row, payments, invoice)}>Reconcile</Button>
+                <Button size="small" onClick={() => onUpdate({ ...row, status: "Reconciled" })} disabled={!canReconcilePayment(row, payments)}>Reconcile</Button>
               </span>
             </Tooltip>
           </Space>
@@ -448,7 +421,7 @@ export function FinancePage({
     }
   ];
   const filteredPayments = filterFinanceRows(payments, financeKeyword, financeStatus, (payment) => [
-    plateFor(vehicles, payment.vehicleId), payment.receiptNumber, payment.invoiceNumber, payment.bankName, payment.externalDocumentNumber, payment.bankFollowUpDate
+    plateFor(vehicles, payment.vehicleId), payment.receiptNumber, payment.invoiceNumber, payment.bankName, payment.bankFollowUpDate
   ], (payment) => payment.status);
   const filteredSettlements = filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
     plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
@@ -626,14 +599,13 @@ export function FinancePage({
       )}
       {financeTab === "payments" && <ProCard
         title="Bank Collection / 收款Bank"
-        extra={<Space wrap><Button onClick={handleExportPayments}>Export CSV</Button><Button type="primary" onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button></Space>}
+        extra={<Space wrap><Button onClick={handleExportPayments}>Export Spreadsheet (CSV)</Button><Button type="primary" onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button></Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           {financeFilters}
           <div className="mobileRecordList">
           {filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
           {visiblePayments.map((payment) => {
-            const invoice = invoiceForPayment(payment.id);
             return (
             <article className="mobileRecordCard" key={payment.id}>
               <div className="mobileRecordHeader">
@@ -651,10 +623,6 @@ export function FinancePage({
                 <Typography.Text className="mobileRecordLabel">Finance Checklist / 财务检查</Typography.Text>
                 <Space wrap size={4}>{paymentChecklistTags(payment)}</Space>
               </div>
-              <div className="mobileRecordSection">
-                <Typography.Text className="mobileRecordLabel">Sales Invoice</Typography.Text>
-                <Space wrap size={4}>{invoiceStatusTags(invoice)}</Space>
-              </div>
               <div className="mobileRecordFooter">
                 <Space wrap size={6}>
                   <Badge status={payment.bossChecked ? "success" : "warning"} text={payment.bossChecked ? "Management reviewed" : "Review pending"} />
@@ -663,9 +631,9 @@ export function FinancePage({
                 </Space>
                 <Space className="tableActionGroup" wrap size={6}>
                   <Button size="small" type="primary" onClick={() => selectPayment(payment.id)}>Details</Button>
-                  <Tooltip title={paymentReconcileBlockReason(payment, payments, invoice) ?? ""}>
+                  <Tooltip title={paymentReconcileBlockReason(payment, payments) ?? ""}>
                     <span>
-                      <Button size="small" onClick={() => onUpdate({ ...payment, status: "Reconciled" })} disabled={!canReconcilePayment(payment, payments, invoice)}>Reconcile</Button>
+                      <Button size="small" onClick={() => onUpdate({ ...payment, status: "Reconciled" })} disabled={!canReconcilePayment(payment, payments)}>Reconcile</Button>
                     </span>
                   </Tooltip>
                 </Space>
@@ -698,11 +666,6 @@ export function FinancePage({
             bossChecked: false,
             documentsPrepared: false,
             checklistValidated: false,
-            invoiceGenerated: false,
-            autoCountKeyed: false,
-            externalSyncStatus: values.externalSyncStatus ?? "NotSynced",
-            externalDocumentNumber: values.externalDocumentNumber?.trim() || undefined,
-            externalDocumentAmount: values.externalDocumentAmount == null ? undefined : Number(values.externalDocumentAmount),
             salesPrice: 0,
             interestAdditionalCharges: 0,
             ncdAmount: 0,
@@ -718,17 +681,14 @@ export function FinancePage({
           }
           onCreate(payment);
           setFinanceCreateOpen(null);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, externalSyncStatus: "NotSynced" }}>
+        }} initialValues={{ vehicleId: vehicles[0]?.id }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="nettPrice" label="Collection Amount / Nett Price" rules={[{ required: true, message: "Collection amount is required." }]}><InputNumber className="fullWidth" min={0.01} /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><DatePicker className="fullWidth" /></Form.Item>
           <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
-          <Form.Item name="externalSyncStatus" label="External Sync"><Select options={paymentExternalSyncOptions} /></Form.Item>
-          <Form.Item name="externalDocumentNumber" label="External Document No."><Input placeholder="AutoCount/LHDN reference" /></Form.Item>
-          <Form.Item name="externalDocumentAmount" label="External Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Alert type="info" showIcon message="Collection starts as Pending. Use row actions after creation for disbursement, management review, checklist, and reconciliation." />
+          <Alert type="info" showIcon message="Collection starts as Pending. Export the spreadsheet and submit it manually to AutoCount; use row actions for disbursement, management review, checklist, and reconciliation." />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Collection</Button></Form.Item>
         </Form>
       </Modal>
@@ -744,8 +704,6 @@ export function FinancePage({
             bossChecked: values.bossChecked,
             documentsPrepared: values.documentsPrepared,
             checklistValidated: values.checklistValidated,
-            invoiceGenerated: false,
-            autoCountKeyed: false,
             salesPrice: Number(values.salesPrice ?? 0),
             interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
             ncdAmount: Number(values.ncdAmount ?? 0),
@@ -791,43 +749,11 @@ export function FinancePage({
         destroyOnClose
         className="recordEditDrawer"
       >
-        {selectedEditPayment && (
-          <Space direction="vertical" size={12} className="fullWidth">
-            <Descriptions size="small" column={1} bordered title="Sales Invoice / AutoCount">
-              <Descriptions.Item label="Invoice">{selectedEditPaymentInvoice?.invoiceNumber ?? "Not generated"}</Descriptions.Item>
-              <Descriptions.Item label="Invoice Date">{selectedEditPaymentInvoice?.invoiceDate ?? "-"}</Descriptions.Item>
-              <Descriptions.Item label="Amount">{selectedEditPaymentInvoice ? `RM ${selectedEditPaymentInvoice.amount.toLocaleString()}` : "-"}</Descriptions.Item>
-              <Descriptions.Item label="AutoCount">{autoCountStatusTag(selectedEditPaymentInvoice)}</Descriptions.Item>
-              <Descriptions.Item label="External Doc">{selectedEditPaymentInvoice?.latestSync?.externalDocumentNumber ?? selectedEditPaymentInvoice?.latestSync?.externalDocumentId ?? "-"}</Descriptions.Item>
-            </Descriptions>
-            {selectedEditPaymentInvoice?.latestSync?.lastError && (
-              <Alert type="error" showIcon message={selectedEditPaymentInvoice.latestSync.lastError} />
-            )}
-            {selectedEditPaymentInvoice?.latestSync?.responseSummary && !selectedEditPaymentInvoice.latestSync.lastError && (
-              <Alert type="info" showIcon message={selectedEditPaymentInvoice.latestSync.responseSummary} />
-            )}
-            <Space wrap size={8}>
-              <Button onClick={() => onGenerateInvoice(selectedEditPayment.id)} disabled={Boolean(selectedEditPaymentInvoice) || selectedEditPayment.status === "Reconciled"}>Generate Invoice</Button>
-              {selectedEditPaymentInvoice && (
-                <Button href={financeInvoiceContentUrl(selectedEditPaymentInvoice.id)} target="_blank" rel="noreferrer">Download PDF</Button>
-              )}
-              {selectedEditPaymentInvoice && (
-                <Button
-                  type={selectedEditPaymentInvoice.latestSync?.status === "Failed" ? "primary" : "default"}
-                  onClick={() => onSubmitAutoCount(selectedEditPaymentInvoice.id)}
-                  disabled={selectedEditPaymentInvoice.latestSync?.status === "Synced" || selectedEditPaymentInvoice.latestSync?.status === "Submitted" || selectedEditPayment.status === "Reconciled"}
-                >
-                  {selectedEditPaymentInvoice.latestSync?.status === "Failed" ? "Retry AutoCount" : "Submit AutoCount"}
-                </Button>
-              )}
-            </Space>
-          </Space>
-        )}
         <Form
           key={`${selectedEditPayment?.id ?? "payment-edit"}-${paymentOcrDraft ? "ocr" : "manual"}`}
           layout="vertical"
           className="drawerForm"
-          initialValues={{ ...selectedEditPayment, externalSyncStatus: selectedEditPayment?.externalSyncStatus ?? "NotSynced", ...paymentOcrDraft }}
+          initialValues={{ ...selectedEditPayment, ...paymentOcrDraft }}
           onFinish={(values) => {
             if (!selectedEditPayment) return;
             const payment: PaymentRecord = {
@@ -840,12 +766,6 @@ export function FinancePage({
               bossChecked: values.bossChecked,
               documentsPrepared: values.documentsPrepared,
               checklistValidated: values.checklistValidated,
-              invoiceGenerated: selectedEditPayment.invoiceGenerated,
-              autoCountKeyed: selectedEditPayment.autoCountKeyed,
-              externalSyncStatus: values.externalSyncStatus ?? "NotSynced",
-              externalDocumentNumber: values.externalDocumentNumber?.trim() || undefined,
-              externalDocumentAmount: values.externalDocumentAmount == null ? undefined : Number(values.externalDocumentAmount),
-              reconciliationOverrideReason: values.reconciliationOverrideReason?.trim() || undefined,
               salesPrice: Number(values.salesPrice ?? 0),
               interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
               ncdAmount: Number(values.ncdAmount ?? 0),
@@ -854,7 +774,7 @@ export function FinancePage({
               bankName: values.bankName?.trim() || undefined,
               bankFollowUpDate: values.bankFollowUpDate?.trim() || undefined
             };
-            const blockReason = paymentCreateBlockReason(payment, payments, selectedEditPaymentInvoice);
+            const blockReason = paymentCreateBlockReason(payment, payments);
             if (blockReason) {
               message.warning(blockReason);
               return;
@@ -873,10 +793,6 @@ export function FinancePage({
           <Form.Item name="bossChecked" label="Management Review / 管理层审核"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Reviewed" }]} /></Form.Item>
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="externalSyncStatus" label="External Sync"><Select options={paymentExternalSyncOptions} /></Form.Item>
-          <Form.Item name="externalDocumentNumber" label="External Document No."><Input placeholder="AutoCount/LHDN reference" /></Form.Item>
-          <Form.Item name="externalDocumentAmount" label="External Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="reconciliationOverrideReason" label="Override Reason"><Input.TextArea rows={2} placeholder="Required when failed sync or amount mismatch is intentionally overridden" /></Form.Item>
           <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -928,8 +844,6 @@ export function FinancePage({
                   { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
                   { name: "receiptNumber", label: "Receipt No." },
                   { name: "invoiceNumber", label: "Invoice No." },
-                  { name: "externalDocumentNumber", label: "External Document No." },
-                  { name: "externalDocumentAmount", label: "External Amount", type: "number" },
                   { name: "nettPrice", label: "Nett Price", type: "number" },
                   { name: "salesPrice", label: "Sales Price", type: "number" },
                   { name: "bankName", label: "Bank" },
@@ -960,7 +874,7 @@ export function FinancePage({
           {financeFilters}
           <Descriptions bordered column={1}>
             <Descriptions.Item label="Deadline Popup">Admin receives reminder when settlement deadline is due.</Descriptions.Item>
-            <Descriptions.Item label={shortformLabel("AutoCount", "Accounting system")}>Sales invoice sync is generated from the Finance payment workflow.</Descriptions.Item>
+            <Descriptions.Item label="Bank collection export">Export a spreadsheet for staff to submit manually in AutoCount.</Descriptions.Item>
             <Descriptions.Item label="Outstanding Bank Collection">RM {outstanding.toLocaleString()}</Descriptions.Item>
             <Descriptions.Item label="Outstanding Settlement">RM {settlementOutstanding.toLocaleString()}</Descriptions.Item>
             <Descriptions.Item label="Daily Spend Due">RM {dailySpendOutstanding.toLocaleString()}</Descriptions.Item>
@@ -1572,8 +1486,6 @@ function shortformLabel(label: string, title: string) {
   );
 }
 
-const paymentExternalSyncOptions = ["NotSynced", "Synced", "Failed"].map((value) => ({ value, label: value }));
-
 function financeTabFromLocation(canManageFinance: boolean) {
   if (typeof window === "undefined") return canManageFinance ? "payments" : "cash-custody";
   return financeTabForUrl(window.location.pathname, window.location.search, canManageFinance);
@@ -1607,23 +1519,6 @@ function paymentChecklistTags(payment: PaymentRecord) {
 
 function paymentChecklistReady(payment: PaymentRecord) {
   return payment.documentsPrepared && payment.checklistValidated;
-}
-
-function invoiceStatusTags(invoice?: FinanceInvoice) {
-  if (!invoice) {
-    return [<Tag key="invoice-missing" color="orange">Invoice Missing</Tag>, <Tag key="autocount-waiting">AutoCount Waiting</Tag>];
-  }
-
-  return [
-    <Tag key="invoice-generated" color="green">Invoice Generated</Tag>,
-    autoCountStatusTag(invoice)
-  ];
-}
-
-function autoCountStatusTag(invoice?: FinanceInvoice | null) {
-  const status = invoice?.latestSync?.status ?? "Draft";
-  const color = status === "Synced" ? "green" : status === "Failed" ? "red" : status === "Submitted" ? "blue" : "orange";
-  return <Tag color={color}>{status}</Tag>;
 }
 
 function contactFor<T extends { id: string; name: string; phone: string }>(contacts: T[], contactId?: string) {
