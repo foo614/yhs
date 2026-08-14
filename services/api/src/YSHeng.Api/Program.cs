@@ -134,13 +134,13 @@ app.MapGet("/api/public/vehicle-catalog/models", async (AppDbContext db) =>
 
 app.MapGet("/api/public/vehicles/{id:guid}", async (Guid id, AppDbContext db) =>
 {
-    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id && item.IsPublic && item.Status == VehicleStatus.Available);
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id && item.BossConfirmed && item.IsPublic && item.Status == VehicleStatus.Available);
     return vehicle is null ? Results.NotFound() : Results.Ok(PublicInventory.ToDetailResponse(vehicle));
 });
 
 app.MapGet("/api/public/vehicles/{id:guid}/photo", async (Guid id, AppDbContext db) =>
 {
-    var isPublicVehicle = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id && item.IsPublic && item.Status == VehicleStatus.Available);
+    var isPublicVehicle = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id && item.BossConfirmed && item.IsPublic && item.Status == VehicleStatus.Available);
     if (!isPublicVehicle) return Results.NotFound();
 
     var photo = PublicVehiclePhotos.SelectPrimary(id, await db.VehiclePhotos.AsNoTracking().ToListAsync());
@@ -149,7 +149,7 @@ app.MapGet("/api/public/vehicles/{id:guid}/photo", async (Guid id, AppDbContext 
 
 app.MapGet("/api/public/vehicles/{id:guid}/photos", async (Guid id, AppDbContext db) =>
 {
-    var isPublicVehicle = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id && item.IsPublic && item.Status == VehicleStatus.Available);
+    var isPublicVehicle = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id && item.BossConfirmed && item.IsPublic && item.Status == VehicleStatus.Available);
     if (!isPublicVehicle) return Results.NotFound();
 
     var photos = PublicVehiclePhotos.SelectGallery(id, await db.VehiclePhotos.AsNoTracking().ToListAsync());
@@ -158,7 +158,7 @@ app.MapGet("/api/public/vehicles/{id:guid}/photos", async (Guid id, AppDbContext
 
 app.MapGet("/api/public/vehicles/{id:guid}/photos/{photoId:guid}", async (Guid id, Guid photoId, AppDbContext db) =>
 {
-    var isPublicVehicle = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id && item.IsPublic && item.Status == VehicleStatus.Available);
+    var isPublicVehicle = await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == id && item.BossConfirmed && item.IsPublic && item.Status == VehicleStatus.Available);
     if (!isPublicVehicle) return Results.NotFound();
 
     var photo = await db.VehiclePhotos.AsNoTracking().FirstOrDefaultAsync(item => item.Id == photoId && item.VehicleId == id);
@@ -236,6 +236,9 @@ backOffice.MapGet("/vehicle-lookup", async (AppDbContext db) =>
 backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpContext context) =>
 {
     vehicle = VehicleRules.NormalizeDateTimes(vehicle);
+    var approvalValidation = VehicleApprovalRules.ValidateCreate(vehicle, context.User.IsInRole("BossAdmin"));
+    if (!approvalValidation.IsValid) return Results.Json(approvalValidation, statusCode: StatusCodes.Status403Forbidden);
+    vehicle = VehicleApprovalRules.EnforceVisibility(vehicle);
     var validation = VehicleRules.ValidateIntake(vehicle);
     if (!validation.IsValid) return Results.BadRequest(validation);
     var contactLinkValidation = VehicleRules.ValidateContactLinks(
@@ -248,6 +251,10 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
     db.Vehicles.Add(vehicle);
     StockMovementAudit.AddInitial(db, vehicle, context.User, "Vehicle intake created");
     ApiAudit.Add(db, context.User, "vehicle.created", nameof(Vehicle), vehicle.Id);
+    if (vehicle.BossConfirmed)
+    {
+        ApiAudit.Add(db, context.User, "vehicle.approved", nameof(Vehicle), vehicle.Id);
+    }
     await db.SaveChangesAsync();
     return Results.Created($"/api/vehicles/{vehicle.Id}", vehicle);
 }).RequireAuthorization("Vehicles");
@@ -255,8 +262,13 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
 {
     update = VehicleRules.NormalizeDateTimes(update);
     if (id != update.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("vehicle"));
-    var existingVehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
     if (existingVehicle is null) return Results.NotFound();
+    var existingSnapshot = existingVehicle with { };
+    var canApprove = context.User.IsInRole("BossAdmin");
+    var approvalValidation = VehicleApprovalRules.ValidateUpdate(existingSnapshot, update, canApprove);
+    if (!approvalValidation.IsValid) return Results.Json(approvalValidation, statusCode: StatusCodes.Status403Forbidden);
+    update = VehicleApprovalRules.EnforceVisibility(update);
     var validation = VehicleRules.ValidateIntake(update);
     if (!validation.IsValid) return Results.BadRequest(validation);
     var contactLinkValidation = VehicleRules.ValidateContactLinks(
@@ -266,11 +278,23 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     if (!contactLinkValidation.IsValid) return Results.BadRequest(contactLinkValidation);
     var uniquePlateValidation = VehicleRules.ValidateUniquePlate(update, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!uniquePlateValidation.IsValid) return Results.BadRequest(uniquePlateValidation);
-    db.Vehicles.Update(update);
-    StockMovementAudit.AddChanges(db, existingVehicle, update, context.User, "Vehicle record updated");
+    db.Entry(existingVehicle).CurrentValues.SetValues(update);
+    if (!canApprove)
+    {
+        db.Entry(existingVehicle).Property(vehicle => vehicle.BossConfirmed).IsModified = false;
+    }
+    StockMovementAudit.AddChanges(db, existingSnapshot, update, context.User, "Vehicle record updated");
     ApiAudit.Add(db, context.User, "vehicle.updated", nameof(Vehicle), update.Id);
+    if (existingSnapshot.BossConfirmed != update.BossConfirmed)
+    {
+        ApiAudit.Add(db, context.User, update.BossConfirmed ? "vehicle.approved" : "vehicle.approvalRevoked", nameof(Vehicle), update.Id);
+    }
     await db.SaveChangesAsync();
-    return Results.Ok(update);
+    await db.Vehicles
+        .Where(vehicle => vehicle.Id == id && !vehicle.BossConfirmed && vehicle.IsPublic)
+        .ExecuteUpdateAsync(setters => setters.SetProperty(vehicle => vehicle.IsPublic, false));
+    await db.Entry(existingVehicle).ReloadAsync();
+    return Results.Ok(existingVehicle);
 }).RequireAuthorization("Vehicles");
 
 backOffice.MapGet("/vehicles/{id:guid}/stock-movements", async (Guid id, AppDbContext db) =>
@@ -1958,6 +1982,8 @@ internal static class StockMovementAudit
     {
         Add(db, vehicle.Id, "Status", "", vehicle.Status.ToString(), actor, reason);
         Add(db, vehicle.Id, "StockOwner", "", vehicle.StockOwner.ToString(), actor, reason);
+        Add(db, vehicle.Id, "BossConfirmed", "", vehicle.BossConfirmed.ToString(), actor, reason);
+        Add(db, vehicle.Id, "IsPublic", "", vehicle.IsPublic.ToString(), actor, reason);
         if (!string.IsNullOrWhiteSpace(vehicle.StockLocation)) Add(db, vehicle.Id, "StockLocation", "", vehicle.StockLocation, actor, reason);
     }
 
@@ -1972,6 +1998,8 @@ internal static class StockMovementAudit
         AddIfChanged(db, after.Id, "Make", before.Make, after.Make, actor, reason);
         AddIfChanged(db, after.Id, "Model", before.Model, after.Model, actor, reason);
         AddIfChanged(db, after.Id, "Year", before.Year.ToString(), after.Year.ToString(), actor, reason);
+        AddIfChanged(db, after.Id, "BossConfirmed", before.BossConfirmed.ToString(), after.BossConfirmed.ToString(), actor, reason);
+        AddIfChanged(db, after.Id, "IsPublic", before.IsPublic.ToString(), after.IsPublic.ToString(), actor, reason);
     }
 
     private static void AddIfChanged(AppDbContext db, Guid vehicleId, string fieldName, string? previousValue, string? newValue, System.Security.Claims.ClaimsPrincipal actor, string reason)

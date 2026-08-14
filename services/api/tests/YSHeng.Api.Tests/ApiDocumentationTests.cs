@@ -9,6 +9,17 @@ namespace YSHeng.Api.Tests;
 public sealed class ApiDocumentationTests
 {
     [Fact]
+    public void Vehicle_updates_preserve_admin_approval_for_non_admin_writes()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+
+        Assert.Contains("Property(vehicle => vehicle.BossConfirmed).IsModified = false", program);
+        Assert.Contains("!vehicle.BossConfirmed && vehicle.IsPublic", program);
+        Assert.Contains("SetProperty(vehicle => vehicle.IsPublic, false)", program);
+    }
+
+    [Fact]
     public void Api_reference_paths_match_minimal_api_routes()
     {
         var root = FindRepositoryRoot();

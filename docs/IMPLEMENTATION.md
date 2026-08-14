@@ -173,6 +173,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Back-office lead records can now be edited from the Leads screen so Sales can correct car plate, linked customer, customer name, phone, message, and status without recreating the enquiry.
 - Lead conversion reuses an existing customer with the same normalized phone number before creating a new customer record, ignoring common spaces and separators.
 - Vehicle intake rejects blank identity fields, invalid model year, invalid price totals, and unknown customer/owner links before records enter inventory.
+- Vehicle intake management approval is enforced by the API: Sales can create and maintain pending intake, only Boss/Admin can approve or revoke approval, and unapproved vehicles remain hidden from public inventory and lead capture.
 - Vehicle intake now rejects duplicate car plates with a structured validation error before the database unique index is hit.
 - Customer and owner creation rejects blank or duplicate normalized phone records before contacts are used by loan and vehicle workflows.
 - The Customer and Owner forms warn before submitting blank names, blank phones, or duplicate normalized phone records.

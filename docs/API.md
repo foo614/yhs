@@ -102,8 +102,8 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `GET` | `/api/vehicle-catalog/models` | `Vehicles` | List active and inactive make/model catalogue entries. |
 | `POST` | `/api/vehicle-catalog/models` | `Vehicles` | Add a make/model option for public filters. |
 | `PUT` | `/api/vehicle-catalog/models/{id}` | `Vehicles` | Edit or deactivate a make/model option without changing existing vehicle records. |
-| `POST` | `/api/vehicles` | `Vehicles` | Create vehicle intake, including optional chassis and engine identifiers. |
-| `PUT` | `/api/vehicles/{id}` | `Vehicles` | Update vehicle intake, chassis/engine identifiers, and public status. |
+| `POST` | `/api/vehicles` | `Vehicles` | Create vehicle intake, including optional chassis and engine identifiers. Sales-created vehicles remain pending and private; only Boss/Admin can submit approval. |
+| `PUT` | `/api/vehicles/{id}` | `Vehicles` | Update vehicle intake, chassis/engine identifiers, and public status. Changing management approval requires Boss/Admin; unapproved vehicles are always private. |
 | `GET` | `/api/vehicle-lookup` | `VehicleRead` | Plate/make/model/status and linked customer ID lookup for authorized workflow selectors and customer-profile hand-off. |
 | `GET` | `/api/vehicles/{id}/stock-movements` | `VehicleRead` | List stock owner, status, and location movement history with actor, timestamp, previous value, new value, and reason. |
 | `GET` | `/api/customers` | `CustomerRead` | Customer lookup/list. |

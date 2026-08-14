@@ -31,6 +31,7 @@ public sealed class BusinessRulesTests
         var vehicles = new[]
         {
             VehicleSeed.Available(publicVisible: true),
+            VehicleSeed.Available(publicVisible: true) with { BossConfirmed = false },
             VehicleSeed.Available(publicVisible: false),
             VehicleSeed.Sold(publicVisible: true),
             VehicleSeed.LoanProcessing(publicVisible: true)
@@ -41,6 +42,23 @@ public sealed class BusinessRulesTests
         Assert.Single(result);
         Assert.Equal(VehicleStatus.Available, result[0].Status);
         Assert.True(result[0].IsPublic);
+    }
+
+    [Fact]
+    public void Vehicle_approval_can_only_change_for_boss_admin_and_unapproved_stock_is_private()
+    {
+        var pending = VehicleSeed.Available(publicVisible: true) with { BossConfirmed = false };
+        var approved = pending with { BossConfirmed = true };
+
+        var salesCreate = VehicleApprovalRules.ValidateCreate(approved, canApprove: false);
+        var salesUpdate = VehicleApprovalRules.ValidateUpdate(pending, approved, canApprove: false);
+        var adminUpdate = VehicleApprovalRules.ValidateUpdate(pending, approved, canApprove: true);
+        var gated = VehicleApprovalRules.EnforceVisibility(pending);
+
+        Assert.Contains(salesCreate.Errors, error => error.Code == "vehicle_approval_admin_required");
+        Assert.Contains(salesUpdate.Errors, error => error.Code == "vehicle_approval_admin_required");
+        Assert.True(adminUpdate.IsValid);
+        Assert.False(gated.IsPublic);
     }
 
     [Fact]
@@ -215,6 +233,17 @@ public sealed class BusinessRulesTests
         var result = WorkflowReferenceRules.ValidatePublicLead(request, vehicles);
 
         Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "vehicle_not_public");
+    }
+
+    [Fact]
+    public void Public_lead_validation_rejects_unapproved_vehicle()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: true) with { BossConfirmed = false };
+        var request = new LeadRequest(vehicle.Id, "Ali Tan", "0123456789", "Trade-in question");
+
+        var result = WorkflowReferenceRules.ValidatePublicLead(request, [vehicle]);
+
         Assert.Contains(result.Errors, error => error.Code == "vehicle_not_public");
     }
 

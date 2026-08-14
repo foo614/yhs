@@ -133,7 +133,7 @@ public static class ApiErrors
 public static class PublicInventory
 {
     public static IEnumerable<Vehicle> Filter(IEnumerable<Vehicle> vehicles) =>
-        vehicles.Where(vehicle => vehicle.IsPublic && vehicle.Status == VehicleStatus.Available);
+        vehicles.Where(vehicle => vehicle.BossConfirmed && vehicle.IsPublic && vehicle.Status == VehicleStatus.Available);
 
     public static PublicVehicleResponse ToResponse(Vehicle vehicle) =>
         new(
@@ -157,6 +157,25 @@ public static class PublicInventory
             vehicle.Status,
             vehicle.SellingPrice,
             vehicle.PublicDescriptionMarkdown);
+}
+
+public static class VehicleApprovalRules
+{
+    public static ValidationResult ValidateCreate(Vehicle vehicle, bool canApprove) =>
+        vehicle.BossConfirmed && !canApprove
+            ? AdminApprovalRequired()
+            : new ValidationResult([]);
+
+    public static ValidationResult ValidateUpdate(Vehicle existing, Vehicle update, bool canApprove) =>
+        existing.BossConfirmed != update.BossConfirmed && !canApprove
+            ? AdminApprovalRequired()
+            : new ValidationResult([]);
+
+    public static Vehicle EnforceVisibility(Vehicle vehicle) =>
+        vehicle.BossConfirmed ? vehicle : vehicle with { IsPublic = false };
+
+    private static ValidationResult AdminApprovalRequired() =>
+        new([new ValidationError("vehicle_approval_admin_required", "Only Boss/Admin can approve or revoke vehicle approval.")]);
 }
 
 public static class VehicleCatalogRules
@@ -938,7 +957,7 @@ public static class WorkflowReferenceRules
             return new ValidationResult(errors);
         }
 
-        if (vehicle is not { IsPublic: true, Status: VehicleStatus.Available })
+        if (vehicle is not { BossConfirmed: true, IsPublic: true, Status: VehicleStatus.Available })
         {
             errors.Add(new ValidationError("vehicle_not_public", "Lead vehicle is not available on the public website."));
         }
