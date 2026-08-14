@@ -28,6 +28,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Pagination,
   Popconfirm,
   Result,
   Select,
@@ -46,9 +47,9 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import type { TableProps } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
-import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canAssignStaffRoles, firstAccessiblePath, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
-import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent } from "./delivery";
-import { loanCreateBlockReason, loanDocumentCategories, markLoanApproved, markLoanDone } from "./loan";
+import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
+import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, filterDeliverySchedules, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent, type DeliveryFilters } from "./delivery";
+import { filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, markLoanApproved, markLoanDone, type LoanFilters } from "./loan";
 import {
   activeLeadCountByVehicle,
   filterLeadsForTriage,
@@ -61,11 +62,10 @@ import {
   type LeadLinkFilter
 } from "./leads";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
-import { isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
+import { filterRefurbishmentRecords, isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
 import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, type ReminderDueFilter } from "./dashboard";
 import { FinancePage } from "./modules/finance/FinancePage";
-import { CashCustodyPage } from "./modules/finance/CashCustodyPage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
 import { MissingUploadReminder } from "./modules/shared/MissingUploadReminder";
@@ -137,6 +137,7 @@ import {
   getVehicleLookup,
   getVehicleOcrJobs,
   getVehicles,
+  humanizeApiError,
   login,
   logout,
   resetStaffUserPassword,
@@ -294,8 +295,7 @@ const bilingual = {
   repairs: "Repair / 整备",
   loans: "Loan / 贷款",
   delivery: "Delivery / 出车",
-  finance: "Finance / 收款Bank",
-  cashCustody: "Cash Custody / 现金交接",
+  finance: "Finance & Collection / 财务收款",
   leads: "Leads / 客户询问",
   auditLog: "Audit Log / 操作记录",
   settings: "Settings / 系统设置"
@@ -311,7 +311,6 @@ const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
   { path: "/loans", name: bilingual.loans, icon: <FileDoneOutlined /> },
   { path: "/delivery", name: bilingual.delivery, icon: <AuditOutlined /> },
   { path: "/finance", name: bilingual.finance, icon: <BankOutlined /> },
-  { path: "/cash-custody", name: bilingual.cashCustody, icon: <BankOutlined /> },
   { path: "/customer-360", name: "Customer 360", icon: <UserOutlined /> },
   { path: "/leads", name: bilingual.leads, icon: <UserOutlined /> },
   { path: "/audit-log", name: bilingual.auditLog, icon: <AuditOutlined /> },
@@ -332,7 +331,17 @@ function routeDisplayName(path: AppRoutePath, roles: readonly string[]) {
 
 function normalizeRoutePath(path?: string): AppRoutePath {
   const candidate = path && path !== "/" ? path.split("?")[0] : "/dashboard";
+  if (candidate === "/cash-custody") return "/finance";
   return allRoutes.some((route) => route.path === candidate) ? candidate as AppRoutePath : "/dashboard";
+}
+
+export function browserRouteUrl(location: Pick<Location, "pathname" | "search">) {
+  return `${location.pathname}${location.search}`;
+}
+
+export function customerIdFromRouteUrl(routeUrl: string) {
+  const queryIndex = routeUrl.indexOf("?");
+  return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("customerId") ?? undefined;
 }
 
 function tablePagination(pageSize = 8): TablePaginationConfig {
@@ -343,6 +352,8 @@ function tablePagination(pageSize = 8): TablePaginationConfig {
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} / 共 ${total} 条`
   };
 }
+
+const mobileWorkflowPageSize = 8;
 
 function Table<RecordType extends object>({ columns, dataSource, pagination, ...props }: TableProps<RecordType>) {
   const tableColumns = useMemo(
@@ -363,6 +374,7 @@ function Table<RecordType extends object>({ columns, dataSource, pagination, ...
 export default function App() {
   const [notificationApi, notificationContextHolder] = notification.useNotification();
   const [pathname, setPathname] = useState(() => normalizeRoutePath(window.location.pathname));
+  const [routeUrl, setRouteUrl] = useState(() => browserRouteUrl(window.location));
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [reminders, setReminders] = useState<DashboardReminder[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -384,6 +396,7 @@ export default function App() {
   const [paymentVouchers, setPaymentVouchers] = useState<PaymentVoucher[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLog[]>([]);
+  const [auditLogFilters, setAuditLogFilters] = useState<AuditLogFilters>({});
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
   const [hrStaffUsers, setHrStaffUsers] = useState<StaffUser[]>([]);
   const [hrAttendance, setHrAttendance] = useState<HrAttendanceRecord[]>([]);
@@ -511,14 +524,14 @@ export default function App() {
     let active = true;
 
     void (async () => {
-      let dataRoles: string[] | undefined;
-
       try {
         const user = await getCurrentUser();
         if (!active) return;
 
         setCurrentUser(user);
-        dataRoles = user.isAuthenticated ? user.roles : undefined;
+        if (user.isAuthenticated) {
+          await loadBackOfficeData(user.roles);
+        }
       } catch {
         if (!active) return;
 
@@ -526,8 +539,6 @@ export default function App() {
       } finally {
         if (active) setSessionReady(true);
       }
-
-      if (active) await loadBackOfficeData(dataRoles);
     })();
 
     return () => {
@@ -539,26 +550,37 @@ export default function App() {
     if (currentUser?.isAuthenticated && !canAccessRoute(currentRoles, pathname)) {
       const fallbackPath = firstAccessiblePath(currentRoles);
       setPathname(fallbackPath);
+      setRouteUrl(fallbackPath);
       window.history.replaceState(null, "", fallbackPath);
     }
   }, [currentRoles, currentUser?.isAuthenticated, pathname]);
 
   useEffect(() => {
-    const syncPathFromBrowser = () => setPathname(normalizeRoutePath(window.location.pathname));
+    const syncPathFromBrowser = () => {
+      if (window.location.pathname === "/cash-custody") {
+        window.history.replaceState(null, "", "/finance?tab=cash-custody");
+      }
+      setPathname(normalizeRoutePath(window.location.pathname));
+      setRouteUrl(browserRouteUrl(window.location));
+    };
+    syncPathFromBrowser();
     window.addEventListener("popstate", syncPathFromBrowser);
     return () => window.removeEventListener("popstate", syncPathFromBrowser);
   }, []);
 
   const route = useMemo(() => ({
     path: "/",
-    routes: (currentUser?.isAuthenticated ? allRoutes.filter((item) => canAccessRoute(currentRoles, item.path)) : allRoutes)
+    routes: allRoutes
+      .filter((item) => isRouteVisibleInNavigation(item.path))
+      .filter((item) => !currentUser?.isAuthenticated || canAccessRoute(currentRoles, item.path))
       .map((item) => ({ ...item, name: routeDisplayName(item.path, currentRoles) }))
   }), [currentUser?.isAuthenticated, currentRoles]);
-  const pageTitle = route.routes.find((item) => item.path === pathname)?.name ?? bilingual.dashboard;
+  const pageTitle = routeDisplayName(pathname, currentRoles);
   const navigateTo = (path: string) => {
     const nextPath = normalizeRoutePath(path);
     const nextUrl = path.includes("?") ? path : nextPath;
     setPathname(nextPath);
+    setRouteUrl(nextUrl);
     if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
       window.history.pushState(null, "", nextUrl);
     }
@@ -595,14 +617,12 @@ export default function App() {
       setLogoutSucceeded(false);
       const nextPath = firstAccessiblePath(user.roles);
       setPathname(nextPath);
+      setRouteUrl(nextPath);
       window.history.replaceState(null, "", nextPath);
       await loadBackOfficeData(user.roles);
       notifySuccess("Login successful", `Signed in as ${user.name ?? values.email}`);
     } catch (error) {
-      const rawMessage = error instanceof Error ? error.message.trim() : "";
-      const messageText = rawMessage && rawMessage.toLowerCase().includes("failed to fetch")
-        ? "Cannot reach API at localhost:5000. Please confirm the API is running."
-        : rawMessage || "Please check your credentials and API connection.";
+      const messageText = humanizeApiError(error, "Please check your credentials and API connection.");
       setLoginError(messageText);
       notifyError("Login failed", messageText);
       throw error;
@@ -612,6 +632,7 @@ export default function App() {
   }
 
   async function handleAuditLogSearch(filters: AuditLogFilters) {
+    setAuditLogFilters(filters);
     const records = await getAuditLog(filters);
     setAuditLog(records);
     notifySuccess("Audit log filtered", `${records.length} records loaded`);
@@ -627,6 +648,7 @@ export default function App() {
     setCurrentUser(null);
     setLogoutSucceeded(true);
     setPathname("/dashboard");
+    setRouteUrl("/dashboard");
     window.history.replaceState(null, "", "/dashboard");
   }
 
@@ -637,7 +659,7 @@ export default function App() {
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
       notifySuccess(text, "The record has been saved and synced.");
     } catch (error) {
-      notifyError("Request failed", error instanceof Error ? error.message : "Please try again.");
+      notifyError("Request failed", humanizeApiError(error));
       throw error;
     }
   }
@@ -647,7 +669,7 @@ export default function App() {
       await action();
       notifySuccess(text, "The file is stored and linked to the selected vehicle.");
     } catch (error) {
-      notifyError("Upload failed", error instanceof Error ? error.message : "Please check the file and try again.");
+      notifyError("Upload failed", humanizeApiError(error, "Please check the file and try again."));
       throw error;
     }
   }
@@ -659,7 +681,7 @@ export default function App() {
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
       notifySuccess(text, "The record has been updated and synced.");
     } catch (error) {
-      notifyError("Update failed", error instanceof Error ? error.message : "Please try again.");
+      notifyError("Update failed", humanizeApiError(error));
       throw error;
     }
   }
@@ -692,13 +714,14 @@ export default function App() {
 
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
       setPathname("/loans");
+      setRouteUrl("/loans");
       window.history.pushState(null, "", "/loans");
       notifySuccess(
         existingLoan ? "Loan workflow opened" : "Loan workflow started",
         existingLoan ? "This vehicle already has a loan record." : "A pending loan record was created and linked to the selected customer."
       );
     } catch (error) {
-      notifyError("Loan workflow failed", error instanceof Error ? error.message : "Please try again.");
+      notifyError("Loan workflow failed", humanizeApiError(error));
       throw error;
     }
   }
@@ -732,8 +755,8 @@ export default function App() {
       <div className="mobileTopBar">
         <Button aria-label="Open navigation" icon={<MenuOutlined />} onClick={() => setMobileNavOpen(true)} />
         <div className="mobileTopTitle">
-          <strong>YS Heng</strong>
-          <span>{pageTitle}</span>
+          <strong>YS Heng · {currentRoles[0] ? displayRoleLabel(currentRoles[0]) : "Guest"}{currentRoles.length > 1 ? ` +${currentRoles.length - 1}` : ""}</strong>
+          <span role="heading" aria-level={1}>{pageTitle}</span>
         </div>
         <Button
           aria-label="Logout"
@@ -742,17 +765,6 @@ export default function App() {
           onClick={handleLogout}
           title="Logout"
         />
-      </div>
-      <div className="mobileRouteStrip" aria-label="Mobile module navigation">
-        {route.routes.map((item) => (
-          <button
-            key={item.path}
-            className={item.path === pathname ? "mobileRoutePill active" : "mobileRoutePill"}
-            onClick={() => navigateTo(item.path)}
-          >
-            {item.name}
-          </button>
-        ))}
       </div>
       <Drawer
         title="YS Heng Portal"
@@ -791,7 +803,7 @@ export default function App() {
         ]}
       >
       {notificationContextHolder}
-      <PageContainer title={pageTitle}>
+      <PageContainer title={false}>
         <Space direction="vertical" size={16} className="fullWidth">
           <ModuleCommandBar
             pathname={pathname}
@@ -822,6 +834,7 @@ export default function App() {
               customers={customers}
               owners={owners}
               purchaseInvoices={purchaseInvoices}
+              canApproveVehicles={canApproveVehicles(currentRoles)}
               onCreate={(vehicle) => runCreate(() => createVehicle(vehicle), (record) => setVehicles((items) => [record, ...items]), "Vehicle created")}
               onUpdate={(vehicle) => runUpdate(() => updateVehicle(vehicle), (record) => setVehicles((items) => replaceById(items, record)), "Vehicle updated")}
               onStartLoan={handleStartVehicleLoan}
@@ -880,6 +893,9 @@ export default function App() {
               debtRecoveries={debtRecoveries}
               paymentVouchers={paymentVouchers}
               financeInvoices={financeInvoices}
+              currentUser={currentUser}
+              cashHandovers={cashHandovers}
+              cashHandoverPaymentLookup={cashHandoverPaymentLookup}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
@@ -897,26 +913,19 @@ export default function App() {
               onUpdatePaymentVoucher={(voucher) => runUpdate(() => updatePaymentVoucher(voucher), (record) => setPaymentVouchers((items) => replaceById(items, record)), "Payment voucher updated")}
               onExportPayments={() => exportPaymentsCsv()}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Finance document uploaded")}
-            />
-          )}
-          {pathname === "/cash-custody" && (
-            <CashCustodyPage
-              currentUser={currentUser}
-              customers={customers}
-              handovers={cashHandovers}
-              paymentLookup={cashHandoverPaymentLookup}
-              onCreate={(paymentRecordId, amount, notes) => runCreate(() => createCashHandover(paymentRecordId, amount, notes), (record) => setCashHandovers((items) => [record, ...items]), "Cash received recorded")}
-              onRequestHandover={(id) => runUpdate(() => requestCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover requested")}
-              onRecordHandover={(id) => runUpdate(() => recordCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash receipt confirmed")}
-              onAccept={(id) => runUpdate(() => acceptCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Official receipt issued")}
-              onReject={(id, reason) => runUpdate(() => rejectCashHandover(id, reason), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover rejected")}
+              onCreateCashHandover={(paymentRecordId, amount, notes) => runCreate(() => createCashHandover(paymentRecordId, amount, notes), (record) => setCashHandovers((items) => [record, ...items]), "Cash received recorded")}
+              onRequestCashHandover={(id) => runUpdate(() => requestCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover requested")}
+              onRecordCashHandover={(id) => runUpdate(() => recordCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash receipt confirmed")}
+              onAcceptCashHandover={(id) => runUpdate(() => acceptCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Official receipt issued")}
+              onRejectCashHandover={(id, reason) => runUpdate(() => rejectCashHandover(id, reason), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover rejected")}
             />
           )}
           {pathname === "/customer-360" && (
             <Customer360Page
-              customerId={new URLSearchParams(window.location.search).get("customerId") ?? undefined}
+              customerId={customerIdFromRouteUrl(routeUrl)}
               onCustomerChange={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
               onNavigate={navigateTo}
+              canAccessPath={(path) => canAccessRoute(currentRoles, path)}
             />
           )}
           {pathname === "/leads" && (
@@ -974,7 +983,7 @@ export default function App() {
               onGeneratePayslips={(payPeriodId) => runUpdate(() => generateHrPayslips(payPeriodId), (records) => setHrPayslips((items) => mergeById(items, records)), "Payslips generated")}
             />
           )}
-          {pathname === "/audit-log" && <AuditLogPage auditLog={auditLog} onSearch={handleAuditLogSearch} />}
+          {pathname === "/audit-log" && <AuditLogPage auditLog={auditLog} filters={auditLogFilters} onSearch={handleAuditLogSearch} />}
           {pathname === "/admin" && (
             <AdminPage
               auditLog={auditLog}
@@ -984,6 +993,8 @@ export default function App() {
               onResetStaffPassword={(userId, requestBody) => runUpdate(() => resetStaffUserPassword(userId, requestBody), (record) => setStaffUsers((items) => replaceById(items, record)), "Staff password reset")}
               onUpdateStaffStatus={(userId, requestBody) => runUpdate(() => updateStaffUserStatus(userId, requestBody), (record) => setStaffUsers((items) => replaceById(items, record)), requestBody.isActive ? "Staff user enabled" : "Staff user disabled")}
               onUpdateStaffRoles={(userId, roles) => runUpdate(() => updateStaffUserRoles(userId, roles), (record) => setStaffUsers((items) => replaceById(items, record)), "Staff roles updated")}
+              auditLogFilters={auditLogFilters}
+              onSearchAuditLog={handleAuditLogSearch}
             />
           )}
         </Space>
@@ -1236,7 +1247,6 @@ function moduleStats(pathname: string, data: {
   const publicVehicles = data.vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingLoans = data.loans.filter((loan) => loan.status === "Pending").length;
   const openPayments = data.payments.filter((payment) => payment.status !== "Reconciled").length;
-  const dueSettlements = data.settlements.filter((settlement) => !settlement.isPaid).length;
   const pendingDeliveries = data.deliveries.filter((delivery) => delivery.status !== "Released").length;
   const newLeads = data.leads.filter((lead) => lead.status === "New").length;
   const todayText = today();
@@ -1272,13 +1282,7 @@ function moduleStats(pathname: string, data: {
       return [
         { label: "payments", value: data.payments.length },
         { label: "open bank", value: openPayments },
-        { label: "settlement due", value: dueSettlements }
-      ];
-    case "/cash-custody":
-      return [
-        { label: "open custody", value: data.cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length },
-        { label: "receipts", value: data.cashHandovers.filter((handover) => Boolean(handover.officialReceiptId)).length },
-        { label: "cash value", value: formatMoney(data.cashHandovers.reduce((total, handover) => total + handover.amount, 0)) }
+        { label: "open custody", value: data.cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length }
       ];
     case "/leads":
       return [
@@ -1707,6 +1711,8 @@ function RepairPage({
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("RepairInvoice");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [repairDocuments, setRepairDocuments] = useState<VehicleDocument[]>([]);
+  const [refurbishmentFilters, setRefurbishmentFilters] = useState<RefurbishmentFilters>({});
+  const [mobileRefurbishmentPage, setMobileRefurbishmentPage] = useState(1);
   const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId);
   const selectedSupplierInvoice = supplierInvoices.find((invoice) => invoice.id === editSupplierInvoiceId) ?? supplierInvoices[0];
   const selectedEditRepair = repairs.find((repair) => repair.id === editRepairId) ?? repairs[0];
@@ -1754,13 +1760,22 @@ function RepairPage({
 
   const pendingRepairs = repairs.filter((repair) => !repair.checklistDone).length;
   const repairTotal = repairs.filter(isRepairCostFinal).reduce((sum, repair) => sum + repair.cost, 0);
-  type RefurbishmentRecord =
-    | { key: string; kind: "repair"; repair: RepairJob }
-    | { key: string; kind: "supplierInvoice"; invoice: SupplierInvoice };
-  const refurbishmentRecords: RefurbishmentRecord[] = [
-    ...repairs.map((repair) => ({ key: `repair-${repair.id}`, kind: "repair" as const, repair })),
-    ...supplierInvoices.map((invoice) => ({ key: `supplier-${invoice.id}`, kind: "supplierInvoice" as const, invoice }))
-  ];
+  const refurbishmentRecordCount = repairs.length + supplierInvoices.length;
+  const refurbishmentRecords = filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters);
+  const refurbishmentFiltersActive = Object.values(refurbishmentFilters).some((value) => value !== undefined && value !== "" && value !== "All");
+  const mobileRefurbishmentPageCount = Math.max(1, Math.ceil(refurbishmentRecords.length / mobileWorkflowPageSize));
+  const clampedMobileRefurbishmentPage = Math.min(mobileRefurbishmentPage, mobileRefurbishmentPageCount);
+  const mobileRefurbishmentRecords = refurbishmentRecords.slice(
+    (clampedMobileRefurbishmentPage - 1) * mobileWorkflowPageSize,
+    clampedMobileRefurbishmentPage * mobileWorkflowPageSize
+  );
+  const updateRefurbishmentFilters = (next: Partial<RefurbishmentFilters>) => {
+    setRefurbishmentFilters((current) => ({ ...current, ...next }));
+    setMobileRefurbishmentPage(1);
+  };
+  const refurbishmentEmptyText = refurbishmentRecordCount > 0
+    ? "No repair or supplier invoice records match the current filters."
+    : "No repair or supplier invoice records yet.";
   const refurbishmentColumns: ColumnsType<RefurbishmentRecord> = [
     {
       title: "Type / 类型",
@@ -1952,11 +1967,51 @@ function RepairPage({
       <ProCard
         id="repair-supplier-card"
         title="Supplier & Refurbishment / 供应商与整备"
-        extra={<Space wrap><Tag color="blue">{refurbishmentRecords.length} records</Tag><Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button></Space>}
+        extra={<Space wrap><Tag color="blue">{refurbishmentRecordCount} records</Tag><Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button></Space>}
       >
+        <Space className="toolbarForm workflowFilterBar" wrap>
+          <Input.Search
+            allowClear
+            placeholder="Search plate, task, supplier, or invoice"
+            value={refurbishmentFilters.keyword}
+            onChange={(event) => updateRefurbishmentFilters({ keyword: event.target.value })}
+            style={{ width: 280 }}
+          />
+          <Select
+            value={refurbishmentFilters.kind ?? "All"}
+            onChange={(kind) => updateRefurbishmentFilters({ kind })}
+            options={[
+              { value: "All", label: "All record types" },
+              { value: "Repair", label: "Repair tasks" },
+              { value: "SupplierInvoice", label: "Supplier invoices" }
+            ]}
+            style={{ width: 180 }}
+          />
+          <Select
+            value={refurbishmentFilters.state ?? "All"}
+            onChange={(state) => updateRefurbishmentFilters({ state })}
+            options={[
+              { value: "All", label: "All states" },
+              { value: "Open", label: "Open / pending" },
+              { value: "Done", label: "Done / paid" }
+            ]}
+            style={{ width: 170 }}
+          />
+          <Tag color={refurbishmentFiltersActive ? "blue" : "default"}>{refurbishmentRecords.length} / {refurbishmentRecordCount} shown</Tag>
+          <Button
+            size="small"
+            disabled={!refurbishmentFiltersActive}
+            onClick={() => {
+              setRefurbishmentFilters({});
+              setMobileRefurbishmentPage(1);
+            }}
+          >
+            Clear filters
+          </Button>
+        </Space>
         <div className="mobileRecordList">
-          {refurbishmentRecords.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No repair or supplier invoice records yet." />}
-          {refurbishmentRecords.map((record) => {
+          {refurbishmentRecords.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={refurbishmentEmptyText} />}
+          {mobileRefurbishmentRecords.map((record) => {
             const isRepair = record.kind === "repair";
             const status = isRepair ? undefined : supplierInvoicePlateStatus(record.invoice, vehicles);
             return (
@@ -2006,8 +2061,17 @@ function RepairPage({
               </article>
             );
           })}
+          {refurbishmentRecords.length > mobileWorkflowPageSize && (
+            <Pagination
+              current={clampedMobileRefurbishmentPage}
+              pageSize={mobileWorkflowPageSize}
+              total={refurbishmentRecords.length}
+              showSizeChanger={false}
+              onChange={setMobileRefurbishmentPage}
+            />
+          )}
         </div>
-        <Table className="desktopDataTable" rowKey="key" columns={refurbishmentColumns} dataSource={refurbishmentRecords} pagination={tablePagination(8)} scroll={{ x: 820 }} locale={{ emptyText: "No repair or supplier invoice records yet." }} />
+        <Table className="desktopDataTable" rowKey="key" columns={refurbishmentColumns} dataSource={refurbishmentRecords} pagination={{ ...tablePagination(8), current: clampedMobileRefurbishmentPage, onChange: setMobileRefurbishmentPage }} scroll={{ x: 820 }} locale={{ emptyText: refurbishmentEmptyText }} />
       </ProCard>
       <Drawer
         title="Supplier Invoice Details / 供应商发票详情"
@@ -2192,9 +2256,24 @@ function LoanPage({
   const [loanCreateOpen, setLoanCreateOpen] = useState(false);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("LoanDocument");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
+  const [loanFilters, setLoanFilters] = useState<LoanFilters>({});
+  const [mobileLoanPage, setMobileLoanPage] = useState(1);
   const selectedLoan: LoanApplication | undefined = loans.find((loan) => loan.id === uploadLoanId);
   const selectedEditLoan = loans.find((loan) => loan.id === editLoanId) ?? loans[0];
   const loanIds = useMemo(() => loans.map((loan) => loan.id).join(","), [loans]);
+  const filteredLoans = filterLoanApplications(loans, vehicles, customers, documentChecks, loanFilters);
+  const loanFiltersActive = Object.values(loanFilters).some((value) => value !== undefined && value !== "" && value !== "All");
+  const mobileLoanPageCount = Math.max(1, Math.ceil(filteredLoans.length / mobileWorkflowPageSize));
+  const clampedMobileLoanPage = Math.min(mobileLoanPage, mobileLoanPageCount);
+  const mobileLoans = filteredLoans.slice(
+    (clampedMobileLoanPage - 1) * mobileWorkflowPageSize,
+    clampedMobileLoanPage * mobileWorkflowPageSize
+  );
+  const updateLoanFilters = (next: Partial<LoanFilters>) => {
+    setLoanFilters((current) => ({ ...current, ...next }));
+    setMobileLoanPage(1);
+  };
+  const loanEmptyText = loans.length > 0 ? "No loans match the current filters." : "No loan records yet.";
 
   useEffect(() => {
     if (!loans.length) {
@@ -2273,8 +2352,24 @@ function LoanPage({
   };
 
   const columns: ColumnsType<LoanApplication> = [
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", width: 150, render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Customer / 客户", dataIndex: "customerId", width: 240, render: (customerId) => contactFor(customers, customerId) },
+    {
+      title: "Car Plate / 车牌",
+      dataIndex: "vehicleId",
+      width: 150,
+      filters: tableTextFilters(loans.map((loan) => plateFor(vehicles, loan.vehicleId))),
+      filterSearch: true,
+      onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === String(value),
+      render: (vehicleId) => plateFor(vehicles, vehicleId)
+    },
+    {
+      title: "Customer / 客户",
+      dataIndex: "customerId",
+      width: 240,
+      filters: tableTextFilters(loans.map((loan) => contactFor(customers, loan.customerId))),
+      filterSearch: true,
+      onFilter: (value, row) => contactFor(customers, row.customerId) === String(value),
+      render: (customerId) => contactFor(customers, customerId)
+    },
     { title: "Status / 状态", dataIndex: "status", width: 130, render: (status: LoanApplication["status"]) => <Tag color={loanStatusColor[status]}>{status}</Tag> },
     {
       title: "LOU",
@@ -2422,9 +2517,48 @@ function LoanPage({
         title="Loan Workflow / 贷款流程"
         extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending").length} pending</Tag><Button type="primary" onClick={() => setLoanCreateOpen(true)}>New Loan</Button></Space>}
       >
+        <Space className="toolbarForm workflowFilterBar" wrap>
+          <Input.Search
+            allowClear
+            placeholder="Search plate, customer, phone, or date"
+            value={loanFilters.keyword}
+            onChange={(event) => updateLoanFilters({ keyword: event.target.value })}
+            style={{ width: 280 }}
+          />
+          <Select
+            value={loanFilters.status ?? "All"}
+            onChange={(status) => updateLoanFilters({ status })}
+            options={[
+              { value: "All", label: "All statuses" },
+              ...(["Draft", "Pending", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value }))
+            ]}
+            style={{ width: 160 }}
+          />
+          <Select
+            value={loanFilters.documents ?? "All"}
+            onChange={(documents) => updateLoanFilters({ documents })}
+            options={[
+              { value: "All", label: "All document states" },
+              { value: "Missing", label: "Documents missing" },
+              { value: "Complete", label: "Documents complete" }
+            ]}
+            style={{ width: 190 }}
+          />
+          <Tag color={loanFiltersActive ? "blue" : "default"}>{filteredLoans.length} / {loans.length} shown</Tag>
+          <Button
+            size="small"
+            disabled={!loanFiltersActive}
+            onClick={() => {
+              setLoanFilters({});
+              setMobileLoanPage(1);
+            }}
+          >
+            Clear filters
+          </Button>
+        </Space>
         <div className="mobileRecordList loanMobileList">
-          {loans.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No loan records yet." />}
-          {loans.map((loan) => {
+          {filteredLoans.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loanEmptyText} />}
+          {mobileLoans.map((loan) => {
             const check = documentChecks[loan.id];
             const isPending = loan.status === "Pending";
             return (
@@ -2467,8 +2601,17 @@ function LoanPage({
               </article>
             );
           })}
+          {filteredLoans.length > mobileWorkflowPageSize && (
+            <Pagination
+              current={clampedMobileLoanPage}
+              pageSize={mobileWorkflowPageSize}
+              total={filteredLoans.length}
+              showSizeChanger={false}
+              onChange={setMobileLoanPage}
+            />
+          )}
         </div>
-        <Table className="desktopDataTable loanWorkflowTable" rowKey="id" columns={columns} dataSource={loans} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No loan records yet." }} />
+        <Table className="desktopDataTable loanWorkflowTable" rowKey="id" columns={columns} dataSource={filteredLoans} pagination={{ ...tablePagination(8), current: clampedMobileLoanPage, onChange: setMobileLoanPage }} scroll={{ x: "max-content" }} locale={{ emptyText: loanEmptyText }} />
       </ProCard>
       <Modal
         title="Submit Loan / 提交贷款"
@@ -2590,6 +2733,8 @@ function DeliveryPage({
   const [deliveryCreateOpen, setDeliveryCreateOpen] = useState(false);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("Policy");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
+  const [deliveryFilters, setDeliveryFilters] = useState<DeliveryFilters>({});
+  const [mobileDeliveryPage, setMobileDeliveryPage] = useState(1);
   const selectedDelivery: DeliverySchedule | undefined = deliveries.find((delivery) => delivery.id === uploadDeliveryId);
   const selectedEditDelivery: DeliverySchedule | undefined = deliveries.find((delivery) => delivery.id === editDeliveryId) ?? deliveries[0];
   const selectedDeliveryReadiness = selectedDelivery
@@ -2598,6 +2743,19 @@ function DeliveryPage({
       ? releaseReadiness[selectedEditDelivery.id]
       : undefined;
   const customerIdForVehicle = (vehicleId: string) => vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId;
+  const filteredDeliveries = filterDeliverySchedules(deliveries, vehicles, releaseReadiness, deliveryFilters);
+  const deliveryFiltersActive = Object.values(deliveryFilters).some((value) => value !== undefined && value !== "" && value !== "All");
+  const mobileDeliveryPageCount = Math.max(1, Math.ceil(filteredDeliveries.length / mobileWorkflowPageSize));
+  const clampedMobileDeliveryPage = Math.min(mobileDeliveryPage, mobileDeliveryPageCount);
+  const mobileDeliveries = filteredDeliveries.slice(
+    (clampedMobileDeliveryPage - 1) * mobileWorkflowPageSize,
+    clampedMobileDeliveryPage * mobileWorkflowPageSize
+  );
+  const updateDeliveryFilters = (next: Partial<DeliveryFilters>) => {
+    setDeliveryFilters((current) => ({ ...current, ...next }));
+    setMobileDeliveryPage(1);
+  };
+  const deliveryEmptyText = deliveries.length > 0 ? "No deliveries match the current filters." : "No delivery records yet.";
 
   useEffect(() => {
     let active = true;
@@ -2734,6 +2892,9 @@ function DeliveryPage({
       title: tableHeader("Car Plate", "车牌"),
       dataIndex: "vehicleId",
       width: 116,
+      filters: tableTextFilters(deliveries.map((delivery) => plateFor(vehicles, delivery.vehicleId))),
+      filterSearch: true,
+      onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === String(value),
       render: (vehicleId) => <Typography.Text strong className="nowrapText">{plateFor(vehicles, vehicleId)}</Typography.Text>
     },
     {
@@ -3073,9 +3234,49 @@ function DeliveryPage({
             showIcon
             message="Click Details to view delivery documents, edit the record, and update the final checklist."
           />
+          <Space className="toolbarForm workflowFilterBar" wrap>
+            <Input.Search
+              allowClear
+              placeholder="Search plate, PIC, date, or status"
+              value={deliveryFilters.keyword}
+              onChange={(event) => updateDeliveryFilters({ keyword: event.target.value })}
+              style={{ width: 280 }}
+            />
+            <Select
+              value={deliveryFilters.status ?? "All"}
+              onChange={(status) => updateDeliveryFilters({ status })}
+              options={[
+                { value: "All", label: "All statuses" },
+                ...(["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released"] as DeliverySchedule["status"][])
+                  .map((value) => ({ value, label: deliveryStatusLabel(value) }))
+              ]}
+              style={{ width: 190 }}
+            />
+            <Select
+              value={deliveryFilters.readiness ?? "All"}
+              onChange={(readiness) => updateDeliveryFilters({ readiness })}
+              options={[
+                { value: "All", label: "All readiness" },
+                { value: "Ready", label: "Release ready" },
+                { value: "Blocked", label: "Blocked" }
+              ]}
+              style={{ width: 170 }}
+            />
+            <Tag color={deliveryFiltersActive ? "blue" : "default"}>{filteredDeliveries.length} / {deliveries.length} shown</Tag>
+            <Button
+              size="small"
+              disabled={!deliveryFiltersActive}
+              onClick={() => {
+                setDeliveryFilters({});
+                setMobileDeliveryPage(1);
+              }}
+            >
+              Clear filters
+            </Button>
+          </Space>
           <div className="mobileRecordList">
-            {deliveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No delivery records yet." />}
-            {deliveries.map((delivery) => {
+            {filteredDeliveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={deliveryEmptyText} />}
+            {mobileDeliveries.map((delivery) => {
               const readiness = releaseReadiness[delivery.id];
               const ready = readiness?.isReady ?? isDeliveryReady(delivery);
               const missingCategories = readiness?.missingCategories ?? [];
@@ -3116,17 +3317,26 @@ function DeliveryPage({
                     </Space>
                   </div>
                 </article>
-              );
-            })}
+                );
+              })}
+            {filteredDeliveries.length > mobileWorkflowPageSize && (
+              <Pagination
+                current={clampedMobileDeliveryPage}
+                pageSize={mobileWorkflowPageSize}
+                total={filteredDeliveries.length}
+                showSizeChanger={false}
+                onChange={setMobileDeliveryPage}
+              />
+            )}
           </div>
           <Table
             rowKey="id"
             className="deliveryWorkflowTable desktopDataTable"
             columns={columns}
-            dataSource={deliveries}
-            pagination={tablePagination(8)}
+            dataSource={filteredDeliveries}
+            pagination={{ ...tablePagination(8), current: clampedMobileDeliveryPage, onChange: setMobileDeliveryPage }}
             scroll={{ x: "max-content" }}
-            locale={{ emptyText: "No delivery records yet." }}
+            locale={{ emptyText: deliveryEmptyText }}
           />
         </Space>
       </ProCard>
@@ -3596,65 +3806,99 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
   );
 }
 
-function AuditLogPage({ auditLog, onSearch }: { auditLog: AuditLog[]; onSearch: (filters: AuditLogFilters) => Promise<void> }) {
-  const [form] = Form.useForm();
+function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]; filters: AuditLogFilters; onSearch: (filters: AuditLogFilters) => Promise<void> }) {
+  const [form] = Form.useForm<AuditLogFilters>();
+  const [mobileAuditPage, setMobileAuditPage] = useState(1);
+  const mobileAuditPageCount = Math.max(1, Math.ceil(auditLog.length / mobileWorkflowPageSize));
+  const clampedMobileAuditPage = Math.min(mobileAuditPage, mobileAuditPageCount);
+  const mobileAuditRecords = auditLog.slice(
+    (clampedMobileAuditPage - 1) * mobileWorkflowPageSize,
+    clampedMobileAuditPage * mobileWorkflowPageSize
+  );
+
+  useEffect(() => {
+    form.resetFields();
+    form.setFieldsValue(filters);
+    setMobileAuditPage(1);
+  }, [filters, form]);
 
   return (
-    <Space direction="vertical" size={16} className="fullWidth">
-      <ProCard title={bilingual.auditLog}>
-        <Form
-          form={form}
-          layout="inline"
-          className="toolbarForm"
-          onFinish={(values) => onSearch({
+    <Space direction="vertical" size={12} className="fullWidth">
+      <Form
+        form={form}
+        layout="inline"
+        className="toolbarForm"
+        onFinish={(values) => {
+          setMobileAuditPage(1);
+          void onSearch({
             actor: values.actor,
             action: values.action,
             entityName: values.entityName
-          })}
-        >
-          <Form.Item name="actor" label="Actor">
-            <Input placeholder="admin@ysheng.local" allowClear />
-          </Form.Item>
-          <Form.Item name="action" label="Action">
-            <Input placeholder="vehicle.updated" allowClear />
-          </Form.Item>
-          <Form.Item name="entityName" label="Entity">
-            <Input placeholder="Vehicle" allowClear />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit">Filter</Button>
-          </Form.Item>
-          <Form.Item>
-            <Button htmlType="button" onClick={() => {
-              form.resetFields();
-              void onSearch({});
-            }}>Reset</Button>
-          </Form.Item>
-          <Tag color="blue">{auditLog.length} records</Tag>
-        </Form>
-        <div className="mobileRecordList">
-          {auditLog.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No audit records match the current filters." />}
-          {auditLog.slice(0, 12).map((entry) => (
-            <article className="mobileRecordCard" key={entry.id}>
-              <div className="mobileRecordHeader">
-                <div>
-                  <Typography.Text className="mobileRecordEyebrow">Action / 动作</Typography.Text>
-                  <Typography.Title level={5}>{entry.action}</Typography.Title>
-                </div>
-                <Tag>{entry.entityName}</Tag>
+          });
+        }}
+      >
+        <Form.Item name="actor" label="Actor">
+          <Input placeholder="admin@ysheng.local" allowClear />
+        </Form.Item>
+        <Form.Item name="action" label="Action">
+          <Input placeholder="vehicle.updated" allowClear />
+        </Form.Item>
+        <Form.Item name="entityName" label="Entity">
+          <Input placeholder="Vehicle" allowClear />
+        </Form.Item>
+        <Form.Item>
+          <Button type="primary" htmlType="submit">Filter</Button>
+        </Form.Item>
+        <Form.Item>
+          <Button htmlType="button" onClick={() => {
+            form.resetFields();
+            setMobileAuditPage(1);
+            void onSearch({});
+          }}>Reset</Button>
+        </Form.Item>
+        <Tag color="blue">{auditLog.length} records</Tag>
+      </Form>
+      <div className="mobileRecordList">
+        {auditLog.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No audit records match the current filters." />}
+        {mobileAuditRecords.map((entry) => (
+          <article className="mobileRecordCard" key={entry.id}>
+            <div className="mobileRecordHeader">
+              <div>
+                <Typography.Text className="mobileRecordEyebrow">Action / 动作</Typography.Text>
+                <Typography.Title level={5}>{entry.action}</Typography.Title>
               </div>
-              <div className="mobileRecordMeta">
-                <span><small>Actor / 操作人</small><strong>{entry.actor}</strong></span>
-                <span><small>Time / 时间</small><strong>{String(entry.createdAt).replace("T", " ").slice(0, 16)}</strong></span>
-              </div>
-              <div className="mobileRecordSection">
-                <Typography.Text className="mobileRecordLabel">Entity Id</Typography.Text>
-                <div className="mobileRecordTextBlock"><span>{entry.entityId}</span></div>
-              </div>
-            </article>
-          ))}
-        </div>
-        <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={tablePagination(12)} scroll={{ x: 900 }} locale={{ emptyText: "No audit records match the current filters." }} />
+              <Tag>{entry.entityName}</Tag>
+            </div>
+            <div className="mobileRecordMeta">
+              <span><small>Actor / 操作人</small><strong>{entry.actor}</strong></span>
+              <span><small>Time / 时间</small><strong>{String(entry.createdAt).replace("T", " ").slice(0, 16)}</strong></span>
+            </div>
+            <div className="mobileRecordSection">
+              <Typography.Text className="mobileRecordLabel">Entity Id</Typography.Text>
+              <div className="mobileRecordTextBlock"><span>{entry.entityId}</span></div>
+            </div>
+          </article>
+        ))}
+        {auditLog.length > mobileWorkflowPageSize && (
+          <Pagination
+            current={clampedMobileAuditPage}
+            pageSize={mobileWorkflowPageSize}
+            total={auditLog.length}
+            showSizeChanger={false}
+            onChange={setMobileAuditPage}
+          />
+        )}
+      </div>
+      <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={{ ...tablePagination(12), current: clampedMobileAuditPage, onChange: setMobileAuditPage }} scroll={{ x: 900 }} locale={{ emptyText: "No audit records match the current filters." }} />
+    </Space>
+  );
+}
+
+function AuditLogPage({ auditLog, filters, onSearch }: { auditLog: AuditLog[]; filters: AuditLogFilters; onSearch: (filters: AuditLogFilters) => Promise<void> }) {
+  return (
+    <Space direction="vertical" size={16} className="fullWidth">
+      <ProCard title={bilingual.auditLog}>
+        <AuditLogRecords auditLog={auditLog} filters={filters} onSearch={onSearch} />
       </ProCard>
       <Alert
         type="info"
@@ -3668,20 +3912,24 @@ function AuditLogPage({ auditLog, onSearch }: { auditLog: AuditLog[]; onSearch: 
 
 function AdminPage({
   auditLog,
+  auditLogFilters,
   staffUsers,
   onCreateStaffUser,
   onUpdateStaffUser,
   onResetStaffPassword,
   onUpdateStaffStatus,
-  onUpdateStaffRoles
+  onUpdateStaffRoles,
+  onSearchAuditLog
 }: {
   auditLog: AuditLog[];
+  auditLogFilters: AuditLogFilters;
   staffUsers: StaffUser[];
   onCreateStaffUser: (user: CreateStaffUserRequest) => Promise<void>;
   onUpdateStaffUser: (userId: string, request: UpdateStaffUserRequest) => Promise<void>;
   onResetStaffPassword: (userId: string, request: ResetStaffPasswordRequest) => Promise<void>;
   onUpdateStaffStatus: (userId: string, request: UpdateStaffUserStatusRequest) => Promise<void>;
   onUpdateStaffRoles: (userId: string, roles: StaffRole[]) => Promise<void>;
+  onSearchAuditLog: (filters: AuditLogFilters) => Promise<void>;
 }) {
   const [editStaffUserId, setEditStaffUserId] = useState(staffUsers[0]?.id ?? "");
   const [staffEditorOpen, setStaffEditorOpen] = useState(false);
@@ -3690,6 +3938,7 @@ function AdminPage({
   const [staffKeywordFilter, setStaffKeywordFilter] = useState("");
   const [staffStatusFilter, setStaffStatusFilter] = useState<StaffStatusFilter>("All");
   const [staffRoleFilter, setStaffRoleFilter] = useState<StaffRole | "All">("All");
+  const [mobileStaffPage, setMobileStaffPage] = useState(1);
   const selectedEditStaffUser = staffUsers.find((user) => user.id === editStaffUserId) ?? staffUsers[0];
   const filteredStaffUsers = filterStaffUsers(staffUsers, {
     keyword: staffKeywordFilter,
@@ -3697,6 +3946,12 @@ function AdminPage({
     role: staffRoleFilter
   });
   const staffFiltersActive = Boolean(staffKeywordFilter.trim()) || staffStatusFilter !== "All" || staffRoleFilter !== "All";
+  const mobileStaffPageCount = Math.max(1, Math.ceil(filteredStaffUsers.length / mobileWorkflowPageSize));
+  const clampedMobileStaffPage = Math.min(mobileStaffPage, mobileStaffPageCount);
+  const mobileStaffUsers = filteredStaffUsers.slice(
+    (clampedMobileStaffPage - 1) * mobileWorkflowPageSize,
+    clampedMobileStaffPage * mobileWorkflowPageSize
+  );
   const activeStaffCount = staffUsers.filter((user) => user.isActive).length;
   const disabledStaffCount = staffUsers.filter((user) => !user.isActive).length;
   const adminStaffCount = staffUsers.filter((user) => user.roles.includes("BossAdmin")).length;
@@ -3721,6 +3976,7 @@ function AdminPage({
     setStaffKeywordFilter("");
     setStaffStatusFilter("All");
     setStaffRoleFilter("All");
+    setMobileStaffPage(1);
   };
 
   const confirmStaffRoleChange = (row: StaffUser, roles: StaffRole[]) => {
@@ -3744,25 +4000,9 @@ function AdminPage({
     { title: "Status", dataIndex: "isActive", width: 110, render: (isActive: boolean) => <Tag color={isActive ? "green" : "red"}>{isActive ? "Active" : "Disabled"}</Tag> },
     { title: "Roles / 角色", dataIndex: "roles", width: 170, render: (roles: StaffRole[]) => <Space wrap>{roles.map((role) => <Tag key={role}>{roleLabel(role)}</Tag>)}</Space> },
     {
-      title: "Update Roles / 调整角色",
+      title: "Action / 操作",
       fixed: "right",
-      width: 320,
-      render: (_, row) => (
-        <Space.Compact className="fullWidth">
-          <Select
-            mode="multiple"
-            className="fullWidth"
-            value={row.roles}
-            options={staffRoles.map((role) => ({ value: role, label: roleLabel(role) }))}
-            onChange={(roles) => confirmStaffRoleChange(row, roles)}
-          />
-        </Space.Compact>
-      )
-    },
-    {
-      title: "Action",
-      fixed: "right",
-      width: 220,
+      width: 250,
       render: (_, row) => (
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectStaffUser(row.id)}>Details</Button>
@@ -3794,7 +4034,7 @@ function AdminPage({
             children: (
               <Space id="staff-users-panel" direction="vertical" size={16} className="fullWidth staffUsersPanel">
                 <div className="tableToolbar">
-                  <Typography.Text type="secondary">Create users from this list, then adjust RBAC roles directly in the table.</Typography.Text>
+                  <Typography.Text type="secondary">Create users here, then open Details to update identity or department access.</Typography.Text>
                   <Button type="primary" onClick={() => setStaffCreateOpen(true)}>New Staff</Button>
                 </div>
                 <div className="staffSummaryStrip">
@@ -3808,7 +4048,10 @@ function AdminPage({
                     allowClear
                     placeholder="Search name, email, or role"
                     value={staffKeywordFilter}
-                    onChange={(event) => setStaffKeywordFilter(event.target.value)}
+                    onChange={(event) => {
+                      setStaffKeywordFilter(event.target.value);
+                      setMobileStaffPage(1);
+                    }}
                     style={{ width: 240 }}
                   />
                   <Select
@@ -3818,7 +4061,10 @@ function AdminPage({
                       { value: "Active", label: "Active" },
                       { value: "Disabled", label: "Disabled" }
                     ]}
-                    onChange={setStaffStatusFilter}
+                    onChange={(status) => {
+                      setStaffStatusFilter(status);
+                      setMobileStaffPage(1);
+                    }}
                     style={{ width: 150 }}
                   />
                   <Select<StaffRole | "All">
@@ -3827,7 +4073,10 @@ function AdminPage({
                       { value: "All", label: "All roles" },
                       ...staffRoles.map((role) => ({ value: role, label: roleLabel(role) }))
                     ]}
-                    onChange={setStaffRoleFilter}
+                    onChange={(role) => {
+                      setStaffRoleFilter(role);
+                      setMobileStaffPage(1);
+                    }}
                     style={{ width: 180 }}
                   />
                   <Tag color={staffFiltersActive ? "blue" : "default"}>{filteredStaffUsers.length} / {staffUsers.length} shown</Tag>
@@ -3835,7 +4084,7 @@ function AdminPage({
                 </Space>
                 <div className="mobileRecordList">
                   {filteredStaffUsers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No staff users match the current filters." />}
-                  {filteredStaffUsers.map((user) => (
+                  {mobileStaffUsers.map((user) => (
                     <article className="mobileRecordCard" key={user.id}>
                       <div className="mobileRecordHeader">
                         <div>
@@ -3870,8 +4119,17 @@ function AdminPage({
                       </div>
                     </article>
                   ))}
+                  {filteredStaffUsers.length > mobileWorkflowPageSize && (
+                    <Pagination
+                      current={clampedMobileStaffPage}
+                      pageSize={mobileWorkflowPageSize}
+                      total={filteredStaffUsers.length}
+                      showSizeChanger={false}
+                      onChange={setMobileStaffPage}
+                    />
+                  )}
                 </div>
-                <Table className="desktopDataTable" rowKey="id" size="small" columns={staffColumns} dataSource={filteredStaffUsers} pagination={tablePagination(6)} scroll={{ x: 1200 }} locale={{ emptyText: "No staff users match the current filters." }} />
+                <Table className="desktopDataTable" rowKey="id" size="small" columns={staffColumns} dataSource={filteredStaffUsers} pagination={{ ...tablePagination(6), current: clampedMobileStaffPage, onChange: setMobileStaffPage }} scroll={{ x: 1200 }} locale={{ emptyText: "No staff users match the current filters." }} />
                 <Drawer
                   title="Staff Details / 员工详情"
                   width={520}
@@ -3916,6 +4174,19 @@ function AdminPage({
                     <Form.Item label="Email">
                       <Input value={selectedEditStaffUser?.email} disabled />
                     </Form.Item>
+                    <Form.Item label="Department Roles / 部门角色">
+                      <Select<StaffRole[]>
+                        mode="multiple"
+                        className="fullWidth"
+                        value={selectedEditStaffUser?.roles ?? []}
+                        options={staffRoles.map((role) => ({ value: role, label: roleLabel(role) }))}
+                        onChange={(roles) => selectedEditStaffUser && confirmStaffRoleChange(selectedEditStaffUser, roles)}
+                        placeholder="Select at least one department role"
+                      />
+                    </Form.Item>
+                    <Typography.Text type="secondary">
+                      Role changes are confirmed separately and take effect immediately after saving.
+                    </Typography.Text>
                     <Form.Item className="formActions">
                       <Button type="primary" htmlType="submit" disabled={!selectedEditStaffUser}>Update Staff</Button>
                     </Form.Item>
@@ -4013,7 +4284,7 @@ function AdminPage({
             )
           },
           { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
-          { key: "audit", label: "Audit Log / 操作记录", children: <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={tablePagination(8)} scroll={{ x: 900 }} locale={{ emptyText: "No audit records yet." }} /> }
+          { key: "audit", label: "Audit Log / 操作记录", children: <AuditLogRecords auditLog={auditLog} filters={auditLogFilters} onSearch={onSearchAuditLog} /> }
         ]}
       />
     </ProCard>
@@ -4458,6 +4729,11 @@ function ensureColumnFilters<RecordType extends object>(
     }
 
     const dataIndex = filterableColumn.dataIndex;
+    const leafKey = String(Array.isArray(dataIndex) ? dataIndex[dataIndex.length - 1] : dataIndex);
+    if (/(?:^id$|Id$|At$|Date$)/.test(leafKey)) {
+      return column;
+    }
+
     const filterValues = dataSource
       .flatMap((row) => tableFilterValues(row, dataIndex))
       .filter((value) => value.length > 0);

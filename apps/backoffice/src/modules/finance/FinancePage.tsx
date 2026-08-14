@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
+import { CashCustodyPage } from "./CashCustodyPage";
+import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import {
@@ -23,7 +25,11 @@ import {
   customerSelectLabel,
   financeInvoiceContentUrl,
   getVehicleDocuments,
+  humanizeApiError,
   type BrokerCommission,
+  type CashHandover,
+  type CashHandoverPaymentLookup,
+  type CurrentUser,
   type Customer,
   type DailySpend,
   type DebtRecoveryCase,
@@ -48,6 +54,9 @@ export function FinancePage({
   debtRecoveries,
   paymentVouchers,
   financeInvoices,
+  currentUser,
+  cashHandovers,
+  cashHandoverPaymentLookup,
   onCreate,
   onUpdate,
   onOpenCustomer,
@@ -64,7 +73,12 @@ export function FinancePage({
   onCreatePaymentVoucher,
   onUpdatePaymentVoucher,
   onExportPayments,
-  onUploadDocument: _onUploadDocument
+  onUploadDocument: _onUploadDocument,
+  onCreateCashHandover,
+  onRequestCashHandover,
+  onRecordCashHandover,
+  onAcceptCashHandover,
+  onRejectCashHandover
 }: {
   vehicles: VehicleLookup[];
   customers: Customer[];
@@ -76,6 +90,9 @@ export function FinancePage({
   debtRecoveries: DebtRecoveryCase[];
   paymentVouchers: PaymentVoucher[];
   financeInvoices: FinanceInvoice[];
+  currentUser: CurrentUser | null;
+  cashHandovers: CashHandover[];
+  cashHandoverPaymentLookup: CashHandoverPaymentLookup[];
   onCreate: (payment: PaymentRecord) => void;
   onUpdate: (payment: PaymentRecord) => void;
   onOpenCustomer: (customerId: string) => void;
@@ -93,7 +110,13 @@ export function FinancePage({
   onUpdatePaymentVoucher: (voucher: PaymentVoucher) => void;
   onExportPayments: () => Promise<string>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
+  onCreateCashHandover: (paymentRecordId: string, amount: number, notes?: string) => Promise<void>;
+  onRequestCashHandover: (id: string) => Promise<void>;
+  onRecordCashHandover: (id: string) => Promise<void>;
+  onAcceptCashHandover: (id: string) => Promise<void>;
+  onRejectCashHandover: (id: string, reason: string) => Promise<void>;
 }) {
+  const canManageFinance = !currentUser?.isAuthenticated || currentUser.roles.some((role) => role === "BossAdmin" || role === "Finance");
   const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
   const [editPaymentId, setEditPaymentId] = useState(payments[0]?.id ?? "");
   const [editSettlementId, setEditSettlementId] = useState(settlements[0]?.id ?? "");
@@ -103,7 +126,10 @@ export function FinancePage({
   const [editPaymentVoucherId, setEditPaymentVoucherId] = useState(paymentVouchers[0]?.id ?? "");
   const [financeEditorOpen, setFinanceEditorOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [financeCreateOpen, setFinanceCreateOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
-  const [financeTab, setFinanceTab] = useState(() => financeTabFromLocation());
+  const [financeTab, setFinanceTab] = useState(() => financeTabFromLocation(canManageFinance));
+  const [financeKeyword, setFinanceKeyword] = useState("");
+  const [financeStatus, setFinanceStatus] = useState<string>();
+  const [financePage, setFinancePage] = useState(1);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PaymentReceipt");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [paymentDocuments, setPaymentDocuments] = useState<VehicleDocument[]>([]);
@@ -118,6 +144,30 @@ export function FinancePage({
   const selectedEditBrokerCommission = brokerCommissions.find((commission) => commission.id === editBrokerCommissionId) ?? brokerCommissions[0];
   const selectedEditDebtRecovery = debtRecoveries.find((debt) => debt.id === editDebtRecoveryId) ?? debtRecoveries[0];
   const selectedEditPaymentVoucher = paymentVouchers.find((voucher) => voucher.id === editPaymentVoucherId) ?? paymentVouchers[0];
+
+  useEffect(() => {
+    const syncFinanceTabFromLocation = () => setFinanceTab(financeTabFromLocation(canManageFinance));
+    syncFinanceTabFromLocation();
+    window.addEventListener("popstate", syncFinanceTabFromLocation);
+    return () => window.removeEventListener("popstate", syncFinanceTabFromLocation);
+  }, [canManageFinance]);
+
+  const changeFinanceTab = (nextTab: string) => {
+    setFinanceTab(nextTab);
+    setFinanceKeyword("");
+    setFinanceStatus(undefined);
+    setFinancePage(1);
+    const nextUrl = `/finance?tab=${encodeURIComponent(nextTab)}`;
+    if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+      window.history.pushState(null, "", nextUrl);
+    }
+  };
+
+  useEffect(() => {
+    setFinanceKeyword("");
+    setFinanceStatus(undefined);
+    setFinancePage(1);
+  }, [financeTab]);
 
   useEffect(() => {
     if (!uploadPaymentId && payments[0]?.id) {
@@ -221,7 +271,7 @@ export function FinancePage({
       URL.revokeObjectURL(url);
       message.success("Payment CSV exported");
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Payment CSV export failed");
+      message.error(humanizeApiError(error, "Payment CSV export failed. Please try again."));
     }
   };
 
@@ -354,7 +404,7 @@ export function FinancePage({
     { title: "Customer / 客户", dataIndex: "customerId", render: (customerId) => customerLabel(customers, customerId) },
     { title: "Balance / 欠款", dataIndex: "balanceAmount", render: (value) => `RM ${value.toLocaleString()}` },
     { title: "Follow Up / 跟进", dataIndex: "followUpDate" },
-    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Closed" ? "green" : status === "FollowedUp" ? "blue" : "orange"}>{status}</Tag> },
+    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Closed" ? "green" : status === "FollowedUp" ? "blue" : "orange"}>{financeStatusLabel(status)}</Tag> },
     { title: "Notes / 备注", dataIndex: "notes", render: (value) => value || "-" },
     {
       title: "Action / 操作",
@@ -397,35 +447,90 @@ export function FinancePage({
       )
     }
   ];
-  const paymentTableColumns = withColumnFilters(columns, [
-    { dataIndex: "vehicleId", filters: textFilters(payments.map((payment) => plateFor(vehicles, payment.vehicleId))), filterSearch: true, onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === value },
-    { dataIndex: "status", filters: ["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ text: value, value })), onFilter: (value, row) => row.status === value }
-  ]);
-  const settlementTableColumns = withColumnFilters(settlementColumns, [
-    { dataIndex: "ownerId", filters: textFilters(settlements.map((settlement) => contactFor(owners, settlement.ownerId))), filterSearch: true, onFilter: (value, row) => contactFor(owners, row.ownerId) === value },
-    { dataIndex: "vehicleId", filters: textFilters(settlements.map((settlement) => plateFor(vehicles, settlement.vehicleId))), filterSearch: true, onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === value },
-    { dataIndex: "isPaid", filters: [{ text: "Paid", value: true }, { text: "Due", value: false }], onFilter: (value, row) => row.isPaid === value }
-  ]);
-  const dailySpendTableColumns = withColumnFilters(dailySpendColumns, [
-    { dataIndex: "description", filters: textFilters(dailySpends.map((spend) => spend.description)), filterSearch: true, onFilter: (value, row) => row.description === value },
-    { dataIndex: "isPaid", filters: [{ text: "Paid", value: true }, { text: "Due", value: false }], onFilter: (value, row) => row.isPaid === value }
-  ]);
-  const brokerCommissionTableColumns = withColumnFilters(brokerCommissionColumns, [
-    { dataIndex: "vehicleId", filters: textFilters(brokerCommissions.map((commission) => plateFor(vehicles, commission.vehicleId))), filterSearch: true, onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === value },
-    { dataIndex: "brokerName", filters: textFilters(brokerCommissions.map((commission) => commission.brokerName)), filterSearch: true, onFilter: (value, row) => row.brokerName === value },
-    { dataIndex: "isPaid", filters: [{ text: "Paid", value: true }, { text: "Unpaid", value: false }], onFilter: (value, row) => row.isPaid === value }
-  ]);
-  const debtRecoveryTableColumns = withColumnFilters(debtRecoveryColumns, [
-    { dataIndex: "vehicleId", filters: textFilters(debtRecoveries.map((debt) => plateFor(vehicles, debt.vehicleId))), filterSearch: true, onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === value },
-    { dataIndex: "customerId", filters: textFilters(debtRecoveries.map((debt) => customerLabel(customers, debt.customerId))), filterSearch: true, onFilter: (value, row) => customerLabel(customers, row.customerId) === value },
-    { dataIndex: "status", filters: ["Open", "FollowedUp", "Closed"].map((value) => ({ text: value, value })), onFilter: (value, row) => row.status === value }
-  ]);
-  const paymentVoucherTableColumns = withColumnFilters(paymentVoucherColumns, [
-    { dataIndex: "vehicleId", filters: textFilters(paymentVouchers.map((voucher) => plateFor(vehicles, voucher.vehicleId))), filterSearch: true, onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === value },
-    { dataIndex: "payeeName", filters: textFilters(paymentVouchers.map((voucher) => voucher.payeeName)), filterSearch: true, onFilter: (value, row) => row.payeeName === value },
-    { dataIndex: "purpose", filters: textFilters(paymentVouchers.map((voucher) => voucher.purpose)), filterSearch: true, onFilter: (value, row) => row.purpose === value },
-    { dataIndex: "status", filters: ["Pending", "Approved", "Paid"].map((value) => ({ text: value, value })), onFilter: (value, row) => row.status === value }
-  ]);
+  const filteredPayments = filterFinanceRows(payments, financeKeyword, financeStatus, (payment) => [
+    plateFor(vehicles, payment.vehicleId), payment.receiptNumber, payment.invoiceNumber, payment.bankName, payment.externalDocumentNumber, payment.bankFollowUpDate
+  ], (payment) => payment.status);
+  const filteredSettlements = filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
+    plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
+  ], (settlement) => settlement.isPaid ? "Paid" : "Due");
+  const filteredDailySpends = filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due");
+  const filteredBrokerCommissions = filterFinanceRows(brokerCommissions, financeKeyword, financeStatus, (commission) => [
+    plateFor(vehicles, commission.vehicleId), commission.brokerName
+  ], (commission) => commission.isPaid ? "Paid" : "Unpaid");
+  const filteredDebtRecoveries = filterFinanceRows(debtRecoveries, financeKeyword, financeStatus, (debt) => [
+    plateFor(vehicles, debt.vehicleId), customerLabel(customers, debt.customerId), debt.followUpDate, debt.notes
+  ], (debt) => debt.status);
+  const filteredPaymentVouchers = filterFinanceRows(paymentVouchers, financeKeyword, financeStatus, (voucher) => [
+    plateFor(vehicles, voucher.vehicleId), voucher.payeeName, voucher.purpose, voucher.issuedDate, voucher.notes
+  ], (voucher) => voucher.status);
+  const financeStatusOptions = statusOptionsForFinanceTab(financeTab);
+  const activeFinanceList = financeTab === "settlements"
+    ? { filtered: filteredSettlements.length, total: settlements.length }
+    : financeTab === "commissions"
+      ? { filtered: filteredBrokerCommissions.length, total: brokerCommissions.length }
+      : financeTab === "debt"
+        ? { filtered: filteredDebtRecoveries.length, total: debtRecoveries.length }
+        : financeTab === "vouchers"
+          ? { filtered: filteredPaymentVouchers.length, total: paymentVouchers.length }
+          : financeTab === "daily"
+            ? { filtered: filteredDailySpends.length, total: dailySpends.length }
+            : { filtered: filteredPayments.length, total: payments.length };
+  const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus);
+  const financeFilters = (
+    <Space wrap className="toolbarForm">
+      <Input.Search
+        allowClear
+        aria-label="Filter finance records by keyword"
+        placeholder="Search current list"
+        value={financeKeyword}
+        onChange={(event) => {
+          setFinanceKeyword(event.target.value);
+          setFinancePage(1);
+        }}
+      />
+      <Select
+        allowClear
+        aria-label="Filter finance records by status"
+        className="financeStatusFilter"
+        options={financeStatusOptions}
+        placeholder="All statuses"
+        value={financeStatus}
+        onChange={(value) => {
+          setFinanceStatus(value);
+          setFinancePage(1);
+        }}
+      />
+      <Tag color={financeFiltersActive ? "blue" : undefined}>{activeFinanceList.filtered}/{activeFinanceList.total} shown</Tag>
+      <Button
+        disabled={!financeFiltersActive}
+        onClick={() => {
+          setFinanceKeyword("");
+          setFinanceStatus(undefined);
+          setFinancePage(1);
+        }}
+      >
+        Clear
+      </Button>
+    </Space>
+  );
+  const paymentPage = financePageFor(filteredPayments.length, financePage);
+  const settlementPage = financePageFor(filteredSettlements.length, financePage);
+  const dailySpendPage = financePageFor(filteredDailySpends.length, financePage);
+  const brokerCommissionPage = financePageFor(filteredBrokerCommissions.length, financePage);
+  const debtRecoveryPage = financePageFor(filteredDebtRecoveries.length, financePage);
+  const paymentVoucherPage = financePageFor(filteredPaymentVouchers.length, financePage);
+  const visiblePayments = pageFinanceRows(filteredPayments, paymentPage);
+  const visibleSettlements = pageFinanceRows(filteredSettlements, settlementPage);
+  const visibleDailySpends = pageFinanceRows(filteredDailySpends, dailySpendPage);
+  const visibleBrokerCommissions = pageFinanceRows(filteredBrokerCommissions, brokerCommissionPage);
+  const visibleDebtRecoveries = pageFinanceRows(filteredDebtRecoveries, debtRecoveryPage);
+  const visiblePaymentVouchers = pageFinanceRows(filteredPaymentVouchers, paymentVoucherPage);
+  const paymentEmptyText = financeEmptyText(payments.length, filteredPayments.length, "bank collection records");
+  const settlementEmptyText = financeEmptyText(settlements.length, filteredSettlements.length, "settlement reminders");
+  const dailySpendEmptyText = financeEmptyText(dailySpends.length, filteredDailySpends.length, "daily spend records");
+  const brokerCommissionEmptyText = financeEmptyText(brokerCommissions.length, filteredBrokerCommissions.length, "broker commissions");
+  const debtRecoveryEmptyText = financeEmptyText(debtRecoveries.length, filteredDebtRecoveries.length, "debt recovery cases");
+  const paymentVoucherEmptyText = financeEmptyText(paymentVouchers.length, filteredPaymentVouchers.length, "payment vouchers");
   const outstanding = payments.filter((payment) => payment.status !== "Reconciled").reduce((sum, payment) => sum + payment.nettPrice, 0);
   const settlementOutstanding = settlements.filter((settlement) => !settlement.isPaid).reduce((sum, settlement) => sum + settlement.amount, 0);
   const dailySpendOutstanding = dailySpends.filter((spend) => !spend.isPaid).reduce((sum, spend) => sum + spend.amount, 0);
@@ -434,6 +539,12 @@ export function FinancePage({
   const voucherOutstanding = paymentVouchers.filter((voucher) => voucher.status !== "Paid").reduce((sum, voucher) => sum + voucher.amount, 0);
   const activeFinanceSummary = (() => {
     switch (financeTab) {
+      case "cash-custody":
+        return [
+          { label: "Open custody", value: cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length },
+          { label: "Receipts", value: cashHandovers.filter((handover) => Boolean(handover.officialReceiptId)).length },
+          { label: "Cash value", value: `RM ${cashHandovers.reduce((total, handover) => total + handover.amount, 0).toLocaleString()}` }
+        ];
       case "settlements":
         return [
           { label: "Rows", value: settlements.length },
@@ -478,14 +589,17 @@ export function FinancePage({
       <ProCard>
         <Tabs
           activeKey={financeTab}
-          onChange={setFinanceTab}
+          onChange={changeFinanceTab}
           items={[
-            { key: "payments", label: "Bank Collection / 收款Bank" },
-            { key: "settlements", label: "Settlement / 结算" },
-            { key: "commissions", label: "Broker Commission / 经纪佣金" },
-            { key: "debt", label: "Debt Recovery / 欠款追讨" },
-            { key: "vouchers", label: "Payment Voucher / 付款凭证" },
-            { key: "daily", label: "Daily Spend / 日常支出" }
+            ...(canManageFinance ? [
+              { key: "payments", label: "Bank Collection / 收款Bank" },
+              { key: "settlements", label: "Settlement / 结算" },
+              { key: "commissions", label: "Broker Commission / 经纪佣金" },
+              { key: "debt", label: "Debt Recovery / 欠款追讨" },
+              { key: "vouchers", label: "Payment Voucher / 付款凭证" },
+              { key: "daily", label: "Daily Spend / 日常支出" }
+            ] : []),
+            { key: "cash-custody", label: "Cash Handover / Official Receipts" }
           ]}
         />
         <div className="financeSummaryStrip">
@@ -497,13 +611,28 @@ export function FinancePage({
           ))}
         </div>
       </ProCard>
+      {financeTab === "cash-custody" && (
+        <CashCustodyPage
+          currentUser={currentUser}
+          customers={customers}
+          handovers={cashHandovers}
+          paymentLookup={cashHandoverPaymentLookup}
+          onCreate={onCreateCashHandover}
+          onRequestHandover={onRequestCashHandover}
+          onRecordHandover={onRecordCashHandover}
+          onAccept={onAcceptCashHandover}
+          onReject={onRejectCashHandover}
+        />
+      )}
       {financeTab === "payments" && <ProCard
         title="Bank Collection / 收款Bank"
         extra={<Space wrap><Button onClick={handleExportPayments}>Export CSV</Button><Button type="primary" onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button></Space>}
       >
-        <div className="mobileRecordList">
-          {payments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No bank collection records yet." />}
-          {payments.map((payment) => {
+        <Space direction="vertical" size={12} className="fullWidth">
+          {financeFilters}
+          <div className="mobileRecordList">
+          {filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
+          {visiblePayments.map((payment) => {
             const invoice = invoiceForPayment(payment.id);
             return (
             <article className="mobileRecordCard" key={payment.id}>
@@ -544,8 +673,10 @@ export function FinancePage({
             </article>
             );
           })}
-        </div>
-        <Table className="desktopDataTable" rowKey="id" columns={paymentTableColumns} dataSource={payments} pagination={tablePagination(8)} scroll={{ x: 960 }} locale={{ emptyText: "No bank collection records yet." }} />
+          <Pagination className="mobileRecordPagination" current={paymentPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPayments.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
+          </div>
+          <Table className="desktopDataTable" rowKey="id" columns={columns} dataSource={filteredPayments} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentEmptyText }} />
+        </Space>
       </ProCard>}
       <Modal
         title="New Bank Collection / 新增收款"
@@ -826,6 +957,7 @@ export function FinancePage({
         extra={<Button type="primary" onClick={() => setFinanceCreateOpen("settlement")}>New Settlement</Button>}
       >
         <Space direction="vertical" size={16} className="fullWidth">
+          {financeFilters}
           <Descriptions bordered column={1}>
             <Descriptions.Item label="Deadline Popup">Admin receives reminder when settlement deadline is due.</Descriptions.Item>
             <Descriptions.Item label={shortformLabel("AutoCount", "Accounting system")}>Sales invoice sync is generated from the Finance payment workflow.</Descriptions.Item>
@@ -837,8 +969,8 @@ export function FinancePage({
             <Descriptions.Item label="Payment Voucher Open">RM {voucherOutstanding.toLocaleString()}</Descriptions.Item>
           </Descriptions>
           <div className="mobileRecordList">
-            {settlements.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No settlement reminders yet." />}
-            {settlements.map((settlement) => (
+            {filteredSettlements.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={settlementEmptyText} />}
+            {visibleSettlements.map((settlement) => (
               <article className="mobileRecordCard" key={settlement.id}>
                 <div className="mobileRecordHeader">
                   <div>
@@ -861,8 +993,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
+            <Pagination className="mobileRecordPagination" current={settlementPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredSettlements.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={settlementTableColumns} dataSource={settlements} pagination={tablePagination(8)} scroll={{ x: 640 }} locale={{ emptyText: "No settlement reminders yet." }} />
+          <Table className="desktopDataTable" rowKey="id" columns={settlementColumns} dataSource={filteredSettlements} pagination={tablePagination(filteredSettlements.length, settlementPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: settlementEmptyText }} />
           <Modal
             title="New Settlement / 新增结算提醒"
             width={620}
@@ -946,9 +1079,10 @@ export function FinancePage({
         extra={<Button type="primary" onClick={() => setFinanceCreateOpen("brokerCommission")}>New Commission</Button>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
+          {financeFilters}
           <div className="mobileRecordList">
-            {brokerCommissions.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No broker commissions yet." />}
-            {brokerCommissions.map((commission) => (
+            {filteredBrokerCommissions.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={brokerCommissionEmptyText} />}
+            {visibleBrokerCommissions.map((commission) => (
               <article className="mobileRecordCard" key={commission.id}>
                 <div className="mobileRecordHeader">
                   <div>
@@ -978,8 +1112,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
+            <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredBrokerCommissions.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={brokerCommissionTableColumns} dataSource={brokerCommissions} pagination={tablePagination(8)} scroll={{ x: 760 }} locale={{ emptyText: "No broker commissions yet." }} />
+          <Table className="desktopDataTable" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage)} scroll={{ x: 760 }} locale={{ emptyText: brokerCommissionEmptyText }} />
           <Modal
             title="New Broker Commission / 新增经纪人佣金"
             width={620}
@@ -1067,16 +1202,17 @@ export function FinancePage({
         extra={<Button type="primary" onClick={() => setFinanceCreateOpen("debtRecovery")}>New Debt Case</Button>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
+          {financeFilters}
           <div className="mobileRecordList">
-            {debtRecoveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No debt recovery cases yet." />}
-            {debtRecoveries.map((debt) => (
+            {filteredDebtRecoveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={debtRecoveryEmptyText} />}
+            {visibleDebtRecoveries.map((debt) => (
               <article className="mobileRecordCard" key={debt.id}>
                 <div className="mobileRecordHeader">
                   <div>
                     <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
                     <Typography.Title level={5}>{plateFor(vehicles, debt.vehicleId)}</Typography.Title>
                   </div>
-                  <Tag color={debt.status === "Closed" ? "green" : "orange"}>{debt.status}</Tag>
+                  <Tag color={debt.status === "Closed" ? "green" : debt.status === "FollowedUp" ? "blue" : "orange"}>{financeStatusLabel(debt.status)}</Tag>
                 </div>
                 <div className="mobileRecordMeta">
                   <span><small>Customer / 客户</small><strong>{customerLabel(customers, debt.customerId)}</strong></span>
@@ -1092,8 +1228,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
+            <Pagination className="mobileRecordPagination" current={debtRecoveryPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredDebtRecoveries.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={debtRecoveryTableColumns} dataSource={debtRecoveries} pagination={tablePagination(8)} scroll={{ x: 960 }} locale={{ emptyText: "No debt recovery cases yet." }} />
+          <Table className="desktopDataTable" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
           <Modal
             title="New Debt Recovery Case / 新增欠款追讨"
             width={620}
@@ -1181,9 +1318,10 @@ export function FinancePage({
         extra={<Button type="primary" onClick={() => setFinanceCreateOpen("paymentVoucher")}>New Voucher</Button>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
+          {financeFilters}
           <div className="mobileRecordList">
-            {paymentVouchers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No payment vouchers yet." />}
-            {paymentVouchers.map((voucher) => (
+            {filteredPaymentVouchers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentVoucherEmptyText} />}
+            {visiblePaymentVouchers.map((voucher) => (
               <article className="mobileRecordCard" key={voucher.id}>
                 <div className="mobileRecordHeader">
                   <div>
@@ -1206,8 +1344,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
+            <Pagination className="mobileRecordPagination" current={paymentVoucherPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPaymentVouchers.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={paymentVoucherTableColumns} dataSource={paymentVouchers} pagination={tablePagination(8)} scroll={{ x: 960 }} locale={{ emptyText: "No payment vouchers yet." }} />
+          <Table className="desktopDataTable" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
           <Modal
             title="New Payment Voucher / 新增付款凭证"
             width={620}
@@ -1299,9 +1438,10 @@ export function FinancePage({
         extra={<Button type="primary" onClick={() => setFinanceCreateOpen("dailySpend")}>New Daily Spend</Button>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
+          {financeFilters}
           <div className="mobileRecordList">
-            {dailySpends.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No daily spend records yet." />}
-            {dailySpends.map((spend) => (
+            {filteredDailySpends.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={dailySpendEmptyText} />}
+            {visibleDailySpends.map((spend) => (
               <article className="mobileRecordCard" key={spend.id}>
                 <div className="mobileRecordHeader">
                   <div>
@@ -1323,8 +1463,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
+            <Pagination className="mobileRecordPagination" current={dailySpendPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredDailySpends.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={dailySpendTableColumns} dataSource={dailySpends} pagination={tablePagination(8)} scroll={{ x: 640 }} locale={{ emptyText: "No daily spend records yet." }} />
+          <Table className="desktopDataTable" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
           <Modal
             title="New Daily Spend / 新增日常支出"
             width={560}
@@ -1433,9 +1574,16 @@ function shortformLabel(label: string, title: string) {
 
 const paymentExternalSyncOptions = ["NotSynced", "Synced", "Failed"].map((value) => ({ value, label: value }));
 
-function financeTabFromLocation() {
-  if (typeof window === "undefined") return "payments";
-  const tab = new URLSearchParams(window.location.search).get("tab");
+function financeTabFromLocation(canManageFinance: boolean) {
+  if (typeof window === "undefined") return canManageFinance ? "payments" : "cash-custody";
+  return financeTabForUrl(window.location.pathname, window.location.search, canManageFinance);
+}
+
+export function financeTabForUrl(pathname: string, search: string, canManageFinance: boolean) {
+  if (pathname === "/cash-custody") return "cash-custody";
+  const tab = new URLSearchParams(search).get("tab");
+  if (tab === "cash-custody") return "cash-custody";
+  if (!canManageFinance) return "cash-custody";
   return ["payments", "settlements", "commissions", "debt", "vouchers", "daily"].includes(tab ?? "") ? tab ?? "payments" : "payments";
 }
 
@@ -1484,28 +1632,39 @@ function contactFor<T extends { id: string; name: string; phone: string }>(conta
   return contact ? `${contact.name} / ${contact.phone}` : "Unknown";
 }
 
-function tablePagination(pageSize = 8): TablePaginationConfig {
+function tablePagination(total: number, current: number, onChange: (page: number) => void): TablePaginationConfig {
   return {
-    pageSize,
-    showSizeChanger: true,
-    pageSizeOptions: ["5", "8", "10", "20", "50"],
+    current,
+    pageSize: FINANCE_LIST_PAGE_SIZE,
+    total,
+    showSizeChanger: false,
+    onChange,
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`
   };
 }
 
-function textFilters(values: Array<string | undefined | null>) {
-  return Array.from(new Set(values.filter((value): value is string => Boolean(value))))
-    .sort((a, b) => a.localeCompare(b))
-    .map((value) => ({ text: value, value }));
+function financeEmptyText(totalRows: number, filteredRows: number, itemName: string) {
+  return totalRows === 0
+    ? `No ${itemName} yet.`
+    : filteredRows === 0
+      ? `No ${itemName} match the current filters.`
+      : `No ${itemName} yet.`;
 }
 
-function withColumnFilters<T>(columns: ColumnsType<T>, filters: Array<Partial<ColumnsType<T>[number]> & { dataIndex: string }>): ColumnsType<T> {
-  return columns.map((column) => {
-    const dataIndex = "dataIndex" in column ? column.dataIndex : undefined;
-    const filter = filters.find((item) => item.dataIndex === dataIndex);
+function statusOptionsForFinanceTab(tab: string) {
+  const labels = tab === "payments"
+    ? ["Pending", "Approved", "Disbursed", "Reconciled"]
+    : tab === "settlements" || tab === "daily"
+      ? ["Due", "Paid"]
+      : tab === "commissions"
+        ? ["Unpaid", "Paid"]
+        : tab === "debt"
+          ? ["Open", "FollowedUp", "Closed"]
+          : tab === "vouchers"
+            ? ["Pending", "Approved", "Paid"]
+            : [];
 
-    return filter ? { ...column, ...filter } : column;
-  });
+  return labels.map((value) => ({ label: financeStatusLabel(value), value }));
 }
 
 function newId() {
