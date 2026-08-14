@@ -7,6 +7,7 @@ import {
   financeInvoiceContentUrl,
   getCustomerProfile,
   getCustomerProfileOptions,
+  humanizeApiError,
   officialReceiptContentUrl,
   vehicleDocumentContentUrl,
   type CustomerProfile,
@@ -19,6 +20,20 @@ import {
   type CustomerProfileReceipt,
   type CustomerProfileVehicle
 } from "../../api";
+
+export type Customer360SourcePath = "/vehicles" | "/loans" | "/delivery" | "/finance" | "/leads";
+
+export function customerProfileOptionLabel(option: { id: string; name: string }) {
+  const stableId = option.id.length > 8 ? `…${option.id.slice(-8)}` : option.id;
+  return `${option.name} · ID ${stableId}`;
+}
+
+export function canShowCustomer360SourceLink(
+  path: Customer360SourcePath,
+  canAccessPath: (path: Customer360SourcePath) => boolean
+) {
+  return canAccessPath(path);
+}
 
 const documentLabels: Record<CustomerProfileDocument["category"], string> = {
   PurchaseInvoice: "Purchase Invoice",
@@ -66,18 +81,22 @@ function ProfileTable<RecordType extends object>({
 export function Customer360Page({
   customerId,
   onCustomerChange,
-  onNavigate
+  onNavigate,
+  canAccessPath
 }: {
   customerId?: string;
   onCustomerChange: (id: string) => void;
   onNavigate: (path: string) => void;
+  canAccessPath: (path: Customer360SourcePath) => boolean;
 }) {
   const [options, setOptions] = useState<{ id: string; name: string }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(customerId ?? "");
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [loadingProfile, setLoadingProfile] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [optionsRequestVersion, setOptionsRequestVersion] = useState(0);
 
   useEffect(() => {
     setSelectedCustomerId(customerId ?? "");
@@ -85,6 +104,8 @@ export function Customer360Page({
 
   useEffect(() => {
     let active = true;
+    setLoadingOptions(true);
+    setOptionsError(null);
     void getCustomerProfileOptions()
       .then((result) => {
         if (!active) return;
@@ -92,7 +113,7 @@ export function Customer360Page({
         setSelectedCustomerId((current) => current && result.some((option) => option.id === current) ? current : result[0]?.id ?? "");
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : "Customer profile options could not be loaded.");
+        if (active) setOptionsError(humanizeApiError(reason, "Customer profile options could not be loaded."));
       })
       .finally(() => {
         if (active) setLoadingOptions(false);
@@ -101,7 +122,7 @@ export function Customer360Page({
     return () => {
       active = false;
     };
-  }, []);
+  }, [optionsRequestVersion]);
 
   useEffect(() => {
     if (!selectedCustomerId) {
@@ -110,8 +131,9 @@ export function Customer360Page({
     }
 
     let active = true;
+    setProfile(null);
     setLoadingProfile(true);
-    setError(null);
+    setProfileError(null);
     void getCustomerProfile(selectedCustomerId)
       .then((result) => {
         if (active) setProfile(result);
@@ -119,7 +141,7 @@ export function Customer360Page({
       .catch((reason: unknown) => {
         if (active) {
           setProfile(null);
-          setError(reason instanceof Error ? reason.message : "Customer profile could not be loaded.");
+          setProfileError(humanizeApiError(reason, "Customer profile could not be loaded."));
         }
       })
       .finally(() => {
@@ -131,29 +153,33 @@ export function Customer360Page({
     };
   }, [selectedCustomerId]);
 
+  const sourceColumn = <RecordType extends object>(path: Customer360SourcePath, label: string) => canShowCustomer360SourceLink(path, canAccessPath)
+    ? [{ title: "Source / 来源", key: "source", render: () => <Button type="link" size="small" onClick={() => onNavigate(path)}>{label}</Button> } satisfies ColumnsType<RecordType>[number]]
+    : [];
+
   const vehicleColumns: ColumnsType<CustomerProfileVehicle> = [
     { title: "Vehicle / 车辆", render: (_, vehicle) => `${vehicle.plateNumber} · ${vehicle.year} ${vehicle.make} ${vehicle.model}` },
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Sold" ? "purple" : status === "Available" ? "green" : "blue"}>{status}</Tag> },
-    { title: "Source / 来源", key: "source", render: () => <Button type="link" size="small" onClick={() => onNavigate("/vehicles")}>Vehicle record</Button> }
+    ...sourceColumn<CustomerProfileVehicle>("/vehicles", "Vehicle record")
   ];
   const loanColumns: ColumnsType<CustomerProfileLoan> = [
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Approved" || status === "Done" ? "green" : "blue"}>{status}</Tag> },
     { title: "Vehicle", dataIndex: "vehicleId", render: displayValue },
     { title: "Submitted", dataIndex: "submittedAt", render: displayValue },
     { title: "LOU", render: (_, loan) => `${loan.louApproved ? "Approved" : "Pending"} / ${loan.louDone ? "Done" : "Open"}` },
-    { title: "Source", key: "source", render: () => <Button type="link" size="small" onClick={() => onNavigate("/loans")}>Loan record</Button> }
+    ...sourceColumn<CustomerProfileLoan>("/loans", "Loan record")
   ];
   const deliveryColumns: ColumnsType<CustomerProfileDelivery> = [
     { title: "Schedule / 交车", render: (_, delivery) => `${delivery.scheduledDate} · ${delivery.status}` },
     { title: "PIC", dataIndex: "pic" },
     { title: "Coverage", render: (_, delivery) => `${delivery.insuranceHandled ? "Insurance" : "Insurance missing"}; ${delivery.roadTaxHandled ? "Road tax" : "Road tax missing"}; ${delivery.windscreenInsuranceHandled ? "Windscreen" : "Windscreen missing"}` },
-    { title: "Source", key: "source", render: () => <Button type="link" size="small" onClick={() => onNavigate("/delivery")}>Delivery record</Button> }
+    ...sourceColumn<CustomerProfileDelivery>("/delivery", "Delivery record")
   ];
   const paymentColumns: ColumnsType<CustomerProfilePayment> = [
     { title: "Payment", render: (_, payment) => <><Tag color={payment.status === "Reconciled" ? "green" : "blue"}>{payment.status}</Tag> {money(payment.nettPrice)}</> },
     { title: "Receipt / Invoice", render: (_, payment) => `${displayValue(payment.receiptNumber)} / ${displayValue(payment.invoiceNumber)}` },
     { title: "Created", dataIndex: "createdAt" },
-    { title: "Source", key: "source", render: () => <Button type="link" size="small" onClick={() => onNavigate("/finance")}>Finance record</Button> }
+    ...sourceColumn<CustomerProfilePayment>("/finance", "Finance record")
   ];
   const invoiceColumns: ColumnsType<CustomerProfileInvoice> = [
     { title: "Invoice", dataIndex: "invoiceNumber" },
@@ -178,7 +204,7 @@ export function Customer360Page({
     { title: "Message", dataIndex: "message", render: displayValue },
     { title: "Source", dataIndex: "sourcePage", render: displayValue },
     { title: "Received", dataIndex: "createdAt" },
-    { title: "Action", render: () => <Button type="link" size="small" onClick={() => onNavigate("/leads")}>Lead record</Button> }
+    ...sourceColumn<CustomerProfileEnquiry>("/leads", "Lead record")
   ];
 
   return (
@@ -188,12 +214,14 @@ export function Customer360Page({
           aria-label="Customer profile"
           className="customerProfileSelect"
           loading={loadingOptions}
-          notFoundContent={loadingOptions ? <Spin size="small" /> : "No customer records"}
-          options={options.map((option) => ({ value: option.id, label: option.name }))}
+          notFoundContent={loadingOptions ? <Spin size="small" /> : optionsError ? "Customer options unavailable" : "No customer records"}
+          options={options.map((option) => ({ value: option.id, label: customerProfileOptionLabel(option) }))}
           placeholder="Choose a customer"
           showSearch
           value={selectedCustomerId || undefined}
           onChange={(value) => {
+            setProfile(null);
+            setProfileError(null);
             setSelectedCustomerId(value);
             onCustomerChange(value);
           }}
@@ -207,9 +235,10 @@ export function Customer360Page({
         />
       </ProCard>
 
-      {error ? <Alert type="error" showIcon message="Customer profile unavailable" description={error} /> : null}
+      {optionsError ? <Alert type="error" showIcon message="Customer selector unavailable" description={optionsError} action={<Button size="small" onClick={() => setOptionsRequestVersion((version) => version + 1)}>Try again</Button>} /> : null}
+      {profileError ? <Alert type="error" showIcon message="Customer profile unavailable" description={profileError} /> : null}
       {loadingProfile ? <ProCard><Spin /></ProCard> : null}
-      {!loadingProfile && !profile && !error ? <ProCard><Empty description="Select a customer to view linked history." /></ProCard> : null}
+      {!loadingProfile && !profile && !profileError ? <ProCard><Empty description="Select a customer to view linked history." /></ProCard> : null}
       {profile ? (
         <>
           <ProCard title="Contact and identity / 联系与身份">

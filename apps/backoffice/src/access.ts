@@ -1,6 +1,6 @@
 import type { StaffRole } from "./api";
 
-export type AppRoutePath = "/dashboard" | "/vehicles" | "/repairs" | "/loans" | "/delivery" | "/finance" | "/cash-custody" | "/customer-360" | "/leads" | "/audit-log" | "/hr-salary" | "/admin";
+export type AppRoutePath = "/dashboard" | "/vehicles" | "/repairs" | "/loans" | "/delivery" | "/finance" | "/customer-360" | "/leads" | "/audit-log" | "/hr-salary" | "/admin";
 export type BackOfficeDataKey =
   | "dashboard"
   | "reminders"
@@ -47,14 +47,19 @@ export const routeAccess: RouteAccess[] = [
   { path: "/repairs", roles: ["BossAdmin", "Repair"] },
   { path: "/loans", roles: ["BossAdmin", "Loan"] },
   { path: "/delivery", roles: ["BossAdmin", "Delivery"] },
-  { path: "/finance", roles: ["BossAdmin", "Finance"] },
-  { path: "/cash-custody", roles: ["BossAdmin", "Sales", "Finance"] },
+  { path: "/finance", roles: ["BossAdmin", "Sales", "Finance"] },
   { path: "/customer-360", roles: ["BossAdmin", "Sales", "Loan", "Delivery", "Finance"] },
   { path: "/leads", roles: ["BossAdmin", "Sales"] },
   { path: "/audit-log", roles: ["BossAdmin"] },
   { path: "/hr-salary", roles: assignableStaffRoles },
   { path: "/admin", roles: ["BossAdmin"] }
 ];
+
+const hiddenNavigationPaths = new Set<AppRoutePath>(["/customer-360"]);
+
+export function isRouteVisibleInNavigation(path: AppRoutePath) {
+  return !hiddenNavigationPaths.has(path);
+}
 
 const allDataKeys: BackOfficeDataKey[] = [
   "dashboard",
@@ -130,6 +135,10 @@ export function firstAccessiblePath(userRoles: string[] | undefined): AppRoutePa
 export function canAssignStaffRoles(roles: string[] | undefined) {
   if (!roles?.length) return false;
   return roles.every((role) => assignableStaffRoles.includes(role as StaffRole));
+}
+
+export function canApproveVehicles(roles: string[] | undefined) {
+  return roles?.includes("BossAdmin") ?? false;
 }
 
 export function backOfficeDataKeysForRoles(userRoles: string[] | undefined): BackOfficeDataKey[] {

@@ -5,6 +5,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import {
   getOcrJob,
+  humanizeApiError,
   reviewOcrJob,
   startOcrJob,
   uploadVehicleDocumentWithProgress,
@@ -119,7 +120,7 @@ export function OcrUploadReview({
       option.onSuccess?.({ ok: true });
     } catch (error) {
       option.onError?.(error instanceof Error ? error : new Error("OCR upload failed."));
-      message.error(error instanceof Error ? error.message : "OCR upload failed.");
+      message.error(humanizeApiError(error, "OCR upload failed. Please check the file and try again."));
     } finally {
       setBusy(false);
     }

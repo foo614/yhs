@@ -72,6 +72,7 @@ import {
   getVehicleDocuments,
   getVehicleOcrJobs,
   getVehiclePhotos,
+  humanizeApiError,
   vehicleDocumentContentUrl,
   financeInvoiceContentUrl,
   officialReceiptContentUrl,
@@ -160,6 +161,13 @@ function mockEmptyFetch(ok = true, status = ok ? 200 : 500) {
 }
 
 describe("backoffice api client", () => {
+  it("turns technical API failures into clear staff messages", () => {
+    expect(humanizeApiError(new Error("Failed to fetch"))).toBe("We could not connect to the server. Please check your connection and try again.");
+    expect(humanizeApiError(new Error("Request failed with status (500)"))).toContain("The server could not complete this request.");
+    expect(humanizeApiError(new Error("Request failed with status (403)"))).toBe("You do not have permission to perform this action.");
+    expect(humanizeApiError(new Error("Car plate is required."))).toBe("Car plate is required.");
+  });
+
   it("logs in using the identity endpoint with cookie credentials", async () => {
     const fetchMock = mockFetch({ tokenType: "Bearer" });
 
@@ -465,6 +473,16 @@ describe("backoffice api client", () => {
     const profileFetch = mockFetch(profile);
     await expect(getCustomerProfile(customerId)).resolves.toEqual(profile);
     expect(profileFetch).toHaveBeenCalledWith(`http://localhost:5000/api/customers/${customerId}/profile`, expect.objectContaining({ credentials: "include" }));
+  });
+
+  it("does not turn Customer 360 selector failures into an empty customer list", async () => {
+    for (const [status, message] of [[401, "Unauthorized"], [403, "Forbidden"], [500, "Server error"]] as const) {
+      mockFetch({ message }, false, status);
+      await expect(getCustomerProfileOptions()).rejects.toThrow(message);
+    }
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(getCustomerProfileOptions()).rejects.toThrow("Failed to fetch");
   });
 
   it("loads, creates, and updates purchase invoices for vehicle intake", async () => {

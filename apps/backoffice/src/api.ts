@@ -742,6 +742,44 @@ export type UpdateStaffUserStatusRequest = {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000";
 
+export function humanizeApiError(error: unknown, fallback = "Please try again.") {
+  const rawMessage = error instanceof Error ? error.message.trim() : typeof error === "string" ? error.trim() : "";
+  const normalized = rawMessage.toLowerCase();
+
+  if (!rawMessage || normalized.includes("failed to fetch") || normalized.includes("networkerror")) {
+    return "We could not connect to the server. Please check your connection and try again.";
+  }
+  if (normalized.includes("(401)") || normalized.includes("unauthorized")) {
+    return "Your session has expired. Please sign in again.";
+  }
+  if (normalized.includes("(403)") || normalized.includes("forbidden")) {
+    return "You do not have permission to perform this action.";
+  }
+  if (normalized.includes("(404)") || normalized.includes("not found")) {
+    return "The requested record could not be found. It may have been removed or is no longer available.";
+  }
+  if (normalized.includes("(409)") || normalized.includes("conflict")) {
+    return "This record conflicts with existing data. Please check for duplicates and try again.";
+  }
+  if (normalized.includes("(413)")) {
+    return "The file is too large. Please choose a smaller file and try again.";
+  }
+  if (normalized.includes("(415)")) {
+    return "This file type is not supported. Please choose an accepted file and try again.";
+  }
+  if (normalized.includes("(400)") || normalized.includes("(422)")) {
+    const cleanedMessage = rawMessage.replace(/\s*\((?:400|422)\)\.?$/i, ".");
+    return /^\s*(?:request|upload) failed with status\.?$/i.test(cleanedMessage)
+      ? "Some information is missing or invalid. Please review the form and try again."
+      : cleanedMessage || "Some information is missing or invalid. Please review the form and try again.";
+  }
+  if (/\b(?:request|upload) failed with status \(?5\d{2}\)?/i.test(rawMessage) || /\b(?:internal server|server error)\b/i.test(normalized)) {
+    return "The server could not complete this request. Please try again. If the problem continues, contact an administrator.";
+  }
+
+  return rawMessage || fallback;
+}
+
 const sampleVehicle: Vehicle = {
   id: "9f5d6f16-9bb5-46b9-bb13-e8a8b3534737",
   plateNumber: "VPK1234",
@@ -823,7 +861,7 @@ export async function getCustomers(): Promise<Customer[]> {
 }
 
 export async function getCustomerProfileOptions(): Promise<CustomerProfileOption[]> {
-  return getWithNetworkFallback("/api/customers/profile-options", []);
+  return request<CustomerProfileOption[]>("/api/customers/profile-options");
 }
 
 export async function getCustomerProfile(customerId: string): Promise<CustomerProfile> {
@@ -1554,7 +1592,8 @@ async function uploadFileWithProgress<T = unknown>(path: string, file: File, onP
         resolve(xhr.responseText.trim() ? JSON.parse(xhr.responseText) as T : undefined as T);
         return;
       }
-      reject(new Error(xhr.responseText.trim() || `Upload failed with status ${xhr.status}`));
+      const responseMessage = extractErrorMessage(xhr.responseText);
+      reject(new Error(humanizeApiError(new Error(responseMessage ?? `Upload failed with status (${xhr.status})`), "Upload failed. Please check the file and try again.")));
     };
     xhr.onerror = () => reject(new Error("Upload failed. Please check the file and try again."));
     xhr.send(formData);
@@ -1585,25 +1624,8 @@ async function parseOptionalJson<T>(response: Response): Promise<T> {
 
 async function responseErrorMessage(response: Response, fallback: string) {
   const text = await response.text();
-  if (text.trim()) {
-    try {
-      const body = JSON.parse(text);
-      const firstError = Array.isArray(body?.errors) ? body.errors[0] : undefined;
-      if (firstError?.message) return String(firstError.message);
-      if (body?.message) return String(body.message);
-      if (body?.detail) return String(body.detail);
-      if (body?.title) return String(body.title);
-      if (body?.error) return String(body.error);
-      if (body?.errors && typeof body.errors === "object" && !Array.isArray(body.errors)) {
-        const values = Object.values(body.errors)
-          .map((value) => (Array.isArray(value) ? value[0] : value))
-          .filter((value) => typeof value === "string" && value.trim());
-        if (values[0]) return String(values[0]);
-      }
-    } catch {
-      if (text.trim()) return text.trim();
-    }
-  }
+  const extractedMessage = extractErrorMessage(text);
+  if (extractedMessage) return extractedMessage;
   if (response.status === 401) {
     return "Login failed. Please check your email and password.";
   }
@@ -1611,6 +1633,30 @@ async function responseErrorMessage(response: Response, fallback: string) {
     return `${fallback} (empty or malformed request payload).`;
   }
   return fallback;
+}
+
+function extractErrorMessage(text: string) {
+  if (!text.trim()) return null;
+
+  try {
+    const body = JSON.parse(text);
+    const firstError = Array.isArray(body?.errors) ? body.errors[0] : undefined;
+    if (firstError?.message) return String(firstError.message);
+    if (body?.message) return String(body.message);
+    if (body?.detail) return String(body.detail);
+    if (body?.title) return String(body.title);
+    if (body?.error) return String(body.error);
+    if (body?.errors && typeof body.errors === "object" && !Array.isArray(body.errors)) {
+      const values = Object.values(body.errors)
+        .map((value) => (Array.isArray(value) ? value[0] : value))
+        .filter((value) => typeof value === "string" && value.trim());
+      if (values[0]) return String(values[0]);
+    }
+  } catch {
+    if (!/^\s*<!doctype html|^\s*<html/i.test(text)) return text.trim();
+  }
+
+  return null;
 }
 
 function fallbackSupplierInvoices(): SupplierInvoice[] {

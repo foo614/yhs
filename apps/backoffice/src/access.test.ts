@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { backOfficeDataKeysForRoles, canAccessRoute, canAssignStaffRoles, firstAccessiblePath } from "./access";
+import { backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation } from "./access";
 
 describe("backoffice role access", () => {
+  it("hides Customer 360 from module navigation without removing route access", () => {
+    expect(isRouteVisibleInNavigation("/customer-360")).toBe(false);
+    expect(isRouteVisibleInNavigation("/vehicles")).toBe(true);
+    expect(canAccessRoute(["BossAdmin"], "/customer-360")).toBe(true);
+  });
+
   it("allows Boss/Admin to access every implemented module", () => {
-    for (const path of ["/dashboard", "/vehicles", "/repairs", "/loans", "/delivery", "/finance", "/cash-custody", "/customer-360", "/leads", "/audit-log", "/hr-salary", "/admin"]) {
+    for (const path of ["/dashboard", "/vehicles", "/repairs", "/loans", "/delivery", "/finance", "/customer-360", "/leads", "/audit-log", "/hr-salary", "/admin"]) {
       expect(canAccessRoute(["BossAdmin"], path)).toBe(true);
     }
   });
@@ -12,11 +18,10 @@ describe("backoffice role access", () => {
     expect(canAccessRoute(["Sales"], "/vehicles")).toBe(true);
     expect(canAccessRoute(["Sales"], "/leads")).toBe(true);
     expect(canAccessRoute(["Sales"], "/audit-log")).toBe(false);
-    expect(canAccessRoute(["Sales"], "/finance")).toBe(false);
-    expect(canAccessRoute(["Sales"], "/cash-custody")).toBe(true);
+    expect(canAccessRoute(["Sales"], "/finance")).toBe(true);
+    expect(canAccessRoute(["Sales"], "/cash-custody")).toBe(false);
     expect(canAccessRoute(["Sales"], "/customer-360")).toBe(true);
     expect(canAccessRoute(["Finance"], "/finance")).toBe(true);
-    expect(canAccessRoute(["Finance"], "/cash-custody")).toBe(true);
     expect(canAccessRoute(["Finance"], "/loans")).toBe(false);
     expect(canAccessRoute(["Loan"], "/loans")).toBe(true);
     expect(canAccessRoute(["Loan"], "/customer-360")).toBe(true);
@@ -42,6 +47,12 @@ describe("backoffice role access", () => {
     expect(canAssignStaffRoles(["Finance", "Loan"])).toBe(true);
     expect(canAssignStaffRoles([])).toBe(false);
     expect(canAssignStaffRoles(["Unknown"])).toBe(false);
+  });
+
+  it("allows only Boss/Admin to approve vehicle intake", () => {
+    expect(canApproveVehicles(["BossAdmin"])).toBe(true);
+    expect(canApproveVehicles(["Sales"])).toBe(false);
+    expect(canApproveVehicles(undefined)).toBe(false);
   });
 
   it("loads only the data sets needed by department roles", () => {
