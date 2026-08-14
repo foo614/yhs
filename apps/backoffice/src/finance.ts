@@ -1,9 +1,9 @@
-import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, FinanceInvoice, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
+import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
 
 export const financeDocumentCategories = ["PaymentReceipt", "PaymentInvoice"] as const;
 
-export function canReconcilePayment(payment: PaymentRecord, existing: PaymentRecord[] = [], invoice?: FinanceInvoice | null) {
-  return paymentReconcileBlockReason(payment, existing, invoice) === undefined;
+export function canReconcilePayment(payment: PaymentRecord, existing: PaymentRecord[] = []) {
+  return paymentReconcileBlockReason(payment, existing) === undefined;
 }
 
 export function canCorrectReconciledPayment(payment: PaymentRecord) {
@@ -18,7 +18,7 @@ export function canReopenPaidDailySpend(spend: DailySpend) {
   return spend.isPaid;
 }
 
-export function paymentCreateBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = [], invoice?: FinanceInvoice | null) {
+export function paymentCreateBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = []) {
   if (payment.nettPrice <= 0) {
     return "Payment nett price must be greater than zero.";
   }
@@ -60,20 +60,10 @@ export function paymentCreateBlockReason(payment: PaymentRecord, existing: Payme
     return checklistReason;
   }
 
-  const invoiceReason = paymentInvoiceSyncBlockReason(invoice);
-  if (invoiceReason) {
-    return invoiceReason;
-  }
-
-  const externalReason = paymentExternalSyncBlockReason(payment, existing);
-  if (externalReason) {
-    return externalReason;
-  }
-
   return undefined;
 }
 
-export function paymentReconcileBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = [], invoice?: FinanceInvoice | null) {
+export function paymentReconcileBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = []) {
   if (payment.status === "Reconciled") {
     return "Payment is already reconciled.";
   }
@@ -91,51 +81,11 @@ export function paymentReconcileBlockReason(payment: PaymentRecord, existing: Pa
     return checklistReason;
   }
 
-  const invoiceReason = paymentInvoiceSyncBlockReason(invoice);
-  if (invoiceReason) {
-    return invoiceReason;
-  }
-
   if (hasDuplicateReference(payment, existing)) {
     return "Receipt or invoice is already used by another payment.";
   }
 
-  const externalReason = paymentExternalSyncBlockReason(payment, existing);
-  if (externalReason) {
-    return externalReason;
-  }
-
   return undefined;
-}
-
-export function paymentExternalSyncBlockReason(payment: PaymentRecord, existing: PaymentRecord[] = []) {
-  const overrideReason = payment.reconciliationOverrideReason?.trim();
-  if ((payment.externalSyncStatus ?? "NotSynced") === "Failed" && !overrideReason) {
-    return "Failed external sync needs an override reason before reconciliation.";
-  }
-
-  if (hasDuplicateExternalDocument(payment, existing)) {
-    return "External document number is already used by another payment.";
-  }
-
-  if (
-    payment.externalDocumentAmount !== undefined &&
-    payment.externalDocumentAmount !== payment.nettPrice &&
-    !overrideReason
-  ) {
-    return "External document amount must match nett price unless an override reason is recorded.";
-  }
-
-  return undefined;
-}
-
-export function paymentRecoveryAction(payment: PaymentRecord, existing: PaymentRecord[] = []) {
-  const reason = paymentExternalSyncBlockReason(payment, existing);
-  if (!reason) return "Ready for reconciliation.";
-  if (reason.includes("Failed external sync")) return "Retry sync or record an override reason.";
-  if (reason.includes("External document amount")) return "Correct the external amount or record an override reason.";
-  if (reason.includes("External document number")) return "Use a unique external document number.";
-  return reason;
 }
 
 export function settlementCreateBlockReason(settlement: SettlementReminder, owners: Owner[] = []) {
@@ -161,20 +111,6 @@ function paymentChecklistBlockReason(payment: PaymentRecord) {
 
   if (!payment.checklistValidated) {
     return "Finance checklist must be validated before reconciliation.";
-  }
-
-  return undefined;
-}
-
-function paymentInvoiceSyncBlockReason(invoice?: FinanceInvoice | null) {
-  if (!invoice) {
-    return "Generated sales invoice is required before reconciliation.";
-  }
-
-  if (invoice.latestSync?.status !== "Synced") {
-    return invoice.latestSync?.status === "Failed"
-      ? "AutoCount sync failed; retry before reconciliation."
-      : "AutoCount sync must be completed before reconciliation.";
   }
 
   return undefined;
@@ -272,18 +208,6 @@ function hasDuplicateReference(payment: PaymentRecord, existing: PaymentRecord[]
     return (!!receiptNumber && normalizeReference(item.receiptNumber) === receiptNumber) ||
       (!!invoiceNumber && normalizeReference(item.invoiceNumber) === invoiceNumber);
   });
-}
-
-function hasDuplicateExternalDocument(payment: PaymentRecord, existing: PaymentRecord[]) {
-  const externalDocumentNumber = normalizeReference(payment.externalDocumentNumber);
-  if (!externalDocumentNumber) {
-    return false;
-  }
-
-  return existing.some((item) =>
-    item.id !== payment.id &&
-    normalizeReference(item.externalDocumentNumber) === externalDocumentNumber
-  );
 }
 
 function normalizeReference(value?: string) {

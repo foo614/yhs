@@ -98,12 +98,10 @@ import {
   customerSelectLabel,
   decideHrLeaveRequest,
   exportPaymentsCsv,
-  generatePaymentInvoice,
   generateHrPayslips,
   getAuditLog,
   getCurrentUser,
   getCustomers,
-  getFinanceInvoices,
   getBrokerCommissions,
   getCashHandovers,
   getCashHandoverPaymentLookup,
@@ -145,7 +143,6 @@ import {
   rejectCashHandover,
   requestCashHandover,
   hrMedicalCertificateContentUrl,
-  submitAutoCountSync,
   updateHrLeaveBalance,
   updateHrLeavePolicy,
   updateHrPayrollProfile,
@@ -188,7 +185,6 @@ import {
   type DeliverySchedule,
   type DeliveryReleaseReadiness,
   type DocumentCategory,
-  type FinanceInvoice,
   type HrAttendanceRecord,
   type HrLeaveAdjustment,
   type HrLeaveBalance,
@@ -388,7 +384,6 @@ export default function App() {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [cashHandovers, setCashHandovers] = useState<CashHandover[]>([]);
   const [cashHandoverPaymentLookup, setCashHandoverPaymentLookup] = useState<CashHandoverPaymentLookup[]>([]);
-  const [financeInvoices, setFinanceInvoices] = useState<FinanceInvoice[]>([]);
   const [settlements, setSettlements] = useState<SettlementReminder[]>([]);
   const [dailySpends, setDailySpends] = useState<DailySpend[]>([]);
   const [brokerCommissions, setBrokerCommissions] = useState<BrokerCommission[]>([]);
@@ -434,7 +429,6 @@ export default function App() {
       paymentData,
       cashHandoverData,
       cashHandoverPaymentLookupData,
-      financeInvoiceData,
       settlementData,
       dailySpendData,
       brokerCommissionData,
@@ -467,7 +461,6 @@ export default function App() {
       canLoad("payments") ? getPayments() : Promise.resolve([]),
       canLoad("cashHandovers") ? getCashHandovers() : Promise.resolve([]),
       canLoad("cashHandoverPaymentLookup") ? getCashHandoverPaymentLookup() : Promise.resolve([]),
-      canLoad("payments") ? getFinanceInvoices() : Promise.resolve([]),
       canLoad("settlements") ? getSettlementReminders() : Promise.resolve([]),
       canLoad("dailySpends") ? getDailySpends() : Promise.resolve([]),
       canLoad("brokerCommissions") ? getBrokerCommissions() : Promise.resolve([]),
@@ -500,7 +493,6 @@ export default function App() {
     setPayments(paymentData);
     setCashHandovers(cashHandoverData);
     setCashHandoverPaymentLookup(cashHandoverPaymentLookupData);
-    setFinanceInvoices(financeInvoiceData);
     setSettlements(settlementData);
     setDailySpends(dailySpendData);
     setBrokerCommissions(brokerCommissionData);
@@ -892,15 +884,12 @@ export default function App() {
               brokerCommissions={brokerCommissions}
               debtRecoveries={debtRecoveries}
               paymentVouchers={paymentVouchers}
-              financeInvoices={financeInvoices}
               currentUser={currentUser}
               cashHandovers={cashHandovers}
               cashHandoverPaymentLookup={cashHandoverPaymentLookup}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
-              onGenerateInvoice={(paymentId) => runCreate(() => generatePaymentInvoice(paymentId), (record) => setFinanceInvoices((items) => replaceByIdOrPrepend(items, record)), "Sales invoice generated")}
-              onSubmitAutoCount={(invoiceId) => runUpdate(() => submitAutoCountSync(invoiceId), (record) => setFinanceInvoices((items) => items.map((invoice) => invoice.id === record.financeInvoiceId ? { ...invoice, latestSync: record } : invoice)), "AutoCount sync updated")}
               onCreateSettlement={(settlement) => runCreate(() => createSettlementReminder(settlement), (record) => setSettlements((items) => [record, ...items]), "Settlement reminder created")}
               onUpdateSettlement={(settlement) => runUpdate(() => updateSettlementReminder(settlement), (record) => setSettlements((items) => replaceById(items, record)), "Settlement reminder updated")}
               onCreateDailySpend={(spend) => runCreate(() => createDailySpend(spend), (record) => setDailySpends((items) => [record, ...items]), "Daily spend created")}
@@ -4678,9 +4667,7 @@ function customerLabel(customers: Customer[], customerId: string) {
 function paymentChecklistTags(payment: PaymentRecord) {
   return [
     ["Docs", payment.documentsPrepared, "Documents prepared"],
-    ["Checklist", payment.checklistValidated],
-    ["Invoice", payment.invoiceGenerated],
-    ["AutoCount", payment.autoCountKeyed, "Accounting system entry status"]
+    ["Checklist", payment.checklistValidated]
   ].map(([label, done, tooltip]) => {
     const tag = <Tag key={String(label)} color={done ? "green" : "orange"}>{String(label)}</Tag>;
     return tooltip ? <Tooltip key={String(label)} title={String(tooltip)}>{tag}</Tooltip> : tag;

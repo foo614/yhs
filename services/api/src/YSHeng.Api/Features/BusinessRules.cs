@@ -1241,19 +1241,12 @@ public static class FinanceRules
 {
     public static ValidationResult ValidatePayment(PaymentRecord payment)
     {
-        return ValidatePayment(payment, [], [], []);
-    }
-
-    public static ValidationResult ValidatePayment(PaymentRecord payment, IEnumerable<PaymentRecord> existing)
-    {
-        return ValidatePayment(payment, existing, [], []);
+        return ValidatePayment(payment, []);
     }
 
     public static ValidationResult ValidatePayment(
         PaymentRecord payment,
-        IEnumerable<PaymentRecord> existing,
-        IEnumerable<FinanceInvoice> invoices,
-        IEnumerable<AutoCountSyncJob> syncJobs)
+        IEnumerable<PaymentRecord> existing)
     {
         var errors = new List<ValidationError>();
         if (payment.NettPrice <= 0)
@@ -1283,8 +1276,6 @@ public static class FinanceRules
 
         if (payment.Status == PaymentStatus.Reconciled)
         {
-            var hasOverride = !string.IsNullOrWhiteSpace(payment.ReconciliationOverrideReason);
-
             if (!payment.BossChecked)
             {
                 errors.Add(new ValidationError("payment_boss_check_required", "Boss check is required before payment reconciliation."));
@@ -1298,20 +1289,6 @@ public static class FinanceRules
             if (!payment.ChecklistValidated)
             {
                 errors.Add(new ValidationError("payment_checklist_validated_required", "Finance checklist must be validated before payment reconciliation."));
-            }
-
-            var invoice = invoices.FirstOrDefault(item => item.PaymentRecordId == payment.Id);
-            if (invoice is null)
-            {
-                errors.Add(new ValidationError("payment_invoice_generated_required", "Generated sales invoice is required before payment reconciliation."));
-            }
-            else
-            {
-                var latestSync = FinanceInvoiceMapping.LatestSync(invoice.Id, syncJobs);
-                if (latestSync?.Status != AutoCountSyncStatus.Synced)
-                {
-                    errors.Add(new ValidationError("payment_autocount_sync_required", "AutoCount sales invoice sync must be completed before payment reconciliation."));
-                }
             }
 
             if (string.IsNullOrWhiteSpace(payment.ReceiptNumber))
@@ -1348,29 +1325,6 @@ public static class FinanceRules
                 }
             }
 
-            if (payment.ExternalSyncStatus == PaymentExternalSyncStatus.Failed && !hasOverride)
-            {
-                errors.Add(new ValidationError("payment_external_sync_failed", "External sync failure needs an override reason before reconciliation."));
-            }
-
-            if (!string.IsNullOrWhiteSpace(payment.ExternalDocumentNumber))
-            {
-                var externalDocumentNumber = payment.ExternalDocumentNumber.Trim();
-                if (existing.Any(item =>
-                    item.Id != payment.Id &&
-                    !string.IsNullOrWhiteSpace(item.ExternalDocumentNumber) &&
-                    item.ExternalDocumentNumber.Trim().Equals(externalDocumentNumber, StringComparison.OrdinalIgnoreCase)))
-                {
-                    errors.Add(new ValidationError("duplicate_external_document_number", "External document number already exists on another payment."));
-                }
-            }
-
-            if (payment.ExternalDocumentAmount is { } externalAmount &&
-                externalAmount != payment.NettPrice &&
-                !hasOverride)
-            {
-                errors.Add(new ValidationError("external_amount_mismatch", "External document amount must match payment nett price unless an override reason is recorded."));
-            }
         }
 
         return new ValidationResult(errors);
@@ -1696,7 +1650,7 @@ public static class FinanceCsv
         var vehicleLookup = vehicles.ToDictionary(vehicle => vehicle.Id, vehicle => vehicle.PlateNumber);
         var rows = new List<string>
         {
-            "PaymentId,CarPlate,Status,NettPrice,ReceiptNumber,InvoiceNumber,ExternalSyncStatus,ExternalDocumentNumber,ExternalDocumentAmount,BankName,BankFollowUpDate,OverrideReason,CreatedAt"
+            "PaymentId,CarPlate,Status,NettPrice,ReceiptNumber,InvoiceNumber,SalesPrice,InterestAdditionalCharges,NcdAmount,WindscreenCharges,OutstationDeliveryDate,BankName,BankFollowUpDate,CreatedAt"
         };
 
         rows.AddRange(payments
@@ -1709,12 +1663,13 @@ public static class FinanceCsv
                 Csv(payment.NettPrice.ToString("0.00", CultureInfo.InvariantCulture)),
                 Csv(payment.ReceiptNumber),
                 Csv(payment.InvoiceNumber),
-                Csv(payment.ExternalSyncStatus.ToString()),
-                Csv(payment.ExternalDocumentNumber),
-                Csv(payment.ExternalDocumentAmount?.ToString("0.00", CultureInfo.InvariantCulture)),
+                Csv(payment.SalesPrice.ToString("0.00", CultureInfo.InvariantCulture)),
+                Csv(payment.InterestAdditionalCharges.ToString("0.00", CultureInfo.InvariantCulture)),
+                Csv(payment.NcdAmount.ToString("0.00", CultureInfo.InvariantCulture)),
+                Csv(payment.WindscreenCharges.ToString("0.00", CultureInfo.InvariantCulture)),
+                Csv(payment.OutstationDeliveryDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
                 Csv(payment.BankName),
                 Csv(payment.BankFollowUpDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
-                Csv(payment.ReconciliationOverrideReason),
                 Csv(payment.CreatedAt.ToString("O", CultureInfo.InvariantCulture))
             })));
 
