@@ -1928,8 +1928,8 @@ function RepairPage({
                 vehicleId={selectedRepair.vehicleId}
                 category={documentCategory}
                 uploadOwner={{ repairJobId: selectedRepair.id }}
-                buttonLabel="Upload & OCR Repair Invoice"
-                applyLabel="Apply to Supplier Invoice"
+                buttonLabel="Add repair invoice photo"
+                applyLabel="Use details in supplier invoice"
                 fields={[
                   { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
                   { name: "supplierName", label: "Supplier" },

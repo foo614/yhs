@@ -1642,8 +1642,8 @@ export function VehiclePage({
                     vehicleId={selectedVehicleId}
                     category={documentCategory}
                     disabled={uploadDisabled}
-                    buttonLabel={documentCategory === "IdentityCard" ? "Upload & OCR Identity Card" : documentCategory === "Voc" ? "Upload & OCR VOC" : "Upload & OCR Purchase Invoice"}
-                    applyLabel={documentCategory === "IdentityCard" ? "Approve IC Review" : documentCategory === "Voc" ? "Approve VOC Review" : "Apply to Purchase Invoice"}
+                    buttonLabel={documentCategory === "IdentityCard" ? "Add identity card photo" : documentCategory === "Voc" ? "Add VOC photo" : "Add purchase invoice photo"}
+                    applyLabel={documentCategory === "IdentityCard" ? "Use details in customer record" : documentCategory === "Voc" ? "Use details in vehicle record" : "Use details in purchase invoice"}
                     existingValues={documentCategory === "IdentityCard"
                       ? selectedVehicleCustomer
                         ? { customerName: selectedVehicleCustomer.name, icNumber: selectedVehicleCustomer.icNumber, address: selectedVehicleCustomer.address }

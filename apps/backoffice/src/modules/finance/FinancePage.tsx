@@ -922,8 +922,8 @@ export function FinancePage({
                 category={documentCategory}
                 disabled={!selectedPayment}
                 uploadOwner={selectedPayment ? { paymentRecordId: selectedPayment.id } : undefined}
-                buttonLabel="Upload & OCR Finance Document"
-                applyLabel="Apply to Payment"
+                buttonLabel="Add receipt or invoice photo"
+                applyLabel="Use details in payment"
                 fields={[
                   { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
                   { name: "receiptNumber", label: "Receipt No." },

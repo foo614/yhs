@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { UploadOutlined } from "@ant-design/icons";
-import { Alert, Button, Drawer, Form, Input, InputNumber, Progress, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
+import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Radio, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import {
@@ -92,6 +92,7 @@ export function OcrUploadReview({
   const [busy, setBusy] = useState(false);
   const [conflictChoices, setConflictChoices] = useState<Record<string, "existing" | "ocr">>({});
   const lineItemColumns = ocrLineItemColumns(updateLineItem);
+  const reviewConflicts = job ? ocrFieldConflicts(fields, existingValues, initialValuesFromJob(job, fields)) : [];
 
   async function handleUpload(option: UploadRequestOption) {
     if (!vehicleId) {
@@ -158,6 +159,13 @@ export function OcrUploadReview({
   return (
     <>
       <Space direction="vertical" size={8} className="fullWidth">
+        <div className="ocrUploadGuide">
+          <span className="ocrStepLabel">Step 1 of 3</span>
+          <div>
+            <Typography.Text strong>Choose a clear document photo</Typography.Text>
+            <Typography.Text type="secondary">JPG, PNG, or WebP. Use Document Upload for PDFs.</Typography.Text>
+          </div>
+        </div>
         <Upload
           accept={ocrImageMimeTypes.join(",")}
           maxCount={1}
@@ -173,62 +181,77 @@ export function OcrUploadReview({
         </Upload>
         {(busy || uploadProgress > 0 || analyzeProgress > 0) && (
           <div className="ocrProgressStack">
-            <Typography.Text type="secondary">Upload</Typography.Text>
+            <Typography.Text type="secondary">Uploading photo</Typography.Text>
             <Progress size="small" percent={uploadProgress} status={uploadProgress === 100 ? "success" : "active"} />
-            <Typography.Text type="secondary">OCR analysis</Typography.Text>
+            <Typography.Text type="secondary">Reading document details</Typography.Text>
             <Progress size="small" percent={analyzeProgress} status={analyzeProgress === 100 ? "success" : "active"} />
           </div>
         )}
       </Space>
       <Drawer
-        title="OCR Review"
+        title={(
+          <div className="ocrReviewDrawerTitle">
+            <span className="ocrStepLabel">Step 2 of 3</span>
+            <span>Check the details we found</span>
+          </div>
+        )}
         width={560}
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
-        className="recordEditDrawer"
-        extra={<Space><Button danger onClick={() => void rejectResult()} disabled={!job}>Reject</Button><Button type="primary" disabled={!job?.result} onClick={() => void applyResult()}>{applyLabel}</Button></Space>}
+        className="recordEditDrawer ocrReviewDrawer"
+        footer={(
+          <div className="ocrReviewActions">
+            <Button danger onClick={() => void rejectResult()} disabled={!job}>Don't use this scan</Button>
+            <Button type="primary" disabled={!job?.result} onClick={() => void applyResult()}>{applyLabel}</Button>
+          </div>
+        )}
       >
-        <Space direction="vertical" size={12} className="fullWidth">
+        <Space direction="vertical" size={16} className="fullWidth">
           <Alert
             type="info"
             showIcon
-          message="OCR suggestions are editable. Differences from an existing record default to keeping the current value until you explicitly choose the OCR value."
+            message="Nothing has been saved yet."
+            description="Check the details below and correct anything that looks wrong. If a detail is already on file, we keep the current value unless you choose the one from this document."
           />
           {job?.warnings?.length ? (
             <Alert type="warning" showIcon message={job.warnings.join(" ")} />
           ) : null}
-          <Space wrap>
-            <Tag color="blue">{job?.category}</Tag>
-            <Tag color={job?.status === "NeedsReview" ? "green" : "orange"}>{job?.status}</Tag>
-            <Tag color={job?.reviewDecision === "Accepted" ? "green" : job?.reviewDecision === "Rejected" ? "red" : "gold"}>{job?.reviewDecision ?? "Pending"}</Tag>
-            <Tag>Confidence {Math.round((job?.result?.confidence ?? 0) * 100)}%</Tag>
+          <Space wrap className="ocrReviewSummary">
+            <Tag color="blue">{documentCategoryLabel(job?.category)}</Tag>
+            <Tag color="green">Ready for your check</Tag>
+            <Tag color={confidenceColor(job?.result?.confidence)}>Reading quality: {confidenceLabel(job?.result?.confidence)}</Tag>
           </Space>
           <Form form={form} layout="vertical" className="drawerForm">
-            {ocrFieldConflicts(fields, existingValues, form.getFieldsValue()).length > 0 ? (
-              <Form.Item label="Conflicting fields">
+            {reviewConflicts.length > 0 ? (
+              <Form.Item label="Information already on file" extra="Choose which value to keep for each difference.">
                 <Space direction="vertical" size={8} className="fullWidth">
-                  {ocrFieldConflicts(fields, existingValues, form.getFieldsValue()).map((conflict) => (
+                  {reviewConflicts.map((conflict) => (
                     <Alert
                       key={conflict.name}
                       type="warning"
                       showIcon
-                      message={`${conflict.label}: existing ${conflict.existingValue} / OCR ${conflict.extractedValue}`}
+                      message={conflict.label}
                       description={(
-                        <Select
+                        <Radio.Group
                           aria-label={`${conflict.label} conflict choice`}
                           value={conflictChoices[conflict.name] ?? "existing"}
-                          options={[
-                            { value: "existing", label: "Keep current value" },
-                            { value: "ocr", label: "Use reviewed OCR value" }
-                          ]}
-                          onChange={(value) => setConflictChoices((current) => ({ ...current, [conflict.name]: value }))}
-                        />
+                          onChange={(event) => setConflictChoices((current) => ({ ...current, [conflict.name]: event.target.value as "existing" | "ocr" }))}
+                        >
+                          <Space direction="vertical" size={4}>
+                            <Radio value="existing">Keep current: <strong>{String(conflict.existingValue)}</strong></Radio>
+                            <Radio value="ocr">Use from this document: <strong>{String(conflict.extractedValue)}</strong></Radio>
+                          </Space>
+                        </Radio.Group>
                       )}
                     />
                   ))}
                 </Space>
               </Form.Item>
             ) : null}
+            <div className="ocrReviewSectionHeading">
+              <Typography.Text strong>Details from this document</Typography.Text>
+              <Typography.Text type="secondary">Edit any value before you continue.</Typography.Text>
+            </div>
             {fields.map((field) => (
               <Form.Item key={field.name} name={field.name} label={fieldLabel(field, job)}>
                 {field.type === "number" ? (
@@ -240,7 +263,8 @@ export function OcrUploadReview({
                 )}
               </Form.Item>
             ))}
-            <Form.Item label="Line Items">
+            {lineItems.length > 0 ? (
+              <Form.Item label="Items found on this document" extra="Check descriptions and amounts before using them.">
               <Table
                 size="small"
                 rowKey={(_, index) => String(index)}
@@ -250,12 +274,18 @@ export function OcrUploadReview({
                 scroll={{ x: 760 }}
                 locale={{ emptyText: "No line item descriptions detected." }}
               />
-            </Form.Item>
-            <Form.Item label="Raw OCR Text">
-              <Input.TextArea rows={5} value={job?.result?.rawText ?? ""} readOnly />
-            </Form.Item>
+              </Form.Item>
+            ) : null}
           </Form>
-          <Typography.Text type="secondary">Review the values carefully before saving the target record.</Typography.Text>
+          <Collapse
+            size="small"
+            items={[{
+              key: "raw-text",
+              label: "Technical details (only if you need to check the scan)",
+              children: <Input.TextArea rows={5} value={job?.result?.rawText ?? ""} readOnly aria-label="Original text read from the document" />
+            }]}
+          />
+          <Typography.Text type="secondary">Step 3: choose “{applyLabel}” when the details look right.</Typography.Text>
         </Space>
       </Drawer>
     </>
@@ -304,9 +334,29 @@ function fieldLabel(field: OcrFieldConfig, job: OcrJob | null) {
   return (
     <Space size={6}>
       <span>{field.label}</span>
-      <Tag color={confidence >= 0.75 ? "green" : "orange"}>{Math.round(confidence * 100)}%</Tag>
+      <Tag color={confidenceColor(confidence)}>{confidence >= 0.75 ? "Clear" : "Check carefully"}</Tag>
     </Space>
   );
+}
+
+function confidenceColor(confidence: number | undefined) {
+  if (confidence === undefined || confidence < 0.5) return "red";
+  return confidence >= 0.75 ? "green" : "orange";
+}
+
+function confidenceLabel(confidence: number | undefined) {
+  if (confidence === undefined || confidence < 0.5) return "Needs checking";
+  return confidence >= 0.75 ? "Clear" : "Check carefully";
+}
+
+function documentCategoryLabel(category: DocumentCategory | undefined) {
+  const labels: Partial<Record<DocumentCategory, string>> = {
+    IdentityCard: "Identity card",
+    PurchaseInvoice: "Purchase invoice",
+    RepairInvoice: "Repair invoice",
+    Voc: "Vehicle ownership certificate"
+  };
+  return category ? labels[category] ?? category : "Document";
 }
 
 function ocrLineItemColumns(
