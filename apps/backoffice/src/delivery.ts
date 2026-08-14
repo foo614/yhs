@@ -1,37 +1,6 @@
-import type { DeliveryReleaseReadiness, DeliverySchedule, VehicleLookup } from "./api";
+import type { DeliverySchedule } from "./api";
 
 export const deliveryDocumentCategories = ["DeliveryDocument", "Policy", "RoadTaxReceipt"] as const;
-
-export type DeliveryFilters = {
-  keyword?: string;
-  status?: DeliverySchedule["status"] | "All";
-  readiness?: "All" | "Ready" | "Blocked";
-};
-
-export function filterDeliverySchedules(
-  deliveries: DeliverySchedule[],
-  vehicles: VehicleLookup[],
-  releaseReadiness: Record<string, DeliveryReleaseReadiness>,
-  filters: DeliveryFilters
-) {
-  const keyword = normalizeFilterValue(filters.keyword);
-
-  return deliveries.filter((delivery) => {
-    const vehicle = vehicles.find((item) => item.id === delivery.vehicleId);
-    const ready = releaseReadiness[delivery.id]?.isReady ?? canReleaseDelivery(delivery);
-    const matchesKeyword = !keyword || matchesFilterValue(keyword, [
-      vehicle?.plateNumber,
-      delivery.pic,
-      delivery.scheduledDate,
-      delivery.status
-    ]);
-    const matchesStatus = !filters.status || filters.status === "All" || delivery.status === filters.status;
-    const matchesReadiness = !filters.readiness || filters.readiness === "All" ||
-      (filters.readiness === "Ready" ? ready : !ready);
-
-    return matchesKeyword && matchesStatus && matchesReadiness;
-  });
-}
 
 export function canMarkTwoDayNoticeSent(delivery: DeliverySchedule) {
   return !delivery.twoDayNoticeSent;
@@ -129,12 +98,4 @@ export function markDeliveryReady(delivery: DeliverySchedule): DeliverySchedule 
     ...delivery,
     status: "ReadyForRelease"
   };
-}
-
-function normalizeFilterValue(value?: string) {
-  return value?.trim().toLowerCase() ?? "";
-}
-
-function matchesFilterValue(keyword: string, values: Array<string | undefined>) {
-  return values.some((value) => value?.toLowerCase().includes(keyword));
 }

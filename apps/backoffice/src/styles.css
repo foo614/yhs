@@ -208,6 +208,10 @@ body {
   display: none;
 }
 
+.mobileRouteStrip {
+  display: none;
+}
+
 .mobileRecordList {
   display: none;
 }
@@ -218,7 +222,7 @@ body {
 
 .mobileNavItem {
   width: 100%;
-  min-height: 44px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2595,7 +2599,7 @@ body {
     z-index: 99;
     min-height: 56px;
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) auto;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
     padding: 8px 10px;
@@ -2613,13 +2617,10 @@ body {
   }
 
   .mobileTopTitle strong {
-    overflow: hidden;
     color: #0b705c;
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .mobileTopTitle span {
@@ -2632,13 +2633,44 @@ body {
   }
 
   .mobileTopBar .ant-btn {
-    min-height: 44px;
+    min-height: 36px;
   }
 
   .mobileTopBar .mobileLogoutButton {
-    width: 44px;
-    min-width: 44px;
+    width: 40px;
+    min-width: 40px;
     padding: 0;
+  }
+
+  .mobileRouteStrip {
+    display: none;
+  }
+
+  .mobileRouteStrip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobileRoutePill {
+    flex: 0 0 auto;
+    min-height: 34px;
+    max-width: 180px;
+    overflow: hidden;
+    padding: 7px 12px;
+    border: 1px solid rgba(20, 72, 61, .12);
+    border-radius: 999px;
+    background: #fff;
+    color: #465951;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 780;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileRoutePill.active {
+    border-color: rgba(11, 112, 92, .34);
+    background: #0b705c;
+    color: #fff;
   }
 
   .ant-pro-layout .ant-pro-sider,
@@ -2714,7 +2746,7 @@ body {
   .ant-pro-card .ant-pro-card-body {
     min-width: 0;
     padding: 14px;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .ant-pro-card .ant-pro-card-header {
@@ -2787,7 +2819,6 @@ body {
 
   .ant-pro-card-extra .ant-btn {
     width: 100%;
-    min-height: 44px;
   }
 
   .ant-pro-card-extra .ant-space {
@@ -2858,11 +2889,6 @@ body {
   .mobileRecordList {
     display: grid;
     gap: 10px;
-  }
-
-  .mobileRecordList > .ant-pagination {
-    grid-column: 1 / -1;
-    margin-top: 2px;
   }
 
   .mobileRecordCard {
@@ -3066,7 +3092,7 @@ body {
   }
 
   .mobileRecordFooter .ant-btn {
-    min-height: 44px;
+    min-height: 38px;
   }
 
   .ant-table-cell .ant-btn {
@@ -3237,28 +3263,6 @@ body {
     width: 100% !important;
   }
 
-  .tableToolbar .ant-btn,
-  .tableToolbar .ant-input-affix-wrapper,
-  .tableToolbar .ant-input-search-button,
-  .tableToolbar .ant-select-selector,
-  .toolbarForm .ant-btn,
-  .toolbarForm .ant-input-affix-wrapper,
-  .toolbarForm .ant-input-search-button,
-  .toolbarForm .ant-select-selector,
-  .vehicleOperationFilters .ant-btn,
-  .vehicleOperationFilters .ant-input-affix-wrapper,
-  .vehicleOperationFilters .ant-input-search-button,
-  .vehicleOperationFilters .ant-select-selector {
-    min-height: 44px !important;
-  }
-
-  .tableToolbar .ant-input-search-button,
-  .toolbarForm .ant-input-search-button,
-  .vehicleOperationFilters .ant-input-search-button {
-    width: 44px !important;
-    min-width: 44px !important;
-  }
-
   .toolbarForm .ant-tag {
     align-self: flex-start;
   }
@@ -3313,10 +3317,6 @@ body {
   .moduleCommandBar {
     padding: 16px;
     gap: 14px;
-  }
-
-  .moduleCommandBar > div:first-child {
-    display: none;
   }
 
   .dashboardCommandBar h2.ant-typography {
@@ -3582,6 +3582,18 @@ body {
     background: #f8fcfa;
   }
 
+  .mobileRouteStrip {
+    display: none;
+  }
+
+  .mobileRoutePill {
+    flex: 0 1 auto;
+    max-width: none;
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
   .mobileTopTitle {
     grid-template-columns: auto minmax(0, 1fr);
     gap: 8px;
@@ -3629,28 +3641,14 @@ body {
     flex-wrap: wrap;
   }
 
-  .desktopDataTable {
-    display: block;
-  }
-
   .mobileRecordList {
-    display: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
-  .ant-table-wrapper .ant-table-cell-fix-right,
-  .ant-table-wrapper .ant-table-cell-fix-right-first {
-    position: sticky !important;
-    right: 0 !important;
-    left: auto !important;
-    box-shadow: -6px 0 10px rgb(16 46 35 / 6%) !important;
-  }
-
-  .mobileRecordFooter .ant-btn {
-    min-height: 0;
-  }
-
+  .mobileRecordFooter .ant-btn,
   .ant-table-cell .ant-btn {
-    min-height: 44px;
+    min-height: 0;
   }
 
   .mobileRecordFooter .tableActionGroup {
@@ -3693,16 +3691,6 @@ body {
   .toolbarForm .ant-select,
   .toolbarForm .ant-btn {
     width: auto !important;
-  }
-
-  .toolbarForm .ant-input-search {
-    width: min(320px, 100%) !important;
-    flex: 1 1 260px;
-  }
-
-  .mobileNavDrawer .ant-drawer-content-wrapper {
-    right: auto !important;
-    width: min(320px, 90vw) !important;
   }
 
   .dashboardCommandBar,

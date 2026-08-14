@@ -1,6 +1,6 @@
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Empty, Form, Input, InputNumber, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { Alert, Button, Empty, Form, Input, InputNumber, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -66,60 +66,6 @@ const johorHolidayReference = [
   "Weekend / 周末: Saturday + Sunday",
   "Public holidays should be reviewed yearly by HR"
 ];
-const hrRecordPageSize = 8;
-
-export type HrRecordFilters = {
-  keyword?: string;
-  status?: string;
-};
-
-type HrRecordListKey = "attendance" | "leave" | "balances" | "policies" | "adjustments" | "payslips";
-
-const initialHrRecordPages: Record<HrRecordListKey, number> = {
-  attendance: 1,
-  leave: 1,
-  balances: 1,
-  policies: 1,
-  adjustments: 1,
-  payslips: 1
-};
-
-const initialHrRecordFilters: Record<HrRecordListKey, HrRecordFilters> = {
-  attendance: {},
-  leave: {},
-  balances: {},
-  policies: {},
-  adjustments: {},
-  payslips: {}
-};
-
-export function filterHrRecords<T>(
-  records: T[],
-  filters: HrRecordFilters,
-  searchableText: (record: T) => string,
-  statusFor?: (record: T) => string
-) {
-  const keyword = filters.keyword?.trim().toLocaleLowerCase();
-
-  return records.filter((record) => {
-    if (keyword && !searchableText(record).toLocaleLowerCase().includes(keyword)) return false;
-    if (filters.status && (!statusFor || statusFor(record) !== filters.status)) return false;
-    return true;
-  });
-}
-
-export function paginateHrRecords<T>(records: T[], page: number, pageSize = hrRecordPageSize) {
-  const pageCount = Math.max(1, Math.ceil(records.length / pageSize));
-  const current = Math.min(Math.max(1, page), pageCount);
-  return {
-    current,
-    items: records.slice((current - 1) * pageSize, current * pageSize)
-  };
-}
-
-export function withHrRecordFilterValue(filters: HrRecordFilters, key: keyof HrRecordFilters, value?: string) {
-  return { ...filters, [key]: value === "" ? undefined : value };
-}
 
 export function HrSalaryPage({
   currentUser,
@@ -148,9 +94,6 @@ export function HrSalaryPage({
   const isHrManager = Boolean(currentUser?.roles.some((role) => role === "BossAdmin" || role === "HrSalary"));
   const [leaveForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
-  const [activeTab, setActiveTab] = useState("attendance");
-  const [recordFilters, setRecordFilters] = useState<Record<HrRecordListKey, HrRecordFilters>>(initialHrRecordFilters);
-  const [recordPages, setRecordPages] = useState<Record<HrRecordListKey, number>>(initialHrRecordPages);
   const staffOptions = staffUsers.map((staff) => ({ value: staff.id, label: staffLabel(staff) }));
   const selfId = currentUser?.id ?? "";
   const selfName = currentUser?.name ?? "Current staff";
@@ -180,29 +123,9 @@ export function HrSalaryPage({
     return () => window.clearInterval(timer);
   }, []);
 
-  const updateRecordFilter = (list: HrRecordListKey, key: keyof HrRecordFilters, value?: string) => {
-    setRecordFilters((current) => ({
-      ...current,
-      [list]: withHrRecordFilterValue(current[list], key, value)
-    }));
-    setRecordPages((current) => ({ ...current, [list]: 1 }));
-  };
-  const clearRecordFilters = (list: HrRecordListKey) => {
-    setRecordFilters((current) => ({ ...current, [list]: {} }));
-    setRecordPages((current) => ({ ...current, [list]: 1 }));
-  };
-  const setRecordPage = (list: HrRecordListKey, page: number) => {
-    setRecordPages((current) => ({ ...current, [list]: page }));
-  };
-  const changeTab = (tab: string) => {
-    setActiveTab(tab);
-    setRecordPages(initialHrRecordPages);
-  };
-
   const attendanceColumns: ColumnsType<HrAttendanceRecord> = [
     { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
     { title: "Date / 日期", dataIndex: "attendanceDate" },
-    { title: "Status / 状态", dataIndex: "status", render: (status: HrAttendanceRecord["status"]) => <Tag color={attendanceStatusColor(status)}>{attendanceStatusLabel(status)}</Tag> },
     { title: "In / 上班", dataIndex: "checkInAt", render: formatDateTime },
     { title: "Out / 下班", dataIndex: "checkOutAt", render: formatDateTime }
   ];
@@ -260,13 +183,12 @@ export function HrSalaryPage({
     { title: "Days / 天数", dataIndex: "days" },
     { title: "After / 调整后", render: (_, record) => `AL ${record.annualLeaveAfter} / MC ${record.medicalLeaveAfter}` },
     { title: "Reason / 原因", dataIndex: "reason" },
-    { title: "By / 操作者", dataIndex: "adjustedBy", render: (value: string) => staffName(value, visibleStaff) }
+    { title: "By / 操作者", dataIndex: "adjustedBy" }
   ];
 
   const payslipColumns: ColumnsType<HrPayslip> = [
     { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
-    { title: "Period / 月份", dataIndex: "payPeriodId", render: (id: string) => payPeriodName(id, payPeriods) },
-    { title: "Status / 状态", dataIndex: "status", render: (status: HrPayslip["status"]) => <Tag color={status === "Generated" ? "green" : "default"}>{payslipStatusLabel(status)}</Tag> },
+    { title: "Period / 月份", dataIndex: "payPeriodId", render: (id: string) => payPeriods.find((period) => period.id === id)?.name ?? id },
     { title: "Base / 底薪", dataIndex: "baseSalary", render: money },
     { title: "Work Days / 工作天", dataIndex: "workingDays" },
     { title: "Daily / 日薪", dataIndex: "dailySalary", render: money },
@@ -279,67 +201,47 @@ export function HrSalaryPage({
     { title: "Net Pay / 实发", dataIndex: "netPay", render: (value: number) => <Typography.Text strong>{money(value)}</Typography.Text> }
   ];
 
-  const attendanceStatusOptions = ["Present", "Late", "HalfDay", "Absent"].map((value) => ({ value, label: attendanceStatusLabel(value as HrAttendanceRecord["status"]) }));
-  const leaveStatusOptions = ["Pending", "Approved", "Rejected", "Cancelled"].map((value) => ({ value, label: leaveStatusLabel(value as HrLeaveStatus) }));
-  const payslipStatusOptions = ["Draft", "Generated"].map((value) => ({ value, label: payslipStatusLabel(value as HrPayslip["status"]) }));
-  const filteredAttendance = filterHrRecords(
-    attendance,
-    recordFilters.attendance,
-    (record) => [staffName(record.staffUserId, visibleStaff), record.attendanceDate, attendanceStatusLabel(record.status), record.notes, formatDateTime(record.checkInAt), formatDateTime(record.checkOutAt)].filter(Boolean).join(" "),
-    (record) => record.status
-  );
-  const filteredLeaveRequests = filterHrRecords(
-    leaveRequests,
-    recordFilters.leave,
-    (record) => [staffName(record.staffUserId, visibleStaff), leaveTypeLabel(record.type), leaveStatusLabel(record.status), record.startDate, record.endDate, record.reason].filter(Boolean).join(" "),
-    (record) => record.status
-  );
-  const filteredLeaveBalances = filterHrRecords(
-    leaveBalances,
-    recordFilters.balances,
-    (record) => [staffName(record.staffUserId, visibleStaff), roleLabel(staffPrimaryRole(record.staffUserId, visibleStaff)), defaultLeaveLabel(staffPrimaryRole(record.staffUserId, visibleStaff), leavePolicies), record.annualLeaveDays, record.medicalLeaveDays, record.notes].filter(Boolean).join(" ")
-  );
-  const filteredLeavePolicies = filterHrRecords(
-    leavePolicies,
-    recordFilters.policies,
-    (record) => [roleLabel(record.role), record.annualLeaveDays, record.medicalLeaveDays, record.notes].filter(Boolean).join(" ")
-  );
-  const filteredLeaveAdjustments = filterHrRecords(
-    leaveAdjustments,
-    recordFilters.adjustments,
-    (record) => [formatDateTime(record.createdAt), staffName(record.staffUserId, visibleStaff), leaveAdjustmentTypeLabel(record.type), leaveAdjustmentDirectionLabel(record.direction), record.days, record.annualLeaveAfter, record.medicalLeaveAfter, record.reason, staffName(record.adjustedBy, visibleStaff)].filter(Boolean).join(" ")
-  );
-  const filteredPayslips = filterHrRecords(
-    payslips,
-    recordFilters.payslips,
-    (record) => [staffName(record.staffUserId, visibleStaff), payPeriodName(record.payPeriodId, payPeriods), payslipStatusLabel(record.status), record.netPay].filter(Boolean).join(" "),
-    (record) => record.status
-  );
-  const attendancePage = paginateHrRecords(filteredAttendance, recordPages.attendance);
-  const leavePage = paginateHrRecords(filteredLeaveRequests, recordPages.leave);
-  const balancePage = paginateHrRecords(filteredLeaveBalances, recordPages.balances);
-  const policyPage = paginateHrRecords(filteredLeavePolicies, recordPages.policies);
-  const adjustmentPage = paginateHrRecords(filteredLeaveAdjustments, recordPages.adjustments);
-  const payslipPage = paginateHrRecords(filteredPayslips, recordPages.payslips);
-  const attendanceEmptyText = hrRecordEmptyText(attendance.length, filteredAttendance.length, "No attendance records yet / 暂无打卡记录", "No attendance records match the current filters / 没有符合筛选条件的打卡记录");
-  const leaveEmptyText = hrRecordEmptyText(leaveRequests.length, filteredLeaveRequests.length, "No leave requests yet / 暂无请假记录", "No leave requests match the current filters / 没有符合筛选条件的请假记录");
-  const balanceEmptyText = hrRecordEmptyText(leaveBalances.length, filteredLeaveBalances.length, "No leave balances yet / 暂无假期余额", "No leave balances match the current filters / 没有符合筛选条件的假期余额");
-  const policyEmptyText = hrRecordEmptyText(leavePolicies.length, filteredLeavePolicies.length, "No leave policies yet / 暂无假期政策", "No leave policies match the current filters / 没有符合筛选条件的假期政策");
-  const adjustmentEmptyText = hrRecordEmptyText(leaveAdjustments.length, filteredLeaveAdjustments.length, "No leave adjustments yet / 暂无假期调整记录", "No leave adjustments match the current filters / 没有符合筛选条件的假期调整记录");
-  const payslipEmptyText = hrRecordEmptyText(payslips.length, filteredPayslips.length, "No payslips generated yet / 暂无薪资单", "No payslips match the current filters / 没有符合筛选条件的薪资单");
+  const attendanceTableColumns = withColumnFilters(attendanceColumns, [
+    { dataIndex: "staffUserId", filters: textFilters(attendance.map((record) => staffName(record.staffUserId, visibleStaff))), filterSearch: true, onFilter: (value, row) => staffName(row.staffUserId, visibleStaff) === value },
+    { dataIndex: "attendanceDate", filters: textFilters(attendance.map((record) => record.attendanceDate)), filterSearch: true, onFilter: (value, row) => row.attendanceDate === value }
+  ]);
+
+  const leaveTableColumns = withColumnFilters(leaveColumns, [
+    { dataIndex: "staffUserId", filters: textFilters(leaveRequests.map((record) => staffName(record.staffUserId, visibleStaff))), filterSearch: true, onFilter: (value, row) => staffName(row.staffUserId, visibleStaff) === value },
+    { dataIndex: "type", filters: textFilters(leaveRequests.map((record) => leaveTypeLabel(record.type))), onFilter: (value, row) => leaveTypeLabel(row.type) === value },
+    { dataIndex: "status", filters: textFilters(leaveRequests.map((record) => record.status)), onFilter: (value, row) => row.status === value }
+  ]);
+
+  const balanceTableColumns = withColumnFilters(balanceColumns, [
+    { dataIndex: "staffUserId", filters: textFilters(leaveBalances.map((record) => staffName(record.staffUserId, visibleStaff))), filterSearch: true, onFilter: (value, row) => staffName(row.staffUserId, visibleStaff) === value }
+  ]);
+
+  const policyTableColumns = withColumnFilters(policyColumns, [
+    { dataIndex: "role", filters: textFilters(leavePolicies.map((record) => roleLabel(record.role))), filterSearch: true, onFilter: (value, row) => roleLabel(row.role) === value }
+  ]);
+
+  const adjustmentTableColumns = withColumnFilters(adjustmentColumns, [
+    { dataIndex: "staffUserId", filters: textFilters(leaveAdjustments.map((record) => staffName(record.staffUserId, visibleStaff))), filterSearch: true, onFilter: (value, row) => staffName(row.staffUserId, visibleStaff) === value },
+    { dataIndex: "type", filters: textFilters(leaveAdjustments.map((record) => leaveAdjustmentTypeLabel(record.type))), onFilter: (value, row) => leaveAdjustmentTypeLabel(row.type) === value },
+    { dataIndex: "direction", filters: textFilters(leaveAdjustments.map((record) => leaveAdjustmentDirectionLabel(record.direction))), onFilter: (value, row) => leaveAdjustmentDirectionLabel(row.direction) === value }
+  ]);
+
+  const payslipTableColumns = withColumnFilters(payslipColumns, [
+    { dataIndex: "staffUserId", filters: textFilters(payslips.map((record) => staffName(record.staffUserId, visibleStaff))), filterSearch: true, onFilter: (value, row) => staffName(row.staffUserId, visibleStaff) === value },
+    { dataIndex: "payPeriodId", filters: textFilters(payslips.map((record) => payPeriods.find((period) => period.id === record.payPeriodId)?.name ?? record.payPeriodId)), filterSearch: true, onFilter: (value, row) => (payPeriods.find((period) => period.id === row.payPeriodId)?.name ?? row.payPeriodId) === value }
+  ]);
   const tabLabel = (label: string, count: number) => <span className="tabLabelWithCount">{label}<Tag>{count}</Tag></span>;
 
   const attendanceMobileCards = (
     <div className="mobileRecordList">
-      {filteredAttendance.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={attendanceEmptyText} />}
-      {attendancePage.items.map((record) => (
+      {attendance.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No attendance records yet / 暂无打卡记录" />}
+      {attendance.map((record) => (
         <article className="mobileRecordCard" key={record.id}>
           <div className="mobileRecordHeader">
             <div>
               <Typography.Text className="mobileRecordEyebrow">Attendance / 打卡</Typography.Text>
               <Typography.Title level={5}>{staffName(record.staffUserId, visibleStaff)}</Typography.Title>
             </div>
-            <Tag color={attendanceStatusColor(record.status)}>{attendanceStatusLabel(record.status)}</Tag>
           </div>
           <div className="mobileRecordGrid">
             <div><span>Date / 日期</span><strong>{record.attendanceDate}</strong></div>
@@ -348,14 +250,13 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredAttendance.length > hrRecordPageSize && <Pagination current={attendancePage.current} pageSize={hrRecordPageSize} total={filteredAttendance.length} showSizeChanger={false} onChange={(page) => setRecordPage("attendance", page)} />}
     </div>
   );
 
   const leaveMobileCards = (
     <div className="mobileRecordList">
-      {filteredLeaveRequests.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={leaveEmptyText} />}
-      {leavePage.items.map((record) => (
+      {leaveRequests.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No leave requests yet / 暂无请假记录" />}
+      {leaveRequests.map((record) => (
         <article className="mobileRecordCard" key={record.id}>
           <div className="mobileRecordHeader">
             <div>
@@ -390,14 +291,13 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredLeaveRequests.length > hrRecordPageSize && <Pagination current={leavePage.current} pageSize={hrRecordPageSize} total={filteredLeaveRequests.length} showSizeChanger={false} onChange={(page) => setRecordPage("leave", page)} />}
     </div>
   );
 
   const balanceMobileCards = (
     <div className="mobileRecordList">
-      {filteredLeaveBalances.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={balanceEmptyText} />}
-      {balancePage.items.map((record) => (
+      {leaveBalances.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No leave balances yet / 暂无假期余额" />}
+      {leaveBalances.map((record) => (
         <article className="mobileRecordCard" key={record.id}>
           <div className="mobileRecordHeader">
             <div>
@@ -416,14 +316,13 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredLeaveBalances.length > hrRecordPageSize && <Pagination current={balancePage.current} pageSize={hrRecordPageSize} total={filteredLeaveBalances.length} showSizeChanger={false} onChange={(page) => setRecordPage("balances", page)} />}
     </div>
   );
 
   const policyMobileCards = (
     <div className="mobileRecordList">
-      {filteredLeavePolicies.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={policyEmptyText} />}
-      {policyPage.items.map((record) => (
+      {leavePolicies.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No leave policies yet / 暂无假期政策" />}
+      {leavePolicies.map((record) => (
         <article className="mobileRecordCard" key={record.id}>
           <div className="mobileRecordHeader">
             <div>
@@ -441,14 +340,13 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredLeavePolicies.length > hrRecordPageSize && <Pagination current={policyPage.current} pageSize={hrRecordPageSize} total={filteredLeavePolicies.length} showSizeChanger={false} onChange={(page) => setRecordPage("policies", page)} />}
     </div>
   );
 
   const adjustmentMobileCards = (
     <div className="mobileRecordList">
-      {filteredLeaveAdjustments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={adjustmentEmptyText} />}
-      {adjustmentPage.items.map((record) => (
+      {leaveAdjustments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No leave adjustments yet / 暂无假期调整记录" />}
+      {leaveAdjustments.map((record) => (
         <article className="mobileRecordCard" key={record.id}>
           <div className="mobileRecordHeader">
             <div>
@@ -469,14 +367,13 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredLeaveAdjustments.length > hrRecordPageSize && <Pagination current={adjustmentPage.current} pageSize={hrRecordPageSize} total={filteredLeaveAdjustments.length} showSizeChanger={false} onChange={(page) => setRecordPage("adjustments", page)} />}
     </div>
   );
 
   const payslipMobileCards = (
     <div className="mobileRecordList">
-      {filteredPayslips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={payslipEmptyText} />}
-      {payslipPage.items.map((record) => (
+      {payslips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No payslips generated yet / 暂无薪资单" />}
+      {payslips.map((record) => (
         <article className="mobileRecordCard" key={record.id}>
           <div className="mobileRecordHeader">
             <div>
@@ -486,8 +383,7 @@ export function HrSalaryPage({
             <Tag color="green">{money(record.netPay)}</Tag>
           </div>
           <div className="mobileRecordGrid">
-            <div><span>Period / 月份</span><strong>{payPeriodName(record.payPeriodId, payPeriods)}</strong></div>
-            <div><span>Status / 状态</span><strong>{payslipStatusLabel(record.status)}</strong></div>
+            <div><span>Period / 月份</span><strong>{payPeriods.find((period) => period.id === record.payPeriodId)?.name ?? record.payPeriodId}</strong></div>
             <div><span>Base / 底薪</span><strong>{money(record.baseSalary)}</strong></div>
             <div><span>Work Days / 工作天</span><strong>{record.workingDays}</strong></div>
             <div><span>Daily / 日薪</span><strong>{money(record.dailySalary)}</strong></div>
@@ -500,7 +396,6 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredPayslips.length > hrRecordPageSize && <Pagination current={payslipPage.current} pageSize={hrRecordPageSize} total={filteredPayslips.length} showSizeChanger={false} onChange={(page) => setRecordPage("payslips", page)} />}
     </div>
   );
 
@@ -537,26 +432,15 @@ export function HrSalaryPage({
       </ProCard>
 
       <Tabs
-        activeKey={activeTab}
-        onChange={changeTab}
+        defaultActiveKey="attendance"
         items={[
           {
             key: "attendance",
             label: tabLabel("Attendance / 打卡记录", attendance.length),
             children: (
               <>
-                <HrRecordFilterControls
-                  filters={recordFilters.attendance}
-                  total={attendance.length}
-                  filtered={filteredAttendance.length}
-                  keywordPlaceholder="Search staff or date / 搜索员工或日期"
-                  statusOptions={attendanceStatusOptions}
-                  onKeywordChange={(value) => updateRecordFilter("attendance", "keyword", value)}
-                  onStatusChange={(value) => updateRecordFilter("attendance", "status", value)}
-                  onClear={() => clearRecordFilters("attendance")}
-                />
                 {attendanceMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
+                <Table className="desktopDataTable" rowKey="id" columns={attendanceTableColumns} dataSource={attendance} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No attendance records yet." }} />
               </>
             )
           },
@@ -609,18 +493,8 @@ export function HrSalaryPage({
                   title="Medical certificates need attention / 病假单需注意"
                   description="Medical certificate uploads are optional when a request is created. Use Upload MC in the corresponding leave row when the certificate is available."
                 />
-                <HrRecordFilterControls
-                  filters={recordFilters.leave}
-                  total={leaveRequests.length}
-                  filtered={filteredLeaveRequests.length}
-                  keywordPlaceholder="Search staff, leave type, date or reason / 搜索员工、假期、日期或原因"
-                  statusOptions={leaveStatusOptions}
-                  onKeywordChange={(value) => updateRecordFilter("leave", "keyword", value)}
-                  onStatusChange={(value) => updateRecordFilter("leave", "status", value)}
-                  onClear={() => clearRecordFilters("leave")}
-                />
                 {leaveMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={leaveColumns} dataSource={filteredLeaveRequests} pagination={{ ...tablePagination(hrRecordPageSize), current: leavePage.current, onChange: (page) => setRecordPage("leave", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: leaveEmptyText }} />
+                <Table className="desktopDataTable" rowKey="id" columns={leaveTableColumns} dataSource={leaveRequests} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No leave requests yet." }} />
               </Space>
             )
           },
@@ -639,16 +513,8 @@ export function HrSalaryPage({
                         <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Default full-time entitlement / 默认正式员工假期" /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Policy / 保存政策</Button></Form.Item>
                       </Form>
-                      <HrRecordFilterControls
-                        filters={recordFilters.policies}
-                        total={leavePolicies.length}
-                        filtered={filteredLeavePolicies.length}
-                        keywordPlaceholder="Search role or notes / 搜索角色或备注"
-                        onKeywordChange={(value) => updateRecordFilter("policies", "keyword", value)}
-                        onClear={() => clearRecordFilters("policies")}
-                      />
                       {policyMobileCards}
-                      <Table className="desktopDataTable" rowKey="id" columns={policyColumns} dataSource={filteredLeavePolicies} pagination={{ ...tablePagination(hrRecordPageSize), current: policyPage.current, onChange: (page) => setRecordPage("policies", page) }} locale={{ emptyText: policyEmptyText }} />
+                      <Table className="desktopDataTable" rowKey="id" columns={policyTableColumns} dataSource={leavePolicies} pagination={tablePagination(8)} locale={{ emptyText: "No leave policies yet." }} />
                     </ProCard>
 
                     <ProCard title="Apply Default Balance / 套用默认假期">
@@ -671,26 +537,10 @@ export function HrSalaryPage({
                     </ProCard>
                   </>
                 )}
-                <HrRecordFilterControls
-                  filters={recordFilters.balances}
-                  total={leaveBalances.length}
-                  filtered={filteredLeaveBalances.length}
-                  keywordPlaceholder="Search staff, role or notes / 搜索员工、角色或备注"
-                  onKeywordChange={(value) => updateRecordFilter("balances", "keyword", value)}
-                  onClear={() => clearRecordFilters("balances")}
-                />
                 {balanceMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={balanceColumns} dataSource={filteredLeaveBalances} pagination={{ ...tablePagination(hrRecordPageSize), current: balancePage.current, onChange: (page) => setRecordPage("balances", page) }} locale={{ emptyText: balanceEmptyText }} />
-                <HrRecordFilterControls
-                  filters={recordFilters.adjustments}
-                  total={leaveAdjustments.length}
-                  filtered={filteredLeaveAdjustments.length}
-                  keywordPlaceholder="Search staff, action, date or reason / 搜索员工、操作、日期或原因"
-                  onKeywordChange={(value) => updateRecordFilter("adjustments", "keyword", value)}
-                  onClear={() => clearRecordFilters("adjustments")}
-                />
+                <Table className="desktopDataTable" rowKey="id" columns={balanceTableColumns} dataSource={leaveBalances} pagination={tablePagination(8)} locale={{ emptyText: "No leave balances yet." }} />
                 {adjustmentMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={adjustmentColumns} dataSource={filteredLeaveAdjustments} pagination={{ ...tablePagination(hrRecordPageSize), current: adjustmentPage.current, onChange: (page) => setRecordPage("adjustments", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: adjustmentEmptyText }} />
+                <Table className="desktopDataTable" rowKey="id" columns={adjustmentTableColumns} dataSource={leaveAdjustments} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No leave adjustments yet." }} />
               </Space>
             )
           },
@@ -730,54 +580,13 @@ export function HrSalaryPage({
                     </ProCard>
                   </>
                 )}
-                <HrRecordFilterControls
-                  filters={recordFilters.payslips}
-                  total={payslips.length}
-                  filtered={filteredPayslips.length}
-                  keywordPlaceholder="Search staff or pay period / 搜索员工或薪资月份"
-                  statusOptions={payslipStatusOptions}
-                  onKeywordChange={(value) => updateRecordFilter("payslips", "keyword", value)}
-                  onStatusChange={(value) => updateRecordFilter("payslips", "status", value)}
-                  onClear={() => clearRecordFilters("payslips")}
-                />
                 {payslipMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
+                <Table className="desktopDataTable" rowKey="id" columns={payslipTableColumns} dataSource={payslips} pagination={tablePagination(8)} scroll={{ x: "max-content" }} locale={{ emptyText: "No payslips yet." }} />
               </Space>
             )
           }
         ]}
       />
-    </Space>
-  );
-}
-
-function HrRecordFilterControls({
-  filters,
-  total,
-  filtered,
-  keywordPlaceholder,
-  statusOptions,
-  onKeywordChange,
-  onStatusChange,
-  onClear
-}: {
-  filters: HrRecordFilters;
-  total: number;
-  filtered: number;
-  keywordPlaceholder: string;
-  statusOptions?: Array<{ value: string; label: string }>;
-  onKeywordChange: (value: string) => void;
-  onStatusChange?: (value?: string) => void;
-  onClear: () => void;
-}) {
-  const filterActive = Boolean(filters.keyword?.trim() || filters.status);
-
-  return (
-    <Space wrap size={8} className="toolbarForm">
-      <Input.Search allowClear placeholder={keywordPlaceholder} value={filters.keyword} style={{ width: 280 }} onChange={(event) => onKeywordChange(event.target.value)} />
-      {statusOptions && <Select allowClear placeholder="Status / 状态" value={filters.status} options={statusOptions} style={{ minWidth: 160 }} onChange={onStatusChange} />}
-      <Tag color={filterActive ? "blue" : "default"}>{filtered} / {total} shown / 已显示</Tag>
-      <Button size="small" disabled={!filterActive} onClick={onClear}>Clear filters / 清除筛选</Button>
     </Space>
   );
 }
@@ -909,8 +718,7 @@ function staffLabel(staff: StaffUser) {
 }
 
 function staffName(id: string, staffUsers: StaffUser[]) {
-  const staff = staffUsers.find((item) => item.id === id || item.email === id);
-  return staff?.displayName || staff?.email || "Unknown staff / 未知员工";
+  return staffUsers.find((staff) => staff.id === id)?.displayName || staffUsers.find((staff) => staff.id === id)?.email || id;
 }
 
 function staffPrimaryRole(id: string, staffUsers: StaffUser[]): StaffRole {
@@ -951,24 +759,35 @@ function formatLiveDate(value: Date) {
   return value.toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
 }
 
-function payPeriodName(id: string, payPeriods: HrPayPeriod[]) {
-  return payPeriods.find((period) => period.id === id)?.name || "Unknown period / 未知月份";
-}
-
 function money(value?: number) {
   return `RM ${Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function tablePagination(pageSize = hrRecordPageSize): TablePaginationConfig {
+function tablePagination(pageSize = 8): TablePaginationConfig {
   return {
     pageSize,
-    showSizeChanger: false,
+    showSizeChanger: true,
+    pageSizeOptions: ["5", "8", "10", "20", "50"],
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} / 共 ${total} 条`
   };
 }
 
-function hrRecordEmptyText(total: number, filtered: number, emptyText: string, filteredEmptyText: string) {
-  return total > 0 && filtered === 0 ? filteredEmptyText : emptyText;
+function textFilters(values: Array<string | undefined | null>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))))
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => ({ text: value, value }));
+}
+
+function withColumnFilters<T extends object>(
+  columns: ColumnsType<T>,
+  filters: Array<{ dataIndex: string; filters: Array<{ text: string; value: string }>; filterSearch?: boolean; onFilter: (value: string, row: T) => boolean }>
+): ColumnsType<T> {
+  return columns.map((column) => {
+    const rawDataIndex = "dataIndex" in column ? column.dataIndex : "";
+    const dataIndex = Array.isArray(rawDataIndex) ? rawDataIndex.join(".") : String(rawDataIndex ?? "");
+    const filter = filters.find((item) => item.dataIndex === dataIndex);
+    return filter ? { ...column, filters: filter.filters, filterSearch: filter.filterSearch, onFilter: (value, row) => filter.onFilter(String(value), row) } : column;
+  });
 }
 
 function leaveTypeLabel(type: HrLeaveType) {
@@ -987,23 +806,6 @@ function leaveStatusLabel(status: HrLeaveStatus) {
     Rejected: "Rejected / 已拒绝",
     Cancelled: "Cancelled / 已取消"
   }[status];
-}
-
-function attendanceStatusLabel(status: HrAttendanceRecord["status"]) {
-  return {
-    Present: "Present / 出勤",
-    Late: "Late / 迟到",
-    HalfDay: "Half day / 半天",
-    Absent: "Absent / 缺勤"
-  }[status];
-}
-
-function attendanceStatusColor(status: HrAttendanceRecord["status"]) {
-  return status === "Present" ? "green" : status === "Late" ? "orange" : status === "Absent" ? "red" : "blue";
-}
-
-function payslipStatusLabel(status: HrPayslip["status"]) {
-  return status === "Generated" ? "Generated / 已生成" : "Draft / 草稿";
 }
 
 function leaveAdjustmentTypeLabel(type: HrLeaveAdjustment["type"]) {

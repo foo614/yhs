@@ -19,7 +19,6 @@ import {
   getVehicleDocuments,
   getVehicleOcrJobs,
   getVehiclePhotos,
-  humanizeApiError,
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
@@ -41,7 +40,6 @@ import {
 const maxWebsitePhotoBytes = 5 * 1024 * 1024;
 const vehicleIntakeDocumentCategories: DocumentCategory[] = ["PurchaseInvoice", "Voc", "IdentityCard", "ApDocument"];
 const mobileVehiclePageSize = 12;
-const mobileCatalogPageSize = 8;
 
 export type OperationIntakeVehicleFilters = {
   keyword?: string;
@@ -54,11 +52,6 @@ export type OperationIntakeVehicleFilters = {
   outstationPickup?: "scheduled" | "none";
   invoiceLink?: "linked" | "missing";
   leadActivity?: "active" | "none";
-};
-
-export type VehicleCatalogFilters = {
-  keyword?: string;
-  status?: "active" | "hidden";
 };
 
 export function filterOperationIntakeVehicles(
@@ -106,25 +99,12 @@ export function filterOperationIntakeVehicles(
   });
 }
 
-export function filterVehicleCatalogModels(models: VehicleCatalogModel[], filters: VehicleCatalogFilters) {
-  const keyword = filters.keyword?.trim().toLowerCase();
-
-  return models.filter((model) => {
-    if (keyword && !`${model.make} ${model.model}`.toLowerCase().includes(keyword)) return false;
-    if (filters.status === "active" && !model.isActive) return false;
-    if (filters.status === "hidden" && model.isActive) return false;
-
-    return true;
-  });
-}
-
 export function VehiclePage({
   vehicles,
   leads,
   customers,
   owners,
   purchaseInvoices,
-  canApproveVehicles,
   onCreate,
   onUpdate,
   onStartLoan,
@@ -143,7 +123,6 @@ export function VehiclePage({
   customers: Customer[];
   owners: Owner[];
   purchaseInvoices: PurchaseInvoice[];
-  canApproveVehicles: boolean;
   onCreate: (vehicle: Vehicle) => void;
   onUpdate: (vehicle: Vehicle) => void;
   onStartLoan: (vehicle: Vehicle) => Promise<void>;
@@ -179,8 +158,6 @@ export function VehiclePage({
   const [operationFilters, setOperationFilters] = useState<OperationIntakeVehicleFilters>({});
   const [mobileVehiclePage, setMobileVehiclePage] = useState(1);
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
-  const [catalogFilters, setCatalogFilters] = useState<VehicleCatalogFilters>({});
-  const [mobileCatalogPage, setMobileCatalogPage] = useState(1);
   const [catalogEditingId, setCatalogEditingId] = useState<string | null>(null);
   const [catalogForm] = Form.useForm<VehicleCatalogModelInput>();
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
@@ -202,11 +179,6 @@ export function VehiclePage({
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
   const mobileVehicles = filteredVehicles.slice((clampedMobileVehiclePage - 1) * mobileVehiclePageSize, clampedMobileVehiclePage * mobileVehiclePageSize);
   const filterActive = Object.values(operationFilters).some((value) => value !== undefined && value !== "");
-  const filteredCatalogModels = filterVehicleCatalogModels(catalogModels, catalogFilters);
-  const mobileCatalogPageCount = Math.max(1, Math.ceil(filteredCatalogModels.length / mobileCatalogPageSize));
-  const clampedMobileCatalogPage = Math.min(mobileCatalogPage, mobileCatalogPageCount);
-  const mobileCatalogModels = filteredCatalogModels.slice((clampedMobileCatalogPage - 1) * mobileCatalogPageSize, clampedMobileCatalogPage * mobileCatalogPageSize);
-  const catalogFilterActive = Object.values(catalogFilters).some((value) => value !== undefined && value !== "");
   const selectedVehicleProfit = selectedVehicle
     ? estimatedVehicleProfit(selectedVehicle)
     : 0;
@@ -268,7 +240,7 @@ export function VehiclePage({
     try {
       setCatalogModels(await getVehicleCatalogModels());
     } catch (error) {
-      message.error(humanizeApiError(error, "Unable to load the vehicle catalogue."));
+      message.error(error instanceof Error ? error.message : "Unable to load the vehicle catalogue.");
     }
   }, []);
 
@@ -290,7 +262,7 @@ export function VehiclePage({
       catalogForm.setFieldValue("isActive", true);
       await loadCatalogModels();
     } catch (error) {
-      message.error(humanizeApiError(error, "Unable to save the vehicle catalogue option."));
+      message.error(error instanceof Error ? error.message : "Unable to save the vehicle catalogue option.");
     }
   }
 
@@ -300,17 +272,9 @@ export function VehiclePage({
       message.success(`Vehicle catalogue option ${item.isActive ? "hidden" : "shown"} on the website.`);
       await loadCatalogModels();
     } catch (error) {
-      message.error(humanizeApiError(error, "Unable to update the vehicle catalogue option."));
+      message.error(error instanceof Error ? error.message : "Unable to update the vehicle catalogue option.");
     }
   }
-  const editCatalogModel = (item: VehicleCatalogModel) => {
-    setCatalogEditingId(item.id);
-    catalogForm.setFieldsValue({ make: item.make, model: item.model, isActive: item.isActive });
-  };
-  const updateCatalogFilter = <K extends keyof VehicleCatalogFilters>(key: K, value: VehicleCatalogFilters[K] | undefined) => {
-    setMobileCatalogPage(1);
-    setCatalogFilters((current) => ({ ...current, [key]: value || undefined }));
-  };
   const photoPreviewGrid = (
     <div className="vehiclePhotoPreviewGrid">
       {photos.length > 0 ? photos.map((photo) => (
@@ -542,12 +506,6 @@ export function VehiclePage({
       setMobileVehiclePage(clampedMobileVehiclePage);
     }
   }, [clampedMobileVehiclePage, mobileVehiclePage]);
-
-  useEffect(() => {
-    if (mobileCatalogPage !== clampedMobileCatalogPage) {
-      setMobileCatalogPage(clampedMobileCatalogPage);
-    }
-  }, [clampedMobileCatalogPage, mobileCatalogPage]);
 
   useEffect(() => {
     void loadUploads();
@@ -1009,12 +967,6 @@ export function VehiclePage({
       ))}
     </div>
   );
-  const renderCatalogActions = (item: VehicleCatalogModel) => (
-    <Space className="tableActionGroup" wrap size={6}>
-      <Button size="small" type="primary" onClick={() => editCatalogModel(item)}>Edit</Button>
-      <Button size="small" onClick={() => void toggleCatalogModel(item)}>{item.isActive ? "Hide" : "Show"}</Button>
-    </Space>
-  );
   const customerColumns: ColumnsType<Customer> = [
     { title: "Name / 姓名", dataIndex: "name" },
     { title: "Phone / 电话", dataIndex: "phone" },
@@ -1043,7 +995,15 @@ export function VehiclePage({
       title: "Action",
       fixed: "right",
       width: 190,
-      render: (_, item) => renderCatalogActions(item)
+      render: (_, item) => (
+        <Space className="tableActionGroup" wrap size={6}>
+          <Button size="small" type="primary" onClick={() => {
+            setCatalogEditingId(item.id);
+            catalogForm.setFieldsValue({ make: item.make, model: item.model, isActive: item.isActive });
+          }}>Edit</Button>
+          <Button size="small" onClick={() => void toggleCatalogModel(item)}>{item.isActive ? "Hide" : "Show"}</Button>
+        </Space>
+      )
     }
   ];
 
@@ -1230,7 +1190,7 @@ export function VehiclePage({
           rowKey="id"
           columns={compactOperationIntakeColumns}
           dataSource={filteredVehicles}
-          pagination={{ ...tablePagination(8), current: clampedMobileVehiclePage, onChange: setMobileVehiclePage }}
+          pagination={tablePagination(8)}
           scroll={{ x: 1980 }}
           rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}
           onRow={(row) => ({
@@ -1266,66 +1226,14 @@ export function VehiclePage({
             </Space>
           </Form.Item>
         </Form>
-        <div className="vehicleOperationFilters">
-          <Input.Search
-            allowClear
-            placeholder="Search make or model"
-            value={catalogFilters.keyword}
-            onChange={(event) => updateCatalogFilter("keyword", event.target.value)}
-          />
-          <Select
-            allowClear
-            placeholder="Website status"
-            value={catalogFilters.status}
-            options={[
-              { value: "active", label: "Visible" },
-              { value: "hidden", label: "Hidden" }
-            ]}
-            onChange={(value) => updateCatalogFilter("status", value)}
-          />
-          <div className="vehicleFilterMeta">
-            <Tag color={catalogFilterActive ? "blue" : "default"}>{filteredCatalogModels.length} / {catalogModels.length} shown</Tag>
-            <Button size="small" disabled={!catalogFilterActive} onClick={() => { setCatalogFilters({}); setMobileCatalogPage(1); }}>Clear filters</Button>
-          </div>
-        </div>
-        <div className="mobileRecordList">
-          {filteredCatalogModels.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No catalogue options match the current filters." />}
-          {mobileCatalogModels.map((item) => (
-            <article className="mobileRecordCard" key={item.id}>
-              <div className="mobileRecordHeader">
-                <div>
-                  <Typography.Text className="mobileRecordEyebrow">Website Catalogue</Typography.Text>
-                  <Typography.Title level={5}>{item.make}</Typography.Title>
-                </div>
-                <Tag color={item.isActive ? "green" : "default"}>{item.isActive ? "Visible" : "Hidden"}</Tag>
-              </div>
-              <div className="mobileRecordGrid">
-                <div><span>Model</span><strong>{item.model}</strong></div>
-                <div><span>Type</span><strong>Website filter</strong></div>
-              </div>
-              <div className="mobileRecordFooter">
-                {renderCatalogActions(item)}
-              </div>
-            </article>
-          ))}
-          {filteredCatalogModels.length > mobileCatalogPageSize && (
-            <Pagination
-              current={clampedMobileCatalogPage}
-              pageSize={mobileCatalogPageSize}
-              total={filteredCatalogModels.length}
-              showSizeChanger={false}
-              onChange={setMobileCatalogPage}
-            />
-          )}
-        </div>
         <Table
           className="desktopDataTable"
           rowKey="id"
           columns={catalogColumns}
-          dataSource={filteredCatalogModels}
-          pagination={{ ...tablePagination(8), current: clampedMobileCatalogPage, onChange: setMobileCatalogPage }}
+          dataSource={catalogModels}
+          pagination={tablePagination(8)}
           scroll={{ x: 640 }}
-          locale={{ emptyText: catalogModels.length === 0 ? "No catalogue options yet. Add the makes and models you want customers to filter by." : "No catalogue options match the current filters." }}
+          locale={{ emptyText: "No catalogue options yet. Add the makes and models you want customers to filter by." }}
         />
       </ProCard>
       <Drawer
@@ -1415,13 +1323,7 @@ export function VehiclePage({
               initialValues={selectedVehicle}
               onFinish={(values) => {
                 if (!selectedVehicle) return;
-                const bossConfirmed = canApproveVehicles ? Boolean(values.bossConfirmed) : Boolean(selectedVehicle.bossConfirmed);
-                const vehicle = vehicleFromIntakeValues({
-                  ...values,
-                  stockOwner: values.stockOwner || selectedVehicle.stockOwner || "YSHeng",
-                  bossConfirmed,
-                  isPublic: bossConfirmed ? Boolean(values.isPublic) : false
-                }, selectedVehicle.id);
+                const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: values.stockOwner || selectedVehicle.stockOwner || "YSHeng" }, selectedVehicle.id);
                 const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
                 if (blockReason) {
                   message.warning(blockReason);
@@ -1440,9 +1342,7 @@ export function VehiclePage({
               <Form.Item name="year" label="Year"><InputNumber className="fullWidth" min={1990} max={2030} /></Form.Item>
               <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} /></Form.Item>
               <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} /></Form.Item>
-              <Form.Item name="bossConfirmed" label="Management Approval / 管理层审批" extra={canApproveVehicles ? "Only Boss/Admin can change approval." : "Read-only. Ask Boss/Admin to approve this vehicle."}>
-                <Select disabled={!canApproveVehicles} options={[{ value: true, label: "Approved" }, { value: false, label: "Pending" }]} />
-              </Form.Item>
+              <Form.Item name="bossConfirmed" label="Management Approval / 管理层审批"><Select options={[{ value: true, label: "Approved" }, { value: false, label: "Pending" }]} /></Form.Item>
               <Form.Item name="stockOwner" label="Stock Owner / 库存方"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
               <Form.Item name="stockLocation" label="Stock Location / 停放地点"><Input placeholder="Main Yard / KS Yard / Workshop" /></Form.Item>
               <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -1460,9 +1360,7 @@ export function VehiclePage({
                 <Select allowClear showSearch optionFilterProp="label" placeholder="Select owner" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} />
               </Form.Item>
               <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
-              <Form.Item name="isPublic" label="Website Visible" extra={!selectedVehicle?.bossConfirmed && !canApproveVehicles ? "Website visibility stays hidden until Boss/Admin approval." : undefined}>
-                <Select disabled={!canApproveVehicles && !selectedVehicle?.bossConfirmed} options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} />
-              </Form.Item>
+              <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
               <Form.Item className="vehicleMarkdownField" name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text.">
                 <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: "## Ready stock\n\n- Key feature\n- Viewing by appointment" }} />
               </Form.Item>
@@ -1750,13 +1648,7 @@ export function VehiclePage({
         className="recordCreateModal"
       >
         <Form layout="vertical" className="modalForm formGrid" onFinish={(values) => {
-          const bossConfirmed = canApproveVehicles ? Boolean(values.bossConfirmed) : false;
-          const vehicle = vehicleFromIntakeValues({
-            ...values,
-            stockOwner: values.stockOwner || "YSHeng",
-            bossConfirmed,
-            isPublic: bossConfirmed ? Boolean(values.isPublic) : false
-          }, newId());
+          const vehicle = vehicleFromIntakeValues({ ...values, stockOwner: values.stockOwner || "YSHeng" }, newId());
           const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
           if (blockReason) {
             message.warning(blockReason);
@@ -1765,7 +1657,7 @@ export function VehiclePage({
 
           onCreate(vehicle);
           setVehicleCreateOpen(false);
-        }} initialValues={{ status: "Available", stockOwner: "YSHeng", stockLocation: "Main Yard", isPublic: false, bossConfirmed: false, contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}>
+        }} initialValues={{ status: "Available", stockOwner: "YSHeng", stockLocation: "Main Yard", isPublic: true, bossConfirmed: false, contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}>
           <Form.Item name="plateNumber" label="Plate / 车牌" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="chassisNumber" label="Chassis Number"><Input /></Form.Item>
           <Form.Item name="engineNumber" label="Engine Number"><Input /></Form.Item>
@@ -1774,14 +1666,7 @@ export function VehiclePage({
           <Form.Item name="year" label="Year"><InputNumber className="fullWidth" min={1990} max={2030} /></Form.Item>
           <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          {canApproveVehicles ? (
-            <>
-              <Form.Item name="bossConfirmed" label="Management Approval / 管理层审批" extra="Only Boss/Admin can approve vehicle intake."><Select options={[{ value: true, label: "Approved" }, { value: false, label: "Pending" }]} /></Form.Item>
-              <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
-            </>
-          ) : (
-            <Alert type="info" showIcon message="Admin approval required" description="This vehicle will be created as Pending and hidden from the public website until Boss/Admin approves it." />
-          )}
+          <Form.Item name="bossConfirmed" label="Management Approval / 管理层审批"><Select options={[{ value: true, label: "Approved" }, { value: false, label: "Pending" }]} /></Form.Item>
           <Form.Item name="stockOwner" label="Stock Owner / 库存方"><Select options={["YSHeng", "KS"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="stockLocation" label="Stock Location / 停放地点"><Input placeholder="Main Yard / KS Yard / Workshop" /></Form.Item>
           <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -1799,6 +1684,7 @@ export function VehiclePage({
             <Select allowClear showSearch optionFilterProp="label" placeholder="Select owner" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} />
           </Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="isPublic" label="Website Visible"><Select options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} /></Form.Item>
           <Form.Item className="vehicleMarkdownField" name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Optional public copy. Raw HTML is displayed as text.">
             <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: "## Ready stock\n\n- Key feature\n- Viewing by appointment" }} />
           </Form.Item>

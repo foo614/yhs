@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepairJob, SupplierInvoice } from "./api";
-import { filterRefurbishmentRecords, isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
+import { isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
 
 const baseInvoice: SupplierInvoice = {
   id: "supplier-1",
@@ -81,23 +81,5 @@ describe("repair supplier invoice helpers", () => {
 
   it("limits repair uploads to repair invoice documents", () => {
     expect(repairDocumentCategories).toEqual(["RepairInvoice"]);
-  });
-
-  it("filters combined refurbishment records by user-facing keyword, kind, and state", () => {
-    const records = filterRefurbishmentRecords(
-      [{ ...baseRepair, checklistDone: true }, { ...baseRepair, id: "repair-2", whatToDo: "Replace tyre", repairPart: "Tyre" }],
-      [{ ...baseInvoice, paidAt: "2026-06-10" }, { ...baseInvoice, id: "supplier-2", supplierName: "Windscreen Pro", invoiceNumber: "WS-22" }],
-      vehicles,
-      { keyword: "abc spray", kind: "SupplierInvoice", state: "Done" }
-    );
-
-    expect(records).toEqual([{ key: "supplier-supplier-1", kind: "supplierInvoice", invoice: { ...baseInvoice, paidAt: "2026-06-10" } }]);
-    expect(filterRefurbishmentRecords([baseRepair], [baseInvoice], vehicles, { state: "Open" }).map((record) => record.key))
-      .toEqual(["repair-repair-1", "supplier-supplier-1"]);
-  });
-
-  it("keeps all combined refurbishment records with no filters", () => {
-    expect(filterRefurbishmentRecords([baseRepair], [baseInvoice], vehicles, {}).map((record) => record.key))
-      .toEqual(["repair-repair-1", "supplier-supplier-1"]);
   });
 });

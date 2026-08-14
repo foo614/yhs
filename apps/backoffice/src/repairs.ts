@@ -3,42 +3,6 @@ import type { RepairJob, SupplierInvoice, VehicleLookup } from "./api";
 export const repairDocumentCategories = ["RepairInvoice"] as const;
 export const repairApprovalThreshold = 1000;
 
-export type RefurbishmentRecord =
-  | { key: string; kind: "repair"; repair: RepairJob }
-  | { key: string; kind: "supplierInvoice"; invoice: SupplierInvoice };
-
-export type RefurbishmentFilters = {
-  keyword?: string;
-  kind?: "All" | "Repair" | "SupplierInvoice";
-  state?: "All" | "Open" | "Done";
-};
-
-export function filterRefurbishmentRecords(
-  repairs: RepairJob[],
-  supplierInvoices: SupplierInvoice[],
-  vehicles: VehicleLookup[],
-  filters: RefurbishmentFilters
-): RefurbishmentRecord[] {
-  const keyword = normalizeReference(filters.keyword);
-  const records: RefurbishmentRecord[] = [
-    ...repairs.map((repair) => ({ key: `repair-${repair.id}`, kind: "repair" as const, repair })),
-    ...supplierInvoices.map((invoice) => ({ key: `supplier-${invoice.id}`, kind: "supplierInvoice" as const, invoice }))
-  ];
-
-  return records.filter((record) => {
-    const vehicleId = record.kind === "repair" ? record.repair.vehicleId : record.invoice.vehicleId;
-    const vehicle = vehicles.find((item) => item.id === vehicleId);
-    const done = record.kind === "repair" ? record.repair.checklistDone : Boolean(record.invoice.paidAt);
-    const matchesKeyword = !keyword || matchesRefurbishmentKeyword(record, vehicle?.plateNumber, keyword);
-    const matchesKind = !filters.kind || filters.kind === "All" ||
-      (filters.kind === "Repair" ? record.kind === "repair" : record.kind === "supplierInvoice");
-    const matchesState = !filters.state || filters.state === "All" ||
-      (filters.state === "Done" ? done : !done);
-
-    return matchesKeyword && matchesKind && matchesState;
-  });
-}
-
 export function supplierInvoiceCreateBlockReason(invoice: SupplierInvoice, existing: SupplierInvoice[] = [], vehicles: VehicleLookup[] = []) {
   if (!invoice.supplierName?.trim()) {
     return "Supplier name is required.";
@@ -97,14 +61,6 @@ export function supplierInvoiceAgingStatus(invoice: SupplierInvoice, today = tod
 
 function normalizeReference(value?: string) {
   return value?.trim().toLowerCase() ?? "";
-}
-
-function matchesRefurbishmentKeyword(record: RefurbishmentRecord, plateNumber: string | undefined, keyword: string) {
-  const values = record.kind === "repair"
-    ? [plateNumber, record.repair.whatToDo, record.repair.repairPart]
-    : [plateNumber, record.invoice.supplierName, record.invoice.invoiceNumber, record.invoice.plateNumberOnInvoice];
-
-  return values.some((value) => normalizeReference(value).includes(keyword));
 }
 
 function normalizePlate(value: string) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, filterDeliverySchedules, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent } from "./delivery";
-import type { DeliveryReleaseReadiness, DeliverySchedule, VehicleLookup } from "./api";
+import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent } from "./delivery";
+import type { DeliverySchedule } from "./api";
 
 const baseDelivery: DeliverySchedule = {
   id: "delivery-1",
@@ -47,11 +47,6 @@ const completeDelivery: DeliverySchedule = {
   customerAcknowledged: true,
   finalChecklistConfirmed: true
 };
-
-const filterVehicles: VehicleLookup[] = [
-  { id: "vehicle-1", plateNumber: "VPK 1234", make: "Toyota", model: "Vios", stockOwner: "YSHeng", status: "Available" },
-  { id: "vehicle-2", plateNumber: "WXY 9876", make: "Honda", model: "City", stockOwner: "YSHeng", status: "Available" }
-];
 
 describe("delivery workflow helpers", () => {
   it("allows marking the 2-day notice only before it has been sent", () => {
@@ -151,32 +146,5 @@ describe("delivery workflow helpers", () => {
       ...completeDelivery,
       status: "Released"
     })).toBeUndefined();
-  });
-
-  it("filters deliveries by combined keyword, status, and API readiness", () => {
-    const deliveries = [
-      { ...completeDelivery, id: "delivery-ready", status: "ReadyForRelease" as const, pic: "Ah Ming" },
-      { ...baseDelivery, id: "delivery-blocked", vehicleId: "vehicle-2", pic: "Siti", status: "Scheduled" as const }
-    ];
-    const readiness: Record<string, DeliveryReleaseReadiness> = {
-      "delivery-ready": { isReady: true, missingCategories: [], missingEvidence: [], expiredDocuments: [], evidence: [] },
-      "delivery-blocked": { isReady: false, missingCategories: ["Policy"], missingEvidence: [], expiredDocuments: [], evidence: [] }
-    };
-
-    expect(filterDeliverySchedules(deliveries, filterVehicles, readiness, {
-      keyword: "vpk",
-      status: "ReadyForRelease",
-      readiness: "Ready"
-    }).map((delivery) => delivery.id)).toEqual(["delivery-ready"]);
-    expect(filterDeliverySchedules(deliveries, filterVehicles, readiness, {
-      readiness: "Blocked"
-    }).map((delivery) => delivery.id)).toEqual(["delivery-blocked"]);
-  });
-
-  it("uses the local release checklist and keeps every delivery with no filters", () => {
-    expect(filterDeliverySchedules([{ ...completeDelivery, status: "ReadyForRelease" }], filterVehicles, {}, {
-      readiness: "Ready"
-    })).toHaveLength(1);
-    expect(filterDeliverySchedules([baseDelivery], filterVehicles, {}, {})).toEqual([baseDelivery]);
   });
 });
