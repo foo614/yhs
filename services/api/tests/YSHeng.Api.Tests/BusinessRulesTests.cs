@@ -13,6 +13,13 @@ namespace YSHeng.Api.Tests;
 public sealed class BusinessRulesTests
 {
     [Fact]
+    public void Ai_usage_limit_validation_allows_zero_as_a_hard_stop_and_rejects_invalid_limits()
+    {
+        Assert.Empty(AiUsageLimitRules.Validate(new UpdateAiServiceLimitRequest(true, 0, 0)));
+        Assert.Equal(2, AiUsageLimitRules.Validate(new UpdateAiServiceLimitRequest(true, -1, 10_001)).Length);
+    }
+
+    [Fact]
     public void Security_headers_apply_defensive_api_defaults()
     {
         var headers = new HeaderDictionary();

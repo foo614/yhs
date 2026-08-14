@@ -125,6 +125,7 @@ import {
   getLeads,
   getLoanDocumentCheck,
   getLoans,
+  getOcrUsageLimit,
   getOwners,
   getPayments,
   getPaymentVouchers,
@@ -157,6 +158,7 @@ import {
   updateLead,
   updateLoan,
   updateOwner,
+  updateOcrUsageLimit,
   updatePayment,
   updatePaymentVoucher,
   updatePurchaseInvoice,
@@ -173,6 +175,7 @@ import {
   vehicleDocumentContentUrl,
   type AuditLog,
   type AuditLogFilters,
+  type AiUsageLimitSnapshot,
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
@@ -213,6 +216,7 @@ import {
   type SupplierInvoice,
   type UpdateStaffUserRequest,
   type UpdateStaffUserStatusRequest,
+  type UpdateAiServiceLimitRequest,
   type Vehicle,
   type VehicleLookup,
   type VehicleDocument,
@@ -3939,6 +3943,9 @@ function AdminPage({
   const [staffStatusFilter, setStaffStatusFilter] = useState<StaffStatusFilter>("All");
   const [staffRoleFilter, setStaffRoleFilter] = useState<StaffRole | "All">("All");
   const [mobileStaffPage, setMobileStaffPage] = useState(1);
+  const [ocrLimitSnapshot, setOcrLimitSnapshot] = useState<AiUsageLimitSnapshot | null>(null);
+  const [ocrLimitSaving, setOcrLimitSaving] = useState(false);
+  const [ocrLimitForm] = Form.useForm<UpdateAiServiceLimitRequest>();
   const selectedEditStaffUser = staffUsers.find((user) => user.id === editStaffUserId) ?? staffUsers[0];
   const filteredStaffUsers = filterStaffUsers(staffUsers, {
     keyword: staffKeywordFilter,
@@ -3955,6 +3962,27 @@ function AdminPage({
   const activeStaffCount = staffUsers.filter((user) => user.isActive).length;
   const disabledStaffCount = staffUsers.filter((user) => !user.isActive).length;
   const adminStaffCount = staffUsers.filter((user) => user.roles.includes("BossAdmin")).length;
+
+  useEffect(() => {
+    void getOcrUsageLimit().then((snapshot) => {
+      setOcrLimitSnapshot(snapshot);
+      ocrLimitForm.setFieldsValue(snapshot.limit);
+    }).catch((error) => message.error(humanizeApiError(error, "AI usage settings could not be loaded.")));
+  }, [ocrLimitForm]);
+
+  const saveOcrLimit = async (values: UpdateAiServiceLimitRequest) => {
+    setOcrLimitSaving(true);
+    try {
+      const snapshot = await updateOcrUsageLimit(values);
+      setOcrLimitSnapshot(snapshot);
+      ocrLimitForm.setFieldsValue(snapshot.limit);
+      message.success("AI usage limit updated");
+    } catch (error) {
+      message.error(humanizeApiError(error, "AI usage limit could not be updated."));
+    } finally {
+      setOcrLimitSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!editStaffUserId && staffUsers[0]?.id) {
@@ -4280,6 +4308,35 @@ function AdminPage({
                   <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Staff</Button></Form.Item>
                   </Form>
                 </Modal>
+              </Space>
+            )
+          },
+          {
+            key: "ai-usage",
+            label: "AI Usage / AI 使用量",
+            children: (
+              <Space direction="vertical" size={16} className="fullWidth">
+                <Alert type="info" showIcon message="OCR limits are enforced by the server" description="Each OCR request reserves one unit before the external provider is called. Limits reset on the UTC calendar month and day." />
+                <ProCard title="OCR Limit / OCR 限额">
+                  {ocrLimitSnapshot ? (
+                    <Space direction="vertical" size={16} className="fullWidth">
+                      <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+                        <Descriptions.Item label="This month used">{ocrLimitSnapshot.usedThisMonth}</Descriptions.Item>
+                        <Descriptions.Item label="This month remaining">{ocrLimitSnapshot.remainingThisMonth}</Descriptions.Item>
+                        <Descriptions.Item label="Last updated">{ocrLimitSnapshot.limit.updatedAt.slice(0, 16).replace("T", " ")}</Descriptions.Item>
+                        <Descriptions.Item label="Updated by">{ocrLimitSnapshot.limit.updatedBy}</Descriptions.Item>
+                      </Descriptions>
+                      <Form form={ocrLimitForm} layout="vertical" onFinish={saveOcrLimit}>
+                        <Form.Item name="isEnabled" label="OCR service" valuePropName="checked"><Checkbox>Allow staff to run OCR</Checkbox></Form.Item>
+                        <div className="formGrid">
+                          <Form.Item name="monthlyRequestLimit" label="Monthly request limit" rules={[{ required: true, type: "number", min: 0, max: 100000 }]}><InputNumber className="fullWidth" min={0} max={100000} precision={0} /></Form.Item>
+                          <Form.Item name="perStaffDailyRequestLimit" label="Per-staff daily limit" rules={[{ required: true, type: "number", min: 0, max: 10000 }]}><InputNumber className="fullWidth" min={0} max={10000} precision={0} /></Form.Item>
+                        </div>
+                        <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={ocrLimitSaving}>Save AI limit</Button></Form.Item>
+                      </Form>
+                    </Space>
+                  ) : <Spin />}
+                </ProCard>
               </Space>
             )
           },

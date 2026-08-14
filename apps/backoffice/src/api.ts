@@ -717,6 +717,10 @@ export type StaffUser = {
   isActive: boolean;
 };
 
+export type AiServiceLimit = { id: string; service: "Ocr"; isEnabled: boolean; monthlyRequestLimit: number; perStaffDailyRequestLimit: number; updatedAt: string; updatedBy: string };
+export type AiUsageLimitSnapshot = { limit: AiServiceLimit; usedThisMonth: number; remainingThisMonth: number };
+export type UpdateAiServiceLimitRequest = Pick<AiServiceLimit, "isEnabled" | "monthlyRequestLimit" | "perStaffDailyRequestLimit">;
+
 export type CreateStaffUserRequest = {
   email: string;
   displayName: string;
@@ -767,6 +771,7 @@ export function humanizeApiError(error: unknown, fallback = "Please try again.")
   if (normalized.includes("(415)")) {
     return "This file type is not supported. Please choose an accepted file and try again.";
   }
+  if (normalized.includes("(429)")) return rawMessage || "The AI service limit has been reached. Ask an administrator to adjust the limit.";
   if (normalized.includes("(400)") || normalized.includes("(422)")) {
     const cleanedMessage = rawMessage.replace(/\s*\((?:400|422)\)\.?$/i, ".");
     return /^\s*(?:request|upload) failed with status\.?$/i.test(cleanedMessage)
@@ -959,6 +964,10 @@ export async function getAuditLog(filters: AuditLogFilters = {}): Promise<AuditL
 
 export async function getStaffUsers(): Promise<StaffUser[]> {
   return getWithNetworkFallback("/api/admin/users", []);
+}
+
+export async function getOcrUsageLimit(): Promise<AiUsageLimitSnapshot> {
+  return request<AiUsageLimitSnapshot>("/api/admin/ai-limits/ocr");
 }
 
 export async function getHrStaffUsers(): Promise<StaffUser[]> {
@@ -1268,6 +1277,10 @@ export async function updateStaffUserRoles(userId: string, roles: StaffRole[]): 
     method: "PUT",
     body: JSON.stringify({ roles } satisfies UpdateStaffUserRolesRequest)
   });
+}
+
+export async function updateOcrUsageLimit(requestBody: UpdateAiServiceLimitRequest): Promise<AiUsageLimitSnapshot> {
+  return request<AiUsageLimitSnapshot>("/api/admin/ai-limits/ocr", { method: "PUT", body: JSON.stringify(requestBody) });
 }
 
 export async function updateLoan(loan: LoanApplication): Promise<LoanApplication> {

@@ -17,12 +17,19 @@ public static class SeedData
         await EnsureLeadSchemaAsync(db);
         await EnsureHrSchemaAsync(db);
         await EnsureOcrSchemaAsync(db);
+        await EnsureAiUsageSchemaAsync(db);
         await EnsureDocumentOwnershipSchemaAsync(db);
         await EnsureCashCustodySchemaAsync(db);
         await EnsureVehicleEnhancementSchemaAsync(db);
         await EnsureVehicleCatalogSchemaAsync(db);
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
+
+        if (!await db.AiServiceLimits.AnyAsync(limit => limit.Service == AiService.Ocr))
+        {
+            db.AiServiceLimits.Add(new AiServiceLimit { Service = AiService.Ocr });
+            await db.SaveChangesAsync();
+        }
 
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         foreach (var role in Roles)
@@ -331,6 +338,35 @@ public static class SeedData
             ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewedAt" timestamp with time zone NULL;
 
             CREATE INDEX IF NOT EXISTS "IX_OcrJobs_DocumentId" ON "OcrJobs" ("DocumentId");
+        """);
+    }
+
+    private static async Task EnsureAiUsageSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "AiServiceLimits" (
+                "Id" uuid NOT NULL,
+                "Service" integer NOT NULL,
+                "IsEnabled" boolean NOT NULL,
+                "MonthlyRequestLimit" integer NOT NULL,
+                "PerStaffDailyRequestLimit" integer NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                "UpdatedBy" text NOT NULL,
+                CONSTRAINT "PK_AiServiceLimits" PRIMARY KEY ("Id")
+            );
+            CREATE TABLE IF NOT EXISTS "AiUsageRecords" (
+                "Id" uuid NOT NULL,
+                "Service" integer NOT NULL,
+                "SourceDocumentId" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "Status" integer NOT NULL,
+                "RequestedAt" timestamp with time zone NOT NULL,
+                "CompletedAt" timestamp with time zone NULL,
+                CONSTRAINT "PK_AiUsageRecords" PRIMARY KEY ("Id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_AiServiceLimits_Service" ON "AiServiceLimits" ("Service");
+            CREATE INDEX IF NOT EXISTS "IX_AiUsageRecords_Service_RequestedAt" ON "AiUsageRecords" ("Service", "RequestedAt");
+            CREATE INDEX IF NOT EXISTS "IX_AiUsageRecords_Service_StaffUserId_RequestedAt" ON "AiUsageRecords" ("Service", "StaffUserId", "RequestedAt");
         """);
     }
 

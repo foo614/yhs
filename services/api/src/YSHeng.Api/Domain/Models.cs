@@ -20,6 +20,8 @@ public enum HrPayslipStatus { Draft, Generated }
 public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
 public enum OcrReviewDecision { Pending, Accepted, Rejected }
+public enum AiService { Ocr }
+public enum AiUsageStatus { Reserved, Succeeded, Failed }
 
 public sealed record Vehicle
 {
@@ -157,6 +159,28 @@ public sealed record OcrJob
     public string? ReviewNotes { get; init; }
     public string? ReviewedBy { get; init; }
     public DateTime? ReviewedAt { get; init; }
+}
+
+public sealed record AiServiceLimit
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public AiService Service { get; init; }
+    public bool IsEnabled { get; init; } = true;
+    public int MonthlyRequestLimit { get; init; } = 300;
+    public int PerStaffDailyRequestLimit { get; init; } = 25;
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
+    public string UpdatedBy { get; init; } = "System";
+}
+
+public sealed record AiUsageRecord
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public AiService Service { get; init; }
+    public Guid SourceDocumentId { get; init; }
+    public string StaffUserId { get; init; } = "";
+    public AiUsageStatus Status { get; init; } = AiUsageStatus.Reserved;
+    public DateTime RequestedAt { get; init; } = DateTime.UtcNow;
+    public DateTime? CompletedAt { get; init; }
 }
 
 public sealed record PurchaseInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string InvoiceNumber { get; init; } = ""; public decimal Amount { get; init; } }

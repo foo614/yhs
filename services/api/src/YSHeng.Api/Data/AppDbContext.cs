@@ -38,6 +38,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<HrPayPeriod> HrPayPeriods => Set<HrPayPeriod>();
     public DbSet<HrPayslip> HrPayslips => Set<HrPayslip>();
     public DbSet<OcrJob> OcrJobs => Set<OcrJob>();
+    public DbSet<AiServiceLimit> AiServiceLimits => Set<AiServiceLimit>();
+    public DbSet<AiUsageRecord> AiUsageRecords => Set<AiUsageRecord>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -70,5 +72,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<HrPayPeriod>().HasIndex(period => period.Name).IsUnique();
         builder.Entity<HrPayslip>().HasIndex(payslip => new { payslip.StaffUserId, payslip.PayPeriodId }).IsUnique();
         builder.Entity<OcrJob>().HasIndex(job => job.DocumentId);
+        builder.Entity<AiServiceLimit>().HasIndex(limit => limit.Service).IsUnique();
+        builder.Entity<AiUsageRecord>().HasIndex(record => new { record.Service, record.RequestedAt });
+        builder.Entity<AiUsageRecord>().HasIndex(record => new { record.Service, record.StaffUserId, record.RequestedAt });
     }
 }

@@ -24,6 +24,7 @@ builder.Services.Configure<BaiduUnlimitedOcrOptions>(builder.Configuration.GetSe
 builder.Services.AddHttpClient<BaiduUnlimitedOcrClient>();
 builder.Services.AddScoped<BaiduUnlimitedOcrExtractor>();
 builder.Services.AddScoped<LocalMockOcrExtractor>();
+builder.Services.AddScoped<AiUsageQuotaService>();
 builder.Services.AddScoped<IOcrExtractor>(services =>
 {
     var provider = services.GetRequiredService<IConfiguration>().GetValue("Ocr:Provider", "GoogleDocumentAi");
@@ -400,24 +401,30 @@ backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", asy
     return Results.File(document.Content, document.MimeType, document.FileName);
 });
 
-backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid documentId, AppDbContext db, HttpContext context, IOcrExtractor extractor, CancellationToken cancellationToken) =>
+backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid documentId, AppDbContext db, HttpContext context, IOcrExtractor extractor, AiUsageQuotaService aiUsageQuota, CancellationToken cancellationToken) =>
 {
     var document = await db.DocumentBlobs.FirstOrDefaultAsync(item => item.Id == documentId);
     if (document is null) return Results.NotFound();
     var roles = SeedData.Roles.Where(context.User.IsInRole);
     if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
 
+    var reservation = await aiUsageQuota.ReserveOcrAsync(document.Id, StaffIdentity.CurrentUserId(context), cancellationToken);
+    if (!reservation.IsAllowed) return Results.Json(new { message = reservation.Message }, statusCode: StatusCodes.Status429TooManyRequests);
+
     OcrExtractionResult? extraction = null;
     OcrJobStatus status;
     string[] warnings;
+    var analysisSucceeded = false;
     try
     {
         extraction = await extractor.AnalyzeAsync(document, await db.Vehicles.AsNoTracking().ToListAsync(), cancellationToken);
         status = OcrJobStatus.NeedsReview;
         warnings = extraction.Warnings.ToArray();
+        analysisSucceeded = true;
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
+        await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, false, CancellationToken.None);
         throw;
     }
     catch (Exception ex)
@@ -425,6 +432,8 @@ backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid document
         status = OcrJobStatus.Failed;
         warnings = [$"OCR analysis failed: {ex.Message}"];
     }
+
+    await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, analysisSucceeded, cancellationToken);
 
     var job = new OcrJob
     {
@@ -1341,6 +1350,16 @@ backOffice.MapGet("/audit-log", async (string? actor, string? action, string? en
 }).RequireAuthorization("BossAdmin");
 
 var admin = backOffice.MapGroup("/admin").RequireAuthorization("BossAdmin");
+admin.MapGet("/ai-limits/ocr", async (AiUsageQuotaService aiUsageQuota, CancellationToken cancellationToken) => Results.Ok(await aiUsageQuota.GetOcrSnapshotAsync(cancellationToken)));
+admin.MapPut("/ai-limits/ocr", async (UpdateAiServiceLimitRequest request, AiUsageQuotaService aiUsageQuota, AppDbContext db, HttpContext context, CancellationToken cancellationToken) =>
+{
+    var errors = AiUsageLimitRules.Validate(request);
+    if (errors.Length > 0) return Results.BadRequest(new { errors });
+    var limit = await aiUsageQuota.UpdateOcrLimitAsync(request, AuditTrail.ActorFrom(context.User), cancellationToken);
+    ApiAudit.Add(db, context.User, "aiUsageLimit.ocr.updated", nameof(AiServiceLimit), limit.Id);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(await aiUsageQuota.GetOcrSnapshotAsync(cancellationToken));
+});
 admin.MapGet("/users", async (UserManager<AppUser> userManager) =>
 {
     var users = await userManager.Users.AsNoTracking().OrderBy(user => user.Email).ToListAsync();
