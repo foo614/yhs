@@ -1531,7 +1531,7 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
       <ProCard
         title="Reminder inbox / 提醒事项"
         className="dashboardReminderCard"
-        extra={<Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{filteredReminders.length} shown</Tag>}
+        extra={<Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag>}
       >
         <div className="dashboardInboxHeader">
           <Space className="toolbarForm" wrap>
@@ -1558,7 +1558,7 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
               }}
               style={{ width: 160 }}
             />
-            <Button size="small" disabled={!reminderFiltersActive} onClick={resetReminderFilters}>Reset</Button>
+            {reminderFiltersActive && <Button size="small" onClick={resetReminderFilters}>Clear filters</Button>}
           </Space>
           <Typography.Text type="secondary">{urgentReminderCount} overdue or due today across all reminders.</Typography.Text>
         </div>
@@ -1997,17 +1997,16 @@ function RepairPage({
             ]}
             style={{ width: 170 }}
           />
-          <Tag color={refurbishmentFiltersActive ? "blue" : "default"}>{refurbishmentRecords.length} / {refurbishmentRecordCount} shown</Tag>
-          <Button
+          <Tag color={refurbishmentFiltersActive ? "blue" : "default"}>{refurbishmentFiltersActive ? `${refurbishmentRecords.length} of ${refurbishmentRecordCount} matching` : `${refurbishmentRecordCount} record${refurbishmentRecordCount === 1 ? "" : "s"}`}</Tag>
+          {refurbishmentFiltersActive && <Button
             size="small"
-            disabled={!refurbishmentFiltersActive}
             onClick={() => {
               setRefurbishmentFilters({});
               setMobileRefurbishmentPage(1);
             }}
           >
             Clear filters
-          </Button>
+          </Button>}
         </Space>
         <div className="mobileRecordList">
           {refurbishmentRecords.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={refurbishmentEmptyText} />}
@@ -2544,17 +2543,16 @@ function LoanPage({
             ]}
             style={{ width: 190 }}
           />
-          <Tag color={loanFiltersActive ? "blue" : "default"}>{filteredLoans.length} / {loans.length} shown</Tag>
-          <Button
+          <Tag color={loanFiltersActive ? "blue" : "default"}>{loanFiltersActive ? `${filteredLoans.length} of ${loans.length} matching` : `${loans.length} loan${loans.length === 1 ? "" : "s"}`}</Tag>
+          {loanFiltersActive && <Button
             size="small"
-            disabled={!loanFiltersActive}
             onClick={() => {
               setLoanFilters({});
               setMobileLoanPage(1);
             }}
           >
             Clear filters
-          </Button>
+          </Button>}
         </Space>
         <div className="mobileRecordList loanMobileList">
           {filteredLoans.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loanEmptyText} />}
@@ -3262,17 +3260,16 @@ function DeliveryPage({
               ]}
               style={{ width: 170 }}
             />
-            <Tag color={deliveryFiltersActive ? "blue" : "default"}>{filteredDeliveries.length} / {deliveries.length} shown</Tag>
-            <Button
+            <Tag color={deliveryFiltersActive ? "blue" : "default"}>{deliveryFiltersActive ? `${filteredDeliveries.length} of ${deliveries.length} matching` : `${deliveries.length} ${deliveries.length === 1 ? "delivery" : "deliveries"}`}</Tag>
+            {deliveryFiltersActive && <Button
               size="small"
-              disabled={!deliveryFiltersActive}
               onClick={() => {
                 setDeliveryFilters({});
                 setMobileDeliveryPage(1);
               }}
             >
               Clear filters
-            </Button>
+            </Button>}
           </Space>
           <div className="mobileRecordList">
             {filteredDeliveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={deliveryEmptyText} />}
@@ -3722,7 +3719,7 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
             style={{ width: 180 }}
           />
           <Tag color="blue">{groupedLeadRows.length} cars / {displayedLeads.length} leads</Tag>
-          <Button size="small" disabled={!leadFiltersActive} onClick={clearLeadFilters}>Clear filters</Button>
+          {leadFiltersActive && <Button size="small" onClick={clearLeadFilters}>Clear filters</Button>}
         </Space>
         <div className="mobileRecordList">
           {groupedLeadRows.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No leads match the current filters." />}
@@ -4079,8 +4076,8 @@ function AdminPage({
                     }}
                     style={{ width: 180 }}
                   />
-                  <Tag color={staffFiltersActive ? "blue" : "default"}>{filteredStaffUsers.length} / {staffUsers.length} shown</Tag>
-                  <Button size="small" disabled={!staffFiltersActive} onClick={clearStaffFilters}>Clear filters</Button>
+                  <Tag color={staffFiltersActive ? "blue" : "default"}>{staffFiltersActive ? `${filteredStaffUsers.length} of ${staffUsers.length} matching` : `${staffUsers.length} staff member${staffUsers.length === 1 ? "" : "s"}`}</Tag>
+                  {staffFiltersActive && <Button size="small" onClick={clearStaffFilters}>Clear filters</Button>}
                 </Space>
                 <div className="mobileRecordList">
                   {filteredStaffUsers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No staff users match the current filters." />}

@@ -1973,7 +1973,8 @@ body {
 .vehicleFilterMeta {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  grid-column: 1 / -1;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -3410,15 +3411,12 @@ body {
   }
 
   .vehicleFilterMeta {
-    display: grid;
-    grid-template-columns: 1fr;
-    justify-content: stretch;
+    flex-wrap: wrap;
+    justify-content: space-between;
   }
 
-  .vehicleFilterMeta .ant-tag,
   .vehicleFilterMeta .ant-btn {
-    width: 100%;
-    text-align: center;
+    flex: 1 0 auto;
   }
 
   .leadCloseAsapBand,

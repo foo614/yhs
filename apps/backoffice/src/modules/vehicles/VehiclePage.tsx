@@ -1146,8 +1146,8 @@ export function VehiclePage({
           <Select allowClear placeholder="Outstation" value={operationFilters.outstationPickup} options={operationFilterOptions.outstationPickup} onChange={(value) => updateOperationFilter("outstationPickup", value)} />
           <Select allowClear placeholder="Leads" value={operationFilters.leadActivity} options={operationFilterOptions.leadActivity} onChange={(value) => updateOperationFilter("leadActivity", value)} />
           <div className="vehicleFilterMeta">
-            <Tag color={filterActive ? "blue" : "default"}>{filteredVehicles.length} / {vehicles.length} shown</Tag>
-            <Button size="small" disabled={!filterActive} onClick={() => { setOperationFilters({}); setMobileVehiclePage(1); }}>Clear filters</Button>
+            <Tag color={filterActive ? "blue" : "default"}>{filterActive ? `${filteredVehicles.length} of ${vehicles.length} matching` : `${vehicles.length} vehicle${vehicles.length === 1 ? "" : "s"}`}</Tag>
+            {filterActive && <Button size="small" onClick={() => { setOperationFilters({}); setMobileVehiclePage(1); }}>Clear filters</Button>}
           </div>
         </div>
         <div className="mobileRecordList">

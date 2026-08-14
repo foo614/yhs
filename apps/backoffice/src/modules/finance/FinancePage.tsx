@@ -500,17 +500,16 @@ export function FinancePage({
           setFinancePage(1);
         }}
       />
-      <Tag color={financeFiltersActive ? "blue" : undefined}>{activeFinanceList.filtered}/{activeFinanceList.total} shown</Tag>
-      <Button
-        disabled={!financeFiltersActive}
+      <Tag color={financeFiltersActive ? "blue" : undefined}>{financeFiltersActive ? `${activeFinanceList.filtered} of ${activeFinanceList.total} matching` : `${activeFinanceList.total} record${activeFinanceList.total === 1 ? "" : "s"}`}</Tag>
+      {financeFiltersActive && <Button
         onClick={() => {
           setFinanceKeyword("");
           setFinanceStatus(undefined);
           setFinancePage(1);
         }}
       >
-        Clear
-      </Button>
+        Clear filters
+      </Button>}
     </Space>
   );
   const paymentPage = financePageFor(filteredPayments.length, financePage);
