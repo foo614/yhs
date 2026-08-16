@@ -13,8 +13,6 @@ import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import {
   customerSelectLabel,
-  createVehicleCatalogModel,
-  getVehicleCatalogModels,
   getStockMovements,
   getVehicleDocuments,
   getVehicleOcrJobs,
@@ -23,7 +21,6 @@ import {
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
-  updateVehicleCatalogModel,
   type Customer,
   type DocumentCategory,
   type Lead,
@@ -31,8 +28,6 @@ import {
   type PurchaseInvoice,
   type StockMovement,
   type Vehicle,
-  type VehicleCatalogModel,
-  type VehicleCatalogModelInput,
   type VehicleDocument,
   type VehicleOcrJob,
   type VehiclePhoto
@@ -41,7 +36,6 @@ import {
 const maxWebsitePhotoBytes = 5 * 1024 * 1024;
 const vehicleIntakeDocumentCategories: DocumentCategory[] = ["PurchaseInvoice", "Voc", "IdentityCard", "ApDocument"];
 const mobileVehiclePageSize = 12;
-const mobileCatalogPageSize = 8;
 
 export type OperationIntakeVehicleFilters = {
   keyword?: string;
@@ -54,11 +48,6 @@ export type OperationIntakeVehicleFilters = {
   outstationPickup?: "scheduled" | "none";
   invoiceLink?: "linked" | "missing";
   leadActivity?: "active" | "none";
-};
-
-export type VehicleCatalogFilters = {
-  keyword?: string;
-  status?: "active" | "hidden";
 };
 
 export function filterOperationIntakeVehicles(
@@ -101,18 +90,6 @@ export function filterOperationIntakeVehicles(
     if (filters.invoiceLink === "missing" && hasInvoice) return false;
     if (filters.leadActivity === "active" && !hasActiveLead) return false;
     if (filters.leadActivity === "none" && hasActiveLead) return false;
-
-    return true;
-  });
-}
-
-export function filterVehicleCatalogModels(models: VehicleCatalogModel[], filters: VehicleCatalogFilters) {
-  const keyword = filters.keyword?.trim().toLowerCase();
-
-  return models.filter((model) => {
-    if (keyword && !`${model.make} ${model.model}`.toLowerCase().includes(keyword)) return false;
-    if (filters.status === "active" && !model.isActive) return false;
-    if (filters.status === "hidden" && model.isActive) return false;
 
     return true;
   });
@@ -178,11 +155,6 @@ export function VehiclePage({
   const [ownerCreateOpen, setOwnerCreateOpen] = useState(false);
   const [operationFilters, setOperationFilters] = useState<OperationIntakeVehicleFilters>({});
   const [mobileVehiclePage, setMobileVehiclePage] = useState(1);
-  const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
-  const [catalogFilters, setCatalogFilters] = useState<VehicleCatalogFilters>({});
-  const [mobileCatalogPage, setMobileCatalogPage] = useState(1);
-  const [catalogEditingId, setCatalogEditingId] = useState<string | null>(null);
-  const [catalogForm] = Form.useForm<VehicleCatalogModelInput>();
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const uploadDisabled = !selectedVehicleId;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
@@ -202,11 +174,6 @@ export function VehiclePage({
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
   const mobileVehicles = filteredVehicles.slice((clampedMobileVehiclePage - 1) * mobileVehiclePageSize, clampedMobileVehiclePage * mobileVehiclePageSize);
   const filterActive = Object.values(operationFilters).some((value) => value !== undefined && value !== "");
-  const filteredCatalogModels = filterVehicleCatalogModels(catalogModels, catalogFilters);
-  const mobileCatalogPageCount = Math.max(1, Math.ceil(filteredCatalogModels.length / mobileCatalogPageSize));
-  const clampedMobileCatalogPage = Math.min(mobileCatalogPage, mobileCatalogPageCount);
-  const mobileCatalogModels = filteredCatalogModels.slice((clampedMobileCatalogPage - 1) * mobileCatalogPageSize, clampedMobileCatalogPage * mobileCatalogPageSize);
-  const catalogFilterActive = Object.values(catalogFilters).some((value) => value !== undefined && value !== "");
   const selectedVehicleProfit = selectedVehicle
     ? estimatedVehicleProfit(selectedVehicle)
     : 0;
@@ -263,53 +230,6 @@ export function VehiclePage({
     loan: "Move to Loan",
     sold: "Mark Sold",
     done: "Completed"
-  };
-  const loadCatalogModels = useCallback(async () => {
-    try {
-      setCatalogModels(await getVehicleCatalogModels());
-    } catch (error) {
-      message.error(humanizeApiError(error, "Unable to load the vehicle catalogue."));
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadCatalogModels();
-  }, [loadCatalogModels]);
-
-  async function saveCatalogModel(values: VehicleCatalogModelInput) {
-    try {
-      if (catalogEditingId) {
-        await updateVehicleCatalogModel(catalogEditingId, values);
-        message.success("Vehicle catalogue option updated.");
-      } else {
-        await createVehicleCatalogModel(values);
-        message.success("Vehicle catalogue option added.");
-      }
-      setCatalogEditingId(null);
-      catalogForm.resetFields();
-      catalogForm.setFieldValue("isActive", true);
-      await loadCatalogModels();
-    } catch (error) {
-      message.error(humanizeApiError(error, "Unable to save the vehicle catalogue option."));
-    }
-  }
-
-  async function toggleCatalogModel(item: VehicleCatalogModel) {
-    try {
-      await updateVehicleCatalogModel(item.id, { make: item.make, model: item.model, isActive: !item.isActive });
-      message.success(`Vehicle catalogue option ${item.isActive ? "hidden" : "shown"} on the website.`);
-      await loadCatalogModels();
-    } catch (error) {
-      message.error(humanizeApiError(error, "Unable to update the vehicle catalogue option."));
-    }
-  }
-  const editCatalogModel = (item: VehicleCatalogModel) => {
-    setCatalogEditingId(item.id);
-    catalogForm.setFieldsValue({ make: item.make, model: item.model, isActive: item.isActive });
-  };
-  const updateCatalogFilter = <K extends keyof VehicleCatalogFilters>(key: K, value: VehicleCatalogFilters[K] | undefined) => {
-    setMobileCatalogPage(1);
-    setCatalogFilters((current) => ({ ...current, [key]: value || undefined }));
   };
   const photoPreviewGrid = (
     <div className="vehiclePhotoPreviewGrid">
@@ -542,12 +462,6 @@ export function VehiclePage({
       setMobileVehiclePage(clampedMobileVehiclePage);
     }
   }, [clampedMobileVehiclePage, mobileVehiclePage]);
-
-  useEffect(() => {
-    if (mobileCatalogPage !== clampedMobileCatalogPage) {
-      setMobileCatalogPage(clampedMobileCatalogPage);
-    }
-  }, [clampedMobileCatalogPage, mobileCatalogPage]);
 
   useEffect(() => {
     void loadUploads();
@@ -1009,12 +923,6 @@ export function VehiclePage({
       ))}
     </div>
   );
-  const renderCatalogActions = (item: VehicleCatalogModel) => (
-    <Space className="tableActionGroup" wrap size={6}>
-      <Button size="small" type="primary" onClick={() => editCatalogModel(item)}>Edit</Button>
-      <Button size="small" onClick={() => void toggleCatalogModel(item)}>{item.isActive ? "Hide" : "Show"}</Button>
-    </Space>
-  );
   const customerColumns: ColumnsType<Customer> = [
     { title: "Name / 姓名", dataIndex: "name" },
     { title: "Phone / 电话", dataIndex: "phone" },
@@ -1035,18 +943,6 @@ export function VehiclePage({
     { title: "Amount", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectPurchaseInvoice(row.id)}>Details</Button></Space> }
   ];
-  const catalogColumns: ColumnsType<VehicleCatalogModel> = [
-    { title: "Make", dataIndex: "make" },
-    { title: "Model", dataIndex: "model" },
-    { title: "Website filter", dataIndex: "isActive", render: (isActive) => <Tag color={isActive ? "green" : "default"}>{isActive ? "Visible" : "Hidden"}</Tag> },
-    {
-      title: "Action",
-      fixed: "right",
-      width: 190,
-      render: (_, item) => renderCatalogActions(item)
-    }
-  ];
-
   return (
     <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
       <ProCard
@@ -1146,8 +1042,8 @@ export function VehiclePage({
           <Select allowClear placeholder="Outstation" value={operationFilters.outstationPickup} options={operationFilterOptions.outstationPickup} onChange={(value) => updateOperationFilter("outstationPickup", value)} />
           <Select allowClear placeholder="Leads" value={operationFilters.leadActivity} options={operationFilterOptions.leadActivity} onChange={(value) => updateOperationFilter("leadActivity", value)} />
           <div className="vehicleFilterMeta">
-            <Tag color={filterActive ? "blue" : "default"}>{filteredVehicles.length} / {vehicles.length} shown</Tag>
-            <Button size="small" disabled={!filterActive} onClick={() => { setOperationFilters({}); setMobileVehiclePage(1); }}>Clear filters</Button>
+            <Tag color={filterActive ? "blue" : "default"}>{filterActive ? `${filteredVehicles.length} of ${vehicles.length} matching` : `${vehicles.length} vehicle${vehicles.length === 1 ? "" : "s"}`}</Tag>
+            {filterActive && <Button size="small" onClick={() => { setOperationFilters({}); setMobileVehiclePage(1); }}>Clear filters</Button>}
           </div>
         </div>
         <div className="mobileRecordList">
@@ -1237,95 +1133,6 @@ export function VehiclePage({
             onClick: () => selectVehicle(row.id)
           })}
           locale={{ emptyText: "No vehicles match the current filters." }}
-        />
-      </ProCard>
-      <ProCard
-        title="Website Make & Model Catalogue / 网站品牌车型目录"
-        extra={<Tag color="blue">{catalogModels.filter((item) => item.isActive).length} public options</Tag>}
-      >
-        <Typography.Paragraph type="secondary">
-          These options drive the public Make and Model filters even when there is no matching vehicle in stock. Hiding an option removes it from the website without changing existing vehicle records.
-        </Typography.Paragraph>
-        <Form
-          form={catalogForm}
-          layout="inline"
-          initialValues={{ isActive: true }}
-          onFinish={(values) => void saveCatalogModel(values)}
-        >
-          <Form.Item name="make" label="Make" rules={[{ required: true, message: "Make is required" }]}><Input placeholder="Toyota" maxLength={80} /></Form.Item>
-          <Form.Item name="model" label="Model" rules={[{ required: true, message: "Model is required" }]}><Input placeholder="Vios" maxLength={80} /></Form.Item>
-          <Form.Item name="isActive" label="Public" valuePropName="checked"><Switch /></Form.Item>
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit">{catalogEditingId ? "Update option" : "Add option"}</Button>
-              {catalogEditingId && <Button onClick={() => {
-                setCatalogEditingId(null);
-                catalogForm.resetFields();
-                catalogForm.setFieldValue("isActive", true);
-              }}>Cancel</Button>}
-            </Space>
-          </Form.Item>
-        </Form>
-        <div className="vehicleOperationFilters">
-          <Input.Search
-            allowClear
-            placeholder="Search make or model"
-            value={catalogFilters.keyword}
-            onChange={(event) => updateCatalogFilter("keyword", event.target.value)}
-          />
-          <Select
-            allowClear
-            placeholder="Website status"
-            value={catalogFilters.status}
-            options={[
-              { value: "active", label: "Visible" },
-              { value: "hidden", label: "Hidden" }
-            ]}
-            onChange={(value) => updateCatalogFilter("status", value)}
-          />
-          <div className="vehicleFilterMeta">
-            <Tag color={catalogFilterActive ? "blue" : "default"}>{filteredCatalogModels.length} / {catalogModels.length} shown</Tag>
-            <Button size="small" disabled={!catalogFilterActive} onClick={() => { setCatalogFilters({}); setMobileCatalogPage(1); }}>Clear filters</Button>
-          </div>
-        </div>
-        <div className="mobileRecordList">
-          {filteredCatalogModels.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No catalogue options match the current filters." />}
-          {mobileCatalogModels.map((item) => (
-            <article className="mobileRecordCard" key={item.id}>
-              <div className="mobileRecordHeader">
-                <div>
-                  <Typography.Text className="mobileRecordEyebrow">Website Catalogue</Typography.Text>
-                  <Typography.Title level={5}>{item.make}</Typography.Title>
-                </div>
-                <Tag color={item.isActive ? "green" : "default"}>{item.isActive ? "Visible" : "Hidden"}</Tag>
-              </div>
-              <div className="mobileRecordGrid">
-                <div><span>Model</span><strong>{item.model}</strong></div>
-                <div><span>Type</span><strong>Website filter</strong></div>
-              </div>
-              <div className="mobileRecordFooter">
-                {renderCatalogActions(item)}
-              </div>
-            </article>
-          ))}
-          {filteredCatalogModels.length > mobileCatalogPageSize && (
-            <Pagination
-              current={clampedMobileCatalogPage}
-              pageSize={mobileCatalogPageSize}
-              total={filteredCatalogModels.length}
-              showSizeChanger={false}
-              onChange={setMobileCatalogPage}
-            />
-          )}
-        </div>
-        <Table
-          className="desktopDataTable"
-          rowKey="id"
-          columns={catalogColumns}
-          dataSource={filteredCatalogModels}
-          pagination={{ ...tablePagination(8), current: clampedMobileCatalogPage, onChange: setMobileCatalogPage }}
-          scroll={{ x: 640 }}
-          locale={{ emptyText: catalogModels.length === 0 ? "No catalogue options yet. Add the makes and models you want customers to filter by." : "No catalogue options match the current filters." }}
         />
       </ProCard>
       <Drawer

@@ -346,12 +346,16 @@ public static class VehicleRules
             : new ValidationResult([]);
     }
 
-    public static ValidationResult ValidateContactLinks(Vehicle vehicle, IEnumerable<Customer> customers, IEnumerable<Owner> owners)
+    public static ValidationResult ValidateContactLinks(Vehicle vehicle, IEnumerable<Customer> customers, IEnumerable<Owner> owners, IEnumerable<LoanApplication>? loans = null)
     {
         var errors = new List<ValidationError>();
         if (vehicle.CustomerId is { } customerId && !customers.Any(customer => customer.Id == customerId))
         {
             errors.Add(new ValidationError("customer_not_found", "Vehicle customer must be an existing customer record."));
+        }
+        else if (vehicle.CustomerId is { } linkedCustomerId && (loans ?? []).Any(loan => loan.VehicleId == vehicle.Id && loan.CustomerId != linkedCustomerId))
+        {
+            errors.Add(new ValidationError("vehicle_customer_loan_mismatch", "Vehicle customer must match every existing loan customer for this vehicle."));
         }
 
         if (vehicle.OwnerId is { } ownerId && !owners.Any(owner => owner.Id == ownerId))
@@ -990,12 +994,24 @@ public static class WorkflowReferenceRules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateLoan(LoanApplication loan, IEnumerable<Vehicle> vehicles, IEnumerable<Customer> customers)
+    public static ValidationResult ValidateLoan(LoanApplication loan, IEnumerable<Vehicle> vehicles, IEnumerable<Customer> customers, IEnumerable<LoanApplication>? existingLoans = null)
     {
         var errors = new List<ValidationError>();
-        if (!vehicles.Any(vehicle => vehicle.Id == loan.VehicleId))
+        var linkedVehicle = vehicles.FirstOrDefault(vehicle => vehicle.Id == loan.VehicleId);
+        if (linkedVehicle is null)
         {
             errors.Add(new ValidationError("vehicle_not_found", "Loan must be linked to an existing car plate."));
+        }
+        else if (linkedVehicle.CustomerId is { } vehicleCustomerId && vehicleCustomerId != loan.CustomerId)
+        {
+            errors.Add(new ValidationError("vehicle_customer_mismatch", "Loan customer must match the customer linked to the selected vehicle."));
+        }
+        else if (linkedVehicle.CustomerId is null && (existingLoans ?? []).Any(existingLoan =>
+            existingLoan.Id != loan.Id &&
+            existingLoan.VehicleId == loan.VehicleId &&
+            existingLoan.CustomerId != loan.CustomerId))
+        {
+            errors.Add(new ValidationError("legacy_vehicle_customer_conflict", "Unassigned vehicle already has a loan for another customer."));
         }
 
         if (!customers.Any(customer => customer.Id == loan.CustomerId))
@@ -1750,7 +1766,7 @@ public static class LoanDocumentRules
     public static LoanDocumentCheck CheckCompleteness(LoanApplication loan, IEnumerable<DocumentBlob> documents)
     {
         var attachedCategories = documents
-            .Where(document => document.VehicleId == loan.VehicleId || document.CustomerId == loan.CustomerId)
+            .Where(document => document.VehicleId == loan.VehicleId)
             .Select(document => document.Category)
             .ToHashSet();
         var missing = RequiredCategories.Where(category => !attachedCategories.Contains(category)).ToList();

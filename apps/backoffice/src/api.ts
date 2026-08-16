@@ -690,6 +690,24 @@ export type StaffUser = {
   isActive: boolean;
 };
 
+export type AiServiceLimit = {
+  id: string;
+  service: "Ocr";
+  isEnabled: boolean;
+  monthlyRequestLimit: number;
+  perStaffDailyRequestLimit: number;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+export type AiUsageLimitSnapshot = {
+  limit: AiServiceLimit;
+  usedThisMonth: number;
+  remainingThisMonth: number;
+};
+
+export type UpdateAiServiceLimitRequest = Pick<AiServiceLimit, "isEnabled" | "monthlyRequestLimit" | "perStaffDailyRequestLimit">;
+
 export type CreateStaffUserRequest = {
   email: string;
   displayName: string;
@@ -739,6 +757,9 @@ export function humanizeApiError(error: unknown, fallback = "Please try again.")
   }
   if (normalized.includes("(415)")) {
     return "This file type is not supported. Please choose an accepted file and try again.";
+  }
+  if (normalized.includes("(429)")) {
+    return rawMessage || "The AI service limit has been reached. Ask an administrator to adjust the limit.";
   }
   if (normalized.includes("(400)") || normalized.includes("(422)")) {
     const cleanedMessage = rawMessage.replace(/\s*\((?:400|422)\)\.?$/i, ".");
@@ -928,6 +949,10 @@ export async function getAuditLog(filters: AuditLogFilters = {}): Promise<AuditL
 
 export async function getStaffUsers(): Promise<StaffUser[]> {
   return getWithNetworkFallback("/api/admin/users", []);
+}
+
+export async function getOcrUsageLimit(): Promise<AiUsageLimitSnapshot> {
+  return request<AiUsageLimitSnapshot>("/api/admin/ai-limits/ocr");
 }
 
 export async function getHrStaffUsers(): Promise<StaffUser[]> {
@@ -1259,6 +1284,17 @@ export async function updatePayment(payment: PaymentRecord): Promise<PaymentReco
   });
 }
 
+export function financeInvoiceContentUrl(invoiceId: string) {
+  return `${apiBaseUrl}/api/finance-invoices/${invoiceId}/content`;
+}
+
+export async function updateOcrUsageLimit(requestBody: UpdateAiServiceLimitRequest): Promise<AiUsageLimitSnapshot> {
+  return request<AiUsageLimitSnapshot>("/api/admin/ai-limits/ocr", {
+    method: "PUT",
+    body: JSON.stringify(requestBody)
+  });
+}
+
 export async function createVehicleCatalogModel(model: VehicleCatalogModelInput): Promise<VehicleCatalogModel> {
   return request<VehicleCatalogModel>("/api/vehicle-catalog/models", {
     method: "POST",
@@ -1411,10 +1447,6 @@ export async function getVehiclePhotos(vehicleId: string): Promise<VehiclePhoto[
 
 export function vehicleDocumentContentUrl(vehicleId: string, documentId: string) {
   return `${apiBaseUrl}/api/vehicles/${vehicleId}/documents/${documentId}/content`;
-}
-
-export function financeInvoiceContentUrl(invoiceId: string) {
-  return `${apiBaseUrl}/api/finance-invoices/${invoiceId}/content`;
 }
 
 export function officialReceiptContentUrl(cashHandoverId: string) {

@@ -3986,6 +3986,7 @@ textarea:focus-visible {
   }
 
   .heroIntro {
+    max-width: 350px;
     margin-top: 14px;
     font-size: 14px;
     line-height: 1.5;

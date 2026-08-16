@@ -17,12 +17,19 @@ public static class SeedData
         await EnsureLeadSchemaAsync(db);
         await EnsureHrSchemaAsync(db);
         await EnsureOcrSchemaAsync(db);
+        await EnsureAiUsageSchemaAsync(db);
         await EnsureDocumentOwnershipSchemaAsync(db);
         await EnsureCashCustodySchemaAsync(db);
         await EnsureVehicleEnhancementSchemaAsync(db);
         await EnsureVehicleCatalogSchemaAsync(db);
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
+
+        if (!await db.AiServiceLimits.AnyAsync(limit => limit.Service == AiService.Ocr))
+        {
+            db.AiServiceLimits.Add(new AiServiceLimit { Service = AiService.Ocr });
+            await db.SaveChangesAsync();
+        }
 
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         foreach (var role in Roles)
@@ -164,17 +171,29 @@ public static class SeedData
             await db.SaveChangesAsync();
         }
 
-        if (!await db.VehicleCatalogModels.AnyAsync())
-        {
-            var catalogModels = await db.Vehicles.AsNoTracking()
-                .Select(vehicle => new { vehicle.Make, vehicle.Model })
-                .ToListAsync();
-            db.VehicleCatalogModels.AddRange(catalogModels
+        var existingCatalogModels = await db.VehicleCatalogModels.AsNoTracking()
+            .Select(item => new { item.Make, item.Model })
+            .ToListAsync();
+        var catalogKeys = existingCatalogModels
+            .Select(item => MalaysiaVehicleCatalog.Key(item.Make, item.Model))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var stockModels = await db.Vehicles.AsNoTracking()
+            .Select(vehicle => new { vehicle.Make, vehicle.Model })
+            .ToListAsync();
+        var catalogSeed = MalaysiaVehicleCatalog.Models
+            .Concat(stockModels
                 .Where(item => !string.IsNullOrWhiteSpace(item.Make) && !string.IsNullOrWhiteSpace(item.Model))
-                .GroupBy(item => new { Make = item.Make.Trim().ToUpperInvariant(), Model = item.Model.Trim().ToUpperInvariant() })
-                .Select(group => new VehicleCatalogModel { Make = group.First().Make.Trim(), Model = group.First().Model.Trim() }));
-            await db.SaveChangesAsync();
+                .Select(item => (item.Make.Trim(), item.Model.Trim())));
+
+        foreach (var (make, model) in catalogSeed)
+        {
+            if (catalogKeys.Add(MalaysiaVehicleCatalog.Key(make, model)))
+            {
+                db.VehicleCatalogModels.Add(new VehicleCatalogModel { Make = make, Model = model });
+            }
         }
+
+        await db.SaveChangesAsync();
     }
 
     private static async Task EnsureLeadSchemaAsync(AppDbContext db)
@@ -353,6 +372,37 @@ public static class SeedData
             );
 
             CREATE INDEX IF NOT EXISTS "IX_StockMovements_VehicleId_CreatedAt" ON "StockMovements" ("VehicleId", "CreatedAt");
+        """);
+    }
+
+    private static async Task EnsureAiUsageSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "AiServiceLimits" (
+                "Id" uuid NOT NULL,
+                "Service" integer NOT NULL,
+                "IsEnabled" boolean NOT NULL,
+                "MonthlyRequestLimit" integer NOT NULL,
+                "PerStaffDailyRequestLimit" integer NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                "UpdatedBy" text NOT NULL,
+                CONSTRAINT "PK_AiServiceLimits" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "AiUsageRecords" (
+                "Id" uuid NOT NULL,
+                "Service" integer NOT NULL,
+                "SourceDocumentId" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "Status" integer NOT NULL,
+                "RequestedAt" timestamp with time zone NOT NULL,
+                "CompletedAt" timestamp with time zone NULL,
+                CONSTRAINT "PK_AiUsageRecords" PRIMARY KEY ("Id")
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_AiServiceLimits_Service" ON "AiServiceLimits" ("Service");
+            CREATE INDEX IF NOT EXISTS "IX_AiUsageRecords_Service_RequestedAt" ON "AiUsageRecords" ("Service", "RequestedAt");
+            CREATE INDEX IF NOT EXISTS "IX_AiUsageRecords_Service_StaffUserId_RequestedAt" ON "AiUsageRecords" ("Service", "StaffUserId", "RequestedAt");
         """);
     }
 

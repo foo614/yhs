@@ -66,6 +66,7 @@ export function OcrUploadReview({
   buttonLabel,
   applyLabel = "Apply to Form",
   disabled,
+  compact = false,
   fields,
   existingValues,
   uploadOwner,
@@ -77,6 +78,7 @@ export function OcrUploadReview({
   buttonLabel: string;
   applyLabel?: string;
   disabled?: boolean;
+  compact?: boolean;
   fields: OcrFieldConfig[];
   existingValues?: OcrReviewValues;
   uploadOwner?: DocumentUploadOwner;
@@ -159,13 +161,15 @@ export function OcrUploadReview({
   return (
     <>
       <Space direction="vertical" size={8} className="fullWidth">
-        <div className="ocrUploadGuide">
-          <span className="ocrStepLabel">Step 1 of 3</span>
-          <div>
-            <Typography.Text strong>Choose a clear document photo</Typography.Text>
-            <Typography.Text type="secondary">JPG, PNG, or WebP. Use Document Upload for PDFs.</Typography.Text>
+        {!compact && (
+          <div className="ocrUploadGuide">
+            <span className="ocrStepLabel">Step 1 of 3</span>
+            <div>
+              <Typography.Text strong>Choose a clear document photo</Typography.Text>
+              <Typography.Text type="secondary">JPG, PNG, or WebP. Use Document Upload for PDFs.</Typography.Text>
+            </div>
           </div>
-        </div>
+        )}
         <Upload
           accept={ocrImageMimeTypes.join(",")}
           maxCount={1}
@@ -177,7 +181,7 @@ export function OcrUploadReview({
           }}
           customRequest={(option) => void handleUpload(option)}
         >
-          <Button icon={<UploadOutlined />} disabled={disabled || busy}>{buttonLabel}</Button>
+          <Button type={compact ? "primary" : "default"} size={compact ? "small" : "middle"} icon={<UploadOutlined />} disabled={disabled || busy}>{buttonLabel}</Button>
         </Upload>
         {(busy || uploadProgress > 0 || analyzeProgress > 0) && (
           <div className="ocrProgressStack">

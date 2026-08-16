@@ -216,6 +216,46 @@ body {
   gap: 8px;
 }
 
+.documentUploadChecklistPanel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d9e5e1;
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.documentUploadChecklistHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.documentUploadChecklistHeader > div,
+.documentUploadChecklistItem > div {
+  display: grid;
+  gap: 2px;
+}
+
+.documentUploadChecklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.documentUploadChecklistItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 62px;
+  padding: 10px 12px;
+  border: 1px solid #e3ebe8;
+  border-radius: 6px;
+  background: #fff;
+}
+
 .headerSession {
   height: 100%;
   display: flex;
@@ -2015,7 +2055,8 @@ body {
 .vehicleFilterMeta {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  grid-column: 1 / -1;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -3452,15 +3493,12 @@ body {
   }
 
   .vehicleFilterMeta {
-    display: grid;
-    grid-template-columns: 1fr;
-    justify-content: stretch;
+    flex-wrap: wrap;
+    justify-content: space-between;
   }
 
-  .vehicleFilterMeta .ant-tag,
   .vehicleFilterMeta .ant-btn {
-    width: 100%;
-    text-align: center;
+    flex: 1 0 auto;
   }
 
   .leadCloseAsapBand,
@@ -3547,6 +3585,16 @@ body {
   .ocrReviewActions .ant-btn {
     flex: 1;
     min-width: 0;
+  }
+
+  .documentUploadChecklistHeader,
+  .documentUploadChecklistItem {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .documentUploadChecklist {
+    grid-template-columns: 1fr;
   }
 
   .ant-drawer-title {

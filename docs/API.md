@@ -145,6 +145,7 @@ OCR runtime:
 - Authentication uses Google Application Default Credentials and the `cloud-platform` OAuth scope. The production container reads a least-privilege credential from `/run/secrets/google-document-ai.json`; never store credential JSON in source control or an environment-file value.
 - The backend sends uploaded image bytes to Google Document AI. Keep the existing manual review step because schema-valid extraction can still be semantically wrong. PDF conversion remains outside this upload flow.
 - `Ocr__Provider=LocalMock` is for deterministic local tests. `BaiduUnlimited` remains an explicit legacy provider during migration but is no longer the default.
+- Before OCR calls an external provider, the API reserves one usage unit against the server-side OCR limits. Exhausted or disabled limits return `429` with a structured `message`; a provider-attempted request remains counted even if the provider later fails.
 
 Document upload ownership:
 
@@ -280,6 +281,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 | `GET` | `/api/dashboard/summary` | `Dashboard` | Boss/Admin operational metrics, including `totalProfit` and backward-compatible `estimatedProfit`. |
 | `GET` | `/api/dashboard/reminders?type={type}&due={All\|Overdue\|DueToday\|Upcoming}` | `Dashboard` | Reminder inbox, optionally filtered. |
 | `GET` | `/api/audit-log?actor=&action=&entityName=` | `BossAdmin` | Filterable audit history. |
+| `GET` | `/api/admin/ai-limits/ocr` | `BossAdmin` | Read the OCR enabled state, monthly and per-staff daily limits, and current-month usage. |
+| `PUT` | `/api/admin/ai-limits/ocr` | `BossAdmin` | Update the server-enforced OCR enabled state, monthly request limit, and per-staff daily request limit. |
 | `GET` | `/api/admin/users` | `BossAdmin` | List staff users and roles. |
 | `POST` | `/api/admin/users` | `BossAdmin` | Create staff user. |
 | `PUT` | `/api/admin/users/{id}` | `BossAdmin` | Update staff display name. |
@@ -307,6 +310,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`
 - `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`
 - `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`
+- `AiService`: `Ocr`
+- `AiUsageStatus`: `Reserved`, `Succeeded`, `Failed`
 
 ## Error Shape
 

@@ -776,8 +776,8 @@ function HrRecordFilterControls({
     <Space wrap size={8} className="toolbarForm">
       <Input.Search allowClear placeholder={keywordPlaceholder} value={filters.keyword} style={{ width: 280 }} onChange={(event) => onKeywordChange(event.target.value)} />
       {statusOptions && <Select allowClear placeholder="Status / 状态" value={filters.status} options={statusOptions} style={{ minWidth: 160 }} onChange={onStatusChange} />}
-      <Tag color={filterActive ? "blue" : "default"}>{filtered} / {total} shown / 已显示</Tag>
-      <Button size="small" disabled={!filterActive} onClick={onClear}>Clear filters / 清除筛选</Button>
+      <Tag color={filterActive ? "blue" : "default"}>{filterActive ? `${filtered} of ${total} matching / 相符` : `${total} record${total === 1 ? "" : "s"} / 记录`}</Tag>
+      {filterActive && <Button size="small" onClick={onClear}>Clear filters / 清除筛选</Button>}
     </Space>
   );
 }

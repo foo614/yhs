@@ -68,7 +68,8 @@ import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminder
 import { FinancePage } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
-import { MissingUploadReminder } from "./modules/shared/MissingUploadReminder";
+import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSettings";
+import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import {
@@ -123,6 +124,7 @@ import {
   getLeads,
   getLoanDocumentCheck,
   getLoans,
+  getOcrUsageLimit,
   getOwners,
   getPayments,
   getPaymentVouchers,
@@ -154,6 +156,7 @@ import {
   updateLead,
   updateLoan,
   updateOwner,
+  updateOcrUsageLimit,
   updatePayment,
   updatePaymentVoucher,
   updatePurchaseInvoice,
@@ -170,6 +173,7 @@ import {
   vehicleDocumentContentUrl,
   type AuditLog,
   type AuditLogFilters,
+  type AiUsageLimitSnapshot,
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
@@ -209,6 +213,7 @@ import {
   type SupplierInvoice,
   type UpdateStaffUserRequest,
   type UpdateStaffUserStatusRequest,
+  type UpdateAiServiceLimitRequest,
   type Vehicle,
   type VehicleLookup,
   type VehicleDocument,
@@ -1520,7 +1525,7 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
       <ProCard
         title="Reminder inbox / 提醒事项"
         className="dashboardReminderCard"
-        extra={<Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{filteredReminders.length} shown</Tag>}
+        extra={<Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag>}
       >
         <div className="dashboardInboxHeader">
           <Space className="toolbarForm" wrap>
@@ -1547,7 +1552,7 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
               }}
               style={{ width: 160 }}
             />
-            <Button size="small" disabled={!reminderFiltersActive} onClick={resetReminderFilters}>Reset</Button>
+            {reminderFiltersActive && <Button size="small" onClick={resetReminderFilters}>Clear filters</Button>}
           </Space>
           <Typography.Text type="secondary">{urgentReminderCount} overdue or due today across all reminders.</Typography.Text>
         </div>
@@ -1697,7 +1702,6 @@ function RepairPage({
   const [repairEditorOpen, setRepairEditorOpen] = useState(false);
   const [repairCreateOpen, setRepairCreateOpen] = useState(false);
   const [supplierInvoiceOcrDraft, setSupplierInvoiceOcrDraft] = useState<OcrReviewValues | null>(null);
-  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("RepairInvoice");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [repairDocuments, setRepairDocuments] = useState<VehicleDocument[]>([]);
   const [refurbishmentFilters, setRefurbishmentFilters] = useState<RefurbishmentFilters>({});
@@ -1749,6 +1753,27 @@ function RepairPage({
 
   const pendingRepairs = repairs.filter((repair) => !repair.checklistDone).length;
   const repairTotal = repairs.filter(isRepairCostFinal).reduce((sum, repair) => sum + repair.cost, 0);
+  const showRepairCompletionConfirmation = (repair: RepairJob, onConfirm: () => Promise<void> | void) => {
+    Modal.confirm({
+      title: "Mark repair done? / 确认完成整备？",
+      content: (
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
+          <Descriptions.Item label="Repair Task / 整备事项">{repair.whatToDo}</Descriptions.Item>
+          <Descriptions.Item label="Cost / 费用">RM {repair.cost.toLocaleString()}</Descriptions.Item>
+        </Descriptions>
+      ),
+      okText: "Mark Done",
+      cancelText: "Keep Pending",
+      onOk: onConfirm
+    });
+  };
+  const confirmRepairCompletion = (repair: RepairJob, onConfirmed?: () => void) => {
+    showRepairCompletionConfirmation(repair, async () => {
+      await onUpdateRepair({ ...repair, checklistDone: true });
+      onConfirmed?.();
+    });
+  };
   const refurbishmentRecordCount = repairs.length + supplierInvoices.length;
   const refurbishmentRecords = filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters);
   const refurbishmentFiltersActive = Object.values(refurbishmentFilters).some((value) => value !== undefined && value !== "" && value !== "All");
@@ -1828,7 +1853,7 @@ function RepairPage({
           {row.kind === "repair" ? (
             <>
               <Button size="small" type="primary" onClick={() => setUploadRepairId(row.repair.id)}>Details</Button>
-              <Button size="small" onClick={() => onUpdateRepair({ ...row.repair, checklistDone: true })} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Mark Done</Button>
+              <Button size="small" onClick={() => confirmRepairCompletion(row.repair)} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Mark Done</Button>
             </>
           ) : (
             <Button size="small" type="primary" onClick={() => selectSupplierInvoice(row.invoice.id)}>Details</Button>
@@ -1879,6 +1904,11 @@ function RepairPage({
                 return;
               }
 
+              if (!selectedRepair.checklistDone && repair.checklistDone) {
+                confirmRepairCompletion(repair);
+                return;
+              }
+
               await onUpdateRepair(repair);
             }}
           >
@@ -1897,43 +1927,40 @@ function RepairPage({
         </ProCard>
         <ProCard title="Repair Documents / 整备文件">
           <Space direction="vertical" size={12} className="fullWidth">
-            <MissingUploadReminder
-              title="Repair invoice required"
+            <DocumentUploadChecklist
+              title="Required repair document / 必需整备文件"
               description="Attach the supplier invoice to this repair record before the refurbishment cost is finalised."
-              items={repairDocumentCategories.map((category) => ({
-                label: documentCategoryLabel(category),
-                isPresent: repairDocuments.some((document) => document.category === category)
-              }))}
-              onAction={() => setDocumentCategory("RepairInvoice")}
+              items={repairDocumentCategories.map((category) => {
+                const isPresent = repairDocuments.some((document) => document.category === category);
+                return {
+                  label: documentCategoryLabel(category),
+                  isPresent,
+                  action: (
+                    <OcrUploadReview
+                      vehicleId={selectedRepair.vehicleId}
+                      category={category}
+                      compact
+                      uploadOwner={{ repairJobId: selectedRepair.id }}
+                      buttonLabel={isPresent ? "Upload another repair invoice" : "Upload repair invoice"}
+                      applyLabel="Use details in supplier invoice"
+                      fields={[
+                        { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
+                        { name: "supplierName", label: "Supplier" },
+                        { name: "invoiceNumber", label: "Invoice" },
+                        { name: "plateNumberOnInvoice", label: "Plate on Supplier Invoice" },
+                        { name: "amount", label: "Amount", type: "number" }
+                      ]}
+                      onUploaded={() => setDocumentReloadKey((value) => value + 1)}
+                      onApply={(values) => {
+                        setSupplierInvoiceOcrDraft(values);
+                        setRepairCreateOpen(true);
+                      }}
+                    />
+                  )
+                };
+              })}
             />
-            <Space wrap>
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                style={{ minWidth: 180 }}
-                options={repairDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
-              />
-              <OcrUploadReview
-                vehicleId={selectedRepair.vehicleId}
-                category={documentCategory}
-                uploadOwner={{ repairJobId: selectedRepair.id }}
-                buttonLabel="Add repair invoice photo"
-                applyLabel="Use details in supplier invoice"
-                fields={[
-                  { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
-                  { name: "supplierName", label: "Supplier" },
-                  { name: "invoiceNumber", label: "Invoice" },
-                  { name: "plateNumberOnInvoice", label: "Plate on Supplier Invoice" },
-                  { name: "amount", label: "Amount", type: "number" }
-                ]}
-                onUploaded={() => setDocumentReloadKey((value) => value + 1)}
-                onApply={(values) => {
-                  setSupplierInvoiceOcrDraft(values);
-                  setRepairCreateOpen(true);
-                }}
-              />
-            </Space>
-            <Alert type="info" showIcon message="Upload supplier repair invoices against the linked car plate for audit and profit tracking." />
+            <Alert type="info" showIcon message="Use a clear JPG, PNG, or WebP photo for OCR. PDFs remain available through the document upload workflow." />
             <ModuleDocumentList
               vehicleId={selectedRepair.vehicleId}
               categories={repairDocumentCategories}
@@ -1986,17 +2013,16 @@ function RepairPage({
             ]}
             style={{ width: 170 }}
           />
-          <Tag color={refurbishmentFiltersActive ? "blue" : "default"}>{refurbishmentRecords.length} / {refurbishmentRecordCount} shown</Tag>
-          <Button
+          <Tag color={refurbishmentFiltersActive ? "blue" : "default"}>{refurbishmentFiltersActive ? `${refurbishmentRecords.length} of ${refurbishmentRecordCount} matching` : `${refurbishmentRecordCount} record${refurbishmentRecordCount === 1 ? "" : "s"}`}</Tag>
+          {refurbishmentFiltersActive && <Button
             size="small"
-            disabled={!refurbishmentFiltersActive}
             onClick={() => {
               setRefurbishmentFilters({});
               setMobileRefurbishmentPage(1);
             }}
           >
             Clear filters
-          </Button>
+          </Button>}
         </Space>
         <div className="mobileRecordList">
           {refurbishmentRecords.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={refurbishmentEmptyText} />}
@@ -2040,7 +2066,7 @@ function RepairPage({
                     {isRepair ? (
                       <>
                         <Button size="small" type="primary" onClick={() => setUploadRepairId(record.repair.id)}>Details</Button>
-                        <Button size="small" onClick={() => onUpdateRepair({ ...record.repair, checklistDone: true })} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Mark Done</Button>
+                        <Button size="small" onClick={() => confirmRepairCompletion(record.repair)} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Mark Done</Button>
                       </>
                     ) : (
                       <Button size="small" type="primary" onClick={() => selectSupplierInvoice(record.invoice.id)}>Details</Button>
@@ -2153,10 +2179,19 @@ function RepairPage({
             return;
           }
 
-          await onCreateInvoice(invoice);
-          await onCreateRepair(repair);
-          setSupplierInvoiceOcrDraft(null);
-          setRepairCreateOpen(false);
+          const saveRepair = async () => {
+            await onCreateInvoice(invoice);
+            await onCreateRepair(repair);
+            setSupplierInvoiceOcrDraft(null);
+            setRepairCreateOpen(false);
+          };
+
+          if (repair.checklistDone) {
+            showRepairCompletionConfirmation(repair, saveRepair);
+            return;
+          }
+
+          await saveRepair();
         }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", approvalStatus: "Pending", ...supplierInvoiceOcrDraft }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
@@ -2204,6 +2239,11 @@ function RepairPage({
               return;
             }
 
+            if (!selectedEditRepair.checklistDone && repair.checklistDone) {
+              confirmRepairCompletion(repair, () => setRepairEditorOpen(false));
+              return;
+            }
+
             await onUpdateRepair(repair);
             setRepairEditorOpen(false);
           }}
@@ -2243,7 +2283,6 @@ function LoanPage({
   const [editLoanId, setEditLoanId] = useState(loans[0]?.id ?? "");
   const [loanEditorOpen, setLoanEditorOpen] = useState(false);
   const [loanCreateOpen, setLoanCreateOpen] = useState(false);
-  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("LoanDocument");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [loanFilters, setLoanFilters] = useState<LoanFilters>({});
   const [mobileLoanPage, setMobileLoanPage] = useState(1);
@@ -2392,6 +2431,15 @@ function LoanPage({
 
   if (selectedLoan) {
     const check = documentChecks[selectedLoan.id];
+    const missingLoanDocuments = check?.missingCategories ?? loanDocumentCategories;
+    const uploadLoanDocument = (category: DocumentCategory, option: Parameters<NonNullable<React.ComponentProps<typeof Upload>["customRequest"]>>[0]) => {
+      void onUploadDocument(selectedLoan.vehicleId, option.file as File, category)
+        .then(() => {
+          setDocumentReloadKey((value) => value + 1);
+          option.onSuccess?.({ ok: true });
+        })
+        .catch((error) => option.onError?.(error));
+    };
     return (
       <Space direction="vertical" size={16} className="fullWidth">
         <Button onClick={() => setUploadLoanId("")}>Back to Loan List</Button>
@@ -2457,38 +2505,31 @@ function LoanPage({
         </ProCard>
         <ProCard title="Loan Documents / 贷款文件">
           <Space direction="vertical" size={12} className="fullWidth">
-            <MissingUploadReminder
-              items={(check?.missingCategories ?? []).map((category) => ({ label: documentCategoryLabel(category), isPresent: false }))}
-              title="Loan documents need attention / 贷款文件需注意"
-              description="Uploads remain optional while the loan is being prepared. Complete the missing documents before the loan follow-up workflow is finished."
-              onAction={check?.missingCategories.length ? () => setDocumentCategory(check.missingCategories[0]) : undefined}
+            <DocumentUploadChecklist
+              title="Required document checklist / 必需文件清单"
+              description="Add files as they arrive. All four are required before loan follow-up can be completed."
+              items={loanDocumentCategories.map((category) => {
+                const isPresent = !missingLoanDocuments.includes(category);
+                return {
+                  label: documentCategoryLabel(category),
+                  isPresent,
+                  action: (
+                    <Upload showUploadList={false} customRequest={(option) => uploadLoanDocument(category, option)}>
+                      <Button type="primary" size="small" icon={<UploadOutlined />}>{isPresent ? `Upload another ${documentCategoryLabel(category)}` : `Upload ${documentCategoryLabel(category)}`}</Button>
+                    </Upload>
+                  )
+                };
+              })}
             />
-            <Space wrap>
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                style={{ minWidth: 180 }}
-                options={loanDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+            {!check?.isComplete && (
+              <Alert
+                type="warning"
+                showIcon
+                message={`${missingLoanDocuments.length} document${missingLoanDocuments.length === 1 ? "" : "s"} still needed before completion`}
+                description="Uploads remain optional while preparing the loan."
               />
-              <Upload
-                showUploadList={false}
-                customRequest={(option) => {
-                  void onUploadDocument(selectedLoan.vehicleId, option.file as File, documentCategory)
-                    .then(() => {
-                      setDocumentReloadKey((value) => value + 1);
-                      option.onSuccess?.({ ok: true });
-                    })
-                    .catch((error) => option.onError?.(error));
-                }}
-              >
-                <Button icon={<UploadOutlined />}>Upload Loan Document</Button>
-              </Upload>
-            </Space>
-            <Alert
-              type="info"
-              showIcon
-              message="Upload VOC, AP Document, Status Receipt, and Loan Document before completing loan follow-up."
-            />
+            )}
+            <Typography.Text strong>Uploaded files / 已上传文件</Typography.Text>
             <ModuleDocumentList
               vehicleId={selectedLoan.vehicleId}
               categories={loanDocumentCategories}
@@ -2533,17 +2574,16 @@ function LoanPage({
             ]}
             style={{ width: 190 }}
           />
-          <Tag color={loanFiltersActive ? "blue" : "default"}>{filteredLoans.length} / {loans.length} shown</Tag>
-          <Button
+          <Tag color={loanFiltersActive ? "blue" : "default"}>{loanFiltersActive ? `${filteredLoans.length} of ${loans.length} matching` : `${loans.length} loan${loans.length === 1 ? "" : "s"}`}</Tag>
+          {loanFiltersActive && <Button
             size="small"
-            disabled={!loanFiltersActive}
             onClick={() => {
               setLoanFilters({});
               setMobileLoanPage(1);
             }}
           >
             Clear filters
-          </Button>
+          </Button>}
         </Space>
         <div className="mobileRecordList loanMobileList">
           {filteredLoans.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loanEmptyText} />}
@@ -2720,7 +2760,6 @@ function DeliveryPage({
   const [editDeliveryId, setEditDeliveryId] = useState(deliveries[0]?.id ?? "");
   const [deliveryEditorOpen, setDeliveryEditorOpen] = useState(false);
   const [deliveryCreateOpen, setDeliveryCreateOpen] = useState(false);
-  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("Policy");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [deliveryFilters, setDeliveryFilters] = useState<DeliveryFilters>({});
   const [mobileDeliveryPage, setMobileDeliveryPage] = useState(1);
@@ -2828,6 +2867,27 @@ function DeliveryPage({
     return "";
   };
 
+  const confirmDeliveryRelease = (
+    delivery: DeliverySchedule,
+    readiness: DeliveryReleaseReadiness | undefined,
+    onConfirm: () => Promise<void> | void
+  ) => {
+    Modal.confirm({
+      title: "Release vehicle? / 确认交车？",
+      content: (
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, delivery.vehicleId)}</Descriptions.Item>
+          <Descriptions.Item label="PIC">{delivery.pic}</Descriptions.Item>
+          <Descriptions.Item label="Scheduled Date / 日期">{delivery.scheduledDate}</Descriptions.Item>
+          <Descriptions.Item label="Release Check">{readiness?.isReady ?? canReleaseDelivery(delivery) ? "All prerequisites complete" : "Prerequisites need review"}</Descriptions.Item>
+        </Descriptions>
+      ),
+      okText: "Release Vehicle",
+      cancelText: "Keep Ready",
+      onOk: onConfirm
+    });
+  };
+
   const renderNextDeliveryAction = (row: DeliverySchedule) => {
     const readiness = releaseReadiness[row.id];
     const missingDocuments = readiness?.missingCategories ?? [];
@@ -2862,7 +2922,7 @@ function DeliveryPage({
           <Button
             type="primary"
             size="small"
-            onClick={() => onUpdate({ ...row, status: "Released" })}
+            onClick={() => confirmDeliveryRelease(row, readiness, () => onUpdate({ ...row, status: "Released" }))}
             disabled={blocksReleaseStep || !canReleaseDelivery(row)}
           >
             Release
@@ -2955,6 +3015,7 @@ function DeliveryPage({
   ];
 
   if (selectedDelivery) {
+    const missingDeliveryDocuments = selectedDeliveryReadiness?.missingCategories ?? deliveryDocumentCategories;
     return (
       <Space direction="vertical" size={16} className="fullWidth">
         <Button onClick={() => setUploadDeliveryId("")}>Back to Delivery List</Button>
@@ -3013,6 +3074,11 @@ function DeliveryPage({
                 return;
               }
 
+              if (selectedDelivery.status !== "Released" && delivery.status === "Released") {
+                confirmDeliveryRelease(delivery, selectedDeliveryReadiness, () => onUpdate(delivery));
+                return;
+              }
+
               onUpdate(delivery);
             }}
           >
@@ -3046,38 +3112,40 @@ function DeliveryPage({
         </ProCard>
         <ProCard title="Delivery Documents / 出车文件">
           <Space direction="vertical" size={12} className="fullWidth">
-            <MissingUploadReminder
-              items={(selectedDeliveryReadiness?.missingCategories ?? []).map((category) => ({ label: documentCategoryLabel(category), isPresent: false }))}
-              title="Delivery documents need attention / 出车文件需注意"
-              description="Uploads stay optional until the delivery reaches its release gate. Add the missing documents before marking the vehicle ready or released."
-              onAction={selectedDeliveryReadiness?.missingCategories.length ? () => setDocumentCategory(selectedDeliveryReadiness.missingCategories[0]) : undefined}
+            <DocumentUploadChecklist
+              title="Required delivery documents / 必需出车文件"
+              description="Add files as they arrive. Policy and Road Tax Receipt are required before the vehicle can be released."
+              items={deliveryDocumentCategories.map((category) => {
+                const isPresent = !missingDeliveryDocuments.includes(category);
+                return {
+                  label: documentCategoryLabel(category),
+                  isPresent,
+                  action: (
+                    <Upload
+                      showUploadList={false}
+                      customRequest={(option) => {
+                        void onUploadDocument(selectedDelivery.vehicleId, option.file as File, category)
+                          .then(() => {
+                            setDocumentReloadKey((value) => value + 1);
+                            option.onSuccess?.({ ok: true });
+                          })
+                          .catch((error) => option.onError?.(error));
+                      }}
+                    >
+                      <Button type="primary" size="small" icon={<UploadOutlined />}>{isPresent ? `Upload another ${documentCategoryLabel(category)}` : `Upload ${documentCategoryLabel(category)}`}</Button>
+                    </Upload>
+                  )
+                };
+              })}
             />
-            <Space wrap>
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                style={{ minWidth: 180 }}
-                options={deliveryDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+            {missingDeliveryDocuments.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message={`${missingDeliveryDocuments.length} document${missingDeliveryDocuments.length === 1 ? "" : "s"} still needed before release`}
+                description="Uploads remain optional while preparing the delivery."
               />
-              <Upload
-                showUploadList={false}
-                customRequest={(option) => {
-                  void onUploadDocument(selectedDelivery.vehicleId, option.file as File, documentCategory)
-                    .then(() => {
-                      setDocumentReloadKey((value) => value + 1);
-                      option.onSuccess?.({ ok: true });
-                    })
-                    .catch((error) => option.onError?.(error));
-                }}
-              >
-                <Button icon={<UploadOutlined />}>Upload Delivery Document</Button>
-              </Upload>
-            </Space>
-            <Alert
-              type="info"
-              showIcon
-              message="Upload Policy and Road Tax Receipt before marking a delivery Ready or Released."
-            />
+            )}
             {selectedDeliveryReadiness?.evidence.length ? (
               <AntTable<DeliveryEvidenceItem>
                 size="small"
@@ -3251,17 +3319,16 @@ function DeliveryPage({
               ]}
               style={{ width: 170 }}
             />
-            <Tag color={deliveryFiltersActive ? "blue" : "default"}>{filteredDeliveries.length} / {deliveries.length} shown</Tag>
-            <Button
+            <Tag color={deliveryFiltersActive ? "blue" : "default"}>{deliveryFiltersActive ? `${filteredDeliveries.length} of ${deliveries.length} matching` : `${deliveries.length} ${deliveries.length === 1 ? "delivery" : "deliveries"}`}</Tag>
+            {deliveryFiltersActive && <Button
               size="small"
-              disabled={!deliveryFiltersActive}
               onClick={() => {
                 setDeliveryFilters({});
                 setMobileDeliveryPage(1);
               }}
             >
               Clear filters
-            </Button>
+            </Button>}
           </Space>
           <div className="mobileRecordList">
             {filteredDeliveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={deliveryEmptyText} />}
@@ -3373,6 +3440,15 @@ function DeliveryPage({
             message.warning(blockReason);
             return;
           }
+
+          if (delivery.status === "Released") {
+            confirmDeliveryRelease(delivery, undefined, async () => {
+              await onCreate(delivery);
+              setDeliveryCreateOpen(false);
+            });
+            return;
+          }
+
           onCreate(delivery);
           setDeliveryCreateOpen(false);
         }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
@@ -3450,6 +3526,15 @@ function DeliveryPage({
               message.warning(blockReason);
               return;
             }
+
+            if (selectedEditDelivery.status !== "Released" && delivery.status === "Released") {
+              confirmDeliveryRelease(delivery, releaseReadiness[selectedEditDelivery.id], async () => {
+                await onUpdate(delivery);
+                setDeliveryEditorOpen(false);
+              });
+              return;
+            }
+
             onUpdate(delivery);
             setDeliveryEditorOpen(false);
           }}
@@ -3711,7 +3796,7 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
             style={{ width: 180 }}
           />
           <Tag color="blue">{groupedLeadRows.length} cars / {displayedLeads.length} leads</Tag>
-          <Button size="small" disabled={!leadFiltersActive} onClick={clearLeadFilters}>Clear filters</Button>
+          {leadFiltersActive && <Button size="small" onClick={clearLeadFilters}>Clear filters</Button>}
         </Space>
         <div className="mobileRecordList">
           {groupedLeadRows.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No leads match the current filters." />}
@@ -3928,6 +4013,9 @@ function AdminPage({
   const [staffStatusFilter, setStaffStatusFilter] = useState<StaffStatusFilter>("All");
   const [staffRoleFilter, setStaffRoleFilter] = useState<StaffRole | "All">("All");
   const [mobileStaffPage, setMobileStaffPage] = useState(1);
+  const [ocrLimitSnapshot, setOcrLimitSnapshot] = useState<AiUsageLimitSnapshot | null>(null);
+  const [ocrLimitSaving, setOcrLimitSaving] = useState(false);
+  const [ocrLimitForm] = Form.useForm<UpdateAiServiceLimitRequest>();
   const selectedEditStaffUser = staffUsers.find((user) => user.id === editStaffUserId) ?? staffUsers[0];
   const filteredStaffUsers = filterStaffUsers(staffUsers, {
     keyword: staffKeywordFilter,
@@ -3944,6 +4032,36 @@ function AdminPage({
   const activeStaffCount = staffUsers.filter((user) => user.isActive).length;
   const disabledStaffCount = staffUsers.filter((user) => !user.isActive).length;
   const adminStaffCount = staffUsers.filter((user) => user.roles.includes("BossAdmin")).length;
+
+  useEffect(() => {
+    let active = true;
+    void getOcrUsageLimit()
+      .then((snapshot) => {
+        if (!active) return;
+        setOcrLimitSnapshot(snapshot);
+        ocrLimitForm.setFieldsValue(snapshot.limit);
+      })
+      .catch((error) => {
+        if (active) message.error(humanizeApiError(error, "AI usage settings could not be loaded."));
+      });
+    return () => {
+      active = false;
+    };
+  }, [ocrLimitForm]);
+
+  const saveOcrLimit = async (values: UpdateAiServiceLimitRequest) => {
+    setOcrLimitSaving(true);
+    try {
+      const snapshot = await updateOcrUsageLimit(values);
+      setOcrLimitSnapshot(snapshot);
+      ocrLimitForm.setFieldsValue(snapshot.limit);
+      message.success("AI usage limit updated");
+    } catch (error) {
+      message.error(humanizeApiError(error, "AI usage limit could not be updated."));
+    } finally {
+      setOcrLimitSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!editStaffUserId && staffUsers[0]?.id) {
@@ -4068,8 +4186,8 @@ function AdminPage({
                     }}
                     style={{ width: 180 }}
                   />
-                  <Tag color={staffFiltersActive ? "blue" : "default"}>{filteredStaffUsers.length} / {staffUsers.length} shown</Tag>
-                  <Button size="small" disabled={!staffFiltersActive} onClick={clearStaffFilters}>Clear filters</Button>
+                  <Tag color={staffFiltersActive ? "blue" : "default"}>{staffFiltersActive ? `${filteredStaffUsers.length} of ${staffUsers.length} matching` : `${staffUsers.length} staff member${staffUsers.length === 1 ? "" : "s"}`}</Tag>
+                  {staffFiltersActive && <Button size="small" onClick={clearStaffFilters}>Clear filters</Button>}
                 </Space>
                 <div className="mobileRecordList">
                   {filteredStaffUsers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No staff users match the current filters." />}
@@ -4272,6 +4390,49 @@ function AdminPage({
               </Space>
             )
           },
+          {
+            key: "ai-usage",
+            label: "AI Usage / AI 使用量",
+            children: (
+              <Space direction="vertical" size={16} className="fullWidth">
+                <Alert
+                  type="info"
+                  showIcon
+                  message="OCR limits are enforced by the server"
+                  description="Each OCR request reserves one unit before the external provider is called. Limits reset on the UTC calendar month and day."
+                />
+                <ProCard title="OCR Limit / OCR 限额">
+                  {ocrLimitSnapshot ? (
+                    <Space direction="vertical" size={16} className="fullWidth">
+                      <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+                        <Descriptions.Item label="This month used">{ocrLimitSnapshot.usedThisMonth}</Descriptions.Item>
+                        <Descriptions.Item label="This month remaining">{ocrLimitSnapshot.remainingThisMonth}</Descriptions.Item>
+                        <Descriptions.Item label="Last updated">{ocrLimitSnapshot.limit.updatedAt.slice(0, 16).replace("T", " ")}</Descriptions.Item>
+                        <Descriptions.Item label="Updated by">{ocrLimitSnapshot.limit.updatedBy}</Descriptions.Item>
+                      </Descriptions>
+                      <Form form={ocrLimitForm} layout="vertical" onFinish={saveOcrLimit}>
+                        <Form.Item name="isEnabled" label="OCR service" valuePropName="checked">
+                          <Checkbox>Allow staff to run OCR</Checkbox>
+                        </Form.Item>
+                        <div className="formGrid">
+                          <Form.Item name="monthlyRequestLimit" label="Monthly request limit" rules={[{ required: true, type: "number", min: 0, max: 100000 }]}>
+                            <InputNumber className="fullWidth" min={0} max={100000} precision={0} />
+                          </Form.Item>
+                          <Form.Item name="perStaffDailyRequestLimit" label="Per-staff daily limit" rules={[{ required: true, type: "number", min: 0, max: 10000 }]}>
+                            <InputNumber className="fullWidth" min={0} max={10000} precision={0} />
+                          </Form.Item>
+                        </div>
+                        <Form.Item className="formActions">
+                          <Button type="primary" htmlType="submit" loading={ocrLimitSaving}>Save AI limit</Button>
+                        </Form.Item>
+                      </Form>
+                    </Space>
+                  ) : <Spin />}
+                </ProCard>
+              </Space>
+            )
+          },
+          { key: "vehicle-catalog", label: "Make & Model / 品牌车型", children: <VehicleCatalogSettings /> },
           { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
           { key: "audit", label: "Audit Log / 操作记录", children: <AuditLogRecords auditLog={auditLog} filters={auditLogFilters} onSearch={onSearchAuditLog} /> }
         ]}

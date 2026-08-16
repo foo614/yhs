@@ -13,6 +13,16 @@ namespace YSHeng.Api.Tests;
 public sealed class BusinessRulesTests
 {
     [Fact]
+    public void Ai_usage_limit_validation_allows_zero_as_a_hard_stop_and_rejects_invalid_limits()
+    {
+        Assert.Empty(AiUsageLimitRules.Validate(new UpdateAiServiceLimitRequest(true, 0, 0)));
+
+        var errors = AiUsageLimitRules.Validate(new UpdateAiServiceLimitRequest(true, -1, 10_001));
+
+        Assert.Equal(2, errors.Length);
+    }
+
+    [Fact]
     public void Security_headers_apply_defensive_api_defaults()
     {
         var headers = new HeaderDictionary();
@@ -85,6 +95,26 @@ public sealed class BusinessRulesTests
         Assert.Equal("Honda", response.Make);
         Assert.Equal("City", response.Model);
         Assert.DoesNotContain(response.GetType().GetProperties(), property => property.Name == "IsActive");
+    }
+
+    [Fact]
+    public void Malaysia_vehicle_catalog_seed_is_clean_and_contains_common_local_models()
+    {
+        var keys = MalaysiaVehicleCatalog.Models
+            .Select(item => MalaysiaVehicleCatalog.Key(item.Make, item.Model))
+            .ToList();
+
+        Assert.Equal(198, MalaysiaVehicleCatalog.Models.Count);
+        Assert.Equal(keys.Count, keys.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.All(MalaysiaVehicleCatalog.Models, item =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(item.Make));
+            Assert.False(string.IsNullOrWhiteSpace(item.Model));
+        });
+        Assert.Contains(("Perodua", "Myvi"), MalaysiaVehicleCatalog.Models);
+        Assert.Contains(("Proton", "Saga"), MalaysiaVehicleCatalog.Models);
+        Assert.Contains(("Toyota", "Vios"), MalaysiaVehicleCatalog.Models);
+        Assert.Contains(("Honda", "City"), MalaysiaVehicleCatalog.Models);
     }
 
     [Fact]
@@ -188,6 +218,76 @@ public sealed class BusinessRulesTests
         Assert.Empty(financeProfile.Deliveries);
         Assert.Empty(financeProfile.Documents);
         Assert.Empty(financeProfile.Enquiries);
+    }
+
+    [Fact]
+    public void Customer_profile_includes_an_unassigned_vehicle_linked_by_loan_without_cross_linking_other_customers()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var otherCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
+        var legacyVehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = null, PlateNumber = "WXY1234" };
+        var otherVehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = otherCustomer.Id, PlateNumber = "ABC5678" };
+        var legacyLoan = new LoanApplication { CustomerId = customer.Id, VehicleId = legacyVehicle.Id, Status = LoanStatus.Draft };
+        var profile = CustomerProfileFactory.Create(
+            customer,
+            ["BossAdmin"],
+            [legacyVehicle, otherVehicle],
+            [legacyLoan],
+            [new DeliverySchedule { VehicleId = legacyVehicle.Id, Pic = "Delivery", ScheduledDate = new DateOnly(2026, 8, 20) }, new DeliverySchedule { VehicleId = otherVehicle.Id, Pic = "Delivery", ScheduledDate = new DateOnly(2026, 8, 21) }],
+            [new PaymentRecord { VehicleId = legacyVehicle.Id }, new PaymentRecord { VehicleId = otherVehicle.Id }],
+            [],
+            [],
+            [],
+            [new DocumentBlob { VehicleId = legacyVehicle.Id, Category = FileCategory.Voc }, new DocumentBlob { VehicleId = otherVehicle.Id, Category = FileCategory.Voc }],
+            []);
+
+        Assert.Equal([legacyVehicle.Id], profile.Vehicles.Select(vehicle => vehicle.Id));
+        Assert.Equal([legacyVehicle.Id], profile.Deliveries.Select(delivery => delivery.VehicleId));
+        Assert.Equal([legacyVehicle.Id], profile.Payments.Select(payment => payment.VehicleId));
+        Assert.Equal([legacyVehicle.Id], profile.Documents.Select(document => document.VehicleId));
+    }
+
+    [Fact]
+    public void Customer_profile_excludes_an_unassigned_vehicle_with_loans_for_multiple_customers()
+    {
+        var firstCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var secondCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
+        var legacyVehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = null };
+        var firstLoan = new LoanApplication { CustomerId = firstCustomer.Id, VehicleId = legacyVehicle.Id, Status = LoanStatus.Draft };
+        var secondLoan = new LoanApplication { CustomerId = secondCustomer.Id, VehicleId = legacyVehicle.Id, Status = LoanStatus.Draft };
+
+        var firstProfile = CustomerProfileFactory.Create(firstCustomer, ["BossAdmin"], [legacyVehicle], [firstLoan, secondLoan], [], [], [], [], [], [], []);
+        var secondProfile = CustomerProfileFactory.Create(secondCustomer, ["BossAdmin"], [legacyVehicle], [firstLoan, secondLoan], [], [], [], [], [], [], []);
+
+        Assert.Empty(firstProfile.Vehicles);
+        Assert.Empty(firstProfile.Loans);
+        Assert.Empty(secondProfile.Vehicles);
+        Assert.Empty(secondProfile.Loans);
+    }
+
+    [Fact]
+    public void Customer_profile_scopes_voc_reminders_to_each_linked_vehicle()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var vehicleWithVoc = VehicleSeed.Available(publicVisible: false) with { CustomerId = customer.Id, PlateNumber = "WXY1234" };
+        var vehicleMissingVoc = VehicleSeed.Available(publicVisible: false) with { CustomerId = customer.Id, PlateNumber = "ABC5678" };
+
+        var profile = CustomerProfileFactory.Create(
+            customer,
+            ["Sales"],
+            [vehicleWithVoc, vehicleMissingVoc],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [new DocumentBlob { VehicleId = vehicleWithVoc.Id, Category = FileCategory.Voc }],
+            []);
+
+        var vocReminders = profile.MissingDocuments.Where(item => item.Category == FileCategory.Voc).ToList();
+        var reminder = Assert.Single(vocReminders);
+        Assert.Equal(vehicleMissingVoc.Id, reminder.VehicleId);
     }
 
     [Fact]
@@ -682,6 +782,20 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Vehicle_customer_reassignment_rejects_conflicting_existing_loan()
+    {
+        var loanCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var differentCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = differentCustomer.Id };
+        var loan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = loanCustomer.Id };
+
+        var result = VehicleRules.ValidateContactLinks(vehicle, [loanCustomer, differentCustomer], [], [loan]);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "vehicle_customer_loan_mismatch");
+    }
+
+    [Fact]
     public void Loan_validation_requires_existing_vehicle_and_customer()
     {
         var vehicle = VehicleSeed.Available(publicVisible: true);
@@ -698,6 +812,38 @@ public sealed class BusinessRulesTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "customer_not_found");
         Assert.DoesNotContain(result.Errors, error => error.Code == "vehicle_not_found");
+    }
+
+    [Fact]
+    public void Loan_validation_rejects_a_vehicle_assigned_to_another_customer_but_allows_an_unassigned_legacy_vehicle()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var otherCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
+        var assignedVehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = otherCustomer.Id };
+        var unassignedVehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = null };
+        var mismatchedLoan = new LoanApplication { VehicleId = assignedVehicle.Id, CustomerId = customer.Id };
+        var legacyLoan = new LoanApplication { VehicleId = unassignedVehicle.Id, CustomerId = customer.Id };
+
+        var mismatchResult = WorkflowReferenceRules.ValidateLoan(mismatchedLoan, [assignedVehicle, unassignedVehicle], [customer, otherCustomer]);
+        var legacyResult = WorkflowReferenceRules.ValidateLoan(legacyLoan, [assignedVehicle, unassignedVehicle], [customer, otherCustomer]);
+
+        Assert.Contains(mismatchResult.Errors, error => error.Code == "vehicle_customer_mismatch");
+        Assert.True(legacyResult.IsValid);
+    }
+
+    [Fact]
+    public void Loan_validation_rejects_a_second_customer_for_an_unassigned_vehicle()
+    {
+        var firstCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var secondCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
+        var legacyVehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = null };
+        var firstLoan = new LoanApplication { CustomerId = firstCustomer.Id, VehicleId = legacyVehicle.Id };
+        var secondLoan = new LoanApplication { CustomerId = secondCustomer.Id, VehicleId = legacyVehicle.Id };
+
+        var result = WorkflowReferenceRules.ValidateLoan(secondLoan, [legacyVehicle], [firstCustomer, secondCustomer], [firstLoan]);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "legacy_vehicle_customer_conflict");
     }
 
     [Fact]
@@ -1989,6 +2135,31 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsComplete);
         Assert.Contains(FileCategory.ApDocument, result.MissingCategories);
+    }
+
+    [Fact]
+    public void Loan_document_check_does_not_use_another_vehicle_voc_for_the_same_customer()
+    {
+        var customerId = Guid.NewGuid();
+        var loan = new LoanApplication
+        {
+            VehicleId = Guid.NewGuid(),
+            CustomerId = customerId,
+            Status = LoanStatus.Pending,
+            SubmittedAt = new DateOnly(2026, 5, 30)
+        };
+        var documents = new[]
+        {
+            new DocumentBlob { VehicleId = Guid.NewGuid(), CustomerId = customerId, Category = FileCategory.Voc },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = customerId, Category = FileCategory.StatusReceipt },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = customerId, Category = FileCategory.ApDocument },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = customerId, Category = FileCategory.LoanDocument }
+        };
+
+        var result = LoanDocumentRules.CheckCompleteness(loan, documents);
+
+        Assert.False(result.IsComplete);
+        Assert.Contains(FileCategory.Voc, result.MissingCategories);
     }
 
     [Fact]
