@@ -8,11 +8,13 @@ const appRoot = dirname(fileURLToPath(import.meta.url));
 describe("frontoffice motion enhancer contract", () => {
   it("wires scroll reveal motion through the root layout", () => {
     const motionPath = join(appRoot, "MotionEnhancer.tsx");
+    const loadingPath = join(appRoot, "loading.tsx");
     const layout = readFileSync(join(appRoot, "layout.tsx"), "utf8");
     const page = readFileSync(join(appRoot, "page.tsx"), "utf8");
     const styles = readFileSync(join(appRoot, "styles.css"), "utf8");
 
     expect(existsSync(motionPath)).toBe(true);
+    expect(existsSync(loadingPath)).toBe(true);
 
     const motionEnhancer = readFileSync(motionPath, "utf8");
 
@@ -27,7 +29,8 @@ describe("frontoffice motion enhancer contract", () => {
     expect(motionEnhancer).toContain("IntersectionObserver");
     expect(motionEnhancer).toContain('querySelector<HTMLElement>(".atelierHero")');
     expect(motionEnhancer).toContain('querySelectorAll<HTMLElement>(".heroPriceTagMotion")');
-    expect(motionEnhancer).toContain('ease: "bounce.out"');
+    expect(motionEnhancer).toContain('ease: "power4.out"');
+    expect(motionEnhancer).not.toContain("bounce.out");
     expect(motionEnhancer).toContain("gsap.fromTo");
     expect(motionEnhancer).toContain('clearProps: "opacity,visibility,transform"');
     expect(motionEnhancer).toContain("prefers-reduced-motion: reduce");
@@ -37,7 +40,12 @@ describe("frontoffice motion enhancer contract", () => {
     expect(motionEnhancer).not.toContain("ScrollTrigger");
     expect(layout).toContain("import { MotionEnhancer } from \"./MotionEnhancer\";");
     expect(layout).toContain("<MotionEnhancer>{children}</MotionEnhancer>");
-    expect(page).toContain('hero-price-bay-option2@2x.png');
+    expect(page).toContain('import Image from "next/image"');
+    expect(page).toContain('import heroImage from "../public/hero-price-bay-option2@2x.png"');
+    expect(page).toContain("<Image");
+    expect(page).toContain("preload");
+    expect(page).toContain('placeholder="blur"');
+    expect(page).toContain('loading="lazy"');
     expect(page).toContain("<HeroPriceTags language={language} vehicles={heroVehicles} />");
     expect(page).toContain('hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })');
     expect(page).toContain('className="heroBrowseAction"');
@@ -49,6 +57,9 @@ describe("frontoffice motion enhancer contract", () => {
     expect(styles).toContain(".heroPriceTags");
     expect(styles).toContain(".heroBrowseAction");
     expect(styles).toContain(".heroInventorySummary");
+    expect(styles).toContain(".routeLoading");
+    expect(styles).toContain(".loadingSkeleton");
+    expect(styles).toContain("@keyframes loadingPulse");
     expect(styles).toContain("@media (min-width: 1600px)");
     expect(styles).toContain("width: min(62vw, 1200px)");
     expect(styles).not.toContain(".motionReady .motionReveal");
