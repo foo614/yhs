@@ -155,7 +155,6 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
           src={heroImage}
           alt=""
           className="heroMedia"
-          fill
           preload
           sizes="100vw"
           placeholder="blur"

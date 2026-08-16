@@ -45,6 +45,7 @@ describe("frontoffice motion enhancer contract", () => {
     expect(page).toContain("<Image");
     expect(page).toContain("preload");
     expect(page).toContain('placeholder="blur"');
+    expect(page).not.toMatch(/className="heroMedia"\s+fill/);
     expect(page).toContain('loading="lazy"');
     expect(page).toContain("<HeroPriceTags language={language} vehicles={heroVehicles} />");
     expect(page).toContain('hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })');
