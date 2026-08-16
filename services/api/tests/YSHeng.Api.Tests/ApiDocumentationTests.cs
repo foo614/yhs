@@ -20,6 +20,17 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Ocr_usage_is_reserved_before_the_external_provider_is_called()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+
+        Assert.True(
+            program.IndexOf("aiUsageQuota.ReserveOcrAsync", StringComparison.Ordinal) < program.IndexOf("extractor.AnalyzeAsync", StringComparison.Ordinal),
+            "OCR usage must be reserved before the external OCR provider is called.");
+    }
+
+    [Fact]
     public void Api_reference_paths_match_minimal_api_routes()
     {
         var root = FindRepositoryRoot();
@@ -58,6 +69,8 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<FileCategory>(apiDocs);
         AssertDocumentedEnum<OcrJobStatus>(apiDocs);
         AssertDocumentedEnum<OcrReviewDecision>(apiDocs);
+        AssertDocumentedEnum<AiService>(apiDocs);
+        AssertDocumentedEnum<AiUsageStatus>(apiDocs);
     }
 
     [Fact]

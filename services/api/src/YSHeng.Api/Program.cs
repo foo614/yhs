@@ -24,6 +24,7 @@ builder.Services.Configure<BaiduUnlimitedOcrOptions>(builder.Configuration.GetSe
 builder.Services.AddHttpClient<BaiduUnlimitedOcrClient>();
 builder.Services.AddScoped<BaiduUnlimitedOcrExtractor>();
 builder.Services.AddScoped<LocalMockOcrExtractor>();
+builder.Services.AddScoped<AiUsageQuotaService>();
 builder.Services.AddScoped<IOcrExtractor>(services =>
 {
     var provider = services.GetRequiredService<IConfiguration>().GetValue("Ocr:Provider", "GoogleDocumentAi");
@@ -242,7 +243,8 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
     var contactLinkValidation = VehicleRules.ValidateContactLinks(
         vehicle,
         await db.Customers.AsNoTracking().ToListAsync(),
-        await db.Owners.AsNoTracking().ToListAsync());
+        await db.Owners.AsNoTracking().ToListAsync(),
+        await db.LoanApplications.AsNoTracking().ToListAsync());
     if (!contactLinkValidation.IsValid) return Results.BadRequest(contactLinkValidation);
     var uniquePlateValidation = VehicleRules.ValidateUniquePlate(vehicle, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!uniquePlateValidation.IsValid) return Results.BadRequest(uniquePlateValidation);
@@ -272,7 +274,8 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var contactLinkValidation = VehicleRules.ValidateContactLinks(
         update,
         await db.Customers.AsNoTracking().ToListAsync(),
-        await db.Owners.AsNoTracking().ToListAsync());
+        await db.Owners.AsNoTracking().ToListAsync(),
+        await db.LoanApplications.AsNoTracking().ToListAsync());
     if (!contactLinkValidation.IsValid) return Results.BadRequest(contactLinkValidation);
     var uniquePlateValidation = VehicleRules.ValidateUniquePlate(update, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!uniquePlateValidation.IsValid) return Results.BadRequest(uniquePlateValidation);
@@ -422,24 +425,33 @@ backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", asy
     return Results.File(document.Content, document.MimeType, document.FileName);
 });
 
-backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid documentId, AppDbContext db, HttpContext context, IOcrExtractor extractor, CancellationToken cancellationToken) =>
+backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid documentId, AppDbContext db, HttpContext context, IOcrExtractor extractor, AiUsageQuotaService aiUsageQuota, CancellationToken cancellationToken) =>
 {
     var document = await db.DocumentBlobs.FirstOrDefaultAsync(item => item.Id == documentId);
     if (document is null) return Results.NotFound();
     var roles = SeedData.Roles.Where(context.User.IsInRole);
     if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
 
+    var reservation = await aiUsageQuota.ReserveOcrAsync(document.Id, StaffIdentity.CurrentUserId(context), cancellationToken);
+    if (!reservation.IsAllowed)
+    {
+        return Results.Json(new { message = reservation.Message }, statusCode: StatusCodes.Status429TooManyRequests);
+    }
+
     OcrExtractionResult? extraction = null;
     OcrJobStatus status;
     string[] warnings;
+    var analysisSucceeded = false;
     try
     {
         extraction = await extractor.AnalyzeAsync(document, await db.Vehicles.AsNoTracking().ToListAsync(), cancellationToken);
         status = OcrJobStatus.NeedsReview;
         warnings = extraction.Warnings.ToArray();
+        analysisSucceeded = true;
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
+        await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, false, CancellationToken.None);
         throw;
     }
     catch (Exception ex)
@@ -447,6 +459,8 @@ backOffice.MapPost("/documents/{documentId:guid}/ocr-jobs", async (Guid document
         status = OcrJobStatus.Failed;
         warnings = [$"OCR analysis failed: {ex.Message}"];
     }
+
+    await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, analysisSucceeded, cancellationToken);
 
     var job = new OcrJob
     {
@@ -526,9 +540,17 @@ backOffice.MapGet("/customers/profile-options", async (AppDbContext db, HttpCont
     var query = db.Customers.AsNoTracking();
     if (!roles.Intersect(DepartmentAccess.CustomerReaders).Any())
     {
-        query = query.Where(customer => db.Vehicles.Any(vehicle =>
-            vehicle.CustomerId == customer.Id &&
-            db.DeliverySchedules.Any(delivery => delivery.VehicleId == vehicle.Id)));
+        query = query.Where(customer =>
+            db.Vehicles.Any(vehicle =>
+                vehicle.CustomerId == customer.Id &&
+                db.DeliverySchedules.Any(delivery => delivery.VehicleId == vehicle.Id)) ||
+            db.LoanApplications.Any(loan =>
+                loan.CustomerId == customer.Id &&
+                db.Vehicles.Any(vehicle =>
+                    vehicle.Id == loan.VehicleId &&
+                    vehicle.CustomerId == null &&
+                    db.DeliverySchedules.Any(delivery => delivery.VehicleId == vehicle.Id) &&
+                    !db.LoanApplications.Any(otherLoan => otherLoan.VehicleId == vehicle.Id && otherLoan.CustomerId != customer.Id))));
     }
 
     return CustomerProfileFactory.CreateOptions(await query.ToListAsync());
@@ -539,9 +561,21 @@ backOffice.MapGet("/customers/{id:guid}/profile", async (Guid id, AppDbContext d
     if (customer is null) return Results.NotFound();
 
     var roles = SeedData.Roles.Where(context.User.IsInRole).ToArray();
-    var vehicles = await db.Vehicles.AsNoTracking().Where(vehicle => vehicle.CustomerId == id).ToListAsync();
+    var customerLoans = await db.LoanApplications.AsNoTracking().Where(loan => loan.CustomerId == id).ToListAsync();
+    var customerLoanVehicleIds = customerLoans.Select(loan => loan.VehicleId).ToList();
+    var loans = customerLoanVehicleIds.Count == 0
+        ? customerLoans
+        : await db.LoanApplications.AsNoTracking().Where(loan => customerLoanVehicleIds.Contains(loan.VehicleId)).ToListAsync();
+    var unambiguousLegacyVehicleIds = loans
+        .Where(loan => customerLoanVehicleIds.Contains(loan.VehicleId))
+        .GroupBy(loan => loan.VehicleId)
+        .Where(group => group.All(loan => loan.CustomerId == id))
+        .Select(group => group.Key)
+        .ToList();
+    var vehicles = await db.Vehicles.AsNoTracking()
+        .Where(vehicle => vehicle.CustomerId == id || (vehicle.CustomerId == null && unambiguousLegacyVehicleIds.Contains(vehicle.Id)))
+        .ToListAsync();
     var vehicleIds = vehicles.Select(vehicle => vehicle.Id).ToList();
-    var loans = await db.LoanApplications.AsNoTracking().Where(loan => loan.CustomerId == id).ToListAsync();
     var deliveries = await db.DeliverySchedules.AsNoTracking().Where(delivery => vehicleIds.Contains(delivery.VehicleId)).ToListAsync();
     if (!roles.Intersect(DepartmentAccess.CustomerReaders).Any() && deliveries.Count == 0) return Results.NotFound();
     var payments = await db.PaymentRecords.AsNoTracking().Where(payment => vehicleIds.Contains(payment.VehicleId)).ToListAsync();
@@ -645,7 +679,8 @@ backOffice.MapPost("/loans", async (LoanApplication loan, AppDbContext db, HttpC
     var validation = WorkflowReferenceRules.ValidateLoan(
         loan,
         await db.Vehicles.AsNoTracking().ToListAsync(),
-        await db.Customers.AsNoTracking().ToListAsync());
+        await db.Customers.AsNoTracking().ToListAsync(),
+        await db.LoanApplications.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == loan.VehicleId);
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyLoanStatus(vehicle, loan));
@@ -661,7 +696,8 @@ backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppD
     var validation = WorkflowReferenceRules.ValidateLoan(
         loan,
         await db.Vehicles.AsNoTracking().ToListAsync(),
-        await db.Customers.AsNoTracking().ToListAsync());
+        await db.Customers.AsNoTracking().ToListAsync(),
+        await db.LoanApplications.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == loan.VehicleId);
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyLoanStatus(vehicle, loan));
@@ -1180,6 +1216,18 @@ backOffice.MapGet("/audit-log", async (string? actor, string? action, string? en
 }).RequireAuthorization("BossAdmin");
 
 var admin = backOffice.MapGroup("/admin").RequireAuthorization("BossAdmin");
+admin.MapGet("/ai-limits/ocr", async (AiUsageQuotaService aiUsageQuota, CancellationToken cancellationToken) =>
+    Results.Ok(await aiUsageQuota.GetOcrSnapshotAsync(cancellationToken)));
+admin.MapPut("/ai-limits/ocr", async (UpdateAiServiceLimitRequest request, AiUsageQuotaService aiUsageQuota, AppDbContext db, HttpContext context, CancellationToken cancellationToken) =>
+{
+    var errors = AiUsageLimitRules.Validate(request);
+    if (errors.Length > 0) return Results.BadRequest(new { errors });
+
+    var limit = await aiUsageQuota.UpdateOcrLimitAsync(request, AuditTrail.ActorFrom(context.User), cancellationToken);
+    ApiAudit.Add(db, context.User, "aiUsageLimit.ocr.updated", nameof(AiServiceLimit), limit.Id);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(await aiUsageQuota.GetOcrSnapshotAsync(cancellationToken));
+});
 admin.MapGet("/users", async (UserManager<AppUser> userManager) =>
 {
     var users = await userManager.Users.AsNoTracking().OrderBy(user => user.Email).ToListAsync();
