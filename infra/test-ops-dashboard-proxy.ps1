@@ -19,15 +19,29 @@ function Assert-Contains {
 foreach ($expected in @(
   '@ops-login-script path /Components/Pages/Login.razor.js',
   'uri replace /Components/Pages/Login.razor.js /ops/Components/Pages/Login.razor.js',
+  '@ops-theme-script path /js/app-theme.js',
+  'uri replace /js/app-theme.js /ops/js/app-theme.js',
+  '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
+  'uri replace /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js /ops/_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
   'reverse_proxy ops-proxy:8080'
 )) {
-  Assert-Contains -Name "Caddy Aspire login route" -Text $caddyfile -Expected $expected
+  Assert-Contains -Name "Caddy Aspire dashboard route" -Text $caddyfile -Expected $expected
 }
 
 $loginRouteIndex = $caddyfile.IndexOf('@ops-login-script path /Components/Pages/Login.razor.js')
 $apiRouteIndex = $caddyfile.IndexOf('@api path /api/*')
 if ($loginRouteIndex -lt 0 -or $apiRouteIndex -lt 0 -or $loginRouteIndex -ge $apiRouteIndex) {
   throw "The Aspire login script route must be evaluated before the back-office API route."
+}
+
+foreach ($assetRoute in @(
+  '@ops-theme-script path /js/app-theme.js',
+  '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js'
+)) {
+  $assetRouteIndex = $caddyfile.IndexOf($assetRoute)
+  if ($assetRouteIndex -lt 0 -or $assetRouteIndex -ge $apiRouteIndex) {
+    throw "The Aspire dashboard asset route must be evaluated before the back-office API route: $assetRoute"
+  }
 }
 
 foreach ($expected in @(
