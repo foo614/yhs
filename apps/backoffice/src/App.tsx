@@ -345,6 +345,15 @@ export function customerIdFromRouteUrl(routeUrl: string) {
   return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("customerId") ?? undefined;
 }
 
+export function loanIdFromRouteUrl(routeUrl: string) {
+  const queryIndex = routeUrl.indexOf("?");
+  return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("loanId") ?? undefined;
+}
+
+export function vehicleLoanCustomerId(vehicle: Pick<Vehicle, "customerId">, existingLoan?: Pick<LoanApplication, "customerId">) {
+  return existingLoan?.customerId ?? vehicle.customerId;
+}
+
 function tablePagination(pageSize = 8): TablePaginationConfig {
   return {
     pageSize,
@@ -684,24 +693,27 @@ export default function App() {
   }
 
   async function handleStartVehicleLoan(vehicle: Vehicle) {
-    if (!vehicle.customerId) {
+    const existingLoan = loans.find((loan) => loan.vehicleId === vehicle.id);
+    const loanCustomerId = vehicleLoanCustomerId(vehicle, existingLoan);
+    if (!loanCustomerId) {
       notifyError("Customer required", "Open the vehicle record and link or create the customer before starting the loan workflow.");
       return;
     }
 
     try {
-      const existingLoan = loans.find((loan) => loan.vehicleId === vehicle.id);
-      if (!existingLoan) {
-        const loan = await createLoan({
+      let targetLoan = existingLoan;
+      if (!targetLoan) {
+        const createdLoan = await createLoan({
           id: newId(),
           vehicleId: vehicle.id,
-          customerId: vehicle.customerId,
+          customerId: loanCustomerId,
           status: "Pending",
           louApproved: false,
           louDone: false,
           submittedAt: today()
         });
-        setLoans((items) => [loan, ...items]);
+        targetLoan = createdLoan;
+        setLoans((items) => [createdLoan, ...items]);
       }
 
       if (vehicle.status !== "LoanProcessing" || vehicle.isPublic) {
@@ -710,9 +722,7 @@ export default function App() {
       }
 
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
-      setPathname("/loans");
-      setRouteUrl("/loans");
-      window.history.pushState(null, "", "/loans");
+      navigateTo(`/loans?loanId=${encodeURIComponent(targetLoan.id)}`);
       notifySuccess(
         existingLoan ? "Loan workflow opened" : "Loan workflow started",
         existingLoan ? "This vehicle already has a loan record." : "A pending loan record was created and linked to the selected customer."
@@ -863,6 +873,8 @@ export default function App() {
               vehicles={vehicleLookup}
               customers={customers}
               loans={loans}
+              initialLoanId={loanIdFromRouteUrl(routeUrl)}
+              onBackToList={() => navigateTo("/loans")}
               onCreate={(loan) => runCreate(() => createLoan(loan), (record) => setLoans((items) => [record, ...items]), "Loan submitted")}
               onUpdate={(loan) => runUpdate(() => updateLoan(loan), (record) => setLoans((items) => replaceById(items, record)), "Loan updated")}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Loan document uploaded")}
@@ -2267,6 +2279,8 @@ function LoanPage({
   vehicles,
   customers,
   loans,
+  initialLoanId,
+  onBackToList,
   onCreate,
   onUpdate,
   onUploadDocument
@@ -2274,12 +2288,14 @@ function LoanPage({
   vehicles: VehicleLookup[];
   customers: Customer[];
   loans: LoanApplication[];
+  initialLoanId?: string;
+  onBackToList: () => void;
   onCreate: (loan: LoanApplication) => void;
   onUpdate: (loan: LoanApplication) => void;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [documentChecks, setDocumentChecks] = useState<Record<string, LoanDocumentCheck>>({});
-  const [uploadLoanId, setUploadLoanId] = useState("");
+  const [uploadLoanId, setUploadLoanId] = useState(initialLoanId ?? "");
   const [editLoanId, setEditLoanId] = useState(loans[0]?.id ?? "");
   const [loanEditorOpen, setLoanEditorOpen] = useState(false);
   const [loanCreateOpen, setLoanCreateOpen] = useState(false);
@@ -2302,6 +2318,10 @@ function LoanPage({
     setMobileLoanPage(1);
   };
   const loanEmptyText = loans.length > 0 ? "No loans match the current filters." : "No loan records yet.";
+
+  useEffect(() => {
+    if (initialLoanId) setUploadLoanId(initialLoanId);
+  }, [initialLoanId]);
 
   useEffect(() => {
     if (!loans.length) {
@@ -2442,7 +2462,7 @@ function LoanPage({
     };
     return (
       <Space direction="vertical" size={16} className="fullWidth">
-        <Button onClick={() => setUploadLoanId("")}>Back to Loan List</Button>
+        <Button onClick={() => { setUploadLoanId(""); onBackToList(); }}>Back to Loan List</Button>
         <ProCard title={`Loan Details / 贷款详情 - ${plateFor(vehicles, selectedLoan.vehicleId)}`}>
           <Descriptions size="small" column={{ xs: 1, md: 3 }}>
             <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedLoan.vehicleId)}</Descriptions.Item>

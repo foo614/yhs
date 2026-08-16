@@ -2060,6 +2060,10 @@ body {
   gap: 8px;
 }
 
+.vehicleMoreFiltersButton {
+  width: 100%;
+}
+
 .vehicleIntakeChecklist {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2107,6 +2111,37 @@ body {
   color: #60746e;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.loanHandoffImpact {
+  margin-top: 4px;
+  padding: 14px 16px;
+  border: 1px solid rgba(204, 132, 24, .24);
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.loanHandoffNewBuyer {
+  height: auto;
+  padding: 0;
+  margin-top: -8px;
+}
+
+.loanHandoffImpact ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: #4f625b;
+}
+
+.loanHandoffImpact li + li {
+  margin-top: 5px;
+}
+
+.loanHandoffActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .vehicleContactGrid {
@@ -2191,6 +2226,8 @@ body {
 }
 
 .vehicleCapturedDataSection {
+  min-width: 0;
+  width: 100%;
   display: grid;
   gap: 12px;
   margin-top: 16px;
@@ -2198,9 +2235,19 @@ body {
   border-top: 1px solid rgba(20, 72, 61, .08);
 }
 
+.vehicleCapturedDataSection > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .vehicleCapturedDataSection > div:first-child {
   display: grid;
   gap: 2px;
+}
+
+.vehicleOcrTable {
+  width: 100%;
+  max-width: 100%;
 }
 
 .vehicleOcrMobileList {
@@ -3495,6 +3542,25 @@ body {
   .vehicleFilterMeta {
     flex-wrap: wrap;
     justify-content: space-between;
+  }
+
+  .loanHandoffActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .loanHandoffActions .ant-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .loanHandoffActions .ant-btn-primary {
+    order: -1;
+  }
+
+  .vehiclesPage {
+    min-width: 0;
+    overflow-x: clip;
   }
 
   .vehicleFilterMeta .ant-btn {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterOperationIntakeVehicles } from "./VehiclePage";
+import { filterOperationIntakeVehicles, getVehicleWorkflowState, vehicleLoanHandoffStep } from "./VehiclePage";
 import type { Lead, PurchaseInvoice, Vehicle } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -69,5 +69,27 @@ describe("filterOperationIntakeVehicles", () => {
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { ownerLink: "missing", customerLink: "missing", invoiceLink: "missing" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-2"]);
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { leadActivity: "active" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { leadActivity: "none" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-2", "vehicle-3"]);
+  });
+});
+
+describe("vehicleLoanHandoffStep", () => {
+  it("opens an existing loan without asking for the buyer again", () => {
+    expect(vehicleLoanHandoffStep({ status: "LoanProcessing", customerId: undefined })).toBe("open-existing");
+  });
+
+  it("routes available stock through buyer selection and confirmation", () => {
+    expect(vehicleLoanHandoffStep({ status: "Available", customerId: undefined })).toBe("select-buyer");
+    expect(vehicleLoanHandoffStep({ status: "Available", customerId: "customer-1" })).toBe("confirm-start");
+  });
+});
+
+describe("getVehicleWorkflowState", () => {
+  it("uses one state model for approval, publishing, buyer linking, and loans", () => {
+    expect(getVehicleWorkflowState({ status: "Available", bossConfirmed: false, isPublic: false, customerId: undefined }).nextLabel).toBe("Review Approval");
+    expect(getVehicleWorkflowState({ status: "Available", bossConfirmed: true, isPublic: false, customerId: undefined }).action).toBe("publish");
+    expect(getVehicleWorkflowState({ status: "Available", bossConfirmed: true, isPublic: true, customerId: undefined }).nextLabel).toBe("Link Buyer");
+    expect(getVehicleWorkflowState({ status: "Available", bossConfirmed: true, isPublic: true, customerId: "customer-1" }).action).toBe("start-loan");
+    expect(getVehicleWorkflowState({ status: "LoanProcessing", bossConfirmed: true, isPublic: false, customerId: "customer-1" }).nextLabel).toBe("Open Loan");
+    expect(getVehicleWorkflowState({ status: "Sold", bossConfirmed: true, isPublic: false, customerId: "customer-1" }).action).toBe("none");
   });
 });

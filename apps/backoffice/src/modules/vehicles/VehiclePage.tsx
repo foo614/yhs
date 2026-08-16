@@ -50,6 +50,81 @@ export type OperationIntakeVehicleFilters = {
   leadActivity?: "active" | "none";
 };
 
+export type VehicleLoanHandoffStep = "open-existing" | "select-buyer" | "confirm-start";
+
+export type VehicleWorkflowState = {
+  color: string;
+  status: string;
+  next: string;
+  nextLabel: string;
+  action: "none" | "publish" | "link-buyer" | "start-loan" | "open-loan";
+};
+
+export function vehicleLoanHandoffStep(vehicle: Pick<Vehicle, "status" | "customerId">): VehicleLoanHandoffStep {
+  if (vehicle.status === "LoanProcessing") return "open-existing";
+  return vehicle.customerId ? "confirm-start" : "select-buyer";
+}
+
+export function getVehicleWorkflowState(vehicle: Pick<Vehicle, "status" | "bossConfirmed" | "isPublic" | "customerId">): VehicleWorkflowState {
+  if (vehicle.status === "Sold") {
+    return {
+      color: "purple",
+      status: "Sale completed",
+      next: "No more stock action needed. Keep finance and audit records complete.",
+      nextLabel: "Completed",
+      action: "none"
+    };
+  }
+
+  if (vehicle.status === "LoanProcessing") {
+    return {
+      color: "blue",
+      status: "Loan in progress",
+      next: "Open the linked loan record to follow up documents, LOU approval, and completion.",
+      nextLabel: "Open Loan",
+      action: "open-loan"
+    };
+  }
+
+  if (!vehicle.bossConfirmed) {
+    return {
+      color: "orange",
+      status: "Waiting for management approval",
+      next: "Open Details and approve the vehicle price before publishing or loan follow-up.",
+      nextLabel: "Review Approval",
+      action: "none"
+    };
+  }
+
+  if (!vehicle.isPublic) {
+    return {
+      color: "gold",
+      status: "Approved but hidden from website",
+      next: "Publish when this car is ready to show on the public website.",
+      nextLabel: "Publish to Website",
+      action: "publish"
+    };
+  }
+
+  if (!vehicle.customerId) {
+    return {
+      color: "gold",
+      status: "Buyer needed for loan",
+      next: "Link the confirmed buyer before moving this vehicle into loan processing.",
+      nextLabel: "Link Buyer",
+      action: "link-buyer"
+    };
+  }
+
+  return {
+    color: "green",
+    status: "Ready stock on website",
+    next: "The buyer is linked. Review and confirm the loan handoff when the sale proceeds.",
+    nextLabel: "Start Loan",
+    action: "start-loan"
+  };
+}
+
 export function filterOperationIntakeVehicles(
   vehicles: Vehicle[],
   purchaseInvoices: PurchaseInvoice[],
@@ -122,10 +197,10 @@ export function VehiclePage({
   purchaseInvoices: PurchaseInvoice[];
   canApproveVehicles: boolean;
   onCreate: (vehicle: Vehicle) => void;
-  onUpdate: (vehicle: Vehicle) => void;
+  onUpdate: (vehicle: Vehicle) => Promise<void>;
   onStartLoan: (vehicle: Vehicle) => Promise<void>;
   onOpenCustomer: (customerId: string) => void;
-  onCreateCustomer: (customer: Customer) => void;
+  onCreateCustomer: (customer: Customer) => Promise<void>;
   onUpdateCustomer: (customer: Customer) => void;
   onCreateOwner: (owner: Owner) => void;
   onUpdateOwner: (owner: Owner) => void;
@@ -152,8 +227,15 @@ export function VehiclePage({
   const [purchaseInvoiceCreateOpen, setPurchaseInvoiceCreateOpen] = useState(false);
   const [purchaseInvoiceOcrDraft, setPurchaseInvoiceOcrDraft] = useState<OcrReviewValues | null>(null);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
+  const [customerCreateForLoanVehicleId, setCustomerCreateForLoanVehicleId] = useState("");
+  const [customerCreating, setCustomerCreating] = useState(false);
   const [ownerCreateOpen, setOwnerCreateOpen] = useState(false);
+  const [loanHandoffVehicleId, setLoanHandoffVehicleId] = useState("");
+  const [loanHandoffCustomerId, setLoanHandoffCustomerId] = useState("");
+  const [loanHandoffSubmitting, setLoanHandoffSubmitting] = useState(false);
+  const [loanHandoffForm] = Form.useForm<{ customerId: string }>();
   const [operationFilters, setOperationFilters] = useState<OperationIntakeVehicleFilters>({});
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [mobileVehiclePage, setMobileVehiclePage] = useState(1);
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const uploadDisabled = !selectedVehicleId;
@@ -166,6 +248,8 @@ export function VehiclePage({
   const selectedVehicleActiveLeads = selectedVehicleLeads.filter((lead) => lead.status !== "Closed");
   const selectedVehicleCustomer = selectedVehicle?.customerId ? customers.find((customer) => customer.id === selectedVehicle.customerId) : undefined;
   const selectedVehicleOwner = selectedVehicle?.ownerId ? owners.find((owner) => owner.id === selectedVehicle.ownerId) : undefined;
+  const loanHandoffVehicle = vehicles.find((vehicle) => vehicle.id === loanHandoffVehicleId);
+  const loanHandoffStep = loanHandoffVehicle ? vehicleLoanHandoffStep(loanHandoffVehicle) : undefined;
   const availableVehicles = vehicles.filter((vehicle) => vehicle.status === "Available").length;
   const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
@@ -174,9 +258,19 @@ export function VehiclePage({
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
   const mobileVehicles = filteredVehicles.slice((clampedMobileVehiclePage - 1) * mobileVehiclePageSize, clampedMobileVehiclePage * mobileVehiclePageSize);
   const filterActive = Object.values(operationFilters).some((value) => value !== undefined && value !== "");
+  const advancedFilterCount = [
+    operationFilters.stockOwner,
+    operationFilters.publicState,
+    operationFilters.ownerLink,
+    operationFilters.customerLink,
+    operationFilters.invoiceLink,
+    operationFilters.outstationPickup,
+    operationFilters.leadActivity
+  ].filter(Boolean).length;
   const selectedVehicleProfit = selectedVehicle
     ? estimatedVehicleProfit(selectedVehicle)
     : 0;
+  const selectedWorkflow = selectedVehicle ? getVehicleWorkflowState(selectedVehicle) : undefined;
   const selectedVehicleInvoiceCount = selectedVehicleInvoices.length;
   const selectedVehicleDocumentCount = documents.length;
   const selectedVehicleCaptureCount = ocrJobs.length;
@@ -198,39 +292,9 @@ export function VehiclePage({
         selectedVehicleInvoiceCount > 0 ? "" : "Purchase invoice missing",
         selectedVehicle.contraRangePrice ? "" : "Contra range not set",
         selectedVehicle.ucdStatus ? "" : "UCD status not tracked",
-        selectedVehicle.isPublic ? "" : "Website hidden"
+        selectedVehicle.status === "Available" && !selectedVehicle.isPublic ? "Website hidden" : ""
       ].filter(Boolean)
     : [];
-  const approvalStageLabel = selectedVehicle
-    ? selectedVehicle.status === "Sold"
-      ? "Sold / 已售"
-      : selectedVehicle.status === "LoanProcessing"
-        ? "Loan processing / 贷款中"
-        : selectedVehicle.bossConfirmed
-          ? selectedVehicle.isPublic
-            ? "Ready stock on website / 网站现车"
-            : "Ready stock hidden / 已确认未上架"
-          : "Waiting management approval / 等管理层审批"
-    : "No vehicle selected";
-  const nextApprovalAction = selectedVehicle
-    ? !selectedVehicle.bossConfirmed
-      ? "boss"
-      : selectedVehicle.status === "Available" && !selectedVehicle.isPublic
-        ? "publish"
-        : selectedVehicle.status === "Available"
-          ? "loan"
-          : selectedVehicle.status === "LoanProcessing"
-            ? "sold"
-            : "done"
-    : "select";
-  const nextApprovalLabel: Record<typeof nextApprovalAction, string> = {
-    select: "Select a vehicle",
-    boss: "Management Approval",
-    publish: "Publish to Website",
-    loan: "Move to Loan",
-    sold: "Mark Sold",
-    done: "Completed"
-  };
   const photoPreviewGrid = (
     <div className="vehiclePhotoPreviewGrid">
       {photos.length > 0 ? photos.map((photo) => (
@@ -301,22 +365,56 @@ export function VehiclePage({
     setVehicleDetailOpen(true);
   };
 
+  const closeLoanHandoff = () => {
+    setLoanHandoffVehicleId("");
+    setLoanHandoffCustomerId("");
+  };
+
   const handleStartLoan = (vehicle: Vehicle) => {
-    if (!vehicle.customerId) {
-      message.warning("Link or create the customer before starting the loan workflow.");
-      openVehicleDetails(vehicle.id);
+    if (vehicleLoanHandoffStep(vehicle) === "open-existing") {
+      void onStartLoan(vehicle);
       return;
     }
 
-    void onStartLoan(vehicle);
+    selectVehicle(vehicle.id);
+    setLoanHandoffCustomerId(vehicle.customerId ?? "");
+    setLoanHandoffVehicleId(vehicle.id);
   };
 
-  const loanActionLabel = (vehicle: Vehicle) => vehicle.status === "LoanProcessing" ? "Open Loan" : "Start Loan";
+  useEffect(() => {
+    if (!loanHandoffVehicle) return;
+    loanHandoffForm.setFieldsValue({ customerId: loanHandoffCustomerId || loanHandoffVehicle.customerId });
+  }, [loanHandoffCustomerId, loanHandoffForm, loanHandoffVehicle]);
+
+  const openCustomerCreateForLoan = (vehicleId: string) => {
+    closeLoanHandoff();
+    setCustomerCreateForLoanVehicleId(vehicleId);
+    setCustomerCreateOpen(true);
+  };
+
+  const submitLoanHandoff = async ({ customerId }: { customerId: string }) => {
+    if (!loanHandoffVehicle) return;
+
+    const preparedVehicle = { ...loanHandoffVehicle, customerId };
+    setLoanHandoffSubmitting(true);
+    try {
+      if (loanHandoffVehicle.customerId !== customerId) {
+        await onUpdate(preparedVehicle);
+      }
+      await onStartLoan(preparedVehicle);
+      closeLoanHandoff();
+    } catch {
+      // The parent surfaces the API error. Keep this dialog open so staff can correct or retry the handoff.
+    } finally {
+      setLoanHandoffSubmitting(false);
+    }
+  };
 
   const renderVehicleNextAction = (vehicle: Vehicle) => {
-    if (vehicle.status === "Sold") return null;
+    const workflow = getVehicleWorkflowState(vehicle);
+    if (workflow.action === "none") return null;
 
-    if (vehicle.status === "LoanProcessing") {
+    if (workflow.action === "open-loan") {
       return (
         <Button size="small" onClick={() => handleStartLoan(vehicle)}>
           Open Loan
@@ -324,65 +422,19 @@ export function VehiclePage({
       );
     }
 
-    if (!vehicle.isPublic) {
+    if (workflow.action === "publish") {
       return (
         <Button
           size="small"
           onClick={() => onUpdate({ ...vehicle, status: "Available", isPublic: true })}
           disabled={!vehicle.bossConfirmed}
         >
-          Publish
+          {workflow.nextLabel}
         </Button>
       );
     }
 
-    return (
-      <Tooltip title={!vehicle.customerId ? "Link customer first" : ""}>
-        <Button size="small" onClick={() => handleStartLoan(vehicle)}>
-          {loanActionLabel(vehicle)}
-        </Button>
-      </Tooltip>
-    );
-  };
-
-  const vehicleWorkflowGuide = (vehicle: Vehicle) => {
-    if (vehicle.status === "Sold") {
-      return {
-        color: "purple",
-        status: "Sale completed",
-        next: "No more stock action needed. Keep finance and audit records complete."
-      };
-    }
-
-    if (!vehicle.bossConfirmed) {
-      return {
-        color: "orange",
-        status: "Waiting for management approval",
-        next: "Open Details and approve the vehicle price before publishing or loan follow-up."
-      };
-    }
-
-    if (vehicle.status === "LoanProcessing") {
-      return {
-        color: "blue",
-        status: "Loan in progress",
-        next: "Open the loan record and follow up documents, LOU approval, and LOU done."
-      };
-    }
-
-    if (!vehicle.isPublic) {
-      return {
-        color: "gold",
-        status: "Approved but hidden from website",
-        next: "Tap Publish when this car is ready to show on the public website."
-      };
-    }
-
-    return {
-      color: "green",
-      status: "Ready stock on website",
-      next: "Wait for enquiry or start loan after the correct customer is linked."
-    };
+    return <Button size="small" onClick={() => handleStartLoan(vehicle)}>{workflow.nextLabel}</Button>;
   };
 
   const renderVehicleActions = (vehicle: Vehicle) => (
@@ -733,6 +785,7 @@ export function VehiclePage({
           <Badge status={row.bossConfirmed ? "success" : "warning"} text={row.bossConfirmed ? "Approved" : "Approval pending"} />
           <Badge status={row.isPublic ? "success" : "default"} text={row.isPublic ? "Website visible" : "Website hidden"} />
           <Badge status={invoiceCountForVehicle(row.id) > 0 ? "success" : "warning"} text={invoiceCountForVehicle(row.id) > 0 ? "Invoice linked" : "Invoice missing"} />
+          <Badge status={row.customerId ? "success" : "warning"} text={row.customerId ? "Buyer linked" : "Buyer not linked"} />
         </Space>
       )
     },
@@ -970,8 +1023,8 @@ export function VehiclePage({
                   {`${selectedVehicle.plateNumber} - ${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`}
                 </Typography.Title>
                 <Space wrap>
-                  <Tag color={vehicleStatusColor[selectedVehicle.status]}>{approvalStageLabel}</Tag>
-                  <Tag color={nextApprovalAction === "done" ? "green" : "gold"}>Next: {nextApprovalLabel[nextApprovalAction]}</Tag>
+                  <Tag color={vehicleStatusColor[selectedVehicle.status]}>{selectedWorkflow?.status}</Tag>
+                  <Tag color={selectedWorkflow?.action === "none" ? "green" : "gold"}>Next: {selectedWorkflow?.nextLabel}</Tag>
                 </Space>
               </div>
               <div className="vehicleSelectedFacts">
@@ -1033,14 +1086,21 @@ export function VehiclePage({
             onChange={(event) => updateOperationFilter("keyword", event.target.value)}
           />
           <Select allowClear placeholder="Status" value={operationFilters.status} options={operationFilterOptions.status} onChange={(value) => updateOperationFilter("status", value)} />
-          <Select allowClear placeholder="Stock owner" value={operationFilters.stockOwner} options={operationFilterOptions.stockOwner} onChange={(value) => updateOperationFilter("stockOwner", value)} />
-          <Select allowClear placeholder="Website" value={operationFilters.publicState} options={operationFilterOptions.publicState} onChange={(value) => updateOperationFilter("publicState", value)} />
           <Select allowClear placeholder="Approval" value={operationFilters.approval} options={operationFilterOptions.approval} onChange={(value) => updateOperationFilter("approval", value)} />
-          <Select allowClear placeholder="Owner" value={operationFilters.ownerLink} options={operationFilterOptions.ownerLink} onChange={(value) => updateOperationFilter("ownerLink", value)} />
-          <Select allowClear placeholder="Customer" value={operationFilters.customerLink} options={operationFilterOptions.customerLink} onChange={(value) => updateOperationFilter("customerLink", value)} />
-          <Select allowClear placeholder="Invoice" value={operationFilters.invoiceLink} options={operationFilterOptions.invoiceLink} onChange={(value) => updateOperationFilter("invoiceLink", value)} />
-          <Select allowClear placeholder="Outstation" value={operationFilters.outstationPickup} options={operationFilterOptions.outstationPickup} onChange={(value) => updateOperationFilter("outstationPickup", value)} />
-          <Select allowClear placeholder="Leads" value={operationFilters.leadActivity} options={operationFilterOptions.leadActivity} onChange={(value) => updateOperationFilter("leadActivity", value)} />
+          <Button className="vehicleMoreFiltersButton" onClick={() => setMoreFiltersOpen((open) => !open)}>
+            {moreFiltersOpen ? "Fewer filters" : `More filters${advancedFilterCount > 0 ? ` (${advancedFilterCount})` : ""}`}
+          </Button>
+          {moreFiltersOpen ? (
+            <>
+              <Select allowClear placeholder="Stock owner" value={operationFilters.stockOwner} options={operationFilterOptions.stockOwner} onChange={(value) => updateOperationFilter("stockOwner", value)} />
+              <Select allowClear placeholder="Website" value={operationFilters.publicState} options={operationFilterOptions.publicState} onChange={(value) => updateOperationFilter("publicState", value)} />
+              <Select allowClear placeholder="Owner" value={operationFilters.ownerLink} options={operationFilterOptions.ownerLink} onChange={(value) => updateOperationFilter("ownerLink", value)} />
+              <Select allowClear placeholder="Customer" value={operationFilters.customerLink} options={operationFilterOptions.customerLink} onChange={(value) => updateOperationFilter("customerLink", value)} />
+              <Select allowClear placeholder="Invoice" value={operationFilters.invoiceLink} options={operationFilterOptions.invoiceLink} onChange={(value) => updateOperationFilter("invoiceLink", value)} />
+              <Select allowClear placeholder="Outstation" value={operationFilters.outstationPickup} options={operationFilterOptions.outstationPickup} onChange={(value) => updateOperationFilter("outstationPickup", value)} />
+              <Select allowClear placeholder="Leads" value={operationFilters.leadActivity} options={operationFilterOptions.leadActivity} onChange={(value) => updateOperationFilter("leadActivity", value)} />
+            </>
+          ) : null}
           <div className="vehicleFilterMeta">
             <Tag color={filterActive ? "blue" : "default"}>{filterActive ? `${filteredVehicles.length} of ${vehicles.length} matching` : `${vehicles.length} vehicle${vehicles.length === 1 ? "" : "s"}`}</Tag>
             {filterActive && <Button size="small" onClick={() => { setOperationFilters({}); setMobileVehiclePage(1); }}>Clear filters</Button>}
@@ -1049,7 +1109,7 @@ export function VehiclePage({
         <div className="mobileRecordList">
           {filteredVehicles.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No vehicles match the current filters." />}
           {mobileVehicles.map((vehicle) => {
-            const workflow = vehicleWorkflowGuide(vehicle);
+            const workflow = getVehicleWorkflowState(vehicle);
 
             return (
             <article className="mobileRecordCard vehicleMobileCard" key={vehicle.id}>
@@ -1086,7 +1146,7 @@ export function VehiclePage({
                 <strong>{workflow.next}</strong>
                 <div className="vehicleWorkflowChecks">
                   <span className={vehicle.bossConfirmed ? "done" : "pending"}>{vehicle.bossConfirmed ? "Approved" : "Need approval"}</span>
-                  <span className={vehicle.isPublic ? "done" : "pending"}>{vehicle.isPublic ? "Website visible" : "Website hidden"}</span>
+                  <span className={vehicle.status !== "Available" || vehicle.isPublic ? "done" : "pending"}>{vehicle.status === "LoanProcessing" ? "Website hidden for loan" : vehicle.status === "Sold" ? "Website hidden after sale" : vehicle.isPublic ? "Website visible" : "Website hidden"}</span>
                   <span className={vehicle.customerId ? "done" : "pending"}>{vehicle.customerId ? "Customer linked" : "No customer"}</span>
                 </div>
               </div>
@@ -1100,12 +1160,12 @@ export function VehiclePage({
               <div className="mobileRecordSection">
                 <Typography.Text className="mobileRecordLabel">Contacts / 联系人</Typography.Text>
                 <div className="mobileRecordTextBlock">
-                  <span>{contactFor(customers, vehicle.customerId)}</span>
-                  <span>{contactFor(owners, vehicle.ownerId)}</span>
+                  <span>Buyer: {contactFor(customers, vehicle.customerId)}</span>
+                  <span>Owner: {contactFor(owners, vehicle.ownerId)}</span>
                 </div>
               </div>
               <div className="mobileRecordFooter">
-                <Tag color={vehicle.bossConfirmed && vehicle.isPublic ? "green" : "gold"}>{vehicle.bossConfirmed && vehicle.isPublic ? "Ready stock" : `Next: ${vehicle.bossConfirmed ? "Publish" : "Management approval"}`}</Tag>
+                <Tag color={workflow.color}>Next: {workflow.nextLabel}</Tag>
                 {renderVehicleActions(vehicle)}
               </div>
             </article>
@@ -1127,7 +1187,7 @@ export function VehiclePage({
           columns={compactOperationIntakeColumns}
           dataSource={filteredVehicles}
           pagination={{ ...tablePagination(8), current: clampedMobileVehiclePage, onChange: setMobileVehiclePage }}
-          scroll={{ x: 1980 }}
+          scroll={{ x: 1430 }}
           rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}
           onRow={(row) => ({
             onClick: () => selectVehicle(row.id)
@@ -1135,6 +1195,83 @@ export function VehiclePage({
           locale={{ emptyText: "No vehicles match the current filters." }}
         />
       </ProCard>
+      <Modal
+        title={loanHandoffVehicle ? `Start Loan / 开始贷款 - ${loanHandoffVehicle.plateNumber}` : "Start Loan / 开始贷款"}
+        width={600}
+        open={Boolean(loanHandoffVehicle)}
+        onCancel={closeLoanHandoff}
+        footer={null}
+        destroyOnClose
+        maskClosable={!loanHandoffSubmitting}
+        closable={!loanHandoffSubmitting}
+        keyboard={!loanHandoffSubmitting}
+        className="loanHandoffModal"
+      >
+        {loanHandoffVehicle ? (
+          <Space direction="vertical" size={16} className="fullWidth">
+            <Alert
+              type={loanHandoffStep === "select-buyer" ? "warning" : "info"}
+              showIcon
+              message={loanHandoffStep === "select-buyer" ? "Select the confirmed buyer" : "Confirm the buyer and loan handoff"}
+              description={loanHandoffStep === "select-buyer"
+                ? "This vehicle does not have a buyer linked yet. Select the correct customer before starting the loan."
+                : "Review the linked buyer before moving this vehicle from public stock into loan processing."}
+            />
+            <Descriptions size="small" bordered column={1}>
+              <Descriptions.Item label="Vehicle / 车辆">{`${loanHandoffVehicle.plateNumber} - ${vehicleName(loanHandoffVehicle)}`}</Descriptions.Item>
+              <Descriptions.Item label="Current status / 当前状态"><Tag color={vehicleStatusColor[loanHandoffVehicle.status]}>{loanHandoffVehicle.status}</Tag></Descriptions.Item>
+              <Descriptions.Item label="Website / 网站"><Badge status={loanHandoffVehicle.isPublic ? "success" : "default"} text={loanHandoffVehicle.isPublic ? "Visible" : "Hidden"} /></Descriptions.Item>
+            </Descriptions>
+            <Form
+              form={loanHandoffForm}
+              layout="vertical"
+              onFinish={(values) => void submitLoanHandoff(values)}
+            >
+              <Form.Item
+                name="customerId"
+                label="Confirmed Buyer / 确认买家"
+                rules={[{ required: true, message: "Select the confirmed buyer before starting the loan." }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="Select customer"
+                  options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
+                  notFoundContent="No customers available"
+                />
+              </Form.Item>
+              {customers.length === 0 ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="Create a customer first"
+                  description="A customer record is required before a vehicle can enter the loan workflow."
+                  action={<Button onClick={() => openCustomerCreateForLoan(loanHandoffVehicle.id)}>New Customer</Button>}
+                />
+              ) : null}
+              {customers.length > 0 ? (
+                <Button type="link" className="loanHandoffNewBuyer" onClick={() => openCustomerCreateForLoan(loanHandoffVehicle.id)}>
+                  Create a new buyer instead
+                </Button>
+              ) : null}
+              <div className="loanHandoffImpact">
+                <Typography.Text strong>When confirmed / 确认后</Typography.Text>
+                <ul>
+                  <li>A pending loan record is created for this buyer if one does not already exist.</li>
+                  <li>The vehicle status changes to Loan Processing.</li>
+                  <li>The vehicle is hidden from the public website while the loan is active.</li>
+                </ul>
+              </div>
+              <div className="loanHandoffActions">
+                <Button onClick={closeLoanHandoff} disabled={loanHandoffSubmitting}>Cancel</Button>
+                <Button type="primary" htmlType="submit" loading={loanHandoffSubmitting} disabled={customers.length === 0}>
+                  Confirm & Start Loan
+                </Button>
+              </div>
+            </Form>
+          </Space>
+        ) : null}
+      </Modal>
       <Drawer
         title={selectedVehicle ? `Vehicle Details / 车辆详情 - ${selectedVehicle.plateNumber}` : "Vehicle Details / 车辆详情"}
         width={960}
@@ -1859,12 +1996,15 @@ export function VehiclePage({
         title="New Customer / 新增客户"
         width={620}
         open={customerCreateOpen}
-        onCancel={() => setCustomerCreateOpen(false)}
+        onCancel={() => { setCustomerCreateOpen(false); setCustomerCreateForLoanVehicleId(""); }}
         footer={null}
         destroyOnClose
+        maskClosable={!customerCreating}
+        closable={!customerCreating}
+        keyboard={!customerCreating}
         className="recordCreateModal"
       >
-        <Form layout="vertical" className="modalForm" onFinish={(values) => {
+        <Form layout="vertical" className="modalForm" onFinish={async (values) => {
           const customer: Customer = {
             id: newId(),
             name: values.name,
@@ -1880,8 +2020,22 @@ export function VehiclePage({
             return;
           }
 
-          onCreateCustomer(customer);
-          setCustomerCreateOpen(false);
+          setCustomerCreating(true);
+          try {
+            await onCreateCustomer(customer);
+            const loanVehicleId = customerCreateForLoanVehicleId;
+            setCustomerCreateForLoanVehicleId("");
+            setCustomerCreateOpen(false);
+            if (loanVehicleId) {
+              selectVehicle(loanVehicleId);
+              setLoanHandoffCustomerId(customer.id);
+              setLoanHandoffVehicleId(loanVehicleId);
+            }
+          } catch {
+            // The parent surfaces the API error. Keep the customer form open for correction.
+          } finally {
+            setCustomerCreating(false);
+          }
         }}>
           <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
@@ -1889,7 +2043,7 @@ export function VehiclePage({
           <Form.Item name="email" label="Email"><Input /></Form.Item>
           <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
           <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Customer</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={customerCreating}>{customerCreateForLoanVehicleId ? "Create & Continue" : "Create Customer"}</Button></Form.Item>
         </Form>
       </Modal>
       <Modal
