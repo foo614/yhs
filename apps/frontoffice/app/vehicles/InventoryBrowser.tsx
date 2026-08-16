@@ -188,14 +188,6 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
           {numericValidation.errors.maxPrice && <FilterValidationMessage id="max-price-error" error={numericValidation.errors.maxPrice} t={t} />}
         </div>
         <label>
-          {t.stockOwner}
-          <select value={stockOwner} onChange={(event) => setStockOwner(event.target.value as PublicVehicle["stockOwner"] | "All")}>
-            <option value="All">{t.allStock}</option>
-            <option value="YSHeng">YS Heng</option>
-            <option value="KS">KS</option>
-          </select>
-        </label>
-        <label>
           {t.sort}
           <select value={sort} onChange={(event) => setSort(event.target.value as ListingSort)}>
             <option value="year-desc">{t.newestFirst}</option>
@@ -213,7 +205,6 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
           </div>
           <div className="inventoryChips" aria-label="Active inventory filters">
             {make && <span>{make}</span>}
-            <span>{stockOwner === "All" ? t.allStock : stockOwner}</span>
             <span>{sort === "year-desc" ? t.newestFirst : sort === "price-asc" ? t.priceLow : t.priceHigh}</span>
           </div>
         </div>
