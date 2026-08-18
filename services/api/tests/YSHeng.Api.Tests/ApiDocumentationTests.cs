@@ -20,6 +20,24 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Workflow_approval_actions_are_dedicated_and_boss_admin_only()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+
+        Assert.Contains("backOffice.MapPost(\"/repairs/{id:guid}/approval\"", program);
+        Assert.Contains("backOffice.MapPost(\"/payments/{id:guid}/management-review\"", program);
+        Assert.Contains("RepairApprovalRules.PrepareForCreate(repair)", program);
+        Assert.Contains("PaymentManagementReviewRules.PrepareForCreate(payment)", program);
+        var repairApprovalRoute = program[program.IndexOf("backOffice.MapPost(\"/repairs/{id:guid}/approval\"", StringComparison.Ordinal)..];
+        var managementReviewRoute = program[program.IndexOf("backOffice.MapPost(\"/payments/{id:guid}/management-review\"", StringComparison.Ordinal)..];
+        Assert.StartsWith("backOffice.MapPost(\"/repairs/{id:guid}/approval\"", repairApprovalRoute);
+        Assert.StartsWith("backOffice.MapPost(\"/payments/{id:guid}/management-review\"", managementReviewRoute);
+        Assert.Contains("}).RequireAuthorization(\"BossAdmin\");", repairApprovalRoute[..repairApprovalRoute.IndexOf("backOffice.MapGet(\"/suppliers\"", StringComparison.Ordinal)]);
+        Assert.Contains("}).RequireAuthorization(\"BossAdmin\");", managementReviewRoute[..managementReviewRoute.IndexOf("backOffice.MapGet(\"/cash-handovers\"", StringComparison.Ordinal)]);
+    }
+
+    [Fact]
     public void Ocr_usage_is_reserved_before_the_external_provider_is_called()
     {
         var root = FindRepositoryRoot();

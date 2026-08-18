@@ -235,6 +235,8 @@ backOffice.MapGet("/vehicle-lookup", async (AppDbContext db) =>
 backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpContext context) =>
 {
     vehicle = VehicleRules.NormalizeDateTimes(vehicle);
+    var workflowStatusValidation = VehicleWorkflowRules.ValidateCreate(vehicle);
+    if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
     var approvalValidation = VehicleApprovalRules.ValidateCreate(vehicle, context.User.IsInRole("BossAdmin"));
     if (!approvalValidation.IsValid) return Results.Json(approvalValidation, statusCode: StatusCodes.Status403Forbidden);
     vehicle = VehicleApprovalRules.EnforceVisibility(vehicle);
@@ -265,6 +267,8 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
     if (existingVehicle is null) return Results.NotFound();
     var existingSnapshot = existingVehicle with { };
+    var workflowStatusValidation = VehicleWorkflowRules.ValidateUpdate(existingSnapshot, update);
+    if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
     var canApprove = context.User.IsInRole("BossAdmin");
     var approvalValidation = VehicleApprovalRules.ValidateUpdate(existingSnapshot, update, canApprove);
     if (!approvalValidation.IsValid) return Results.Json(approvalValidation, statusCode: StatusCodes.Status403Forbidden);
@@ -358,8 +362,11 @@ backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Gu
 
 backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, AppDbContext db, HttpContext context) =>
 {
-    var validation = WorkflowReferenceRules.ValidateVehicleLink(id, await db.Vehicles.AsNoTracking().ToListAsync());
-    if (!validation.IsValid) return Results.BadRequest(validation);
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (vehicle is null)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Record must be linked to an existing car plate.")]));
+    }
     var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
     if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
     var ownershipValidation = DocumentOwnershipRules.Validate(category, repairJobId, paymentRecordId);
@@ -389,6 +396,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     var document = new DocumentBlob
     {
         VehicleId = id,
+        CustomerId = vehicle.CustomerId,
         RepairJobId = repairJobId,
         PaymentRecordId = paymentRecordId,
         Category = category,
@@ -676,14 +684,24 @@ backOffice.MapPut("/purchase-invoices/{id:guid}", async (Guid id, PurchaseInvoic
 backOffice.MapGet("/loans", async (AppDbContext db) => await db.LoanApplications.AsNoTracking().ToListAsync()).RequireAuthorization("Loans");
 backOffice.MapPost("/loans", async (LoanApplication loan, AppDbContext db, HttpContext context) =>
 {
+    var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var customers = await db.Customers.AsNoTracking().ToListAsync();
+    var existingLoans = await db.LoanApplications.AsNoTracking().ToListAsync();
     var validation = WorkflowReferenceRules.ValidateLoan(
         loan,
-        await db.Vehicles.AsNoTracking().ToListAsync(),
-        await db.Customers.AsNoTracking().ToListAsync(),
-        await db.LoanApplications.AsNoTracking().ToListAsync());
+        vehicles,
+        customers,
+        existingLoans);
     if (!validation.IsValid) return Results.BadRequest(validation);
+    if (loan.Status == LoanStatus.Done)
+    {
+        var completionValidation = LoanDocumentRules.ValidateCompletion(loan, await db.DocumentBlobs.AsNoTracking().ToListAsync());
+        if (!completionValidation.IsValid) return Results.BadRequest(completionValidation);
+    }
+
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == loan.VehicleId);
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyLoanStatus(vehicle, loan));
+    var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, existingLoans.Append(loan), payments));
     db.LoanApplications.Add(loan);
     ApiAudit.Add(db, context.User, "loan.created", nameof(LoanApplication), loan.Id);
     await db.SaveChangesAsync();
@@ -692,15 +710,31 @@ backOffice.MapPost("/loans", async (LoanApplication loan, AppDbContext db, HttpC
 backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppDbContext db, HttpContext context) =>
 {
     if (id != loan.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("loan"));
-    if (!await db.LoanApplications.AnyAsync(item => item.Id == id)) return Results.NotFound();
+    var existingLoan = await db.LoanApplications.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (existingLoan is null) return Results.NotFound();
+    var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var customers = await db.Customers.AsNoTracking().ToListAsync();
+    var existingLoans = await db.LoanApplications.AsNoTracking().ToListAsync();
     var validation = WorkflowReferenceRules.ValidateLoan(
         loan,
-        await db.Vehicles.AsNoTracking().ToListAsync(),
-        await db.Customers.AsNoTracking().ToListAsync(),
-        await db.LoanApplications.AsNoTracking().ToListAsync());
+        vehicles,
+        customers,
+        existingLoans);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    var vehicle = await db.Vehicles.FirstAsync(item => item.Id == loan.VehicleId);
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyLoanStatus(vehicle, loan));
+    if (loan.Status == LoanStatus.Done)
+    {
+        var completionValidation = LoanDocumentRules.ValidateCompletion(loan, await db.DocumentBlobs.AsNoTracking().ToListAsync());
+        if (!completionValidation.IsValid) return Results.BadRequest(completionValidation);
+    }
+
+    var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    var updatedLoans = existingLoans.Where(item => item.Id != loan.Id).Append(loan).ToList();
+    foreach (var vehicleId in new[] { existingLoan.VehicleId, loan.VehicleId }.Distinct())
+    {
+        var vehicle = await db.Vehicles.FirstAsync(item => item.Id == vehicleId);
+        db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments));
+    }
+
     db.LoanApplications.Update(loan);
     ApiAudit.Add(db, context.User, "loan.updated", nameof(LoanApplication), loan.Id);
     await db.SaveChangesAsync();
@@ -710,7 +744,11 @@ backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppD
 backOffice.MapGet("/deliveries", async (AppDbContext db) => await db.DeliverySchedules.AsNoTracking().ToListAsync()).RequireAuthorization("Deliveries");
 backOffice.MapPost("/deliveries", async (DeliverySchedule delivery, AppDbContext db, HttpContext context) =>
 {
-    var validation = WorkflowReferenceRules.ValidateVehicleLink(delivery.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
+    var validation = WorkflowReferenceRules.ValidateCanonicalBuyer(
+        delivery.VehicleId,
+        await db.Vehicles.AsNoTracking().ToListAsync(),
+        await db.Customers.AsNoTracking().ToListAsync(),
+        "Delivery");
     if (!validation.IsValid) return Results.BadRequest(validation);
     var deliveryValidation = DeliveryRules.Validate(delivery);
     if (!deliveryValidation.IsValid) return Results.BadRequest(deliveryValidation);
@@ -727,7 +765,11 @@ backOffice.MapPut("/deliveries/{id:guid}", async (Guid id, DeliverySchedule deli
 {
     if (id != delivery.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("delivery"));
     if (!await db.DeliverySchedules.AnyAsync(item => item.Id == id)) return Results.NotFound();
-    var validation = WorkflowReferenceRules.ValidateVehicleLink(delivery.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
+    var validation = WorkflowReferenceRules.ValidateCanonicalBuyer(
+        delivery.VehicleId,
+        await db.Vehicles.AsNoTracking().ToListAsync(),
+        await db.Customers.AsNoTracking().ToListAsync(),
+        "Delivery");
     if (!validation.IsValid) return Results.BadRequest(validation);
     var deliveryValidation = DeliveryRules.Validate(delivery);
     if (!deliveryValidation.IsValid) return Results.BadRequest(deliveryValidation);
@@ -744,7 +786,7 @@ backOffice.MapPut("/deliveries/{id:guid}", async (Guid id, DeliverySchedule deli
 backOffice.MapGet("/repairs", async (AppDbContext db) => await db.RepairJobs.AsNoTracking().ToListAsync()).RequireAuthorization("Repairs");
 backOffice.MapPost("/repairs", async (RepairJob repair, AppDbContext db, HttpContext context) =>
 {
-    repair = RepairAuditStamp.Apply(repair, context.User);
+    repair = RepairApprovalRules.PrepareForCreate(repair);
     var validation = WorkflowReferenceRules.ValidateVehicleLink(repair.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var repairValidation = RepairRules.Validate(repair);
@@ -756,9 +798,10 @@ backOffice.MapPost("/repairs", async (RepairJob repair, AppDbContext db, HttpCon
 }).RequireAuthorization("Repairs");
 backOffice.MapPut("/repairs/{id:guid}", async (Guid id, RepairJob repair, AppDbContext db, HttpContext context) =>
 {
-    repair = RepairAuditStamp.Apply(repair, context.User);
     if (id != repair.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("repair"));
-    if (!await db.RepairJobs.AnyAsync(item => item.Id == id)) return Results.NotFound();
+    var existingRepair = await db.RepairJobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (existingRepair is null) return Results.NotFound();
+    repair = RepairApprovalRules.PrepareForUpdate(existingRepair, repair);
     var validation = WorkflowReferenceRules.ValidateVehicleLink(repair.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     var repairValidation = RepairRules.Validate(repair);
@@ -768,6 +811,17 @@ backOffice.MapPut("/repairs/{id:guid}", async (Guid id, RepairJob repair, AppDbC
     await db.SaveChangesAsync();
     return Results.Ok(repair);
 }).RequireAuthorization("Repairs");
+backOffice.MapPost("/repairs/{id:guid}/approval", async (Guid id, RepairApprovalRequest request, AppDbContext db, HttpContext context) =>
+{
+    var repair = await db.RepairJobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (repair is null) return Results.NotFound();
+
+    repair = RepairApprovalRules.Approve(repair, request, context.User);
+    db.RepairJobs.Update(repair);
+    ApiAudit.Add(db, context.User, "repair.approved", nameof(RepairJob), repair.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(repair);
+}).RequireAuthorization("BossAdmin");
 
 backOffice.MapGet("/suppliers", async (AppDbContext db) =>
     SupplierInvoiceRules.CreateSupplierSummaries(await db.SupplierInvoices.AsNoTracking().ToListAsync())).RequireAuthorization("Repairs");
@@ -827,17 +881,26 @@ backOffice.MapGet("/payments/export", async (AppDbContext db, HttpContext contex
 backOffice.MapGet("/payments", async (AppDbContext db) => await db.PaymentRecords.AsNoTracking().ToListAsync()).RequireAuthorization("Finance");
 backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, HttpContext context) =>
 {
-    var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
+    payment = PaymentManagementReviewRules.PrepareForCreate(payment);
+    var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, vehicles);
     if (!validation.IsValid) return Results.BadRequest(validation);
+    if (payment.Status == PaymentStatus.Reconciled)
+    {
+        var buyerValidation = WorkflowReferenceRules.ValidateCanonicalBuyer(
+            payment.VehicleId,
+            vehicles,
+            await db.Customers.AsNoTracking().ToListAsync(),
+            "Payment reconciliation");
+        if (!buyerValidation.IsValid) return Results.BadRequest(buyerValidation);
+    }
+
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
     var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
     if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
-    var vehiclePayments = existingPayments
-        .Where(item => item.VehicleId == payment.VehicleId && item.Id != payment.Id)
-        .ToList();
-    vehiclePayments.Add(payment);
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyPaymentStatus(vehicle, vehiclePayments));
+    var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, existingPayments.Append(payment)));
     db.PaymentRecords.Add(payment);
     ApiAudit.Add(db, context.User, "payment.created", nameof(PaymentRecord), payment.Id);
     await db.SaveChangesAsync();
@@ -846,23 +909,49 @@ backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, H
 backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, AppDbContext db, HttpContext context) =>
 {
     if (id != payment.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("payment"));
-    if (!await db.PaymentRecords.AnyAsync(item => item.Id == id)) return Results.NotFound();
-    var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());
+    var existingPayment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (existingPayment is null) return Results.NotFound();
+    payment = PaymentManagementReviewRules.PrepareForUpdate(existingPayment, payment);
+    var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, vehicles);
     if (!validation.IsValid) return Results.BadRequest(validation);
+    if (payment.Status == PaymentStatus.Reconciled)
+    {
+        var buyerValidation = WorkflowReferenceRules.ValidateCanonicalBuyer(
+            payment.VehicleId,
+            vehicles,
+            await db.Customers.AsNoTracking().ToListAsync(),
+            "Payment reconciliation");
+        if (!buyerValidation.IsValid) return Results.BadRequest(buyerValidation);
+    }
+
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
     var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
     if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
-    var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
-    var vehiclePayments = existingPayments
-        .Where(item => item.VehicleId == payment.VehicleId && item.Id != payment.Id)
-        .ToList();
-    vehiclePayments.Add(payment);
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyPaymentStatus(vehicle, vehiclePayments));
+    var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
+    var updatedPayments = existingPayments.Where(item => item.Id != payment.Id).Append(payment).ToList();
+    foreach (var vehicleId in new[] { existingPayment.VehicleId, payment.VehicleId }.Distinct())
+    {
+        var vehicle = await db.Vehicles.FirstAsync(item => item.Id == vehicleId);
+        db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, updatedPayments));
+    }
+
     db.PaymentRecords.Update(payment);
     ApiAudit.Add(db, context.User, "payment.updated", nameof(PaymentRecord), payment.Id);
     await db.SaveChangesAsync();
     return Results.Ok(payment);
 }).RequireAuthorization("Finance");
+backOffice.MapPost("/payments/{id:guid}/management-review", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var payment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (payment is null) return Results.NotFound();
+
+    payment = payment with { BossChecked = true };
+    db.PaymentRecords.Update(payment);
+    ApiAudit.Add(db, context.User, "payment.managementReviewed", nameof(PaymentRecord), payment.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(payment);
+}).RequireAuthorization("BossAdmin");
 
 backOffice.MapGet("/cash-handovers", async (AppDbContext db, HttpContext context) =>
 {
@@ -1890,29 +1979,6 @@ internal static class ApiAudit
 
     public static void Add(AppDbContext db, string actor, string action, string entityName, Guid entityId) =>
         db.AuditLogs.Add(AuditTrail.Record(actor, action, entityName, entityId, DateTime.UtcNow));
-}
-
-internal static class RepairAuditStamp
-{
-    public static RepairJob Apply(RepairJob repair, ClaimsPrincipal actor)
-    {
-        if (repair.ApprovalStatus != RepairApprovalStatus.Approved)
-        {
-            return repair with
-            {
-                ApprovedBy = null,
-                ApprovedAt = null,
-                ApprovalNotes = string.IsNullOrWhiteSpace(repair.ApprovalNotes) ? null : repair.ApprovalNotes.Trim()
-            };
-        }
-
-        return repair with
-        {
-            ApprovalNotes = string.IsNullOrWhiteSpace(repair.ApprovalNotes) ? null : repair.ApprovalNotes.Trim(),
-            ApprovedBy = string.IsNullOrWhiteSpace(repair.ApprovedBy) ? AuditTrail.ActorFrom(actor) : repair.ApprovedBy,
-            ApprovedAt = repair.ApprovedAt ?? DateTime.UtcNow
-        };
-    }
 }
 
 internal static class OcrJobResponses

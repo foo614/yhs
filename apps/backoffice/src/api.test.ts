@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  approvePaymentManagementReview,
+  approveRepair,
   createDelivery,
   createCustomer,
   createBrokerCommission,
@@ -593,6 +595,30 @@ describe("backoffice api client", () => {
     );
     expect(fetchMock.mock.calls[0][1].headers).toBeUndefined();
     expect(fetchMock.mock.calls[1][1].headers).toBeUndefined();
+  });
+
+  it("uses dedicated server-owned approval transitions", async () => {
+    const repairId = "00000000-0000-0000-0000-000000000007";
+    const paymentId = "00000000-0000-0000-0000-000000000006";
+    const fetchMock = mockFetch({ id: repairId });
+
+    await approveRepair(repairId, "Checked quotation");
+    await approvePaymentManagementReview(paymentId);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `http://localhost:5000/api/repairs/${repairId}/approval`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ notes: "Checked quotation" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `http://localhost:5000/api/payments/${paymentId}/management-review`,
+      expect.objectContaining({ method: "POST", credentials: "include" })
+    );
   });
 
   it("uses the protected cash-custody endpoints and official receipt URL", async () => {

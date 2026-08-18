@@ -72,6 +72,17 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Vehicle_crud_cannot_claim_workflow_owned_statuses()
+    {
+        var existing = VehicleSeed.Available(publicVisible: false);
+        var create = VehicleWorkflowRules.ValidateCreate(existing with { Status = VehicleStatus.LoanProcessing });
+        var update = VehicleWorkflowRules.ValidateUpdate(existing, existing with { Status = VehicleStatus.Sold });
+
+        Assert.Contains(create.Errors, error => error.Code == "vehicle_status_workflow_owned");
+        Assert.Contains(update.Errors, error => error.Code == "vehicle_status_workflow_owned");
+    }
+
+    [Fact]
     public void Vehicle_catalog_normalizes_and_rejects_duplicate_make_model_pairs()
     {
         var existing = new VehicleCatalogModel { Make = "Toyota", Model = "Vios" };
@@ -787,12 +798,38 @@ public sealed class BusinessRulesTests
         var loanCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
         var differentCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
         var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = differentCustomer.Id };
-        var loan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = loanCustomer.Id };
+        var loan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = loanCustomer.Id, Status = LoanStatus.Pending };
 
         var result = VehicleRules.ValidateContactLinks(vehicle, [loanCustomer, differentCustomer], [], [loan]);
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "vehicle_customer_loan_mismatch");
+    }
+
+    [Fact]
+    public void Vehicle_customer_cannot_be_cleared_while_an_active_loan_exists()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = null };
+        var loan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = customer.Id, Status = LoanStatus.Pending };
+
+        var result = VehicleRules.ValidateContactLinks(vehicle, [customer], [], [loan]);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "vehicle_customer_active_loan_required");
+    }
+
+    [Fact]
+    public void Rejected_loan_does_not_block_vehicle_customer_reassignment()
+    {
+        var formerCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var newCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = newCustomer.Id };
+        var rejectedLoan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = formerCustomer.Id, Status = LoanStatus.Rejected };
+
+        var result = VehicleRules.ValidateContactLinks(vehicle, [formerCustomer, newCustomer], [], [rejectedLoan]);
+
+        Assert.True(result.IsValid);
     }
 
     [Fact]
@@ -837,13 +874,27 @@ public sealed class BusinessRulesTests
         var firstCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
         var secondCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
         var legacyVehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = null };
-        var firstLoan = new LoanApplication { CustomerId = firstCustomer.Id, VehicleId = legacyVehicle.Id };
+        var firstLoan = new LoanApplication { CustomerId = firstCustomer.Id, VehicleId = legacyVehicle.Id, Status = LoanStatus.Pending };
         var secondLoan = new LoanApplication { CustomerId = secondCustomer.Id, VehicleId = legacyVehicle.Id };
 
         var result = WorkflowReferenceRules.ValidateLoan(secondLoan, [legacyVehicle], [firstCustomer, secondCustomer], [firstLoan]);
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "legacy_vehicle_customer_conflict");
+    }
+
+    [Fact]
+    public void Rejected_loan_does_not_reserve_an_unassigned_vehicle_for_its_old_customer()
+    {
+        var firstCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var secondCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = null };
+        var rejectedLoan = new LoanApplication { CustomerId = firstCustomer.Id, VehicleId = vehicle.Id, Status = LoanStatus.Rejected };
+        var newLoan = new LoanApplication { CustomerId = secondCustomer.Id, VehicleId = vehicle.Id, Status = LoanStatus.Pending, SubmittedAt = new DateOnly(2026, 8, 19) };
+
+        var result = WorkflowReferenceRules.ValidateLoan(newLoan, [vehicle], [firstCustomer, secondCustomer], [rejectedLoan]);
+
+        Assert.True(result.IsValid);
     }
 
     [Fact]
@@ -1057,6 +1108,22 @@ public sealed class BusinessRulesTests
 
         Assert.Equal(VehicleStatus.LoanProcessing, result.Status);
         Assert.False(result.IsPublic);
+        Assert.Equal(loan.CustomerId, result.CustomerId);
+    }
+
+    [Fact]
+    public void Delivery_and_reconciliation_require_a_canonical_existing_buyer()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = null };
+
+        var missingBuyer = WorkflowReferenceRules.ValidateCanonicalBuyer(vehicle.Id, [vehicle], [customer], "Delivery");
+        var unknownBuyer = WorkflowReferenceRules.ValidateCanonicalBuyer(vehicle.Id, [vehicle with { CustomerId = Guid.NewGuid() }], [customer], "Payment reconciliation");
+        var validBuyer = WorkflowReferenceRules.ValidateCanonicalBuyer(vehicle.Id, [vehicle with { CustomerId = customer.Id }], [customer], "Delivery");
+
+        Assert.Contains(missingBuyer.Errors, error => error.Code == "vehicle_customer_required");
+        Assert.Contains(unknownBuyer.Errors, error => error.Code == "customer_not_found");
+        Assert.True(validBuyer.IsValid);
     }
 
     [Fact]
@@ -1174,6 +1241,34 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "payment_boss_check_required");
+    }
+
+    [Fact]
+    public void Payment_management_review_is_server_owned_and_material_edits_invalidate_it()
+    {
+        var payment = new PaymentRecord
+        {
+            VehicleId = Guid.NewGuid(),
+            NettPrice = 58000m,
+            BossChecked = true,
+            ReceiptNumber = "RCPT-1001",
+            InvoiceNumber = "INV-1001"
+        };
+
+        var created = PaymentManagementReviewRules.PrepareForCreate(payment);
+        var unchanged = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { BossChecked = false });
+        var changedCreatedAt = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { CreatedAt = payment.CreatedAt.AddDays(7), BossChecked = true });
+        var editedAmount = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { NettPrice = 59000m, BossChecked = true });
+        var editedDocuments = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { DocumentsPrepared = true, BossChecked = true });
+        var editedChecklist = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { ChecklistValidated = true, BossChecked = true });
+
+        Assert.False(created.BossChecked);
+        Assert.True(unchanged.BossChecked);
+        Assert.Equal(payment.CreatedAt, changedCreatedAt.CreatedAt);
+        Assert.True(changedCreatedAt.BossChecked);
+        Assert.False(editedAmount.BossChecked);
+        Assert.False(editedDocuments.BossChecked);
+        Assert.False(editedChecklist.BossChecked);
     }
 
     [Fact]
@@ -1934,6 +2029,37 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Repair_approval_is_server_owned_and_material_changes_reset_it()
+    {
+        var clientSupplied = new RepairJob
+        {
+            VehicleId = Guid.NewGuid(),
+            RepairPart = "Gearbox",
+            WhatToDo = "Replace gearbox",
+            Cost = 1500m,
+            ApprovalStatus = RepairApprovalStatus.Approved,
+            ApprovalNotes = "Client supplied",
+            ApprovedBy = "repair@example.test",
+            ApprovedAt = DateTime.UtcNow
+        };
+        var created = RepairApprovalRules.PrepareForCreate(clientSupplied);
+        var approved = RepairApprovalRules.Approve(
+            created,
+            new RepairApprovalRequest("Budget confirmed"),
+            new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "boss@example.test")], "Test")));
+        var edited = RepairApprovalRules.PrepareForUpdate(approved, approved with { Cost = 1600m, ApprovalStatus = RepairApprovalStatus.Approved });
+
+        Assert.Equal(RepairApprovalStatus.Pending, created.ApprovalStatus);
+        Assert.Null(created.ApprovedBy);
+        Assert.Null(created.ApprovedAt);
+        Assert.Equal("boss@example.test", approved.ApprovedBy);
+        Assert.NotNull(approved.ApprovedAt);
+        Assert.Equal(RepairApprovalStatus.Pending, edited.ApprovalStatus);
+        Assert.Null(edited.ApprovedBy);
+        Assert.Null(edited.ApprovedAt);
+    }
+
+    [Fact]
     public void Supplier_invoice_validation_rejects_duplicate_invoice_for_same_supplier()
     {
         var vehicle = VehicleSeed.Available(publicVisible: true);
@@ -2111,6 +2237,51 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsComplete);
         Assert.Contains(FileCategory.StatusReceipt, result.MissingCategories);
+    }
+
+    [Fact]
+    public void Loan_completion_requires_documents_for_the_current_vehicle_and_buyer()
+    {
+        var loan = new LoanApplication
+        {
+            VehicleId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            Status = LoanStatus.Done,
+            SubmittedAt = new DateOnly(2026, 5, 30),
+            LouApproved = true,
+            LouDone = true
+        };
+        var documents = new[]
+        {
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.StatusReceipt },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.Voc },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.ApDocument },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = Guid.NewGuid(), Category = FileCategory.LoanDocument }
+        };
+
+        var check = LoanDocumentRules.CheckCompleteness(loan, documents);
+        var completion = LoanDocumentRules.ValidateCompletion(loan, documents);
+
+        Assert.Contains(FileCategory.LoanDocument, check.MissingCategories);
+        Assert.Contains(completion.Errors, error => error.Code == "loan_documents_incomplete" && error.Message.Contains("LoanDocument", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Legacy_documents_without_buyer_ownership_do_not_complete_a_loan()
+    {
+        var loan = new LoanApplication { VehicleId = Guid.NewGuid(), CustomerId = Guid.NewGuid() };
+        var legacyDocuments = new[]
+        {
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = null, Category = FileCategory.StatusReceipt },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = null, Category = FileCategory.Voc },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = null, Category = FileCategory.ApDocument },
+            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = null, Category = FileCategory.LoanDocument }
+        };
+
+        var result = LoanDocumentRules.CheckCompleteness(loan, legacyDocuments);
+
+        Assert.False(result.IsComplete);
+        Assert.Equal(4, result.MissingCategories.Count);
     }
 
     [Fact]

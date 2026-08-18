@@ -130,7 +130,13 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Repair task records can now be edited from the Repair screen so staff can correct car plate, repair part, work description, cost, and checklist state without recreating the task.
 - The Repair screen now exposes repair-owned document uploads for Repair Invoice files linked to the repair car plate.
 - Plate-linked repair cost validation, loan document completeness, and delivery release readiness are covered by backend rules.
+- Vehicle `LoanProcessing` and `Sold` statuses are workflow-owned: ordinary vehicle intake edits cannot set them, active loans derive `LoanProcessing`, and reconciled payments derive `Sold`.
+- Active Pending, Approved, or Done loans atomically establish or verify the vehicle's canonical buyer; loan completion requires all four document categories for that same buyer and vehicle.
+- Existing loan documents without recorded buyer ownership stay readable but must be re-uploaded through the loan checklist before an in-flight loan can be completed; no automatic ownership backfill is performed.
+- Repair approval is a Boss/Admin-only server action. Ordinary repair edits cannot supply approval identity, and changing the vehicle, task, repair part, or cost resets the prior approval.
+- Finance management review is a Boss/Admin-only server action. Ordinary payment edits cannot assert the review flag, and changes to payment evidence, amounts, banking details, or finance checklist invalidate the prior review.
 - Delivery workflow records reject blank PIC values and missing schedule dates before they enter the schedule/release flow.
+- Delivery creation and updates require a confirmed buyer on the linked vehicle; the portal only offers eligible vehicles for new delivery records.
 - Delivery workflow records now capture the inspection booking reference separately from the final inspection report reference.
 - Delivery workflow records now capture insurance policy, road tax receipt, and windscreen policy references alongside the handover checklist.
 - The Delivery scheduling form warns through the shared delivery guard before submitting blank PIC values or missing schedule dates.

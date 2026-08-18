@@ -1200,6 +1200,13 @@ export async function updateRepair(repair: RepairJob): Promise<RepairJob> {
   });
 }
 
+export async function approveRepair(repairId: string, notes?: string): Promise<RepairJob> {
+  return request<RepairJob>(`/api/repairs/${repairId}/approval`, {
+    method: "POST",
+    body: JSON.stringify({ notes })
+  });
+}
+
 export async function createLoan(loan: LoanApplication): Promise<LoanApplication> {
   return request<LoanApplication>("/api/loans", {
     method: "POST",
@@ -1281,6 +1288,12 @@ export async function updatePayment(payment: PaymentRecord): Promise<PaymentReco
   return request<PaymentRecord>(`/api/payments/${payment.id}`, {
     method: "PUT",
     body: JSON.stringify(payment)
+  });
+}
+
+export async function approvePaymentManagementReview(paymentId: string): Promise<PaymentRecord> {
+  return request<PaymentRecord>(`/api/payments/${paymentId}/management-review`, {
+    method: "POST"
   });
 }
 

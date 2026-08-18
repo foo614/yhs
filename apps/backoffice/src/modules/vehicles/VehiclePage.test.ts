@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterOperationIntakeVehicles, getVehicleWorkflowState, vehicleLoanHandoffStep } from "./VehiclePage";
-import type { Lead, PurchaseInvoice, Vehicle } from "../../api";
+import { filterOperationIntakeVehicles, getVehicleWorkflowState, vehicleCustomerEditPolicy, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep } from "./VehiclePage";
+import type { Lead, LoanApplication, PurchaseInvoice, Vehicle } from "../../api";
 
 const baseVehicle: Vehicle = {
   id: "vehicle-1",
@@ -80,6 +80,32 @@ describe("vehicleLoanHandoffStep", () => {
   it("routes available stock through buyer selection and confirmation", () => {
     expect(vehicleLoanHandoffStep({ status: "Available", customerId: undefined })).toBe("select-buyer");
     expect(vehicleLoanHandoffStep({ status: "Available", customerId: "customer-1" })).toBe("confirm-start");
+  });
+
+  it("locks a retained canonical buyer before starting a new loan after rejection", () => {
+    expect(vehicleLoanHandoffBuyerPolicy({ customerId: "former-buyer" })).toEqual({
+      locked: true,
+      allowedCustomerIds: ["former-buyer"]
+    });
+    expect(vehicleLoanHandoffBuyerPolicy({ customerId: undefined })).toEqual({ locked: false, allowedCustomerIds: [] });
+  });
+});
+
+describe("vehicleCustomerEditPolicy", () => {
+  const activeLoan: LoanApplication = { id: "loan-1", vehicleId: "vehicle-1", customerId: "customer-1", status: "Pending", louApproved: false, louDone: false };
+
+  it("lets staff repair a missing canonical buyer using only the active loan customer", () => {
+    expect(vehicleCustomerEditPolicy({ id: "vehicle-1", customerId: undefined }, [activeLoan])).toEqual({
+      locked: false,
+      allowedCustomerIds: ["customer-1"]
+    });
+  });
+
+  it("locks an established canonical buyer while the loan stays active", () => {
+    expect(vehicleCustomerEditPolicy({ id: "vehicle-1", customerId: "customer-1" }, [activeLoan])).toEqual({
+      locked: true,
+      allowedCustomerIds: ["customer-1"]
+    });
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserRouteUrl, customerIdFromRouteUrl, loanIdFromRouteUrl, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, browserRouteUrl, customerIdFromRouteUrl, loanIdFromRouteUrl, vehicleLoanCustomerId } from "./App";
 
 describe("browser route state", () => {
   it("retains Customer 360 query changes for Back and Forward navigation", () => {
@@ -23,5 +23,15 @@ describe("browser route state", () => {
     expect(vehicleLoanCustomerId({ customerId: undefined })).toBeUndefined();
     expect(vehicleLoanCustomerId({ customerId: "customer-1" })).toBe("customer-1");
     expect(vehicleLoanCustomerId({ customerId: undefined }, { customerId: "loan-customer" })).toBe("loan-customer");
+  });
+
+  it("starts a new sale after a rejected loan instead of reopening the rejected record", () => {
+    const loans = [
+      { id: "rejected", vehicleId: "vehicle-1", customerId: "old-customer", status: "Rejected" as const, louApproved: false, louDone: false },
+      { id: "active", vehicleId: "vehicle-2", customerId: "active-customer", status: "Pending" as const, louApproved: false, louDone: false }
+    ];
+
+    expect(activeLoanForVehicle(loans, "vehicle-1")).toBeUndefined();
+    expect(activeLoanForVehicle(loans, "vehicle-2")?.id).toBe("active");
   });
 });

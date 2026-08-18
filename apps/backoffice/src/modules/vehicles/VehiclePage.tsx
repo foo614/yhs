@@ -24,6 +24,7 @@ import {
   type Customer,
   type DocumentCategory,
   type Lead,
+  type LoanApplication,
   type Owner,
   type PurchaseInvoice,
   type StockMovement,
@@ -63,6 +64,23 @@ export type VehicleWorkflowState = {
 export function vehicleLoanHandoffStep(vehicle: Pick<Vehicle, "status" | "customerId">): VehicleLoanHandoffStep {
   if (vehicle.status === "LoanProcessing") return "open-existing";
   return vehicle.customerId ? "confirm-start" : "select-buyer";
+}
+
+export function vehicleLoanHandoffBuyerPolicy(vehicle: Pick<Vehicle, "customerId">) {
+  return {
+    locked: Boolean(vehicle.customerId),
+    allowedCustomerIds: vehicle.customerId ? [vehicle.customerId] : []
+  };
+}
+
+export function vehicleCustomerEditPolicy(vehicle: Pick<Vehicle, "id" | "customerId">, loans: LoanApplication[]) {
+  const activeCustomerIds = Array.from(new Set(loans
+    .filter((loan) => loan.vehicleId === vehicle.id && ["Pending", "Approved", "Done"].includes(loan.status))
+    .map((loan) => loan.customerId)));
+  return {
+    locked: activeCustomerIds.length > 0 && Boolean(vehicle.customerId),
+    allowedCustomerIds: vehicle.customerId ? [vehicle.customerId] : activeCustomerIds
+  };
 }
 
 export function getVehicleWorkflowState(vehicle: Pick<Vehicle, "status" | "bossConfirmed" | "isPublic" | "customerId">): VehicleWorkflowState {
@@ -173,6 +191,7 @@ export function filterOperationIntakeVehicles(
 export function VehiclePage({
   vehicles,
   leads,
+  loans,
   customers,
   owners,
   purchaseInvoices,
@@ -192,6 +211,7 @@ export function VehiclePage({
 }: {
   vehicles: Vehicle[];
   leads: Lead[];
+  loans: LoanApplication[];
   customers: Customer[];
   owners: Owner[];
   purchaseInvoices: PurchaseInvoice[];
@@ -240,6 +260,10 @@ export function VehiclePage({
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const uploadDisabled = !selectedVehicleId;
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
+  const selectedVehicleCustomerPolicy = selectedVehicle ? vehicleCustomerEditPolicy(selectedVehicle, loans) : { locked: false, allowedCustomerIds: [] };
+  const selectedVehicleCustomerOptions = selectedVehicleCustomerPolicy.allowedCustomerIds.length > 0
+    ? customers.filter((customer) => selectedVehicleCustomerPolicy.allowedCustomerIds.includes(customer.id))
+    : customers;
   const selectedPurchaseInvoice = purchaseInvoices.find((invoice) => invoice.id === editPurchaseInvoiceId) ?? purchaseInvoices[0];
   const selectedCustomer = customers.find((customer) => customer.id === editCustomerId) ?? customers[0];
   const selectedOwner = owners.find((owner) => owner.id === editOwnerId) ?? owners[0];
@@ -250,6 +274,10 @@ export function VehiclePage({
   const selectedVehicleOwner = selectedVehicle?.ownerId ? owners.find((owner) => owner.id === selectedVehicle.ownerId) : undefined;
   const loanHandoffVehicle = vehicles.find((vehicle) => vehicle.id === loanHandoffVehicleId);
   const loanHandoffStep = loanHandoffVehicle ? vehicleLoanHandoffStep(loanHandoffVehicle) : undefined;
+  const loanHandoffBuyerPolicy = loanHandoffVehicle ? vehicleLoanHandoffBuyerPolicy(loanHandoffVehicle) : { locked: false, allowedCustomerIds: [] };
+  const loanHandoffCustomerOptions = loanHandoffBuyerPolicy.allowedCustomerIds.length > 0
+    ? customers.filter((customer) => loanHandoffBuyerPolicy.allowedCustomerIds.includes(customer.id))
+    : customers;
   const availableVehicles = vehicles.filter((vehicle) => vehicle.status === "Available").length;
   const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
@@ -398,9 +426,6 @@ export function VehiclePage({
     const preparedVehicle = { ...loanHandoffVehicle, customerId };
     setLoanHandoffSubmitting(true);
     try {
-      if (loanHandoffVehicle.customerId !== customerId) {
-        await onUpdate(preparedVehicle);
-      }
       await onStartLoan(preparedVehicle);
       closeLoanHandoff();
     } catch {
@@ -1230,13 +1255,15 @@ export function VehiclePage({
               <Form.Item
                 name="customerId"
                 label="Confirmed Buyer / 确认买家"
+                extra={loanHandoffBuyerPolicy.locked ? "This is the vehicle's linked buyer. To use a different buyer after a rejected loan, close this dialog and update Customer in Vehicle Record first." : undefined}
                 rules={[{ required: true, message: "Select the confirmed buyer before starting the loan." }]}
               >
                 <Select
+                  disabled={loanHandoffBuyerPolicy.locked}
                   showSearch
                   optionFilterProp="label"
                   placeholder="Select customer"
-                  options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
+                  options={loanHandoffCustomerOptions.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
                   notFoundContent="No customers available"
                 />
               </Form.Item>
@@ -1363,6 +1390,7 @@ export function VehiclePage({
                 const vehicle = vehicleFromIntakeValues({
                   ...values,
                   stockOwner: values.stockOwner || selectedVehicle.stockOwner || "YSHeng",
+                  status: selectedVehicle.status,
                   bossConfirmed,
                   isPublic: bossConfirmed ? Boolean(values.isPublic) : false
                 }, selectedVehicle.id);
@@ -1397,13 +1425,15 @@ export function VehiclePage({
               <Form.Item name="outstationPickupAllowance" label="Outstation Pickup Allowance / 外地收车津贴"><InputNumber className="fullWidth" min={0} /></Form.Item>
               <Form.Item name="outstationPickupScheduledAt" label="Outstation Pickup Date & Time / 外地收车时间"><Input type="datetime-local" /></Form.Item>
               <Form.Item name="outstationPickupBookingSlip" label="Booking Slip Reference / Booking Slip"><Input placeholder="Booking slip no. or file ref" /></Form.Item>
-              <Form.Item name="customerId" label="Customer / 客户">
-                <Select allowClear showSearch optionFilterProp="label" placeholder="Select customer" options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} />
+              <Form.Item name="customerId" label="Customer / 客户" extra={selectedVehicleCustomerPolicy.locked ? "Locked while an active loan protects the confirmed buyer." : selectedVehicleCustomerPolicy.allowedCustomerIds.length > 0 ? "Select the buyer already named by the active loan." : undefined}>
+                <Select disabled={selectedVehicleCustomerPolicy.locked} allowClear={selectedVehicleCustomerPolicy.allowedCustomerIds.length === 0} showSearch optionFilterProp="label" placeholder="Select customer" options={selectedVehicleCustomerOptions.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} />
               </Form.Item>
               <Form.Item name="ownerId" label="Owner / 原车主">
                 <Select allowClear showSearch optionFilterProp="label" placeholder="Select owner" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} />
               </Form.Item>
-              <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
+              <Descriptions size="small" column={1} className="fullWidth">
+                <Descriptions.Item label="Status / 状态">{selectedVehicle?.status ?? "Available"} — updated by the loan and payment workflows.</Descriptions.Item>
+              </Descriptions>
               <Form.Item name="isPublic" label="Website Visible" extra={!selectedVehicle?.bossConfirmed && !canApproveVehicles ? "Website visibility stays hidden until Boss/Admin approval." : undefined}>
                 <Select disabled={!canApproveVehicles && !selectedVehicle?.bossConfirmed} options={[{ value: true, label: "Visible" }, { value: false, label: "Hidden" }]} />
               </Form.Item>
@@ -1698,6 +1728,7 @@ export function VehiclePage({
           const vehicle = vehicleFromIntakeValues({
             ...values,
             stockOwner: values.stockOwner || "YSHeng",
+            status: "Available",
             bossConfirmed,
             isPublic: bossConfirmed ? Boolean(values.isPublic) : false
           }, newId());
@@ -1742,7 +1773,7 @@ export function VehiclePage({
           <Form.Item name="ownerId" label="Owner / 原车主">
             <Select allowClear showSearch optionFilterProp="label" placeholder="Select owner" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} />
           </Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Available", "LoanProcessing", "Sold"].map((value) => ({ value }))} /></Form.Item>
+          <Alert type="info" showIcon message="New vehicles start as Available. Loan processing and sold status are updated by their workflows." />
           <Form.Item className="vehicleMarkdownField" name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Optional public copy. Raw HTML is displayed as text.">
             <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: "## Ready stock\n\n- Key feature\n- Viewing by appointment" }} />
           </Form.Item>

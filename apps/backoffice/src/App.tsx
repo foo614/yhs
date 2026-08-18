@@ -76,6 +76,8 @@ import {
   checkInHrAttendance,
   checkOutHrAttendance,
   acceptCashHandover,
+  approvePaymentManagementReview,
+  approveRepair,
   createCashHandover,
   createHrLeaveAdjustment,
   createHrLeaveRequest,
@@ -232,8 +234,6 @@ const dashboardReminderTypes: DashboardReminder["type"][] = [
   "DebtRecoveryFollowUp",
   "PaymentVoucherFollowUp"
 ];
-const repairApprovalOptions = ["Pending", "Approved", "Rejected"].map((value) => ({ value, label: value }));
-
 const deliveryChecklistFields = [
   "inspectionDone",
   "documentsPrepared",
@@ -352,6 +352,10 @@ export function loanIdFromRouteUrl(routeUrl: string) {
 
 export function vehicleLoanCustomerId(vehicle: Pick<Vehicle, "customerId">, existingLoan?: Pick<LoanApplication, "customerId">) {
   return existingLoan?.customerId ?? vehicle.customerId;
+}
+
+export function activeLoanForVehicle(loans: LoanApplication[], vehicleId: string) {
+  return loans.find((loan) => loan.vehicleId === vehicleId && ["Pending", "Approved", "Done"].includes(loan.status));
 }
 
 function tablePagination(pageSize = 8): TablePaginationConfig {
@@ -693,7 +697,7 @@ export default function App() {
   }
 
   async function handleStartVehicleLoan(vehicle: Vehicle) {
-    const existingLoan = loans.find((loan) => loan.vehicleId === vehicle.id);
+    const existingLoan = activeLoanForVehicle(loans, vehicle.id);
     const loanCustomerId = vehicleLoanCustomerId(vehicle, existingLoan);
     if (!loanCustomerId) {
       notifyError("Customer required", "Open the vehicle record and link or create the customer before starting the loan workflow.");
@@ -714,11 +718,6 @@ export default function App() {
         });
         targetLoan = createdLoan;
         setLoans((items) => [createdLoan, ...items]);
-      }
-
-      if (vehicle.status !== "LoanProcessing" || vehicle.isPublic) {
-        const updatedVehicle = await updateVehicle({ ...vehicle, status: "LoanProcessing", isPublic: false });
-        setVehicles((items) => replaceById(items, updatedVehicle));
       }
 
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
@@ -838,6 +837,7 @@ export default function App() {
             <VehiclePage
               vehicles={vehicles}
               leads={leads}
+              loans={loans}
               customers={customers}
               owners={owners}
               purchaseInvoices={purchaseInvoices}
@@ -861,10 +861,12 @@ export default function App() {
               vehicles={vehicleLookup}
               supplierInvoices={supplierInvoices}
               repairs={repairs}
+              canApproveRepairs={currentRoles.includes("BossAdmin")}
               onCreateInvoice={(invoice) => runCreate(() => createSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => [record, ...items]), "Supplier invoice created")}
               onUpdateInvoice={(invoice) => runUpdate(() => updateSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => replaceById(items, record)), "Supplier invoice updated")}
               onCreateRepair={(repair) => runCreate(() => createRepair(repair), (record) => setRepairs((items) => [record, ...items]), "Repair task created")}
               onUpdateRepair={(repair) => runUpdate(() => updateRepair(repair), (record) => setRepairs((items) => replaceById(items, record)), "Repair task updated")}
+              onApproveRepair={(repairId, notes) => runUpdate(() => approveRepair(repairId, notes), (record) => setRepairs((items) => replaceById(items, record)), "Repair approved")}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Repair document uploaded")}
             />
           )}
@@ -906,6 +908,7 @@ export default function App() {
               cashHandoverPaymentLookup={cashHandoverPaymentLookup}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
+              onApproveManagementReview={(paymentId) => runUpdate(() => approvePaymentManagementReview(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Management review approved")}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
               onCreateSettlement={(settlement) => runCreate(() => createSettlementReminder(settlement), (record) => setSettlements((items) => [record, ...items]), "Settlement reminder created")}
               onUpdateSettlement={(settlement) => runUpdate(() => updateSettlementReminder(settlement), (record) => setSettlements((items) => replaceById(items, record)), "Settlement reminder updated")}
@@ -1692,19 +1695,23 @@ function RepairPage({
   vehicles,
   supplierInvoices,
   repairs,
+  canApproveRepairs,
   onCreateInvoice,
   onUpdateInvoice,
   onCreateRepair,
   onUpdateRepair,
+  onApproveRepair,
   onUploadDocument
 }: {
   vehicles: VehicleLookup[];
   supplierInvoices: SupplierInvoice[];
   repairs: RepairJob[];
+  canApproveRepairs: boolean;
   onCreateInvoice: (invoice: SupplierInvoice) => Promise<void>;
   onUpdateInvoice: (invoice: SupplierInvoice) => Promise<void>;
   onCreateRepair: (repair: RepairJob) => Promise<void>;
   onUpdateRepair: (repair: RepairJob) => Promise<void>;
+  onApproveRepair: (repairId: string, notes?: string) => Promise<void>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [uploadRepairId, setUploadRepairId] = useState("");
@@ -1786,6 +1793,22 @@ function RepairPage({
       onConfirmed?.();
     });
   };
+  const confirmRepairApproval = (repair: RepairJob) => {
+    Modal.confirm({
+      title: "Approve repair? / 批准整备？",
+      content: (
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
+          <Descriptions.Item label="Repair Task / 整备事项">{repair.whatToDo}</Descriptions.Item>
+          <Descriptions.Item label="Cost / 费用">RM {repair.cost.toLocaleString()}</Descriptions.Item>
+          <Descriptions.Item label="Approval">Your signed-in account will be recorded as the approver.</Descriptions.Item>
+        </Descriptions>
+      ),
+      okText: "Approve Repair",
+      cancelText: "Cancel",
+      onOk: () => onApproveRepair(repair.id, repair.approvalNotes)
+    });
+  };
   const refurbishmentRecordCount = repairs.length + supplierInvoices.length;
   const refurbishmentRecords = filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters);
   const refurbishmentFiltersActive = Object.values(refurbishmentFilters).some((value) => value !== undefined && value !== "" && value !== "All");
@@ -1865,6 +1888,7 @@ function RepairPage({
           {row.kind === "repair" ? (
             <>
               <Button size="small" type="primary" onClick={() => setUploadRepairId(row.repair.id)}>Details</Button>
+              {canApproveRepairs && row.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(row.repair)}>Approve</Button>}
               <Button size="small" onClick={() => confirmRepairCompletion(row.repair)} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Mark Done</Button>
             </>
           ) : (
@@ -1890,15 +1914,18 @@ function RepairPage({
             <Descriptions.Item label="Approval / 审批">
               <Tag color={selectedRepair.approvalStatus === "Rejected" ? "red" : selectedRepair.approvalStatus === "Pending" ? "gold" : "blue"}>{selectedRepair.approvalStatus ?? "Approved"}</Tag>
             </Descriptions.Item>
+            <Descriptions.Item label="Approved By / 审批人">{selectedRepair.approvedBy || "Not approved"}</Descriptions.Item>
+            <Descriptions.Item label="Approved At / 审批时间">{selectedRepair.approvedAt ? new Date(selectedRepair.approvedAt).toLocaleString() : "-"}</Descriptions.Item>
             <Descriptions.Item label="What To Do / 整备事项">{selectedRepair.whatToDo}</Descriptions.Item>
           </Descriptions>
+          {canApproveRepairs && selectedRepair.approvalStatus !== "Approved" && <Button type="primary" onClick={() => confirmRepairApproval(selectedRepair)}>Approve Repair</Button>}
         </ProCard>
         <ProCard title="Repair Record / 整备资料">
           <Form
             key={`${selectedRepair.id}-repair-record`}
             layout="vertical"
             className="formGrid"
-            initialValues={{ ...selectedRepair, checklistDone: selectedRepair.checklistDone ? "done" : "pending", approvalStatus: selectedRepair.approvalStatus ?? "Approved" }}
+            initialValues={{ ...selectedRepair, checklistDone: selectedRepair.checklistDone ? "done" : "pending" }}
             onFinish={async (values) => {
               const repair: RepairJob = {
                 ...selectedRepair,
@@ -1906,9 +1933,7 @@ function RepairPage({
                 repairPart: values.repairPart,
                 whatToDo: values.whatToDo,
                 cost: Number(values.cost ?? 0),
-                checklistDone: values.checklistDone === "done",
-                approvalStatus: values.approvalStatus,
-                approvalNotes: values.approvalNotes?.trim() || undefined
+                checklistDone: values.checklistDone === "done"
               };
               const repairBlockReason = repairCreateBlockReason(repair);
               if (repairBlockReason) {
@@ -1932,8 +1957,10 @@ function RepairPage({
             <Form.Item name="whatToDo" label="What To Do" rules={[{ required: true }]}><Input placeholder="Polish, wash, spare part..." /></Form.Item>
             <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
             <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-            <Form.Item name="approvalStatus" label="Approval"><Select options={repairApprovalOptions} /></Form.Item>
-            <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
+            <Descriptions size="small" column={1} className="fullWidth">
+              <Descriptions.Item label="Approval / 审批">{selectedRepair.approvalStatus ?? "Pending"}</Descriptions.Item>
+              <Descriptions.Item label="Approval note / 审批备注">{selectedRepair.approvalNotes || "-"}</Descriptions.Item>
+            </Descriptions>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Repair</Button></Form.Item>
           </Form>
         </ProCard>
@@ -2078,6 +2105,7 @@ function RepairPage({
                     {isRepair ? (
                       <>
                         <Button size="small" type="primary" onClick={() => setUploadRepairId(record.repair.id)}>Details</Button>
+                        {canApproveRepairs && record.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(record.repair)}>Approve</Button>}
                         <Button size="small" onClick={() => confirmRepairCompletion(record.repair)} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Mark Done</Button>
                       </>
                     ) : (
@@ -2181,9 +2209,7 @@ function RepairPage({
             repairPart: values.repairPart,
             whatToDo: values.whatToDo,
             cost: invoice.amount,
-            checklistDone: values.checklistDone === "done",
-            approvalStatus: values.approvalStatus,
-            approvalNotes: values.approvalNotes?.trim() || undefined
+            checklistDone: values.checklistDone === "done"
           };
           const repairBlockReason = repairCreateBlockReason(repair);
           if (repairBlockReason) {
@@ -2204,7 +2230,7 @@ function RepairPage({
           }
 
           await saveRepair();
-        }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", approvalStatus: "Pending", ...supplierInvoiceOcrDraft }}>
+        }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", ...supplierInvoiceOcrDraft }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
@@ -2215,8 +2241,7 @@ function RepairPage({
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-          <Form.Item name="approvalStatus" label="Repair Approval"><Select options={repairApprovalOptions} /></Form.Item>
-          <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
+          <Alert type="info" showIcon message="New repair tasks start as Pending. Boss/Admin approval is recorded separately." />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
         </Form>
       </Modal>
@@ -2232,7 +2257,7 @@ function RepairPage({
           key={selectedEditRepair?.id ?? "repair-edit"}
           layout="vertical"
           className="drawerForm"
-          initialValues={selectedEditRepair ? { ...selectedEditRepair, checklistDone: selectedEditRepair.checklistDone ? "done" : "pending", approvalStatus: selectedEditRepair.approvalStatus ?? "Approved" } : undefined}
+          initialValues={selectedEditRepair ? { ...selectedEditRepair, checklistDone: selectedEditRepair.checklistDone ? "done" : "pending" } : undefined}
           onFinish={async (values) => {
             if (!selectedEditRepair) return;
             const repair: RepairJob = {
@@ -2241,9 +2266,7 @@ function RepairPage({
               repairPart: values.repairPart,
               whatToDo: values.whatToDo,
               cost: Number(values.cost ?? 0),
-              checklistDone: values.checklistDone === "done",
-              approvalStatus: values.approvalStatus,
-              approvalNotes: values.approvalNotes?.trim() || undefined
+              checklistDone: values.checklistDone === "done"
             };
             const repairBlockReason = repairCreateBlockReason(repair);
             if (repairBlockReason) {
@@ -2266,8 +2289,11 @@ function RepairPage({
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-          <Form.Item name="approvalStatus" label="Approval"><Select options={repairApprovalOptions} /></Form.Item>
-          <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
+          <Descriptions size="small" column={1} className="fullWidth">
+            <Descriptions.Item label="Approval / 审批">{selectedEditRepair?.approvalStatus ?? "Pending"}</Descriptions.Item>
+            <Descriptions.Item label="Approval note / 审批备注">{selectedEditRepair?.approvalNotes || "-"}</Descriptions.Item>
+          </Descriptions>
+          {canApproveRepairs && selectedEditRepair && selectedEditRepair.approvalStatus !== "Approved" && <Button onClick={() => confirmRepairApproval(selectedEditRepair)}>Approve Repair</Button>}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditRepair}>Update Repair</Button></Form.Item>
         </Form>
       </Drawer>
@@ -2371,6 +2397,13 @@ function LoanPage({
     );
   };
 
+  const loanCompletionBlockReason = (loanId: string) => {
+    const check = documentChecks[loanId];
+    if (!check) return "Document check is still loading.";
+    if (check.isComplete) return "";
+    return `Upload ${check.missingCategories.map(documentCategoryLabel).join(", ")} before marking the loan done.`;
+  };
+
   const renderLoanNextAction = (loan: LoanApplication) => {
     if (loan.status === "Done") {
       return <Typography.Text type="secondary">Completed</Typography.Text>;
@@ -2393,7 +2426,12 @@ function LoanPage({
     }
 
     if (!loan.louDone) {
-      return <Button size="small" type="primary" onClick={() => onUpdate(markLoanDone(loan))}>Mark Done</Button>;
+      const blockReason = loanCompletionBlockReason(loan.id);
+      return (
+        <Tooltip title={blockReason}>
+          <span><Button size="small" type="primary" disabled={Boolean(blockReason)} onClick={() => onUpdate(markLoanDone(loan))}>Mark Done</Button></span>
+        </Tooltip>
+      );
     }
 
     return <Typography.Text type="secondary">No workflow action</Typography.Text>;
@@ -2503,6 +2541,14 @@ function LoanPage({
                 return;
               }
 
+              if (selectedLoan.status !== "Done" && loan.status === "Done") {
+                const completionBlockReason = loanCompletionBlockReason(selectedLoan.id);
+                if (completionBlockReason) {
+                  message.warning(completionBlockReason);
+                  return;
+                }
+              }
+
               onUpdate(loan);
             }}
           >
@@ -2516,7 +2562,7 @@ function LoanPage({
                 options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
               />
             </Form.Item>
-            <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value, disabled: value === "Done" && !check?.isComplete }))} /></Form.Item>
             <Form.Item name="submittedAt" label="Submitted Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
             <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
@@ -2735,6 +2781,14 @@ function LoanPage({
               return;
             }
 
+            if (selectedEditLoan.status !== "Done" && loan.status === "Done") {
+              const completionBlockReason = loanCompletionBlockReason(selectedEditLoan.id);
+              if (completionBlockReason) {
+                message.warning(completionBlockReason);
+                return;
+              }
+            }
+
             onUpdate(loan);
             setLoanEditorOpen(false);
           }}
@@ -2749,7 +2803,7 @@ function LoanPage({
               options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
             />
           </Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value, disabled: value === "Done" && !documentChecks[selectedEditLoan?.id ?? ""]?.isComplete }))} /></Form.Item>
           <Form.Item name="submittedAt" label="Submitted Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
@@ -2791,6 +2845,7 @@ function DeliveryPage({
       ? releaseReadiness[selectedEditDelivery.id]
       : undefined;
   const customerIdForVehicle = (vehicleId: string) => vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId;
+  const eligibleDeliveryVehicles = vehicles.filter((vehicle) => Boolean(vehicle.customerId));
   const filteredDeliveries = filterDeliverySchedules(deliveries, vehicles, releaseReadiness, deliveryFilters);
   const deliveryFiltersActive = Object.values(deliveryFilters).some((value) => value !== undefined && value !== "" && value !== "All");
   const mobileDeliveryPageCount = Math.max(1, Math.ceil(filteredDeliveries.length / mobileWorkflowPageSize));
@@ -3303,7 +3358,7 @@ function DeliveryPage({
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
         title="Delivery Workflow / 出车流程"
-        extra={<Space wrap><Tag color="blue">{deliveries.length} deliveries</Tag><Tag color={deliveries.some((delivery) => delivery.status !== "Released") ? "orange" : "default"}>{deliveries.filter((delivery) => delivery.status !== "Released").length} open</Tag><Button type="primary" onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button></Space>}
+        extra={<Space wrap><Tag color="blue">{deliveries.length} deliveries</Tag><Tag color={deliveries.some((delivery) => delivery.status !== "Released") ? "orange" : "default"}>{deliveries.filter((delivery) => delivery.status !== "Released").length} open</Tag><Button type="primary" disabled={eligibleDeliveryVehicles.length === 0} onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button></Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <Alert
@@ -3311,6 +3366,7 @@ function DeliveryPage({
             showIcon
             message="Click Details to view delivery documents, edit the record, and update the final checklist."
           />
+          {eligibleDeliveryVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before scheduling delivery." />}
           <Space className="toolbarForm workflowFilterBar" wrap>
             <Input.Search
               allowClear
@@ -3471,13 +3527,13 @@ function DeliveryPage({
 
           onCreate(delivery);
           setDeliveryCreateOpen(false);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
+        }} initialValues={{ vehicleId: eligibleDeliveryVehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
           <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
             <Select
               showSearch
               optionFilterProp="label"
               placeholder="Select car plate"
-              options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
+              options={eligibleDeliveryVehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
             />
           </Form.Item>
           <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
