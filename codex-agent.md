@@ -74,6 +74,17 @@ Project-installed ecosystem skills:
 
 The `.codex/skills/ysheng-*` files remain authoritative for YS Heng architecture, contracts, validation, and risk gates. Ecosystem skills may shape process, but must not override repository-specific rules.
 
+## Repo-wide workflow routing
+
+All workflows under `.codex/skills/*` and `.agents/skills/*` inherit this routing:
+
+- Sol (High) handles non-trivial planning, scope, risks, and acceptance criteria. Planning is read-only.
+- Luna (High) is the default implementation model.
+- Terra (XHigh) handles complex, cross-stack, or high-risk implementation.
+- Use a separate Luna/Terra reviewer at High/XHigh proportionate to risk.
+- Model routing does not bypass approval gates, maker/checker separation, worktree isolation, or proportionality for trivial changes.
+- Report an unavailable requested model or effort as a fallback.
+
 Personal integrations such as external code search, web research, and hosted MCP services may be useful, but do not make required project behavior depend on teammate-specific API keys or global `~/.codex` configuration.
 
 ## Loop engineering
