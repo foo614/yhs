@@ -1,0 +1,4 @@
+interface:
+  display_name: "YS Heng Admin Process Review"
+  short_description: "Review admin modules and sales workflow correctness"
+  default_prompt: "Review every current YS Heng admin portal module for business fit, state-flow correctness, role controls, evidence gates, and cross-module handoffs. Report findings only; do not edit product code."

@@ -81,7 +81,6 @@ describe("vehicleLoanHandoffStep", () => {
     expect(vehicleLoanHandoffStep({ status: "Available", customerId: undefined })).toBe("select-buyer");
     expect(vehicleLoanHandoffStep({ status: "Available", customerId: "customer-1" })).toBe("confirm-start");
   });
-
   it("locks a retained canonical buyer before starting a new loan after rejection", () => {
     expect(vehicleLoanHandoffBuyerPolicy({ customerId: "former-buyer" })).toEqual({
       locked: true,

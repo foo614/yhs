@@ -1573,15 +1573,15 @@ public static class PaymentManagementReviewRules
         existing.NettPrice != update.NettPrice ||
         !string.Equals(existing.ReceiptNumber?.Trim(), update.ReceiptNumber?.Trim(), StringComparison.Ordinal) ||
         !string.Equals(existing.InvoiceNumber?.Trim(), update.InvoiceNumber?.Trim(), StringComparison.Ordinal) ||
-        existing.DocumentsPrepared != update.DocumentsPrepared ||
-        existing.ChecklistValidated != update.ChecklistValidated ||
         existing.SalesPrice != update.SalesPrice ||
         existing.InterestAdditionalCharges != update.InterestAdditionalCharges ||
         existing.NcdAmount != update.NcdAmount ||
         existing.WindscreenCharges != update.WindscreenCharges ||
         existing.OutstationDeliveryDate != update.OutstationDeliveryDate ||
         !string.Equals(existing.BankName?.Trim(), update.BankName?.Trim(), StringComparison.Ordinal) ||
-        existing.BankFollowUpDate != update.BankFollowUpDate;
+        existing.BankFollowUpDate != update.BankFollowUpDate ||
+        existing.DocumentsPrepared != update.DocumentsPrepared ||
+        existing.ChecklistValidated != update.ChecklistValidated;
 }
 
 public static class UploadPolicy
