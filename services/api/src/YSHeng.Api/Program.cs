@@ -878,6 +878,41 @@ backOffice.MapGet("/payments/export", async (AppDbContext db, HttpContext contex
     return Results.Text(csv, "text/csv");
 }).RequireAuthorization("BackOffice");
 
+backOffice.MapGet("/payments/export-autocount", async (DateOnly? from, DateOnly? to, AppDbContext db, HttpContext context) =>
+{
+    if (!context.User.IsInRole("BossAdmin") && !context.User.IsInRole("Finance"))
+    {
+        return Results.Json(new ApiError("AutoCount export requires Finance or Admin access."), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (!AutoCountDateRules.IsValidPeriod(from, to))
+    {
+        return Results.BadRequest(new ApiError("AutoCount export period start must be on or before the end date."));
+    }
+
+    var generatedAtUtc = DateTime.UtcNow;
+    var workbook = AutoCountExcel.Export(new AutoCountExportInput(
+        await db.Vehicles.AsNoTracking().ToListAsync(),
+        await db.Customers.AsNoTracking().ToListAsync(),
+        await db.PurchaseInvoices.AsNoTracking().ToListAsync(),
+        await db.SupplierInvoices.AsNoTracking().ToListAsync(),
+        await db.PaymentRecords.AsNoTracking().ToListAsync(),
+        await db.RepairJobs.AsNoTracking().ToListAsync(),
+        await db.DailySpends.AsNoTracking().ToListAsync(),
+        await db.BrokerCommissions.AsNoTracking().ToListAsync(),
+        await db.DebtRecoveryCases.AsNoTracking().ToListAsync(),
+        await db.PaymentVouchers.AsNoTracking().ToListAsync(),
+        await db.SettlementReminders.AsNoTracking().ToListAsync(),
+        from,
+        to,
+        generatedAtUtc));
+
+    var periodLabel = AutoCountDateRules.PeriodLabel(from, to);
+    ApiAudit.Add(db, context.User, "finance.autoCountExported", $"AutoCountExport[{periodLabel}]", Guid.Empty);
+    await db.SaveChangesAsync();
+    return Results.File(workbook, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"autocount-v1-{periodLabel}.xlsx");
+}).RequireAuthorization("BackOffice");
+
 backOffice.MapGet("/payments", async (AppDbContext db) => await db.PaymentRecords.AsNoTracking().ToListAsync()).RequireAuthorization("Finance");
 backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, HttpContext context) =>
 {
