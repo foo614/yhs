@@ -34,10 +34,45 @@
     return `${opsBasePath}${url.pathname}${url.search}${url.hash}`;
   }
 
+  function rebaseAnchor(anchor) {
+    const originalHref = anchor.getAttribute?.("href");
+    const rebasedHref = rebaseDashboardUrl(originalHref);
+    if (rebasedHref !== originalHref) {
+      anchor.setAttribute("href", rebasedHref);
+    }
+  }
+
+  function rebaseAnchors(root) {
+    if (root.matches?.("a[href]")) {
+      rebaseAnchor(root);
+    }
+
+    root.querySelectorAll?.("a[href]").forEach(rebaseAnchor);
+  }
+
   for (const methodName of ["pushState", "replaceState"]) {
     const originalMethod = window.history[methodName].bind(window.history);
     window.history[methodName] = (state, unused, url) => originalMethod(state, unused, rebaseDashboardUrl(url));
   }
+
+  rebaseAnchors(document);
+  new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes") {
+        rebaseAnchor(mutation.target);
+        continue;
+      }
+
+      for (const addedNode of mutation.addedNodes) {
+        rebaseAnchors(addedNode);
+      }
+    }
+  }).observe(document.documentElement, {
+    attributeFilter: ["href"],
+    attributes: true,
+    childList: true,
+    subtree: true
+  });
 
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {

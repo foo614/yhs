@@ -5,6 +5,7 @@ import vm from "node:vm";
 const adapterSource = fs.readFileSync(new URL("./nginx/ops-subpath-navigation.js", import.meta.url), "utf8");
 const historyCalls = [];
 const listeners = new Map();
+const mutationObservers = [];
 const history = {
   pushState(...args) {
     historyCalls.push(["pushState", ...args]);
@@ -19,8 +20,12 @@ const location = {
 };
 const dispatchedEvents = [];
 const document = {
+  documentElement: {},
   addEventListener(type, listener, capture) {
     listeners.set(type, { listener, capture });
+  },
+  querySelectorAll() {
+    return [];
   }
 };
 const window = {
@@ -36,8 +41,19 @@ class PopStateEvent {
     this.type = type;
   }
 }
+class MutationObserver {
+  constructor(callback) {
+    this.callback = callback;
+    mutationObservers.push(this);
+  }
 
-vm.runInNewContext(adapterSource, { PopStateEvent, URL, document, history, window });
+  observe(target, options) {
+    this.target = target;
+    this.options = options;
+  }
+}
+
+vm.runInNewContext(adapterSource, { MutationObserver, PopStateEvent, URL, document, history, window });
 
 for (const [route, expected] of [
   ["/", "/ops/"],
@@ -78,6 +94,22 @@ const traceAnchor = {
     }
   }
 };
+assert.equal(mutationObservers.length, 1);
+assert.equal(mutationObservers[0].target, document.documentElement);
+assert.equal(mutationObservers[0].options.attributes, true);
+assert.equal(mutationObservers[0].options.childList, true);
+assert.equal(mutationObservers[0].options.subtree, true);
+mutationObservers[0].callback([{
+  addedNodes: [{
+    matches: () => true,
+    getAttribute: traceAnchor.getAttribute.bind(traceAnchor),
+    setAttribute: traceAnchor.setAttribute.bind(traceAnchor)
+  }],
+  type: "childList"
+}]);
+assert.equal(traceAnchor.href, "/ops/traces/detail/trace-id");
+traceAnchor.href = "/traces/detail/trace-id";
+
 const clickRegistration = listeners.get("click");
 assert.equal(clickRegistration.capture, true);
 let clickPrevented = false;
