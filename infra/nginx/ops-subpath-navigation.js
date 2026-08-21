@@ -34,6 +34,22 @@
     return `${opsBasePath}${url.pathname}${url.search}${url.hash}`;
   }
 
+  function isOpsDashboardUrl(value) {
+    let url;
+    try {
+      url = new URL(String(value), window.location.href);
+    } catch {
+      return false;
+    }
+
+    if (url.origin !== window.location.origin || (url.pathname !== opsBasePath && !url.pathname.startsWith(`${opsBasePath}/`))) {
+      return false;
+    }
+
+    const dashboardPath = url.pathname === opsBasePath ? "/" : url.pathname.slice(opsBasePath.length);
+    return isDashboardPath(dashboardPath);
+  }
+
   function rebaseAnchor(anchor) {
     const originalHref = anchor.getAttribute?.("href");
     const rebasedHref = rebaseDashboardUrl(originalHref);
@@ -74,7 +90,7 @@
     subtree: true
   });
 
-  document.addEventListener("click", (event) => {
+  window.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
@@ -86,12 +102,11 @@
 
     const originalHref = anchor.getAttribute("href");
     const rebasedHref = rebaseDashboardUrl(originalHref);
-    if (rebasedHref !== originalHref) {
+    if (isOpsDashboardUrl(rebasedHref)) {
       anchor.setAttribute("href", rebasedHref);
       event.preventDefault();
       event.stopImmediatePropagation();
-      window.history.pushState(null, "", rebasedHref);
-      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+      window.location.assign(rebasedHref);
     }
   }, true);
 })();
