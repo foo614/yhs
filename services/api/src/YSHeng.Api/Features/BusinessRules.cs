@@ -13,6 +13,7 @@ public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string M
 public sealed record PublicVehicleDetailResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice, string? DescriptionMarkdown);
 public sealed record PublicVehicleCatalogModelResponse(string Make, string Model);
 public sealed record VehicleCatalogModelRequest(string Make, string Model, bool IsActive = true);
+public sealed record RepairApprovalRequest(string? Notes);
 public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId);
 public sealed record DashboardSummary(
     int TotalStock,
@@ -133,7 +134,7 @@ public static class ApiErrors
 public static class PublicInventory
 {
     public static IEnumerable<Vehicle> Filter(IEnumerable<Vehicle> vehicles) =>
-        vehicles.Where(vehicle => vehicle.IsPublic && vehicle.Status == VehicleStatus.Available);
+        vehicles.Where(vehicle => vehicle.BossConfirmed && vehicle.IsPublic && vehicle.Status == VehicleStatus.Available);
 
     public static PublicVehicleResponse ToResponse(Vehicle vehicle) =>
         new(
@@ -157,6 +158,41 @@ public static class PublicInventory
             vehicle.Status,
             vehicle.SellingPrice,
             vehicle.PublicDescriptionMarkdown);
+}
+
+public static class VehicleApprovalRules
+{
+    public static ValidationResult ValidateCreate(Vehicle vehicle, bool canApprove) =>
+        vehicle.BossConfirmed && !canApprove
+            ? AdminApprovalRequired()
+            : new ValidationResult([]);
+
+    public static ValidationResult ValidateUpdate(Vehicle existing, Vehicle update, bool canApprove) =>
+        existing.BossConfirmed != update.BossConfirmed && !canApprove
+            ? AdminApprovalRequired()
+            : new ValidationResult([]);
+
+    public static Vehicle EnforceVisibility(Vehicle vehicle) =>
+        vehicle.BossConfirmed ? vehicle : vehicle with { IsPublic = false };
+
+    private static ValidationResult AdminApprovalRequired() =>
+        new([new ValidationError("vehicle_approval_admin_required", "Only Boss/Admin can approve or revoke vehicle approval.")]);
+}
+
+public static class VehicleWorkflowRules
+{
+    public static ValidationResult ValidateCreate(Vehicle vehicle) =>
+        vehicle.Status == VehicleStatus.Available
+            ? new ValidationResult([])
+            : WorkflowOwnedStatus();
+
+    public static ValidationResult ValidateUpdate(Vehicle existing, Vehicle update) =>
+        existing.Status == update.Status
+            ? new ValidationResult([])
+            : WorkflowOwnedStatus();
+
+    private static ValidationResult WorkflowOwnedStatus() =>
+        new([new ValidationError("vehicle_status_workflow_owned", "Vehicle status is set by loan and payment workflows, not vehicle intake edits.")]);
 }
 
 public static class VehicleCatalogRules
@@ -327,12 +363,21 @@ public static class VehicleRules
             : new ValidationResult([]);
     }
 
-    public static ValidationResult ValidateContactLinks(Vehicle vehicle, IEnumerable<Customer> customers, IEnumerable<Owner> owners)
+    public static ValidationResult ValidateContactLinks(Vehicle vehicle, IEnumerable<Customer> customers, IEnumerable<Owner> owners, IEnumerable<LoanApplication>? loans = null)
     {
         var errors = new List<ValidationError>();
+        var activeLoans = (loans ?? []).Where(loan => loan.VehicleId == vehicle.Id && WorkflowStatusRules.IsActiveLoan(loan)).ToList();
         if (vehicle.CustomerId is { } customerId && !customers.Any(customer => customer.Id == customerId))
         {
             errors.Add(new ValidationError("customer_not_found", "Vehicle customer must be an existing customer record."));
+        }
+        else if (activeLoans.Count > 0 && vehicle.CustomerId is null)
+        {
+            errors.Add(new ValidationError("vehicle_customer_active_loan_required", "Vehicle customer cannot be cleared while an active loan exists."));
+        }
+        else if (vehicle.CustomerId is { } linkedCustomerId && activeLoans.Any(loan => loan.CustomerId != linkedCustomerId))
+        {
+            errors.Add(new ValidationError("vehicle_customer_loan_mismatch", "Vehicle customer must match every active loan customer for this vehicle."));
         }
 
         if (vehicle.OwnerId is { } ownerId && !owners.Any(owner => owner.Id == ownerId))
@@ -938,7 +983,7 @@ public static class WorkflowReferenceRules
             return new ValidationResult(errors);
         }
 
-        if (vehicle is not { IsPublic: true, Status: VehicleStatus.Available })
+        if (vehicle is not { BossConfirmed: true, IsPublic: true, Status: VehicleStatus.Available })
         {
             errors.Add(new ValidationError("vehicle_not_public", "Lead vehicle is not available on the public website."));
         }
@@ -971,12 +1016,25 @@ public static class WorkflowReferenceRules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateLoan(LoanApplication loan, IEnumerable<Vehicle> vehicles, IEnumerable<Customer> customers)
+    public static ValidationResult ValidateLoan(LoanApplication loan, IEnumerable<Vehicle> vehicles, IEnumerable<Customer> customers, IEnumerable<LoanApplication>? existingLoans = null)
     {
         var errors = new List<ValidationError>();
-        if (!vehicles.Any(vehicle => vehicle.Id == loan.VehicleId))
+        var linkedVehicle = vehicles.FirstOrDefault(vehicle => vehicle.Id == loan.VehicleId);
+        if (linkedVehicle is null)
         {
             errors.Add(new ValidationError("vehicle_not_found", "Loan must be linked to an existing car plate."));
+        }
+        else if (linkedVehicle.CustomerId is { } vehicleCustomerId && vehicleCustomerId != loan.CustomerId)
+        {
+            errors.Add(new ValidationError("vehicle_customer_mismatch", "Loan customer must match the customer linked to the selected vehicle."));
+        }
+        else if (linkedVehicle.CustomerId is null && (existingLoans ?? []).Any(existingLoan =>
+            existingLoan.Id != loan.Id &&
+            existingLoan.VehicleId == loan.VehicleId &&
+            WorkflowStatusRules.IsActiveLoan(existingLoan) &&
+            existingLoan.CustomerId != loan.CustomerId))
+        {
+            errors.Add(new ValidationError("legacy_vehicle_customer_conflict", "Unassigned vehicle already has a loan for another customer."));
         }
 
         if (!customers.Any(customer => customer.Id == loan.CustomerId))
@@ -1002,6 +1060,24 @@ public static class WorkflowReferenceRules
         return new ValidationResult(errors);
     }
 
+    public static ValidationResult ValidateCanonicalBuyer(Guid vehicleId, IEnumerable<Vehicle> vehicles, IEnumerable<Customer> customers, string workflow)
+    {
+        var vehicle = vehicles.FirstOrDefault(item => item.Id == vehicleId);
+        if (vehicle is null)
+        {
+            return new ValidationResult([new ValidationError("vehicle_not_found", $"{workflow} must be linked to an existing car plate.")]);
+        }
+
+        if (vehicle.CustomerId is not { } customerId)
+        {
+            return new ValidationResult([new ValidationError("vehicle_customer_required", $"{workflow} requires a confirmed buyer on the vehicle.")]);
+        }
+
+        return customers.Any(customer => customer.Id == customerId)
+            ? new ValidationResult([])
+            : new ValidationResult([new ValidationError("customer_not_found", $"{workflow} buyer must be an existing customer.")]);
+    }
+
     public static ValidationResult ValidateVehicleLink(Guid vehicleId, IEnumerable<Vehicle> vehicles)
     {
         return vehicles.Any(vehicle => vehicle.Id == vehicleId)
@@ -1012,14 +1088,35 @@ public static class WorkflowReferenceRules
 
 public static class WorkflowStatusRules
 {
+    public static bool IsActiveLoan(LoanApplication loan) =>
+        loan.Status is LoanStatus.Pending or LoanStatus.Approved or LoanStatus.Done;
+
     public static Vehicle ApplyLoanStatus(Vehicle vehicle, LoanApplication loan)
     {
-        if (loan.Status is LoanStatus.Pending or LoanStatus.Approved or LoanStatus.Done)
+        if (IsActiveLoan(loan))
         {
-            return vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false };
+            return vehicle with { CustomerId = vehicle.CustomerId ?? loan.CustomerId, Status = VehicleStatus.LoanProcessing, IsPublic = false };
         }
 
         return vehicle;
+    }
+
+    public static Vehicle ApplyWorkflowStatus(Vehicle vehicle, IEnumerable<LoanApplication> loans, IEnumerable<PaymentRecord> payments)
+    {
+        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
+        {
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false };
+        }
+
+        var activeLoan = loans.FirstOrDefault(loan => loan.VehicleId == vehicle.Id && IsActiveLoan(loan));
+        if (activeLoan is not null)
+        {
+            return ApplyLoanStatus(vehicle, activeLoan);
+        }
+
+        return vehicle.Status is VehicleStatus.LoanProcessing or VehicleStatus.Sold
+            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false }
+            : vehicle;
     }
 
     public static Vehicle ApplyPaymentStatus(Vehicle vehicle, PaymentRecord payment)
@@ -1459,6 +1556,30 @@ public static class FinanceRules
     }
 }
 
+public static class PaymentManagementReviewRules
+{
+    public static PaymentRecord PrepareForCreate(PaymentRecord payment) =>
+        payment with { BossChecked = false };
+
+    public static PaymentRecord PrepareForUpdate(PaymentRecord existing, PaymentRecord update) =>
+        update with { BossChecked = HasMaterialChanges(existing, update) ? false : existing.BossChecked };
+
+    public static bool HasMaterialChanges(PaymentRecord existing, PaymentRecord update) =>
+        existing.VehicleId != update.VehicleId ||
+        existing.NettPrice != update.NettPrice ||
+        !string.Equals(existing.ReceiptNumber?.Trim(), update.ReceiptNumber?.Trim(), StringComparison.Ordinal) ||
+        !string.Equals(existing.InvoiceNumber?.Trim(), update.InvoiceNumber?.Trim(), StringComparison.Ordinal) ||
+        existing.SalesPrice != update.SalesPrice ||
+        existing.InterestAdditionalCharges != update.InterestAdditionalCharges ||
+        existing.NcdAmount != update.NcdAmount ||
+        existing.WindscreenCharges != update.WindscreenCharges ||
+        existing.OutstationDeliveryDate != update.OutstationDeliveryDate ||
+        !string.Equals(existing.BankName?.Trim(), update.BankName?.Trim(), StringComparison.Ordinal) ||
+        existing.BankFollowUpDate != update.BankFollowUpDate ||
+        existing.DocumentsPrepared != update.DocumentsPrepared ||
+        existing.ChecklistValidated != update.ChecklistValidated;
+}
+
 public static class UploadPolicy
 {
     public const long VehiclePhotoLimit = 5 * 1024 * 1024;
@@ -1562,6 +1683,45 @@ public static class RepairRules
 
     public static bool IsCostFinal(RepairJob repair) =>
         repair.Cost < ApprovalThreshold || repair.ApprovalStatus == RepairApprovalStatus.Approved;
+}
+
+public static class RepairApprovalRules
+{
+    public static RepairJob PrepareForCreate(RepairJob repair) =>
+        repair with
+        {
+            ApprovalStatus = RepairApprovalStatus.Pending,
+            ApprovalNotes = null,
+            ApprovedBy = null,
+            ApprovedAt = null
+        };
+
+    public static RepairJob PrepareForUpdate(RepairJob existing, RepairJob update)
+    {
+        var changed = HasMaterialChanges(existing, update);
+        return update with
+        {
+            ApprovalStatus = changed ? RepairApprovalStatus.Pending : existing.ApprovalStatus,
+            ApprovalNotes = changed ? null : existing.ApprovalNotes,
+            ApprovedBy = changed ? null : existing.ApprovedBy,
+            ApprovedAt = changed ? null : existing.ApprovedAt
+        };
+    }
+
+    public static RepairJob Approve(RepairJob repair, RepairApprovalRequest request, ClaimsPrincipal actor) =>
+        repair with
+        {
+            ApprovalStatus = RepairApprovalStatus.Approved,
+            ApprovalNotes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+            ApprovedBy = AuditTrail.ActorFrom(actor),
+            ApprovedAt = DateTime.UtcNow
+        };
+
+    public static bool HasMaterialChanges(RepairJob existing, RepairJob update) =>
+        existing.VehicleId != update.VehicleId ||
+        !string.Equals(existing.RepairPart?.Trim(), update.RepairPart?.Trim(), StringComparison.Ordinal) ||
+        !string.Equals(existing.WhatToDo?.Trim(), update.WhatToDo?.Trim(), StringComparison.Ordinal) ||
+        existing.Cost != update.Cost;
 }
 
 public static class SupplierInvoiceRules
@@ -1731,11 +1891,21 @@ public static class LoanDocumentRules
     public static LoanDocumentCheck CheckCompleteness(LoanApplication loan, IEnumerable<DocumentBlob> documents)
     {
         var attachedCategories = documents
-            .Where(document => document.VehicleId == loan.VehicleId || document.CustomerId == loan.CustomerId)
+            .Where(document => document.VehicleId == loan.VehicleId && document.CustomerId == loan.CustomerId)
             .Select(document => document.Category)
             .ToHashSet();
         var missing = RequiredCategories.Where(category => !attachedCategories.Contains(category)).ToList();
         return new LoanDocumentCheck(missing.Count == 0, missing);
+    }
+
+    public static ValidationResult ValidateCompletion(LoanApplication loan, IEnumerable<DocumentBlob> documents)
+    {
+        var check = CheckCompleteness(loan, documents);
+        return check.IsComplete
+            ? new ValidationResult([])
+            : new ValidationResult([new ValidationError(
+                "loan_documents_incomplete",
+                $"Loan cannot be marked done until these buyer documents are uploaded for this vehicle: {string.Join(", ", check.MissingCategories)}.")]);
     }
 }
 

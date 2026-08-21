@@ -69,13 +69,21 @@ public static class CustomerProfileFactory
         var canViewFinance = roleSet.Contains("BossAdmin") || roleSet.Contains("Finance");
         var canViewEnquiries = roleSet.Contains("BossAdmin") || roleSet.Contains("Sales");
 
+        var customerLoans = loans.Where(loan => loan.CustomerId == customer.Id).ToList();
+        var customerLoanVehicleIds = customerLoans.Select(loan => loan.VehicleId).ToHashSet();
+        var unambiguousLegacyVehicleIds = loans
+            .Where(loan => customerLoanVehicleIds.Contains(loan.VehicleId))
+            .GroupBy(loan => loan.VehicleId)
+            .Where(group => group.All(loan => loan.CustomerId == customer.Id))
+            .Select(group => group.Key)
+            .ToHashSet();
         var profileVehicles = vehicles
-            .Where(vehicle => vehicle.CustomerId == customer.Id)
+            .Where(vehicle => vehicle.CustomerId == customer.Id || (vehicle.CustomerId is null && unambiguousLegacyVehicleIds.Contains(vehicle.Id)))
             .OrderByDescending(vehicle => vehicle.IntakeDate)
             .ThenBy(vehicle => vehicle.PlateNumber)
             .ToList();
         var vehicleIds = profileVehicles.Select(vehicle => vehicle.Id).ToHashSet();
-        var profileLoans = loans.Where(loan => loan.CustomerId == customer.Id).OrderByDescending(loan => loan.SubmittedAt).ToList();
+        var profileLoans = customerLoans.Where(loan => vehicleIds.Contains(loan.VehicleId)).OrderByDescending(loan => loan.SubmittedAt).ToList();
         var profileDeliveries = deliveries.Where(delivery => vehicleIds.Contains(delivery.VehicleId)).OrderByDescending(delivery => delivery.ScheduledDate).ToList();
         var profilePayments = payments.Where(payment => vehicleIds.Contains(payment.VehicleId)).OrderByDescending(payment => payment.CreatedAt).ToList();
         var paymentIds = profilePayments.Select(payment => payment.Id).ToHashSet();
@@ -133,13 +141,13 @@ public static class CustomerProfileFactory
                 ? leads.Where(lead => lead.CustomerId == customer.Id).OrderByDescending(lead => lead.CreatedAt)
                     .Select(lead => new CustomerProfileEnquiry(lead.Id, lead.VehicleId, lead.Status, lead.Message, lead.SourcePage, lead.CreatedAt)).ToList()
                 : [],
-            MissingDocuments(customer, roleSet, profileLoans, profileDeliveries, profileDocuments),
+            MissingDocuments(roleSet, vehicleIds, profileLoans, profileDeliveries, profileDocuments),
             new CustomerProfilePermissions(canViewIdentity, canViewLoans, canViewDelivery, canViewFinance, canViewDocuments, canViewEnquiries));
     }
 
     private static IReadOnlyList<CustomerProfileMissingDocument> MissingDocuments(
-        Customer customer,
         IReadOnlySet<string> roles,
+        IReadOnlySet<Guid> vehicleIds,
         IReadOnlyList<LoanApplication> loans,
         IReadOnlyList<DeliverySchedule> deliveries,
         IReadOnlyList<DocumentBlob> documents)
@@ -150,9 +158,15 @@ public static class CustomerProfileFactory
             missing.Add(new(null, FileCategory.IdentityCard, "Identity card upload is missing from the linked vehicle history."));
         }
 
-        if (DepartmentAccess.CanUploadDocument(roles, FileCategory.Voc) && !documents.Any(document => document.Category == FileCategory.Voc))
+        if (DepartmentAccess.CanUploadDocument(roles, FileCategory.Voc))
         {
-            missing.Add(new(null, FileCategory.Voc, "VOC upload is missing from the linked vehicle history."));
+            foreach (var vehicleId in vehicleIds)
+            {
+                if (!documents.Any(document => document.VehicleId == vehicleId && document.Category == FileCategory.Voc))
+                {
+                    missing.Add(new(vehicleId, FileCategory.Voc, "VOC upload is missing from this vehicle's history."));
+                }
+            }
         }
 
         if (roles.Contains("BossAdmin") || roles.Contains("Loan"))

@@ -102,8 +102,8 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `GET` | `/api/vehicle-catalog/models` | `Vehicles` | List active and inactive make/model catalogue entries. |
 | `POST` | `/api/vehicle-catalog/models` | `Vehicles` | Add a make/model option for public filters. |
 | `PUT` | `/api/vehicle-catalog/models/{id}` | `Vehicles` | Edit or deactivate a make/model option without changing existing vehicle records. |
-| `POST` | `/api/vehicles` | `Vehicles` | Create vehicle intake, including optional chassis and engine identifiers. |
-| `PUT` | `/api/vehicles/{id}` | `Vehicles` | Update vehicle intake, chassis/engine identifiers, and public status. |
+| `POST` | `/api/vehicles` | `Vehicles` | Create an available vehicle intake, including optional chassis and engine identifiers. Sales-created vehicles remain pending and private; only Boss/Admin can submit approval. |
+| `PUT` | `/api/vehicles/{id}` | `Vehicles` | Update vehicle intake, chassis/engine identifiers, and public status without changing its workflow-owned status. Changing management approval requires Boss/Admin; unapproved vehicles are always private. |
 | `GET` | `/api/vehicle-lookup` | `VehicleRead` | Plate/make/model/status and linked customer ID lookup for authorized workflow selectors and customer-profile hand-off. |
 | `GET` | `/api/vehicles/{id}/stock-movements` | `VehicleRead` | List stock owner, status, and location movement history with actor, timestamp, previous value, new value, and reason. |
 | `GET` | `/api/customers` | `CustomerRead` | Customer lookup/list. |
@@ -127,7 +127,7 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `POST` | `/api/vehicles/{id}/photos` | `Vehicles` | Upload vehicle photo, max 5 MB. |
 | `GET` | `/api/vehicles/{id}/photos` | `BackOffice` | List photo metadata. |
 | `GET` | `/api/vehicles/{id}/photos/{photoId}/content` | `BackOffice` | Download original photo content. |
-| `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}` | Category-specific role | Upload document, max 10 MB; workflow-record IDs are optional and mutually exclusive. |
+| `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}` | Category-specific role | Upload document, max 10 MB; workflow-record IDs are optional and mutually exclusive. The server derives `DocumentBlob.CustomerId` from the route vehicle. |
 | `GET` | `/api/vehicles/{id}/documents` | Category-specific role | List document metadata visible to the signed-in department. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | Category-specific role | Download document content visible to the signed-in department. |
 | `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start Google Document AI analysis for the authorized uploaded document category, including IC, VOC, invoice, and receipt review. |
@@ -145,6 +145,7 @@ OCR runtime:
 - Authentication uses Google Application Default Credentials and the `cloud-platform` OAuth scope. The production container reads a least-privilege credential from `/run/secrets/google-document-ai.json`; never store credential JSON in source control or an environment-file value.
 - The backend sends uploaded image bytes to Google Document AI. Keep the existing manual review step because schema-valid extraction can still be semantically wrong. PDF conversion remains outside this upload flow.
 - `Ocr__Provider=LocalMock` is for deterministic local tests. `BaiduUnlimited` remains an explicit legacy provider during migration but is no longer the default.
+- Before OCR calls an external provider, the API reserves one usage unit against the server-side OCR limits. Exhausted or disabled limits return `429` with a structured `message`; a provider-attempted request remains counted even if the provider later fails.
 
 Document upload ownership:
 
@@ -166,16 +167,17 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/loans` | `Loans` | List loan applications. |
-| `POST` | `/api/loans` | `Loans` | Create loan workflow record. |
-| `PUT` | `/api/loans/{id}` | `Loans` | Update loan workflow record. |
+| `POST` | `/api/loans` | `Loans` | Create loan workflow record. An active loan establishes or verifies the vehicle's canonical customer. |
+| `PUT` | `/api/loans/{id}` | `Loans` | Update loan workflow record. An active loan establishes or verifies the vehicle's canonical customer; `Done` requires the current buyer's full vehicle-scoped document set. |
 | `GET` | `/api/loans/{id}/document-check` | `Loans` | Check VOC/AP/status receipt/loan document completeness. |
 | `GET` | `/api/deliveries` | `Deliveries` | List delivery schedules. |
-| `POST` | `/api/deliveries` | `Deliveries` | Create delivery workflow record. |
-| `PUT` | `/api/deliveries/{id}` | `Deliveries` | Update delivery workflow record. |
+| `POST` | `/api/deliveries` | `Deliveries` | Create delivery workflow record for a vehicle with an existing canonical buyer. |
+| `PUT` | `/api/deliveries/{id}` | `Deliveries` | Update delivery workflow record for a vehicle with an existing canonical buyer. |
 | `GET` | `/api/deliveries/{id}/release-readiness` | `Deliveries` | Check delivery checklist, required documents, and release evidence metadata. |
 | `GET` | `/api/repairs` | `Repairs` | List repair jobs. |
 | `POST` | `/api/repairs` | `Repairs` | Create repair job. |
 | `PUT` | `/api/repairs/{id}` | `Repairs` | Update repair job. |
+| `POST` | `/api/repairs/{id}/approval` | `BossAdmin` | Approve a repair with the authenticated Boss/Admin actor and server timestamp. Repair CRUD cannot supply an approval; material repair changes reset it. |
 | `GET` | `/api/suppliers` | `Repairs` | Derived supplier master summary from supplier invoices. |
 | `GET` | `/api/supplier-invoices` | `Repairs` | List supplier invoices. |
 | `GET` | `/api/supplier-invoices/aging` | `Repairs` | Supplier invoice aging view for unmatched, due-soon, overdue, and paid states. |
@@ -194,15 +196,22 @@ Delivery release-readiness responses include:
 - `expiredDocuments`: delivery-critical expiry blockers for insurance, road tax, or windscreen insurance.
 - `evidence`: one item for each required release document category, with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`.
 
+Workflow integrity:
+
+- Vehicle intake create/update cannot set `LoanProcessing` or `Sold`; loan and payment workflow updates derive those states on the server.
+- A loan can become `Done` only when `StatusReceipt`, `Voc`, `ApDocument`, and `LoanDocument` all belong to its exact vehicle and canonical buyer. The validation response uses `loan_documents_incomplete` and names the missing categories.
+- Delivery creation/update and payment reconciliation require that the vehicle has a `CustomerId` pointing to an existing canonical customer. Cash sales remain supported and do not require a loan.
+
 ## Finance
 
-All finance endpoints require the `Finance` policy.
+All finance endpoints require the `Finance` policy, except the separately authorized Boss/Admin management-review action.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` / `POST` | `/api/payments` | List/create payment records. |
 | `GET` | `/api/payments/export` | Export payment CSV after Finance/Admin authorization and audit logging. |
 | `PUT` | `/api/payments/{id}` | Update payment workflow/reconciliation. |
+| `POST` | `/api/payments/{id}/management-review` | Boss/Admin marks the payment as management-reviewed with an audit record. Payment CRUD cannot self-assert this review, and material finance edits reset it. |
 | `GET` | `/api/finance-invoices/{invoiceId}/content` | Download a historical finance-invoice PDF; no new finance invoices are generated by this system. |
 | `GET` / `POST` | `/api/settlement-reminders` | List/create settlement reminders. |
 | `PUT` | `/api/settlement-reminders/{id}` | Update settlement reminder. |
@@ -214,6 +223,8 @@ All finance endpoints require the `Finance` policy.
 | `PUT` | `/api/debt-recoveries/{id}` | Update debt recovery case. |
 | `GET` / `POST` | `/api/payment-vouchers` | List/create payment vouchers. |
 | `PUT` | `/api/payment-vouchers/{id}` | Update payment voucher. |
+
+Payment reconciliation also requires a canonical existing vehicle buyer, the existing receipt/invoice references, finance checklist, and a separate Boss/Admin management review. The review is set only by `POST /api/payments/{id}/management-review`; later material payment edits clear it.
 
 ## Cash Custody And Official Receipts
 
@@ -280,6 +291,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 | `GET` | `/api/dashboard/summary` | `Dashboard` | Boss/Admin operational metrics, including `totalProfit` and backward-compatible `estimatedProfit`. |
 | `GET` | `/api/dashboard/reminders?type={type}&due={All\|Overdue\|DueToday\|Upcoming}` | `Dashboard` | Reminder inbox, optionally filtered. |
 | `GET` | `/api/audit-log?actor=&action=&entityName=` | `BossAdmin` | Filterable audit history. |
+| `GET` | `/api/admin/ai-limits/ocr` | `BossAdmin` | Read the OCR enabled state, monthly and per-staff daily limits, and current-month usage. |
+| `PUT` | `/api/admin/ai-limits/ocr` | `BossAdmin` | Update the server-enforced OCR enabled state, monthly request limit, and per-staff daily request limit. |
 | `GET` | `/api/admin/users` | `BossAdmin` | List staff users and roles. |
 | `POST` | `/api/admin/users` | `BossAdmin` | Create staff user. |
 | `PUT` | `/api/admin/users/{id}` | `BossAdmin` | Update staff display name. |
@@ -307,6 +320,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`
 - `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`
 - `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`
+- `AiService`: `Ocr`
+- `AiUsageStatus`: `Reserved`, `Succeeded`, `Failed`
 
 ## Error Shape
 

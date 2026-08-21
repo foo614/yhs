@@ -55,6 +55,7 @@ export function FinancePage({
   cashHandoverPaymentLookup,
   onCreate,
   onUpdate,
+  onApproveManagementReview,
   onOpenCustomer,
   onCreateSettlement,
   onUpdateSettlement,
@@ -88,6 +89,7 @@ export function FinancePage({
   cashHandoverPaymentLookup: CashHandoverPaymentLookup[];
   onCreate: (payment: PaymentRecord) => void;
   onUpdate: (payment: PaymentRecord) => void;
+  onApproveManagementReview: (paymentId: string) => Promise<void>;
   onOpenCustomer: (customerId: string) => void;
   onCreateSettlement: (settlement: SettlementReminder) => void;
   onUpdateSettlement: (settlement: SettlementReminder) => void;
@@ -108,6 +110,8 @@ export function FinancePage({
   onRejectCashHandover: (id: string, reason: string) => Promise<void>;
 }) {
   const canManageFinance = !currentUser?.isAuthenticated || currentUser.roles.some((role) => role === "BossAdmin" || role === "Finance");
+  const canApproveManagementReview = Boolean(currentUser?.roles.includes("BossAdmin"));
+  const eligiblePaymentVehicles = vehicles.filter((vehicle) => Boolean(vehicle.customerId));
   const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
   const [editPaymentId, setEditPaymentId] = useState(payments[0]?.id ?? "");
   const [editSettlementId, setEditSettlementId] = useState(settlements[0]?.id ?? "");
@@ -304,6 +308,7 @@ export function FinancePage({
         return (
           <Space className="tableActionGroup" wrap size={6}>
             <Button size="small" type="primary" onClick={() => selectPayment(row.id)}>Details</Button>
+            {canApproveManagementReview && !row.bossChecked && <Button size="small" onClick={() => onApproveManagementReview(row.id)}>Approve review</Button>}
             <Tooltip title={reconcileReason ?? ""}>
               <span>
                 <Button size="small" onClick={() => onUpdate({ ...row, status: "Reconciled" })} disabled={!canReconcilePayment(row, payments)}>Reconcile</Button>
@@ -598,10 +603,11 @@ export function FinancePage({
       )}
       {financeTab === "payments" && <ProCard
         title="Bank Collection / 收款Bank"
-        extra={<Space wrap><Button onClick={handleExportPayments}>Export Spreadsheet (CSV)</Button><Button type="primary" onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button></Space>}
+        extra={<Space wrap><Button onClick={handleExportPayments}>Export Spreadsheet (CSV)</Button><Button type="primary" disabled={eligiblePaymentVehicles.length === 0} onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button></Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           {financeFilters}
+          {eligiblePaymentVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before recording a collection." />}
           <div className="mobileRecordList">
           {filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
           {visiblePayments.map((payment) => {
@@ -630,6 +636,7 @@ export function FinancePage({
                 </Space>
                 <Space className="tableActionGroup" wrap size={6}>
                   <Button size="small" type="primary" onClick={() => selectPayment(payment.id)}>Details</Button>
+                  {canApproveManagementReview && !payment.bossChecked && <Button size="small" onClick={() => onApproveManagementReview(payment.id)}>Approve review</Button>}
                   <Tooltip title={paymentReconcileBlockReason(payment, payments) ?? ""}>
                     <span>
                       <Button size="small" onClick={() => onUpdate({ ...payment, status: "Reconciled" })} disabled={!canReconcilePayment(payment, payments)}>Reconcile</Button>
@@ -680,8 +687,8 @@ export function FinancePage({
           }
           onCreate(payment);
           setFinanceCreateOpen(null);
-        }} initialValues={{ vehicleId: vehicles[0]?.id }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+        }} initialValues={{ vehicleId: eligiblePaymentVehicles[0]?.id }}>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={eligiblePaymentVehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="nettPrice" label="Collection Amount / Nett Price" rules={[{ required: true, message: "Collection amount is required." }]}><InputNumber className="fullWidth" min={0.01} /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><DatePicker className="fullWidth" /></Form.Item>
@@ -700,7 +707,7 @@ export function FinancePage({
             status: values.status,
             receiptNumber: values.receiptNumber,
             invoiceNumber: values.invoiceNumber,
-            bossChecked: values.bossChecked,
+            bossChecked: false,
             documentsPrepared: values.documentsPrepared,
             checklistValidated: values.checklistValidated,
             salesPrice: Number(values.salesPrice ?? 0),
@@ -724,7 +731,6 @@ export function FinancePage({
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
-          <Form.Item name="bossChecked" label="Management Review / 管理层审核"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Reviewed" }]} /></Form.Item>
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -762,7 +768,6 @@ export function FinancePage({
               status: values.status,
               receiptNumber: values.receiptNumber?.trim() || undefined,
               invoiceNumber: values.invoiceNumber?.trim() || undefined,
-              bossChecked: values.bossChecked,
               documentsPrepared: values.documentsPrepared,
               checklistValidated: values.checklistValidated,
               salesPrice: Number(values.salesPrice ?? 0),
@@ -784,12 +789,15 @@ export function FinancePage({
           }}
         >
           <Form.Item name="id" label="Selected Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedEditPayment?.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
-          <Form.Item name="bossChecked" label="Management Review / 管理层审核"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Reviewed" }]} /></Form.Item>
+          <Descriptions size="small" column={1} className="fullWidth">
+            <Descriptions.Item label="Management Review / 管理层审核">{selectedEditPayment?.bossChecked ? "Reviewed" : "Pending"}</Descriptions.Item>
+          </Descriptions>
+          {canApproveManagementReview && selectedEditPayment && !selectedEditPayment.bossChecked && <Button onClick={() => onApproveManagementReview(selectedEditPayment.id)}>Approve Management Review</Button>}
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
@@ -837,8 +845,8 @@ export function FinancePage({
                 category={documentCategory}
                 disabled={!selectedPayment}
                 uploadOwner={selectedPayment ? { paymentRecordId: selectedPayment.id } : undefined}
-                buttonLabel="Upload & OCR Finance Document"
-                applyLabel="Apply to Payment"
+                buttonLabel="Add receipt or invoice photo"
+                applyLabel="Use details in payment"
                 fields={[
                   { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
                   { name: "receiptNumber", label: "Receipt No." },

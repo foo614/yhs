@@ -68,13 +68,16 @@ import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminder
 import { FinancePage } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
-import { MissingUploadReminder } from "./modules/shared/MissingUploadReminder";
+import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSettings";
+import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import {
   checkInHrAttendance,
   checkOutHrAttendance,
   acceptCashHandover,
+  approvePaymentManagementReview,
+  approveRepair,
   createCashHandover,
   createHrLeaveAdjustment,
   createHrLeaveRequest,
@@ -123,6 +126,7 @@ import {
   getLeads,
   getLoanDocumentCheck,
   getLoans,
+  getOcrUsageLimit,
   getOwners,
   getPayments,
   getPaymentVouchers,
@@ -154,6 +158,7 @@ import {
   updateLead,
   updateLoan,
   updateOwner,
+  updateOcrUsageLimit,
   updatePayment,
   updatePaymentVoucher,
   updatePurchaseInvoice,
@@ -170,6 +175,7 @@ import {
   vehicleDocumentContentUrl,
   type AuditLog,
   type AuditLogFilters,
+  type AiUsageLimitSnapshot,
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
@@ -209,6 +215,7 @@ import {
   type SupplierInvoice,
   type UpdateStaffUserRequest,
   type UpdateStaffUserStatusRequest,
+  type UpdateAiServiceLimitRequest,
   type Vehicle,
   type VehicleLookup,
   type VehicleDocument,
@@ -227,7 +234,6 @@ const dashboardReminderTypes: DashboardReminder["type"][] = [
   "DebtRecoveryFollowUp",
   "PaymentVoucherFollowUp"
 ];
-const repairApprovalOptions = ["Pending", "Approved", "Rejected"].map((value) => ({ value, label: value }));
 
 const deliveryChecklistFields = [
   "inspectionDone",
@@ -338,6 +344,19 @@ export function browserRouteUrl(location: Pick<Location, "pathname" | "search">)
 export function customerIdFromRouteUrl(routeUrl: string) {
   const queryIndex = routeUrl.indexOf("?");
   return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("customerId") ?? undefined;
+}
+
+export function loanIdFromRouteUrl(routeUrl: string) {
+  const queryIndex = routeUrl.indexOf("?");
+  return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("loanId") ?? undefined;
+}
+
+export function vehicleLoanCustomerId(vehicle: Pick<Vehicle, "customerId">, existingLoan?: Pick<LoanApplication, "customerId">) {
+  return existingLoan?.customerId ?? vehicle.customerId;
+}
+
+export function activeLoanForVehicle(loans: LoanApplication[], vehicleId: string) {
+  return loans.find((loan) => loan.vehicleId === vehicleId && ["Pending", "Approved", "Done"].includes(loan.status));
 }
 
 function tablePagination(pageSize = 8): TablePaginationConfig {
@@ -679,35 +698,31 @@ export default function App() {
   }
 
   async function handleStartVehicleLoan(vehicle: Vehicle) {
-    if (!vehicle.customerId) {
+    const existingLoan = activeLoanForVehicle(loans, vehicle.id);
+    const loanCustomerId = vehicleLoanCustomerId(vehicle, existingLoan);
+    if (!loanCustomerId) {
       notifyError("Customer required", "Open the vehicle record and link or create the customer before starting the loan workflow.");
       return;
     }
 
     try {
-      const existingLoan = loans.find((loan) => loan.vehicleId === vehicle.id);
-      if (!existingLoan) {
-        const loan = await createLoan({
+      let targetLoan = existingLoan;
+      if (!targetLoan) {
+        const createdLoan = await createLoan({
           id: newId(),
           vehicleId: vehicle.id,
-          customerId: vehicle.customerId,
+          customerId: loanCustomerId,
           status: "Pending",
           louApproved: false,
           louDone: false,
           submittedAt: today()
         });
-        setLoans((items) => [loan, ...items]);
-      }
-
-      if (vehicle.status !== "LoanProcessing" || vehicle.isPublic) {
-        const updatedVehicle = await updateVehicle({ ...vehicle, status: "LoanProcessing", isPublic: false });
-        setVehicles((items) => replaceById(items, updatedVehicle));
+        targetLoan = createdLoan;
+        setLoans((items) => [createdLoan, ...items]);
       }
 
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
-      setPathname("/loans");
-      setRouteUrl("/loans");
-      window.history.pushState(null, "", "/loans");
+      navigateTo(`/loans?loanId=${encodeURIComponent(targetLoan.id)}`);
       notifySuccess(
         existingLoan ? "Loan workflow opened" : "Loan workflow started",
         existingLoan ? "This vehicle already has a loan record." : "A pending loan record was created and linked to the selected customer."
@@ -823,6 +838,7 @@ export default function App() {
             <VehiclePage
               vehicles={vehicles}
               leads={leads}
+              loans={loans}
               customers={customers}
               owners={owners}
               purchaseInvoices={purchaseInvoices}
@@ -846,10 +862,12 @@ export default function App() {
               vehicles={vehicleLookup}
               supplierInvoices={supplierInvoices}
               repairs={repairs}
+              canApproveRepairs={currentRoles.includes("BossAdmin")}
               onCreateInvoice={(invoice) => runCreate(() => createSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => [record, ...items]), "Supplier invoice created")}
               onUpdateInvoice={(invoice) => runUpdate(() => updateSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => replaceById(items, record)), "Supplier invoice updated")}
               onCreateRepair={(repair) => runCreate(() => createRepair(repair), (record) => setRepairs((items) => [record, ...items]), "Repair task created")}
               onUpdateRepair={(repair) => runUpdate(() => updateRepair(repair), (record) => setRepairs((items) => replaceById(items, record)), "Repair task updated")}
+              onApproveRepair={(repairId, notes) => runUpdate(() => approveRepair(repairId, notes), (record) => setRepairs((items) => replaceById(items, record)), "Repair approved")}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Repair document uploaded")}
             />
           )}
@@ -858,6 +876,8 @@ export default function App() {
               vehicles={vehicleLookup}
               customers={customers}
               loans={loans}
+              initialLoanId={loanIdFromRouteUrl(routeUrl)}
+              onBackToList={() => navigateTo("/loans")}
               onCreate={(loan) => runCreate(() => createLoan(loan), (record) => setLoans((items) => [record, ...items]), "Loan submitted")}
               onUpdate={(loan) => runUpdate(() => updateLoan(loan), (record) => setLoans((items) => replaceById(items, record)), "Loan updated")}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Loan document uploaded")}
@@ -889,6 +909,7 @@ export default function App() {
               cashHandoverPaymentLookup={cashHandoverPaymentLookup}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
+              onApproveManagementReview={(paymentId) => runUpdate(() => approvePaymentManagementReview(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Management review approved")}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
               onCreateSettlement={(settlement) => runCreate(() => createSettlementReminder(settlement), (record) => setSettlements((items) => [record, ...items]), "Settlement reminder created")}
               onUpdateSettlement={(settlement) => runUpdate(() => updateSettlementReminder(settlement), (record) => setSettlements((items) => replaceById(items, record)), "Settlement reminder updated")}
@@ -1675,19 +1696,23 @@ function RepairPage({
   vehicles,
   supplierInvoices,
   repairs,
+  canApproveRepairs,
   onCreateInvoice,
   onUpdateInvoice,
   onCreateRepair,
   onUpdateRepair,
+  onApproveRepair,
   onUploadDocument
 }: {
   vehicles: VehicleLookup[];
   supplierInvoices: SupplierInvoice[];
   repairs: RepairJob[];
+  canApproveRepairs: boolean;
   onCreateInvoice: (invoice: SupplierInvoice) => Promise<void>;
   onUpdateInvoice: (invoice: SupplierInvoice) => Promise<void>;
   onCreateRepair: (repair: RepairJob) => Promise<void>;
   onUpdateRepair: (repair: RepairJob) => Promise<void>;
+  onApproveRepair: (repairId: string, notes?: string) => Promise<void>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [uploadRepairId, setUploadRepairId] = useState("");
@@ -1697,7 +1722,6 @@ function RepairPage({
   const [repairEditorOpen, setRepairEditorOpen] = useState(false);
   const [repairCreateOpen, setRepairCreateOpen] = useState(false);
   const [supplierInvoiceOcrDraft, setSupplierInvoiceOcrDraft] = useState<OcrReviewValues | null>(null);
-  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("RepairInvoice");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [repairDocuments, setRepairDocuments] = useState<VehicleDocument[]>([]);
   const [refurbishmentFilters, setRefurbishmentFilters] = useState<RefurbishmentFilters>({});
@@ -1749,6 +1773,43 @@ function RepairPage({
 
   const pendingRepairs = repairs.filter((repair) => !repair.checklistDone).length;
   const repairTotal = repairs.filter(isRepairCostFinal).reduce((sum, repair) => sum + repair.cost, 0);
+  const showRepairCompletionConfirmation = (repair: RepairJob, onConfirm: () => Promise<void> | void) => {
+    Modal.confirm({
+      title: "Mark repair done? / 确认完成整备？",
+      content: (
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
+          <Descriptions.Item label="Repair Task / 整备事项">{repair.whatToDo}</Descriptions.Item>
+          <Descriptions.Item label="Cost / 费用">RM {repair.cost.toLocaleString()}</Descriptions.Item>
+        </Descriptions>
+      ),
+      okText: "Mark Done",
+      cancelText: "Keep Pending",
+      onOk: onConfirm
+    });
+  };
+  const confirmRepairCompletion = (repair: RepairJob, onConfirmed?: () => void) => {
+    showRepairCompletionConfirmation(repair, async () => {
+      await onUpdateRepair({ ...repair, checklistDone: true });
+      onConfirmed?.();
+    });
+  };
+  const confirmRepairApproval = (repair: RepairJob) => {
+    Modal.confirm({
+      title: "Approve repair? / 批准整备？",
+      content: (
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
+          <Descriptions.Item label="Repair Task / 整备事项">{repair.whatToDo}</Descriptions.Item>
+          <Descriptions.Item label="Cost / 费用">RM {repair.cost.toLocaleString()}</Descriptions.Item>
+          <Descriptions.Item label="Approval">Your signed-in account will be recorded as the approver.</Descriptions.Item>
+        </Descriptions>
+      ),
+      okText: "Approve Repair",
+      cancelText: "Cancel",
+      onOk: () => onApproveRepair(repair.id, repair.approvalNotes)
+    });
+  };
   const refurbishmentRecordCount = repairs.length + supplierInvoices.length;
   const refurbishmentRecords = filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters);
   const refurbishmentFiltersActive = Object.values(refurbishmentFilters).some((value) => value !== undefined && value !== "" && value !== "All");
@@ -1828,7 +1889,8 @@ function RepairPage({
           {row.kind === "repair" ? (
             <>
               <Button size="small" type="primary" onClick={() => setUploadRepairId(row.repair.id)}>Details</Button>
-              <Button size="small" onClick={() => onUpdateRepair({ ...row.repair, checklistDone: true })} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Mark Done</Button>
+              {canApproveRepairs && row.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(row.repair)}>Approve</Button>}
+              <Button size="small" onClick={() => confirmRepairCompletion(row.repair)} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Mark Done</Button>
             </>
           ) : (
             <Button size="small" type="primary" onClick={() => selectSupplierInvoice(row.invoice.id)}>Details</Button>
@@ -1853,15 +1915,18 @@ function RepairPage({
             <Descriptions.Item label="Approval / 审批">
               <Tag color={selectedRepair.approvalStatus === "Rejected" ? "red" : selectedRepair.approvalStatus === "Pending" ? "gold" : "blue"}>{selectedRepair.approvalStatus ?? "Approved"}</Tag>
             </Descriptions.Item>
+            <Descriptions.Item label="Approved By / 审批人">{selectedRepair.approvedBy || "Not approved"}</Descriptions.Item>
+            <Descriptions.Item label="Approved At / 审批时间">{selectedRepair.approvedAt ? new Date(selectedRepair.approvedAt).toLocaleString() : "-"}</Descriptions.Item>
             <Descriptions.Item label="What To Do / 整备事项">{selectedRepair.whatToDo}</Descriptions.Item>
           </Descriptions>
+          {canApproveRepairs && selectedRepair.approvalStatus !== "Approved" && <Button type="primary" onClick={() => confirmRepairApproval(selectedRepair)}>Approve Repair</Button>}
         </ProCard>
         <ProCard title="Repair Record / 整备资料">
           <Form
             key={`${selectedRepair.id}-repair-record`}
             layout="vertical"
             className="formGrid"
-            initialValues={{ ...selectedRepair, checklistDone: selectedRepair.checklistDone ? "done" : "pending", approvalStatus: selectedRepair.approvalStatus ?? "Approved" }}
+            initialValues={{ ...selectedRepair, checklistDone: selectedRepair.checklistDone ? "done" : "pending" }}
             onFinish={async (values) => {
               const repair: RepairJob = {
                 ...selectedRepair,
@@ -1869,13 +1934,16 @@ function RepairPage({
                 repairPart: values.repairPart,
                 whatToDo: values.whatToDo,
                 cost: Number(values.cost ?? 0),
-                checklistDone: values.checklistDone === "done",
-                approvalStatus: values.approvalStatus,
-                approvalNotes: values.approvalNotes?.trim() || undefined
+                checklistDone: values.checklistDone === "done"
               };
               const repairBlockReason = repairCreateBlockReason(repair);
               if (repairBlockReason) {
                 message.warning(repairBlockReason);
+                return;
+              }
+
+              if (!selectedRepair.checklistDone && repair.checklistDone) {
+                confirmRepairCompletion(repair);
                 return;
               }
 
@@ -1890,50 +1958,49 @@ function RepairPage({
             <Form.Item name="whatToDo" label="What To Do" rules={[{ required: true }]}><Input placeholder="Polish, wash, spare part..." /></Form.Item>
             <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
             <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-            <Form.Item name="approvalStatus" label="Approval"><Select options={repairApprovalOptions} /></Form.Item>
-            <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
+            <Descriptions size="small" column={1} className="fullWidth">
+              <Descriptions.Item label="Approval / 审批">{selectedRepair.approvalStatus ?? "Pending"}</Descriptions.Item>
+              <Descriptions.Item label="Approval note / 审批备注">{selectedRepair.approvalNotes || "-"}</Descriptions.Item>
+            </Descriptions>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Repair</Button></Form.Item>
           </Form>
         </ProCard>
         <ProCard title="Repair Documents / 整备文件">
           <Space direction="vertical" size={12} className="fullWidth">
-            <MissingUploadReminder
-              title="Repair invoice required"
+            <DocumentUploadChecklist
+              title="Required repair document / 必需整备文件"
               description="Attach the supplier invoice to this repair record before the refurbishment cost is finalised."
-              items={repairDocumentCategories.map((category) => ({
-                label: documentCategoryLabel(category),
-                isPresent: repairDocuments.some((document) => document.category === category)
-              }))}
-              onAction={() => setDocumentCategory("RepairInvoice")}
+              items={repairDocumentCategories.map((category) => {
+                const isPresent = repairDocuments.some((document) => document.category === category);
+                return {
+                  label: documentCategoryLabel(category),
+                  isPresent,
+                  action: (
+                    <OcrUploadReview
+                      vehicleId={selectedRepair.vehicleId}
+                      category={category}
+                      compact
+                      uploadOwner={{ repairJobId: selectedRepair.id }}
+                      buttonLabel={isPresent ? "Upload another repair invoice" : "Upload repair invoice"}
+                      applyLabel="Use details in supplier invoice"
+                      fields={[
+                        { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
+                        { name: "supplierName", label: "Supplier" },
+                        { name: "invoiceNumber", label: "Invoice" },
+                        { name: "plateNumberOnInvoice", label: "Plate on Supplier Invoice" },
+                        { name: "amount", label: "Amount", type: "number" }
+                      ]}
+                      onUploaded={() => setDocumentReloadKey((value) => value + 1)}
+                      onApply={(values) => {
+                        setSupplierInvoiceOcrDraft(values);
+                        setRepairCreateOpen(true);
+                      }}
+                    />
+                  )
+                };
+              })}
             />
-            <Space wrap>
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                style={{ minWidth: 180 }}
-                options={repairDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
-              />
-              <OcrUploadReview
-                vehicleId={selectedRepair.vehicleId}
-                category={documentCategory}
-                uploadOwner={{ repairJobId: selectedRepair.id }}
-                buttonLabel="Upload & OCR Repair Invoice"
-                applyLabel="Apply to Supplier Invoice"
-                fields={[
-                  { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
-                  { name: "supplierName", label: "Supplier" },
-                  { name: "invoiceNumber", label: "Invoice" },
-                  { name: "plateNumberOnInvoice", label: "Plate on Supplier Invoice" },
-                  { name: "amount", label: "Amount", type: "number" }
-                ]}
-                onUploaded={() => setDocumentReloadKey((value) => value + 1)}
-                onApply={(values) => {
-                  setSupplierInvoiceOcrDraft(values);
-                  setRepairCreateOpen(true);
-                }}
-              />
-            </Space>
-            <Alert type="info" showIcon message="Upload supplier repair invoices against the linked car plate for audit and profit tracking." />
+            <Alert type="info" showIcon message="Use a clear JPG, PNG, or WebP photo for OCR. PDFs remain available through the document upload workflow." />
             <ModuleDocumentList
               vehicleId={selectedRepair.vehicleId}
               categories={repairDocumentCategories}
@@ -2039,7 +2106,8 @@ function RepairPage({
                     {isRepair ? (
                       <>
                         <Button size="small" type="primary" onClick={() => setUploadRepairId(record.repair.id)}>Details</Button>
-                        <Button size="small" onClick={() => onUpdateRepair({ ...record.repair, checklistDone: true })} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Mark Done</Button>
+                        {canApproveRepairs && record.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(record.repair)}>Approve</Button>}
+                        <Button size="small" onClick={() => confirmRepairCompletion(record.repair)} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Mark Done</Button>
                       </>
                     ) : (
                       <Button size="small" type="primary" onClick={() => selectSupplierInvoice(record.invoice.id)}>Details</Button>
@@ -2142,9 +2210,7 @@ function RepairPage({
             repairPart: values.repairPart,
             whatToDo: values.whatToDo,
             cost: invoice.amount,
-            checklistDone: values.checklistDone === "done",
-            approvalStatus: values.approvalStatus,
-            approvalNotes: values.approvalNotes?.trim() || undefined
+            checklistDone: values.checklistDone === "done"
           };
           const repairBlockReason = repairCreateBlockReason(repair);
           if (repairBlockReason) {
@@ -2152,11 +2218,20 @@ function RepairPage({
             return;
           }
 
-          await onCreateInvoice(invoice);
-          await onCreateRepair(repair);
-          setSupplierInvoiceOcrDraft(null);
-          setRepairCreateOpen(false);
-        }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", approvalStatus: "Pending", ...supplierInvoiceOcrDraft }}>
+          const saveRepair = async () => {
+            await onCreateInvoice(invoice);
+            await onCreateRepair(repair);
+            setSupplierInvoiceOcrDraft(null);
+            setRepairCreateOpen(false);
+          };
+
+          if (repair.checklistDone) {
+            showRepairCompletionConfirmation(repair, saveRepair);
+            return;
+          }
+
+          await saveRepair();
+        }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", ...supplierInvoiceOcrDraft }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
@@ -2167,8 +2242,7 @@ function RepairPage({
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-          <Form.Item name="approvalStatus" label="Repair Approval"><Select options={repairApprovalOptions} /></Form.Item>
-          <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
+          <Alert type="info" showIcon message="Repair approval is recorded separately by a Boss/Admin after the task and cost are checked." />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
         </Form>
       </Modal>
@@ -2184,7 +2258,7 @@ function RepairPage({
           key={selectedEditRepair?.id ?? "repair-edit"}
           layout="vertical"
           className="drawerForm"
-          initialValues={selectedEditRepair ? { ...selectedEditRepair, checklistDone: selectedEditRepair.checklistDone ? "done" : "pending", approvalStatus: selectedEditRepair.approvalStatus ?? "Approved" } : undefined}
+          initialValues={selectedEditRepair ? { ...selectedEditRepair, checklistDone: selectedEditRepair.checklistDone ? "done" : "pending" } : undefined}
           onFinish={async (values) => {
             if (!selectedEditRepair) return;
             const repair: RepairJob = {
@@ -2193,13 +2267,16 @@ function RepairPage({
               repairPart: values.repairPart,
               whatToDo: values.whatToDo,
               cost: Number(values.cost ?? 0),
-              checklistDone: values.checklistDone === "done",
-              approvalStatus: values.approvalStatus,
-              approvalNotes: values.approvalNotes?.trim() || undefined
+              checklistDone: values.checklistDone === "done"
             };
             const repairBlockReason = repairCreateBlockReason(repair);
             if (repairBlockReason) {
               message.warning(repairBlockReason);
+              return;
+            }
+
+            if (!selectedEditRepair.checklistDone && repair.checklistDone) {
+              confirmRepairCompletion(repair, () => setRepairEditorOpen(false));
               return;
             }
 
@@ -2213,8 +2290,10 @@ function RepairPage({
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-          <Form.Item name="approvalStatus" label="Approval"><Select options={repairApprovalOptions} /></Form.Item>
-          <Form.Item name="approvalNotes" label="Approval Notes"><Input.TextArea rows={2} /></Form.Item>
+          <Descriptions size="small" column={1} className="fullWidth">
+            <Descriptions.Item label="Approval / 审批">{selectedEditRepair?.approvalStatus ?? "Pending"}</Descriptions.Item>
+            <Descriptions.Item label="Approval note / 审批备注">{selectedEditRepair?.approvalNotes || "-"}</Descriptions.Item>
+          </Descriptions>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditRepair}>Update Repair</Button></Form.Item>
         </Form>
       </Drawer>
@@ -2226,6 +2305,8 @@ function LoanPage({
   vehicles,
   customers,
   loans,
+  initialLoanId,
+  onBackToList,
   onCreate,
   onUpdate,
   onUploadDocument
@@ -2233,16 +2314,17 @@ function LoanPage({
   vehicles: VehicleLookup[];
   customers: Customer[];
   loans: LoanApplication[];
+  initialLoanId?: string;
+  onBackToList: () => void;
   onCreate: (loan: LoanApplication) => void;
   onUpdate: (loan: LoanApplication) => void;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [documentChecks, setDocumentChecks] = useState<Record<string, LoanDocumentCheck>>({});
-  const [uploadLoanId, setUploadLoanId] = useState("");
+  const [uploadLoanId, setUploadLoanId] = useState(initialLoanId ?? "");
   const [editLoanId, setEditLoanId] = useState(loans[0]?.id ?? "");
   const [loanEditorOpen, setLoanEditorOpen] = useState(false);
   const [loanCreateOpen, setLoanCreateOpen] = useState(false);
-  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("LoanDocument");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [loanFilters, setLoanFilters] = useState<LoanFilters>({});
   const [mobileLoanPage, setMobileLoanPage] = useState(1);
@@ -2262,6 +2344,10 @@ function LoanPage({
     setMobileLoanPage(1);
   };
   const loanEmptyText = loans.length > 0 ? "No loans match the current filters." : "No loan records yet.";
+
+  useEffect(() => {
+    if (initialLoanId) setUploadLoanId(initialLoanId);
+  }, [initialLoanId]);
 
   useEffect(() => {
     if (!loans.length) {
@@ -2311,6 +2397,13 @@ function LoanPage({
     );
   };
 
+  const loanCompletionBlockReason = (loanId: string) => {
+    const check = documentChecks[loanId];
+    if (!check) return "Document check is still loading.";
+    if (check.isComplete) return "";
+    return `Upload ${check.missingCategories.map(documentCategoryLabel).join(", ")} before marking the loan done.`;
+  };
+
   const renderLoanNextAction = (loan: LoanApplication) => {
     if (loan.status === "Done") {
       return <Typography.Text type="secondary">Completed</Typography.Text>;
@@ -2333,7 +2426,12 @@ function LoanPage({
     }
 
     if (!loan.louDone) {
-      return <Button size="small" type="primary" onClick={() => onUpdate(markLoanDone(loan))}>Mark Done</Button>;
+      const blockReason = loanCompletionBlockReason(loan.id);
+      return (
+        <Tooltip title={blockReason}>
+          <span><Button size="small" type="primary" disabled={Boolean(blockReason)} onClick={() => onUpdate(markLoanDone(loan))}>Mark Done</Button></span>
+        </Tooltip>
+      );
     }
 
     return <Typography.Text type="secondary">No workflow action</Typography.Text>;
@@ -2391,9 +2489,18 @@ function LoanPage({
 
   if (selectedLoan) {
     const check = documentChecks[selectedLoan.id];
+    const missingLoanDocuments = check?.missingCategories ?? loanDocumentCategories;
+    const uploadLoanDocument = (category: DocumentCategory, option: Parameters<NonNullable<React.ComponentProps<typeof Upload>["customRequest"]>>[0]) => {
+      void onUploadDocument(selectedLoan.vehicleId, option.file as File, category)
+        .then(() => {
+          setDocumentReloadKey((value) => value + 1);
+          option.onSuccess?.({ ok: true });
+        })
+        .catch((error) => option.onError?.(error));
+    };
     return (
       <Space direction="vertical" size={16} className="fullWidth">
-        <Button onClick={() => setUploadLoanId("")}>Back to Loan List</Button>
+        <Button onClick={() => { setUploadLoanId(""); onBackToList(); }}>Back to Loan List</Button>
         <ProCard title={`Loan Details / 贷款详情 - ${plateFor(vehicles, selectedLoan.vehicleId)}`}>
           <Descriptions size="small" column={{ xs: 1, md: 3 }}>
             <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedLoan.vehicleId)}</Descriptions.Item>
@@ -2434,6 +2541,14 @@ function LoanPage({
                 return;
               }
 
+              if (selectedLoan.status !== "Done" && loan.status === "Done") {
+                const completionBlockReason = loanCompletionBlockReason(selectedLoan.id);
+                if (completionBlockReason) {
+                  message.warning(completionBlockReason);
+                  return;
+                }
+              }
+
               onUpdate(loan);
             }}
           >
@@ -2447,7 +2562,7 @@ function LoanPage({
                 options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
               />
             </Form.Item>
-            <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value, disabled: value === "Done" && !check?.isComplete }))} /></Form.Item>
             <Form.Item name="submittedAt" label="Submitted Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
             <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
@@ -2456,38 +2571,31 @@ function LoanPage({
         </ProCard>
         <ProCard title="Loan Documents / 贷款文件">
           <Space direction="vertical" size={12} className="fullWidth">
-            <MissingUploadReminder
-              items={(check?.missingCategories ?? []).map((category) => ({ label: documentCategoryLabel(category), isPresent: false }))}
-              title="Loan documents need attention / 贷款文件需注意"
-              description="Uploads remain optional while the loan is being prepared. Complete the missing documents before the loan follow-up workflow is finished."
-              onAction={check?.missingCategories.length ? () => setDocumentCategory(check.missingCategories[0]) : undefined}
+            <DocumentUploadChecklist
+              title="Required document checklist / 必需文件清单"
+              description="Add files as they arrive. All four are required before loan follow-up can be completed."
+              items={loanDocumentCategories.map((category) => {
+                const isPresent = !missingLoanDocuments.includes(category);
+                return {
+                  label: documentCategoryLabel(category),
+                  isPresent,
+                  action: (
+                    <Upload showUploadList={false} customRequest={(option) => uploadLoanDocument(category, option)}>
+                      <Button type="primary" size="small" icon={<UploadOutlined />}>{isPresent ? `Upload another ${documentCategoryLabel(category)}` : `Upload ${documentCategoryLabel(category)}`}</Button>
+                    </Upload>
+                  )
+                };
+              })}
             />
-            <Space wrap>
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                style={{ minWidth: 180 }}
-                options={loanDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+            {!check?.isComplete && (
+              <Alert
+                type="warning"
+                showIcon
+                message={`${missingLoanDocuments.length} document${missingLoanDocuments.length === 1 ? "" : "s"} still needed before completion`}
+                description="Uploads remain optional while preparing the loan."
               />
-              <Upload
-                showUploadList={false}
-                customRequest={(option) => {
-                  void onUploadDocument(selectedLoan.vehicleId, option.file as File, documentCategory)
-                    .then(() => {
-                      setDocumentReloadKey((value) => value + 1);
-                      option.onSuccess?.({ ok: true });
-                    })
-                    .catch((error) => option.onError?.(error));
-                }}
-              >
-                <Button icon={<UploadOutlined />}>Upload Loan Document</Button>
-              </Upload>
-            </Space>
-            <Alert
-              type="info"
-              showIcon
-              message="Upload VOC, AP Document, Status Receipt, and Loan Document before completing loan follow-up."
-            />
+            )}
+            <Typography.Text strong>Uploaded files / 已上传文件</Typography.Text>
             <ModuleDocumentList
               vehicleId={selectedLoan.vehicleId}
               categories={loanDocumentCategories}
@@ -2636,7 +2744,7 @@ function LoanPage({
               options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
             />
           </Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="submittedAt" label="Submitted Date" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
@@ -2673,6 +2781,14 @@ function LoanPage({
               return;
             }
 
+            if (selectedEditLoan.status !== "Done" && loan.status === "Done") {
+              const completionBlockReason = loanCompletionBlockReason(selectedEditLoan.id);
+              if (completionBlockReason) {
+                message.warning(completionBlockReason);
+                return;
+              }
+            }
+
             onUpdate(loan);
             setLoanEditorOpen(false);
           }}
@@ -2687,7 +2803,7 @@ function LoanPage({
               options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
             />
           </Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value, disabled: value === "Done" && !documentChecks[selectedEditLoan?.id ?? ""]?.isComplete }))} /></Form.Item>
           <Form.Item name="submittedAt" label="Submitted Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
@@ -2718,7 +2834,6 @@ function DeliveryPage({
   const [editDeliveryId, setEditDeliveryId] = useState(deliveries[0]?.id ?? "");
   const [deliveryEditorOpen, setDeliveryEditorOpen] = useState(false);
   const [deliveryCreateOpen, setDeliveryCreateOpen] = useState(false);
-  const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("Policy");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [deliveryFilters, setDeliveryFilters] = useState<DeliveryFilters>({});
   const [mobileDeliveryPage, setMobileDeliveryPage] = useState(1);
@@ -2729,6 +2844,7 @@ function DeliveryPage({
     : selectedEditDelivery
       ? releaseReadiness[selectedEditDelivery.id]
       : undefined;
+  const eligibleDeliveryVehicles = vehicles.filter((vehicle) => Boolean(vehicle.customerId));
   const customerIdForVehicle = (vehicleId: string) => vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId;
   const filteredDeliveries = filterDeliverySchedules(deliveries, vehicles, releaseReadiness, deliveryFilters);
   const deliveryFiltersActive = Object.values(deliveryFilters).some((value) => value !== undefined && value !== "" && value !== "All");
@@ -2826,6 +2942,27 @@ function DeliveryPage({
     return "";
   };
 
+  const confirmDeliveryRelease = (
+    delivery: DeliverySchedule,
+    readiness: DeliveryReleaseReadiness | undefined,
+    onConfirm: () => Promise<void> | void
+  ) => {
+    Modal.confirm({
+      title: "Release vehicle? / 确认交车？",
+      content: (
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, delivery.vehicleId)}</Descriptions.Item>
+          <Descriptions.Item label="PIC">{delivery.pic}</Descriptions.Item>
+          <Descriptions.Item label="Scheduled Date / 日期">{delivery.scheduledDate}</Descriptions.Item>
+          <Descriptions.Item label="Release Check">{readiness?.isReady ?? canReleaseDelivery(delivery) ? "All prerequisites complete" : "Prerequisites need review"}</Descriptions.Item>
+        </Descriptions>
+      ),
+      okText: "Release Vehicle",
+      cancelText: "Keep Ready",
+      onOk: onConfirm
+    });
+  };
+
   const renderNextDeliveryAction = (row: DeliverySchedule) => {
     const readiness = releaseReadiness[row.id];
     const missingDocuments = readiness?.missingCategories ?? [];
@@ -2860,7 +2997,7 @@ function DeliveryPage({
           <Button
             type="primary"
             size="small"
-            onClick={() => onUpdate({ ...row, status: "Released" })}
+            onClick={() => confirmDeliveryRelease(row, readiness, () => onUpdate({ ...row, status: "Released" }))}
             disabled={blocksReleaseStep || !canReleaseDelivery(row)}
           >
             Release
@@ -2953,6 +3090,7 @@ function DeliveryPage({
   ];
 
   if (selectedDelivery) {
+    const missingDeliveryDocuments = selectedDeliveryReadiness?.missingCategories ?? deliveryDocumentCategories;
     return (
       <Space direction="vertical" size={16} className="fullWidth">
         <Button onClick={() => setUploadDeliveryId("")}>Back to Delivery List</Button>
@@ -3011,6 +3149,11 @@ function DeliveryPage({
                 return;
               }
 
+              if (selectedDelivery.status !== "Released" && delivery.status === "Released") {
+                confirmDeliveryRelease(delivery, selectedDeliveryReadiness, () => onUpdate(delivery));
+                return;
+              }
+
               onUpdate(delivery);
             }}
           >
@@ -3023,7 +3166,7 @@ function DeliveryPage({
               />
             </Form.Item>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
-              <Select showSearch optionFilterProp="label" placeholder="Select car plate" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} />
+              <Select showSearch optionFilterProp="label" placeholder="Select car plate" options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedDelivery.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} />
             </Form.Item>
             <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
@@ -3044,38 +3187,40 @@ function DeliveryPage({
         </ProCard>
         <ProCard title="Delivery Documents / 出车文件">
           <Space direction="vertical" size={12} className="fullWidth">
-            <MissingUploadReminder
-              items={(selectedDeliveryReadiness?.missingCategories ?? []).map((category) => ({ label: documentCategoryLabel(category), isPresent: false }))}
-              title="Delivery documents need attention / 出车文件需注意"
-              description="Uploads stay optional until the delivery reaches its release gate. Add the missing documents before marking the vehicle ready or released."
-              onAction={selectedDeliveryReadiness?.missingCategories.length ? () => setDocumentCategory(selectedDeliveryReadiness.missingCategories[0]) : undefined}
+            <DocumentUploadChecklist
+              title="Required delivery documents / 必需出车文件"
+              description="Add files as they arrive. Policy and Road Tax Receipt are required before the vehicle can be released."
+              items={deliveryDocumentCategories.map((category) => {
+                const isPresent = !missingDeliveryDocuments.includes(category);
+                return {
+                  label: documentCategoryLabel(category),
+                  isPresent,
+                  action: (
+                    <Upload
+                      showUploadList={false}
+                      customRequest={(option) => {
+                        void onUploadDocument(selectedDelivery.vehicleId, option.file as File, category)
+                          .then(() => {
+                            setDocumentReloadKey((value) => value + 1);
+                            option.onSuccess?.({ ok: true });
+                          })
+                          .catch((error) => option.onError?.(error));
+                      }}
+                    >
+                      <Button type="primary" size="small" icon={<UploadOutlined />}>{isPresent ? `Upload another ${documentCategoryLabel(category)}` : `Upload ${documentCategoryLabel(category)}`}</Button>
+                    </Upload>
+                  )
+                };
+              })}
             />
-            <Space wrap>
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                style={{ minWidth: 180 }}
-                options={deliveryDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+            {missingDeliveryDocuments.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message={`${missingDeliveryDocuments.length} document${missingDeliveryDocuments.length === 1 ? "" : "s"} still needed before release`}
+                description="Uploads remain optional while preparing the delivery."
               />
-              <Upload
-                showUploadList={false}
-                customRequest={(option) => {
-                  void onUploadDocument(selectedDelivery.vehicleId, option.file as File, documentCategory)
-                    .then(() => {
-                      setDocumentReloadKey((value) => value + 1);
-                      option.onSuccess?.({ ok: true });
-                    })
-                    .catch((error) => option.onError?.(error));
-                }}
-              >
-                <Button icon={<UploadOutlined />}>Upload Delivery Document</Button>
-              </Upload>
-            </Space>
-            <Alert
-              type="info"
-              showIcon
-              message="Upload Policy and Road Tax Receipt before marking a delivery Ready or Released."
-            />
+            )}
             {selectedDeliveryReadiness?.evidence.length ? (
               <AntTable<DeliveryEvidenceItem>
                 size="small"
@@ -3213,7 +3358,7 @@ function DeliveryPage({
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
         title="Delivery Workflow / 出车流程"
-        extra={<Space wrap><Tag color="blue">{deliveries.length} deliveries</Tag><Tag color={deliveries.some((delivery) => delivery.status !== "Released") ? "orange" : "default"}>{deliveries.filter((delivery) => delivery.status !== "Released").length} open</Tag><Button type="primary" onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button></Space>}
+        extra={<Space wrap><Tag color="blue">{deliveries.length} deliveries</Tag><Tag color={deliveries.some((delivery) => delivery.status !== "Released") ? "orange" : "default"}>{deliveries.filter((delivery) => delivery.status !== "Released").length} open</Tag><Button type="primary" disabled={eligibleDeliveryVehicles.length === 0} onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button></Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <Alert
@@ -3221,6 +3366,7 @@ function DeliveryPage({
             showIcon
             message="Click Details to view delivery documents, edit the record, and update the final checklist."
           />
+          {eligibleDeliveryVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before scheduling delivery." />}
           <Space className="toolbarForm workflowFilterBar" wrap>
             <Input.Search
               allowClear
@@ -3370,15 +3516,24 @@ function DeliveryPage({
             message.warning(blockReason);
             return;
           }
+
+          if (delivery.status === "Released") {
+            confirmDeliveryRelease(delivery, undefined, async () => {
+              await onCreate(delivery);
+              setDeliveryCreateOpen(false);
+            });
+            return;
+          }
+
           onCreate(delivery);
           setDeliveryCreateOpen(false);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
+        }} initialValues={{ vehicleId: eligibleDeliveryVehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
           <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
             <Select
               showSearch
               optionFilterProp="label"
               placeholder="Select car plate"
-              options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
+              options={eligibleDeliveryVehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
             />
           </Form.Item>
           <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
@@ -3447,6 +3602,15 @@ function DeliveryPage({
               message.warning(blockReason);
               return;
             }
+
+            if (selectedEditDelivery.status !== "Released" && delivery.status === "Released") {
+              confirmDeliveryRelease(delivery, releaseReadiness[selectedEditDelivery.id], async () => {
+                await onUpdate(delivery);
+                setDeliveryEditorOpen(false);
+              });
+              return;
+            }
+
             onUpdate(delivery);
             setDeliveryEditorOpen(false);
           }}
@@ -3925,6 +4089,9 @@ function AdminPage({
   const [staffStatusFilter, setStaffStatusFilter] = useState<StaffStatusFilter>("All");
   const [staffRoleFilter, setStaffRoleFilter] = useState<StaffRole | "All">("All");
   const [mobileStaffPage, setMobileStaffPage] = useState(1);
+  const [ocrLimitSnapshot, setOcrLimitSnapshot] = useState<AiUsageLimitSnapshot | null>(null);
+  const [ocrLimitSaving, setOcrLimitSaving] = useState(false);
+  const [ocrLimitForm] = Form.useForm<UpdateAiServiceLimitRequest>();
   const selectedEditStaffUser = staffUsers.find((user) => user.id === editStaffUserId) ?? staffUsers[0];
   const filteredStaffUsers = filterStaffUsers(staffUsers, {
     keyword: staffKeywordFilter,
@@ -3941,6 +4108,36 @@ function AdminPage({
   const activeStaffCount = staffUsers.filter((user) => user.isActive).length;
   const disabledStaffCount = staffUsers.filter((user) => !user.isActive).length;
   const adminStaffCount = staffUsers.filter((user) => user.roles.includes("BossAdmin")).length;
+
+  useEffect(() => {
+    let active = true;
+    void getOcrUsageLimit()
+      .then((snapshot) => {
+        if (!active) return;
+        setOcrLimitSnapshot(snapshot);
+        ocrLimitForm.setFieldsValue(snapshot.limit);
+      })
+      .catch((error) => {
+        if (active) message.error(humanizeApiError(error, "AI usage settings could not be loaded."));
+      });
+    return () => {
+      active = false;
+    };
+  }, [ocrLimitForm]);
+
+  const saveOcrLimit = async (values: UpdateAiServiceLimitRequest) => {
+    setOcrLimitSaving(true);
+    try {
+      const snapshot = await updateOcrUsageLimit(values);
+      setOcrLimitSnapshot(snapshot);
+      ocrLimitForm.setFieldsValue(snapshot.limit);
+      message.success("AI usage limit updated");
+    } catch (error) {
+      message.error(humanizeApiError(error, "AI usage limit could not be updated."));
+    } finally {
+      setOcrLimitSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!editStaffUserId && staffUsers[0]?.id) {
@@ -4269,6 +4466,49 @@ function AdminPage({
               </Space>
             )
           },
+          {
+            key: "ai-usage",
+            label: "AI Usage / AI 使用量",
+            children: (
+              <Space direction="vertical" size={16} className="fullWidth">
+                <Alert
+                  type="info"
+                  showIcon
+                  message="OCR limits are enforced by the server"
+                  description="Each OCR request reserves one unit before the external provider is called. Limits reset on the UTC calendar month and day."
+                />
+                <ProCard title="OCR Limit / OCR 限额">
+                  {ocrLimitSnapshot ? (
+                    <Space direction="vertical" size={16} className="fullWidth">
+                      <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+                        <Descriptions.Item label="This month used">{ocrLimitSnapshot.usedThisMonth}</Descriptions.Item>
+                        <Descriptions.Item label="This month remaining">{ocrLimitSnapshot.remainingThisMonth}</Descriptions.Item>
+                        <Descriptions.Item label="Last updated">{ocrLimitSnapshot.limit.updatedAt.slice(0, 16).replace("T", " ")}</Descriptions.Item>
+                        <Descriptions.Item label="Updated by">{ocrLimitSnapshot.limit.updatedBy}</Descriptions.Item>
+                      </Descriptions>
+                      <Form form={ocrLimitForm} layout="vertical" onFinish={saveOcrLimit}>
+                        <Form.Item name="isEnabled" label="OCR service" valuePropName="checked">
+                          <Checkbox>Allow staff to run OCR</Checkbox>
+                        </Form.Item>
+                        <div className="formGrid">
+                          <Form.Item name="monthlyRequestLimit" label="Monthly request limit" rules={[{ required: true, type: "number", min: 0, max: 100000 }]}>
+                            <InputNumber className="fullWidth" min={0} max={100000} precision={0} />
+                          </Form.Item>
+                          <Form.Item name="perStaffDailyRequestLimit" label="Per-staff daily limit" rules={[{ required: true, type: "number", min: 0, max: 10000 }]}>
+                            <InputNumber className="fullWidth" min={0} max={10000} precision={0} />
+                          </Form.Item>
+                        </div>
+                        <Form.Item className="formActions">
+                          <Button type="primary" htmlType="submit" loading={ocrLimitSaving}>Save AI limit</Button>
+                        </Form.Item>
+                      </Form>
+                    </Space>
+                  ) : <Spin />}
+                </ProCard>
+              </Space>
+            )
+          },
+          { key: "vehicle-catalog", label: "Make & Model / 品牌车型", children: <VehicleCatalogSettings /> },
           { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
           { key: "audit", label: "Audit Log / 操作记录", children: <AuditLogRecords auditLog={auditLog} filters={auditLogFilters} onSearch={onSearchAuditLog} /> }
         ]}
