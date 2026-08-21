@@ -1867,7 +1867,7 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
 
 backOffice.MapGet("/dashboard/summary", async (AppDbContext db) =>
 {
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = BusinessClock.Today();
     return DashboardMetrics.Create(
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.LoanApplications.AsNoTracking().ToListAsync(),
@@ -1886,7 +1886,7 @@ backOffice.MapGet("/dashboard/summary", async (AppDbContext db) =>
 
 backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, string? due) =>
 {
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = BusinessClock.Today();
     if (!ReminderInbox.IsValidDueFilter(due))
     {
         return Results.BadRequest(new { message = "Reminder due filter must be All, Overdue, DueToday, or Upcoming." });

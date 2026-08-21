@@ -64,7 +64,7 @@ import {
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
 import { filterRefurbishmentRecords, isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
-import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, type ReminderDueFilter } from "./dashboard";
+import { dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
@@ -185,7 +185,6 @@ import {
   type Customer,
   type DailySpend,
   type DashboardReminder,
-  type DashboardReminderFilters,
   type DashboardSummary,
   type DebtRecoveryCase,
   type DeliveryEvidenceItem,
@@ -392,7 +391,11 @@ export default function App() {
   const [pathname, setPathname] = useState(() => normalizeRoutePath(window.location.pathname));
   const [routeUrl, setRouteUrl] = useState(() => browserRouteUrl(window.location));
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
+  const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(null);
   const [reminders, setReminders] = useState<DashboardReminder[]>([]);
+  const [reminderLoadError, setReminderLoadError] = useState<string | null>(null);
+  const [dashboardLastCheckedAt, setDashboardLastCheckedAt] = useState<Date | null>(null);
+  const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [owners, setOwners] = useState<Owner[]>([]);
@@ -467,8 +470,8 @@ export default function App() {
       hrPayPeriodData,
       hrPayslipData
     ] = await Promise.all([
-      canLoad("dashboard") ? getDashboard() : Promise.resolve(null),
-      canLoad("reminders") ? getDashboardReminders() : Promise.resolve([]),
+      canLoad("dashboard") ? getDashboard() : Promise.resolve({ dashboard: null as DashboardSummary | null, error: undefined as string | undefined }),
+      canLoad("reminders") ? getDashboardReminders() : Promise.resolve({ reminders: [] as DashboardReminder[], error: undefined as string | undefined }),
       canLoad("vehicles") ? getVehicles() : Promise.resolve([]),
       canLoad("vehicleLookup") ? getVehicleLookup() : Promise.resolve([]),
       canLoad("customers") ? getCustomers() : Promise.resolve([]),
@@ -499,8 +502,11 @@ export default function App() {
       canLoad("hrPayPeriods") ? getHrPayPeriods() : Promise.resolve([]),
       canLoad("hrPayslips") ? getHrPayslips() : Promise.resolve([])
     ]);
-    setDashboard(dashboardData);
-    setReminders(reminderData);
+    setDashboard(dashboardData.dashboard);
+    setDashboardLoadError(dashboardData.error ?? null);
+    setReminders(reminderData.reminders);
+    setReminderLoadError(reminderData.error ?? null);
+    setDashboardLastCheckedAt(new Date());
     setVehicles(vehicleData);
     setVehicleLookup(vehicleLookupData);
     setCustomers(customerData);
@@ -588,6 +594,7 @@ export default function App() {
       .map((item) => ({ ...item, name: routeDisplayName(item.path, currentRoles) }))
   }), [currentUser?.isAuthenticated, currentRoles]);
   const pageTitle = routeDisplayName(pathname, currentRoles);
+  const dashboardDrilldown = useMemo(() => dashboardDrilldownFromRouteUrl(routeUrl), [routeUrl]);
   const navigateTo = (path: string) => {
     const nextPath = normalizeRoutePath(path);
     const nextUrl = path.includes("?") ? path : nextPath;
@@ -650,10 +657,19 @@ export default function App() {
     notifySuccess("Audit log filtered", `${records.length} records loaded`);
   }
 
-  async function handleReminderSearch(filters: DashboardReminderFilters) {
-    const records = await getDashboardReminders(filters);
-    setReminders(records);
-  }
+  const refreshDashboard = useCallback(async () => {
+    setDashboardRefreshing(true);
+    try {
+      const [dashboardData, reminderData] = await Promise.all([getDashboard(), getDashboardReminders()]);
+      setDashboard(dashboardData.dashboard);
+      setDashboardLoadError(dashboardData.error ?? null);
+      setReminders(reminderData.reminders);
+      setReminderLoadError(reminderData.error ?? null);
+      setDashboardLastCheckedAt(new Date());
+    } finally {
+      setDashboardRefreshing(false);
+    }
+  }, []);
 
   async function handleLogout() {
     await logout();
@@ -834,7 +850,7 @@ export default function App() {
             hrLeaveRequests={hrLeaveRequests}
             hrPayslips={hrPayslips}
           />
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} reminders={reminders} vehicles={vehicles} onSearch={handleReminderSearch} onNavigate={navigateTo} />}
+          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} onRefresh={refreshDashboard} onNavigate={navigateTo} />}
           {pathname === "/vehicles" && (
             <VehiclePage
               vehicles={vehicles}
@@ -844,6 +860,8 @@ export default function App() {
               owners={owners}
               purchaseInvoices={purchaseInvoices}
               canApproveVehicles={canApproveVehicles(currentRoles)}
+              dashboardFocus={dashboardDrilldown.vehicleFocus}
+              onClearDashboardFocus={() => navigateTo("/vehicles")}
               onCreate={(vehicle) => runCreate(() => createVehicle(vehicle), (record) => setVehicles((items) => [record, ...items]), "Vehicle created")}
               onUpdate={(vehicle) => runUpdate(() => updateVehicle(vehicle), (record) => setVehicles((items) => replaceById(items, record)), "Vehicle updated")}
               onStartLoan={handleStartVehicleLoan}
@@ -878,6 +896,8 @@ export default function App() {
               customers={customers}
               loans={loans}
               initialLoanId={loanIdFromRouteUrl(routeUrl)}
+              dashboardFocus={dashboardDrilldown}
+              onClearDashboardFocus={() => navigateTo("/loans")}
               onBackToList={() => navigateTo("/loans")}
               onCreate={(loan) => runCreate(() => createLoan(loan), (record) => setLoans((items) => [record, ...items]), "Loan submitted")}
               onUpdate={(loan) => runUpdate(() => updateLoan(loan), (record) => setLoans((items) => replaceById(items, record)), "Loan updated")}
@@ -888,6 +908,8 @@ export default function App() {
             <DeliveryPage
               vehicles={vehicleLookup}
               deliveries={deliveries}
+              dashboardFocus={dashboardDrilldown}
+              onClearDashboardFocus={() => navigateTo("/delivery")}
               onCreate={(delivery) => runCreate(() => createDelivery(delivery), (record) => setDeliveries((items) => [record, ...items]), "Delivery scheduled")}
               onUpdate={(delivery) => runUpdate(() => updateDelivery(delivery), (record) => setDeliveries((items) => replaceById(items, record)), "Delivery updated")}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
@@ -906,6 +928,8 @@ export default function App() {
               debtRecoveries={debtRecoveries}
               paymentVouchers={paymentVouchers}
               currentUser={currentUser}
+              dashboardFocus={dashboardDrilldown}
+              onClearDashboardFocus={(tab) => navigateTo(`/finance?tab=${encodeURIComponent(tab)}`)}
               cashHandovers={cashHandovers}
               cashHandoverPaymentLookup={cashHandoverPaymentLookup}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
@@ -1460,13 +1484,40 @@ function ocrFieldSummary(job: VehicleOcrJob) {
   return parts.length ? parts.join(" / ") : "-";
 }
 
-function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }: { dashboard: DashboardSummary | null; reminders: DashboardReminder[]; vehicles: Vehicle[]; onSearch: (filters: DashboardReminderFilters) => Promise<void>; onNavigate: (path: string) => void }) {
+function DashboardPage({
+  dashboard,
+  dashboardLoadError,
+  reminders,
+  reminderLoadError,
+  vehicles,
+  lastCheckedAt,
+  refreshing,
+  onRefresh,
+  onNavigate
+}: {
+  dashboard: DashboardSummary | null;
+  dashboardLoadError: string | null;
+  reminders: DashboardReminder[];
+  reminderLoadError: string | null;
+  vehicles: Vehicle[];
+  lastCheckedAt: Date | null;
+  refreshing: boolean;
+  onRefresh: () => Promise<void>;
+  onNavigate: (path: string) => void;
+}) {
   const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
   const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
+  const [mobileReminderPage, setMobileReminderPage] = useState(1);
   const safeStock = safeDashboardStockSummary(vehicles);
   const agingBuckets = dashboard?.agingBuckets ?? [];
   const moneyRiskBreakdown = dashboard?.moneyRiskBreakdown ?? [];
-  const riskTotal = moneyRiskBreakdown.reduce((sum, item) => sum + Math.max(item.amount, 0), 0);
+  const receivableLabels = new Set(["Outstanding Payment", "Open Debt Recovery"]);
+  const moneyToCollect = moneyRiskBreakdown
+    .filter((item) => receivableLabels.has(item.label))
+    .reduce((sum, item) => sum + Math.max(item.amount, 0), 0);
+  const moneyToPay = moneyRiskBreakdown
+    .filter((item) => !receivableLabels.has(item.label))
+    .reduce((sum, item) => sum + Math.max(item.amount, 0), 0);
   const profitValue = dashboard?.totalProfit ?? dashboard?.estimatedProfit ?? 0;
   const filteredReminders = filterDashboardReminders(reminders, { type: reminderTypeFilter, due: reminderDueFilter });
   const urgentReminderCount = reminders.filter((reminder) => {
@@ -1477,8 +1528,25 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
   const resetReminderFilters = () => {
     setReminderTypeFilter("All");
     setReminderDueFilter("All");
-    void onSearch({});
+    setMobileReminderPage(1);
   };
+  const mobileReminderPageCount = Math.max(1, Math.ceil(filteredReminders.length / 8));
+  const clampedMobileReminderPage = Math.min(mobileReminderPage, mobileReminderPageCount);
+  const mobileReminders = filteredReminders.slice((clampedMobileReminderPage - 1) * 8, clampedMobileReminderPage * 8);
+
+  if (!dashboard) {
+    return (
+      <ProCard title="Operations dashboard / 运营看板">
+        <Alert
+          type="error"
+          showIcon
+          message="Dashboard data could not be loaded"
+          description={dashboardLoadError ?? "The dashboard is still loading. Please try again."}
+          action={<Button onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>}
+        />
+      </ProCard>
+    );
+  }
 
   return (
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
@@ -1486,15 +1554,15 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
         <ProCard
           title="Operations dashboard / 运营看板"
           className="dashboardOverviewCard"
-          extra={<Tag color={urgentReminderCount > 0 ? "red" : "green"}>{urgentReminderCount} due now</Tag>}
+          extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "green"}>{urgentReminderCount} due now</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
         >
-          <Typography.Text type="secondary">Simple daily view for stock, money, profit, and reminders.</Typography.Text>
+          <Typography.Text type="secondary">Current stock, cash follow-up, estimated profit, and operational reminders. {lastCheckedAt ? `Last checked ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet."}</Typography.Text>
           <div className="metricGrid dashboardMetricGrid">
             <Metric label="Total Stock / 总库存" value={dashboard.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
             <Metric label="Pending Loan / 贷款待跟进" value={dashboard.pendingLoan} tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
             <Metric label="Outstanding / 未收款" value={formatCompactMoney(dashboard.outstandingPayment)} tone={dashboard.outstandingPayment > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("payments"))} />
             <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
-            <Metric label="Profit / 利润" value={formatCompactMoney(profitValue)} tone={profitValue >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+            <Metric label="Estimated Profit / 预估利润" value={formatCompactMoney(profitValue)} tone={profitValue >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
             <Metric label="Aging / 超60天库存" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
           </div>
         </ProCard>
@@ -1513,12 +1581,13 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
             locale={{ emptyText: "No aging buckets available." }}
           />
           </ProCard>
-          <ProCard title="Money follow-up / 金额跟进" className="dashboardSimpleCard" extra={<Tag color={riskTotal > 0 ? "volcano" : "green"}>{formatCompactMoney(riskTotal)}</Tag>}>
+          <ProCard title="Cash follow-up / 收付款跟进" className="dashboardSimpleCard" extra={<Space size={4} wrap><Tag color={moneyToCollect > 0 ? "blue" : "green"}>Collect {formatCompactMoney(moneyToCollect)}</Tag><Tag color={moneyToPay > 0 ? "volcano" : "green"}>Pay {formatCompactMoney(moneyToPay)}</Tag></Space>}>
           <Table
             rowKey="label"
             size="small"
             columns={[
               { title: "Item / 项目", dataIndex: "label", render: dashboardLabel },
+              { title: "Direction / 方向", render: (_, row) => <Tag color={receivableLabels.has(row.label) ? "blue" : "volcano"}>{receivableLabels.has(row.label) ? "Collect / 待收" : "Pay / 待付"}</Tag> },
               { title: "Amount / 金额", dataIndex: "amount", align: "right", render: (value) => formatMoney(Number(value)) },
               { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(financeRiskTarget(row.label))}>Open</Button> }
             ]}
@@ -1543,8 +1612,9 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
       <ProCard
         title="Reminder inbox / 提醒事项"
         className="dashboardReminderCard"
-        extra={<Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag>}
+        extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
       >
+        {reminderLoadError && <Alert type="error" showIcon message="Reminder inbox could not be loaded" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
         <div className="dashboardInboxHeader">
           <Space className="toolbarForm" wrap>
             <Select
@@ -1552,7 +1622,7 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
               options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: dashboardLabel(type) }))]}
               onChange={(value) => {
                 setReminderTypeFilter(value);
-                void onSearch({ type: value, due: reminderDueFilter });
+                setMobileReminderPage(1);
               }}
               style={{ width: 220 }}
             />
@@ -1566,7 +1636,7 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
               ]}
               onChange={(value) => {
                 setReminderDueFilter(value);
-                void onSearch({ type: reminderTypeFilter, due: value });
+                setMobileReminderPage(1);
               }}
               style={{ width: 160 }}
             />
@@ -1574,7 +1644,29 @@ function DashboardPage({ dashboard, reminders, vehicles, onSearch, onNavigate }:
           </Space>
           <Typography.Text type="secondary">{urgentReminderCount} overdue or due today across all reminders.</Typography.Text>
         </div>
+        <div className="mobileRecordList dashboardReminderMobileList">
+          {mobileReminders.map((reminder) => (
+            <article className="mobileRecordCard" key={`${reminder.type}-${reminder.vehicleId}-${reminder.dueDate}`}>
+              <div className="mobileRecordHeader">
+                <div>
+                  <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
+                  <Typography.Title level={5}>{reminder.vehiclePlate}</Typography.Title>
+                </div>
+                <Tag color={reminderColor(reminder.type)}>{dashboardLabel(reminder.type)}</Tag>
+              </div>
+              <div className="mobileRecordMeta">
+                <span><small>Due / 到期</small><strong>{reminder.dueDate} · {dashboardLabel(reminderDueLabel(reminder.dueDate))}</strong></span>
+                <span><small>Amount / 金额</small><strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "-"}</strong></span>
+              </div>
+              <div className="mobileRecordTextBlock">{reminder.title}</div>
+              <div className="mobileRecordFooter"><Button type="primary" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
+            </article>
+          ))}
+          {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "Retry to load reminders." : "No reminders match the current filters."} />}
+          <Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} />
+        </div>
         <Table
+          className="desktopDataTable"
           rowKey={(row) => `${row.type}-${row.vehicleId}-${row.dueDate}`}
           columns={[
             { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag color={reminderColor(value)}>{dashboardLabel(value)}</Tag> },
@@ -2308,6 +2400,8 @@ function LoanPage({
   customers,
   loans,
   initialLoanId,
+  dashboardFocus,
+  onClearDashboardFocus,
   onBackToList,
   onCreate,
   onUpdate,
@@ -2317,6 +2411,8 @@ function LoanPage({
   customers: Customer[];
   loans: LoanApplication[];
   initialLoanId?: string;
+  dashboardFocus: DashboardDrilldown;
+  onClearDashboardFocus: () => void;
   onBackToList: () => void;
   onCreate: (loan: LoanApplication) => void;
   onUpdate: (loan: LoanApplication) => void;
@@ -2350,6 +2446,14 @@ function LoanPage({
   useEffect(() => {
     if (initialLoanId) setUploadLoanId(initialLoanId);
   }, [initialLoanId]);
+
+  useEffect(() => {
+    setLoanFilters({
+      status: dashboardFocus.loanStatus,
+      vehicleId: dashboardFocus.vehicleId
+    });
+    setMobileLoanPage(1);
+  }, [dashboardFocus.loanStatus, dashboardFocus.vehicleId]);
 
   useEffect(() => {
     if (!loans.length) {
@@ -2615,6 +2719,12 @@ function LoanPage({
         title="Loan Workflow / 贷款流程"
         extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending").length} pending</Tag><Button type="primary" onClick={() => setLoanCreateOpen(true)}>New Loan</Button></Space>}
       >
+        {(dashboardFocus.loanStatus || dashboardFocus.vehicleId) && <Alert
+          type="info"
+          showIcon
+          message={dashboardFocus.vehicleId ? "Dashboard focus: loan follow-up for the selected vehicle" : "Dashboard focus: pending loan follow-up"}
+          action={<Button size="small" onClick={onClearDashboardFocus}>Clear focus</Button>}
+        />}
         <Space className="toolbarForm workflowFilterBar" wrap>
           <Input.Search
             allowClear
@@ -2646,6 +2756,10 @@ function LoanPage({
           {loanFiltersActive && <Button
             size="small"
             onClick={() => {
+              if (dashboardFocus.loanStatus || dashboardFocus.vehicleId) {
+                onClearDashboardFocus();
+                return;
+              }
               setLoanFilters({});
               setMobileLoanPage(1);
             }}
@@ -2819,6 +2933,8 @@ function LoanPage({
 function DeliveryPage({
   vehicles,
   deliveries,
+  dashboardFocus,
+  onClearDashboardFocus,
   onCreate,
   onUpdate,
   onOpenCustomer,
@@ -2826,6 +2942,8 @@ function DeliveryPage({
 }: {
   vehicles: VehicleLookup[];
   deliveries: DeliverySchedule[];
+  dashboardFocus: DashboardDrilldown;
+  onClearDashboardFocus: () => void;
   onCreate: (delivery: DeliverySchedule) => void;
   onUpdate: (delivery: DeliverySchedule) => void;
   onOpenCustomer: (customerId: string) => void;
@@ -2861,6 +2979,11 @@ function DeliveryPage({
     setMobileDeliveryPage(1);
   };
   const deliveryEmptyText = deliveries.length > 0 ? "No deliveries match the current filters." : "No delivery records yet.";
+
+  useEffect(() => {
+    setDeliveryFilters({ vehicleId: dashboardFocus.vehicleId });
+    setMobileDeliveryPage(1);
+  }, [dashboardFocus.vehicleId]);
 
   useEffect(() => {
     let active = true;
@@ -3362,6 +3485,7 @@ function DeliveryPage({
         title="Delivery Workflow / 出车流程"
         extra={<Space wrap><Tag color="blue">{deliveries.length} deliveries</Tag><Tag color={deliveries.some((delivery) => delivery.status !== "Released") ? "orange" : "default"}>{deliveries.filter((delivery) => delivery.status !== "Released").length} open</Tag><Button type="primary" disabled={eligibleDeliveryVehicles.length === 0} onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button></Space>}
       >
+        {dashboardFocus.vehicleId && <Alert type="info" showIcon message="Dashboard focus: delivery preparation for the selected vehicle" action={<Button size="small" onClick={onClearDashboardFocus}>Clear focus</Button>} />}
         <Space direction="vertical" size={12} className="fullWidth">
           <Alert
             type="info"
@@ -3401,6 +3525,10 @@ function DeliveryPage({
             {deliveryFiltersActive && <Button
               size="small"
               onClick={() => {
+                if (dashboardFocus.vehicleId) {
+                  onClearDashboardFocus();
+                  return;
+                }
                 setDeliveryFilters({});
                 setMobileDeliveryPage(1);
               }}

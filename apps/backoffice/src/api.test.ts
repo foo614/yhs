@@ -801,7 +801,7 @@ describe("backoffice api client", () => {
     ];
     const fetchMock = mockFetch(reminders);
 
-    expect(await getDashboardReminders()).toEqual(reminders);
+    expect(await getDashboardReminders()).toEqual({ reminders });
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/reminders", { credentials: "include" });
   });
 
@@ -818,7 +818,7 @@ describe("backoffice api client", () => {
     ];
     const fetchMock = mockFetch(reminders);
 
-    expect(await getDashboardReminders({ type: "PaymentBankFollowUp", due: "Overdue" })).toEqual(reminders);
+    expect(await getDashboardReminders({ type: "PaymentBankFollowUp", due: "Overdue" })).toEqual({ reminders });
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/reminders?type=PaymentBankFollowUp&due=Overdue", { credentials: "include" });
   });
 
@@ -828,6 +828,15 @@ describe("backoffice api client", () => {
     await getDashboardReminders({ type: "All", due: "All" });
 
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/reminders", { credentials: "include" });
+  });
+
+  it("reports a dashboard reminder failure instead of presenting an empty inbox as success", async () => {
+    mockFetch({ message: "Reminder service unavailable" }, false, 503);
+
+    await expect(getDashboardReminders()).resolves.toEqual({
+      reminders: [],
+      error: "Reminder service unavailable"
+    });
   });
 
   it("loads dashboard summary with vehicle aging buckets", async () => {
@@ -897,8 +906,17 @@ describe("backoffice api client", () => {
     };
     const fetchMock = mockFetch(summary);
 
-    expect(await getDashboard()).toEqual(summary);
+    expect(await getDashboard()).toEqual({ dashboard: summary });
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/summary", { credentials: "include" });
+  });
+
+  it("reports a dashboard summary failure instead of leaving the dashboard in an indefinite loading state", async () => {
+    mockFetch({ message: "Dashboard service unavailable" }, false, 503);
+
+    await expect(getDashboard()).resolves.toEqual({
+      dashboard: null,
+      error: "Dashboard service unavailable"
+    });
   });
 
   it("loads loan document checklist status for loan follow-up", async () => {

@@ -95,6 +95,7 @@ export type Vehicle = {
   ucdStatus?: string;
   customerId?: string;
   ownerId?: string;
+  intakeDate?: string;
   outstationPickupAllowance?: number;
   outstationPickupScheduledAt?: string;
   outstationPickupBookingSlip?: string;
@@ -175,6 +176,16 @@ export type DashboardReminderDueFilter = "All" | "Overdue" | "DueToday" | "Upcom
 export type DashboardReminderFilters = {
   type?: DashboardReminder["type"] | "All";
   due?: DashboardReminderDueFilter;
+};
+
+export type DashboardReminderLoadResult = {
+  reminders: DashboardReminder[];
+  error?: string;
+};
+
+export type DashboardLoadResult = {
+  dashboard: DashboardSummary | null;
+  error?: string;
 };
 
 export type SupplierInvoice = {
@@ -799,20 +810,28 @@ const sampleVehicle: Vehicle = {
     ownerId: undefined
 };
 
-export async function getDashboard(): Promise<DashboardSummary | null> {
+export async function getDashboard(): Promise<DashboardLoadResult> {
   try {
     const response = await fetch(`${apiBaseUrl}/api/dashboard/summary`, { credentials: "include" });
-    if (response.ok) return response.json();
-  } catch {}
-  return null;
+    if (response.ok) return { dashboard: await response.json() };
+    return { dashboard: null, error: await responseErrorMessage(response, "Dashboard data could not be loaded. Please try again.") };
+  } catch {
+    return { dashboard: null, error: "Dashboard data could not be loaded. Check the connection and try again." };
+  }
 }
 
-export async function getDashboardReminders(filters: DashboardReminderFilters = {}): Promise<DashboardReminder[]> {
+export async function getDashboardReminders(filters: DashboardReminderFilters = {}): Promise<DashboardReminderLoadResult> {
   const params = new URLSearchParams();
   if (filters.type && filters.type !== "All") params.set("type", filters.type);
   if (filters.due && filters.due !== "All") params.set("due", filters.due);
   const query = params.toString();
-  return getWithNetworkFallback(`/api/dashboard/reminders${query ? `?${query}` : ""}`, []);
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/dashboard/reminders${query ? `?${query}` : ""}`, { credentials: "include" });
+    if (response.ok) return { reminders: await response.json() };
+    return { reminders: [], error: await responseErrorMessage(response, "Reminder inbox could not be loaded. Please try again.") };
+  } catch {
+    return { reminders: [], error: "Reminder inbox could not be loaded. Check the connection and try again." };
+  }
 }
 
 export async function getLoanDocumentCheck(loanId: string): Promise<LoanDocumentCheck> {

@@ -6,6 +6,7 @@ export type LoanFilters = {
   keyword?: string;
   status?: LoanApplication["status"] | "All";
   documents?: "All" | "Missing" | "Complete";
+  vehicleId?: string;
 };
 
 export function filterLoanApplications(
@@ -31,8 +32,9 @@ export function filterLoanApplications(
     const matchesStatus = !filters.status || filters.status === "All" || loan.status === filters.status;
     const matchesDocuments = !filters.documents || filters.documents === "All" ||
       (filters.documents === "Complete" ? check?.isComplete === true : check?.isComplete !== true);
+    const matchesVehicle = !filters.vehicleId || loan.vehicleId === filters.vehicleId;
 
-    return matchesKeyword && matchesStatus && matchesDocuments;
+    return matchesKeyword && matchesStatus && matchesDocuments && matchesVehicle;
   });
 }
 

@@ -77,6 +77,9 @@ describe("loan workflow helpers", () => {
     expect(filterLoanApplications(loans, filterVehicles, filterCustomers, documentChecks, {
       documents: "Complete"
     }).map((loan) => loan.id)).toEqual(["loan-2"]);
+    expect(filterLoanApplications(loans, filterVehicles, filterCustomers, documentChecks, {
+      vehicleId: "vehicle-2"
+    }).map((loan) => loan.id)).toEqual(["loan-2"]);
   });
 
   it("keeps every loan when no filters are active", () => {

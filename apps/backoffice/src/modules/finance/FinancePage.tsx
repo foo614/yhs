@@ -5,6 +5,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
 import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
+import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import {
@@ -51,6 +52,8 @@ export function FinancePage({
   debtRecoveries,
   paymentVouchers,
   currentUser,
+  dashboardFocus,
+  onClearDashboardFocus,
   cashHandovers,
   cashHandoverPaymentLookup,
   onCreate,
@@ -86,6 +89,8 @@ export function FinancePage({
   debtRecoveries: DebtRecoveryCase[];
   paymentVouchers: PaymentVoucher[];
   currentUser: CurrentUser | null;
+  dashboardFocus: DashboardDrilldown;
+  onClearDashboardFocus: (tab: string) => void;
   cashHandovers: CashHandover[];
   cashHandoverPaymentLookup: CashHandoverPaymentLookup[];
   onCreate: (payment: PaymentRecord) => void;
@@ -140,6 +145,8 @@ export function FinancePage({
   const selectedEditBrokerCommission = brokerCommissions.find((commission) => commission.id === editBrokerCommissionId) ?? brokerCommissions[0];
   const selectedEditDebtRecovery = debtRecoveries.find((debt) => debt.id === editDebtRecoveryId) ?? debtRecoveries[0];
   const selectedEditPaymentVoucher = paymentVouchers.find((voucher) => voucher.id === editPaymentVoucherId) ?? paymentVouchers[0];
+  const dashboardToday = singaporeTodayIsoDate();
+  const dashboardFocusActive = Boolean(dashboardFocus.vehicleId || dashboardFocus.attention);
 
   useEffect(() => {
     const syncFinanceTabFromLocation = () => setFinanceTab(financeTabFromLocation(canManageFinance));
@@ -153,10 +160,7 @@ export function FinancePage({
     setFinanceKeyword("");
     setFinanceStatus(undefined);
     setFinancePage(1);
-    const nextUrl = `/finance?tab=${encodeURIComponent(nextTab)}`;
-    if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
-      window.history.pushState(null, "", nextUrl);
-    }
+    onClearDashboardFocus(nextTab);
   };
 
   useEffect(() => {
@@ -446,20 +450,20 @@ export function FinancePage({
   ];
   const filteredPayments = filterFinanceRows(payments, financeKeyword, financeStatus, (payment) => [
     plateFor(vehicles, payment.vehicleId), payment.receiptNumber, payment.invoiceNumber, payment.bankName, payment.bankFollowUpDate
-  ], (payment) => payment.status);
+  ], (payment) => payment.status).filter((payment) => matchesDashboardFinanceFocus(dashboardFocus, payment.vehicleId, dashboardFocus.attention === "open" ? payment.status !== "Reconciled" : true));
   const filteredSettlements = filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
     plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
-  ], (settlement) => settlement.isPaid ? "Paid" : "Due");
-  const filteredDailySpends = filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due");
+  ], (settlement) => settlement.isPaid ? "Paid" : "Due").filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, dashboardFocus.attention === "due" ? !settlement.isPaid && settlement.deadline <= dashboardToday : true));
+  const filteredDailySpends = filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due").filter((spend) => matchesDashboardFinanceFocus(dashboardFocus, undefined, dashboardFocus.attention === "due" ? !spend.isPaid && spend.dueDate <= dashboardToday : true));
   const filteredBrokerCommissions = filterFinanceRows(brokerCommissions, financeKeyword, financeStatus, (commission) => [
     plateFor(vehicles, commission.vehicleId), commission.brokerName
-  ], (commission) => commission.isPaid ? "Paid" : "Unpaid");
+  ], (commission) => commission.isPaid ? "Paid" : "Unpaid").filter((commission) => matchesDashboardFinanceFocus(dashboardFocus, commission.vehicleId));
   const filteredDebtRecoveries = filterFinanceRows(debtRecoveries, financeKeyword, financeStatus, (debt) => [
     plateFor(vehicles, debt.vehicleId), customerLabel(customers, debt.customerId), debt.followUpDate, debt.notes
-  ], (debt) => debt.status);
+  ], (debt) => debt.status).filter((debt) => matchesDashboardFinanceFocus(dashboardFocus, debt.vehicleId, dashboardFocus.attention === "open" ? debt.status !== "Closed" : true));
   const filteredPaymentVouchers = filterFinanceRows(paymentVouchers, financeKeyword, financeStatus, (voucher) => [
     plateFor(vehicles, voucher.vehicleId), voucher.payeeName, voucher.purpose, voucher.issuedDate, voucher.notes
-  ], (voucher) => voucher.status);
+  ], (voucher) => voucher.status).filter((voucher) => matchesDashboardFinanceFocus(dashboardFocus, voucher.vehicleId, dashboardFocus.attention === "open" ? voucher.status !== "Paid" : dashboardFocus.attention === "due" ? voucher.status !== "Paid" && voucher.issuedDate <= dashboardToday : true));
   const financeStatusOptions = statusOptionsForFinanceTab(financeTab);
   const activeFinanceList = financeTab === "settlements"
     ? { filtered: filteredSettlements.length, total: settlements.length }
@@ -472,7 +476,7 @@ export function FinancePage({
           : financeTab === "daily"
             ? { filtered: filteredDailySpends.length, total: dailySpends.length }
             : { filtered: filteredPayments.length, total: payments.length };
-  const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus);
+  const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus || dashboardFocusActive);
   const financeFilters = (
     <Space wrap className="toolbarForm">
       <Input.Search
@@ -498,7 +502,12 @@ export function FinancePage({
         }}
       />
       <Tag color={financeFiltersActive ? "blue" : undefined}>{financeFiltersActive ? `${activeFinanceList.filtered} of ${activeFinanceList.total} matching` : `${activeFinanceList.total} record${activeFinanceList.total === 1 ? "" : "s"}`}</Tag>
-      {financeFiltersActive && <Button
+      {dashboardFocusActive && <Button
+        onClick={() => onClearDashboardFocus(financeTab)}
+      >
+        Clear dashboard focus
+      </Button>}
+      {(financeKeyword.trim() || financeStatus) && <Button
         onClick={() => {
           setFinanceKeyword("");
           setFinanceStatus(undefined);
@@ -607,6 +616,12 @@ export function FinancePage({
           ))}
         </div>
       </ProCard>
+      {dashboardFocusActive && <Alert
+        type="info"
+        showIcon
+        message={dashboardFocus.vehicleId ? "Dashboard focus: records for the selected vehicle" : dashboardFocus.attention === "due" ? "Dashboard focus: due follow-up items" : "Dashboard focus: open follow-up items"}
+        action={<Button size="small" onClick={() => onClearDashboardFocus(financeTab)}>Clear focus</Button>}
+      />}
       {financeTab === "cash-custody" && (
         <CashCustodyPage
           currentUser={currentUser}
@@ -1532,6 +1547,10 @@ export function financeTabForUrl(pathname: string, search: string, canManageFina
   if (tab === "cash-custody") return "cash-custody";
   if (!canManageFinance) return "cash-custody";
   return ["payments", "settlements", "commissions", "debt", "vouchers", "daily"].includes(tab ?? "") ? tab ?? "payments" : "payments";
+}
+
+function matchesDashboardFinanceFocus(focus: DashboardDrilldown, vehicleId: string | undefined, matchesAttention = true) {
+  return (!focus.vehicleId || focus.vehicleId === vehicleId) && matchesAttention;
 }
 
 function plateFor(vehicles: VehicleLookup[], vehicleId: string) {
