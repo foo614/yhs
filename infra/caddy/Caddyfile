@@ -30,6 +30,21 @@
 		reverse_proxy ops-proxy:8080
 	}
 
+	# The dashboard imports these modules with root-relative URLs even when
+	# rendered beneath /ops. Rebase only the known dashboard-owned modules so
+	# the back-office fallback remains the owner of every other root route.
+	@ops-theme-script path /js/app-theme.js
+	handle @ops-theme-script {
+		uri replace /js/app-theme.js /ops/js/app-theme.js
+		reverse_proxy ops-proxy:8080
+	}
+
+	@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js
+	handle @ops-fluent-script {
+		uri replace /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js /ops/_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js
+		reverse_proxy ops-proxy:8080
+	}
+
 	@api path /api/*
 	handle @api {
 		reverse_proxy api:8080
