@@ -118,7 +118,7 @@ clickRegistration.listener({
   altKey: false,
   button: 0,
   ctrlKey: false,
-  defaultPrevented: false,
+  defaultPrevented: true,
   metaKey: false,
   preventDefault() {
     clickPrevented = true;
