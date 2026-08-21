@@ -69,11 +69,14 @@ foreach ($expected in @(
   "ops-proxy:",
   "image: nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
   "./nginx/ops-proxy.conf:/etc/nginx/nginx.conf:ro",
+  "./nginx/ops-subpath-navigation.js:/usr/share/nginx/html/ops-subpath-navigation.js:ro",
   "ASPNETCORE_URLS: http://+:18888",
   "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL: http://+:18889",
   "DASHBOARD__FRONTEND__AUTHMODE: BrowserToken",
   "DASHBOARD__OTLP__AUTHMODE: ApiKey",
   'ASPIRE_DASHBOARD_API_DISABLED: "true"',
+  "OTEL_SERVICE_NAME: ysheng-api",
+  "OTEL_SERVICE_NAME: ysheng-worker",
   "OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889",
   "OTEL_EXPORTER_OTLP_PROTOCOL: grpc",
   'OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}',
@@ -114,7 +117,8 @@ foreach ($expected in @(
   "proxy_redirect ~*^(?:https?://[^/]+)?/login\?returnUrl=%2f(.+)`$ /ops/login?returnUrl=%2Fops%2F`$1;",
   "proxy_redirect ~^https?://[^/]+(/.*)$ /ops`$1;",
   "proxy_cookie_path / /ops/;",
-  "sub_filter '<base href=`"/`">' '<base href=`"/ops/`">';"
+  "location = /ops/ops-subpath-navigation.js",
+  "sub_filter '<base href=`"/`">' '<base href=`"/ops/`"><script src=`"/ops/ops-subpath-navigation.js`"></script>';"
 )) {
   Assert-Contains -Name "Internal /ops proxy" -Text $opsProxy -Expected $expected
 }

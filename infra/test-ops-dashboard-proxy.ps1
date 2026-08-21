@@ -46,9 +46,11 @@ foreach ($assetRoute in @(
 
 foreach ($expected in @(
   'location = /ops/Components/Pages/Login.razor.js',
+  'location = /ops/ops-subpath-navigation.js',
+  'alias /usr/share/nginx/html/ops-subpath-navigation.js;',
   'sub_filter_types text/javascript;',
   "sub_filter `"fetch('/api/validatetoken'`" `"fetch('/ops/api/validatetoken'`";",
-  "sub_filter '<base href=`"/`">' '<base href=`"/ops/`">';",
+  "sub_filter '<base href=`"/`">' '<base href=`"/ops/`"><script src=`"/ops/ops-subpath-navigation.js`"></script>';",
   'proxy_set_header X-Forwarded-Proto https;',
   'proxy_redirect ~*^(?:https?://[^/]+)?/login\?returnUrl=%2f(.+)$ /ops/login?returnUrl=%2Fops%2F$1;',
   'proxy_cookie_path / /ops/'
@@ -76,6 +78,11 @@ $rewrittenLoginLocation = [regex]::Replace(
 )
 if ($rewrittenLoginLocation -ne '/ops/login?returnUrl=%2Fops%2Fstructuredlogs') {
   throw "The Aspire return URL rewrite must preserve /ops for an absolute upstream redirect."
+}
+
+& node (Join-Path $repoRoot "infra/test-ops-subpath-navigation.mjs")
+if ($LASTEXITCODE -ne 0) {
+  throw "The Aspire /ops subpath navigation adapter tests failed."
 }
 
 Write-Host "Aspire /ops login proxy contract passed."

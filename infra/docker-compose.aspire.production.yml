@@ -13,6 +13,7 @@ services:
       dockerfile: services/api/src/YSHeng.Api/Dockerfile
     restart: unless-stopped
     environment:
+      OTEL_SERVICE_NAME: ysheng-api
       OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}
@@ -47,6 +48,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      OTEL_SERVICE_NAME: ysheng-worker
       OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}
@@ -73,6 +75,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./nginx/ops-proxy.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ops-subpath-navigation.js:/usr/share/nginx/html/ops-subpath-navigation.js:ro
     networks:
       - aspire
     depends_on:

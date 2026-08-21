@@ -85,6 +85,10 @@ try {
   if ($null -ne $opsProxy.ports) {
     throw "The internal /ops proxy must not publish a host port."
   }
+  $navigationAdapterVolume = @($opsProxy.volumes | Where-Object { $_.target -eq "/usr/share/nginx/html/ops-subpath-navigation.js" })
+  if ($navigationAdapterVolume.Count -ne 1 -or -not $navigationAdapterVolume[0].read_only) {
+    throw "The internal /ops proxy must mount the subpath navigation adapter read-only."
+  }
   if ($compose.services.caddy.ports.Count -ne 3) {
     throw "Caddy must be the only public ingress service."
   }
@@ -99,6 +103,8 @@ try {
   Assert-Equal -Name "Dashboard OTLP auth mode" -Actual $dashboard.environment.DASHBOARD__OTLP__AUTHMODE -Expected "ApiKey"
   Assert-Equal -Name "Dashboard Telemetry HTTP API" -Actual $dashboard.environment.ASPIRE_DASHBOARD_API_DISABLED -Expected "true"
   Assert-Equal -Name "Internal /ops proxy image" -Actual $opsProxy.image -Expected "nginx:1.27.5-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+  Assert-Equal -Name "API OTLP service name" -Actual $compose.services.api.environment.OTEL_SERVICE_NAME -Expected "ysheng-api"
+  Assert-Equal -Name "Worker OTLP service name" -Actual $compose.services.worker.environment.OTEL_SERVICE_NAME -Expected "ysheng-worker"
   Assert-Equal -Name "API OTLP endpoint" -Actual $compose.services.api.environment.OTEL_EXPORTER_OTLP_ENDPOINT -Expected "http://production-dashboard:18889"
   Assert-Equal -Name "Worker OTLP endpoint" -Actual $compose.services.worker.environment.OTEL_EXPORTER_OTLP_ENDPOINT -Expected "http://production-dashboard:18889"
   Assert-Equal -Name "API OTLP protocol" -Actual $compose.services.api.environment.OTEL_EXPORTER_OTLP_PROTOCOL -Expected "grpc"
