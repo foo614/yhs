@@ -171,6 +171,9 @@ describe("delivery workflow helpers", () => {
     expect(filterDeliverySchedules(deliveries, filterVehicles, readiness, {
       readiness: "Blocked"
     }).map((delivery) => delivery.id)).toEqual(["delivery-blocked"]);
+    expect(filterDeliverySchedules(deliveries, filterVehicles, readiness, {
+      vehicleId: "vehicle-2"
+    }).map((delivery) => delivery.id)).toEqual(["delivery-blocked"]);
   });
 
   it("uses the local release checklist and keeps every delivery with no filters", () => {

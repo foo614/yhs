@@ -7,6 +7,7 @@ import { Alert, Badge, Button, Descriptions, Drawer, Empty, Form, Input, InputNu
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "../../contacts";
+import { singaporeTodayIsoDate, type DashboardVehicleFocus } from "../../dashboard";
 import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
@@ -196,6 +197,8 @@ export function VehiclePage({
   owners,
   purchaseInvoices,
   canApproveVehicles,
+  dashboardFocus,
+  onClearDashboardFocus,
   onCreate,
   onUpdate,
   onStartLoan,
@@ -216,6 +219,8 @@ export function VehiclePage({
   owners: Owner[];
   purchaseInvoices: PurchaseInvoice[];
   canApproveVehicles: boolean;
+  dashboardFocus?: DashboardVehicleFocus;
+  onClearDashboardFocus: () => void;
   onCreate: (vehicle: Vehicle) => void;
   onUpdate: (vehicle: Vehicle) => Promise<void>;
   onStartLoan: (vehicle: Vehicle) => Promise<void>;
@@ -281,7 +286,13 @@ export function VehiclePage({
   const availableVehicles = vehicles.filter((vehicle) => vehicle.status === "Available").length;
   const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
-  const filteredVehicles = filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, operationFilters);
+  const dashboardFocusedVehicles = dashboardFocus === "stock"
+    ? vehicles.filter((vehicle) => vehicle.status !== "Sold")
+    : dashboardFocus === "aging"
+      ? vehicles.filter((vehicle) => vehicleAgeInDays(vehicle, singaporeTodayIsoDate()) > 60)
+      : vehicles;
+  const filteredVehicles = filterOperationIntakeVehicles(dashboardFocusedVehicles, purchaseInvoices, leads, operationFilters)
+    .sort((left, right) => dashboardFocus === "profit" ? estimatedVehicleProfit(right) - estimatedVehicleProfit(left) : 0);
   const mobileVehiclePageCount = Math.max(1, Math.ceil(filteredVehicles.length / mobileVehiclePageSize));
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
   const mobileVehicles = filteredVehicles.slice((clampedMobileVehiclePage - 1) * mobileVehiclePageSize, clampedMobileVehiclePage * mobileVehiclePageSize);
@@ -1027,6 +1038,12 @@ export function VehiclePage({
         title="Vehicle Inventory / 车辆库存"
         extra={<Space><Tag color="green">{vehicles.length} vehicles</Tag><Button type="primary" onClick={() => setVehicleCreateOpen(true)}>New Vehicle</Button></Space>}
       >
+        {dashboardFocus && <Alert
+          type="info"
+          showIcon
+          message={dashboardFocus === "stock" ? "Dashboard focus: current stock" : dashboardFocus === "aging" ? "Dashboard focus: stock aged more than 60 days" : "Dashboard focus: vehicles ordered by estimated profit"}
+          action={<Button size="small" onClick={onClearDashboardFocus}>Clear focus</Button>}
+        />}
         <div className="vehicleInventoryHeader">
           <div>
             <Typography.Text className="moduleEyebrow">Inventory control</Typography.Text>
@@ -2323,7 +2340,14 @@ function ocrAmount(job: VehicleOcrJob) {
 }
 
 function estimatedVehicleProfit(vehicle: Vehicle) {
-  return vehicle.sellingPrice - vehicle.purchasePrice - vehicle.additionalCharges - vehicle.refurbishmentTotal - vehicle.commissionTotal;
+  return vehicle.sellingPrice + vehicle.additionalCharges - vehicle.purchasePrice - vehicle.refurbishmentTotal - vehicle.commissionTotal - (vehicle.outstationPickupAllowance ?? 0);
+}
+
+function vehicleAgeInDays(vehicle: Pick<Vehicle, "intakeDate">, todayIsoDate: string) {
+  if (!vehicle.intakeDate) return 0;
+  const today = Date.parse(`${todayIsoDate}T00:00:00Z`);
+  const intakeDate = Date.parse(`${vehicle.intakeDate}T00:00:00Z`);
+  return Math.max(0, Math.floor((today - intakeDate) / (24 * 60 * 60 * 1000)));
 }
 
 function hasOutstationPickup(vehicle: Vehicle) {

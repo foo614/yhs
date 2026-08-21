@@ -14,7 +14,7 @@ public sealed class ReminderWorker(IServiceScopeFactory scopeFactory, ILogger<Re
             {
                 using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                var today = BusinessClock.Today();
                 var loans = await db.LoanApplications.AsNoTracking().ToListAsync(stoppingToken);
                 var settlements = await db.SettlementReminders.AsNoTracking().ToListAsync(stoppingToken);
                 var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync(stoppingToken);

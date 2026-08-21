@@ -6,6 +6,7 @@ export type DeliveryFilters = {
   keyword?: string;
   status?: DeliverySchedule["status"] | "All";
   readiness?: "All" | "Ready" | "Blocked";
+  vehicleId?: string;
 };
 
 export function filterDeliverySchedules(
@@ -28,8 +29,9 @@ export function filterDeliverySchedules(
     const matchesStatus = !filters.status || filters.status === "All" || delivery.status === filters.status;
     const matchesReadiness = !filters.readiness || filters.readiness === "All" ||
       (filters.readiness === "Ready" ? ready : !ready);
+    const matchesVehicle = !filters.vehicleId || delivery.vehicleId === filters.vehicleId;
 
-    return matchesKeyword && matchesStatus && matchesReadiness;
+    return matchesKeyword && matchesStatus && matchesReadiness && matchesVehicle;
   });
 }
 

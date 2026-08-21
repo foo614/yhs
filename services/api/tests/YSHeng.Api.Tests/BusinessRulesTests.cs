@@ -1667,6 +1667,17 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Business_clock_uses_the_singapore_calendar_day()
+    {
+        Assert.Equal(
+            new DateOnly(2026, 6, 2),
+            BusinessClock.SingaporeDate(new DateTimeOffset(2026, 6, 1, 17, 0, 0, TimeSpan.Zero)));
+        Assert.Equal(
+            new DateOnly(2026, 6, 1),
+            BusinessClock.SingaporeDate(new DateTimeOffset(2026, 6, 1, 15, 59, 59, TimeSpan.Zero)));
+    }
+
+    [Fact]
     public void Dashboard_metrics_use_repair_jobs_for_repair_cost_and_profit()
     {
         var vehicleId = Guid.NewGuid();

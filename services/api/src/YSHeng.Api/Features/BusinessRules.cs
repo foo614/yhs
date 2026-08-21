@@ -2055,6 +2055,28 @@ public static class DeliveryDocumentRules
     }
 }
 
+public static class BusinessClock
+{
+    private static readonly TimeZoneInfo SingaporeTimeZone = FindSingaporeTimeZone();
+
+    public static DateOnly Today() => SingaporeDate(DateTimeOffset.UtcNow);
+
+    public static DateOnly SingaporeDate(DateTimeOffset instant) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, SingaporeTimeZone).DateTime);
+
+    private static TimeZoneInfo FindSingaporeTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Singapore");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Singapore Standard Time");
+        }
+    }
+}
+
 public static class DashboardMetrics
 {
     public static DashboardSummary Create(

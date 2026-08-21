@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor } from "./dashboard";
+import { dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, singaporeTodayIsoDate } from "./dashboard";
 import type { DashboardReminder } from "./api";
 
 describe("dashboard reminder helpers", () => {
@@ -28,11 +28,18 @@ describe("dashboard reminder helpers", () => {
   });
 
   it("maps dashboard drill-downs to module targets", () => {
-    expect(dashboardMetricTarget("payments")).toBe("/finance?tab=payments&status=open");
-    expect(financeRiskTarget("Unpaid Settlement")).toBe("/finance?tab=settlements&status=due");
+    expect(dashboardMetricTarget("payments")).toBe("/finance?tab=payments&attention=open");
+    expect(financeRiskTarget("Unpaid Settlement")).toBe("/finance?tab=settlements&attention=due");
     expect(dashboardReminderTarget({
       type: "DebtRecoveryFollowUp",
       vehicleId: "vehicle 1"
-    })).toBe("/finance?tab=debt&vehicleId=vehicle%201");
+    })).toBe("/finance?tab=debt&vehicleId=vehicle%201&attention=open");
+  });
+
+  it("parses supported dashboard drill-downs and uses the Singapore business day", () => {
+    expect(dashboardDrilldownFromRouteUrl("/vehicles?dashboard=aging")).toMatchObject({ vehicleFocus: "aging" });
+    expect(dashboardDrilldownFromRouteUrl("/loans?status=Pending")).toMatchObject({ loanStatus: "Pending" });
+    expect(dashboardDrilldownFromRouteUrl("/finance?tab=payments&vehicleId=vehicle-1&attention=open")).toMatchObject({ vehicleId: "vehicle-1", attention: "open" });
+    expect(singaporeTodayIsoDate(new Date("2026-06-01T17:00:00.000Z"))).toBe("2026-06-02");
   });
 });
