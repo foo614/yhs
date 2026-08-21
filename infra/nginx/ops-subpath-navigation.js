@@ -106,7 +106,8 @@
       anchor.setAttribute("href", rebasedHref);
       event.preventDefault();
       event.stopImmediatePropagation();
-      window.location.assign(rebasedHref);
+      window.history.pushState(null, "", rebasedHref);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
     }
   }, true);
 })();

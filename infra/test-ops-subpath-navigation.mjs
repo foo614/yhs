@@ -15,13 +15,10 @@ const history = {
   }
 };
 const location = {
-  assign(url) {
-    assignedUrls.push(url);
-  },
   href: "https://yshenghub.com.my/ops/structuredlogs",
   origin: "https://yshenghub.com.my"
 };
-const assignedUrls = [];
+const dispatchedEvents = [];
 const document = {
   documentElement: {},
   querySelectorAll() {
@@ -32,9 +29,18 @@ const window = {
   addEventListener(type, listener, capture) {
     listeners.set(type, { listener, capture });
   },
+  dispatchEvent(event) {
+    dispatchedEvents.push(event);
+  },
   history,
   location
 };
+class PopStateEvent {
+  constructor(type, init) {
+    this.state = init.state;
+    this.type = type;
+  }
+}
 class MutationObserver {
   constructor(callback) {
     this.callback = callback;
@@ -47,7 +53,7 @@ class MutationObserver {
   }
 }
 
-vm.runInNewContext(adapterSource, { MutationObserver, URL, document, history, window });
+vm.runInNewContext(adapterSource, { MutationObserver, PopStateEvent, URL, document, history, window });
 
 for (const [route, expected] of [
   ["/", "/ops/"],
@@ -126,7 +132,9 @@ clickRegistration.listener({
 assert.equal(traceAnchor.href, "/ops/traces/detail/trace-id");
 assert.equal(clickPrevented, true);
 assert.equal(clickStopped, true);
-assert.equal(assignedUrls.at(-1), "/ops/traces/detail/trace-id");
+assert.equal(historyCalls.at(-1)[3], "/ops/traces/detail/trace-id");
+assert.equal(dispatchedEvents.at(-1).type, "popstate");
+assert.equal(dispatchedEvents.at(-1).state, null);
 
 clickRegistration.listener({
   altKey: false,
@@ -139,6 +147,7 @@ clickRegistration.listener({
   stopImmediatePropagation() {},
   target: { closest: () => traceAnchor }
 });
-assert.equal(assignedUrls.at(-1), "/ops/traces/detail/trace-id");
+assert.equal(historyCalls.at(-1)[3], "/ops/traces/detail/trace-id");
+assert.equal(dispatchedEvents.at(-1).type, "popstate");
 
 console.log("Aspire /ops subpath navigation adapter tests passed.");
