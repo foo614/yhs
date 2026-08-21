@@ -3496,7 +3496,7 @@ textarea:focus-visible {
 }
 
 .heroOverlay {
-  background: linear-gradient(90deg, #f8f7f5 0%, #f8f7f5 31%, rgba(248, 247, 245, .24) 37%, rgba(248, 247, 245, 0) 44%);
+  background: linear-gradient(90deg, rgba(248, 247, 245, .9) 0%, rgba(248, 247, 245, .72) 26%, rgba(248, 247, 245, .14) 37%, rgba(248, 247, 245, 0) 48%);
 }
 
 .atelierHeroInner {
@@ -3842,11 +3842,11 @@ textarea:focus-visible {
     top: 92px;
     right: -30%;
     width: 840px;
-    opacity: .68;
+    opacity: .86;
   }
 
   .heroOverlay {
-    background: linear-gradient(90deg, #f8f7f5 0%, rgba(248, 247, 245, .94) 58%, rgba(248, 247, 245, .48) 100%);
+    background: linear-gradient(90deg, rgba(248, 247, 245, .88) 0%, rgba(248, 247, 245, .72) 48%, rgba(248, 247, 245, .24) 76%, rgba(248, 247, 245, 0) 100%);
   }
 
   .heroCopy {
