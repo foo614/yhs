@@ -23,14 +23,17 @@ foreach ($expected in @(
   'uri replace /js/app-theme.js /ops/js/app-theme.js',
   '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
   'uri replace /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js /ops/_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
+  '@ops-dashboard-route path /resources /resources/* /consolelogs /consolelogs/* /structuredlogs /structuredlogs/* /traces /traces/* /metrics /metrics/*',
+  'rewrite * /ops{uri}',
   'reverse_proxy ops-proxy:8080'
 )) {
   Assert-Contains -Name "Caddy Aspire dashboard route" -Text $caddyfile -Expected $expected
 }
 
 $loginRouteIndex = $caddyfile.IndexOf('@ops-login-script path /Components/Pages/Login.razor.js')
+$dashboardRouteIndex = $caddyfile.IndexOf('@ops-dashboard-route path /resources')
 $apiRouteIndex = $caddyfile.IndexOf('@api path /api/*')
-if ($loginRouteIndex -lt 0 -or $apiRouteIndex -lt 0 -or $loginRouteIndex -ge $apiRouteIndex) {
+if ($loginRouteIndex -lt 0 -or $dashboardRouteIndex -lt 0 -or $apiRouteIndex -lt 0 -or $loginRouteIndex -ge $apiRouteIndex -or $dashboardRouteIndex -ge $apiRouteIndex) {
   throw "The Aspire login script route must be evaluated before the back-office API route."
 }
 

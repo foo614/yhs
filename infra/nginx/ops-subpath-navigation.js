@@ -71,6 +71,11 @@
     window.history[methodName] = (state, unused, url) => originalMethod(state, unused, rebaseDashboardUrl(url));
   }
 
+  const rebasedLocation = rebaseDashboardUrl(window.location.href);
+  if (rebasedLocation !== window.location.href) {
+    window.history.replaceState(null, "", rebasedLocation);
+  }
+
   rebaseAnchors(document);
   new MutationObserver((mutations) => {
     for (const mutation of mutations) {

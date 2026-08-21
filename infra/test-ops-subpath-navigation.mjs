@@ -15,7 +15,7 @@ const history = {
   }
 };
 const location = {
-  href: "https://yshenghub.com.my/ops/structuredlogs",
+  href: "https://yshenghub.com.my/traces/detail/initial-trace?spanId=initial-span",
   origin: "https://yshenghub.com.my"
 };
 const dispatchedEvents = [];
@@ -54,6 +54,7 @@ class MutationObserver {
 }
 
 vm.runInNewContext(adapterSource, { MutationObserver, PopStateEvent, URL, document, history, window });
+assert.deepEqual(historyCalls[0], ["replaceState", null, "", "/ops/traces/detail/initial-trace?spanId=initial-span"]);
 
 for (const [route, expected] of [
   ["/", "/ops/"],
