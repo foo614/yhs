@@ -14,6 +14,10 @@ const history = {
   }
 };
 const location = {
+  assigned: [],
+  assign(url) {
+    this.assigned.push(url);
+  },
   href: "https://yshenghub.com.my/ops/structuredlogs",
   origin: "https://yshenghub.com.my"
 };
@@ -67,15 +71,21 @@ const traceAnchor = {
 };
 const clickRegistration = listeners.get("click");
 assert.equal(clickRegistration.capture, true);
+let clickPrevented = false;
 clickRegistration.listener({
   altKey: false,
   button: 0,
   ctrlKey: false,
   defaultPrevented: false,
   metaKey: false,
+  preventDefault() {
+    clickPrevented = true;
+  },
   shiftKey: false,
   target: { closest: () => traceAnchor }
 });
 assert.equal(traceAnchor.href, "/ops/traces/detail/trace-id");
+assert.equal(clickPrevented, true);
+assert.deepEqual(location.assigned, ["/ops/traces/detail/trace-id"]);
 
 console.log("Aspire /ops subpath navigation adapter tests passed.");

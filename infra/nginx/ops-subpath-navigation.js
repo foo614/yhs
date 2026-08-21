@@ -53,6 +53,8 @@
     const rebasedHref = rebaseDashboardUrl(originalHref);
     if (rebasedHref !== originalHref) {
       anchor.setAttribute("href", rebasedHref);
+      event.preventDefault();
+      window.location.assign(rebasedHref);
     }
   }, true);
 })();
