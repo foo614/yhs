@@ -234,6 +234,7 @@ const dashboardReminderTypes: DashboardReminder["type"][] = [
   "DebtRecoveryFollowUp",
   "PaymentVoucherFollowUp"
 ];
+
 const deliveryChecklistFields = [
   "inspectionDone",
   "documentsPrepared",
@@ -2241,7 +2242,7 @@ function RepairPage({
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-          <Alert type="info" showIcon message="New repair tasks start as Pending. Boss/Admin approval is recorded separately." />
+          <Alert type="info" showIcon message="New repair tasks start as Pending. Boss/Admin approval is recorded separately after the task and cost are checked." />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
         </Form>
       </Modal>
@@ -2744,7 +2745,7 @@ function LoanPage({
               options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
             />
           </Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected", "Done"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="submittedAt" label="Submitted Date" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
           <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
@@ -2844,8 +2845,8 @@ function DeliveryPage({
     : selectedEditDelivery
       ? releaseReadiness[selectedEditDelivery.id]
       : undefined;
-  const customerIdForVehicle = (vehicleId: string) => vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId;
   const eligibleDeliveryVehicles = vehicles.filter((vehicle) => Boolean(vehicle.customerId));
+  const customerIdForVehicle = (vehicleId: string) => vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId;
   const filteredDeliveries = filterDeliverySchedules(deliveries, vehicles, releaseReadiness, deliveryFilters);
   const deliveryFiltersActive = Object.values(deliveryFilters).some((value) => value !== undefined && value !== "" && value !== "All");
   const mobileDeliveryPageCount = Math.max(1, Math.ceil(filteredDeliveries.length / mobileWorkflowPageSize));
@@ -3166,7 +3167,7 @@ function DeliveryPage({
               />
             </Form.Item>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
-              <Select showSearch optionFilterProp="label" placeholder="Select car plate" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} />
+              <Select showSearch optionFilterProp="label" placeholder="Select car plate" options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedDelivery.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} />
             </Form.Item>
             <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>

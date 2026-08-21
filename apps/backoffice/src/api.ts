@@ -1203,7 +1203,7 @@ export async function updateRepair(repair: RepairJob): Promise<RepairJob> {
 export async function approveRepair(repairId: string, notes?: string): Promise<RepairJob> {
   return request<RepairJob>(`/api/repairs/${repairId}/approval`, {
     method: "POST",
-    body: JSON.stringify({ notes })
+    body: JSON.stringify({ notes: notes?.trim() || undefined })
   });
 }
 
