@@ -49,7 +49,7 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
     }
 
     const hero = root.querySelector<HTMLElement>(".atelierHero");
-    const heroTimeline = hero ? gsap.timeline({ defaults: { ease: "power3.out" } }) : null;
+    const heroTimeline = hero ? gsap.timeline({ defaults: { ease: "power4.out" } }) : null;
 
     if (hero && heroTimeline) {
       const heroMedia = hero.querySelector(".heroMedia");
@@ -58,23 +58,23 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
 
       if (heroMedia) {
         heroTimeline.fromTo(heroMedia,
-          { scale: 1.006 },
-          { scale: 1, duration: .62 });
+          { scale: 1.035 },
+          { scale: 1, duration: .9 });
       }
 
       if (heroInner) {
-        heroTimeline.fromTo(heroInner, { y: 10 }, { y: 0, duration: .62 }, "<.12");
+        heroTimeline.fromTo(heroInner, { y: 14 }, { y: 0, duration: .68 }, "<.12");
       }
 
       if (priceTags.length > 0) {
         heroTimeline.fromTo(priceTags,
-          { autoAlpha: .96, scale: .94, y: -28 },
+          { autoAlpha: .88, scale: .96, y: -18 },
           {
             autoAlpha: 1,
-            duration: .76,
-            ease: "bounce.out",
+            duration: .7,
+            ease: "power4.out",
             scale: 1,
-            stagger: .14,
+            stagger: .12,
             y: 0,
             clearProps: "opacity,visibility,transform"
           }, "<.04");
@@ -83,11 +83,11 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
 
     const reveal = contextSafe((element: HTMLElement) => {
       gsap.fromTo(element,
-        { autoAlpha: .94, y: 18 },
+        { autoAlpha: .96, y: 14 },
         {
           autoAlpha: 1,
-          duration: .72,
-          ease: "power3.out",
+          duration: .62,
+          ease: "power4.out",
           y: 0,
           clearProps: "opacity,visibility,transform"
         });

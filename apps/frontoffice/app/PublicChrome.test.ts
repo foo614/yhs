@@ -47,6 +47,7 @@ describe("public chrome mobile motion contract", () => {
     expect(landscapeStyles).toContain("max-height: calc(100dvh - 72px)");
     expect(landscapeStyles).toContain("overflow-y: auto");
     expect(landscapeStyles).toMatch(/\.atelierMobileNav\s*{\s*display:\s*none;/);
+    expect(landscapeStyles).toMatch(/\.heroIntro\s*{[^}]*max-width:\s*350px;/);
   });
 
   it("keeps the motion layer safe for reduced-motion users", () => {

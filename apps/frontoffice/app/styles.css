@@ -3986,6 +3986,7 @@ textarea:focus-visible {
   }
 
   .heroIntro {
+    max-width: 350px;
     margin-top: 14px;
     font-size: 14px;
     line-height: 1.5;
@@ -4154,6 +4155,202 @@ textarea:focus-visible {
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0);
+  }
+}
+
+.routeLoading {
+  min-height: 100vh;
+  padding: 16px 20px 72px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.loadingSkeleton {
+  display: block;
+  overflow: hidden;
+  background: var(--surface-mid);
+  animation: loadingPulse 1.2s var(--ease-premium) infinite;
+}
+
+.loadingHeader {
+  width: min(1240px, calc(100% - 32px));
+  height: 72px;
+  margin: 0 auto;
+  border-radius: 999px;
+}
+
+.loadingHeroShell {
+  position: relative;
+  width: min(1240px, 100%);
+  min-height: 540px;
+  margin: 18px auto 0;
+  display: grid;
+  grid-template-columns: minmax(0, .82fr) minmax(420px, 1.18fr);
+  gap: 48px;
+  align-items: center;
+}
+
+.loadingHeroCopy {
+  display: grid;
+  gap: 16px;
+}
+
+.loadingKicker {
+  width: 180px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.loadingTitle {
+  width: 100%;
+  height: 68px;
+  border-radius: 12px;
+}
+
+.loadingTitle.short {
+  width: 72%;
+}
+
+.loadingText {
+  width: min(100%, 460px);
+  height: 24px;
+  margin-top: 8px;
+  border-radius: 8px;
+}
+
+.loadingAction {
+  width: 180px;
+  height: 54px;
+  margin-top: 10px;
+  border-radius: 999px;
+}
+
+.loadingHeroImage {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 16px;
+}
+
+.loadingSearchRail {
+  width: min(1360px, 100%);
+  margin: -20px auto 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 150px;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface-lowest);
+  border-radius: 16px;
+}
+
+.loadingField,
+.loadingButton {
+  height: 48px;
+  border-radius: 12px;
+}
+
+.loadingInventoryShell {
+  width: min(1240px, 100%);
+  margin: 64px auto 0;
+}
+
+.loadingSectionTitle {
+  width: min(420px, 80%);
+  height: 40px;
+  margin-bottom: 24px;
+  border-radius: 10px;
+}
+
+.loadingCardGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.loadingCard {
+  aspect-ratio: 4 / 3;
+  border-radius: 16px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes loadingPulse {
+  0%,
+  100% {
+    opacity: .58;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  .routeLoading {
+    padding: 10px 14px 88px;
+  }
+
+  .loadingHeader {
+    width: 100%;
+    height: 62px;
+  }
+
+  .loadingHeroShell {
+    min-height: 470px;
+    grid-template-columns: 1fr;
+    gap: 22px;
+    align-content: center;
+  }
+
+  .loadingHeroImage {
+    position: absolute;
+    right: 0;
+    top: 100px;
+    z-index: 0;
+    width: 56%;
+    opacity: .42;
+  }
+
+  .loadingHeroCopy {
+    position: relative;
+    z-index: 1;
+  }
+
+  .loadingTitle {
+    height: 46px;
+  }
+
+  .loadingSearchRail {
+    position: relative;
+    z-index: 1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: -42px;
+    padding: 12px;
+  }
+
+  .loadingButton {
+    grid-column: 1 / -1;
+  }
+
+  .loadingInventoryShell {
+    margin-top: 48px;
+  }
+
+  .loadingCardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .loadingCard:nth-child(n + 2) {
+    display: none;
   }
 }
 

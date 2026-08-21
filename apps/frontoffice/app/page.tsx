@@ -1,7 +1,9 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ArrowRight, BadgeCheck, Banknote, Car, MapPin, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
+import heroImage from "../public/hero-price-bay-option2@2x.png";
 import { googleMapsUrl, showroomAddress } from "./business";
 import { HeroVehicleFilters } from "./HeroVehicleFilters";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
@@ -12,7 +14,6 @@ import { getPublicInventory, getPublicVehicleCatalog, type PublicVehicle, type P
 import { VehicleCard } from "./vehicles/VehicleCard";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-const heroImage = `${basePath}/hero-price-bay-option2@2x.png`;
 const conciergeImage = "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=1200&q=88";
 const mapHref = googleMapsUrl;
 const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(showroomAddress)}&output=embed`;
@@ -150,7 +151,14 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
       <PublicHeader language={language} active="home" />
 
       <section className="atelierHero">
-        <img src={heroImage} alt="" className="heroMedia" />
+        <Image
+          src={heroImage}
+          alt=""
+          className="heroMedia"
+          preload
+          sizes="100vw"
+          placeholder="blur"
+        />
         <div className="heroOverlay" />
         <HeroPriceTags language={language} vehicles={heroVehicles} />
         <div className="atelierHeroInner">
@@ -220,7 +228,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <div className="personaGrid">
           {t.home.categories.map((category, index) => (
             <Link href={hrefWithSearch("/vehicles", language, { q: category.query })} className="personaCard" key={category.title}>
-              <img src={categoryImages[index]} alt="" />
+              <img src={categoryImages[index]} alt="" loading="lazy" decoding="async" />
               <div>
                 <h3>{category.title}</h3>
                 <p>{category.label}</p>
@@ -255,7 +263,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
           </div>
         </div>
         <figure className="conciergePhoto">
-          <img src={conciergeImage} alt="" />
+          <img src={conciergeImage} alt="" loading="lazy" decoding="async" />
           <figcaption>{t.home.buyerHelp}</figcaption>
         </figure>
       </section>
