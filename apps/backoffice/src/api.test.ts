@@ -27,6 +27,7 @@ import {
   customerFromLead,
   customerSelectLabel,
   decideHrLeaveRequest,
+  exportAutoCountWorkbook,
   exportPaymentsCsv,
   generateHrPayslips,
   getAuditLog,
@@ -565,6 +566,23 @@ describe("backoffice api client", () => {
 
     await expect(exportPaymentsCsv()).resolves.toBe(csv);
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/payments/export", { credentials: "include" });
+  });
+
+  it("exports the AutoCount V1 workbook as an authenticated blob with an optional period", async () => {
+    const workbook = new Blob(["xlsx-bytes"], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn(),
+      blob: vi.fn().mockResolvedValue(workbook)
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(exportAutoCountWorkbook("2026-08-01", "2026-08-31")).resolves.toBe(workbook);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/payments/export-autocount?from=2026-08-01&to=2026-08-31",
+      { credentials: "include" }
+    );
   });
 
   it("uploads vehicle photos and documents as authenticated multipart form data", async () => {

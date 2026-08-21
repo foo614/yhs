@@ -68,6 +68,7 @@ export function FinancePage({
   onCreatePaymentVoucher,
   onUpdatePaymentVoucher,
   onExportPayments,
+  onExportAutoCount,
   onUploadDocument: _onUploadDocument,
   onCreateCashHandover,
   onRequestCashHandover,
@@ -102,6 +103,7 @@ export function FinancePage({
   onCreatePaymentVoucher: (voucher: PaymentVoucher) => void;
   onUpdatePaymentVoucher: (voucher: PaymentVoucher) => void;
   onExportPayments: () => Promise<string>;
+  onExportAutoCount: (from?: string, to?: string) => Promise<Blob>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
   onCreateCashHandover: (paymentRecordId: string, amount: number, notes?: string) => Promise<void>;
   onRequestCashHandover: (id: string) => Promise<void>;
@@ -125,6 +127,7 @@ export function FinancePage({
   const [financeKeyword, setFinanceKeyword] = useState("");
   const [financeStatus, setFinanceStatus] = useState<string>();
   const [financePage, setFinancePage] = useState(1);
+  const [autoCountPeriod, setAutoCountPeriod] = useState<{ from?: string; to?: string }>({});
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PaymentReceipt");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [paymentDocuments, setPaymentDocuments] = useState<VehicleDocument[]>([]);
@@ -265,6 +268,22 @@ export function FinancePage({
       message.success("Bank collection spreadsheet exported for manual AutoCount submission");
     } catch (error) {
       message.error(humanizeApiError(error, "Bank collection export failed. Please try again."));
+    }
+  };
+
+  const handleExportAutoCount = async () => {
+    try {
+      const workbook = await onExportAutoCount(autoCountPeriod.from, autoCountPeriod.to);
+      const url = URL.createObjectURL(workbook);
+      const link = document.createElement("a");
+      link.href = url;
+      const period = autoCountPeriod.from && autoCountPeriod.to ? `${autoCountPeriod.from}-${autoCountPeriod.to}` : "all";
+      link.download = `autocount-v1-${period}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      message.success("AutoCount V1 mapping workbook exported for manual review");
+    } catch (error) {
+      message.error(humanizeApiError(error, "AutoCount workbook export failed. Please try again."));
     }
   };
 
@@ -603,9 +622,18 @@ export function FinancePage({
       )}
       {financeTab === "payments" && <ProCard
         title="Bank Collection / 收款Bank"
-        extra={<Space wrap><Button onClick={handleExportPayments}>Export Spreadsheet (CSV)</Button><Button type="primary" disabled={eligiblePaymentVehicles.length === 0} onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button></Space>}
+        extra={<Space wrap>
+          <DatePicker.RangePicker
+            aria-label="AutoCount export period"
+            onChange={(dates) => setAutoCountPeriod(dates?.[0] && dates?.[1] ? { from: dates[0].format("YYYY-MM-DD"), to: dates[1].format("YYYY-MM-DD") } : {})}
+          />
+          <Button onClick={handleExportAutoCount}>Export AutoCount V1 (.xlsx)</Button>
+          <Button onClick={handleExportPayments}>Export Spreadsheet (CSV)</Button>
+          <Button type="primary" disabled={eligiblePaymentVehicles.length === 0} onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button>
+        </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
+          <Alert type="info" showIcon message="AutoCount V1 is a mapping workbook for manual review, not a verified direct import template. The selected period applies to persisted records only." />
           {financeFilters}
           {eligiblePaymentVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before recording a collection." />}
           <div className="mobileRecordList">

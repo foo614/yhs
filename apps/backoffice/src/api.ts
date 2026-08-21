@@ -914,6 +914,18 @@ export async function exportPaymentsCsv(): Promise<string> {
   return response.text();
 }
 
+export async function exportAutoCountWorkbook(from?: string, to?: string): Promise<Blob> {
+  const query = new URLSearchParams();
+  if (from) query.set("from", from);
+  if (to) query.set("to", to);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const response = await fetch(`${apiBaseUrl}/api/payments/export-autocount${suffix}`, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `AutoCount export failed with status ${response.status}`));
+  }
+  return response.blob();
+}
+
 export async function getSettlementReminders(): Promise<SettlementReminder[]> {
   return getWithNetworkFallback("/api/settlement-reminders", []);
 }
