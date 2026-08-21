@@ -14,21 +14,30 @@ const history = {
   }
 };
 const location = {
-  assigned: [],
-  assign(url) {
-    this.assigned.push(url);
-  },
   href: "https://yshenghub.com.my/ops/structuredlogs",
   origin: "https://yshenghub.com.my"
 };
+const dispatchedEvents = [];
 const document = {
   addEventListener(type, listener, capture) {
     listeners.set(type, { listener, capture });
   }
 };
-const window = { history, location };
+const window = {
+  dispatchEvent(event) {
+    dispatchedEvents.push(event);
+  },
+  history,
+  location
+};
+class PopStateEvent {
+  constructor(type, init) {
+    this.state = init.state;
+    this.type = type;
+  }
+}
 
-vm.runInNewContext(adapterSource, { URL, document, history, window });
+vm.runInNewContext(adapterSource, { PopStateEvent, URL, document, history, window });
 
 for (const [route, expected] of [
   ["/", "/ops/"],
@@ -72,6 +81,7 @@ const traceAnchor = {
 const clickRegistration = listeners.get("click");
 assert.equal(clickRegistration.capture, true);
 let clickPrevented = false;
+let clickStopped = false;
 clickRegistration.listener({
   altKey: false,
   button: 0,
@@ -82,10 +92,16 @@ clickRegistration.listener({
     clickPrevented = true;
   },
   shiftKey: false,
+  stopImmediatePropagation() {
+    clickStopped = true;
+  },
   target: { closest: () => traceAnchor }
 });
 assert.equal(traceAnchor.href, "/ops/traces/detail/trace-id");
 assert.equal(clickPrevented, true);
-assert.deepEqual(location.assigned, ["/ops/traces/detail/trace-id"]);
+assert.equal(clickStopped, true);
+assert.equal(historyCalls.at(-1)[3], "/ops/traces/detail/trace-id");
+assert.equal(dispatchedEvents.at(-1).type, "popstate");
+assert.equal(dispatchedEvents.at(-1).state, null);
 
 console.log("Aspire /ops subpath navigation adapter tests passed.");

@@ -54,7 +54,9 @@
     if (rebasedHref !== originalHref) {
       anchor.setAttribute("href", rebasedHref);
       event.preventDefault();
-      window.location.assign(rebasedHref);
+      event.stopImmediatePropagation();
+      window.history.pushState(null, "", rebasedHref);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
     }
   }, true);
 })();
