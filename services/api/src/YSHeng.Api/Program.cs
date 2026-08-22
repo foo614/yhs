@@ -1535,6 +1535,154 @@ hr.MapGet("/attendance", async (AppDbContext db, HttpContext context) =>
         .ToListAsync());
 });
 
+hr.MapGet("/dashboard", async (AppDbContext db, HttpContext context) =>
+{
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var endDate = today.AddDays(7);
+    var attendanceQuery = db.HrAttendanceRecords.AsNoTracking().Where(record => record.AttendanceDate == today);
+    var tripQuery = db.HrBusinessTrips.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User))
+    {
+        var staffUserId = StaffIdentity.CurrentUserId(context);
+        attendanceQuery = attendanceQuery.Where(record => record.StaffUserId == staffUserId);
+        tripQuery = tripQuery.Where(trip => trip.StaffUserId == staffUserId);
+    }
+
+    var todayAttendance = await attendanceQuery.ToListAsync();
+    var pendingTrips = await tripQuery.CountAsync(trip => trip.Status == HrBusinessTripStatus.Pending);
+    var activeOutstation = todayAttendance.Count(record => record.VerificationMethod == HrAttendanceVerificationMethod.Outstation && record.CheckInAt != null && record.CheckOutAt == null);
+    var upcomingTrips = await tripQuery.CountAsync(trip => trip.Status == HrBusinessTripStatus.Approved && trip.StartDate <= endDate && trip.EndDate >= today);
+    return Results.Ok(new HrAttendanceDashboardSummary(
+        todayAttendance.Count(record => record.CheckInAt != null),
+        todayAttendance.Count(record => record.CheckOutAt != null),
+        todayAttendance.Count(record => record.CheckInAt != null && record.CheckOutAt == null),
+        todayAttendance.Count(record => record.VerificationMethod == HrAttendanceVerificationMethod.OfficeQr),
+        todayAttendance.Count(record => record.VerificationMethod is HrAttendanceVerificationMethod.Manual or HrAttendanceVerificationMethod.ManualException),
+        todayAttendance.Count(record => record.VerificationMethod == HrAttendanceVerificationMethod.Outstation),
+        pendingTrips,
+        activeOutstation,
+        upcomingTrips));
+});
+
+hr.MapGet("/availability-calendar", async (DateOnly? from, DateOnly? to, AppDbContext db, UserManager<AppUser> userManager, HttpContext context) =>
+{
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var startDate = from ?? today;
+    var endDate = to ?? today.AddDays(30);
+    if (endDate < startDate || endDate.DayNumber - startDate.DayNumber > 92) return Results.BadRequest(new ApiError("Calendar range must be valid and no longer than 93 days."));
+
+    var isHrManager = DepartmentAccess.IsHrManager(context.User);
+    var currentStaffId = StaffIdentity.CurrentUserId(context);
+    var staff = await userManager.Users.AsNoTracking().ToDictionaryAsync(user => user.Id, user => user.DisplayName);
+    var approvedLeaves = await db.HrLeaveRequests.AsNoTracking()
+        .Where(leave => leave.Status == HrLeaveStatus.Approved && leave.StartDate <= endDate && leave.EndDate >= startDate)
+        .ToListAsync();
+    var approvedTrips = await db.HrBusinessTrips.AsNoTracking()
+        .Where(trip => trip.Status == HrBusinessTripStatus.Approved && trip.StartDate <= endDate && trip.EndDate >= startDate)
+        .ToListAsync();
+    var result = new List<HrAvailabilityCalendarItem>();
+
+    foreach (var leave in approvedLeaves)
+    {
+        var isOwner = isHrManager || leave.StaffUserId == currentStaffId;
+        result.Add(new HrAvailabilityCalendarItem(
+            leave.StaffUserId,
+            staff.GetValueOrDefault(leave.StaffUserId, "Staff"),
+            leave.StartDate,
+            leave.EndDate,
+            "Leave",
+            "Busy",
+            isOwner ? null : null,
+            isOwner ? leave.Reason : null));
+    }
+
+    foreach (var trip in approvedTrips)
+    {
+        var isOwner = isHrManager || trip.StaffUserId == currentStaffId;
+        result.Add(new HrAvailabilityCalendarItem(
+            trip.StaffUserId,
+            staff.GetValueOrDefault(trip.StaffUserId, "Staff"),
+            trip.StartDate,
+            trip.EndDate,
+            "Outstation",
+            "Busy",
+            isOwner ? trip.Location : null,
+            isOwner ? trip.Purpose : null));
+    }
+
+    return Results.Ok(result.OrderBy(item => item.StartDate).ThenBy(item => item.StaffDisplayName));
+});
+
+hr.MapGet("/reminder-policies", async (AppDbContext db) =>
+{
+    var existing = await db.HrAttendanceReminderPolicies.AsNoTracking().OrderBy(policy => policy.Type).ToListAsync();
+    var configured = existing.ToDictionary(policy => policy.Type);
+    return Results.Ok(Enum.GetValues<HrAttendanceReminderType>().Select(type => configured.GetValueOrDefault(type, new HrAttendanceReminderPolicy { Type = type, LeadHours = type == HrAttendanceReminderType.MissingCheckOut ? 10 : 24 })));
+});
+
+hr.MapPut("/reminder-policies/{type}", async (HrAttendanceReminderType type, HrAttendanceReminderPolicyRequest request, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    if (!Enum.IsDefined(type)) return Results.BadRequest(new ApiError("Unknown attendance reminder type."));
+    var validation = HrRules.ValidateAttendanceReminderPolicy(request);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    var existing = await db.HrAttendanceReminderPolicies.FirstOrDefaultAsync(policy => policy.Type == type);
+    var policy = new HrAttendanceReminderPolicy
+    {
+        Id = existing?.Id ?? Guid.NewGuid(),
+        Type = type,
+        IsEnabled = request.IsEnabled,
+        LeadHours = request.LeadHours,
+        UpdatedBy = StaffIdentity.CurrentUserId(context),
+        UpdatedAt = DateTime.UtcNow
+    };
+    if (existing is null) db.HrAttendanceReminderPolicies.Add(policy); else db.Entry(existing).CurrentValues.SetValues(policy);
+    ApiAudit.Add(db, context.User, "hr.attendance.reminderPolicy.updated", nameof(HrAttendanceReminderPolicy), policy.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(policy);
+});
+
+hr.MapGet("/reminders", async (AppDbContext db, HttpContext context) =>
+{
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var now = DateTime.UtcNow;
+    var isHrManager = DepartmentAccess.IsHrManager(context.User);
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    var policies = await db.HrAttendanceReminderPolicies.AsNoTracking().ToDictionaryAsync(policy => policy.Type);
+    HrAttendanceReminderPolicy Policy(HrAttendanceReminderType type, int defaultLeadHours) => policies.GetValueOrDefault(type) ?? new HrAttendanceReminderPolicy { Type = type, LeadHours = defaultLeadHours };
+    var result = new List<HrAttendanceReminderItem>();
+
+    var pendingTrips = db.HrBusinessTrips.AsNoTracking().Where(trip => trip.Status == HrBusinessTripStatus.Pending);
+    if (!isHrManager) pendingTrips = pendingTrips.Where(trip => trip.StaffUserId == staffUserId);
+    var pendingPolicy = Policy(HrAttendanceReminderType.PendingApproval, 24);
+    if (pendingPolicy.IsEnabled)
+    {
+        await foreach (var trip in pendingTrips.AsAsyncEnumerable()) result.Add(new HrAttendanceReminderItem(pendingPolicy.Type, trip.StaffUserId, $"Outstation request pending approval: {trip.Location}", trip.StartDate));
+    }
+
+    var upcomingPolicy = Policy(HrAttendanceReminderType.UpcomingOutstation, 24);
+    if (upcomingPolicy.IsEnabled)
+    {
+        var latestStart = DateOnly.FromDateTime(now.AddHours(upcomingPolicy.LeadHours));
+        var upcomingTrips = db.HrBusinessTrips.AsNoTracking().Where(trip => trip.Status == HrBusinessTripStatus.Approved && trip.StartDate >= today && trip.StartDate <= latestStart);
+        if (!isHrManager) upcomingTrips = upcomingTrips.Where(trip => trip.StaffUserId == staffUserId);
+        await foreach (var trip in upcomingTrips.AsAsyncEnumerable()) result.Add(new HrAttendanceReminderItem(upcomingPolicy.Type, trip.StaffUserId, $"Outstation starts soon: {trip.Location}", trip.StartDate));
+    }
+
+    var missingPolicy = Policy(HrAttendanceReminderType.MissingCheckOut, 10);
+    if (missingPolicy.IsEnabled)
+    {
+        var openSessions = db.HrAttendanceRecords.AsNoTracking().Where(record => record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null);
+        if (!isHrManager) openSessions = openSessions.Where(record => record.StaffUserId == staffUserId);
+        await foreach (var record in openSessions.AsAsyncEnumerable())
+        {
+            if (record.CheckInAt!.Value.AddHours(missingPolicy.LeadHours) <= now) result.Add(new HrAttendanceReminderItem(missingPolicy.Type, record.StaffUserId, "Attendance session has no Check Out", today));
+        }
+    }
+
+    return Results.Ok(result.OrderBy(item => item.DueDate).ThenBy(item => item.StaffUserId));
+});
+
 hr.MapPost("/attendance/check-in", async (AppDbContext db, HttpContext context) =>
 {
     var staffUserId = StaffIdentity.CurrentUserId(context);
@@ -1573,6 +1721,223 @@ hr.MapPost("/attendance/check-out", async (AppDbContext db, HttpContext context)
     if (!validation.IsValid) return Results.BadRequest(validation);
     db.Entry(openSession!).CurrentValues.SetValues(attendance);
     ApiAudit.Add(db, context.User, "hr.attendance.checkedOut", nameof(HrAttendanceRecord), attendance.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(attendance);
+});
+
+hr.MapPost("/attendance/qr/challenges", async (AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+
+    var now = DateTime.UtcNow;
+    var token = HrRules.CreateAttendanceQrToken();
+    var challenge = new HrAttendanceQrChallenge
+    {
+        TokenHash = HrRules.HashAttendanceQrToken(token),
+        CreatedAt = now,
+        ExpiresAt = now.AddMinutes(5),
+        CreatedBy = StaffIdentity.CurrentUserId(context)
+    };
+
+    db.HrAttendanceQrChallenges.Add(challenge);
+    ApiAudit.Add(db, context.User, "hr.attendance.qrChallenge.created", nameof(HrAttendanceQrChallenge), challenge.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(new HrAttendanceQrChallengeResponse(challenge.Id, token, challenge.ExpiresAt));
+});
+
+hr.MapPost("/attendance/qr/redeem", async (HrAttendanceQrRedemptionRequest request, AppDbContext db, HttpContext context) =>
+{
+    var requestValidation = HrRules.ValidateAttendanceQrRedemption(request);
+    if (!requestValidation.IsValid) return Results.BadRequest(requestValidation);
+
+    var challenge = await db.HrAttendanceQrChallenges.FirstOrDefaultAsync(item => item.TokenHash == HrRules.HashAttendanceQrToken(request.Token));
+    if (challenge is null || challenge.ExpiresAt <= DateTime.UtcNow)
+    {
+        return Results.BadRequest(new ApiError("This office QR code is invalid or expired. Generate a new code and try again."));
+    }
+
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    var alreadyRedeemed = await db.HrAttendanceQrRedemptions.AnyAsync(item =>
+        item.ChallengeId == challenge.Id && item.StaffUserId == staffUserId && item.Action == request.Action);
+    if (alreadyRedeemed)
+    {
+        return Results.Conflict(new ApiError("This office QR code has already been used for this attendance action."));
+    }
+
+    var now = DateTime.UtcNow;
+    HrAttendanceRecord attendance;
+    if (request.Action == HrAttendanceAction.CheckIn)
+    {
+        var openSession = await db.HrAttendanceRecords
+            .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == DateOnly.FromDateTime(now) && record.CheckInAt != null && record.CheckOutAt == null)
+            .OrderByDescending(record => record.CheckInAt)
+            .FirstOrDefaultAsync();
+        var actionValidation = HrRules.ValidateCheckIn(openSession);
+        if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
+
+        attendance = new HrAttendanceRecord
+        {
+            StaffUserId = staffUserId,
+            AttendanceDate = DateOnly.FromDateTime(now),
+            CheckInAt = now,
+            Status = HrAttendanceStatus.Present,
+            VerificationMethod = HrAttendanceVerificationMethod.OfficeQr
+        };
+        var validation = HrRules.ValidateAttendance(attendance);
+        if (!validation.IsValid) return Results.BadRequest(validation);
+        db.HrAttendanceRecords.Add(attendance);
+    }
+    else
+    {
+        var openSession = await db.HrAttendanceRecords
+            .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == DateOnly.FromDateTime(now) && record.CheckInAt != null && record.CheckOutAt == null)
+            .OrderByDescending(record => record.CheckInAt)
+            .FirstOrDefaultAsync();
+        var actionValidation = HrRules.ValidateCheckOut(openSession);
+        if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
+
+        attendance = openSession! with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.OfficeQr };
+        var validation = HrRules.ValidateAttendance(attendance);
+        if (!validation.IsValid) return Results.BadRequest(validation);
+        db.Entry(openSession!).CurrentValues.SetValues(attendance);
+    }
+
+    db.HrAttendanceQrRedemptions.Add(new HrAttendanceQrRedemption
+    {
+        ChallengeId = challenge.Id,
+        StaffUserId = staffUserId,
+        Action = request.Action,
+        RedeemedAt = now
+    });
+    ApiAudit.Add(db, context.User, $"hr.attendance.qrRedeemed action={request.Action}", nameof(HrAttendanceRecord), attendance.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(attendance);
+});
+
+hr.MapGet("/business-trips", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrBusinessTrips.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User))
+    {
+        var staffUserId = StaffIdentity.CurrentUserId(context);
+        query = query.Where(trip => trip.StaffUserId == staffUserId);
+    }
+
+    return Results.Ok(await query.OrderByDescending(trip => trip.StartDate).ThenByDescending(trip => trip.RequestedAt).ToListAsync());
+});
+
+hr.MapPost("/business-trips", async (HrBusinessTrip request, AppDbContext db, HttpContext context) =>
+{
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    if (!DepartmentAccess.IsHrManager(context.User) && request.StaffUserId != staffUserId) return Results.Forbid();
+
+    var trip = request with
+    {
+        Id = Guid.NewGuid(),
+        Status = HrBusinessTripStatus.Pending,
+        RequestedAt = DateTime.UtcNow,
+        ApprovedBy = null,
+        ApprovedAt = null,
+        DecisionNotes = null
+    };
+    var validation = HrRules.ValidateBusinessTrip(trip);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    db.HrBusinessTrips.Add(trip);
+    ApiAudit.Add(db, context.User, "hr.businessTrip.requested", nameof(HrBusinessTrip), trip.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(trip);
+});
+
+hr.MapPut("/business-trips/{id:guid}/decision", async (Guid id, HrBusinessTripDecisionRequest request, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    if (request.Status is not (HrBusinessTripStatus.Approved or HrBusinessTripStatus.Rejected)) return Results.BadRequest(new ApiError("Business trip decisions must approve or reject the request."));
+
+    var existing = await db.HrBusinessTrips.FirstOrDefaultAsync(trip => trip.Id == id);
+    if (existing is null) return Results.NotFound();
+    if (existing.Status != HrBusinessTripStatus.Pending) return Results.BadRequest(new ApiError("Only pending business trip requests can be decided."));
+
+    if (request.Status == HrBusinessTripStatus.Approved)
+    {
+        var leaveConflict = await db.HrLeaveRequests.AnyAsync(leave =>
+            leave.StaffUserId == existing.StaffUserId && leave.Status == HrLeaveStatus.Approved &&
+            HrRules.DatesOverlap(existing.StartDate, existing.EndDate, leave.StartDate, leave.EndDate));
+        var tripConflict = await db.HrBusinessTrips.AnyAsync(trip =>
+            trip.Id != existing.Id && trip.StaffUserId == existing.StaffUserId && trip.Status == HrBusinessTripStatus.Approved &&
+            HrRules.DatesOverlap(existing.StartDate, existing.EndDate, trip.StartDate, trip.EndDate));
+        if (leaveConflict || tripConflict) return Results.BadRequest(new ApiError("This business trip overlaps an approved leave or another approved business trip."));
+    }
+
+    var decided = existing with
+    {
+        Status = request.Status,
+        ApprovedBy = StaffIdentity.CurrentUserId(context),
+        ApprovedAt = DateTime.UtcNow,
+        DecisionNotes = string.IsNullOrWhiteSpace(request.DecisionNotes) ? null : request.DecisionNotes.Trim()
+    };
+    db.Entry(existing).CurrentValues.SetValues(decided);
+    ApiAudit.Add(db, context.User, $"hr.businessTrip.{request.Status.ToString().ToLowerInvariant()}", nameof(HrBusinessTrip), id);
+    await db.SaveChangesAsync();
+    return Results.Ok(decided);
+});
+
+hr.MapPost("/business-trips/{id:guid}/cancel", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var existing = await db.HrBusinessTrips.FirstOrDefaultAsync(trip => trip.Id == id);
+    if (existing is null) return Results.NotFound();
+    if (!DepartmentAccess.IsHrManager(context.User) && existing.StaffUserId != StaffIdentity.CurrentUserId(context)) return Results.Forbid();
+    if (existing.Status is HrBusinessTripStatus.Rejected or HrBusinessTripStatus.Cancelled) return Results.BadRequest(new ApiError("This business trip cannot be cancelled in its current state."));
+
+    var cancelled = existing with { Status = HrBusinessTripStatus.Cancelled };
+    db.Entry(existing).CurrentValues.SetValues(cancelled);
+    ApiAudit.Add(db, context.User, "hr.businessTrip.cancelled", nameof(HrBusinessTrip), id);
+    await db.SaveChangesAsync();
+    return Results.Ok(cancelled);
+});
+
+hr.MapPost("/attendance/outstation/start", async (HrOutstationAttendanceRequest request, AppDbContext db, HttpContext context) =>
+{
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var trip = await db.HrBusinessTrips.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.BusinessTripId && item.StaffUserId == staffUserId);
+    if (trip is null || !HrRules.BusinessTripCoversDate(trip, today)) return Results.BadRequest(new ApiError("An approved business trip covering today is required before starting outstation attendance."));
+
+    var openSession = await db.HrAttendanceRecords
+        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
+        .OrderByDescending(record => record.CheckInAt)
+        .FirstOrDefaultAsync();
+    var actionValidation = HrRules.ValidateCheckIn(openSession);
+    if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
+
+    var now = DateTime.UtcNow;
+    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present, VerificationMethod = HrAttendanceVerificationMethod.Outstation, Notes = $"Business trip {trip.Id}" };
+    db.HrAttendanceRecords.Add(attendance);
+    ApiAudit.Add(db, context.User, "hr.attendance.outstationStarted", nameof(HrAttendanceRecord), attendance.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(attendance);
+});
+
+hr.MapPost("/attendance/outstation/end", async (HrOutstationAttendanceRequest request, AppDbContext db, HttpContext context) =>
+{
+    var staffUserId = StaffIdentity.CurrentUserId(context);
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var trip = await db.HrBusinessTrips.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.BusinessTripId && item.StaffUserId == staffUserId);
+    if (trip is null || !HrRules.BusinessTripCoversDate(trip, today)) return Results.BadRequest(new ApiError("An approved business trip covering today is required before ending outstation attendance."));
+
+    var openSession = await db.HrAttendanceRecords
+        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
+        .OrderByDescending(record => record.CheckInAt)
+        .FirstOrDefaultAsync();
+    var actionValidation = HrRules.ValidateCheckOut(openSession);
+    if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
+
+    var now = DateTime.UtcNow;
+    var attendance = openSession! with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.Outstation, Notes = $"Business trip {trip.Id}" };
+    var validation = HrRules.ValidateAttendance(attendance);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    db.Entry(openSession!).CurrentValues.SetValues(attendance);
+    ApiAudit.Add(db, context.User, "hr.attendance.outstationEnded", nameof(HrAttendanceRecord), attendance.Id);
     await db.SaveChangesAsync();
     return Results.Ok(attendance);
 });

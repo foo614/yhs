@@ -1152,7 +1152,8 @@ describe("backoffice api client", () => {
       staffUserId: "staff-1",
       attendanceDate: "2026-06-06",
       checkInAt: "2026-06-06T01:00:00Z",
-      status: "Present"
+      status: "Present",
+      verificationMethod: "Manual"
     };
     const leave: HrLeaveRequest = {
       id: "leave-1",

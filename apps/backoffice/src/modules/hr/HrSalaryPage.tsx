@@ -1,6 +1,8 @@
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Empty, Form, Input, InputNumber, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
+import { QRCodeSVG } from "qrcode.react";
+import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -8,7 +10,18 @@ import { staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import type {
   CurrentUser,
+  HrAttendanceAction,
+  HrAttendanceDashboardSummary,
+  HrAttendanceReminderItem,
+  HrAttendanceReminderPolicy,
+  HrAttendanceReminderType,
   HrAttendanceRecord,
+  HrAvailabilityCalendarItem,
+  HrAttendanceQrChallenge,
+  HrAttendanceQrRedemptionRequest,
+  HrBusinessTrip,
+  HrBusinessTripStatus,
+  HrOutstationAttendanceRequest,
   HrLeaveAdjustment,
   HrLeaveAdjustmentRequest,
   HrLeaveBalance,
@@ -27,6 +40,10 @@ type HrSalaryPageProps = {
   currentUser: CurrentUser | null;
   staffUsers: StaffUser[];
   attendance: HrAttendanceRecord[];
+  attendanceDashboard: HrAttendanceDashboardSummary | null;
+  availabilityCalendar: HrAvailabilityCalendarItem[];
+  attendanceReminders: HrAttendanceReminderItem[];
+  attendanceReminderPolicies: HrAttendanceReminderPolicy[];
   leaveRequests: HrLeaveRequest[];
   leaveBalances: HrLeaveBalance[];
   leavePolicies: HrLeavePolicy[];
@@ -34,8 +51,20 @@ type HrSalaryPageProps = {
   payrollProfiles: HrPayrollProfile[];
   payPeriods: HrPayPeriod[];
   payslips: HrPayslip[];
+  attendanceQrChallenge: HrAttendanceQrChallenge | null;
+  attendanceQrToken?: string;
+  businessTrips: HrBusinessTrip[];
+  onClearAttendanceQrToken: () => void;
   onCheckIn: () => Promise<void>;
   onCheckOut: () => Promise<void>;
+  onCreateQrChallenge: () => Promise<void>;
+  onRedeemQr: (request: HrAttendanceQrRedemptionRequest) => Promise<void>;
+  onCreateBusinessTrip: (trip: HrBusinessTrip) => Promise<void>;
+  onDecideBusinessTrip: (tripId: string, status: Exclude<HrBusinessTripStatus, "Pending" | "Cancelled">, decisionNotes?: string) => Promise<void>;
+  onCancelBusinessTrip: (tripId: string) => Promise<void>;
+  onStartOutstation: (request: HrOutstationAttendanceRequest) => Promise<void>;
+  onEndOutstation: (request: HrOutstationAttendanceRequest) => Promise<void>;
+  onUpdateReminderPolicy: (type: HrAttendanceReminderType, policy: Pick<HrAttendanceReminderPolicy, "isEnabled" | "leadHours">) => Promise<void>;
   onCreateLeave: (leave: HrLeaveRequest) => Promise<void>;
   onDecideLeave: (leaveId: string, status: HrLeaveStatus, decisionNotes?: string) => Promise<void>;
   onUploadMc: (leaveId: string, file: File) => Promise<void>;
@@ -125,6 +154,10 @@ export function HrSalaryPage({
   currentUser,
   staffUsers,
   attendance,
+  attendanceDashboard,
+  availabilityCalendar,
+  attendanceReminders,
+  attendanceReminderPolicies,
   leaveRequests,
   leaveBalances,
   leavePolicies,
@@ -132,8 +165,20 @@ export function HrSalaryPage({
   payrollProfiles,
   payPeriods,
   payslips,
+  attendanceQrChallenge,
+  attendanceQrToken,
+  businessTrips,
+  onClearAttendanceQrToken,
   onCheckIn,
   onCheckOut,
+  onCreateQrChallenge,
+  onRedeemQr,
+  onCreateBusinessTrip,
+  onDecideBusinessTrip,
+  onCancelBusinessTrip,
+  onStartOutstation,
+  onEndOutstation,
+  onUpdateReminderPolicy,
   onCreateLeave,
   onDecideLeave,
   onUploadMc,
@@ -147,7 +192,9 @@ export function HrSalaryPage({
 }: HrSalaryPageProps) {
   const isHrManager = Boolean(currentUser?.roles.some((role) => role === "BossAdmin" || role === "HrSalary"));
   const [leaveForm] = Form.useForm();
+  const [businessTripForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
+  const [qrRedeeming, setQrRedeeming] = useState(false);
   const [activeTab, setActiveTab] = useState("attendance");
   const [recordFilters, setRecordFilters] = useState<Record<HrRecordListKey, HrRecordFilters>>(initialHrRecordFilters);
   const [recordPages, setRecordPages] = useState<Record<HrRecordListKey, number>>(initialHrRecordPages);
@@ -162,9 +209,14 @@ export function HrSalaryPage({
   const checkInHelpText = canCheckInToday ? "" : "Already checked in. Check out before starting a new session.";
   const checkOutHelpText = canCheckOutToday ? "" : "Check in first before checking out.";
   const attendanceActionHint = openSession
-    ? "Check out when the shift ends."
-    : "Start today attendance with Check In.";
+    ? "Scan the office QR when the shift ends, or use manual Check Out as a fallback."
+    : "Scan the office QR to start today attendance, or use manual Check In as a fallback.";
+  const qrAction: HrAttendanceAction = openSession ? "CheckOut" : "CheckIn";
+  const qrUrl = attendanceQrChallenge ? `${window.location.origin}/hr-salary#attendanceQr=${attendanceQrChallenge.token}` : "";
+  const qrSecondsRemaining = attendanceQrChallenge ? Math.max(0, Math.ceil((new Date(attendanceQrChallenge.expiresAt).getTime() - clockNow.getTime()) / 1000)) : 0;
   const visibleStaff = staffUsers.length ? staffUsers : [{ id: selfId, email: currentUser?.name ?? "", displayName: selfName, roles: [], isActive: true }];
+  const ownBusinessTrips = businessTrips.filter((trip) => trip.staffUserId === selfId);
+  const approvedTripForToday = ownBusinessTrips.find((trip) => businessTripCoversDate(trip, today));
   const missingMedicalCertificateCount = leaveRequests.filter((record) => record.type === "MedicalLeave" && !record.medicalCertificateDocumentId).length;
   const leaveStartDate = Form.useWatch("startDate", leaveForm) as string | undefined;
   const leaveEndDate = Form.useWatch("endDate", leaveForm) as string | undefined;
@@ -179,6 +231,15 @@ export function HrSalaryPage({
     const timer = window.setInterval(() => setClockNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!attendanceQrToken || qrRedeeming) return;
+    setQrRedeeming(true);
+    void onRedeemQr({ token: attendanceQrToken, action: qrAction }).finally(() => {
+      onClearAttendanceQrToken();
+      setQrRedeeming(false);
+    });
+  }, [attendanceQrToken, onClearAttendanceQrToken, onRedeemQr, openSession, qrAction, qrRedeeming]);
 
   const updateRecordFilter = (list: HrRecordListKey, key: keyof HrRecordFilters, value?: string) => {
     setRecordFilters((current) => ({
@@ -204,7 +265,8 @@ export function HrSalaryPage({
     { title: "Date / 日期", dataIndex: "attendanceDate" },
     { title: "Status / 状态", dataIndex: "status", render: (status: HrAttendanceRecord["status"]) => <Tag color={attendanceStatusColor(status)}>{attendanceStatusLabel(status)}</Tag> },
     { title: "In / 上班", dataIndex: "checkInAt", render: formatDateTime },
-    { title: "Out / 下班", dataIndex: "checkOutAt", render: formatDateTime }
+    { title: "Out / 下班", dataIndex: "checkOutAt", render: formatDateTime },
+    { title: "Method / 方式", dataIndex: "verificationMethod", render: (method: HrAttendanceRecord["verificationMethod"]) => attendanceVerificationMethodLabel(method) }
   ];
 
   const leaveColumns: ColumnsType<HrLeaveRequest> = [
@@ -510,8 +572,80 @@ export function HrSalaryPage({
         type="info"
         showIcon
         message="HR Records / 人事记录"
-        description="Staff can check attendance and submit leave. HR/Admin manage leave balances, payroll setup, and payslips. / 员工可打卡和请假，HR/Admin 管理假期余额、薪资资料和薪资单。"
+        description="Attendance guide: Office staff — scan the office QR at both the start and end of the shift; use Manual Check In/Out only if QR is unavailable. Outstation staff follow their approved Business Trip / Outstation Duty flow on mobile. / 打卡说明：办公室员工——上班和放工都扫描办公室二维码，二维码不能用时才手动打卡；外勤员工按已批准的出差流程在手机上开始和结束打卡。"
       />
+
+      {attendanceDashboard && <ProCard title="Attendance Dashboard / 打卡概览">
+        <Space wrap size={[28, 18]}>
+          <Statistic title="Checked In / 已上班" value={attendanceDashboard.checkedInToday} />
+          <Statistic title="Checked Out / 已放工" value={attendanceDashboard.checkedOutToday} />
+          <Statistic title="Open Sessions / 未放工" value={attendanceDashboard.openSessionsToday} />
+          <Statistic title="Office QR / 办公室二维码" value={attendanceDashboard.officeQrSessionsToday} />
+          <Statistic title="Manual / 手动" value={attendanceDashboard.manualSessionsToday} />
+          <Statistic title="Outstation / 外勤" value={attendanceDashboard.outstationSessionsToday} />
+          <Statistic title="Pending Trips / 待审批外勤" value={attendanceDashboard.pendingBusinessTripRequests} />
+          <Statistic title="Active Outstation / 当前外勤" value={attendanceDashboard.activeOutstationToday} />
+          <Statistic title="Next 7 Days / 未来7天安排" value={attendanceDashboard.upcomingApprovedTrips} />
+        </Space>
+      </ProCard>}
+
+      <ProCard title="Attendance Reminders / 打卡提醒">
+        <Space direction="vertical" size={12} className="fullWidth">
+          {attendanceReminders.length === 0 ? <Typography.Text type="secondary">No active reminders / 暂无提醒</Typography.Text> : attendanceReminders.map((reminder) => <Alert key={`${reminder.type}-${reminder.staffUserId}-${reminder.dueDate}`} type="warning" showIcon message={`${attendanceReminderTypeLabel(reminder.type)} · ${reminder.dueDate}`} description={isHrManager ? `${staffName(reminder.staffUserId, visibleStaff)}: ${reminder.message}` : reminder.message} />)}
+          {isHrManager && <>
+            <Typography.Text strong>Reminder settings / 提醒设置</Typography.Text>
+            {attendanceReminderPolicies.map((policy) => <Form key={policy.type} layout="inline" initialValues={policy} onFinish={(values) => onUpdateReminderPolicy(policy.type, { isEnabled: Boolean(values.isEnabled), leadHours: Number(values.leadHours) })}>
+              <Typography.Text>{attendanceReminderTypeLabel(policy.type)}</Typography.Text>
+              <Form.Item name="isEnabled" valuePropName="checked"><Switch /></Form.Item>
+              <Form.Item name="leadHours" rules={[{ required: true, type: "number", min: 0, max: 720 }]}><InputNumber min={0} max={720} addonAfter="hours" /></Form.Item>
+              <Button htmlType="submit">Save / 保存</Button>
+            </Form>)}
+          </>}
+        </Space>
+      </ProCard>
+
+      <ProCard title="Business Trip / Outstation Duty / 出差外勤">
+        <Space direction="vertical" size={14} className="fullWidth">
+          <Typography.Text type="secondary">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</Typography.Text>
+          <Form form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: today, endDate: today, isUrgentException: false }}>
+            <div className="leaveDetailsGrid">
+              {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>}
+              <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><Input type="date" /></Form.Item>
+              <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><Input type="date" /></Form.Item>
+              <Form.Item name="location" label="Location / 地点" rules={[{ required: true }]}><Input placeholder="Customer site / 客户地点" /></Form.Item>
+              <Form.Item name="purpose" label="Purpose / 目的" rules={[{ required: true }]}><Input placeholder="Sales visit / 跑销" /></Form.Item>
+              <Form.Item name="isUrgentException" valuePropName="checked"><Checkbox>Urgent exception / 临时外勤例外</Checkbox></Form.Item>
+            </div>
+            <Button type="primary" htmlType="submit">Submit Outstation Request / 提交外勤申请</Button>
+          </Form>
+          <Space wrap>
+            {ownBusinessTrips.slice(0, 4).map((trip) => (
+              <Space key={trip.id} className="tableActionGroup" wrap>
+                <Tag color={businessTripStatusColor(trip.status)}>{businessTripStatusLabel(trip.status)}</Tag>
+                <Typography.Text>{trip.startDate} to {trip.endDate} · {trip.location}</Typography.Text>
+                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && !openSession && <Button size="small" onClick={() => onStartOutstation({ businessTripId: trip.id })}>Start Duty / 开始外勤</Button>}
+                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && openSession && <Button size="small" onClick={() => onEndOutstation({ businessTripId: trip.id })}>End Duty / 结束外勤</Button>}
+                {(trip.status === "Pending" || trip.status === "Approved") && <Button size="small" onClick={() => onCancelBusinessTrip(trip.id)}>Cancel / 取消</Button>}
+              </Space>
+            ))}
+            {ownBusinessTrips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No outstation requests / 暂无外勤申请" />}
+          </Space>
+          {isHrManager && <Table
+            rowKey="id"
+            size="small"
+            pagination={{ pageSize: 5, showSizeChanger: false }}
+            dataSource={businessTrips}
+            columns={[
+              { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
+              { title: "Dates / 日期", render: (_: unknown, trip: HrBusinessTrip) => `${trip.startDate} to ${trip.endDate}` },
+              { title: "Location / 地点", dataIndex: "location" },
+              { title: "Purpose / 目的", dataIndex: "purpose" },
+              { title: "Status / 状态", dataIndex: "status", render: (status: HrBusinessTripStatus) => <Tag color={businessTripStatusColor(status)}>{businessTripStatusLabel(status)}</Tag> },
+              { title: "Action / 操作", render: (_: unknown, trip: HrBusinessTrip) => trip.status === "Pending" ? <Space><Button size="small" type="primary" onClick={() => onDecideBusinessTrip(trip.id, "Approved")}>Approve</Button><Button size="small" danger onClick={() => onDecideBusinessTrip(trip.id, "Rejected")}>Reject</Button></Space> : trip.decisionNotes || "-" }
+            ]}
+          />}
+        </Space>
+      </ProCard>
 
       <ProCard title="Today Attendance / 今日打卡">
         <Space direction="vertical" size={12} className="fullWidth attendancePunchCard">
@@ -527,12 +661,16 @@ export function HrSalaryPage({
           </div>
           <div className="attendancePunchActions">
             <Tooltip title={checkInHelpText}>
-              <Button type="primary" icon={<ClockCircleOutlined />} onClick={onCheckIn} disabled={!canCheckInToday}>Check In / 上班打卡</Button>
+              <Button icon={<ClockCircleOutlined />} onClick={onCheckIn} disabled={!canCheckInToday}>Manual Check In / 手动上班</Button>
             </Tooltip>
             <Tooltip title={checkOutHelpText}>
-              <Button onClick={onCheckOut} disabled={!canCheckOutToday}>Check Out / 下班打卡</Button>
+              <Button onClick={onCheckOut} disabled={!canCheckOutToday}>Manual Check Out / 手动放工</Button>
+            </Tooltip>
+            <Tooltip title="Use your phone camera to scan the rotating QR shown on the office screen.">
+              <Button type="primary" icon={<QrcodeOutlined />} disabled={!canCheckInToday && !canCheckOutToday} onClick={() => window.alert("Use your phone camera to scan the QR shown on the office screen. / 请用手机相机扫描办公室屏幕上的二维码。")}>Scan Office QR / 扫码打卡</Button>
             </Tooltip>
           </div>
+          {attendanceQrToken && <Alert type="info" showIcon message="Office QR detected / 已识别办公室二维码" description={`Recording QR ${qrAction === "CheckIn" ? "Check In / 上班" : "Check Out / 放工"} now. / 正在记录二维码${qrAction === "CheckIn" ? "上班" : "放工"}打卡。`} />}
         </Space>
       </ProCard>
 
@@ -558,6 +696,45 @@ export function HrSalaryPage({
                 {attendanceMobileCards}
                 <Table className="desktopDataTable" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
               </>
+            )
+          },
+          ...(isHrManager ? [{
+            key: "qr-display",
+            label: "QR Display / 二维码",
+            children: (
+              <ProCard title="Office Attendance QR / 办公室打卡二维码" extra={<Button icon={<ReloadOutlined />} onClick={() => void onCreateQrChallenge()}>Generate 5-minute QR / 生成5分钟二维码</Button>}>
+                <Space direction="vertical" size={16} align="center" className="fullWidth">
+                  {attendanceQrChallenge ? <>
+                    <QRCodeSVG value={qrUrl} size={260} includeMargin />
+                    <Typography.Text strong>Expires in {Math.floor(qrSecondsRemaining / 60)}:{String(qrSecondsRemaining % 60).padStart(2, "0")} / 剩余时间</Typography.Text>
+                    <Typography.Text type="secondary">Employees scan this QR at both the start and end of their shift. Manual Punch In/Out is the fallback. / 员工上班和放工都扫描此二维码，手动打卡只作备用。</Typography.Text>
+                  </> : <Empty description="Generate a QR code for the office display / 先生成办公室二维码" />}
+                </Space>
+              </ProCard>
+            )
+          }] : []),
+          {
+            key: "availability",
+            label: "Shared Calendar / 共享日历",
+            children: (
+              <ProCard title="Team Availability / 团队可用时间">
+                <Space direction="vertical" size={12} className="fullWidth">
+                  <Typography.Text type="secondary">Staff see only busy status for other people; HR/Admin can see approved trip details. This calendar does not track GPS or replace attendance. / 员工只能看到其他人的忙碌状态；HR/Admin 可看到已批准外勤详情。此日历不追踪 GPS，也不取代打卡。</Typography.Text>
+                  <Table
+                    rowKey={(item) => `${item.staffUserId}-${item.kind}-${item.startDate}-${item.endDate}`}
+                    dataSource={availabilityCalendar}
+                    pagination={{ pageSize: 8, showSizeChanger: false }}
+                    columns={[
+                      { title: "Staff / 员工", dataIndex: "staffDisplayName" },
+                      { title: "Dates / 日期", render: (_: unknown, item: HrAvailabilityCalendarItem) => `${item.startDate} to ${item.endDate}` },
+                      { title: "Type / 类型", dataIndex: "kind", render: (kind: HrAvailabilityCalendarItem["kind"]) => kind === "Outstation" ? "Outstation / 外勤" : "Leave / 请假" },
+                      { title: "Status / 状态", dataIndex: "status", render: () => <Tag color="orange">Busy / 忙碌</Tag> },
+                      { title: "Details / 详情", render: (_: unknown, item: HrAvailabilityCalendarItem) => item.location || item.purpose || "Busy / 忙碌" }
+                    ]}
+                    locale={{ emptyText: "No approved leave or outstation plans / 暂无已批准请假或外勤安排" }}
+                  />
+                </Space>
+              </ProCard>
             )
           },
           {
@@ -1000,6 +1177,40 @@ function attendanceStatusLabel(status: HrAttendanceRecord["status"]) {
 
 function attendanceStatusColor(status: HrAttendanceRecord["status"]) {
   return status === "Present" ? "green" : status === "Late" ? "orange" : status === "Absent" ? "red" : "blue";
+}
+
+function attendanceVerificationMethodLabel(method: HrAttendanceRecord["verificationMethod"]) {
+  return method === "OfficeQr" ? "Office QR / 办公室二维码" : method === "Outstation" ? "Outstation / 外勤" : method === "ManualException" ? "Manual Exception / 人工例外" : "Manual / 手动";
+}
+
+function businessTripCoversDate(trip: HrBusinessTrip, date: string) {
+  return trip.status === "Approved" && trip.startDate <= date && trip.endDate >= date;
+}
+
+function businessTripStatusLabel(status: HrBusinessTripStatus) {
+  return status === "Approved" ? "Approved / 已批准" : status === "Rejected" ? "Rejected / 已拒绝" : status === "Cancelled" ? "Cancelled / 已取消" : "Pending / 待审批";
+}
+
+function businessTripStatusColor(status: HrBusinessTripStatus) {
+  return status === "Approved" ? "green" : status === "Rejected" ? "red" : status === "Cancelled" ? "default" : "orange";
+}
+
+function attendanceReminderTypeLabel(type: HrAttendanceReminderType) {
+  return type === "PendingApproval" ? "Pending approval / 待审批" : type === "UpcomingOutstation" ? "Upcoming outstation / 即将外勤" : "Missing Check Out / 未放工打卡";
+}
+
+function businessTripFromValues(values: Record<string, unknown>, fallbackStaffUserId: string): HrBusinessTrip {
+  return {
+    id: "",
+    staffUserId: String(values.staffUserId || fallbackStaffUserId),
+    status: "Pending",
+    startDate: String(values.startDate || ""),
+    endDate: String(values.endDate || ""),
+    location: String(values.location || "").trim(),
+    purpose: String(values.purpose || "").trim(),
+    isUrgentException: Boolean(values.isUrgentException),
+    requestedAt: new Date().toISOString()
+  };
 }
 
 function payslipStatusLabel(status: HrPayslip["status"]) {
