@@ -727,6 +727,29 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Hr_attendance_qr_validation_requires_a_token_and_valid_action()
+    {
+        var result = HrRules.ValidateAttendanceQrRedemption(new HrAttendanceQrRedemptionRequest("", (HrAttendanceAction)99));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "attendance_qr_token_required");
+        Assert.Contains(result.Errors, error => error.Code == "attendance_qr_action_invalid");
+    }
+
+    [Fact]
+    public void Hr_attendance_qr_hash_is_deterministic_without_exposing_the_token()
+    {
+        const string token = "test-office-token";
+
+        var first = HrRules.HashAttendanceQrToken(token);
+        var second = HrRules.HashAttendanceQrToken(token);
+
+        Assert.Equal(first, second);
+        Assert.NotEqual(token, first);
+        Assert.DoesNotContain("/", first);
+    }
+
+    [Fact]
     public void Hr_leave_decision_rejects_already_decided_request()
     {
         var existing = new HrLeaveRequest

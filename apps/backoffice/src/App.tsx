@@ -75,6 +75,8 @@ import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import {
   checkInHrAttendance,
   checkOutHrAttendance,
+  createHrAttendanceQrChallenge,
+  createHrBusinessTrip,
   acceptCashHandover,
   approvePaymentManagementReview,
   approveRepair,
@@ -116,6 +118,12 @@ import {
   getDeliveryReleaseReadiness,
   getDeliveries,
   getHrAttendance,
+  getHrAttendanceDashboard,
+  getHrAvailabilityCalendar,
+  getHrAttendanceReminderPolicies,
+  getHrAttendanceReminders,
+  updateHrAttendanceReminderPolicy,
+  getHrBusinessTrips,
   getHrLeaveAdjustments,
   getHrLeaveBalances,
   getHrLeavePolicies,
@@ -143,6 +151,11 @@ import {
   humanizeApiError,
   login,
   logout,
+  cancelHrBusinessTrip,
+  decideHrBusinessTrip,
+  endHrOutstation,
+  startHrOutstation,
+  redeemHrAttendanceQr,
   resetStaffUserPassword,
   recordCashHandover,
   rejectCashHandover,
@@ -192,6 +205,12 @@ import {
   type DeliveryReleaseReadiness,
   type DocumentCategory,
   type HrAttendanceRecord,
+  type HrAttendanceDashboardSummary,
+  type HrAvailabilityCalendarItem,
+  type HrAttendanceReminderItem,
+  type HrAttendanceReminderPolicy,
+  type HrAttendanceQrChallenge,
+  type HrBusinessTrip,
   type HrLeaveAdjustment,
   type HrLeaveBalance,
   type HrLeavePolicy,
@@ -418,6 +437,13 @@ export default function App() {
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
   const [hrStaffUsers, setHrStaffUsers] = useState<StaffUser[]>([]);
   const [hrAttendance, setHrAttendance] = useState<HrAttendanceRecord[]>([]);
+  const [hrAttendanceDashboard, setHrAttendanceDashboard] = useState<HrAttendanceDashboardSummary | null>(null);
+  const [hrAvailabilityCalendar, setHrAvailabilityCalendar] = useState<HrAvailabilityCalendarItem[]>([]);
+  const [hrAttendanceReminders, setHrAttendanceReminders] = useState<HrAttendanceReminderItem[]>([]);
+  const [hrAttendanceReminderPolicies, setHrAttendanceReminderPolicies] = useState<HrAttendanceReminderPolicy[]>([]);
+  const [hrBusinessTrips, setHrBusinessTrips] = useState<HrBusinessTrip[]>([]);
+  const [hrAttendanceQrChallenge, setHrAttendanceQrChallenge] = useState<HrAttendanceQrChallenge | null>(null);
+  const [attendanceQrToken, setAttendanceQrToken] = useState<string | undefined>(() => new URLSearchParams(window.location.hash.slice(1)).get("attendanceQr") ?? undefined);
   const [hrLeaveRequests, setHrLeaveRequests] = useState<HrLeaveRequest[]>([]);
   const [hrLeaveBalances, setHrLeaveBalances] = useState<HrLeaveBalance[]>([]);
   const [hrLeavePolicies, setHrLeavePolicies] = useState<HrLeavePolicy[]>([]);
@@ -462,6 +488,11 @@ export default function App() {
       staffUserData,
       hrStaffUserData,
       hrAttendanceData,
+      hrAttendanceDashboardData,
+      hrAvailabilityCalendarData,
+      hrAttendanceReminderData,
+      hrAttendanceReminderPolicyData,
+      hrBusinessTripData,
       hrLeaveRequestData,
       hrLeaveBalanceData,
       hrLeavePolicyData,
@@ -494,6 +525,11 @@ export default function App() {
       canLoad("staffUsers") ? getStaffUsers() : Promise.resolve([]),
       canLoad("hrStaffUsers") ? getHrStaffUsers() : Promise.resolve([]),
       canLoad("hrAttendance") ? getHrAttendance() : Promise.resolve([]),
+      canLoad("hrDashboard") ? getHrAttendanceDashboard() : Promise.resolve(null as HrAttendanceDashboardSummary | null),
+      canLoad("hrAvailabilityCalendar") ? getHrAvailabilityCalendar() : Promise.resolve([]),
+      canLoad("hrReminders") ? getHrAttendanceReminders() : Promise.resolve([]),
+      canLoad("hrReminderPolicies") ? getHrAttendanceReminderPolicies() : Promise.resolve([]),
+      canLoad("hrBusinessTrips") ? getHrBusinessTrips() : Promise.resolve([]),
       canLoad("hrLeaveRequests") ? getHrLeaveRequests() : Promise.resolve([]),
       canLoad("hrLeaveBalances") ? getHrLeaveBalances() : Promise.resolve([]),
       canLoad("hrLeavePolicies") ? getHrLeavePolicies() : Promise.resolve([]),
@@ -529,6 +565,11 @@ export default function App() {
     setStaffUsers(staffUserData);
     setHrStaffUsers(hrStaffUserData);
     setHrAttendance(hrAttendanceData);
+    setHrAttendanceDashboard(hrAttendanceDashboardData);
+    setHrAvailabilityCalendar(hrAvailabilityCalendarData);
+    setHrAttendanceReminders(hrAttendanceReminderData);
+    setHrAttendanceReminderPolicies(hrAttendanceReminderPolicyData);
+    setHrBusinessTrips(hrBusinessTripData);
     setHrLeaveRequests(hrLeaveRequestData);
     setHrLeaveBalances(hrLeaveBalanceData);
     setHrLeavePolicies(hrLeavePolicyData);
@@ -584,6 +625,12 @@ export default function App() {
     syncPathFromBrowser();
     window.addEventListener("popstate", syncPathFromBrowser);
     return () => window.removeEventListener("popstate", syncPathFromBrowser);
+  }, []);
+
+  useEffect(() => {
+    const syncAttendanceQrToken = () => setAttendanceQrToken(new URLSearchParams(window.location.hash.slice(1)).get("attendanceQr") ?? undefined);
+    window.addEventListener("hashchange", syncAttendanceQrToken);
+    return () => window.removeEventListener("hashchange", syncAttendanceQrToken);
   }, []);
 
   const route = useMemo(() => ({
@@ -992,6 +1039,10 @@ export default function App() {
               currentUser={currentUser}
               staffUsers={hrStaffUsers}
               attendance={hrAttendance}
+              attendanceDashboard={hrAttendanceDashboard}
+              availabilityCalendar={hrAvailabilityCalendar}
+              attendanceReminders={hrAttendanceReminders}
+              attendanceReminderPolicies={hrAttendanceReminderPolicies}
               leaveRequests={hrLeaveRequests}
               leaveBalances={hrLeaveBalances}
               leavePolicies={hrLeavePolicies}
@@ -999,8 +1050,23 @@ export default function App() {
               payrollProfiles={hrPayrollProfiles}
               payPeriods={hrPayPeriods}
               payslips={hrPayslips}
+              attendanceQrChallenge={hrAttendanceQrChallenge}
+              attendanceQrToken={attendanceQrToken}
+              businessTrips={hrBusinessTrips}
+              onClearAttendanceQrToken={() => {
+                setAttendanceQrToken(undefined);
+                window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+              }}
               onCheckIn={() => runUpdate(() => checkInHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked in")}
               onCheckOut={() => runUpdate(() => checkOutHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked out")}
+              onCreateQrChallenge={() => runCreate(createHrAttendanceQrChallenge, setHrAttendanceQrChallenge, "Office QR created")}
+              onRedeemQr={(requestBody) => runUpdate(() => redeemHrAttendanceQr(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), requestBody.action === "CheckIn" ? "Attendance checked in by QR" : "Attendance checked out by QR")}
+              onCreateBusinessTrip={(trip) => runCreate(() => createHrBusinessTrip(trip), (record) => setHrBusinessTrips((items) => [record, ...items]), "Outstation request submitted")}
+              onDecideBusinessTrip={(tripId, status, decisionNotes) => runUpdate(() => decideHrBusinessTrip(tripId, status, decisionNotes), (record) => setHrBusinessTrips((items) => replaceById(items, record)), status === "Approved" ? "Outstation request approved" : "Outstation request rejected")}
+              onCancelBusinessTrip={(tripId) => runUpdate(() => cancelHrBusinessTrip(tripId), (record) => setHrBusinessTrips((items) => replaceById(items, record)), "Outstation request cancelled")}
+              onStartOutstation={(requestBody) => runUpdate(() => startHrOutstation(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Outstation duty started")}
+              onEndOutstation={(requestBody) => runUpdate(() => endHrOutstation(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Outstation duty ended")}
+              onUpdateReminderPolicy={(type, policy) => runUpdate(() => updateHrAttendanceReminderPolicy(type, policy), (record) => setHrAttendanceReminderPolicies((items) => replaceById(items, record)), "Attendance reminder updated")}
               onCreateLeave={(leave) => runCreate(() => createHrLeaveRequest(leave), (record) => setHrLeaveRequests((items) => [record, ...items]), "Leave request submitted")}
               onDecideLeave={(leaveId, status, decisionNotes) => runUpdate(() => decideHrLeaveRequest(leaveId, status, decisionNotes), (record) => setHrLeaveRequests((items) => replaceById(items, record)), status === "Approved" ? "Leave approved" : "Leave rejected")}
               onUploadMc={async (leaveId, file) => {
@@ -4962,6 +5028,11 @@ function dataKeyLabel(key: BackOfficeDataKey) {
     staffUsers: "Staff users",
     hrStaffUsers: "HR staff users",
     hrAttendance: "HR attendance",
+    hrDashboard: "HR attendance dashboard",
+    hrAvailabilityCalendar: "HR shared availability calendar",
+    hrReminders: "HR attendance reminders",
+    hrReminderPolicies: "HR reminder settings",
+    hrBusinessTrips: "HR business trips and outstation duty",
     hrLeaveRequests: "HR leave requests",
     hrLeaveBalances: "HR leave balances",
     hrLeavePolicies: "HR leave policies",

@@ -10,6 +10,9 @@ export type DebtRecoveryStatus = "Open" | "FollowedUp" | "Closed";
 export type RepairApprovalStatus = "Pending" | "Approved" | "Rejected";
 export type SupplierInvoiceAgingStatus = "Unmatched" | "DueSoon" | "Overdue" | "Paid";
 export type HrAttendanceStatus = "Present" | "Late" | "HalfDay" | "Absent";
+export type HrAttendanceVerificationMethod = "Manual" | "OfficeQr" | "Outstation" | "ManualException";
+export type HrAttendanceAction = "CheckIn" | "CheckOut";
+export type HrBusinessTripStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "UnpaidLeave";
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated";
@@ -502,8 +505,64 @@ export type HrAttendanceRecord = {
   checkInAt?: string;
   checkOutAt?: string;
   status: HrAttendanceStatus;
+  verificationMethod: HrAttendanceVerificationMethod;
   notes?: string;
 };
+
+export type HrAttendanceQrChallenge = {
+  id: string;
+  token: string;
+  expiresAt: string;
+};
+
+export type HrAttendanceQrRedemptionRequest = {
+  token: string;
+  action: HrAttendanceAction;
+};
+
+export type HrBusinessTrip = {
+  id: string;
+  staffUserId: string;
+  status: HrBusinessTripStatus;
+  startDate: string;
+  endDate: string;
+  location: string;
+  purpose: string;
+  isUrgentException: boolean;
+  requestedAt: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  decisionNotes?: string;
+};
+
+export type HrOutstationAttendanceRequest = { businessTripId: string };
+
+export type HrAttendanceDashboardSummary = {
+  checkedInToday: number;
+  checkedOutToday: number;
+  openSessionsToday: number;
+  officeQrSessionsToday: number;
+  manualSessionsToday: number;
+  outstationSessionsToday: number;
+  pendingBusinessTripRequests: number;
+  activeOutstationToday: number;
+  upcomingApprovedTrips: number;
+};
+
+export type HrAvailabilityCalendarItem = {
+  staffUserId: string;
+  staffDisplayName: string;
+  startDate: string;
+  endDate: string;
+  kind: "Leave" | "Outstation";
+  status: "Busy";
+  location?: string;
+  purpose?: string;
+};
+
+export type HrAttendanceReminderType = "PendingApproval" | "UpcomingOutstation" | "MissingCheckOut";
+export type HrAttendanceReminderPolicy = { id: string; type: HrAttendanceReminderType; isEnabled: boolean; leadHours: number; updatedBy: string; updatedAt: string };
+export type HrAttendanceReminderItem = { type: HrAttendanceReminderType; staffUserId: string; message: string; dueDate: string };
 
 export type HrLeaveRequest = {
   id: string;
@@ -1000,6 +1059,71 @@ export async function checkInHrAttendance(): Promise<HrAttendanceRecord> {
 
 export async function checkOutHrAttendance(): Promise<HrAttendanceRecord> {
   return requestWithNetworkFallback("/api/hr/attendance/check-out", { method: "POST" }, fallbackHrCheckOutAttendance());
+}
+
+export async function getHrAttendanceDashboard(): Promise<HrAttendanceDashboardSummary> {
+  return getWithNetworkFallback("/api/hr/dashboard", {
+    checkedInToday: 0,
+    checkedOutToday: 0,
+    openSessionsToday: 0,
+    officeQrSessionsToday: 0,
+    manualSessionsToday: 0,
+    outstationSessionsToday: 0,
+    pendingBusinessTripRequests: 0,
+    activeOutstationToday: 0,
+    upcomingApprovedTrips: 0
+  });
+}
+
+export async function getHrAvailabilityCalendar(): Promise<HrAvailabilityCalendarItem[]> {
+  return getWithNetworkFallback("/api/hr/availability-calendar", []);
+}
+
+export async function getHrAttendanceReminderPolicies(): Promise<HrAttendanceReminderPolicy[]> {
+  return getWithNetworkFallback("/api/hr/reminder-policies", []);
+}
+
+export async function updateHrAttendanceReminderPolicy(type: HrAttendanceReminderType, policy: Pick<HrAttendanceReminderPolicy, "isEnabled" | "leadHours">): Promise<HrAttendanceReminderPolicy> {
+  return request<HrAttendanceReminderPolicy>(`/api/hr/reminder-policies/${type}`, { method: "PUT", body: JSON.stringify(policy) });
+}
+
+export async function getHrAttendanceReminders(): Promise<HrAttendanceReminderItem[]> {
+  return getWithNetworkFallback("/api/hr/reminders", []);
+}
+
+export async function createHrAttendanceQrChallenge(): Promise<HrAttendanceQrChallenge> {
+  return request<HrAttendanceQrChallenge>("/api/hr/attendance/qr/challenges", { method: "POST" });
+}
+
+export async function redeemHrAttendanceQr(requestBody: HrAttendanceQrRedemptionRequest): Promise<HrAttendanceRecord> {
+  return request<HrAttendanceRecord>("/api/hr/attendance/qr/redeem", {
+    method: "POST",
+    body: JSON.stringify(requestBody)
+  });
+}
+
+export async function getHrBusinessTrips(): Promise<HrBusinessTrip[]> {
+  return getWithNetworkFallback("/api/hr/business-trips", []);
+}
+
+export async function createHrBusinessTrip(trip: HrBusinessTrip): Promise<HrBusinessTrip> {
+  return request<HrBusinessTrip>("/api/hr/business-trips", { method: "POST", body: JSON.stringify(trip) });
+}
+
+export async function decideHrBusinessTrip(tripId: string, status: Exclude<HrBusinessTripStatus, "Pending" | "Cancelled">, decisionNotes?: string): Promise<HrBusinessTrip> {
+  return request<HrBusinessTrip>(`/api/hr/business-trips/${tripId}/decision`, { method: "PUT", body: JSON.stringify({ status, decisionNotes }) });
+}
+
+export async function cancelHrBusinessTrip(tripId: string): Promise<HrBusinessTrip> {
+  return request<HrBusinessTrip>(`/api/hr/business-trips/${tripId}/cancel`, { method: "POST" });
+}
+
+export async function startHrOutstation(requestBody: HrOutstationAttendanceRequest): Promise<HrAttendanceRecord> {
+  return request<HrAttendanceRecord>("/api/hr/attendance/outstation/start", { method: "POST", body: JSON.stringify(requestBody) });
+}
+
+export async function endHrOutstation(requestBody: HrOutstationAttendanceRequest): Promise<HrAttendanceRecord> {
+  return request<HrAttendanceRecord>("/api/hr/attendance/outstation/end", { method: "POST", body: JSON.stringify(requestBody) });
 }
 
 export async function updateHrAttendance(attendance: HrAttendanceRecord): Promise<HrAttendanceRecord> {
@@ -1889,6 +2013,7 @@ function fallbackHrAttendance(): HrAttendanceRecord[] {
       checkInAt: "2026-06-06T01:03:00Z",
       checkOutAt: "2026-06-06T10:16:00Z",
       status: "Present",
+      verificationMethod: "Manual",
       notes: "Showroom duty"
     },
     {
@@ -1897,6 +2022,7 @@ function fallbackHrAttendance(): HrAttendanceRecord[] {
       attendanceDate: "2026-06-06",
       checkInAt: "2026-06-06T01:28:00Z",
       status: "Late",
+      verificationMethod: "Manual",
       notes: "JPJ runner queue"
     },
     {
@@ -1906,6 +2032,7 @@ function fallbackHrAttendance(): HrAttendanceRecord[] {
       checkInAt: "2026-06-05T00:55:00Z",
       checkOutAt: "2026-06-05T09:42:00Z",
       status: "Present",
+      verificationMethod: "Manual",
       notes: "Payroll review completed"
     }
   ];
@@ -1924,6 +2051,7 @@ function fallbackHrCheckInAttendance(): HrAttendanceRecord {
     attendanceDate: clock.today,
     checkInAt: clock.now,
     status: "Present",
+    verificationMethod: "Manual",
     notes: "Demo check-in"
   };
 }
@@ -1937,6 +2065,7 @@ function fallbackHrCheckOutAttendance(): HrAttendanceRecord {
     checkInAt: clock.now,
     checkOutAt: clock.now,
     status: "Present",
+    verificationMethod: "Manual",
     notes: "Demo check-out"
   };
 }

@@ -254,7 +254,20 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `GET` | `/api/hr/attendance` | List attendance records scoped to the current staff user, or all staff for HR/Admin. |
 | `POST` | `/api/hr/attendance/check-in` | Create or update today's check-in for the current staff user. |
 | `POST` | `/api/hr/attendance/check-out` | Create or update today's check-out for the current staff user. |
+| `GET` | `/api/hr/dashboard` | Role-scoped attendance counts for today's QR, manual, open-session, and outstation activity plus pending/upcoming trip counts. |
+| `GET` | `/api/hr/availability-calendar` | Role-scoped approved leave and outstation availability; other staff details are reduced to busy status. |
+| `GET` | `/api/hr/reminder-policies` | Read attendance reminder switches and lead-hour settings. |
+| `PUT` | `/api/hr/reminder-policies/{type}` | HR/Admin update an attendance reminder policy. |
+| `GET` | `/api/hr/reminders` | Role-scoped active reminders for pending approvals, upcoming outstation duty, and missing check-out. |
+| `POST` | `/api/hr/attendance/qr/challenges` | HR/Admin create a five-minute rotating office QR challenge; the raw token is returned only for display and only its hash is stored. |
+| `POST` | `/api/hr/attendance/qr/redeem` | Authenticated staff redeem the office QR for one Check In or Check Out action; each staff member can use a challenge once per action. |
+| `POST` | `/api/hr/attendance/outstation/start` | Start attendance against an approved business trip covering today. |
+| `POST` | `/api/hr/attendance/outstation/end` | End attendance against an approved business trip covering today. |
 | `PUT` | `/api/hr/attendance/{id}` | HR/Admin update attendance status or notes. |
+| `GET` | `/api/hr/business-trips` | List business trip and urgent outstation requests scoped to self, or all staff for HR/Admin. |
+| `POST` | `/api/hr/business-trips` | Submit a business trip or urgent outstation exception request; it remains pending until HR/Admin approval. |
+| `PUT` | `/api/hr/business-trips/{id}/decision` | HR/Admin approve or reject a pending business trip request. Approved trips do not consume leave balance. |
+| `POST` | `/api/hr/business-trips/{id}/cancel` | Staff cancel their own pending/approved request, or HR/Admin cancel any request. |
 | `GET` | `/api/hr/leave-requests` | List leave and MC requests scoped to the current staff user, or all staff for HR/Admin. |
 | `POST` | `/api/hr/leave-requests` | Submit a leave request. |
 | `PUT` | `/api/hr/leave-requests/{id}/decision` | HR/Admin approve or reject a leave request. |

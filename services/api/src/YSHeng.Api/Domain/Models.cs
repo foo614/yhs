@@ -12,8 +12,12 @@ public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
 public enum RepairApprovalStatus { Pending, Approved, Rejected }
 public enum SupplierInvoiceAgingStatus { Unmatched, DueSoon, Overdue, Paid }
 public enum HrAttendanceStatus { Present, Late, HalfDay, Absent }
+public enum HrAttendanceVerificationMethod { Manual, OfficeQr, Outstation, ManualException }
+public enum HrAttendanceAction { CheckIn, CheckOut }
 public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave }
 public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
+public enum HrBusinessTripStatus { Pending, Approved, Rejected, Cancelled }
+public enum HrAttendanceReminderType { PendingApproval, UpcomingOutstation, MissingCheckOut }
 public enum HrPayslipStatus { Draft, Generated }
 public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
@@ -364,7 +368,52 @@ public sealed record HrAttendanceRecord
     public DateTime? CheckInAt { get; init; }
     public DateTime? CheckOutAt { get; init; }
     public HrAttendanceStatus Status { get; init; } = HrAttendanceStatus.Present;
+    public HrAttendanceVerificationMethod VerificationMethod { get; init; } = HrAttendanceVerificationMethod.Manual;
     public string? Notes { get; init; }
+}
+
+public sealed record HrAttendanceQrChallenge
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string TokenHash { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public DateTime ExpiresAt { get; init; }
+    public string CreatedBy { get; init; } = "";
+}
+
+public sealed record HrAttendanceQrRedemption
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid ChallengeId { get; init; }
+    public string StaffUserId { get; init; } = "";
+    public HrAttendanceAction Action { get; init; }
+    public DateTime RedeemedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrBusinessTrip
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public HrBusinessTripStatus Status { get; init; } = HrBusinessTripStatus.Pending;
+    public DateOnly StartDate { get; init; }
+    public DateOnly EndDate { get; init; }
+    public string Location { get; init; } = "";
+    public string Purpose { get; init; } = "";
+    public bool IsUrgentException { get; init; }
+    public DateTime RequestedAt { get; init; } = DateTime.UtcNow;
+    public string? ApprovedBy { get; init; }
+    public DateTime? ApprovedAt { get; init; }
+    public string? DecisionNotes { get; init; }
+}
+
+public sealed record HrAttendanceReminderPolicy
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public HrAttendanceReminderType Type { get; init; }
+    public bool IsEnabled { get; init; } = true;
+    public int LeadHours { get; init; } = 24;
+    public string UpdatedBy { get; init; } = "";
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record HrLeaveRequest

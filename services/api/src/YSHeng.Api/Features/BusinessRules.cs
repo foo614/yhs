@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using YSHeng.Api.Domain;
 using SkiaSharp;
@@ -9,6 +11,31 @@ namespace YSHeng.Api.Features;
 public sealed record LeadRequest(Guid VehicleId, string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
 public sealed record ContactEnquiryRequest(string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
 public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
+public sealed record HrAttendanceQrChallengeResponse(Guid Id, string Token, DateTime ExpiresAt);
+public sealed record HrAttendanceQrRedemptionRequest(string Token, HrAttendanceAction Action);
+public sealed record HrBusinessTripDecisionRequest(HrBusinessTripStatus Status, string? DecisionNotes = null);
+public sealed record HrOutstationAttendanceRequest(Guid BusinessTripId);
+public sealed record HrAttendanceDashboardSummary(
+    int CheckedInToday,
+    int CheckedOutToday,
+    int OpenSessionsToday,
+    int OfficeQrSessionsToday,
+    int ManualSessionsToday,
+    int OutstationSessionsToday,
+    int PendingBusinessTripRequests,
+    int ActiveOutstationToday,
+    int UpcomingApprovedTrips);
+public sealed record HrAvailabilityCalendarItem(
+    string StaffUserId,
+    string StaffDisplayName,
+    DateOnly StartDate,
+    DateOnly EndDate,
+    string Kind,
+    string Status,
+    string? Location,
+    string? Purpose);
+public sealed record HrAttendanceReminderPolicyRequest(bool IsEnabled, int LeadHours);
+public sealed record HrAttendanceReminderItem(HrAttendanceReminderType Type, string StaffUserId, string Message, DateOnly DueDate);
 public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice);
 public sealed record PublicVehicleDetailResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice, string? DescriptionMarkdown);
 public sealed record PublicVehicleCatalogModelResponse(string Make, string Model);
@@ -693,6 +720,48 @@ public static class StaffUserRules
 
 public static class HrRules
 {
+    public static ValidationResult ValidateAttendanceReminderPolicy(HrAttendanceReminderPolicyRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (request.LeadHours < 0 || request.LeadHours > 720) errors.Add(new ValidationError("attendance_reminder_lead_hours_invalid", "Reminder lead hours must be between 0 and 720."));
+        return new ValidationResult(errors);
+    }
+    public static ValidationResult ValidateBusinessTrip(HrBusinessTrip trip)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(trip.StaffUserId)) errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
+        if (trip.EndDate < trip.StartDate) errors.Add(new ValidationError("business_trip_date_range_invalid", "Business trip end date cannot be before start date."));
+        if (string.IsNullOrWhiteSpace(trip.Location)) errors.Add(new ValidationError("business_trip_location_required", "Business trip location is required."));
+        if (string.IsNullOrWhiteSpace(trip.Purpose)) errors.Add(new ValidationError("business_trip_purpose_required", "Business trip purpose is required."));
+        return new ValidationResult(errors);
+    }
+
+    public static bool BusinessTripCoversDate(HrBusinessTrip trip, DateOnly date) => trip.Status == HrBusinessTripStatus.Approved && trip.StartDate <= date && trip.EndDate >= date;
+
+    public static bool DatesOverlap(DateOnly firstStart, DateOnly firstEnd, DateOnly secondStart, DateOnly secondEnd) => firstStart <= secondEnd && secondStart <= firstEnd;
+
+    public static string CreateAttendanceQrToken() => Base64Url(RandomNumberGenerator.GetBytes(32));
+
+    public static string HashAttendanceQrToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+
+    private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    public static ValidationResult ValidateAttendanceQrRedemption(HrAttendanceQrRedemptionRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(request.Token))
+        {
+            errors.Add(new ValidationError("attendance_qr_token_required", "Attendance QR token is required."));
+        }
+
+        if (!Enum.IsDefined(request.Action))
+        {
+            errors.Add(new ValidationError("attendance_qr_action_invalid", "Attendance QR action is invalid."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
     public static ValidationResult ValidateCheckIn(HrAttendanceRecord? openSession)
     {
         var errors = new List<ValidationError>();

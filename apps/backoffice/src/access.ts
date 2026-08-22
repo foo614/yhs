@@ -26,6 +26,11 @@ export type BackOfficeDataKey =
   | "staffUsers"
   | "hrStaffUsers"
   | "hrAttendance"
+  | "hrDashboard"
+  | "hrAvailabilityCalendar"
+  | "hrReminders"
+  | "hrReminderPolicies"
+  | "hrBusinessTrips"
   | "hrLeaveRequests"
   | "hrLeaveBalances"
   | "hrLeavePolicies"
@@ -86,6 +91,11 @@ const allDataKeys: BackOfficeDataKey[] = [
   "staffUsers",
   "hrStaffUsers",
   "hrAttendance",
+  "hrDashboard",
+  "hrAvailabilityCalendar",
+  "hrReminders",
+  "hrReminderPolicies",
+  "hrBusinessTrips",
   "hrLeaveRequests",
   "hrLeaveBalances",
   "hrLeavePolicies",
@@ -97,6 +107,11 @@ const allDataKeys: BackOfficeDataKey[] = [
 
 const hrSelfServiceDataKeys: BackOfficeDataKey[] = [
   "hrAttendance",
+  "hrDashboard",
+  "hrAvailabilityCalendar",
+  "hrReminders",
+  "hrReminderPolicies",
+  "hrBusinessTrips",
   "hrLeaveRequests",
   "hrLeaveBalances",
   "hrLeaveAdjustments",

@@ -222,6 +222,51 @@ public static class SeedData
                 "Notes" text NULL,
                 CONSTRAINT "PK_HrAttendanceRecords" PRIMARY KEY ("Id")
             );
+            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "VerificationMethod" integer NOT NULL DEFAULT 0;
+
+            CREATE TABLE IF NOT EXISTS "HrAttendanceQrChallenges" (
+                "Id" uuid NOT NULL,
+                "TokenHash" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "ExpiresAt" timestamp with time zone NOT NULL,
+                "CreatedBy" text NOT NULL,
+                CONSTRAINT "PK_HrAttendanceQrChallenges" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrAttendanceQrRedemptions" (
+                "Id" uuid NOT NULL,
+                "ChallengeId" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "Action" integer NOT NULL,
+                "RedeemedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrAttendanceQrRedemptions" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrBusinessTrips" (
+                "Id" uuid NOT NULL,
+                "StaffUserId" text NOT NULL,
+                "Status" integer NOT NULL,
+                "StartDate" date NOT NULL,
+                "EndDate" date NOT NULL,
+                "Location" text NOT NULL,
+                "Purpose" text NOT NULL,
+                "IsUrgentException" boolean NOT NULL,
+                "RequestedAt" timestamp with time zone NOT NULL,
+                "ApprovedBy" text NULL,
+                "ApprovedAt" timestamp with time zone NULL,
+                "DecisionNotes" text NULL,
+                CONSTRAINT "PK_HrBusinessTrips" PRIMARY KEY ("Id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "HrAttendanceReminderPolicies" (
+                "Id" uuid NOT NULL,
+                "Type" integer NOT NULL,
+                "IsEnabled" boolean NOT NULL,
+                "LeadHours" integer NOT NULL,
+                "UpdatedBy" text NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrAttendanceReminderPolicies" PRIMARY KEY ("Id")
+            );
 
             CREATE TABLE IF NOT EXISTS "HrLeaveRequests" (
                 "Id" uuid NOT NULL,
@@ -317,6 +362,10 @@ public static class SeedData
 
             DROP INDEX IF EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate";
             CREATE INDEX IF NOT EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate" ON "HrAttendanceRecords" ("StaffUserId", "AttendanceDate");
+            CREATE INDEX IF NOT EXISTS "IX_HrAttendanceQrChallenges_ExpiresAt" ON "HrAttendanceQrChallenges" ("ExpiresAt");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceQrRedemptions_ChallengeId_StaffUserId_Action" ON "HrAttendanceQrRedemptions" ("ChallengeId", "StaffUserId", "Action");
+            CREATE INDEX IF NOT EXISTS "IX_HrBusinessTrips_StaffUserId_StartDate_EndDate" ON "HrBusinessTrips" ("StaffUserId", "StartDate", "EndDate");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceReminderPolicies_Type" ON "HrAttendanceReminderPolicies" ("Type");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeaveBalances_StaffUserId" ON "HrLeaveBalances" ("StaffUserId");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeavePolicies_Role" ON "HrLeavePolicies" ("Role");
             CREATE INDEX IF NOT EXISTS "IX_HrLeaveAdjustments_StaffUserId_CreatedAt" ON "HrLeaveAdjustments" ("StaffUserId", "CreatedAt");
