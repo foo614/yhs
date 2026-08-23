@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
+import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tabs, Tag, Tooltip, Typography, message } from "antd";
+import { OperationsProTable as Table } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
@@ -588,25 +589,31 @@ export function FinancePage({
         ];
     }
   })();
+  const financeTabs = [
+    ...(canManageFinance ? [
+      { key: "payments", label: "Bank Collection / 收款Bank" },
+      { key: "settlements", label: "Settlement / 结算" },
+      { key: "commissions", label: "Broker Commission / 经纪佣金" },
+      { key: "debt", label: "Debt Recovery / 欠款追讨" },
+      { key: "vouchers", label: "Payment Voucher / 付款凭证" },
+      { key: "daily", label: "Daily Spend / 日常支出" }
+    ] : []),
+    { key: "cash-custody", label: "Cash Handover / Official Receipts" }
+  ];
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard>
-        <Tabs
-          activeKey={financeTab}
-          onChange={changeFinanceTab}
-          items={[
-            ...(canManageFinance ? [
-              { key: "payments", label: "Bank Collection / 收款Bank" },
-              { key: "settlements", label: "Settlement / 结算" },
-              { key: "commissions", label: "Broker Commission / 经纪佣金" },
-              { key: "debt", label: "Debt Recovery / 欠款追讨" },
-              { key: "vouchers", label: "Payment Voucher / 付款凭证" },
-              { key: "daily", label: "Daily Spend / 日常支出" }
-            ] : []),
-            { key: "cash-custody", label: "Cash Handover / Official Receipts" }
-          ]}
-        />
+        <div className="responsiveTabs">
+          <Select
+            aria-label="Choose finance section"
+            className="mobileTabSelect"
+            value={financeTab}
+            onChange={changeFinanceTab}
+            options={financeTabs.map((tab) => ({ value: tab.key, label: tab.label }))}
+          />
+          <Tabs activeKey={financeTab} onChange={changeFinanceTab} items={financeTabs} />
+        </div>
         <div className="financeSummaryStrip">
           {activeFinanceSummary.map((item) => (
             <span key={item.label}>

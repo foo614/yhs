@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Descriptions, Empty, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, Descriptions, Empty, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { OperationsProTable as Table } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
 import {
   officialReceiptContentUrl,

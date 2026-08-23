@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { UploadOutlined } from "@ant-design/icons";
-import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Radio, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
+import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Radio, Select, Space, Tag, Typography, Upload, message } from "antd";
+import { OperationsProTable as Table } from "./OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import {

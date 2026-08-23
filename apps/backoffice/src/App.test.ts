@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeLoanForVehicle, browserRouteUrl, customerIdFromRouteUrl, loanIdFromRouteUrl, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, attendanceQrTokenFromHash, browserRouteUrl, customerIdFromRouteUrl, loanIdFromRouteUrl, postLoginRouteForAttendanceQr, vehicleLoanCustomerId } from "./App";
 
 describe("browser route state", () => {
   it("retains Customer 360 query changes for Back and Forward navigation", () => {
@@ -17,6 +17,13 @@ describe("browser route state", () => {
   it("keeps a direct loan handoff target in the route", () => {
     expect(loanIdFromRouteUrl("/loans?loanId=loan-123")).toBe("loan-123");
     expect(loanIdFromRouteUrl("/loans")).toBeUndefined();
+  });
+
+  it("routes a scanned attendance QR to HR while retaining the usual role landing otherwise", () => {
+    expect(attendanceQrTokenFromHash("#attendanceQr=office-qr-token")).toBe("office-qr-token");
+    expect(attendanceQrTokenFromHash("#other=value")).toBeUndefined();
+    expect(postLoginRouteForAttendanceQr(["Sales"], true)).toBe("/hr-salary");
+    expect(postLoginRouteForAttendanceQr(["Sales"], false)).toBe("/vehicles");
   });
 
   it("uses the existing loan buyer before requiring a vehicle-level buyer", () => {

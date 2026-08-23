@@ -2,7 +2,8 @@
 import { ProCard } from "@ant-design/pro-components";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { OperationsProTable as Table } from "../shared/OperationsProTable";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -195,6 +196,7 @@ export function HrSalaryPage({
   const [businessTripForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
   const [qrRedeeming, setQrRedeeming] = useState(false);
+  const [qrRedeemError, setQrRedeemError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("attendance");
   const [recordFilters, setRecordFilters] = useState<Record<HrRecordListKey, HrRecordFilters>>(initialHrRecordFilters);
   const [recordPages, setRecordPages] = useState<Record<HrRecordListKey, number>>(initialHrRecordPages);
@@ -233,13 +235,8 @@ export function HrSalaryPage({
   }, []);
 
   useEffect(() => {
-    if (!attendanceQrToken || qrRedeeming) return;
-    setQrRedeeming(true);
-    void onRedeemQr({ token: attendanceQrToken, action: qrAction }).finally(() => {
-      onClearAttendanceQrToken();
-      setQrRedeeming(false);
-    });
-  }, [attendanceQrToken, onClearAttendanceQrToken, onRedeemQr, openSession, qrAction, qrRedeeming]);
+    setQrRedeemError(null);
+  }, [attendanceQrToken]);
 
   const updateRecordFilter = (list: HrRecordListKey, key: keyof HrRecordFilters, value?: string) => {
     setRecordFilters((current) => ({
@@ -258,6 +255,26 @@ export function HrSalaryPage({
   const changeTab = (tab: string) => {
     setActiveTab(tab);
     setRecordPages(initialHrRecordPages);
+  };
+
+  const confirmQrAttendance = async () => {
+    if (!attendanceQrToken || qrRedeeming) return;
+
+    setQrRedeeming(true);
+    setQrRedeemError(null);
+    try {
+      await onRedeemQr({ token: attendanceQrToken, action: qrAction });
+      onClearAttendanceQrToken();
+    } catch {
+      setQrRedeemError("The office QR could not be recorded. Scan the current office QR and try again, or use the manual attendance fallback if the QR is unavailable.");
+    } finally {
+      setQrRedeeming(false);
+    }
+  };
+
+  const openOfficeQrDisplay = () => {
+    changeTab("qr-display");
+    window.requestAnimationFrame(() => document.getElementById("hr-record-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
   const attendanceColumns: ColumnsType<HrAttendanceRecord> = [
@@ -575,6 +592,40 @@ export function HrSalaryPage({
         description="Attendance guide: Office staff — scan the office QR at both the start and end of the shift; use Manual Check In/Out only if QR is unavailable. Outstation staff follow their approved Business Trip / Outstation Duty flow on mobile. / 打卡说明：办公室员工——上班和放工都扫描办公室二维码，二维码不能用时才手动打卡；外勤员工按已批准的出差流程在手机上开始和结束打卡。"
       />
 
+      {attendanceQrToken && (
+        <Alert
+          className="attendanceQrPrompt"
+          type={qrRedeemError ? "warning" : "info"}
+          showIcon
+          message={qrRedeemError ? "Office QR needs attention / 办公室二维码需要处理" : "Office QR detected / 已识别办公室二维码"}
+          description={qrRedeemError ?? `Confirm QR ${qrAction === "CheckIn" ? "Check In / 上班" : "Check Out / 放工"}. Your attendance is only recorded after you confirm.`}
+          action={(
+            <Space wrap size={8}>
+              <Button type="primary" onClick={() => void confirmQrAttendance()} loading={qrRedeeming}>
+                Confirm {qrAction === "CheckIn" ? "Check In / 确认上班" : "Check Out / 确认放工"}
+              </Button>
+              <Button onClick={onClearAttendanceQrToken} disabled={qrRedeeming}>Dismiss / 取消</Button>
+            </Space>
+          )}
+        />
+      )}
+
+      {isHrManager && <ProCard
+        className="hrOfficeQrQuickAction"
+        title="Office Attendance QR / 办公室打卡二维码"
+        extra={<Button icon={<ReloadOutlined />} onClick={() => void onCreateQrChallenge()}>Generate 5-minute QR / 生成5分钟二维码</Button>}
+      >
+        <Space direction="vertical" size={8} className="fullWidth">
+          <Typography.Text type="secondary">
+            Keep the current QR on the office display. Employees confirm their Check In or Check Out after signing in; the scan alone does not create attendance.
+          </Typography.Text>
+          <Space wrap>
+            <Button type="primary" icon={<QrcodeOutlined />} onClick={openOfficeQrDisplay}>Open QR display / 打开二维码</Button>
+            {attendanceQrChallenge && <Tag color={qrSecondsRemaining > 0 ? "green" : "red"}>Expires in {Math.floor(qrSecondsRemaining / 60)}:{String(qrSecondsRemaining % 60).padStart(2, "0")}</Tag>}
+          </Space>
+        </Space>
+      </ProCard>}
+
       {attendanceDashboard && <ProCard title="Attendance Dashboard / 打卡概览">
         <Space wrap size={[28, 18]}>
           <Statistic title="Checked In / 已上班" value={attendanceDashboard.checkedInToday} />
@@ -669,15 +720,30 @@ export function HrSalaryPage({
             <Tooltip title="Use your phone camera to scan the rotating QR shown on the office screen.">
               <Button type="primary" icon={<QrcodeOutlined />} disabled={!canCheckInToday && !canCheckOutToday} onClick={() => window.alert("Use your phone camera to scan the QR shown on the office screen. / 请用手机相机扫描办公室屏幕上的二维码。")}>Scan Office QR / 扫码打卡</Button>
             </Tooltip>
+            {isHrManager && <Button onClick={openOfficeQrDisplay}>Office QR Display / 办公室二维码</Button>}
           </div>
-          {attendanceQrToken && <Alert type="info" showIcon message="Office QR detected / 已识别办公室二维码" description={`Recording QR ${qrAction === "CheckIn" ? "Check In / 上班" : "Check Out / 放工"} now. / 正在记录二维码${qrAction === "CheckIn" ? "上班" : "放工"}打卡。`} />}
         </Space>
       </ProCard>
 
-      <Tabs
-        activeKey={activeTab}
-        onChange={changeTab}
-        items={[
+      <div id="hr-record-tabs" className="responsiveTabs">
+        <Select
+          aria-label="Choose HR section"
+          className="mobileTabSelect"
+          value={activeTab}
+          onChange={changeTab}
+          options={[
+            { value: "attendance", label: "Attendance records / 打卡记录" },
+            ...(isHrManager ? [{ value: "qr-display", label: "Office QR display / 办公室二维码" }] : []),
+            { value: "availability", label: "Shared calendar / 共享日历" },
+            { value: "leave", label: "Leave and MC / 请假与病假" },
+            { value: "balances", label: "AL and MC control / 假期管理" },
+            { value: "payroll", label: "Pay slip / 薪资单" }
+          ]}
+        />
+        <Tabs
+          activeKey={activeTab}
+          onChange={changeTab}
+          items={[
           {
             key: "attendance",
             label: tabLabel("Attendance / 打卡记录", attendance.length),
@@ -922,8 +988,9 @@ export function HrSalaryPage({
               </Space>
             )
           }
-        ]}
-      />
+          ]}
+        />
+      </div>
     </Space>
   );
 }

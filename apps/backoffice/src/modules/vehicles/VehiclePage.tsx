@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
-import { ProCard } from "@ant-design/pro-components";
+import { ProCard, ProTable, type ProColumns } from "@ant-design/pro-components";
 import MDEditor from "@uiw/react-md-editor";
 import "@uiw/react-md-editor/markdown-editor.css";
-import { Alert, Badge, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, Badge, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { OperationsProTable as Table } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "../../contacts";
@@ -759,7 +760,7 @@ export function VehiclePage({
     }
   ];
 
-  const compactOperationIntakeColumns: ColumnsType<Vehicle> = [
+  const compactOperationIntakeColumns: ProColumns<Vehicle>[] = [
     {
       title: "Plate / 车牌",
       dataIndex: "plateNumber",
@@ -811,7 +812,7 @@ export function VehiclePage({
       width: 150,
       filters: ["Available", "LoanProcessing", "Sold"].map((value) => ({ text: value, value })),
       onFilter: (value, row) => row.status === value,
-      render: (status: Vehicle["status"]) => <Tag color={vehicleStatusColor[status]}>{status}</Tag>
+      render: (_, row) => <Tag color={vehicleStatusColor[row.status]}>{row.status}</Tag>
     },
     {
       title: "Ready / 准备",
@@ -1223,11 +1224,13 @@ export function VehiclePage({
             />
           )}
         </div>
-        <Table
-          className="desktopDataTable"
+        <ProTable<Vehicle>
+          className="desktopDataTable vehicleOperationProTable"
           rowKey="id"
           columns={compactOperationIntakeColumns}
           dataSource={filteredVehicles}
+          search={false}
+          options={false}
           pagination={{ ...tablePagination(8), current: clampedMobileVehiclePage, onChange: setMobileVehiclePage }}
           scroll={{ x: 1430 }}
           rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}

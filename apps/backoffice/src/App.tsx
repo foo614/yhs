@@ -35,7 +35,6 @@ import {
   Space,
   Spin,
   Steps,
-  Table as AntTable,
   Tabs,
   Tag,
   Tooltip,
@@ -45,7 +44,6 @@ import {
   notification
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import type { TableProps } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
 import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, filterDeliverySchedules, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent, type DeliveryFilters } from "./delivery";
@@ -68,6 +66,7 @@ import { dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardReminde
 import { FinancePage } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
+import { OperationsProTable as Table } from "./modules/shared/OperationsProTable";
 import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSettings";
 import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
@@ -360,6 +359,17 @@ export function browserRouteUrl(location: Pick<Location, "pathname" | "search">)
   return `${location.pathname}${location.search}`;
 }
 
+export function attendanceQrTokenFromHash(hash: string) {
+  const token = new URLSearchParams(hash.replace(/^#/, "")).get("attendanceQr")?.trim();
+  return token || undefined;
+}
+
+export function postLoginRouteForAttendanceQr(userRoles: string[] | undefined, hasAttendanceQrToken: boolean): AppRoutePath {
+  return hasAttendanceQrToken && canAccessRoute(userRoles, "/hr-salary")
+    ? "/hr-salary"
+    : firstAccessiblePath(userRoles);
+}
+
 export function customerIdFromRouteUrl(routeUrl: string) {
   const queryIndex = routeUrl.indexOf("?");
   return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("customerId") ?? undefined;
@@ -388,22 +398,6 @@ function tablePagination(pageSize = 8): TablePaginationConfig {
 }
 
 const mobileWorkflowPageSize = 8;
-
-function Table<RecordType extends object>({ columns, dataSource, pagination, ...props }: TableProps<RecordType>) {
-  const tableColumns = useMemo(
-    () => ensureColumnFilters(columns, dataSource),
-    [columns, dataSource]
-  );
-
-  return (
-    <AntTable
-      {...props}
-      columns={tableColumns}
-      dataSource={dataSource}
-      pagination={pagination ?? tablePagination()}
-    />
-  );
-}
 
 export default function App() {
   const [notificationApi, notificationContextHolder] = notification.useNotification();
@@ -443,7 +437,7 @@ export default function App() {
   const [hrAttendanceReminderPolicies, setHrAttendanceReminderPolicies] = useState<HrAttendanceReminderPolicy[]>([]);
   const [hrBusinessTrips, setHrBusinessTrips] = useState<HrBusinessTrip[]>([]);
   const [hrAttendanceQrChallenge, setHrAttendanceQrChallenge] = useState<HrAttendanceQrChallenge | null>(null);
-  const [attendanceQrToken, setAttendanceQrToken] = useState<string | undefined>(() => new URLSearchParams(window.location.hash.slice(1)).get("attendanceQr") ?? undefined);
+  const [attendanceQrToken, setAttendanceQrToken] = useState<string | undefined>(() => attendanceQrTokenFromHash(window.location.hash));
   const [hrLeaveRequests, setHrLeaveRequests] = useState<HrLeaveRequest[]>([]);
   const [hrLeaveBalances, setHrLeaveBalances] = useState<HrLeaveBalance[]>([]);
   const [hrLeavePolicies, setHrLeavePolicies] = useState<HrLeavePolicy[]>([]);
@@ -628,10 +622,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const syncAttendanceQrToken = () => setAttendanceQrToken(new URLSearchParams(window.location.hash.slice(1)).get("attendanceQr") ?? undefined);
+    const syncAttendanceQrToken = () => setAttendanceQrToken(attendanceQrTokenFromHash(window.location.hash));
     window.addEventListener("hashchange", syncAttendanceQrToken);
     return () => window.removeEventListener("hashchange", syncAttendanceQrToken);
   }, []);
+
+  useEffect(() => {
+    if (!currentUser?.isAuthenticated || !attendanceQrToken || !window.location.hash) return;
+    window.history.replaceState(null, "", browserRouteUrl(window.location));
+  }, [attendanceQrToken, currentUser?.isAuthenticated]);
 
   const route = useMemo(() => ({
     path: "/",
@@ -679,13 +678,13 @@ export default function App() {
     try {
       await login(values.email, values.password);
       const user = await getCurrentUser();
+      await loadBackOfficeData(user.roles);
       setCurrentUser(user);
       setLogoutSucceeded(false);
-      const nextPath = firstAccessiblePath(user.roles);
+      const nextPath = postLoginRouteForAttendanceQr(user.roles, Boolean(attendanceQrToken));
       setPathname(nextPath);
       setRouteUrl(nextPath);
       window.history.replaceState(null, "", nextPath);
-      await loadBackOfficeData(user.roles);
       notifySuccess("Login successful", `Signed in as ${user.name ?? values.email}`);
     } catch (error) {
       const messageText = humanizeApiError(error, "Please check your credentials and API connection.");
@@ -815,6 +814,7 @@ export default function App() {
           loginLoading={loginLoading}
           loginError={loginError}
           logoutSucceeded={logoutSucceeded}
+          attendanceQrPending={Boolean(attendanceQrToken)}
           onDismissLogoutResult={() => setLogoutSucceeded(false)}
         />
       </>
@@ -1123,12 +1123,14 @@ function LoginHome({
   loginLoading,
   loginError,
   logoutSucceeded,
+  attendanceQrPending,
   onDismissLogoutResult
 }: {
   onLogin: (values: { email: string; password: string }) => Promise<void>;
   loginLoading?: boolean;
   loginError?: string | null;
   logoutSucceeded?: boolean;
+  attendanceQrPending?: boolean;
   onDismissLogoutResult?: () => void;
 }) {
   return (
@@ -1150,6 +1152,15 @@ function LoginHome({
               <img className="loginPanelLogo" src="/ys-heng-logo.png" alt="YS Heng" />
               <Typography.Title level={2}>YS Heng Portal</Typography.Title>
             </div>
+            {attendanceQrPending && (
+              <Alert
+                className="attendanceQrLoginNotice"
+                type="info"
+                showIcon
+                message="Office QR detected / 已识别办公室二维码"
+                description="Sign in to confirm your QR Check In or Check Out. Your attendance is not recorded until you confirm it."
+              />
+            )}
             <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
               <Form.Item name="email" label="Work email" rules={[{ required: true, type: "email" }]}>
                 <Input prefix={<UserOutlined />} placeholder="admin@ysheng.local" autoComplete="email" />
@@ -3414,7 +3425,7 @@ function DeliveryPage({
               />
             )}
             {selectedDeliveryReadiness?.evidence.length ? (
-              <AntTable<DeliveryEvidenceItem>
+              <Table<DeliveryEvidenceItem>
                 size="small"
                 rowKey="category"
                 pagination={false}
@@ -4278,6 +4289,7 @@ function AdminPage({
   onUpdateStaffRoles: (userId: string, roles: StaffRole[]) => Promise<void>;
   onSearchAuditLog: (filters: AuditLogFilters) => Promise<void>;
 }) {
+  const [adminTab, setAdminTab] = useState("flow");
   const [editStaffUserId, setEditStaffUserId] = useState(staffUsers[0]?.id ?? "");
   const [staffEditorOpen, setStaffEditorOpen] = useState(false);
   const [passwordResetOpen, setPasswordResetOpen] = useState(false);
@@ -4405,10 +4417,27 @@ function AdminPage({
 
   return (
     <ProCard title={bilingual.settings}>
-      <Tabs
-        items={[
-          { key: "flow", label: "System Flow / 系统流程", children: <SystemFlowReference /> },
-          {
+      <div className="responsiveTabs">
+        <Select
+          aria-label="Choose settings section"
+          className="mobileTabSelect"
+          value={adminTab}
+          onChange={setAdminTab}
+          options={[
+            { value: "flow", label: "System flow / 系统流程" },
+            { value: "users", label: "Staff users / 员工账号" },
+            { value: "ai-usage", label: "AI usage / AI 使用量" },
+            { value: "vehicle-catalog", label: "Make and model / 品牌车型" },
+            { value: "roles", label: "RBAC listing / 角色权限" },
+            { value: "audit", label: "Audit log / 操作记录" }
+          ]}
+        />
+        <Tabs
+          activeKey={adminTab}
+          onChange={setAdminTab}
+          items={[
+            { key: "flow", label: "System Flow / 系统流程", children: <SystemFlowReference /> },
+            {
             key: "users",
             label: "Staff Users / 员工账号",
             children: (
@@ -4705,11 +4734,12 @@ function AdminPage({
               </Space>
             )
           },
-          { key: "vehicle-catalog", label: "Make & Model / 品牌车型", children: <VehicleCatalogSettings /> },
-          { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
-          { key: "audit", label: "Audit Log / 操作记录", children: <AuditLogRecords auditLog={auditLog} filters={auditLogFilters} onSearch={onSearchAuditLog} /> }
-        ]}
-      />
+            { key: "vehicle-catalog", label: "Make & Model / 品牌车型", children: <VehicleCatalogSettings /> },
+            { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
+            { key: "audit", label: "Audit Log / 操作记录", children: <AuditLogRecords auditLog={auditLog} filters={auditLogFilters} onSearch={onSearchAuditLog} /> }
+          ]}
+        />
+      </div>
     </ProCard>
   );
 }
@@ -5126,77 +5156,6 @@ function tableTextFilters(values: Array<string | undefined | null>) {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))))
     .sort((a, b) => a.localeCompare(b))
     .map((value) => ({ text: value, value }));
-}
-
-function ensureColumnFilters<RecordType extends object>(
-  columns: TableProps<RecordType>["columns"],
-  dataSource: TableProps<RecordType>["dataSource"]
-): TableProps<RecordType>["columns"] {
-  if (!columns || !Array.isArray(dataSource)) {
-    return columns;
-  }
-
-  return columns.map((column) => {
-    if ("children" in column && column.children) {
-      return {
-        ...column,
-        children: ensureColumnFilters(column.children, dataSource)
-      };
-    }
-
-    const filterableColumn = column as typeof column & {
-      dataIndex?: string | number | readonly (string | number)[];
-      filters?: unknown;
-      filterDropdown?: unknown;
-    };
-
-    if (!filterableColumn.dataIndex || filterableColumn.filters || filterableColumn.filterDropdown) {
-      return column;
-    }
-
-    const dataIndex = filterableColumn.dataIndex;
-    const leafKey = String(Array.isArray(dataIndex) ? dataIndex[dataIndex.length - 1] : dataIndex);
-    if (/(?:^id$|Id$|At$|Date$)/.test(leafKey)) {
-      return column;
-    }
-
-    const filterValues = dataSource
-      .flatMap((row) => tableFilterValues(row, dataIndex))
-      .filter((value) => value.length > 0);
-    const uniqueValues = Array.from(new Set(filterValues)).sort((a, b) => a.localeCompare(b));
-
-    if (uniqueValues.length === 0) {
-      return column;
-    }
-
-    return {
-      ...column,
-      filters: uniqueValues.map((value) => ({ text: value, value })),
-      filterSearch: column.filterSearch ?? uniqueValues.length > 8,
-      onFilter: column.onFilter ?? ((value, row) => tableFilterValues(row, dataIndex).includes(String(value)))
-    };
-  });
-}
-
-function tableFilterValues<RecordType extends object>(row: RecordType, dataIndex: string | number | readonly (string | number)[]) {
-  const keys = Array.isArray(dataIndex) ? dataIndex : [dataIndex];
-  const value = keys.reduce<unknown>((current, key) => {
-    if (current && typeof current === "object") {
-      return (current as Record<string, unknown>)[String(key)];
-    }
-
-    return undefined;
-  }, row);
-
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item));
-  }
-
-  if (value === undefined || value === null) {
-    return [];
-  }
-
-  return [String(value)];
 }
 
 function isDeliveryReady(delivery: DeliverySchedule) {

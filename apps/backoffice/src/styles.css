@@ -106,6 +106,10 @@ body {
   width: 100%;
 }
 
+.mobileTabSelect {
+  display: none;
+}
+
 .sessionLoading {
   min-height: 100vh;
   display: grid;
@@ -2710,7 +2714,7 @@ body {
   body,
   #root {
     max-width: 100%;
-    overflow-x: hidden;
+    min-width: 0;
   }
 
   body {
@@ -2801,7 +2805,13 @@ body {
 
   .ant-pro-layout .ant-layout-content,
   .ant-pro-layout .ant-pro-layout-content,
-  .ant-pro-layout .ant-pro-page-container {
+  .ant-pro-layout .ant-pro-page-container,
+  .ant-pro-layout,
+  .ant-pro-layout .ant-layout,
+  .ant-pro-page-container,
+  .ant-pro-page-container-children-container {
+    max-width: 100%;
+    min-width: 0;
     margin-left: 0 !important;
     margin-inline-start: 0 !important;
     padding-left: 0 !important;
@@ -2996,8 +3006,10 @@ body {
   }
 
   .mobileRecordCard {
+    max-width: 100%;
     min-width: 0;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     padding: 12px;
     border: 1px solid rgba(20, 72, 61, .12);
@@ -3008,7 +3020,8 @@ body {
 
   .mobileRecordHeader {
     min-width: 0;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 45%);
     align-items: flex-start;
     justify-content: space-between;
     gap: 10px;
@@ -3019,8 +3032,10 @@ body {
   }
 
   .mobileRecordHeader .ant-tag {
+    min-width: 0;
     max-width: 45%;
     margin-inline-end: 0;
+    overflow-wrap: anywhere;
     white-space: normal;
     text-align: right;
     line-height: 1.35;
@@ -3044,7 +3059,7 @@ body {
 
   .mobileRecordMeta {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
 
@@ -3104,6 +3119,7 @@ body {
   }
 
   .mobileRecordSection {
+    max-width: 100%;
     min-width: 0;
     display: grid;
     gap: 6px;
@@ -3148,6 +3164,7 @@ body {
   }
 
   .mobileRecordFooter {
+    max-width: 100%;
     min-width: 0;
     display: grid;
     gap: 8px;
@@ -3200,7 +3217,7 @@ body {
   }
 
   .ant-table-cell .ant-btn {
-    min-height: 34px;
+    min-height: 44px;
   }
 
   .vehicleMobileCard .mobileRecordMeta + .vehicleWorkflowGuide + .mobileRecordSection {
@@ -3212,7 +3229,9 @@ body {
   }
 
   .vehicleWorkflowGuide {
+    max-width: 100%;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 9px;
     padding: 12px;
     border: 1px solid #d9e8e1;
@@ -3221,7 +3240,8 @@ body {
   }
 
   .vehicleWorkflowTop {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 60%);
     gap: 8px;
     align-items: flex-start;
     justify-content: space-between;
@@ -3236,9 +3256,12 @@ body {
   }
 
   .vehicleWorkflowTop .ant-tag {
+    min-width: 0;
     max-width: 60%;
     margin-inline-end: 0;
+    overflow-wrap: anywhere;
     text-align: right;
+    white-space: normal;
   }
 
   .vehicleWorkflowGuide strong {
@@ -3618,7 +3641,14 @@ body {
   .formGrid .formActions .ant-btn {
     min-width: 0;
     max-width: 100%;
+    min-height: 44px;
     width: 100%;
+  }
+
+  .drawerForm .formActions .ant-btn,
+  .modalForm .formActions .ant-btn,
+  .leaveFormActions .ant-btn {
+    min-height: 44px;
   }
 
   .ant-drawer-content-wrapper {
@@ -3912,5 +3942,88 @@ body {
   .loginHome {
     grid-template-columns: minmax(0, 1fr);
     padding: 32px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .mobileTabSelect {
+    display: block;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+
+  .responsiveTabs > .ant-tabs > .ant-tabs-nav {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .moduleStats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .moduleStats span {
+    min-width: 0;
+  }
+
+  .dashboardPage,
+  .dashboardOverviewCard,
+  .dashboardPanel,
+  .dashboardFocusQueue,
+  .dashboardPanelHeader,
+  .dashboardInsightCard,
+  .metricCard {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .dashboardFocusQueue strong,
+  .dashboardPanelHeader strong,
+  .dashboardPanelHeader span,
+  .metricCard,
+  .metricCard strong {
+    overflow-wrap: anywhere;
+  }
+
+  .attendanceQrPrompt .ant-alert-action {
+    width: 100%;
+    margin: 10px 0 0;
+  }
+
+  .attendanceQrPrompt .ant-alert-action .ant-space {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .attendanceQrPrompt .ant-alert-action .ant-btn {
+    width: 100%;
+    min-height: 44px;
+    padding-inline: 8px;
+    white-space: normal;
+  }
+
+  .recordCreateModal .ant-btn-primary,
+  .ant-modal-footer .ant-btn,
+  .ant-pagination-item,
+  .ant-pagination-prev,
+  .ant-pagination-next,
+  .w-md-editor-toolbar button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .ant-pagination-item,
+  .ant-pagination-prev,
+  .ant-pagination-next {
+    line-height: 42px;
+  }
+
+  .ant-pagination-prev .ant-pagination-item-link,
+  .ant-pagination-next .ant-pagination-item-link {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
