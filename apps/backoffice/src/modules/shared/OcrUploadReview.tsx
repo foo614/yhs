@@ -3,6 +3,7 @@ import { UploadOutlined } from "@ant-design/icons";
 import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Radio, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
+import { formatMoneyInput, parseMoneyInput } from "../../money";
 import {
   getOcrJob,
   humanizeApiError,
@@ -259,7 +260,7 @@ export function OcrUploadReview({
             {fields.map((field) => (
               <Form.Item key={field.name} name={field.name} label={fieldLabel(field, job)}>
                 {field.type === "number" ? (
-                  <InputNumber className="fullWidth" min={0} />
+                  <InputNumber className="fullWidth" min={0} formatter={isMoneyField(field.name) ? formatMoneyInput : undefined} parser={isMoneyField(field.name) ? parseMoneyInput : undefined} />
                 ) : field.type === "select" ? (
                   <Select showSearch optionFilterProp="label" options={field.options ?? []} />
                 ) : (
@@ -300,6 +301,10 @@ export function OcrUploadReview({
       itemIndex === index ? { ...item, [field]: value === null ? undefined : String(value) } : item
     )));
   }
+}
+
+function isMoneyField(name: string) {
+  return /(amount|price|cost|commission|salary|charge|allowance|deduction)/i.test(name);
 }
 
 function valuesMatch(left: string | number, right: string | number) {

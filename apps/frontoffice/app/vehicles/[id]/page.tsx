@@ -9,6 +9,7 @@ import { structuredDataJson, vehicleMetadata, vehicleStructuredData } from "../.
 import { getPublicVehicle, getPublicVehicleDetailPageData } from "../service";
 import { VehiclePhoto } from "../VehiclePhoto";
 import { LeadForm } from "./LeadForm";
+import { formatThousands } from "../../formatters";
 import { LoanCalculator } from "../LoanCalculator";
 import { MarketingDescription } from "../MarketingDescription";
 import { VehicleGallery } from "./VehicleGallery";
@@ -120,7 +121,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
           <p className="detailLead">{leadText}</p>
           <div className="priceBox">
             <span>{t.sellingPrice}</span>
-            <strong>RM {vehicle.sellingPrice.toLocaleString()}</strong>
+            <strong>RM {formatThousands(vehicle.sellingPrice)}</strong>
           </div>
           <div className="detailStatGrid" aria-label="Vehicle summary">
             <span><CalendarDays size={17} /> {year}</span>
@@ -176,7 +177,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
             <div className="enquiryPriceRail" aria-label="Vehicle price summary">
               <span>
                 {enquiryCopy.priceLabel}
-                <strong>RM {vehicle.sellingPrice.toLocaleString()}</strong>
+                <strong>RM {formatThousands(vehicle.sellingPrice)}</strong>
               </span>
               <span>
                 {enquiryCopy.monthlyLabel}
@@ -217,7 +218,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
                     <strong>{compareTitle}</strong>
                     <span>{item.status === "Available" ? readyStockLabel : item.status}</span>
                   </span>
-                  <span className="compactComparePrice">RM {item.sellingPrice.toLocaleString()}</span>
+                  <span className="compactComparePrice">RM {formatThousands(item.sellingPrice)}</span>
                 </Link>
               );
             })}
