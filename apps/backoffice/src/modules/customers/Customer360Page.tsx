@@ -56,7 +56,7 @@ function displayValue(value?: string | number | null) {
 }
 
 function money(value: number) {
-  return `RM ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `RM ${new Intl.NumberFormat("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
 }
 
 function ProfileTable<RecordType extends object>({

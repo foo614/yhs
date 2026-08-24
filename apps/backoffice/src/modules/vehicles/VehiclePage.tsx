@@ -12,6 +12,7 @@ import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../.
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
+import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import {
   customerSelectLabel,
   getStockMovements,
@@ -594,7 +595,7 @@ export function VehiclePage({
         ? (
           <Space direction="vertical" size={0}>
             <span>{row.outstationPickupScheduledAt ? String(row.outstationPickupScheduledAt).replace("T", " ").slice(0, 16) : "No schedule"}</span>
-            <span>RM {(row.outstationPickupAllowance ?? 0).toLocaleString()} / {row.outstationPickupBookingSlip || "No slip"}</span>
+            <span>{formatMoney(row.outstationPickupAllowance ?? 0)} / {row.outstationPickupBookingSlip || "No slip"}</span>
           </Space>
         )
         : "-"
@@ -622,7 +623,7 @@ export function VehiclePage({
       onFilter: (value, row) => row.isPublic === value,
       render: (value) => <Badge status={value ? "success" : "default"} text={value ? "Visible" : "Hidden"} />
     },
-    { title: "Selling / 售价", dataIndex: "sellingPrice", sorter: (a, b) => a.sellingPrice - b.sellingPrice, render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Selling / 售价", dataIndex: "sellingPrice", sorter: (a, b) => a.sellingPrice - b.sellingPrice, render: (value) => formatMoney(value) },
     {
       title: "Action / 操作",
       fixed: "right",
@@ -684,20 +685,20 @@ export function VehiclePage({
       dataIndex: "purchasePrice",
       width: 130,
       sorter: (a, b) => a.purchasePrice - b.purchasePrice,
-      render: (value) => `RM ${Number(value ?? 0).toLocaleString()}`
+      render: (value) => formatMoney(Number(value ?? 0))
     },
     {
       title: "Selling / 售价",
       dataIndex: "sellingPrice",
       width: 130,
       sorter: (a, b) => a.sellingPrice - b.sellingPrice,
-      render: (value) => `RM ${Number(value ?? 0).toLocaleString()}`
+      render: (value) => formatMoney(Number(value ?? 0))
     },
     {
       title: "Est. Profit / 预估利润",
       width: 140,
       sorter: (a, b) => estimatedVehicleProfit(a) - estimatedVehicleProfit(b),
-      render: (_, row) => `RM ${estimatedVehicleProfit(row).toLocaleString()}`
+      render: (_, row) => formatMoney(estimatedVehicleProfit(row))
     },
     {
       title: "Invoice / 发票",
@@ -746,7 +747,7 @@ export function VehiclePage({
         ? (
           <Space direction="vertical" size={0}>
             <span>{row.outstationPickupScheduledAt ? String(row.outstationPickupScheduledAt).replace("T", " ").slice(0, 16) : "No schedule"}</span>
-            <span>RM {(row.outstationPickupAllowance ?? 0).toLocaleString()} / {row.outstationPickupBookingSlip || "No slip"}</span>
+            <span>{formatMoney(row.outstationPickupAllowance ?? 0)} / {row.outstationPickupBookingSlip || "No slip"}</span>
           </Space>
         )
         : "-"
@@ -1029,7 +1030,7 @@ export function VehiclePage({
   const purchaseInvoiceColumns: ColumnsType<PurchaseInvoice> = [
     { title: "Car Plate", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Invoice", dataIndex: "invoiceNumber" },
-    { title: "Amount", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Amount", dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectPurchaseInvoice(row.id)}>Details</Button></Space> }
   ];
   return (
@@ -1104,7 +1105,7 @@ export function VehiclePage({
                 </span>
                 <span>
                   <small>Profit</small>
-                  <strong>RM {selectedVehicleProfit.toLocaleString()}</strong>
+                  <strong>{formatMoney(selectedVehicleProfit)}</strong>
                 </span>
               </div>
               {selectedApprovalGaps.length > 0 ? (
@@ -1169,7 +1170,7 @@ export function VehiclePage({
                 </span>
                 <span>
                   <small>Selling / 售价</small>
-                  <strong>RM {vehicle.sellingPrice.toLocaleString()}</strong>
+                  <strong>{formatMoney(vehicle.sellingPrice)}</strong>
                 </span>
                 <span>
                   <small>Invoice / 发票</small>
@@ -1335,7 +1336,7 @@ export function VehiclePage({
                 <Descriptions.Item label="Engine Number">{selectedVehicle.engineNumber || "-"}</Descriptions.Item>
                 <Descriptions.Item label="Customer / 客户">{selectedVehicleCustomer ? customerSelectLabel(selectedVehicleCustomer) : "-"}</Descriptions.Item>
                 <Descriptions.Item label="Owner / 原车主">{selectedVehicleOwner ? `${selectedVehicleOwner.name} / ${selectedVehicleOwner.phone}` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="Estimated Profit / 预估利润">RM {selectedVehicleProfit.toLocaleString()}</Descriptions.Item>
+                <Descriptions.Item label="Estimated Profit / 预估利润">{formatMoney(selectedVehicleProfit)}</Descriptions.Item>
               </Descriptions>
             </ProCard>
           ) : null}
@@ -1373,7 +1374,7 @@ export function VehiclePage({
                 <section className={selectedVehicle.bossConfirmed ? "ready" : "attention"}>
                   <small>Management approval</small>
                   <strong>{selectedVehicle.bossConfirmed ? "Confirmed" : "Pending"}</strong>
-                  <span>{selectedVehicle.contraRangePrice ? `Contra RM ${selectedVehicle.contraRangePrice.toLocaleString()}` : "Set contra range and confirm approval."}</span>
+                <span>{selectedVehicle.contraRangePrice ? `Contra ${formatMoney(selectedVehicle.contraRangePrice)}` : "Set contra range and confirm approval."}</span>
                 </section>
                 <section className={selectedVehicle.ucdStatus ? "ready" : "attention"}>
                   <small>{shortformLabel("UCD", "Used car department status tracking")}</small>
@@ -1840,7 +1841,7 @@ export function VehiclePage({
         }} initialValues={{ vehicleId: selectedVehicleId || vehicles[0]?.id, ...purchaseInvoiceOcrDraft }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Purchase Invoice</Button></Form.Item>
         </Form>
       </Modal>
@@ -1878,7 +1879,7 @@ export function VehiclePage({
           <Form.Item name="id" label="Selected Purchase Invoice"><Select options={purchaseInvoices.map((invoice) => ({ value: invoice.id, label: `${plateFor(vehicles, invoice.vehicleId)} / ${invoice.invoiceNumber}` }))} onChange={selectPurchaseInvoice} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedPurchaseInvoice}>Update Purchase Invoice</Button></Form.Item>
         </Form>
       </Drawer>
@@ -2336,7 +2337,7 @@ function ocrAmount(job: VehicleOcrJob) {
   const value = ocrField(job, "amount") ?? ocrField(job, "nettPrice") ?? ocrField(job, "salesPrice");
   if (!value) return "-";
   const numeric = Number(value);
-  return Number.isFinite(numeric) ? `RM ${numeric.toLocaleString()}` : value;
+  return Number.isFinite(numeric) ? formatMoney(numeric) : value;
 }
 
 function estimatedVehicleProfit(vehicle: Vehicle) {

@@ -4,6 +4,7 @@ import { CircleAlert, CloudOff, RotateCcw, Search, SearchX, SlidersHorizontal } 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { frontofficeCopy, hrefWithLanguage, type Language } from "../i18n";
+import { formatThousands } from "../formatters";
 import {
   filterAndSortVehicles,
   validateListingFilterInputs,
@@ -69,8 +70,8 @@ export function InventoryBrowser({ vehicles, initialFilters = {}, language = "en
     if (make) labels.push(make);
     if (numericValidation.filters.minYear !== undefined) labels.push(`${t.yearFrom} ${numericValidation.filters.minYear}`);
     if (numericValidation.filters.maxYear !== undefined) labels.push(`${t.yearTo} ${numericValidation.filters.maxYear}`);
-    if (numericValidation.filters.minPrice !== undefined) labels.push(`${t.priceFrom} RM ${numericValidation.filters.minPrice.toLocaleString()}`);
-    if (numericValidation.filters.maxPrice !== undefined) labels.push(`${t.priceTo} RM ${numericValidation.filters.maxPrice.toLocaleString()}`);
+    if (numericValidation.filters.minPrice !== undefined) labels.push(`${t.priceFrom} RM ${formatThousands(numericValidation.filters.minPrice)}`);
+    if (numericValidation.filters.maxPrice !== undefined) labels.push(`${t.priceTo} RM ${formatThousands(numericValidation.filters.maxPrice)}`);
     if (stockOwner !== "All") labels.push(stockOwner);
     return labels;
   }, [make, numericValidation.filters, query, stockOwner, t]);

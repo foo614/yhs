@@ -8,6 +8,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
+import { formatMoneyInput, parseMoneyInput } from "../../money";
 import type {
   CurrentUser,
   HrAttendanceAction,
@@ -882,11 +883,11 @@ export function HrSalaryPage({
                       <Form layout="vertical" className="formGrid" onFinish={(values) => onUpdatePayrollProfile(profileFromValues(values))} initialValues={{ monthlyBaseSalary: 0, overtimeHours: 0, overtimeRate: 0, allowances: 0, manualDeductions: 0 }}>
                         <Form.Item name="id" hidden><Input /></Form.Item>
                         <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>
-                        <Form.Item name="monthlyBaseSalary" label="Base / 底薪"><InputNumber className="fullWidth" min={0} /></Form.Item>
+                        <Form.Item name="monthlyBaseSalary" label="Base / 底薪"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item name="overtimeHours" label="OT Hours / 加班小时"><InputNumber className="fullWidth" min={0} /></Form.Item>
-                        <Form.Item name="overtimeRate" label="OT Rate / 加班费率"><InputNumber className="fullWidth" min={0} /></Form.Item>
-                        <Form.Item name="allowances" label="Allowances / 津贴"><InputNumber className="fullWidth" min={0} /></Form.Item>
-                        <Form.Item name="manualDeductions" label="Deductions / 扣除"><InputNumber className="fullWidth" min={0} /></Form.Item>
+                        <Form.Item name="overtimeRate" label="OT Rate / 加班费率"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+                        <Form.Item name="allowances" label="Allowances / 津贴"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+                        <Form.Item name="manualDeductions" label="Deductions / 扣除"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Profile / 保存资料</Button></Form.Item>
                       </Form>
                     </ProCard>
@@ -1133,7 +1134,7 @@ function payPeriodName(id: string, payPeriods: HrPayPeriod[]) {
 }
 
 function money(value?: number) {
-  return `RM ${Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `RM ${new Intl.NumberFormat("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))}`;
 }
 
 function tablePagination(pageSize = hrRecordPageSize): TablePaginationConfig {

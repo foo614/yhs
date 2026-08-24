@@ -11,6 +11,7 @@ import {
   tiktokFeatureUrl
 } from "./business";
 import type { Language } from "./i18n";
+import { formatThousands } from "./formatters";
 import type { PublicVehicle } from "./vehicles/service";
 
 const siteName = "YS Heng Cars";
@@ -88,8 +89,8 @@ export function vehicleMetadata(vehicle: PublicVehicle, language: Language = "en
     ? `${vehicleName} 二手车出售 | ${siteName}`
     : `${vehicleName} for sale | ${siteName}`;
   const description = language === "zh"
-    ? `查看 YS Heng 的 ${vehicleName}，售价 RM ${vehicle.sellingPrice.toLocaleString()}，可咨询看车与贷款流程。`
-    : `View this ${vehicleName} at YS Heng. Selling price RM ${vehicle.sellingPrice.toLocaleString()} with sales enquiry and viewing support.`;
+    ? `查看 YS Heng 的 ${vehicleName}，售价 RM ${formatThousands(vehicle.sellingPrice)}，可咨询看车与贷款流程。`
+    : `View this ${vehicleName} at YS Heng. Selling price RM ${formatThousands(vehicle.sellingPrice)} with sales enquiry and viewing support.`;
   const image = vehicle.isRepresentativePhoto ? undefined : vehicle.photoUrl;
 
   return pageMetadata({ title, description, path: `/vehicles/${vehicle.id}`, image, language });

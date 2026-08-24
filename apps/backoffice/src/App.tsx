@@ -72,6 +72,7 @@ import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSetting
 import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
+import { formatMoney as formatRinggit, formatMoneyInput, parseMoneyInput } from "./money";
 import {
   checkInHrAttendance,
   checkOutHrAttendance,
@@ -1544,7 +1545,7 @@ function ocrFieldSummary(job: VehicleOcrJob) {
     fields.invoiceNumber ? `Invoice: ${fields.invoiceNumber}` : undefined,
     fields.receiptNumber ? `Receipt: ${fields.receiptNumber}` : undefined,
     fields.plateNumberOnInvoice || fields.plateNumber ? `Plate: ${fields.plateNumberOnInvoice || fields.plateNumber}` : undefined,
-    fields.amount || fields.nettPrice ? `RM ${fields.amount || fields.nettPrice}` : undefined
+    fields.amount || fields.nettPrice ? formatOcrMoney(fields.amount || fields.nettPrice) : undefined
   ].filter(Boolean);
 
   return parts.length ? parts.join(" / ") : "-";
@@ -1841,14 +1842,17 @@ function Metric({
 }
 
 function formatMoney(value: number) {
-  return `RM ${Math.round(value).toLocaleString()}`;
+  return formatRinggit(value);
 }
 
 function formatCompactMoney(value: number) {
-  const absolute = Math.abs(value);
-  if (absolute >= 1_000_000) return `RM ${(value / 1_000_000).toFixed(1)}m`;
-  if (absolute >= 10_000) return `RM ${Math.round(value / 1000).toLocaleString()}k`;
   return formatMoney(value);
+}
+
+function formatOcrMoney(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return "RM -";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? formatMoney(numeric) : `RM ${value}`;
 }
 
 
@@ -1940,7 +1944,7 @@ function RepairPage({
         <Descriptions size="small" column={1}>
           <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
           <Descriptions.Item label="Repair Task / 整备事项">{repair.whatToDo}</Descriptions.Item>
-          <Descriptions.Item label="Cost / 费用">RM {repair.cost.toLocaleString()}</Descriptions.Item>
+          <Descriptions.Item label="Cost / 费用">{formatMoney(repair.cost)}</Descriptions.Item>
         </Descriptions>
       ),
       okText: "Mark Done",
@@ -1961,7 +1965,7 @@ function RepairPage({
         <Descriptions size="small" column={1}>
           <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
           <Descriptions.Item label="Repair Task / 整备事项">{repair.whatToDo}</Descriptions.Item>
-          <Descriptions.Item label="Cost / 费用">RM {repair.cost.toLocaleString()}</Descriptions.Item>
+          <Descriptions.Item label="Cost / 费用">{formatMoney(repair.cost)}</Descriptions.Item>
           <Descriptions.Item label="Approval">Your signed-in account will be recorded as the approver.</Descriptions.Item>
         </Descriptions>
       ),
@@ -2014,7 +2018,7 @@ function RepairPage({
     },
     {
       title: "Amount / 金额",
-      render: (_, row) => `RM ${(row.kind === "repair" ? row.repair.cost : row.invoice.amount).toLocaleString()}`
+      render: (_, row) => formatMoney(row.kind === "repair" ? row.repair.cost : row.invoice.amount)
     },
     {
       title: "Status / 状态",
@@ -2068,7 +2072,7 @@ function RepairPage({
           <Descriptions size="small" column={{ xs: 1, md: 3 }}>
             <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedRepair.vehicleId)}</Descriptions.Item>
             <Descriptions.Item label="Repair Part / 配件">{selectedRepair.repairPart || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Cost / 费用">RM {selectedRepair.cost.toLocaleString()}</Descriptions.Item>
+            <Descriptions.Item label="Cost / 费用">{formatMoney(selectedRepair.cost)}</Descriptions.Item>
             <Descriptions.Item label="Checklist / 检查表">
               <Tag color={selectedRepair.checklistDone ? "green" : "orange"}>{selectedRepair.checklistDone ? "Done" : "Pending"}</Tag>
             </Descriptions.Item>
@@ -2178,7 +2182,7 @@ function RepairPage({
       <div className="metricGrid">
         <Metric label="Repair Tasks / 整备事项" value={repairs.length} />
         <Metric label="Pending Checklist / 未完成检查" value={pendingRepairs} />
-        <Metric label="Repair Cost / 整备费用" value={`RM ${repairTotal.toLocaleString()}`} />
+        <Metric label="Repair Cost / 整备费用" value={formatMoney(repairTotal)} />
       </div>
       <ProCard
         id="repair-supplier-card"
@@ -2245,7 +2249,7 @@ function RepairPage({
                   </span>
                   <span>
                     <small>Amount / 金额</small>
-                    <strong>RM {(isRepair ? record.repair.cost : record.invoice.amount).toLocaleString()}</strong>
+                    <strong>{formatMoney(isRepair ? record.repair.cost : record.invoice.amount)}</strong>
                   </span>
                 </div>
                 <div className="mobileRecordSection">
@@ -2329,7 +2333,7 @@ function RepairPage({
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
-          <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="dueDate" label="Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="paidAt" label="Paid Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedSupplierInvoice}>Update Supplier Invoice</Button></Form.Item>
@@ -2396,7 +2400,7 @@ function RepairPage({
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
-          <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="dueDate" label="Invoice Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="paidAt" label="Paid Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
@@ -2448,7 +2452,7 @@ function RepairPage({
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
-          <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
           <Descriptions size="small" column={1} className="fullWidth">
             <Descriptions.Item label="Approval / 审批">{selectedEditRepair?.approvalStatus ?? "Pending"}</Descriptions.Item>
