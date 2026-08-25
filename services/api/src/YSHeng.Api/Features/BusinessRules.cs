@@ -32,12 +32,21 @@ public sealed record DashboardSummary(
     DashboardAmountSlice[] MoneyRiskBreakdown,
     DashboardWorkflowBlockers WorkflowBlockers,
     DashboardSalesFunnel SalesFunnel,
+    DashboardCountSlice[] TopEnquiredVehicles,
+    DashboardAmountSlice[] RepairCostByVehicle,
+    DashboardCountSlice[] TopSellingModels,
+    DashboardCountSlice[] LeadTrend,
+    int LeadsAwaitingFirstResponse,
+    DashboardCountSlice[] RepairWorkInProgress,
+    decimal RealisedProfit,
+    DashboardProfitTrendSlice[] MonthlyProfitTrend,
     DashboardAmountSlice[] ProfitBreakdown,
     DashboardAmountSlice[] SupplierSpendTop);
 
 public sealed record DashboardAgingBucket(string Label, int Count);
 public sealed record DashboardCountSlice(string Label, int Count);
 public sealed record DashboardAmountSlice(string Label, decimal Amount);
+public sealed record DashboardProfitTrendSlice(string Label, decimal EstimatedProfit, decimal SoldProfit, int SoldCount);
 public sealed record DashboardWorkflowBlockers(DashboardCountSlice[] ByType, DashboardCountSlice[] DueBuckets);
 public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal ConversionRate);
 public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
@@ -363,7 +372,7 @@ public static class VehicleRules
             : new ValidationResult([]);
     }
 
-    public static ValidationResult ValidateContactLinks(Vehicle vehicle, IEnumerable<Customer> customers, IEnumerable<Owner> owners, IEnumerable<LoanApplication>? loans = null)
+    public static ValidationResult ValidateContactLinks(Vehicle vehicle, IEnumerable<Customer> customers, IEnumerable<Owner> owners, IEnumerable<LoanApplication>? loans = null, bool requireOwner = false)
     {
         var errors = new List<ValidationError>();
         var activeLoans = (loans ?? []).Where(loan => loan.VehicleId == vehicle.Id && WorkflowStatusRules.IsActiveLoan(loan)).ToList();
@@ -383,6 +392,10 @@ public static class VehicleRules
         if (vehicle.OwnerId is { } ownerId && !owners.Any(owner => owner.Id == ownerId))
         {
             errors.Add(new ValidationError("owner_not_found", "Vehicle owner must be an existing owner record."));
+        }
+        else if (requireOwner && vehicle.OwnerId is null)
+        {
+            errors.Add(new ValidationError("vehicle_owner_required", "Vehicle owner is required before completing new intake."));
         }
 
         return new ValidationResult(errors);
@@ -504,6 +517,16 @@ public static class LeadRules
             errors.Add(new ValidationError("customer_not_found", "Lead customer link must reference an existing customer."));
         }
 
+        if (lead.Status == LeadStatus.Closed && lead.ClosureOutcome is null)
+        {
+            errors.Add(new ValidationError("lead_closure_outcome_required", "Choose Sold, Lost, or Invalid before closing a lead."));
+        }
+
+        if (lead.Status != LeadStatus.Closed && lead.ClosureOutcome is not null)
+        {
+            errors.Add(new ValidationError("lead_closure_outcome_invalid", "A closure outcome is allowed only when the lead is closed."));
+        }
+
         return new ValidationResult(errors);
     }
 
@@ -552,6 +575,7 @@ public static class LeadRules
             SourcePage = existing.SourcePage,
             SourceReferrer = existing.SourceReferrer,
             SourceCampaign = existing.SourceCampaign,
+            ClosureOutcome = incoming.Status == LeadStatus.Closed ? incoming.ClosureOutcome : null,
             TakenByUserId = takenByUserId,
             TakenByName = takenByName,
             TakenAt = takenAt
@@ -1105,7 +1129,7 @@ public static class WorkflowStatusRules
     {
         if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
         {
-            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false };
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? DateTime.UtcNow };
         }
 
         var activeLoan = loans.FirstOrDefault(loan => loan.VehicleId == vehicle.Id && IsActiveLoan(loan));
@@ -1115,7 +1139,7 @@ public static class WorkflowStatusRules
         }
 
         return vehicle.Status is VehicleStatus.LoanProcessing or VehicleStatus.Sold
-            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false }
+            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false, SoldAt = null }
             : vehicle;
     }
 
@@ -1128,11 +1152,11 @@ public static class WorkflowStatusRules
     {
         if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
         {
-            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false };
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? DateTime.UtcNow };
         }
 
         return vehicle.Status == VehicleStatus.Sold
-            ? vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false }
+            ? vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false, SoldAt = null }
             : vehicle;
     }
 }
@@ -1673,6 +1697,11 @@ public static class RepairRules
             errors.Add(new ValidationError("invalid_repair_cost", "Repair cost cannot be negative."));
         }
 
+        if (repair.StartedOn is { } startedOn && repair.ExpectedCompletionDate is { } expectedCompletionDate && expectedCompletionDate < startedOn)
+        {
+            errors.Add(new ValidationError("repair_completion_date_invalid", "Expected completion date cannot be before the repair start date."));
+        }
+
         if (repair.Cost >= ApprovalThreshold && repair.ChecklistDone && repair.ApprovalStatus != RepairApprovalStatus.Approved)
         {
             errors.Add(new ValidationError("repair_approval_required", "High-cost repair must be approved before it is completed or treated as final."));
@@ -1683,6 +1712,19 @@ public static class RepairRules
 
     public static bool IsCostFinal(RepairJob repair) =>
         repair.Cost < ApprovalThreshold || repair.ApprovalStatus == RepairApprovalStatus.Approved;
+}
+
+public static class RepairReceiptRules
+{
+    public static ValidationResult Validate(ConfirmRepairReceiptRequest receipt)
+    {
+        if (receipt.Items is null || receipt.Items.Count == 0 || receipt.Items.Any(item => string.IsNullOrWhiteSpace(item.Description) || item.Amount < 0))
+        {
+            return new ValidationResult([new ValidationError("repair_receipt_items_invalid", "Add at least one repair receipt item with a description and non-negative amount.")]);
+        }
+
+        return new ValidationResult([]);
+    }
 }
 
 public static class RepairApprovalRules
@@ -2102,6 +2144,7 @@ public static class DashboardMetrics
         var dailySpendList = dailySpends.ToList();
         var debtRecoveryList = debtRecoveries.ToList();
         var leadList = leads.ToList();
+        var vehicleById = vehicleList.ToDictionary(vehicle => vehicle.Id);
         var supplierSpendTop = supplierInvoiceList
             .Where(invoice => !string.IsNullOrWhiteSpace(invoice.SupplierName))
             .GroupBy(invoice => invoice.SupplierName.Trim(), StringComparer.OrdinalIgnoreCase)
@@ -2115,6 +2158,39 @@ public static class DashboardMetrics
             .Where(RepairRules.IsCostFinal)
             .GroupBy(repair => repair.VehicleId)
             .ToDictionary(group => group.Key, group => group.Sum(repair => repair.Cost));
+        var topEnquiredVehicles = leadList
+            .Where(lead => vehicleById.ContainsKey(lead.VehicleId))
+            .GroupBy(lead => lead.VehicleId)
+            .Select(group => new DashboardCountSlice(VehicleLabel(vehicleById[group.Key]), group.Count()))
+            .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.Label)
+            .Take(5)
+            .ToArray();
+        var topSellingModels = vehicleList
+            .Where(vehicle => vehicle.Status == VehicleStatus.Sold && !IsDashboardSmokeTestVehicle(vehicle))
+            .GroupBy(VehicleModelLabel, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new DashboardCountSlice(group.Key, group.Count()))
+            .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.Label)
+            .Take(5)
+            .ToArray();
+        var firstTrendMonth = new DateOnly(today.Year, today.Month, 1).AddMonths(-5);
+        var leadTrend = Enumerable.Range(0, 6)
+            .Select(offset => firstTrendMonth.AddMonths(offset))
+            .Select(month => new DashboardCountSlice(
+                month.ToString("MMM yy", CultureInfo.InvariantCulture),
+                leadList.Count(lead => LeadDate(lead) >= month && LeadDate(lead) < month.AddMonths(1))))
+            .ToArray();
+        var leadsAwaitingFirstResponse = leadList.Count(lead =>
+            lead.Status == LeadStatus.New && lead.CreatedAt <= DateTime.UtcNow.AddHours(-24));
+        var repairWorkInProgress = repairList
+            .Where(repair => !repair.ChecklistDone && vehicleById.ContainsKey(repair.VehicleId))
+            .GroupBy(repair => repair.VehicleId)
+            .Select(group => new DashboardCountSlice(VehicleLabel(vehicleById[group.Key]), group.Count()))
+            .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.Label)
+            .Take(5)
+            .ToArray();
         var commissionsByVehicle = brokerCommissionList
             .GroupBy(commission => commission.VehicleId)
             .ToDictionary(group => group.Key, group => group.Sum(commission => commission.Amount));
@@ -2137,6 +2213,14 @@ public static class DashboardMetrics
                 ? pickupAllowanceCost
                 : vehicle.OutstationPickupAllowance;
 
+        var repairCostByVehicle = vehicleList
+            .Select(vehicle => new DashboardAmountSlice(VehicleLabel(vehicle), EffectiveRepairCost(vehicle)))
+            .Where(item => item.Amount > 0)
+            .OrderByDescending(item => item.Amount)
+            .ThenBy(item => item.Label)
+            .Take(5)
+            .ToArray();
+
         var unsoldVehicles = vehicleList.Where(vehicle => vehicle.Status != VehicleStatus.Sold).ToList();
         var agingBuckets = new[]
         {
@@ -2146,6 +2230,20 @@ public static class DashboardMetrics
         };
 
         var totalProfit = vehicleList.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
+        var realisedProfit = vehicleList.Where(vehicle => vehicle.Status == VehicleStatus.Sold).Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
+        var monthlyProfitTrend = Enumerable.Range(0, 6)
+            .Select(offset => firstTrendMonth.AddMonths(offset))
+            .Select(month =>
+            {
+                var soldVehicles = vehicleList.Where(vehicle => vehicle.Status == VehicleStatus.Sold && SoldMonth(vehicle) == month).ToArray();
+                var stockIntroduced = vehicleList.Where(vehicle => vehicle.Status != VehicleStatus.Sold && vehicle.IntakeDate >= month && vehicle.IntakeDate < month.AddMonths(1));
+                return new DashboardProfitTrendSlice(
+                    month.ToString("MMM yy", CultureInfo.InvariantCulture),
+                    stockIntroduced.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle))),
+                    soldVehicles.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle))),
+                    soldVehicles.Length);
+            })
+            .ToArray();
         var outstandingPayment = paymentList.Where(payment => payment.Status != PaymentStatus.Reconciled).Sum(payment => payment.NettPrice);
         var settlementDue = settlementList.Count(settlement => ReminderRules.IsSettlementDue(settlement, today));
         var reminderItems = ReminderInbox.Create(
@@ -2223,9 +2321,40 @@ public static class DashboardMetrics
             MoneyRiskBreakdown: moneyRiskBreakdown,
             WorkflowBlockers: workflowBlockers,
             SalesFunnel: salesFunnel,
+            TopEnquiredVehicles: topEnquiredVehicles,
+            RepairCostByVehicle: repairCostByVehicle,
+            TopSellingModels: topSellingModels,
+            LeadTrend: leadTrend,
+            LeadsAwaitingFirstResponse: leadsAwaitingFirstResponse,
+            RepairWorkInProgress: repairWorkInProgress,
+            RealisedProfit: realisedProfit,
+            MonthlyProfitTrend: monthlyProfitTrend,
             ProfitBreakdown: profitBreakdown,
             SupplierSpendTop: supplierSpendTop);
     }
+
+    private static string VehicleLabel(Vehicle vehicle) => $"{vehicle.PlateNumber} · {VehicleModelLabel(vehicle)}";
+
+    private static bool IsDashboardSmokeTestVehicle(Vehicle vehicle) =>
+        string.Equals(vehicle.Make, "Smoke", StringComparison.OrdinalIgnoreCase)
+        || vehicle.Model.StartsWith("Workflow", StringComparison.OrdinalIgnoreCase);
+
+    private static string VehicleModelLabel(Vehicle vehicle) => $"{vehicle.Make.Trim()} {vehicle.Model.Trim()}".Trim();
+
+    private static DateOnly LeadDate(Lead lead)
+    {
+        var createdAtUtc = lead.CreatedAt.Kind switch
+        {
+            DateTimeKind.Utc => lead.CreatedAt,
+            DateTimeKind.Local => lead.CreatedAt.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(lead.CreatedAt, DateTimeKind.Utc)
+        };
+        return BusinessClock.SingaporeDate(new DateTimeOffset(createdAtUtc));
+    }
+
+    private static DateOnly? SoldMonth(Vehicle vehicle) => vehicle.SoldAt is { } soldAt
+        ? new DateOnly(soldAt.Year, soldAt.Month, 1)
+        : null;
 
     private static int AgeInDays(Vehicle vehicle, DateOnly today) => Math.Max(0, today.DayNumber - vehicle.IntakeDate.DayNumber);
 }

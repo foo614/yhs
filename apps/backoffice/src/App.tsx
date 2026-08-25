@@ -15,7 +15,7 @@ import {
   UploadOutlined,
   UserOutlined
 } from "@ant-design/icons";
-import { PageContainer, ProCard, ProLayout } from "@ant-design/pro-components";
+import { PageContainer, ProCard, ProLayout, ProTable } from "@ant-design/pro-components";
 import {
   Alert,
   Badge,
@@ -30,9 +30,11 @@ import {
   Modal,
   Pagination,
   Popconfirm,
+  Radio,
   Result,
   Select,
   Space,
+  Skeleton,
   Spin,
   Steps,
   Table as AntTable,
@@ -64,7 +66,7 @@ import {
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
 import { filterRefurbishmentRecords, isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
-import { dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
+import { dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardReminderTarget, financeRiskTarget, reminderDueLabel, reminderDueTagColor, urgentDashboardReminders, type DashboardDrilldown } from "./dashboard";
 import { FinancePage } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
@@ -94,6 +96,8 @@ import {
   createPaymentVoucher,
   createPurchaseInvoice,
   createRepair,
+  createRepairWithReceipt,
+  confirmRepairReceipt,
   createSettlementReminder,
   createStaffUser,
   createSupplierInvoice,
@@ -134,6 +138,7 @@ import {
   getPaymentVouchers,
   getPurchaseInvoices,
   getRepairs,
+  getRepairReceipts,
   getSettlementReminders,
   getStaffUsers,
   getSupplierInvoices,
@@ -181,6 +186,9 @@ import {
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
+  type ConfirmRepairReceiptRequest,
+  type CreateRepairWithReceiptRequest,
+  type CreateRepairWithReceiptResponse,
   type CreateStaffUserRequest,
   type CurrentUser,
   type Customer,
@@ -208,7 +216,10 @@ import {
   type PaymentVoucher,
   type Owner,
   type PurchaseInvoice,
+  type OcrJob,
   type RepairJob,
+  type RepairReceiptItemInput,
+  type RepairReceiptWithItems,
   type ResetStaffPasswordRequest,
   type SettlementReminder,
   type StaffRole,
@@ -224,17 +235,6 @@ import {
 } from "./api";
 
 const staffRoles: StaffRole[] = assignableStaffRoles;
-
-const dashboardReminderTypes: DashboardReminder["type"][] = [
-  "LoanFollowUp",
-  "DeliveryPreparation",
-  "SettlementDue",
-  "PaymentBankFollowUp",
-  "PaymentStatusFollowUp",
-  "DailySpendDue",
-  "DebtRecoveryFollowUp",
-  "PaymentVoucherFollowUp"
-];
 
 const deliveryChecklistFields = [
   "inspectionDone",
@@ -378,10 +378,12 @@ function Table<RecordType extends object>({ columns, dataSource, pagination, ...
   );
 
   return (
-    <AntTable
+    <ProTable
       {...props}
-      columns={tableColumns}
+      columns={tableColumns as any}
       dataSource={dataSource}
+      search={{ labelWidth: 120 }}
+      options={false}
       pagination={pagination ?? tablePagination()}
     />
   );
@@ -693,6 +695,19 @@ export default function App() {
     }
   }
 
+  async function runCreateWithResult<T>(action: () => Promise<T>, success: (record: T) => void, text: string): Promise<T> {
+    try {
+      const record = await action();
+      success(record);
+      await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
+      notifySuccess(text, "The record has been saved and synced.");
+      return record;
+    } catch (error) {
+      notifyError("Request failed", humanizeApiError(error));
+      throw error;
+    }
+  }
+
   async function runUpload(action: () => Promise<unknown>, text: string) {
     try {
       await action();
@@ -851,7 +866,7 @@ export default function App() {
             hrLeaveRequests={hrLeaveRequests}
             hrPayslips={hrPayslips}
           />
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} onRefresh={refreshDashboard} onNavigate={navigateTo} />}
+          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} reminderLoadError={reminderLoadError} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} onRefresh={refreshDashboard} onNavigate={navigateTo} />}
           {pathname === "/vehicles" && (
             <VehiclePage
               vehicles={vehicles}
@@ -886,7 +901,16 @@ export default function App() {
               onCreateInvoice={(invoice) => runCreate(() => createSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => [record, ...items]), "Supplier invoice created")}
               onUpdateInvoice={(invoice) => runUpdate(() => updateSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => replaceById(items, record)), "Supplier invoice updated")}
               onCreateRepair={(repair) => runCreate(() => createRepair(repair), (record) => setRepairs((items) => [record, ...items]), "Repair task created")}
+              onCreateRepairWithReceipt={(request) => runCreateWithResult(
+                () => createRepairWithReceipt(request),
+                (record) => {
+                  setRepairs((items) => [record.repair, ...items]);
+                  setSupplierInvoices((items) => [record.invoice, ...items]);
+                },
+                "Repair and receipt created"
+              )}
               onUpdateRepair={(repair) => runUpdate(() => updateRepair(repair), (record) => setRepairs((items) => replaceById(items, record)), "Repair task updated")}
+              onConfirmReceipt={(repairId, receipt) => confirmRepairReceipt(repairId, receipt)}
               onApproveRepair={(repairId, notes) => runUpdate(() => approveRepair(repairId, notes), (record) => setRepairs((items) => replaceById(items, record)), "Repair approved")}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Repair document uploaded")}
             />
@@ -1403,22 +1427,28 @@ function ModuleDocumentList({
     {
       title: "Type / 类型",
       dataIndex: "category",
-      filters: tableTextFilters(documents.map((document) => document.category)),
-      onFilter: (value, row) => row.category === value
+      ...(repairJobId ? {} : {
+        filters: tableTextFilters(documents.map((document) => document.category)),
+        onFilter: (value: any, row: VehicleDocument) => row.category === value
+      })
     },
     {
       title: "File / 文件",
       dataIndex: "fileName",
-      filters: tableTextFilters(documents.map((document) => document.fileName)),
-      filterSearch: true,
-      onFilter: (value, row) => row.fileName === value
+      ...(repairJobId ? {} : {
+        filters: tableTextFilters(documents.map((document) => document.fileName)),
+        filterSearch: true,
+        onFilter: (value: any, row: VehicleDocument) => row.fileName === value
+      })
     },
     {
       title: "Uploaded By / 上传者",
       dataIndex: "uploadedBy",
-      filters: tableTextFilters(documents.map((document) => document.uploadedBy || "System")),
-      filterSearch: true,
-      onFilter: (value, row) => (row.uploadedBy || "System") === value,
+      ...(repairJobId ? {} : {
+        filters: tableTextFilters(documents.map((document) => document.uploadedBy || "System")),
+        filterSearch: true,
+        onFilter: (value: any, row: VehicleDocument) => (row.uploadedBy || "System") === value
+      }),
       render: (value) => value || "-"
     },
     {
@@ -1490,7 +1520,6 @@ function DashboardPage({
   dashboardLoadError,
   reminders,
   reminderLoadError,
-  vehicles,
   lastCheckedAt,
   refreshing,
   onRefresh,
@@ -1500,18 +1529,26 @@ function DashboardPage({
   dashboardLoadError: string | null;
   reminders: DashboardReminder[];
   reminderLoadError: string | null;
-  vehicles: Vehicle[];
   lastCheckedAt: Date | null;
   refreshing: boolean;
   onRefresh: () => Promise<void>;
   onNavigate: (path: string) => void;
 }) {
-  const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
-  const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
-  const [mobileReminderPage, setMobileReminderPage] = useState(1);
-  const safeStock = safeDashboardStockSummary(vehicles);
   const agingBuckets = dashboard?.agingBuckets ?? [];
   const moneyRiskBreakdown = dashboard?.moneyRiskBreakdown ?? [];
+  const topEnquiredVehicles = dashboard?.topEnquiredVehicles ?? [];
+  const repairCostByVehicle = dashboard?.repairCostByVehicle ?? [];
+  const topSellingModels = dashboard?.topSellingModels ?? [];
+  const leadTrend = dashboard?.leadTrend ?? [];
+  const leadsAwaitingFirstResponse = dashboard?.leadsAwaitingFirstResponse ?? 0;
+  const repairWorkInProgress = dashboard?.repairWorkInProgress ?? [];
+  const monthlyProfitTrend = dashboard?.monthlyProfitTrend ?? [];
+  const leadStages = dashboard?.salesFunnel?.stages ?? [];
+  const leadClosureRate = Math.min(100, Math.max(0, dashboard?.salesFunnel?.conversionRate ?? 0));
+  const topDemandVehicle = topEnquiredVehicles[0];
+  const topRepairVehicle = repairCostByVehicle[0];
+  const topSellingDisplayItems = topSellingModels;
+  const topSellingModel = topSellingDisplayItems[0];
   const receivableLabels = new Set(["Outstanding Payment", "Open Debt Recovery"]);
   const moneyToCollect = moneyRiskBreakdown
     .filter((item) => receivableLabels.has(item.label))
@@ -1520,20 +1557,25 @@ function DashboardPage({
     .filter((item) => !receivableLabels.has(item.label))
     .reduce((sum, item) => sum + Math.max(item.amount, 0), 0);
   const profitValue = dashboard?.totalProfit ?? dashboard?.estimatedProfit ?? 0;
-  const filteredReminders = filterDashboardReminders(reminders, { type: reminderTypeFilter, due: reminderDueFilter });
+  const realisedProfit = dashboard?.realisedProfit ?? 0;
   const urgentReminderCount = reminders.filter((reminder) => {
     const dueLabel = reminderDueLabel(reminder.dueDate);
     return dueLabel === "Overdue" || dueLabel === "Due today";
   }).length;
-  const reminderFiltersActive = reminderTypeFilter !== "All" || reminderDueFilter !== "All";
-  const resetReminderFilters = () => {
-    setReminderTypeFilter("All");
-    setReminderDueFilter("All");
-    setMobileReminderPage(1);
-  };
-  const mobileReminderPageCount = Math.max(1, Math.ceil(filteredReminders.length / 8));
-  const clampedMobileReminderPage = Math.min(mobileReminderPage, mobileReminderPageCount);
-  const mobileReminders = filteredReminders.slice((clampedMobileReminderPage - 1) * 8, clampedMobileReminderPage * 8);
+  const urgentReminders = urgentDashboardReminders(reminders);
+  const cashFollowUpItems = moneyRiskBreakdown.filter((item) => item.amount > 0);
+  const collectCashItemCount = cashFollowUpItems.filter((item) => receivableLabels.has(item.label)).length;
+  const payCashItemCount = cashFollowUpItems.length - collectCashItemCount;
+
+  if (!dashboard && !dashboardLoadError) {
+    return (
+      <Space direction="vertical" size={16} className="fullWidth dashboardPage">
+        <ProCard title="Operations dashboard / 运营看板">
+          <Skeleton active paragraph={{ rows: 6 }} />
+        </ProCard>
+      </Space>
+    );
+  }
 
   if (!dashboard) {
     return (
@@ -1551,7 +1593,19 @@ function DashboardPage({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
-      {dashboard ? <>
+      <div className="dashboardCommandBar">
+        <div>
+          <Typography.Text className="loginKicker">Executive pulse / 老板速览</Typography.Text>
+          <Typography.Title level={2}>See demand, cost, sales, and follow-up at a glance</Typography.Title>
+          <Typography.Text>Every ranking comes from protected operational records.</Typography.Text>
+        </div>
+        <div className={topDemandVehicle ? "dashboardFocusQueue dashboardFocusQueueHot" : "dashboardFocusQueue"}>
+          <span>URGENT STOCK</span>
+          <strong>{dashboard.vehicleAging} vehicles over 60 days</strong>
+          <small>{dashboard.vehicleAging > 0 ? "Review price or clearance action now." : "No urgent aging stock."}</small>
+        </div>
+      </div>
+
         <ProCard
           title="Operations dashboard / 运营看板"
           className="dashboardOverviewCard"
@@ -1564,125 +1618,144 @@ function DashboardPage({
             <Metric label="Outstanding / 未收款" value={formatCompactMoney(dashboard.outstandingPayment)} tone={dashboard.outstandingPayment > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("payments"))} />
             <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
             <Metric label="Estimated Profit / 预估利润" value={formatCompactMoney(profitValue)} tone={profitValue >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+            <Metric label="Sold Profit / 已售利润" value={formatCompactMoney(realisedProfit)} tone={realisedProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("sold"))} />
             <Metric label="Aging / 超60天库存" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
           </div>
         </ProCard>
 
-        <div className="dashboardSimpleGrid">
-          <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard">
-          <Table
-            rowKey="label"
-            size="small"
-            columns={[
-              { title: "Age / 车龄", dataIndex: "label", render: (value) => `${value} days` },
-              { title: "Stock / 库存", dataIndex: "count" }
-            ]}
-            dataSource={agingBuckets}
-            pagination={false}
-            locale={{ emptyText: "No aging buckets available." }}
-          />
-          </ProCard>
-          <ProCard title="Cash follow-up / 收付款跟进" className="dashboardSimpleCard" extra={<Space size={4} wrap><Tag color={moneyToCollect > 0 ? "blue" : "green"}>Collect {formatCompactMoney(moneyToCollect)}</Tag><Tag color={moneyToPay > 0 ? "volcano" : "green"}>Pay {formatCompactMoney(moneyToPay)}</Tag></Space>}>
-          <Table
-            rowKey="label"
-            size="small"
-            columns={[
-              { title: "Item / 项目", dataIndex: "label", render: dashboardLabel },
-              { title: "Direction / 方向", render: (_, row) => <Tag color={receivableLabels.has(row.label) ? "blue" : "volcano"}>{receivableLabels.has(row.label) ? "Collect / 待收" : "Pay / 待付"}</Tag> },
-              { title: "Amount / 金额", dataIndex: "amount", align: "right", render: (value) => formatMoney(Number(value)) },
-              { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(financeRiskTarget(row.label))}>Open</Button> }
-            ]}
-            dataSource={moneyRiskBreakdown}
-            pagination={false}
-            locale={{ emptyText: "No money follow-up items available." }}
-          />
-          </ProCard>
-        </div>
-      </> : (
-        <ProCard title="Dashboard summary unavailable / 看板摘要暂不可用" className="dashboardOverviewCard">
-          <Alert type="warning" showIcon message="Live dashboard metrics could not be loaded." description="Only the authorized vehicle counts below are shown; finance, profit, aging, and workflow values are unavailable." />
-          <div className="metricGrid dashboardMetricGrid">
-            <Metric label="Authorized stock / 已加载库存" value={safeStock.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Available / 可售" value={safeStock.available} tone={safeStock.available > 0 ? "neutral" : "work"} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Loan processing / 贷款处理中" value={safeStock.loanProcessing} tone={safeStock.loanProcessing > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
-            <Metric label="Sold / 已售" value={safeStock.sold} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+        <ProCard
+          title="Priority actions / 老板待办"
+          className="dashboardPriorityCard"
+          extra={<Tag color={urgentReminders.length > 0 ? "red" : "green"}>{urgentReminders.length > 0 ? `${urgentReminders.length} action${urgentReminders.length === 1 ? "" : "s"} due now` : "All clear"}</Tag>}
+        >
+          {urgentReminders.length > 0 ? (
+            <>
+              <Typography.Text type="secondary">Start here: each item shows the follow-up, affected car, financial exposure where relevant, and the exact workflow to open.</Typography.Text>
+              <div className="dashboardPriorityList">
+                {urgentReminders.map((reminder) => {
+                  const dueLabel = reminderDueLabel(reminder.dueDate);
+                  return (
+                    <article className="dashboardPriorityAction" key={`${reminder.type}-${reminder.vehicleId}-${reminder.dueDate}`}>
+                      <Tag className="dashboardStatusBadge" color={reminderDueTagColor(reminder.dueDate)}>{dashboardLabel(dueLabel)}</Tag>
+                      <div className="dashboardPriorityDetails">
+                        <strong>{reminder.title}</strong>
+                        <span>{dashboardLabel(reminder.type)} · {reminder.vehiclePlate}</span>
+                      </div>
+                      <div className="dashboardPriorityDue">
+                        <small>Due / 到期</small>
+                        <strong>{reminder.dueDate}</strong>
+                      </div>
+                      <div className="dashboardPriorityAmount">
+                        <small>Exposure / 金额</small>
+                        <strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "—"}</strong>
+                      </div>
+                      <Button type="primary" size="small" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button>
+                    </article>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No overdue or due-today actions. Keep monitoring upcoming reminders below." />
+          )}
+          {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
+          <div className="dashboardCashActions">
+            <div className="dashboardCashActionsHeader">
+              <div><strong>Cash follow-up / 收付款跟进</strong><span>Money requiring a decision or follow-up.</span></div>
+              <Space size={4} wrap><Tag className="dashboardStatusBadge" color={moneyToCollect > 0 ? "blue" : "green"}>Collect total {formatCompactMoney(moneyToCollect)} · {collectCashItemCount} item{collectCashItemCount === 1 ? "" : "s"}</Tag><Tag className="dashboardStatusBadge" color={moneyToPay > 0 ? "red" : "green"}>Pay total {formatCompactMoney(moneyToPay)} · {payCashItemCount} item{payCashItemCount === 1 ? "" : "s"}</Tag></Space>
+            </div>
+            {cashFollowUpItems.length > 0 ? (
+              <div className="dashboardCashActionList">
+                {cashFollowUpItems.map((item) => {
+                  const collect = receivableLabels.has(item.label);
+                  return (
+                    <article className="dashboardCashAction" key={item.label}>
+                      <Tag className="dashboardStatusBadge" color={collect ? "blue" : "red"}>{collect ? "Collect / 待收" : "Pay / 待付"}</Tag>
+                      <strong>{dashboardLabel(item.label)}</strong>
+                      <span>{formatMoney(item.amount)}</span>
+                      <Button size="small" onClick={() => onNavigate(financeRiskTarget(item.label))}>Open cash item</Button>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : <Typography.Text type="secondary">No outstanding cash follow-up.</Typography.Text>}
           </div>
         </ProCard>
-      )}
 
-      <ProCard
-        title="Reminder inbox / 提醒事项"
-        className="dashboardReminderCard"
-        extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
-      >
-        {reminderLoadError && <Alert type="error" showIcon message="Reminder inbox could not be loaded" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
-        <div className="dashboardInboxHeader">
-          <Space className="toolbarForm" wrap>
-            <Select
-              value={reminderTypeFilter}
-              options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: dashboardLabel(type) }))]}
-              onChange={(value) => {
-                setReminderTypeFilter(value);
-                setMobileReminderPage(1);
-              }}
-              style={{ width: 220 }}
-            />
-            <Select
-              value={reminderDueFilter}
-              options={[
-                { value: "All", label: "All Due / 全部到期" },
-                { value: "Overdue", label: "Overdue / 已逾期" },
-                { value: "DueToday", label: "Due today / 今日到期" },
-                { value: "Upcoming", label: "Upcoming / 即将到期" }
-              ]}
-              onChange={(value) => {
-                setReminderDueFilter(value);
-                setMobileReminderPage(1);
-              }}
-              style={{ width: 160 }}
-            />
-            {reminderFiltersActive && <Button size="small" onClick={resetReminderFilters}>Clear filters</Button>}
-          </Space>
-          <Typography.Text type="secondary">{urgentReminderCount} overdue or due today across all reminders.</Typography.Text>
+        <section className="dashboardPanel" aria-labelledby="dashboard-intelligence-title">
+          <div className="dashboardPanelHeader">
+            <div>
+              <span id="dashboard-intelligence-title">Executive intelligence / 决策图表</span>
+              <strong>Ranked answers for the questions a boss asks first.</strong>
+            </div>
+            <Tag color="green">Live protected data</Tag>
+          </div>
+          <div className="dashboardInsightGrid dashboardInsightGridOperations">
+            <ProCard
+              title="Repair cost exposure / 整备成本风险"
+              className="dashboardInsightCard dashboardInsightCardPriority"
+              extra={<Button size="small" onClick={() => onNavigate("/repairs")}>Open repairs</Button>}
+            >
+              <div className="insightCaption"><span>Recorded repair cost, highest first</span><strong>{topRepairVehicle ? formatCompactMoney(topRepairVehicle.amount) : "No data"}</strong></div>
+              <DashboardRepairCostChart
+                items={repairCostByVehicle.map((item) => ({ label: item.label, value: item.amount }))}
+                emptyText="No repair cost recorded yet."
+              />
+            </ProCard>
+            <ProCard
+              title="Top-selling models / 最畅销车型"
+              className="dashboardInsightCard dashboardInsightCardPositive"
+              extra={<Button size="small" onClick={() => onNavigate(dashboardMetricTarget("sold"))}>Open sold vehicles</Button>}
+            >
+              <div className="insightCaption"><span>All sold vehicle records</span><strong>{topSellingModel?.label ?? "No data"}</strong></div>
+              <DashboardBarList
+                items={topSellingDisplayItems.map((item) => ({ label: item.label, value: item.count }))}
+                formatValue={(value) => `${value} sold`}
+                tone="sales"
+                emptyText="No sold vehicle records yet."
+              />
+            </ProCard>
+            <ProCard
+              title="Lead volume / 询问趋势"
+              className="dashboardInsightCard dashboardInsightCardWide"
+              extra={<Button size="small" onClick={() => onNavigate("/leads")}>Open leads</Button>}
+            >
+              <div className="insightCaption"><span>Last 6 calendar months</span><strong>{leadTrend.reduce((sum, item) => sum + item.count, 0)} enquiries</strong></div>
+              <DashboardLeadTrend items={leadTrend} />
+              <DashboardLeadVehicleList items={topEnquiredVehicles} />
+            </ProCard>
+            <ProCard
+              title="Monthly profit / 每月利润"
+              className="dashboardInsightCard dashboardInsightCardWide"
+              extra={<Button size="small" onClick={() => onNavigate(dashboardMetricTarget("sold"))}>Open sold vehicles</Button>}
+            >
+              <div className="insightCaption"><span>Blue: actual sold profit · Grey: projected profit from stock introduced</span><strong>{formatCompactMoney(monthlyProfitTrend.reduce((sum, item) => sum + item.soldProfit, 0))} sold</strong></div>
+              <DashboardProfitTrend items={monthlyProfitTrend} />
+            </ProCard>
+            <ProCard
+              title="Lead follow-up / 询问跟进"
+              className="dashboardInsightCard"
+              extra={<Button size="small" onClick={() => onNavigate("/leads")}>Follow up</Button>}
+            >
+              <div className="insightCaption"><span>Case status, not confirmed sales</span><strong>{leadsAwaitingFirstResponse > 0 ? `${leadsAwaitingFirstResponse} waiting over 24h` : "All new leads covered"}</strong></div>
+              <DashboardLeadStatus stages={leadStages} closureRate={leadClosureRate} />
+            </ProCard>
+            <ProCard
+              title="Repair work in progress / 整备进行中"
+              className="dashboardInsightCard"
+              extra={<Button size="small" onClick={() => onNavigate("/repairs")}>Open repairs</Button>}
+            >
+              <div className="insightCaption"><span>Incomplete repair jobs by vehicle</span><strong>{repairWorkInProgress.reduce((sum, item) => sum + item.count, 0)} open jobs</strong></div>
+              <DashboardRepairWorkList items={repairWorkInProgress} />
+            </ProCard>
+          </div>
+        </section>
+
+        <div className="dashboardSimpleGrid">
+          <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard dashboardAgingCard">
+            <DashboardAgingActionBoard items={agingBuckets} onNavigate={onNavigate} />
+          </ProCard>
         </div>
-        <div className="mobileRecordList dashboardReminderMobileList">
-          {mobileReminders.map((reminder) => (
-            <article className="mobileRecordCard" key={`${reminder.type}-${reminder.vehicleId}-${reminder.dueDate}`}>
-              <div className="mobileRecordHeader">
-                <div>
-                  <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                  <Typography.Title level={5}>{reminder.vehiclePlate}</Typography.Title>
-                </div>
-                <Tag color={reminderColor(reminder.type)}>{dashboardLabel(reminder.type)}</Tag>
-              </div>
-              <div className="mobileRecordMeta">
-                <span><small>Due / 到期</small><strong>{reminder.dueDate} · {dashboardLabel(reminderDueLabel(reminder.dueDate))}</strong></span>
-                <span><small>Amount / 金额</small><strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "-"}</strong></span>
-              </div>
-              <div className="mobileRecordTextBlock">{reminder.title}</div>
-              <div className="mobileRecordFooter"><Button type="primary" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
-            </article>
-          ))}
-          {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "Retry to load reminders." : "No reminders match the current filters."} />}
-          <Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} />
-        </div>
-        <Table
-          className="desktopDataTable"
-          rowKey={(row) => `${row.type}-${row.vehicleId}-${row.dueDate}`}
-          columns={[
-            { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag color={reminderColor(value)}>{dashboardLabel(value)}</Tag> },
-            { title: "Title / 事项", dataIndex: "title" },
-            { title: "Car Plate / 车牌", dataIndex: "vehiclePlate" },
-            { title: "Due / 到期", dataIndex: "dueDate", render: (value) => <Space><span>{value}</span><Tag color={reminderDueTagColor(value)}>{dashboardLabel(reminderDueLabel(value))}</Tag></Space> },
-            { title: "Amount / 金额", dataIndex: "amount", render: (value) => value ? `RM ${Number(value).toLocaleString()}` : "-" },
-            { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(dashboardReminderTarget(row))}>Open</Button> }
-          ]}
-          dataSource={filteredReminders}
-          pagination={tablePagination(8)}
-          scroll={{ x: 760 }}
-          locale={{ emptyText: "No reminders match the current filters." }}
-        />
-      </ProCard>
     </Space>
   );
 }
@@ -1715,7 +1788,7 @@ const dashboardLabelMap: Record<string, string> = {
   PaymentVoucherFollowUp: "Payment Voucher Follow-up / 付款凭证跟进",
   New: "New / 新询问",
   Contacted: "Contacted / 已联系",
-  Closed: "Closed / 已成交",
+  Closed: "Closed / 已关闭",
   "Selling + Charges": "Selling + Charges / 售价加收费",
   "Purchase Cost": "Purchase Cost / 收车成本",
   "Repair Cost": "Repair Cost / 整备费用",
@@ -1728,15 +1801,229 @@ function dashboardLabel(label: string) {
   return dashboardLabelMap[label] ?? label;
 }
 
-function reminderColor(type: DashboardReminder["type"]) {
-  if (type === "SettlementDue") return "red";
-  if (type === "LoanFollowUp") return "orange";
-  if (type === "PaymentBankFollowUp") return "purple";
-  if (type === "PaymentStatusFollowUp") return "geekblue";
-  if (type === "DailySpendDue") return "cyan";
-  if (type === "DebtRecoveryFollowUp") return "magenta";
-  if (type === "PaymentVoucherFollowUp") return "volcano";
-  return "blue";
+type DashboardBarItem = {
+  label: string;
+  value: number;
+};
+
+function DashboardBarList({
+  items,
+  formatValue,
+  tone,
+  emptyText
+}: {
+  items: DashboardBarItem[];
+  formatValue: (value: number) => string;
+  tone: "demand" | "cost" | "sales";
+  emptyText: string;
+}) {
+  if (items.length === 0) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
+  }
+
+  const maxValue = Math.max(...items.map((item) => item.value), 1);
+
+  return (
+    <div className={`barList barList-${tone}`} role="list">
+      {items.map((item) => (
+        <div className="barRow" role="listitem" key={item.label}>
+          <div className="barRowHeader"><span title={item.label}>{item.label}</span><strong>{formatValue(item.value)}</strong></div>
+          <div className="barTrack" aria-hidden="true"><span style={{ width: `${item.value <= 0 ? 0 : Math.max(4, item.value * 100 / maxValue)}%` }} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DashboardRepairCostChart({
+  items,
+  emptyText
+}: {
+  items: DashboardBarItem[];
+  emptyText: string;
+}) {
+  if (items.length === 0) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
+  }
+
+  const maxValue = Math.max(...items.map((item) => item.value), 1);
+
+  return (
+    <div className="repairCostChart" role="list" aria-label="Repair cost exposure by vehicle">
+      {items.map((item, index) => {
+        const width = item.value <= 0 ? 0 : Math.max(5, item.value * 100 / maxValue);
+        return (
+          <div className="repairCostRow" role="listitem" key={item.label}>
+            <div className="repairCostRowHeader">
+              <span className="repairCostRank">{index + 1}</span>
+              <strong className="repairCostLabel" title={item.label}>{item.label}</strong>
+              <strong className="repairCostAmount">{formatCompactMoney(item.value)}</strong>
+            </div>
+            <div className="repairCostTrack" aria-hidden="true"><i style={{ width: `${width}%` }} /></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DashboardLeadTrend({ items }: { items: Array<{ label: string; count: number }> }) {
+  const maxCount = Math.max(...items.map((item) => item.count), 1);
+  const accessibleSummary = items.map((item) => `${item.label}: ${item.count}`).join(", ");
+  const chartWidth = 780;
+  const chartHeight = 156;
+  const baseline = 130;
+  const leftInset = 30;
+  const rightInset = 30;
+  const usableWidth = chartWidth - leftInset - rightInset;
+  const points = items.map((item, index) => {
+    const x = items.length <= 1 ? chartWidth / 2 : leftInset + (usableWidth * index / (items.length - 1));
+    const y = baseline - (item.count / maxCount) * 96;
+    return { ...item, x, y };
+  });
+  const linePoints = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const areaPath = points.length ? `M ${points[0].x} ${baseline} L ${linePoints.replaceAll(" ", " L ")} L ${points[points.length - 1].x} ${baseline} Z` : "";
+
+  return (
+    <div className="leadLineChart" role="img" aria-label={`Lead volume by month. ${accessibleSummary}`}>
+      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} aria-hidden="true" preserveAspectRatio="xMidYMid meet" shapeRendering="geometricPrecision">
+        {[34, 82, baseline].map((y) => <line key={y} x1={leftInset} x2={chartWidth - rightInset} y1={y} y2={y} vectorEffect="non-scaling-stroke" shapeRendering="crispEdges" />)}
+        {areaPath && <path className="leadLineArea" d={areaPath} />}
+        {linePoints && <polyline className="leadLinePath" points={linePoints} vectorEffect="non-scaling-stroke" />}
+        {points.map((point) => <g key={point.label}><circle cx={point.x} cy={point.y} r="4.5" vectorEffect="non-scaling-stroke" /><text x={point.x} y={Math.max(17, point.y - 12)}>{point.count}</text></g>)}
+      </svg>
+      <div className="leadLineLabels">
+        {items.map((item) => <small key={item.label}>{item.label}</small>)}
+      </div>
+    </div>
+  );
+}
+
+function DashboardProfitTrend({ items }: { items: Array<{ label: string; estimatedProfit: number; soldProfit: number; soldCount: number }> }) {
+  if (items.length === 0) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No monthly profit data yet." />;
+  const width = 780;
+  const height = 178;
+  const baseline = 138;
+  const inset = 30;
+  const maxValue = Math.max(...items.flatMap((item) => [Math.abs(item.estimatedProfit), Math.abs(item.soldProfit)]), 1);
+  const pointFor = (value: number, index: number) => ({
+    x: items.length === 1 ? width / 2 : inset + ((width - inset * 2) * index / (items.length - 1)),
+    y: baseline - (value / maxValue) * 94
+  });
+  const estimatedPoints = items.map((item, index) => pointFor(item.estimatedProfit, index));
+  const soldPoints = items.map((item, index) => pointFor(item.soldProfit, index));
+  const path = (points: Array<{ x: number; y: number }>) => points.map((point) => `${point.x},${point.y}`).join(" ");
+
+  return (
+    <div className="profitLineChart" role="img" aria-label={items.map((item) => `${item.label}: sold ${formatCompactMoney(item.soldProfit)}, projected ${formatCompactMoney(item.estimatedProfit)}`).join(", ")}>
+      <div className="profitLegend"><span><i className="profitLegendSold" />Actual sold profit</span><span><i className="profitLegendEstimated" />Projected stock profit</span></div>
+      <svg viewBox={`0 0 ${width} ${height}`} aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+        {[44, 91, baseline].map((y) => <line key={y} x1={inset} x2={width - inset} y1={y} y2={y} />)}
+        <polyline className="profitLineEstimated" points={path(estimatedPoints)} />
+        <polyline className="profitLineSold" points={path(soldPoints)} />
+        {soldPoints.map((point, index) => <g key={items[index].label}><circle className="profitPointSold" cx={point.x} cy={point.y} r="4" /><text x={point.x} y={Math.max(18, point.y - 12)}>{formatCompactMoney(items[index].soldProfit)}</text></g>)}
+      </svg>
+      <div className="profitLineLabels">{items.map((item) => <small key={item.label}>{item.label}<br />{item.soldCount} sold</small>)}</div>
+    </div>
+  );
+}
+
+function DashboardLeadVehicleList({ items }: { items: Array<{ label: string; count: number }> }) {
+  return (
+    <section className="leadVehicleList" aria-labelledby="lead-vehicle-list-title">
+      <div className="leadVehicleListHeader">
+        <strong id="lead-vehicle-list-title">Enquiry vehicles / 询问车辆</strong>
+        <span>All-time count</span>
+      </div>
+      {items.length > 0 ? (
+        <div className="leadVehicleListRows" role="list">
+          {items.map((item) => (
+            <div className="leadVehicleListRow" role="listitem" key={item.label}>
+              <span title={item.label}>{item.label}</span>
+              <strong>{item.count} {item.count === 1 ? "enquiry" : "enquiries"}</strong>
+            </div>
+          ))}
+        </div>
+      ) : <Typography.Text type="secondary">No vehicle-linked enquiries yet.</Typography.Text>}
+    </section>
+  );
+}
+
+function DashboardAgingActionBoard({
+  items,
+  onNavigate
+}: {
+  items: Array<{ label: "0-30" | "31-60" | "61+"; count: number }>;
+  onNavigate: (path: string) => void;
+}) {
+  const total = items.reduce((sum, item) => sum + item.count, 0);
+  const agingActions = [
+    { bucket: "0-30" as const, title: "Fresh stock / 新鲜库存", action: "Normal sales follow-up", button: "Open fresh stock", focus: "fresh" as const },
+    { bucket: "31-60" as const, title: "Watch list / 关注库存", action: "Review price and promotion", button: "Open watch list", focus: "watch" as const },
+    { bucket: "61+" as const, title: "Urgent stock / 紧急库存", action: "Set price or clearance action", button: "Open urgent stock", focus: "aging" as const }
+  ];
+
+  return (
+    <div className="agingActionBoard" role="list" aria-label="Vehicle aging action board">
+      {agingActions.map((item) => {
+        const count = items.find((bucket) => bucket.label === item.bucket)?.count ?? 0;
+        const share = total > 0 ? Math.round(count * 100 / total) : 0;
+        return (
+          <article className={`agingAction agingAction${item.bucket.replace("+", "Plus").replace("-", "To")}`} role="listitem" key={item.bucket}>
+            <div className="agingActionHeader"><strong>{item.title}</strong><span>{item.bucket} days</span></div>
+            <div className="agingActionCount"><strong>{count}</strong><span>{share}% of stock</span></div>
+            <p>{item.action}</p>
+            <Button size="small" onClick={() => onNavigate(dashboardMetricTarget(item.focus))}>{item.button}</Button>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function DashboardLeadStatus({ stages, closureRate }: { stages: Array<{ label: string; count: number }>; closureRate: number }) {
+  const radius = 46;
+  const circumference = 2 * Math.PI * radius;
+  const maxCount = Math.max(...stages.map((stage) => stage.count), 1);
+
+  return (
+    <div className="salesFunnel">
+      <div className="conversionDial" aria-label={`${closureRate}% of lead cases are closed`} role="img">
+        <svg viewBox="0 0 112 112" aria-hidden="true">
+          <circle cx="56" cy="56" r={radius} />
+          <circle cx="56" cy="56" r={radius} style={{ strokeDasharray: circumference, strokeDashoffset: circumference * (1 - closureRate / 100) }} />
+        </svg>
+        <span><strong>{closureRate}%</strong>case closure</span>
+      </div>
+      <div className="funnelRows">
+        {stages.map((stage) => (
+          <div className="funnelRow" key={stage.label}>
+            <span>{dashboardLabel(stage.label)}</span>
+            <div className="funnelTrack" aria-hidden="true"><i className={`funnel-${stage.label.toLowerCase()}`} style={{ width: `${stage.count <= 0 ? 0 : Math.max(5, stage.count * 100 / maxCount)}%` }} /></div>
+            <strong>{stage.count}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DashboardRepairWorkList({ items }: { items: Array<{ label: string; count: number }> }) {
+  return (
+    <section className="repairWorkList" aria-label="Incomplete repair jobs by vehicle">
+      {items.length > 0 ? (
+        <div role="list">
+          {items.map((item) => (
+            <div className="repairWorkRow" role="listitem" key={item.label}>
+              <span title={item.label}>{item.label}</span>
+              <Tag className="dashboardStatusBadge" color="gold">{item.count} open {item.count === 1 ? "job" : "jobs"}</Tag>
+            </div>
+          ))}
+        </div>
+      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No incomplete repair jobs." />}
+      <Typography.Text type="secondary">Completion dates are not recorded yet, so this view shows only confirmed open work.</Typography.Text>
+    </section>
+  );
 }
 
 function Metric({
@@ -1779,6 +2066,12 @@ function formatMoney(value: number) {
   return formatRinggit(value);
 }
 
+function formatRecordDate(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("en-SG", { dateStyle: "medium", timeStyle: "short" });
+}
+
 function formatCompactMoney(value: number) {
   return formatMoney(value);
 }
@@ -1787,6 +2080,26 @@ function formatOcrMoney(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "RM -";
   const numeric = Number(value);
   return Number.isFinite(numeric) ? formatMoney(numeric) : `RM ${value}`;
+}
+
+function repairReceiptItemsFromOcr(values: OcrReviewValues, job: OcrJob): RepairReceiptItemInput[] {
+  const extractedItems = (job.result?.lineItems ?? [])
+    .map((item, index) => ({
+      description: item.description?.trim() || "",
+      repairPart: item.description?.trim() || undefined,
+      amount: Number(String(item.amount ?? "0").replace(/[^0-9.-]/g, "")) || 0,
+      sortOrder: index + 1
+    }))
+    .filter((item) => item.description);
+
+  return extractedItems.length > 0
+    ? extractedItems
+    : [{
+        description: String(values.whatToDo ?? "").trim(),
+        repairPart: String(values.repairPart ?? "").trim() || undefined,
+        amount: Number(values.amount ?? 0),
+        sortOrder: 1
+      }];
 }
 
 
@@ -1798,7 +2111,9 @@ function RepairPage({
   onCreateInvoice,
   onUpdateInvoice,
   onCreateRepair,
+  onCreateRepairWithReceipt,
   onUpdateRepair,
+  onConfirmReceipt,
   onApproveRepair,
   onUploadDocument
 }: {
@@ -1809,7 +2124,9 @@ function RepairPage({
   onCreateInvoice: (invoice: SupplierInvoice) => Promise<void>;
   onUpdateInvoice: (invoice: SupplierInvoice) => Promise<void>;
   onCreateRepair: (repair: RepairJob) => Promise<void>;
+  onCreateRepairWithReceipt: (request: CreateRepairWithReceiptRequest) => Promise<CreateRepairWithReceiptResponse>;
   onUpdateRepair: (repair: RepairJob) => Promise<void>;
+  onConfirmReceipt: (repairId: string, receipt: ConfirmRepairReceiptRequest) => Promise<unknown>;
   onApproveRepair: (repairId: string, notes?: string) => Promise<void>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
@@ -1819,15 +2136,30 @@ function RepairPage({
   const [supplierInvoiceEditorOpen, setSupplierInvoiceEditorOpen] = useState(false);
   const [repairEditorOpen, setRepairEditorOpen] = useState(false);
   const [repairCreateOpen, setRepairCreateOpen] = useState(false);
-  const [supplierInvoiceOcrDraft, setSupplierInvoiceOcrDraft] = useState<OcrReviewValues | null>(null);
+  const [repairCreateMode, setRepairCreateMode] = useState<"receipt" | "manual">("receipt");
+  const [repairCreateForm] = Form.useForm();
+  const repairCreateVehicleId = Form.useWatch("vehicleId", repairCreateForm) as string | undefined;
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [repairDocuments, setRepairDocuments] = useState<VehicleDocument[]>([]);
+  const [repairReceipts, setRepairReceipts] = useState<RepairReceiptWithItems[]>([]);
   const [refurbishmentFilters, setRefurbishmentFilters] = useState<RefurbishmentFilters>({});
   const [mobileRefurbishmentPage, setMobileRefurbishmentPage] = useState(1);
   const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId);
   const selectedSupplierInvoice = supplierInvoices.find((invoice) => invoice.id === editSupplierInvoiceId) ?? supplierInvoices[0];
   const selectedEditRepair = repairs.find((repair) => repair.id === editRepairId) ?? repairs[0];
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedRepair) {
+      setRepairReceipts([]);
+      return () => { active = false; };
+    }
+    void getRepairReceipts(selectedRepair.id)
+      .then((receipts) => { if (active) setRepairReceipts(receipts); })
+      .catch(() => { if (active) setRepairReceipts([]); });
+    return () => { active = false; };
+  }, [selectedRepair?.id, documentReloadKey]);
 
   useEffect(() => {
     if (!editSupplierInvoiceId && supplierInvoices[0]?.id) {
@@ -1908,8 +2240,9 @@ function RepairPage({
       onOk: () => onApproveRepair(repair.id, repair.approvalNotes)
     });
   };
-  const refurbishmentRecordCount = repairs.length + supplierInvoices.length;
-  const refurbishmentRecords = filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters);
+  const refurbishmentRecordCount = repairs.length;
+  const refurbishmentRecords = filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters)
+    .filter((record) => record.kind === "repair") as RefurbishmentRecord[];
   const refurbishmentFiltersActive = Object.values(refurbishmentFilters).some((value) => value !== undefined && value !== "" && value !== "All");
   const mobileRefurbishmentPageCount = Math.max(1, Math.ceil(refurbishmentRecords.length / mobileWorkflowPageSize));
   const clampedMobileRefurbishmentPage = Math.min(mobileRefurbishmentPage, mobileRefurbishmentPageCount);
@@ -1926,13 +2259,12 @@ function RepairPage({
     : "No repair or supplier invoice records yet.";
   const refurbishmentColumns: ColumnsType<RefurbishmentRecord> = [
     {
-      title: "Type / 类型",
-      width: 150,
-      render: (_, row) => row.kind === "repair" ? <Tag color="blue">Repair Task</Tag> : <Tag color="purple">Supplier Invoice</Tag>
-    },
-    {
       title: "Car Plate / 车牌",
       render: (_, row) => plateFor(vehicles, row.kind === "repair" ? row.repair.vehicleId : row.invoice.vehicleId)
+    },
+    {
+      title: "Created / 建立时间",
+      render: (_, row) => formatRecordDate(row.kind === "repair" ? row.repair.createdAt : row.invoice.createdAt)
     },
     {
       title: "Record / 记录",
@@ -2032,7 +2364,10 @@ function RepairPage({
                 repairPart: values.repairPart,
                 whatToDo: values.whatToDo,
                 cost: Number(values.cost ?? 0),
-                checklistDone: values.checklistDone === "done"
+                checklistDone: values.checklistDone === "done",
+                assignedTo: values.assignedTo?.trim() || undefined,
+                startedOn: values.startedOn || undefined,
+                expectedCompletionDate: values.expectedCompletionDate || undefined
               };
               const repairBlockReason = repairCreateBlockReason(repair);
               if (repairBlockReason) {
@@ -2051,10 +2386,13 @@ function RepairPage({
             <Form.Item name="id" label="Selected Repair">
               <Select options={repairs.map((repair) => ({ value: repair.id, label: `${plateFor(vehicles, repair.vehicleId)} / ${repair.whatToDo}` }))} onChange={setUploadRepairId} />
             </Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
             <Form.Item name="whatToDo" label="What To Do" rules={[{ required: true }]}><Input placeholder="Polish, wash, spare part..." /></Form.Item>
-            <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="assignedTo" label="Repair owner / 负责人"><Input placeholder="Staff or workshop name" /></Form.Item>
+            <Form.Item name="startedOn" label="Started on / 开始日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="expectedCompletionDate" label="Expected completion / 预计完成"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
             <Descriptions size="small" column={1} className="fullWidth">
               <Descriptions.Item label="Approval / 审批">{selectedRepair.approvalStatus ?? "Pending"}</Descriptions.Item>
@@ -2078,20 +2416,39 @@ function RepairPage({
                       vehicleId={selectedRepair.vehicleId}
                       category={category}
                       compact
+                      commitAfterApply
                       uploadOwner={{ repairJobId: selectedRepair.id }}
                       buttonLabel={isPresent ? "Upload another repair invoice" : "Upload repair invoice"}
-                      applyLabel="Use details in supplier invoice"
+                      applyLabel="Review and use repair details"
+                      existingValues={{
+                        vehicleId: selectedRepair.vehicleId,
+                        repairPart: selectedRepair.repairPart,
+                        whatToDo: selectedRepair.whatToDo,
+                        amount: selectedRepair.cost
+                      }}
                       fields={[
                         { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
                         { name: "supplierName", label: "Supplier" },
                         { name: "invoiceNumber", label: "Invoice" },
                         { name: "plateNumberOnInvoice", label: "Plate on Supplier Invoice" },
-                        { name: "amount", label: "Amount", type: "number" }
+                        { name: "amount", label: "Amount", type: "number" },
                       ]}
                       onUploaded={() => setDocumentReloadKey((value) => value + 1)}
-                      onApply={(values) => {
-                        setSupplierInvoiceOcrDraft(values);
-                        setRepairCreateOpen(true);
+                      onApply={async (values, job) => {
+                        const items = repairReceiptItemsFromOcr(values, job);
+                        if (items.some((item) => !item.description)) {
+                          message.warning("Add a repair item description before confirming this receipt.");
+                          return;
+                        }
+                        await onConfirmReceipt(selectedRepair.id, {
+                          documentId: job.documentId,
+                          supplierName: String(values.supplierName ?? "").trim() || undefined,
+                          invoiceNumber: String(values.invoiceNumber ?? "").trim() || undefined,
+                          totalAmount: Number(values.amount ?? 0),
+                          items
+                        });
+                        setDocumentReloadKey((value) => value + 1);
+                        message.success(`${items.length} repair item${items.length === 1 ? "" : "s"} saved under this receipt.`);
                       }}
                     />
                   )
@@ -2104,6 +2461,21 @@ function RepairPage({
               categories={repairDocumentCategories}
               repairJobId={selectedRepair.id}
               reloadKey={documentReloadKey}
+            />
+            <Typography.Text strong>Confirmed receipt items / 已确认收据项目</Typography.Text>
+            <Table
+              size="small"
+              rowKey="id"
+              columns={[
+                { title: "Receipt / 收据", render: (_, row) => row.invoiceNumber || row.supplierName || "Receipt" },
+                { title: "Item / 项目", dataIndex: "description" },
+                { title: "Part / 配件", dataIndex: "repairPart", render: (value) => value || "-" },
+                { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(Number(value ?? 0)) }
+              ]}
+              dataSource={repairReceipts.flatMap(({ receipt, items }) => items.map((item) => ({ ...item, invoiceNumber: receipt.invoiceNumber, supplierName: receipt.supplierName })))}
+              pagination={tablePagination(8)}
+              scroll={{ x: 720 }}
+              locale={{ emptyText: "No receipt items confirmed for this repair yet." }}
             />
           </Space>
         </ProCard>
@@ -2123,45 +2495,9 @@ function RepairPage({
         title="Supplier & Refurbishment / 供应商与整备"
         extra={<Space wrap><Tag color="blue">{refurbishmentRecordCount} records</Tag><Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button></Space>}
       >
-        <Space className="toolbarForm workflowFilterBar" wrap>
-          <Input.Search
-            allowClear
-            placeholder="Search plate, task, supplier, or invoice"
-            value={refurbishmentFilters.keyword}
-            onChange={(event) => updateRefurbishmentFilters({ keyword: event.target.value })}
-            style={{ width: 280 }}
-          />
-          <Select
-            value={refurbishmentFilters.kind ?? "All"}
-            onChange={(kind) => updateRefurbishmentFilters({ kind })}
-            options={[
-              { value: "All", label: "All record types" },
-              { value: "Repair", label: "Repair tasks" },
-              { value: "SupplierInvoice", label: "Supplier invoices" }
-            ]}
-            style={{ width: 180 }}
-          />
-          <Select
-            value={refurbishmentFilters.state ?? "All"}
-            onChange={(state) => updateRefurbishmentFilters({ state })}
-            options={[
-              { value: "All", label: "All states" },
-              { value: "Open", label: "Open / pending" },
-              { value: "Done", label: "Done / paid" }
-            ]}
-            style={{ width: 170 }}
-          />
+        <div className="workflowFilterSummary">
           <Tag color={refurbishmentFiltersActive ? "blue" : "default"}>{refurbishmentFiltersActive ? `${refurbishmentRecords.length} of ${refurbishmentRecordCount} matching` : `${refurbishmentRecordCount} record${refurbishmentRecordCount === 1 ? "" : "s"}`}</Tag>
-          {refurbishmentFiltersActive && <Button
-            size="small"
-            onClick={() => {
-              setRefurbishmentFilters({});
-              setMobileRefurbishmentPage(1);
-            }}
-          >
-            Clear filters
-          </Button>}
-        </Space>
+        </div>
         <div className="mobileRecordList">
           {refurbishmentRecords.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={refurbishmentEmptyText} />}
           {mobileRefurbishmentRecords.map((record) => {
@@ -2263,7 +2599,7 @@ function RepairPage({
           }}
         >
           <Form.Item name="id" label="Selected Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
@@ -2275,17 +2611,18 @@ function RepairPage({
       </Drawer>
       <Modal
         title="New Repair Task / 新增整备事项"
-        width={760}
+        width={920}
         open={repairCreateOpen}
         onCancel={() => {
           setRepairCreateOpen(false);
-          setSupplierInvoiceOcrDraft(null);
+          setRepairCreateMode("receipt");
+          repairCreateForm.resetFields();
         }}
         footer={null}
         destroyOnClose
         className="recordCreateModal"
       >
-        <Form layout="vertical" className="modalForm formGrid" onFinish={async (values) => {
+        <Form form={repairCreateForm} layout="vertical" className="modalForm formGrid" onFinish={async (values) => {
           const invoice: SupplierInvoice = {
             id: newId(),
             vehicleId: values.vehicleId,
@@ -2319,8 +2656,9 @@ function RepairPage({
           const saveRepair = async () => {
             await onCreateInvoice(invoice);
             await onCreateRepair(repair);
-            setSupplierInvoiceOcrDraft(null);
+            repairCreateForm.resetFields();
             setRepairCreateOpen(false);
+            setRepairCreateMode("receipt");
           };
 
           if (repair.checklistDone) {
@@ -2329,19 +2667,122 @@ function RepairPage({
           }
 
           await saveRepair();
-        }} initialValues={{ vehicleId: supplierInvoiceOcrDraft?.vehicleId ?? vehicles[0]?.id, checklistDone: "pending", ...supplierInvoiceOcrDraft }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
-          <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-          <Form.Item name="dueDate" label="Invoice Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="paidAt" label="Paid Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
-          <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
-          <Form.Item name="checklistDone" label="Checklist"><Select options={[{ value: "done", label: "Done" }, { value: "pending", label: "Pending" }]} /></Form.Item>
-          <Alert type="info" showIcon message="Repair approval is recorded separately by a Boss/Admin after the task and cost are checked." />
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item>
+        }} initialValues={{ vehicleId: vehicles[0]?.id, checklistDone: "pending" }}>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Radio.Group
+            className="repairCreateMode fullWidth"
+            value={repairCreateMode}
+            optionType="button"
+            buttonStyle="solid"
+            onChange={(event) => setRepairCreateMode(event.target.value)}
+          >
+            <Radio.Button value="receipt">From receipt / 从收据建立</Radio.Button>
+            <Radio.Button value="manual">Enter manually / 手动建立</Radio.Button>
+          </Radio.Group>
+          {repairCreateMode === "receipt" ? (
+            <div className="fullWidth repairReceiptFlow">
+              <OcrUploadReview
+                vehicleId={repairCreateVehicleId}
+                category="RepairInvoice"
+                buttonLabel="Upload receipt & scan"
+                applyLabel="Create repair from this receipt"
+                commitAfterApply
+                reviewPresentation="inline"
+                compact
+                disabled={!repairCreateVehicleId}
+                fields={[
+                  { name: "supplierName", label: "Supplier" },
+                  { name: "invoiceNumber", label: "Receipt / Invoice reference" },
+                  { name: "plateNumberOnInvoice", label: "Plate on receipt / invoice / 发票车牌" },
+                  { name: "amount", label: "Amount", type: "number" },
+                ]}
+                onApply={async (values, job) => {
+                const items = repairReceiptItemsFromOcr(values, job);
+                if (items.some((item) => !item.description)) {
+                  throw new Error("Add a repair item description before confirming this receipt.");
+                }
+
+                const suggestedTask = String(values.whatToDo ?? items.map((item) => item.description).join("; ")).trim();
+                repairCreateForm.setFieldsValue({
+                  supplierName: String(values.supplierName ?? "").trim(),
+                  invoiceNumber: String(values.invoiceNumber ?? "").trim(),
+                  plateNumberOnInvoice: String(values.plateNumberOnInvoice ?? "").trim() || undefined,
+                  amount: Number(values.amount ?? 0),
+                  repairPart: String(values.repairPart ?? items[0]?.repairPart ?? "").trim(),
+                  whatToDo: suggestedTask
+                });
+
+                const formValues = repairCreateForm.getFieldsValue(true) as Record<string, unknown>;
+                if (!String(formValues.vehicleId ?? "").trim()
+                  || !String(formValues.supplierName ?? "").trim()
+                  || !String(formValues.invoiceNumber ?? "").trim()
+                  || Number(formValues.amount ?? 0) <= 0) {
+                  throw new Error("Complete the required repair fields before creating this repair from the receipt.");
+                }
+
+                const invoice: SupplierInvoice = {
+                  id: newId(),
+                  vehicleId: String(formValues.vehicleId),
+                  supplierName: String(formValues.supplierName ?? "").trim(),
+                  invoiceNumber: String(formValues.invoiceNumber ?? "").trim(),
+                  plateNumberOnInvoice: String(formValues.plateNumberOnInvoice ?? "").trim() || undefined,
+                  amount: Number(formValues.amount ?? 0),
+                  dueDate: String(formValues.dueDate ?? "").trim() || undefined,
+                  paidAt: String(formValues.paidAt ?? "").trim() || undefined
+                };
+                const invoiceBlockReason = supplierInvoiceCreateBlockReason({ ...invoice, plateNumberOnInvoice: undefined }, supplierInvoices, vehicles);
+                if (invoiceBlockReason) throw new Error(invoiceBlockReason);
+
+                const repair: RepairJob = {
+                  id: newId(),
+                  vehicleId: invoice.vehicleId,
+                  repairPart: String(formValues.repairPart ?? "").trim(),
+                  whatToDo: String(formValues.whatToDo ?? "").trim(),
+                  cost: invoice.amount,
+                  checklistDone: formValues.checklistDone === "done"
+                };
+                const repairBlockReason = repairCreateBlockReason(repair);
+                if (repairBlockReason) throw new Error(repairBlockReason);
+
+                const created = await onCreateRepairWithReceipt({
+                  repair,
+                  invoice,
+                  receipt: {
+                    documentId: job.documentId,
+                    supplierName: invoice.supplierName,
+                    invoiceNumber: invoice.invoiceNumber,
+                    totalAmount: invoice.amount,
+                    items
+                  }
+                });
+                repairCreateForm.resetFields();
+                setRepairCreateOpen(false);
+                setRepairCreateMode("receipt");
+                setUploadRepairId(created.repair.id);
+                message.success(`${items.length} receipt item${items.length === 1 ? "" : "s"} added to the new repair.`);
+                }}
+              />
+            </div>
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              message="Manual entry / 手动建立"
+              description="Enter the supplier invoice and repair details below, then save the task."
+            />
+          )}
+          {repairCreateMode === "manual" ? <>
+            <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="invoiceNumber" label="Receipt / Invoice reference" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="plateNumberOnInvoice" label="Plate on receipt / invoice / 发票车牌"><Input placeholder="Plate number printed on the receipt or invoice" /></Form.Item>
+            <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="dueDate" label="Invoice Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="paidAt" label="Paid Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
+            <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
+          </> : null}
+          {repairCreateMode === "manual" ? <Alert type="info" showIcon message="Repair approval is recorded separately by a Boss/Admin after the task and cost are checked." /> : null}
+          {repairCreateMode === "manual" ? <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item> : null}
         </Form>
       </Modal>
       <Drawer
@@ -2383,7 +2824,7 @@ function RepairPage({
           }}
         >
           <Form.Item name="id" label="Edit Repair"><Select options={repairs.map((repair) => ({ value: repair.id, label: `${plateFor(vehicles, repair.vehicleId)} / ${repair.whatToDo}` }))} onChange={selectRepair} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
           <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
             <Form.Item name="cost" label="Cost"><InputNumber className="fullWidth" min={0} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
@@ -2663,7 +3104,7 @@ function LoanPage({
             }}
           >
             <Form.Item name="id" label="Selected Loan"><Select options={loans.map((loan) => ({ value: loan.id, label: `${plateFor(vehicles, loan.vehicleId)} / ${loan.status}` }))} onChange={setUploadLoanId} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}>
               <Select
                 showSearch
@@ -2730,13 +3171,6 @@ function LoanPage({
           action={<Button size="small" onClick={onClearDashboardFocus}>Clear focus</Button>}
         />}
         <Space className="toolbarForm workflowFilterBar" wrap>
-          <Input.Search
-            allowClear
-            placeholder="Search plate, customer, phone, or date"
-            value={loanFilters.keyword}
-            onChange={(event) => updateLoanFilters({ keyword: event.target.value })}
-            style={{ width: 280 }}
-          />
           <Select
             value={loanFilters.status ?? "All"}
             onChange={(status) => updateLoanFilters({ status })}
@@ -2855,7 +3289,7 @@ function LoanPage({
           onCreate(loan);
           setLoanCreateOpen(false);
         }} initialValues={{ vehicleId: vehicles[0]?.id, customerId: customers[0]?.id, status: "Pending", louApproved: false, louDone: false, submittedAt: today() }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}>
             <Select
               showSearch
@@ -2914,7 +3348,7 @@ function LoanPage({
           }}
         >
           <Form.Item name="id" label="Edit Loan"><Select options={loans.map((loan) => ({ value: loan.id, label: `${plateFor(vehicles, loan.vehicleId)} / ${loan.status}` }))} onChange={selectLoan} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}>
             <Select
               showSearch
@@ -3498,13 +3932,6 @@ function DeliveryPage({
           />
           {eligibleDeliveryVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before scheduling delivery." />}
           <Space className="toolbarForm workflowFilterBar" wrap>
-            <Input.Search
-              allowClear
-              placeholder="Search plate, PIC, date, or status"
-              value={deliveryFilters.keyword}
-              onChange={(event) => updateDeliveryFilters({ keyword: event.target.value })}
-              style={{ width: 280 }}
-            />
             <Select
               value={deliveryFilters.status ?? "All"}
               onChange={(status) => updateDeliveryFilters({ status })}
@@ -3790,6 +4217,8 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
   const [leadSortMode, setLeadSortMode] = useState<"CloseAsap" | "Received">("CloseAsap");
+  const [closingLead, setClosingLead] = useState<Lead | null>(null);
+  const [closureOutcome, setClosureOutcome] = useState<"Sold" | "Lost" | "Invalid">("Lost");
   const filteredLeads = filterLeadsForTriage(leads, { status: leadStatusFilter, link: leadLinkFilter });
   const displayedLeads = leadSortMode === "CloseAsap"
     ? sortLeadsByHotCarDemand(filteredLeads, vehicles)
@@ -3857,7 +4286,7 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
           }
 
           if (lead.status === "Contacted") {
-            onUpdate({ ...lead, status: "Closed" });
+            setClosingLead(lead);
           }
         }}
       >
@@ -4086,6 +4515,23 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
           locale={{ emptyText: "No leads match the current filters." }}
         />
       </ProCard>
+      <Modal
+        title="Close lead / 结束询问"
+        open={Boolean(closingLead)}
+        okText="Close lead"
+        onCancel={() => setClosingLead(null)}
+        onOk={() => {
+          if (closingLead) onUpdate({ ...closingLead, status: "Closed", closureOutcome });
+          setClosingLead(null);
+        }}
+      >
+        <Typography.Paragraph type="secondary">Record the real outcome so the Dashboard can distinguish sales from lost enquiries.</Typography.Paragraph>
+        <Select value={closureOutcome} onChange={setClosureOutcome} className="fullWidth" options={[
+          { value: "Sold", label: "Sold / 已成交" },
+          { value: "Lost", label: "Lost / 已流失" },
+          { value: "Invalid", label: "Invalid / 无效询问" }
+        ]} />
+      </Modal>
     </Space>
   );
 }
@@ -4361,16 +4807,6 @@ function AdminPage({
                   <span><strong>{adminStaffCount}</strong>Admin</span>
                 </div>
                 <Space className="toolbarForm staffFilterBar" wrap>
-                  <Input.Search
-                    allowClear
-                    placeholder="Search name, email, or role"
-                    value={staffKeywordFilter}
-                    onChange={(event) => {
-                      setStaffKeywordFilter(event.target.value);
-                      setMobileStaffPage(1);
-                    }}
-                    style={{ width: 240 }}
-                  />
                   <Select
                     value={staffStatusFilter}
                     options={[

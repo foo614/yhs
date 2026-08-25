@@ -20,7 +20,10 @@ public sealed record OcrExtractionResult(
     Dictionary<string, decimal> FieldConfidence,
     Dictionary<string, string?> Fields,
     string RawText,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<OcrLineItem>? LineItems = null);
+
+public sealed record OcrLineItem(string Description, string? Quantity, string? UnitPrice, string? Amount, decimal? Confidence, string? RawText);
 
 public sealed class GoogleDocumentAiOptions
 {
@@ -279,6 +282,36 @@ public static class GoogleDocumentAiEntityMapper
             fieldConfidence["documentDate"] = documentDate.Value.Confidence;
         }
 
+        if (extraction.DocumentCategory == FileCategory.RepairInvoice)
+        {
+            var repairDetails = entities
+                .Where(entity => new[] { "line_item", "line_item/description", "description" }.Contains(entity.Type, StringComparer.OrdinalIgnoreCase))
+                .Select(entity => entity.Value.Trim())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (repairDetails.Count > 0)
+            {
+                fields["repairPart"] = repairDetails[0];
+                fields["whatToDo"] = string.Join(Environment.NewLine, repairDetails);
+                var repairConfidence = entities
+                    .Where(entity => repairDetails.Contains(entity.Value.Trim(), StringComparer.OrdinalIgnoreCase))
+                    .Select(entity => entity.Confidence)
+                    .DefaultIfEmpty(0)
+                    .Average();
+                fieldConfidence["repairPart"] = repairConfidence;
+                fieldConfidence["whatToDo"] = repairConfidence;
+            }
+
+            var lineItems = repairDetails
+                .Select(value => new OcrLineItem(value, null, null, null, entities
+                    .Where(entity => string.Equals(entity.Value.Trim(), value, StringComparison.OrdinalIgnoreCase))
+                    .Select(entity => (decimal?)entity.Confidence)
+                    .FirstOrDefault(), value))
+                .ToList();
+            return extraction with { Fields = fields, FieldConfidence = fieldConfidence, LineItems = lineItems };
+        }
+
         return extraction with { Fields = fields, FieldConfidence = fieldConfidence };
     }
 
@@ -447,8 +480,13 @@ public sealed class LocalMockOcrExtractor : IOcrExtractor
 
     private static string BuildRawText(DocumentBlob document)
     {
+        if (!document.MimeType.StartsWith("text/", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Local OCR mock cannot read image files. Configure Google Document AI to extract values from uploaded photos.");
+        }
+
         var text = System.Text.Encoding.UTF8.GetString(document.Content);
-        if (!string.IsNullOrWhiteSpace(text) && text.Any(char.IsLetter)) return text;
+        if (!string.IsNullOrWhiteSpace(text)) return text;
 
         return document.Category switch
         {
@@ -482,7 +520,9 @@ public static class OcrExtractionParser
         var fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         {
             ["vehicleId"] = document.VehicleId?.ToString(),
-            ["plateNumber"] = FindPlate(text) ?? vehicles.FirstOrDefault(vehicle => vehicle.Id == document.VehicleId)?.PlateNumber,
+            ["plateNumber"] = document.Category == FileCategory.RepairInvoice
+                ? vehicles.FirstOrDefault(vehicle => vehicle.Id == document.VehicleId)?.PlateNumber
+                : FindPlate(text) ?? vehicles.FirstOrDefault(vehicle => vehicle.Id == document.VehicleId)?.PlateNumber,
             ["invoiceNumber"] = FindValue(text, "invoice", "inv") ?? MockReference(document, "INV", allowMockFallbacks),
             ["receiptNumber"] = FindValue(text, "receipt", "rcpt"),
             ["amount"] = FindAmount(text) ?? MockAmount(document, allowMockFallbacks),
@@ -495,8 +535,12 @@ public static class OcrExtractionParser
 
         if (document.Category == FileCategory.RepairInvoice)
         {
-            fields["supplierName"] = FindValue(text, "supplier", "vendor") ?? (allowMockFallbacks ? "OCR Demo Supplier" : null);
-            fields["plateNumberOnInvoice"] = fields["plateNumber"];
+            fields["supplierName"] = FindRepairSupplier(text) ?? (allowMockFallbacks ? "OCR Demo Supplier" : null);
+            fields["invoiceNumber"] = FindRepairInvoiceNumber(text) ?? fields["invoiceNumber"];
+            fields["amount"] = FindRepairTotal(text) ?? fields["amount"];
+            fields["plateNumberOnInvoice"] = FindRepairVehiclePlate(text, vehicles);
+            fields["repairPart"] = FindLabeledLine(text, "repair part", "part");
+            fields["whatToDo"] = FindLabeledLine(text, "description", "particulars", "service", "repair");
         }
 
         if (document.Category == FileCategory.PaymentReceipt)
@@ -548,9 +592,26 @@ public static class OcrExtractionParser
             warnings.Add("Supplier name was not detected.");
         }
 
+        if (document.Category == FileCategory.RepairInvoice && string.IsNullOrWhiteSpace(fields["whatToDo"]))
+        {
+            warnings.Add("Repair details were not detected. Check the item descriptions before saving.");
+        }
+
+        if (document.Category == FileCategory.RepairInvoice
+            && !string.IsNullOrWhiteSpace(fields["plateNumberOnInvoice"])
+            && !string.IsNullOrWhiteSpace(fields["plateNumber"])
+            && !string.Equals(fields["plateNumberOnInvoice"], fields["plateNumber"], StringComparison.OrdinalIgnoreCase))
+        {
+            warnings.Add($"The receipt plate {fields["plateNumberOnInvoice"]} does not match the selected vehicle {fields["plateNumber"]}. Confirm before creating the repair.");
+        }
+
         if (document.Category == FileCategory.IdentityCard && string.IsNullOrWhiteSpace(fields["icNumber"]))
         {
             warnings.Add("No identity card number was detected. Confirm the document manually before saving customer details.");
+        }
+        else if (document.Category == FileCategory.IdentityCard && !Regex.IsMatch(fields["icNumber"]!, @"^\d{6}-?\d{2}-?\d{4}$"))
+        {
+            warnings.Add("The identity card number appears incomplete. Correct it before saving customer details.");
         }
 
         if (document.Category == FileCategory.Voc)
@@ -559,13 +620,18 @@ public static class OcrExtractionParser
             if (string.IsNullOrWhiteSpace(fields["engineNumber"])) warnings.Add("No engine number was detected. Confirm the VOC manually before saving vehicle details.");
         }
 
+        var lineItems = document.Category == FileCategory.RepairInvoice
+            ? ParseRepairLineItems(text, confidence)
+            : null;
+
         return new OcrExtractionResult(
             document.Category,
             confidence,
             fields.Keys.ToDictionary(key => key, _ => 0.8m, StringComparer.OrdinalIgnoreCase),
             fields,
             text,
-            warnings);
+            warnings,
+            lineItems);
     }
 
     private static string? FindValue(string text, params string[] labels)
@@ -582,20 +648,85 @@ public static class OcrExtractionParser
     private static string? FindIdentityCardNumber(string text)
     {
         var match = Regex.Match(text, @"\b\d{6}-?\d{2}-?\d{4}\b");
-        return match.Success ? match.Value : null;
+        if (match.Success) return match.Value;
+
+        // Keep a visibly incomplete value in the review draft instead of
+        // discarding it. Staff can correct it before explicitly applying it.
+        var partialMatch = Regex.Match(text, @"\b\d{6}-?\d{2}-?\d{3}\b");
+        return partialMatch.Success ? partialMatch.Value : null;
     }
 
     private static string? FindIdentityName(string text)
     {
         var match = Regex.Match(text, @"\bname\s*[:#-]?\s*(?<value>[A-Za-z][A-Za-z .'-]{1,80}?)(?=\s+(?:IC|Address)\b|$)", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups["value"].Value.Trim() : null;
+        if (match.Success) return match.Groups["value"].Value.Trim();
+
+        // Malaysian identity cards commonly print the name as a standalone line,
+        // without a Name label. Prefer the uppercase alphabetic line nearest the
+        // identity number and ignore card headings/nationality text.
+        var lines = TextLines(text);
+        var identityLine = lines.FindIndex(line => Regex.IsMatch(line, @"\b\d{6}-?\d{2}-?\d{4}\b"));
+        var candidates = lines
+            .Select((line, index) => (line, index))
+            .Where(item => (identityLine < 0 || Math.Abs(item.index - identityLine) <= 3) && Regex.IsMatch(item.line, @"^[A-Z][A-Z .'-]{3,80}$"))
+            .Select(item => item.line)
+            .Where(line => IsMyKadNameCandidate(line))
+            .ToList();
+        var multiWordCandidate = candidates.FirstOrDefault(line => Regex.Matches(line, @"[A-Z]{2,}").Count >= 2);
+        if (!string.IsNullOrWhiteSpace(multiWordCandidate)) return multiWordCandidate;
+        if (identityLine >= 0 && candidates.Count > 0) return candidates[0];
+
+        // Some OCR providers flatten an entire MyKad into one text run. In that
+        // case, search the text surrounding the IC number for an uppercase name.
+        var identityMatch = Regex.Match(text, @"\b\d{6}-?\d{2}-?\d{4}\b");
+        if (!identityMatch.Success) return null;
+        var start = Math.Max(0, identityMatch.Index - 120);
+        var length = Math.Min(text.Length - start, 260);
+        var nearbyText = text.Substring(start, length);
+        return Regex.Matches(nearbyText, @"\b(?:[A-Z]{2,}\s+){1,5}[A-Z]{2,}\b")
+            .Select(candidate => candidate.Value.Trim())
+            .FirstOrDefault(IsMyKadNameCandidate);
     }
 
     private static string? FindAddress(string text)
     {
         var match = Regex.Match(text, @"\baddress\s*[:#-]?\s*(?<value>[^\r\n]{3,200})", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups["value"].Value.Trim() : null;
+        if (match.Success) return match.Groups["value"].Value.Trim();
+
+        // MyKad has no Address label; collect the address block until the card's
+        // trailing nationality/gender lines. Keep multiple OCR lines together.
+        var lines = TextLines(text);
+        var addressStart = lines.FindIndex(line => Regex.IsMatch(line, @"(?:^|\s)NO\.?\s*\d{1,4}\b", RegexOptions.IgnoreCase));
+        var addressLines = (addressStart < 0 ? Enumerable.Empty<string>() : lines.Skip(addressStart))
+            .TakeWhile(line => !Regex.IsMatch(line, @"^(WARGANEGARA|LELAKI|PEREMPUAN|ISLAM|MALAYSIA)\b", RegexOptions.IgnoreCase))
+            .Where(line => Regex.IsMatch(line, @"\d|JALAN|TAMAN|LORONG|KG\.?|BANDAR|KAMPUNG|JOHOR|SELANGOR|KEDAH|PERAK|PENANG|MELAKA|SABAH|SARAWAK", RegexOptions.IgnoreCase))
+            .Select(line => Regex.Replace(line, @"^.*?(?=\bNO\.?\s*\d{1,4}\b)", "", RegexOptions.IgnoreCase))
+            .ToList();
+        if (addressLines.Count > 0) return string.Join(" ", addressLines);
+
+        // The same card may arrive as a single line, so recognise the common
+        // Malaysian address form without requiring an Address label or line breaks.
+        var flattenedMatch = Regex.Match(
+            text,
+            @"\b(?:NO\.?\s*)?\d{1,4}[A-Z]?(?:\s*,?\s*(?:JALAN|LORONG|TAMAN|KAMPUNG|KG\.?|BANDAR)\s+[A-Z0-9 ./'-]+?){1,4}\s+\d{5}\s+(?:JOHOR|SELANGOR|KEDAH|PERAK|PULAU PINANG|MELAKA|NEGERI SEMBILAN|PAHANG|TERENGGANU|KELANTAN|PERLIS|SABAH|SARAWAK)\b",
+            RegexOptions.IgnoreCase);
+        return flattenedMatch.Success ? Regex.Replace(flattenedMatch.Value, @"\s+", " ").Trim() : null;
     }
+
+    private static List<string> TextLines(string text) => text
+        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+        .Select(line => Regex.Replace(line.Trim(), @"\s+", " "))
+        .Where(line => line.Length > 0)
+        .ToList();
+
+    private static bool IsMyKadHeader(string text) =>
+        Regex.IsMatch(text, @"\b(KAD|PENGENALAN|MALAYSIA|WARGANEGARA|LELAKI|PEREMPUAN|ISLAM)\b", RegexOptions.IgnoreCase) ||
+        Regex.IsMatch(text, @"^MA[IL]S?Y?$", RegexOptions.IgnoreCase) ||
+        Regex.IsMatch(text, @"MALAY|KERAJAAN", RegexOptions.IgnoreCase);
+
+    private static bool IsMyKadNameCandidate(string text) =>
+        !IsMyKadHeader(text) &&
+        !Regex.IsMatch(text, @"\b(NO\.?|JALAN|LORONG|TAMAN|KAMPUNG|KG\.?|BANDAR|POS|JOHOR|SELANGOR|KEDAH|PERAK|PENANG|MELAKA|SABAH|SARAWAK)\b", RegexOptions.IgnoreCase);
 
     private static string? FindLabeledText(string text, params string[] labels)
     {
@@ -604,6 +735,20 @@ public static class OcrExtractionParser
             var match = Regex.Match(
                 text,
                 $@"\b{Regex.Escape(label)}\b\s*[:#-]?\s*(?<value>[A-Za-z0-9][A-Za-z0-9 ./'-]{{0,100}}?)(?=\s+(?:Registration|Plate|Chassis|VIN|Engine|Make|Model|Year|Owner)\b|$)",
+                RegexOptions.IgnoreCase);
+            if (match.Success) return match.Groups["value"].Value.Trim();
+        }
+
+        return null;
+    }
+
+    private static string? FindLabeledLine(string text, params string[] labels)
+    {
+        foreach (var label in labels)
+        {
+            var match = Regex.Match(
+                text,
+                $@"(?:^|[\r\n])\s*{Regex.Escape(label)}\s*[:#-]?\s*(?<value>[^\r\n]{{2,200}})",
                 RegexOptions.IgnoreCase);
             if (match.Success) return match.Groups["value"].Value.Trim();
         }
@@ -624,6 +769,71 @@ public static class OcrExtractionParser
 
         var currency = Regex.Match(text, @"(?:RM|MYR)\s*(?<amount>\d{1,}(?:,\d{3})*(?:\.\d{1,2})?)", RegexOptions.IgnoreCase);
         return currency.Success ? currency.Groups["amount"].Value.Replace(",", "", StringComparison.Ordinal) : null;
+    }
+
+    private static string? FindRepairSupplier(string text)
+    {
+        var soldTo = Regex.Match(text, @"(?im)^\s*(?<supplier>[A-Z][A-Z0-9 &'.,-]{3,100})\s*\(\d{9,}\)\s*$");
+        if (soldTo.Success) return soldTo.Groups["supplier"].Value.Trim();
+
+        var firstLine = TextLines(text).FirstOrDefault(line =>
+            line.Length >= 4 &&
+            Regex.IsMatch(line, @"[A-Za-z]") &&
+            !Regex.IsMatch(line, @"^(CASH SALE|SOLD TO|DATE|ITEM|DESCRIPTION|TOTAL|NOTES?)\b", RegexOptions.IgnoreCase));
+        return firstLine;
+    }
+
+    private static string? FindRepairInvoiceNumber(string text)
+    {
+        var match = Regex.Match(text, @"(?im)\b(?:no\.?|number)\s*[:#-]?\s*(?<number>\d{3,})\b");
+        return match.Success ? match.Groups["number"].Value : null;
+    }
+
+    private static string? FindRepairTotal(string text)
+    {
+        var matches = Regex.Matches(text, @"(?im)^\s*(?:page\s+total|total)\s*[:#-]?\s*(?:RM\s*)?(?<amount>\d{1,}(?:,\d{3})*(?:\.\d{1,2})?)\s*$");
+        var match = matches.Cast<Match>().LastOrDefault();
+        if (match is not null) return match.Groups["amount"].Value.Replace(",", "", StringComparison.Ordinal);
+
+        return null;
+    }
+
+    private static string? FindRepairVehiclePlate(string text, IEnumerable<Vehicle> vehicles)
+    {
+        var knownPlate = vehicles
+            .Select(vehicle => vehicle.PlateNumber.Trim())
+            .Where(plate => plate.Length >= 4)
+            .FirstOrDefault(plate => text.Contains(plate, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(knownPlate)) return knownPlate;
+
+        var soldTo = Regex.Match(text, @"(?is)\bSOLD\s+TO\b(?<block>.*?)(?:\bTEL\b|\bDATE\b|\bITEM\b)");
+        var candidate = Regex.Match(soldTo.Success ? soldTo.Groups["block"].Value : text, @"\b(?<plate>[A-Z]{1,3}\s?\d{3,5}[A-Z]?)\b");
+        return candidate.Success ? candidate.Groups["plate"].Value.Replace(" ", "", StringComparison.Ordinal).ToUpperInvariant() : null;
+    }
+
+    private static IReadOnlyList<OcrLineItem> ParseRepairLineItems(string text, decimal confidence)
+    {
+        var items = new List<OcrLineItem>();
+        foreach (var line in TextLines(text))
+        {
+            if (Regex.IsMatch(line, @"^(?:notes?|b/f pages total|page total|total)\b", RegexOptions.IgnoreCase)) break;
+            var match = Regex.Match(line, @"^\s*\d+[.)]\s*(?<description>[A-Za-z][^\r\n]{2,120}?)\s*$");
+            if (!match.Success || Regex.IsMatch(match.Groups["description"].Value, @"^(?:all cheques|cheques should|authorised signature)\b", RegexOptions.IgnoreCase)) continue;
+            var description = Regex.Replace(match.Groups["description"].Value.Trim(), @"\s+", " ");
+            items.Add(new OcrLineItem(description, null, null, null, confidence, line));
+        }
+        if (items.Count == 0)
+        {
+            var flattened = Regex.Replace(text.Replace("\\.", ".", StringComparison.Ordinal), @"\s+", " ");
+            foreach (Match match in Regex.Matches(flattened, @"(?:^|\s)\d+[.)]\s+(?<description>.+?)(?=\s+\d+[.)]\s+|\s+(?:Notes?|B/F Pages Total|Page Total|Total)\b|$)", RegexOptions.IgnoreCase))
+            {
+                var description = match.Groups["description"].Value.Trim();
+                if (description.Length >= 3 && !Regex.IsMatch(description, @"^(?:all cheques|cheques should|authorised signature)\b", RegexOptions.IgnoreCase))
+                    items.Add(new OcrLineItem(description, null, null, null, confidence, description));
+            }
+        }
+
+        return items;
     }
 
     private static string? FindPlate(string text)

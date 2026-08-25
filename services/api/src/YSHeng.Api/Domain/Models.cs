@@ -3,6 +3,7 @@ namespace YSHeng.Api.Domain;
 public enum StockOwner { YSHeng, KS }
 public enum VehicleStatus { Available, LoanProcessing, Sold }
 public enum LeadStatus { New, Contacted, Closed }
+public enum LeadClosureOutcome { Sold, Lost, Invalid }
 public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
 public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
@@ -49,6 +50,7 @@ public sealed record Vehicle
     public DateTime? OutstationPickupScheduledAt { get; init; }
     public string? OutstationPickupBookingSlip { get; init; }
     public DateOnly IntakeDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public DateTime? SoldAt { get; init; }
 }
 
 public sealed record VehicleCatalogModel
@@ -87,6 +89,8 @@ public sealed record Owner
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; init; } = "";
     public string Phone { get; init; } = "";
+    public string? IcNumber { get; init; }
+    public string? Address { get; init; }
 }
 
 public sealed record Lead
@@ -101,6 +105,7 @@ public sealed record Lead
     public string? SourceReferrer { get; init; }
     public string? SourceCampaign { get; init; }
     public LeadStatus Status { get; init; } = LeadStatus.New;
+    public LeadClosureOutcome? ClosureOutcome { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public string? TakenByUserId { get; init; }
     public string? TakenByName { get; init; }
@@ -131,6 +136,7 @@ public sealed record DocumentBlob
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid? VehicleId { get; init; }
     public Guid? CustomerId { get; init; }
+    public Guid? OwnerId { get; init; }
     public Guid? RepairJobId { get; init; }
     public Guid? PaymentRecordId { get; init; }
     public FileCategory Category { get; init; }
@@ -182,8 +188,14 @@ public sealed record AiUsageRecord
 }
 
 public sealed record PurchaseInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string InvoiceNumber { get; init; } = ""; public decimal Amount { get; init; } }
-public sealed record RepairJob { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string RepairPart { get; init; } = ""; public string WhatToDo { get; init; } = ""; public decimal Cost { get; init; } public bool ChecklistDone { get; init; } public RepairApprovalStatus ApprovalStatus { get; init; } = RepairApprovalStatus.Approved; public string? ApprovalNotes { get; init; } public string? ApprovedBy { get; init; } public DateTime? ApprovedAt { get; init; } }
-public sealed record SupplierInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string SupplierName { get; init; } = ""; public string InvoiceNumber { get; init; } = ""; public string? PlateNumberOnInvoice { get; init; } public decimal Amount { get; init; } public DateOnly? DueDate { get; init; } public DateOnly? PaidAt { get; init; } }
+public sealed record RepairJob { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string RepairPart { get; init; } = ""; public string WhatToDo { get; init; } = ""; public decimal Cost { get; init; } public bool ChecklistDone { get; init; } public string? AssignedTo { get; init; } public DateOnly? StartedOn { get; init; } public DateOnly? ExpectedCompletionDate { get; init; } public RepairApprovalStatus ApprovalStatus { get; init; } = RepairApprovalStatus.Approved; public string? ApprovalNotes { get; init; } public string? ApprovedBy { get; init; } public DateTime? ApprovedAt { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
+public sealed record RepairReceipt { public Guid Id { get; init; } = Guid.NewGuid(); public Guid RepairJobId { get; init; } public Guid DocumentId { get; init; } public string? SupplierName { get; init; } public string? InvoiceNumber { get; init; } public decimal? TotalAmount { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
+public sealed record RepairReceiptItem { public Guid Id { get; init; } = Guid.NewGuid(); public Guid RepairReceiptId { get; init; } public string Description { get; init; } = ""; public string? RepairPart { get; init; } public decimal Amount { get; init; } public int SortOrder { get; init; } }
+public sealed record ConfirmRepairReceiptRequest(Guid DocumentId, string? SupplierName, string? InvoiceNumber, decimal? TotalAmount, IReadOnlyList<ConfirmRepairReceiptItemRequest> Items);
+public sealed record ConfirmRepairReceiptItemRequest(string Description, string? RepairPart, decimal Amount, int SortOrder);
+public sealed record SupplierInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string SupplierName { get; init; } = ""; public string InvoiceNumber { get; init; } = ""; public string? PlateNumberOnInvoice { get; init; } public decimal Amount { get; init; } public DateOnly? DueDate { get; init; } public DateOnly? PaidAt { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
+public sealed record CreateRepairWithReceiptRequest(RepairJob Repair, SupplierInvoice Invoice, ConfirmRepairReceiptRequest Receipt);
+public sealed record CreateRepairWithReceiptResponse(RepairJob Repair, SupplierInvoice Invoice, RepairReceipt Receipt, IReadOnlyList<RepairReceiptItem> Items);
 
 public sealed record LoanApplication
 {

@@ -1,6 +1,7 @@
 export type StockOwner = "YSHeng" | "KS";
 export type VehicleStatus = "Available" | "LoanProcessing" | "Sold";
 export type LeadStatus = "New" | "Contacted" | "Closed";
+export type LeadClosureOutcome = "Sold" | "Lost" | "Invalid";
 export type LoanStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Done";
 export type DeliveryStatus = "BookingInspection" | "Scheduled" | "Inspection" | "PreparingDocuments" | "CarPreparation" | "ReadyForRelease" | "Released";
 export type PaymentStatus = "Pending" | "Approved" | "Disbursed" | "Reconciled";
@@ -68,6 +69,7 @@ export type VehicleOcrJob = OcrJob & {
 
 export type UploadProgressHandler = (percent: number) => void;
 export type DocumentUploadOwner = {
+  ownerId?: string;
   repairJobId?: string;
   paymentRecordId?: string;
 };
@@ -133,6 +135,14 @@ export type DashboardSummary = {
   moneyRiskBreakdown: DashboardAmountSlice[];
   workflowBlockers: DashboardWorkflowBlockers;
   salesFunnel: DashboardSalesFunnel;
+  topEnquiredVehicles: DashboardCountSlice[];
+  repairCostByVehicle: DashboardAmountSlice[];
+  topSellingModels: DashboardCountSlice[];
+  leadTrend: DashboardCountSlice[];
+  leadsAwaitingFirstResponse: number;
+  repairWorkInProgress: DashboardCountSlice[];
+  realisedProfit: number;
+  monthlyProfitTrend: DashboardProfitTrendSlice[];
   profitBreakdown: DashboardAmountSlice[];
   supplierSpendTop: DashboardAmountSlice[];
 };
@@ -178,6 +188,13 @@ export type DashboardReminderFilters = {
   due?: DashboardReminderDueFilter;
 };
 
+export type DashboardProfitTrendSlice = {
+  label: string;
+  estimatedProfit: number;
+  soldProfit: number;
+  soldCount: number;
+};
+
 export type DashboardReminderLoadResult = {
   reminders: DashboardReminder[];
   error?: string;
@@ -190,6 +207,7 @@ export type DashboardLoadResult = {
 
 export type SupplierInvoice = {
   id: string;
+  createdAt?: string;
   vehicleId: string;
   supplierName: string;
   invoiceNumber: string;
@@ -237,15 +255,21 @@ export type Owner = {
   id: string;
   name: string;
   phone: string;
+  icNumber?: string;
+  address?: string;
 };
 
 export type RepairJob = {
   id: string;
+  createdAt?: string;
   vehicleId: string;
   repairPart: string;
   whatToDo: string;
   cost: number;
   checklistDone: boolean;
+  assignedTo?: string;
+  startedOn?: string;
+  expectedCompletionDate?: string;
   approvalStatus?: RepairApprovalStatus;
   approvalNotes?: string;
   approvedBy?: string;
@@ -375,6 +399,54 @@ export type PaymentVoucher = {
   status: PaymentVoucherStatus;
   issuedDate: string;
   notes?: string;
+};
+
+export type RepairReceiptItemInput = {
+  description: string;
+  repairPart?: string;
+  amount: number;
+  sortOrder: number;
+};
+
+export type ConfirmRepairReceiptRequest = {
+  documentId: string;
+  supplierName?: string;
+  invoiceNumber?: string;
+  totalAmount?: number;
+  items: RepairReceiptItemInput[];
+};
+
+export type CreateRepairWithReceiptRequest = {
+  repair: RepairJob;
+  invoice: SupplierInvoice;
+  receipt: ConfirmRepairReceiptRequest;
+};
+
+export type RepairReceiptItem = RepairReceiptItemInput & {
+  id: string;
+  repairReceiptId: string;
+};
+
+export type RepairReceipt = {
+  id: string;
+  repairJobId: string;
+  documentId: string;
+  supplierName?: string;
+  invoiceNumber?: string;
+  totalAmount?: number;
+  createdAt: string;
+};
+
+export type RepairReceiptWithItems = {
+  receipt: RepairReceipt;
+  items: RepairReceiptItem[];
+};
+
+export type CreateRepairWithReceiptResponse = {
+  repair: RepairJob;
+  invoice: SupplierInvoice;
+  receipt: RepairReceipt;
+  items: RepairReceiptItem[];
 };
 
 export type VehicleCatalogModel = {
@@ -617,6 +689,7 @@ export type Lead = {
   sourceReferrer?: string;
   sourceCampaign?: string;
   status: LeadStatus;
+  closureOutcome?: LeadClosureOutcome;
   createdAt: string;
   takenByUserId?: string;
   takenByName?: string;
@@ -643,6 +716,7 @@ export type VehicleDocument = {
   fileName: string;
   mimeType: string;
   category: DocumentCategory;
+  ownerId?: string;
   repairJobId?: string;
   paymentRecordId?: string;
   uploadedBy: string;
@@ -1231,11 +1305,29 @@ export async function updateRepair(repair: RepairJob): Promise<RepairJob> {
   });
 }
 
+export async function createRepairWithReceipt(requestBody: CreateRepairWithReceiptRequest): Promise<CreateRepairWithReceiptResponse> {
+  return request<CreateRepairWithReceiptResponse>("/api/repairs/from-receipt", {
+    method: "POST",
+    body: JSON.stringify(requestBody)
+  });
+}
+
 export async function approveRepair(repairId: string, notes?: string): Promise<RepairJob> {
   return request<RepairJob>(`/api/repairs/${repairId}/approval`, {
     method: "POST",
     body: JSON.stringify({ notes: notes?.trim() || undefined })
   });
+}
+
+export async function confirmRepairReceipt(repairId: string, receipt: ConfirmRepairReceiptRequest) {
+  return request(`/api/repairs/${repairId}/receipts/confirm`, {
+    method: "POST",
+    body: JSON.stringify(receipt)
+  });
+}
+
+export async function getRepairReceipts(repairId: string): Promise<RepairReceiptWithItems[]> {
+  return request<RepairReceiptWithItems[]>(`/api/repairs/${repairId}/receipts`);
 }
 
 export async function createLoan(loan: LoanApplication): Promise<LoanApplication> {
@@ -1515,6 +1607,7 @@ export async function uploadVehicleDocumentWithProgress(vehicleId: string, file:
 
 function documentUploadPath(vehicleId: string, category: DocumentCategory, owner?: DocumentUploadOwner) {
   const query = new URLSearchParams({ category });
+  if (owner?.ownerId) query.set("ownerId", owner.ownerId);
   if (owner?.repairJobId) query.set("repairJobId", owner.repairJobId);
   if (owner?.paymentRecordId) query.set("paymentRecordId", owner.paymentRecordId);
   return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
