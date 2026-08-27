@@ -4715,6 +4715,12 @@ textarea:focus-visible {
     top: calc(100vw * 782 / 853);
   }
 
+  /* Keep the transparent Canvas controls anchored to the full first-screen
+     composition, rather than the text-only step's natural height. */
+  .showroomDirectionOne .showroomStep {
+    min-height: calc(100vw * 1843 / 853);
+  }
+
   .showroomDirectionOne .showroomVehicleTiles button {
     background: transparent;
     border: 0;
@@ -4749,5 +4755,14 @@ textarea:focus-visible {
 
   .showroomDirectionOne .showroomPrimaryAction:focus-visible {
     outline-offset: -5px;
+  }
+
+  .showroomDirectionOne .showroomFormError {
+    left: calc(100vw * 52 / 853);
+    margin: 0;
+    position: absolute;
+    right: calc(100vw * 52 / 853);
+    top: calc(100vw * 690 / 853);
+    z-index: 1;
   }
 }

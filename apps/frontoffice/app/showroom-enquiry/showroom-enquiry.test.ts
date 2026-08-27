@@ -49,4 +49,13 @@ describe("showroom enquiry flow rules", () => {
     expect(styles).toContain(".showroomDirectionOne .showroomProgress");
     expect(styles).toContain('canvas-direction-one.png');
   });
+
+  it("keeps the mobile Canvas Next target and validation feedback on the first screen", () => {
+    const styles = readFileSync(join(showroomRoot, "..", "styles.css"), "utf8");
+    const mobileCanvas = styles.slice(styles.lastIndexOf("@media (max-width: 639px)"));
+
+    expect(mobileCanvas).toContain(".showroomDirectionOne .showroomStep {\n    min-height: calc(100vw * 1843 / 853);");
+    expect(mobileCanvas).toContain(".showroomDirectionOne .showroomFormError {");
+    expect(mobileCanvas).toContain("top: calc(100vw * 690 / 853);");
+  });
 });
