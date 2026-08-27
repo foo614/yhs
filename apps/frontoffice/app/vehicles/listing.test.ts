@@ -675,3 +675,46 @@ describe("submitPublicContact", () => {
   });
 
 });
+
+describe("submitPublicShowroomEnquiry", () => {
+  it("submits the guided showroom choices without client-controlled source attribution", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { submitPublicShowroomEnquiry } = await import("./service");
+    const result = await submitPublicShowroomEnquiry({
+      vehicleType: " SUV ",
+      preferredBrand: " Toyota ",
+      preferredModel: " Harrier ",
+      budgetRange: " RM50k–RM80k ",
+      customerName: " Ali Tan ",
+      phone: " 0123456789 ",
+      email: " ali@example.com "
+    }, "http://localhost:5000");
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/public/showroom-enquiries", expect.objectContaining({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vehicleType: "SUV",
+        preferredBrand: "Toyota",
+        preferredModel: "Harrier",
+        budgetRange: "RM50k–RM80k",
+        customerName: "Ali Tan",
+        phone: "0123456789",
+        email: "ali@example.com"
+      })
+    }));
+  });
+
+  it("blocks missing required guided choices before requesting the API", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { submitPublicShowroomEnquiry } = await import("./service");
+
+    await expect(submitPublicShowroomEnquiry({ vehicleType: "", budgetRange: "", customerName: "Ali", phone: "012" }))
+      .resolves.toEqual({ ok: false, code: "vehicle_type_required", message: "Choose a vehicle type." });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

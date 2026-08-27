@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Car, Search } from "lucide-react";
 import type { PublicVehicleCatalogModel } from "./vehicles/service";
+import { formatThousands } from "./formatters";
 
 type HeroVehicleFiltersProps = {
   action: string;
@@ -77,7 +78,7 @@ export function HeroVehicleFilters({
         <span>{labels.budget}</span>
         <select name="maxPrice" defaultValue="">
           <option value="">{labels.anyBudget}</option>
-          {budgets.map((budget) => <option value={budget} key={budget}>RM {budget.toLocaleString()}</option>)}
+          {budgets.map((budget) => <option value={budget} key={budget}>RM {formatThousands(budget)}</option>)}
         </select>
       </label>
       <label>

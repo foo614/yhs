@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CalendarDays, Gauge, Tag } from "lucide-react";
 import { frontofficeCopy, hrefWithLanguage, type Language } from "../i18n";
+import { formatThousands } from "../formatters";
 import type { PublicVehicle } from "./service";
 import { VehiclePhoto } from "./VehiclePhoto";
 
@@ -32,7 +33,7 @@ export function VehicleCard({ vehicle, featured = false, language = "en" }: { ve
           </div>
           <div className="vehiclePrice">
             <span className="priceLabel">{t.sellingPrice}</span>
-            <strong>RM {vehicle.sellingPrice.toLocaleString()}</strong>
+            <strong>RM {formatThousands(vehicle.sellingPrice)}</strong>
           </div>
         </div>
         <div className="specPills" aria-label="Vehicle highlights">

@@ -1,5 +1,8 @@
 body {
   margin: 0;
+  min-height: 100vh;
+  /* ProLayout sets an inline `overflow: auto hidden`; keep long portal pages scrollable. */
+  overflow-y: auto !important;
   background:
     linear-gradient(135deg, rgba(12, 79, 68, .08), transparent 34%),
     linear-gradient(180deg, #f5f7f6, #eef3f1);
@@ -174,6 +177,15 @@ body {
   max-width: 360px;
 }
 
+.settingsGuidanceList {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+
+.settingsGuidanceList li + li {
+  margin-top: 4px;
+}
+
 .ocrUploadGuide {
   display: flex;
   align-items: flex-start;
@@ -214,6 +226,51 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.ocrReviewInline {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid rgba(11, 112, 92, .18);
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.ocrReviewInline .drawerForm {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ocrReviewInline .ant-form-item,
+.ocrReviewInline .ant-form-item-control,
+.ocrReviewInline .ant-form-item-control-input,
+.ocrReviewInline .ant-alert,
+.ocrReviewInline .ant-space,
+.ocrReviewInline .ant-table-wrapper,
+.ocrReviewInline .ant-table-container {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ocrReviewInline .ant-input,
+.ocrReviewInline .ant-input-number,
+.ocrReviewInline .ant-select,
+.ocrReviewInline .ant-input-number-input {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ocrReviewInline > .ocrReviewDrawerTitle {
+  padding-bottom: 2px;
 }
 
 .documentUploadChecklistPanel {
@@ -911,6 +968,41 @@ body {
   margin-top: 2px;
 }
 
+.dashboardAnalyticsControls {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(32, 54, 48, .1);
+  border-radius: 7px;
+  background: #f8fbfa;
+}
+
+.dashboardAnalyticsControls > div {
+  display: grid;
+  gap: 2px;
+}
+
+.dashboardAnalyticsControls strong {
+  color: #14251f;
+  font-size: 13px;
+}
+
+.dashboardAnalyticsControls span {
+  color: #687973;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dashboardAnalyticsControls .ant-select {
+  min-width: 144px;
+}
+
+.dashboardAnalyticsControls .ant-input {
+  width: 142px;
+}
+
 .dashboardSimpleGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -918,14 +1010,91 @@ body {
 }
 
 .dashboardSimpleCard.ant-pro-card,
-.dashboardReminderCard.ant-pro-card,
 .dashboardOverviewCard.ant-pro-card {
   box-shadow: none;
 }
 
-.dashboardSimpleCard .ant-table,
-.dashboardReminderCard .ant-table {
+.dashboardSimpleCard .ant-table {
   font-size: 13px;
+}
+
+.dashboardAgingCard {
+  grid-column: 1 / -1;
+}
+
+.agingActionBoard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.agingAction {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(32, 54, 48, .1);
+  border-radius: 7px;
+  background: #fbfcfc;
+}
+
+.agingActionHeader,
+.agingActionCount {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.agingActionHeader strong {
+  color: #263a34;
+  font-size: 13px;
+}
+
+.agingActionHeader span,
+.agingActionCount span {
+  color: #687973;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agingActionCount strong {
+  color: #263a34;
+  font-size: 27px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.agingAction p {
+  min-height: 34px;
+  margin: 0;
+  color: #52645f;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.agingAction .ant-btn {
+  justify-self: start;
+}
+
+.agingAction0To30 {
+  border-color: rgba(11, 112, 92, .18);
+}
+
+.agingAction31To60 {
+  border-color: rgba(184, 106, 22, .22);
+  background: #fffdfa;
+}
+
+.agingAction61Plus {
+  border-color: rgba(164, 59, 76, .24);
+  background: #fffdfd;
+}
+
+.agingAction61Plus .agingActionCount strong {
+  color: #a43b4c;
 }
 
 .dashboardCommandBar {
@@ -1174,7 +1343,7 @@ body {
 }
 
 .dashboardInsightGridOperations {
-  grid-template-columns: 1.1fr .9fr 1.25fr;
+  grid-template-columns: 1.2fr 1fr;
 }
 
 .dashboardInsightGridFinance {
@@ -1370,6 +1539,403 @@ body {
   border-radius: inherit;
 }
 
+.barList-demand .barTrack span {
+  background: #2563a8;
+}
+
+.barList-cost .barTrack span {
+  background: #b03a48;
+}
+
+.barList-sales .barTrack span {
+  background: #0b705c;
+}
+
+.dashboardPriorityCard.ant-pro-card {
+  border-color: rgba(176, 58, 72, .18);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.dashboardPriorityList {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dashboardPriorityAlert {
+  margin-top: 12px;
+}
+
+.dashboardStatusBadge.ant-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-inline-end: 0;
+  padding-inline: 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.dashboardPreviewNotice {
+  color: #687973;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.dashboardCashActions {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(32, 54, 48, .1);
+}
+
+.dashboardCashActionsHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.dashboardCashActionsHeader > div {
+  display: grid;
+  gap: 2px;
+}
+
+.dashboardCashActionsHeader strong {
+  color: #14251f;
+  font-size: 13px;
+}
+
+.dashboardCashActionsHeader span {
+  color: #687973;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dashboardCashActionList {
+  display: grid;
+  gap: 7px;
+}
+
+.dashboardCashAction {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: #f6f9f8;
+}
+
+.dashboardCashAction > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #293a35;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboardCashAction > span {
+  color: #14251f;
+  font-size: 13px;
+  font-weight: 820;
+  white-space: nowrap;
+}
+
+.dashboardPriorityAction {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1.8fr) minmax(104px, .7fr) minmax(118px, .8fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid rgba(32, 54, 48, .1);
+  border-radius: 7px;
+  background: #fbfdfc;
+}
+
+.dashboardPriorityDetails,
+.dashboardPriorityDue,
+.dashboardPriorityAmount {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.dashboardPriorityDetails strong {
+  overflow: hidden;
+  color: #14251f;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboardPriorityDetails span,
+.dashboardPriorityDue small,
+.dashboardPriorityAmount small {
+  color: #687973;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dashboardPriorityDue strong,
+.dashboardPriorityAmount strong {
+  color: #293a35;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.repairCostChart {
+  display: grid;
+  gap: 14px;
+}
+
+.refurbishmentSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.refurbishmentSummaryGrid > span {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: #f6f9f8;
+}
+
+.refurbishmentSummaryGrid small {
+  color: #687973;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.refurbishmentSummaryGrid strong {
+  color: #14251f;
+  font-size: 15px;
+}
+
+.repairCostRow {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.repairCostRowHeader {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.repairCostRank {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 4px;
+  background: #f0f3f2;
+  color: #61716c;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.repairCostLabel {
+  min-width: 0;
+  overflow: hidden;
+  color: #263a34;
+  font-size: 12px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repairCostRow:first-child .repairCostRank {
+  background: #a43b4c;
+  color: #fff;
+}
+
+.repairCostTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #f0e5e7;
+}
+
+.repairCostTrack i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: #a43b4c;
+}
+
+.repairCostAmount {
+  color: #4d5f59;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.repairCostRow:first-child .repairCostAmount {
+  color: #8f2939;
+}
+
+.leadLineChart {
+  width: 100%;
+  max-width: 780px;
+  margin-inline: auto;
+  padding: 5px 2px 0;
+}
+
+.profitLineChart {
+  width: 100%;
+  max-width: 780px;
+  margin-inline: auto;
+}
+
+.profitLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: #60746e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.profitLegend span { display: inline-flex; align-items: center; gap: 5px; }
+.profitLegend i { width: 18px; height: 3px; border-radius: 2px; }
+.profitLegendSold { background: #2563a8; }
+.profitLegendEstimated { background: #9aa7a2; }
+
+.profitLineChart svg { display: block; width: 100%; height: auto; margin-top: 8px; }
+.profitLineChart line { stroke: #e6eeeb; stroke-width: 1; }
+.profitLineEstimated, .profitLineSold { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.profitLineEstimated { stroke: #9aa7a2; stroke-dasharray: 5 5; }
+.profitLineSold { stroke: #2563a8; }
+.profitPointSold { fill: #fff; stroke: #2563a8; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.profitLineChart text { fill: #14251f; font-size: 11px; font-weight: 760; text-anchor: middle; }
+.profitLineLabels { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; padding: 0 3%; }
+.profitLineLabels small { color: #60746e; font-size: 10px; font-weight: 700; text-align: center; white-space: nowrap; }
+
+.leadLineChart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 5 / 1;
+  text-rendering: geometricPrecision;
+}
+
+.leadLineChart line {
+  stroke: #e6eeeb;
+  stroke-width: 1;
+}
+
+.leadLineArea {
+  fill: rgba(37, 99, 168, .1);
+}
+
+.leadLinePath {
+  fill: none;
+  stroke: #2563a8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  paint-order: stroke fill;
+}
+
+.leadLineChart circle {
+  background: #2563a8;
+  fill: #fff;
+  stroke: #2563a8;
+  stroke-width: 3;
+}
+
+.leadLineChart text {
+  fill: #14251f;
+  font-size: 12px;
+  font-weight: 820;
+  text-anchor: middle;
+}
+
+.leadLineLabels {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  padding: 0 3%;
+}
+
+.leadLineLabels small {
+  color: #60746e;
+  font-size: 10px;
+  font-weight: 760;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.leadVehicleList {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(32, 54, 48, .1);
+}
+
+.leadVehicleListHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.leadVehicleListHeader strong {
+  color: #263a34;
+  font-size: 12px;
+}
+
+.leadVehicleListHeader span {
+  color: #687973;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.leadVehicleListRows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+}
+
+.leadVehicleListRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 7px 0;
+  border-top: 1px solid rgba(32, 54, 48, .07);
+}
+
+.leadVehicleListRow > span {
+  min-width: 0;
+  overflow: hidden;
+  color: #43554f;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leadVehicleListRow > strong {
+  color: #2563a8;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .salesFunnel {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
@@ -1431,22 +1997,45 @@ body {
   grid-template-columns: minmax(76px, 110px) minmax(0, 1fr) auto;
 }
 
-.dashboardReminderCard.ant-pro-card {
-  border-color: rgba(32, 54, 48, .1);
-  border-radius: 8px;
-  box-shadow: none;
+.repairWorkList {
+  display: grid;
+  gap: 10px;
 }
 
-.dashboardInboxHeader {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+.repairWorkList [role="list"] {
+  display: grid;
+}
+
+.repairWorkRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: center;
-  margin-bottom: 12px;
+  min-width: 0;
+  padding: 9px 0;
+  border-top: 1px solid rgba(32, 54, 48, .08);
 }
 
-.dashboardInboxHeader .ant-typography {
-  text-align: right;
+.repairWorkRow > span {
+  min-width: 0;
+  overflow: hidden;
+  color: #43554f;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.funnelTrack .funnel-new {
+  background: #b86a16;
+}
+
+.funnelTrack .funnel-contacted {
+  background: #2563a8;
+}
+
+.funnelTrack .funnel-closed {
+  background: #0b705c;
 }
 
 .formGrid {
@@ -1612,6 +2201,50 @@ body {
   padding-top: 14px;
 }
 
+.manualLoanRecordAlert {
+  margin-bottom: 16px;
+}
+
+.detailWorkflowAction {
+  margin-top: 16px;
+}
+
+.recordCreateModal .ant-pro-steps-form-container {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100%;
+}
+
+.recordCreateModal .ant-pro-steps-form-container > .ant-space {
+  margin-top: 20px;
+}
+
+.recordCreateModal .ant-steps-item-finish .ant-steps-item-icon {
+  background: #0d6b57;
+  border-color: #0d6b57;
+}
+
+.recordCreateModal .ant-steps-item-finish .ant-steps-item-icon .ant-steps-icon,
+.recordCreateModal .ant-steps-item-finish .ant-steps-finish-icon {
+  color: #fff !important;
+}
+
+.recordCreateModal .ant-steps-item-finish .ant-steps-item-tail::after {
+  background: #0d6b57;
+}
+
+@media (min-width: 721px) {
+  .recordCreateModal .ant-steps {
+    width: max-content;
+    max-width: 100%;
+    margin-inline: auto;
+  }
+
+  .recordCreateModal .ant-steps-horizontal .ant-steps-item {
+    flex: 0 1 auto;
+  }
+}
+
 .modalForm {
   display: grid;
   gap: 14px;
@@ -1635,8 +2268,27 @@ body {
   min-width: 148px;
 }
 
+.repairCreateMode {
+  display: flex;
+  grid-column: 1 / -1;
+}
+
+.repairCreateMode .ant-radio-button-wrapper {
+  flex: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.repairReceiptFlow {
+  grid-column: 1 / -1;
+}
+
 .vehicleMarkdownField,
 .vehicleMarkdownPreviewField {
+  grid-column: 1 / -1;
+}
+
+.vehicleVisibilityToggle {
   grid-column: 1 / -1;
 }
 
@@ -2356,6 +3008,20 @@ body {
   row-gap: 12px;
 }
 
+.leadFilterControls {
+  align-items: flex-end;
+  margin-bottom: 16px;
+  row-gap: 12px;
+}
+
+.leadFilterControl {
+  display: grid;
+  gap: 4px;
+  color: #4e5d58;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .stepGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -2617,6 +3283,10 @@ body {
   }
 
   .dashboardSimpleGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .agingActionBoard {
     grid-template-columns: 1fr;
   }
 
@@ -3488,12 +4158,75 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .dashboardInboxHeader {
-    display: grid;
+  .repairCreateMode {
+    flex-wrap: wrap;
   }
 
-  .dashboardInboxHeader .ant-typography {
-    text-align: left;
+  .repairCreateMode .ant-radio-button-wrapper {
+    flex: 1 1 100%;
+  }
+
+  .dashboardPriorityAction {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px 10px;
+  }
+
+  .dashboardPriorityDetails {
+    grid-column: 2;
+  }
+
+  .dashboardPriorityDue,
+  .dashboardPriorityAmount {
+    grid-row: 2;
+  }
+
+  .dashboardPriorityDue {
+    grid-column: 1 / span 2;
+  }
+
+  .dashboardPriorityAmount {
+    grid-column: 3;
+    text-align: right;
+  }
+
+  .dashboardPriorityAction .ant-btn {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .leadLineChart {
+    max-width: 100%;
+  }
+
+  .leadLineChart svg {
+    height: auto;
+  }
+
+  .leadLineLabels {
+    padding: 0;
+  }
+
+  .leadVehicleListRows {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboardCashActionsHeader {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .dashboardCashAction {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .dashboardCashAction > span {
+    grid-column: 2;
+  }
+
+  .dashboardCashAction .ant-btn {
+    grid-column: 3;
+    grid-row: 1 / span 2;
   }
 
   .insightCaption {
@@ -3648,10 +4381,10 @@ body {
     justify-content: flex-start;
   }
 
-  .ocrReviewActions .ant-btn {
-    flex: 1;
-    min-width: 0;
-  }
+.ocrReviewActions .ant-btn {
+  flex: 1;
+  min-width: 0;
+}
 
   .documentUploadChecklistHeader,
   .documentUploadChecklistItem {
@@ -3912,5 +4645,23 @@ body {
   .loginHome {
     grid-template-columns: minmax(0, 1fr);
     padding: 32px;
+  }
+}
+.workflowFilterBar,
+.vehicleOperationFilters,
+.staffFilterBar,
+.toolbarForm {
+  display: none !important;
+}
+
+@media (max-width: 720px) {
+  .leadFilterControls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .leadFilterControl,
+  .leadFilterControl .ant-select {
+    width: 100%;
   }
 }

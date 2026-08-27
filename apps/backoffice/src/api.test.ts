@@ -680,6 +680,18 @@ describe("backoffice api client", () => {
     );
   });
 
+  it("sends explicit vehicle document ownership and linked party", async () => {
+    const fetchMock = mockFetch({ id: "uploaded" });
+    const document = new File(["document-bytes"], "purchase-invoice.pdf", { type: "application/pdf" });
+
+    await uploadVehicleDocument("vehicle-1", document, "PurchaseInvoice", { ownershipType: "Seller", ownerId: "owner-1" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=PurchaseInvoice&ownershipType=Seller&ownerId=owner-1",
+      expect.objectContaining({ method: "POST", credentials: "include", body: expect.any(FormData) })
+    );
+  });
+
   it("starts and reads OCR jobs for uploaded documents", async () => {
     const ocrJob = {
       id: "ocr-1",
@@ -891,6 +903,26 @@ describe("backoffice api client", () => {
         ],
         conversionRate: 40
       },
+      topEnquiredVehicles: [
+        { label: "JQK 8821 · Toyota Vios", count: 4 },
+        { label: "VCD 3188 · Honda City", count: 2 }
+      ],
+      repairCostByVehicle: [
+        { label: "JQK 8821 · Toyota Vios", amount: 3500 },
+        { label: "VCD 3188 · Honda City", amount: 1200 }
+      ],
+      topSellingModels: [
+        { label: "Toyota Vios", count: 3 },
+        { label: "Honda City", count: 2 }
+      ],
+      leadTrend: [
+        { label: "Jan 26", count: 1 },
+        { label: "Feb 26", count: 2 },
+        { label: "Mar 26", count: 1 },
+        { label: "Apr 26", count: 3 },
+        { label: "May 26", count: 4 },
+        { label: "Jun 26", count: 5 }
+      ],
       profitBreakdown: [
         { label: "Selling + Charges", amount: 120000 },
         { label: "Purchase Cost", amount: 84000 },
@@ -902,12 +934,32 @@ describe("backoffice api client", () => {
       supplierSpendTop: [
         { label: "ABC Spray", amount: 1500 },
         { label: "Tint Shop", amount: 1200 }
-      ]
+      ],
+      totalSales: 5,
+      actualProfit: 9200,
+      outstandingCollection: 61200,
+      settlementDueAmount: 25000,
+      refurbishment: {
+        finalRepairSpend: 4700,
+        vehicleCount: 2,
+        averageSpendPerVehicle: 2350,
+        workInProgressCount: 1,
+        overdueWorkCount: 1,
+        highestCostVehicles: [{ label: "JQK 8821 · Toyota Vios", amount: 3500 }]
+      }
     };
     const fetchMock = mockFetch(summary);
 
     expect(await getDashboard()).toEqual({ dashboard: summary });
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/summary", { credentials: "include" });
+  });
+
+  it("adds inclusive analytics dates to dashboard summary requests", async () => {
+    const fetchMock = mockFetch({});
+
+    await getDashboard({ from: "2026-06-01", to: "2026-06-30" });
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/summary?from=2026-06-01&to=2026-06-30", { credentials: "include" });
   });
 
   it("reports a dashboard summary failure instead of leaving the dashboard in an indefinite loading state", async () => {

@@ -9,6 +9,7 @@ import { HeroVehicleFilters } from "./HeroVehicleFilters";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type Language, type SearchParams } from "./i18n";
 import { pageMetadata } from "./seo";
+import { formatThousands } from "./formatters";
 import { distinctMakes, priceRange } from "./vehicles/listing";
 import { getPublicInventory, getPublicVehicleCatalog, type PublicVehicle, type PublicVehicleCatalogModel } from "./vehicles/service";
 import { VehicleCard } from "./vehicles/VehicleCard";
@@ -333,10 +334,10 @@ function HeroPriceTags({ language, vehicles }: { language: Language; vehicles: P
           href={hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })}
           className={`heroPriceTag heroPriceTag${index + 1}`}
           key={vehicle.id}
-          aria-label={`${vehicle.year} ${vehicle.make} ${vehicle.model}, RM ${vehicle.sellingPrice.toLocaleString()}`}
+          aria-label={`${vehicle.year} ${vehicle.make} ${vehicle.model}, RM ${formatThousands(vehicle.sellingPrice)}`}
         >
           <span className="heroPriceTagMotion">
-            <span className="heroPriceTagPrice"><em>RM</em>{vehicle.sellingPrice.toLocaleString()}</span>
+            <span className="heroPriceTagPrice"><em>RM</em>{formatThousands(vehicle.sellingPrice)}</span>
             <small>{vehicle.year} {vehicle.make} {vehicle.model}</small>
           </span>
         </Link>

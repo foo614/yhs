@@ -1,170 +1,103 @@
-# YS Heng MVP Platform
+# YS Heng Platform
 
 ![CI](https://github.com/foo614/yhs/actions/workflows/ci.yml/badge.svg)
 
-YS Heng MVP is a used-car digital platform monorepo with a public vehicle website, an internal operations portal, a .NET 10 API, PostgreSQL persistence, and Docker/VPS deployment scripts.
+Used-car sales software for YS Heng. The platform combines a public vehicle catalogue, an internal operations portal, workflow controls, and a Docker-based deployment path.
 
-## Applications
+![YS Heng platform preview](apps/frontoffice/public/ys-heng-social-preview.png)
 
-- `apps/frontoffice`: Next.js public site for available vehicle inventory, bilingual English/Chinese browsing, vehicle details, and enquiry capture.
-- `apps/backoffice`: React/Vite Ant Design Pro-style portal for dashboard, vehicles, repairs, loans, delivery, finance, leads, audit logs, HR extension scope, and admin users/roles.
-- `services/api`: .NET 10 minimal API with EF Core, PostgreSQL, ASP.NET Identity cookie auth, role policies, upload blobs, dashboard metrics, workflow rules, reminders, and audit logging.
-- `infra`: Dockerfiles, Docker Compose, smoke tests, VPS deploy helper, Dockerfile/Compose/deployment script contract checks, environment validation, and PostgreSQL backup/restore scripts.
+## What is included
 
-Detailed implementation notes live in `docs/IMPLEMENTATION.md`; endpoint and role-policy details live in `docs/API.md`; deployment proof steps live in `docs/DEPLOYMENT_RUNBOOK.md`; source-document workflow mapping lives in `docs/SOURCE_REQUIREMENTS_CROSSCHECK.md`; Stitch visual-reference status lives in `docs/STITCH_VISUAL_REFERENCE.md`; requirement coverage and verification status live in `docs/REQUIREMENTS_TRACE.md`.
+| Area | Purpose | Technology |
+| --- | --- | --- |
+| Public website | Vehicle browsing, bilingual content, vehicle details, and enquiries | Next.js, React, TypeScript |
+| Operations portal | Inventory, repairs, loans, delivery, finance, leads, audit, HR, and administration | Vite, React, Ant Design |
+| API | Business rules, authentication, role policies, uploads, reminders, and audit logging | .NET 10, EF Core, PostgreSQL |
+| Infrastructure | Local Compose, VPS deployment, health checks, smoke tests, and backups | Docker Compose, Caddy, PowerShell, Bash |
 
-## Requirements
+## Architecture
 
-- Node.js compatible with the checked-in package lock.
-- .NET SDK `10.0.100` or compatible latest feature roll-forward, as configured in `global.json`.
-- PostgreSQL 17 tooling for the clean local smoke runner, or Docker Desktop/Linux engine for Compose.
-- Windows PowerShell for the included `infra/*.ps1` scripts.
+```mermaid
+flowchart LR
+    Customer[Customer] --> Front[Public website\nNext.js]
+    Staff[Staff] --> Back[Operations portal\nReact + Ant Design]
+    Front --> API[.NET 10 API]
+    Back --> API
+    API --> DB[(PostgreSQL)]
+    API --> Worker[Reminder worker]
+    API --> Storage[Database file storage]
+    Caddy[Caddy HTTPS ingress] --> Front
+    Caddy --> Back
+    Caddy --> API
+```
 
-## Local URLs
+For the detailed service map and deployment shape, see [the architecture guide](docs/ARCHITECTURE.md).
 
-- Front office: `http://localhost:3000`
-- Back office: `http://localhost:3001`
-- API: `http://localhost:5000`
+## Quick start
 
-Default seeded admin for local/demo use:
+### Requirements
 
-- Email: `admin@ysheng.local`
-- Password: `ChangeMe123!`
+- Node.js compatible with the checked-in lockfile
+- .NET SDK `10.0.100` or a compatible feature roll-forward
+- Docker Desktop with the Linux engine, or PostgreSQL 17 for the clean local smoke runner
+- Windows PowerShell for the included infrastructure scripts
 
-Change seeded credentials before production.
-
-## Common Commands
-
-Install JavaScript dependencies:
+### Install and run checks
 
 ```powershell
 npm install
-```
-
-Build both web apps:
-
-```powershell
-npm run build
-```
-
-Type-check both web apps:
-
-```powershell
 npm run lint
-```
-
-Run frontend tests:
-
-```powershell
+npm run build
 npm --workspace apps/frontoffice run test
 npm --workspace apps/backoffice run test
-```
-
-Run backend tests:
-
-```powershell
 dotnet test services\api\YSHeng.sln
 ```
 
-Run local development servers:
-
-```powershell
-npm run dev:frontoffice
-npm run dev:backoffice
-dotnet run --project services\api\src\YSHeng.Api\YSHeng.Api.csproj
-```
-
-## Verification
-
-Run the full local verification gate:
+Run the complete local verification gate:
 
 ```powershell
 .\infra\verify-local.ps1
 ```
 
-This includes web type-checking, front/back tests, backend tests, static Dockerfile and Docker Compose contract checks, `.env` validation regression checks, deployment script contract checks, deployment runbook checks, source requirements crosscheck tests, Stitch visual-reference handoff tests, production web builds, and the clean local smoke stack. Use `-SkipSmoke` for a faster code-only check, or `-SkipBuild` when a fresh production build is already available.
+The gate covers web checks, API tests, deployment contracts, environment validation, production builds, and the clean local smoke stack. Docker Compose runtime verification requires a responding Docker engine.
 
-GitHub Actions CI runs the Docker-independent portions of that gate on every push and pull request: web type-checks/tests/builds, API tests, Dockerfile/Compose contract checks, env validation checks, deployment script checks, deployment runbook checks, requirements trace checks, source-document crosscheck, and Stitch handoff checks. Docker Compose runtime smoke remains a deployment-machine proof because it needs a running Docker engine and PostgreSQL-backed containers.
+### Local services
 
-When Docker is unavailable but local PostgreSQL tooling is installed, run the current code against a clean temporary stack:
+| Service | URL |
+| --- | --- |
+| Public website | `http://localhost:3000` |
+| Operations portal | `http://localhost:3001` |
+| API | `http://localhost:5000` |
 
-```powershell
-npm run build
-.\infra\local-clean-smoke.ps1
-```
+For local Docker usage, copy `infra/compose.env.local.example` to `.env`, then follow the [deployment runbook](docs/DEPLOYMENT_RUNBOOK.md).
 
-This starts temporary PostgreSQL, API, front-office, and back-office processes on alternate ports, runs the stack smoke test, and stops the temporary services afterward.
-Logs and temporary PostgreSQL data are written under the OS temp folder at `ysheng-local-clean-smoke`, keeping the repository root clean.
+## Documentation
 
-When Docker Desktop/Linux engine is available, run the deployment-shaped stack:
+- [Architecture](docs/ARCHITECTURE.md)
+- [Implementation status](docs/IMPLEMENTATION.md)
+- [API and role-policy reference](docs/API.md)
+- [Deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
+- [Requirements trace](docs/REQUIREMENTS_TRACE.md)
+- [SEO and measurement notes](docs/SEO_GEO_MEASUREMENT.md)
+- [Source requirements cross-check](docs/SOURCE_REQUIREMENTS_CROSSCHECK.md)
 
-```powershell
-.\infra\docker-preflight.ps1
-docker compose -f infra\docker-compose.yml build
-docker compose -f infra\docker-compose.yml up -d
-.\infra\smoke-test.ps1
-```
+## Project status
 
-The preflight runs Dockerfile and Compose contract checks before probing Docker, so code-side deployment drift is reported even if Docker Desktop is not responding. On Windows, it fails fast when `com.docker.service` is stopped; when the Docker server probe times out, it also prints Docker Desktop, service, context, and WSL diagnostics to make the remaining environment issue easier to fix.
+This repository contains the current YS Heng MVP implementation and its deployment tooling. Business rules, public-data boundaries, role policies, upload limits, and deployment assumptions are documented and covered by focused tests or contract checks.
 
-You can run the Docker-independent deployment checks separately:
+Production deployment is manual-dispatch and environment-approval gated. A successful CI run proves the verification jobs; production completion additionally requires the deployment job and HTTPS smoke checks to pass.
 
-```powershell
-.\infra\test-compose-contract.ps1
-.\infra\test-compose-env.ps1
-.\infra\test-deployment-scripts.ps1
-.\infra\test-deployment-runbook.ps1
-.\infra\test-requirements-trace.ps1
-```
+## Security and operations
 
-For a local Docker Desktop smoke run, you can create `.env` from the local example:
+- Public routes are kept under `/api/public/*` and expose only public vehicle and enquiry data.
+- Back-office routes use ASP.NET Identity authentication and role policies.
+- Finance operations require the Finance policy.
+- Vehicle photos are limited to 5 MB and documents to 10 MB.
+- Production credentials belong in protected environment configuration, never in source control.
+- PostgreSQL backups are part of the VPS operating routine because uploaded files are stored with the application data.
 
-```powershell
-Copy-Item infra\compose.env.local.example .env
-.\infra\docker-preflight.ps1 -AllowExampleEnvValues
-docker compose -f infra\docker-compose.yml --env-file .env up -d --build
-.\infra\smoke-test.ps1
-```
+See the [deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) for environment setup, backups, restore procedures, and production verification.
 
-## VPS Deployment
+## License
 
-Create a root `.env` from the example and change production secrets:
-
-```powershell
-Copy-Item infra\compose.env.example .env
-notepad .env
-.\infra\validate-compose-env.ps1
-```
-
-Normal validation rejects placeholder secrets, sample `example.com` domains, `localhost`/loopback public URLs, and trailing slashes on public URL values. Use real VPS domains or public IP URLs for `PUBLIC_API_BASE_URL`, `FRONTOFFICE_ORIGIN`, and `BACKOFFICE_ORIGIN`.
-
-Deploy with:
-
-```powershell
-.\infra\deploy-vps.ps1
-```
-
-The deploy helper validates `.env`, checks the Compose contract, runs Docker preflight, starts the Compose stack, waits for API/front/back URLs to become reachable, and then runs the smoke test unless `-SkipSmoke` is provided. If you pass a custom `-EnvPath`, the same file is used for preflight, optional backup, Compose startup, and smoke URLs.
-
-For an existing live database, use:
-
-```powershell
-.\infra\deploy-vps.ps1 -BackupBeforeDeploy
-```
-
-Because the MVP stores uploaded photos and documents as PostgreSQL blobs, keep database backups in the operating routine:
-
-```powershell
-.\infra\backup-postgres.ps1
-.\infra\restore-postgres.ps1 -BackupPath backups\ysheng-YYYYMMDD-HHMMSS.dump -ConfirmRestore
-```
-
-Pass `-EnvPath` to backup or restore when operating against a non-default VPS env file; the helpers read `POSTGRES_DB` and `POSTGRES_USER` from that file unless explicitly overridden.
-
-## Environment Notes
-
-- Public API endpoints remain under `/api/public/*`.
-- Back-office endpoints are protected by ASP.NET Identity roles and policies.
-- Finance endpoints require the Finance policy.
-- Vehicle photos are limited to 5 MB; document uploads are limited to 10 MB.
-- Docker verification requires Docker Desktop with the Linux engine responding. If `docker-preflight.ps1` reports `com.docker.service` is stopped or times out while checking the Docker server version, start or repair Docker Desktop before running Compose.
+The repository does not currently declare an open-source license. Add an explicit license or proprietary-use notice before distributing the code outside the project team.

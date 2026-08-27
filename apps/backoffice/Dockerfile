@@ -7,7 +7,9 @@ RUN npm install --workspace apps/backoffice
 FROM node:25-alpine AS build
 WORKDIR /app
 ARG VITE_API_BASE_URL=http://localhost:5000
+ARG VITE_FRONTOFFICE_ORIGIN=http://localhost:3000
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_FRONTOFFICE_ORIGIN=$VITE_FRONTOFFICE_ORIGIN
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backoffice/node_modules ./apps/backoffice/node_modules
 COPY package.json ./

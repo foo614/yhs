@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
 import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
+import dayjs from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
@@ -8,6 +9,7 @@ import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financePageFor, financeStatu
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
+import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import {
   brokerCommissionCreateBlockReason,
   canReconcilePayment,
@@ -40,6 +42,20 @@ import {
   type VehicleDocument,
   type VehicleLookup
 } from "../../api";
+
+export function dailySpendMatchesDashboardAttention(spend: Pick<DailySpend, "isPaid" | "dueDate">, attention: DashboardDrilldown["attention"], today = singaporeTodayIsoDate()) {
+  if (attention === "due") return !spend.isPaid && spend.dueDate <= today;
+  if (attention === "dueSoon") return !spend.isPaid && spend.dueDate > today && spend.dueDate <= addCalendarDays(today, 10);
+  return true;
+}
+
+export function createUnpaidDailySpend(id: string, description: string, amount: number, dueDate: string): DailySpend {
+  return { id, description, amount, dueDate, isPaid: false };
+}
+
+export function payDailySpend(spend: DailySpend): DailySpend {
+  return { ...spend, isPaid: true };
+}
 
 export function FinancePage({
   vehicles,
@@ -293,7 +309,7 @@ export function FinancePage({
 
   const columns: ColumnsType<PaymentRecord> = [
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Collection / 收款", dataIndex: "nettPrice", render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Collection / 收款", dataIndex: "nettPrice", render: (value) => formatMoney(value) },
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Reconciled" ? "green" : "orange"}>{status}</Tag> },
     {
       title: "Reference / 单据",
@@ -345,7 +361,7 @@ export function FinancePage({
   const settlementColumns: ColumnsType<SettlementReminder> = [
     { title: "Owner / Previous Owner", dataIndex: "ownerId", render: (ownerId) => contactFor(owners, ownerId) },
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Deadline / 截止日期", dataIndex: "deadline" },
     { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "red"}>{isPaid ? "Paid" : "Due"}</Tag> },
     {
@@ -362,7 +378,7 @@ export function FinancePage({
   ];
   const dailySpendColumns: ColumnsType<DailySpend> = [
     { title: "Description / 项目", dataIndex: "description" },
-    { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Due / 到期", dataIndex: "dueDate" },
     { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "red"}>{isPaid ? "Paid" : "Due"}</Tag> },
     {
@@ -372,7 +388,7 @@ export function FinancePage({
       render: (_, row) => (
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectDailySpend(row.id)}>Details</Button>
-          <Button size="small" onClick={() => onUpdateDailySpend({ ...row, isPaid: true })} disabled={row.isPaid}>Mark Paid</Button>
+          <Button size="small" onClick={() => onUpdateDailySpend(payDailySpend(row))} disabled={row.isPaid}>Pay</Button>
         </Space>
       )
     }
@@ -386,7 +402,7 @@ export function FinancePage({
     },
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Broker / 经纪人", dataIndex: "brokerName" },
-    { title: "Commission / 佣金", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Commission / 佣金", dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "orange"}>{isPaid ? "Paid" : "Unpaid"}</Tag> },
     {
       title: "Action / 操作",
@@ -403,7 +419,7 @@ export function FinancePage({
   const debtRecoveryColumns: ColumnsType<DebtRecoveryCase> = [
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Customer / 客户", dataIndex: "customerId", render: (customerId) => customerLabel(customers, customerId) },
-    { title: "Balance / 欠款", dataIndex: "balanceAmount", render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Balance / 欠款", dataIndex: "balanceAmount", render: (value) => formatMoney(value) },
     { title: "Follow Up / 跟进", dataIndex: "followUpDate" },
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Closed" ? "green" : status === "FollowedUp" ? "blue" : "orange"}>{financeStatusLabel(status)}</Tag> },
     { title: "Notes / 备注", dataIndex: "notes", render: (value) => value || "-" },
@@ -428,7 +444,7 @@ export function FinancePage({
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Payee / 收款人", dataIndex: "payeeName" },
     { title: "Purpose / 用途", dataIndex: "purpose" },
-    { title: "Amount / 金额", dataIndex: "amount", render: (value) => `RM ${value.toLocaleString()}` },
+    { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Issued / 日期", dataIndex: "issuedDate" },
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Paid" ? "green" : status === "Approved" ? "blue" : "orange"}>{status}</Tag> },
     { title: "Notes / 备注", dataIndex: "notes", render: (value) => value || "-" },
@@ -454,7 +470,7 @@ export function FinancePage({
   const filteredSettlements = filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
     plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
   ], (settlement) => settlement.isPaid ? "Paid" : "Due").filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, dashboardFocus.attention === "due" ? !settlement.isPaid && settlement.deadline <= dashboardToday : true));
-  const filteredDailySpends = filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due").filter((spend) => matchesDashboardFinanceFocus(dashboardFocus, undefined, dashboardFocus.attention === "due" ? !spend.isPaid && spend.dueDate <= dashboardToday : true));
+  const filteredDailySpends = filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due").filter((spend) => matchesDashboardFinanceFocus(dashboardFocus, undefined, dailySpendMatchesDashboardAttention(spend, dashboardFocus.attention, dashboardToday)));
   const filteredBrokerCommissions = filterFinanceRows(brokerCommissions, financeKeyword, financeStatus, (commission) => [
     plateFor(vehicles, commission.vehicleId), commission.brokerName
   ], (commission) => commission.isPaid ? "Paid" : "Unpaid").filter((commission) => matchesDashboardFinanceFocus(dashboardFocus, commission.vehicleId));
@@ -479,16 +495,6 @@ export function FinancePage({
   const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus || dashboardFocusActive);
   const financeFilters = (
     <Space wrap className="toolbarForm">
-      <Input.Search
-        allowClear
-        aria-label="Filter finance records by keyword"
-        placeholder="Search current list"
-        value={financeKeyword}
-        onChange={(event) => {
-          setFinanceKeyword(event.target.value);
-          setFinancePage(1);
-        }}
-      />
       <Select
         allowClear
         aria-label="Filter finance records by status"
@@ -548,43 +554,43 @@ export function FinancePage({
         return [
           { label: "Open custody", value: cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length },
           { label: "Receipts", value: cashHandovers.filter((handover) => Boolean(handover.officialReceiptId)).length },
-          { label: "Cash value", value: `RM ${cashHandovers.reduce((total, handover) => total + handover.amount, 0).toLocaleString()}` }
+          { label: "Cash value", value: formatMoney(cashHandovers.reduce((total, handover) => total + handover.amount, 0)) }
         ];
       case "settlements":
         return [
           { label: "Rows", value: settlements.length },
           { label: "Due", value: settlements.filter((settlement) => !settlement.isPaid).length },
-          { label: "Outstanding", value: `RM ${settlementOutstanding.toLocaleString()}` }
+          { label: "Outstanding", value: formatMoney(settlementOutstanding) }
         ];
       case "commissions":
         return [
           { label: "Rows", value: brokerCommissions.length },
           { label: "Unpaid", value: brokerCommissions.filter((commission) => !commission.isPaid).length },
-          { label: "Outstanding", value: `RM ${brokerCommissionOutstanding.toLocaleString()}` }
+          { label: "Outstanding", value: formatMoney(brokerCommissionOutstanding) }
         ];
       case "debt":
         return [
           { label: "Cases", value: debtRecoveries.length },
           { label: "Open", value: debtRecoveries.filter((debt) => debt.status !== "Closed").length },
-          { label: "Balance", value: `RM ${debtOutstanding.toLocaleString()}` }
+          { label: "Balance", value: formatMoney(debtOutstanding) }
         ];
       case "vouchers":
         return [
           { label: "Rows", value: paymentVouchers.length },
           { label: "Open", value: paymentVouchers.filter((voucher) => voucher.status !== "Paid").length },
-          { label: "Amount", value: `RM ${voucherOutstanding.toLocaleString()}` }
+          { label: "Amount", value: formatMoney(voucherOutstanding) }
         ];
       case "daily":
         return [
           { label: "Rows", value: dailySpends.length },
           { label: "Due", value: dailySpends.filter((spend) => !spend.isPaid).length },
-          { label: "Amount", value: `RM ${dailySpendOutstanding.toLocaleString()}` }
+          { label: "Amount", value: formatMoney(dailySpendOutstanding) }
         ];
       default:
         return [
           { label: "Rows", value: payments.length },
           { label: "Open bank", value: payments.filter((payment) => payment.status !== "Reconciled").length },
-          { label: "Outstanding", value: `RM ${outstanding.toLocaleString()}` }
+          { label: "Outstanding", value: formatMoney(outstanding) }
         ];
     }
   })();
@@ -619,7 +625,7 @@ export function FinancePage({
       {dashboardFocusActive && <Alert
         type="info"
         showIcon
-        message={dashboardFocus.vehicleId ? "Dashboard focus: records for the selected vehicle" : dashboardFocus.attention === "due" ? "Dashboard focus: due follow-up items" : "Dashboard focus: open follow-up items"}
+        message={dashboardFocus.vehicleId ? "Dashboard focus: records for the selected vehicle" : dashboardFocus.attention === "dueSoon" ? "Dashboard focus: Daily Spend due soon" : dashboardFocus.attention === "due" ? "Dashboard focus: due follow-up items" : "Dashboard focus: open follow-up items"}
         action={<Button size="small" onClick={() => onClearDashboardFocus(financeTab)}>Clear focus</Button>}
       />}
       {financeTab === "cash-custody" && (
@@ -664,7 +670,7 @@ export function FinancePage({
                 <Tag color={payment.status === "Reconciled" ? "green" : "orange"}>{payment.status}</Tag>
               </div>
               <div className="mobileRecordMeta">
-                <span><small>Nett Price / 净价</small><strong>RM {payment.nettPrice.toLocaleString()}</strong></span>
+                <span><small>Nett Price / 净价</small><strong>{formatMoney(payment.nettPrice)}</strong></span>
                 <span><small>Bank Follow Up / 银行跟进</small><strong>{payment.bankFollowUpDate || "-"}</strong></span>
               </div>
               <div className="mobileRecordSection">
@@ -732,7 +738,7 @@ export function FinancePage({
           setFinanceCreateOpen(null);
         }} initialValues={{ vehicleId: eligiblePaymentVehicles[0]?.id }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={eligiblePaymentVehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="nettPrice" label="Collection Amount / Nett Price" rules={[{ required: true, message: "Collection amount is required." }]}><InputNumber className="fullWidth" min={0.01} /></Form.Item>
+          <Form.Item name="nettPrice" label="Collection Amount / Nett Price" rules={[{ required: true, message: "Collection amount is required." }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><DatePicker className="fullWidth" /></Form.Item>
           <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
@@ -769,17 +775,17 @@ export function FinancePage({
           }
           onCreate(payment);
         }} initialValues={{ vehicleId: vehicles[0]?.id, status: "Pending", bossChecked: false, documentsPrepared: false, checklistValidated: false }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
@@ -832,8 +838,8 @@ export function FinancePage({
           }}
         >
           <Form.Item name="id" label="Selected Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedEditPayment?.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedEditPayment?.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
@@ -843,10 +849,10 @@ export function FinancePage({
           {canApproveManagementReview && selectedEditPayment && !selectedEditPayment.bossChecked && <Button onClick={() => onApproveManagementReview(selectedEditPayment.id)}>Approve Management Review</Button>}
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} /></Form.Item>
-          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} /></Form.Item>
+          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
@@ -925,12 +931,12 @@ export function FinancePage({
           <Descriptions bordered column={1}>
             <Descriptions.Item label="Deadline Popup">Admin receives reminder when settlement deadline is due.</Descriptions.Item>
             <Descriptions.Item label="Bank collection export">Export a spreadsheet for staff to submit manually in AutoCount.</Descriptions.Item>
-            <Descriptions.Item label="Outstanding Bank Collection">RM {outstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Outstanding Settlement">RM {settlementOutstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Daily Spend Due">RM {dailySpendOutstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Broker Commission Due">RM {brokerCommissionOutstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Debt Recovery Balance">RM {debtOutstanding.toLocaleString()}</Descriptions.Item>
-            <Descriptions.Item label="Payment Voucher Open">RM {voucherOutstanding.toLocaleString()}</Descriptions.Item>
+            <Descriptions.Item label="Outstanding Bank Collection">{formatMoney(outstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Outstanding Settlement">{formatMoney(settlementOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Daily Spend Due">{formatMoney(dailySpendOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Broker Commission Due">{formatMoney(brokerCommissionOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Debt Recovery Balance">{formatMoney(debtOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Payment Voucher Open">{formatMoney(voucherOutstanding)}</Descriptions.Item>
           </Descriptions>
           <div className="mobileRecordList">
             {filteredSettlements.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={settlementEmptyText} />}
@@ -945,7 +951,7 @@ export function FinancePage({
                 </div>
                 <div className="mobileRecordMeta">
                   <span><small>Owner / Previous Owner</small><strong>{contactFor(owners, settlement.ownerId)}</strong></span>
-                  <span><small>Amount / 金额</small><strong>RM {settlement.amount.toLocaleString()}</strong></span>
+                  <span><small>Amount / 金额</small><strong>{formatMoney(settlement.amount)}</strong></span>
                 </div>
                 <div className="mobileRecordFooter">
                   <Tag>Deadline: {settlement.deadline}</Tag>
@@ -986,9 +992,9 @@ export function FinancePage({
             onCreateSettlement(settlement);
             setFinanceCreateOpen(null);
           }} initialValues={{ vehicleId: vehicles[0]?.id, deadline: today(), isPaid: false }}>
-            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="ownerId" label="Settlement Owner / Previous Owner"><Select allowClear showSearch optionFilterProp="label" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} /></Form.Item>
-            <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="deadline" label="Deadline" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Settlement</Button></Form.Item>
@@ -1028,10 +1034,10 @@ export function FinancePage({
               setFinanceEditorOpen(null);
             }}
           >
-            <Form.Item name="id" label="Selected Settlement"><Select options={settlements.map((settlement) => ({ value: settlement.id, label: `${plateFor(vehicles, settlement.vehicleId)} / RM ${settlement.amount.toLocaleString()} / ${settlement.deadline}` }))} onChange={selectSettlement} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="id" label="Selected Settlement"><Select options={settlements.map((settlement) => ({ value: settlement.id, label: `${plateFor(vehicles, settlement.vehicleId)} / ${formatMoney(settlement.amount)} / ${settlement.deadline}` }))} onChange={selectSettlement} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="ownerId" label="Settlement Owner / Previous Owner"><Select allowClear showSearch optionFilterProp="label" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} /></Form.Item>
-            <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="deadline" label="Deadline" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditSettlement}>Update Settlement</Button></Form.Item>
@@ -1057,7 +1063,7 @@ export function FinancePage({
                 </div>
                 <div className="mobileRecordMeta">
                   <span><small>Car Plate / 车牌</small><strong>{plateFor(vehicles, commission.vehicleId)}</strong></span>
-                  <span><small>Commission / 佣金</small><strong>RM {commission.amount.toLocaleString()}</strong></span>
+                  <span><small>Commission / 佣金</small><strong>{formatMoney(commission.amount)}</strong></span>
                 </div>
                 <div className="mobileRecordFooter">
                   <Tag color={commission.cp58Required ? commission.cp58Prepared ? "green" : "gold" : "default"}>
@@ -1106,9 +1112,9 @@ export function FinancePage({
             onCreateBrokerCommission(commission);
             setFinanceCreateOpen(null);
           }} initialValues={{ vehicleId: vehicles[0]?.id, isPaid: false, cp58Required: false, cp58Prepared: false }}>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
-            <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label={shortformLabel("CP58 Required", "Malaysian commission tax form required")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
             <Form.Item name="cp58Prepared" label={shortformLabel("CP58 Prepared", "Malaysian commission tax form prepared")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
@@ -1150,10 +1156,10 @@ export function FinancePage({
               setFinanceEditorOpen(null);
             }}
           >
-            <Form.Item name="id" label="Selected Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / RM ${commission.amount.toLocaleString()}` }))} onChange={selectBrokerCommission} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="id" label="Selected Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / ${formatMoney(commission.amount)}` }))} onChange={selectBrokerCommission} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
-            <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label={shortformLabel("CP58 Required", "Malaysian commission tax form required")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
             <Form.Item name="cp58Prepared" label={shortformLabel("CP58 Prepared", "Malaysian commission tax form prepared")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
@@ -1180,7 +1186,7 @@ export function FinancePage({
                 </div>
                 <div className="mobileRecordMeta">
                   <span><small>Customer / 客户</small><strong>{customerLabel(customers, debt.customerId)}</strong></span>
-                  <span><small>Balance / 欠款</small><strong>RM {debt.balanceAmount.toLocaleString()}</strong></span>
+                  <span><small>Balance / 欠款</small><strong>{formatMoney(debt.balanceAmount)}</strong></span>
                 </div>
                 <div className="mobileRecordSection">
                   <Typography.Text className="mobileRecordLabel">Notes / 备注</Typography.Text>
@@ -1222,9 +1228,9 @@ export function FinancePage({
             onCreateDebtRecovery(debt);
             setFinanceCreateOpen(null);
           }} initialValues={{ vehicleId: vehicles[0]?.id, customerId: customers[0]?.id, status: "Open", followUpDate: today() }}>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item>
-            <Form.Item name="balanceAmount" label="Balance / 欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="balanceAmount" label="Balance / 欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="followUpDate" label="Follow-up Date / 跟进日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Open", "FollowedUp", "Closed"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
@@ -1266,10 +1272,10 @@ export function FinancePage({
               setFinanceEditorOpen(null);
             }}
           >
-            <Form.Item name="id" label="Selected Debt Case"><Select options={debtRecoveries.map((debt) => ({ value: debt.id, label: `${plateFor(vehicles, debt.vehicleId)} / ${customerLabel(customers, debt.customerId)} / RM ${debt.balanceAmount.toLocaleString()}` }))} onChange={selectDebtRecovery} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="id" label="Selected Debt Case"><Select options={debtRecoveries.map((debt) => ({ value: debt.id, label: `${plateFor(vehicles, debt.vehicleId)} / ${customerLabel(customers, debt.customerId)} / ${formatMoney(debt.balanceAmount)}` }))} onChange={selectDebtRecovery} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item>
-            <Form.Item name="balanceAmount" label="Balance / 欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="balanceAmount" label="Balance / 欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="followUpDate" label="Follow-up Date / 跟进日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Open", "FollowedUp", "Closed"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
@@ -1296,7 +1302,7 @@ export function FinancePage({
                 </div>
                 <div className="mobileRecordMeta">
                   <span><small>Car Plate / 车牌</small><strong>{plateFor(vehicles, voucher.vehicleId)}</strong></span>
-                  <span><small>Amount / 金额</small><strong>RM {voucher.amount.toLocaleString()}</strong></span>
+                  <span><small>Amount / 金额</small><strong>{formatMoney(voucher.amount)}</strong></span>
                 </div>
                 <div className="mobileRecordSection">
                   <Typography.Text className="mobileRecordLabel">Purpose / 用途</Typography.Text>
@@ -1339,9 +1345,9 @@ export function FinancePage({
             onCreatePaymentVoucher(voucher);
             setFinanceCreateOpen(null);
           }} initialValues={{ vehicleId: vehicles[0]?.id, purpose: "Outstation Pickup Allowance", status: "Pending", issuedDate: today() }}>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="payeeName" label="Payee / 收款人" rules={[{ required: true }]}><Input placeholder="Driver / staff name" /></Form.Item>
-            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="purpose" label="Purpose / 用途" rules={[{ required: true }]}><Input placeholder="Outstation Pickup Allowance" /></Form.Item>
             <Form.Item name="issuedDate" label="Issued Date / 日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Pending", "Approved", "Paid"].map((value) => ({ value }))} /></Form.Item>
@@ -1385,10 +1391,10 @@ export function FinancePage({
               setFinanceEditorOpen(null);
             }}
           >
-            <Form.Item name="id" label="Selected Voucher"><Select options={paymentVouchers.map((voucher) => ({ value: voucher.id, label: `${plateFor(vehicles, voucher.vehicleId)} / ${voucher.payeeName} / RM ${voucher.amount.toLocaleString()}` }))} onChange={selectPaymentVoucher} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="id" label="Selected Voucher"><Select options={paymentVouchers.map((voucher) => ({ value: voucher.id, label: `${plateFor(vehicles, voucher.vehicleId)} / ${voucher.payeeName} / ${formatMoney(voucher.amount)}` }))} onChange={selectPaymentVoucher} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="payeeName" label="Payee / 收款人" rules={[{ required: true }]}><Input placeholder="Driver / staff name" /></Form.Item>
-            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="purpose" label="Purpose / 用途" rules={[{ required: true }]}><Input placeholder="Outstation Pickup Allowance" /></Form.Item>
             <Form.Item name="issuedDate" label="Issued Date / 日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Pending", "Approved", "Paid"].map((value) => ({ value }))} /></Form.Item>
@@ -1415,13 +1421,13 @@ export function FinancePage({
                   <Tag color={spend.isPaid ? "green" : "red"}>{spend.isPaid ? "Paid" : "Due"}</Tag>
                 </div>
                 <div className="mobileRecordMeta">
-                  <span><small>Amount / 金额</small><strong>RM {spend.amount.toLocaleString()}</strong></span>
+                  <span><small>Amount / 金额</small><strong>{formatMoney(spend.amount)}</strong></span>
                   <span><small>Due / 到期</small><strong>{spend.dueDate}</strong></span>
                 </div>
                 <div className="mobileRecordFooter">
                   <Space className="tableActionGroup" wrap size={6}>
                     <Button size="small" type="primary" onClick={() => selectDailySpend(spend.id)}>Details</Button>
-                    <Button size="small" onClick={() => onUpdateDailySpend({ ...spend, isPaid: true })} disabled={spend.isPaid}>Mark Paid</Button>
+                    <Button size="small" onClick={() => onUpdateDailySpend(payDailySpend(spend))} disabled={spend.isPaid}>Pay</Button>
                     <Button size="small" onClick={() => onUpdateDailySpend({ ...spend, isPaid: false })} disabled={!canReopenPaidDailySpend(spend)}>Reopen</Button>
                   </Space>
                 </div>
@@ -1440,13 +1446,12 @@ export function FinancePage({
             className="recordCreateModal"
           >
           <Form layout="vertical" className="modalForm" onFinish={(values) => {
-            const spend: DailySpend = {
-              id: newId(),
-              description: values.description,
-              amount: Number(values.amount ?? 0),
-              dueDate: values.dueDate,
-              isPaid: values.isPaid
-            };
+            const spend = createUnpaidDailySpend(
+              newId(),
+              values.description,
+              Number(values.amount ?? 0),
+              values.dueDate.format("YYYY-MM-DD")
+            );
             const blockReason = dailySpendCreateBlockReason(spend);
             if (blockReason) {
               message.warning(blockReason);
@@ -1454,11 +1459,10 @@ export function FinancePage({
             }
             onCreateDailySpend(spend);
             setFinanceCreateOpen(null);
-          }} initialValues={{ description: "Electric Bill", dueDate: monthlyElectricBillDueDate(), isPaid: false }}>
+          }} initialValues={{ description: "Electric Bill", dueDate: dayjs(monthlyElectricBillDueDate()) }}>
             <Form.Item name="description" label="Description / 项目" rules={[{ required: true }]}><Input placeholder="Electric Bill" /></Form.Item>
-            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
-            <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
+            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Daily Spend</Button></Form.Item>
           </Form>
           </Modal>
@@ -1495,9 +1499,9 @@ export function FinancePage({
               setFinanceEditorOpen(null);
             }}
           >
-            <Form.Item name="id" label="Selected Daily Spend"><Select options={dailySpends.map((spend) => ({ value: spend.id, label: `${spend.description} / RM ${spend.amount.toLocaleString()} / ${spend.dueDate}` }))} onChange={selectDailySpend} /></Form.Item>
+            <Form.Item name="id" label="Selected Daily Spend"><Select options={dailySpends.map((spend) => ({ value: spend.id, label: `${spend.description} / ${formatMoney(spend.amount)} / ${spend.dueDate}` }))} onChange={selectDailySpend} /></Form.Item>
             <Form.Item name="description" label="Description / 项目" rules={[{ required: true }]}><Input placeholder="Electric Bill" /></Form.Item>
-            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} /></Form.Item>
+            <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDailySpend}>Update Daily Spend</Button></Form.Item>
@@ -1614,6 +1618,12 @@ function statusOptionsForFinanceTab(tab: string) {
             : [];
 
   return labels.map((value) => ({ label: financeStatusLabel(value), value }));
+}
+
+function addCalendarDays(isoDate: string, days: number) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const date = new Date(year, month - 1, day + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function newId() {

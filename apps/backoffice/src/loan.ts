@@ -1,6 +1,22 @@
-import type { Customer, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
+import type { Customer, DocumentCategory, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 
 export const loanDocumentCategories = ["Voc", "ApDocument", "StatusReceipt", "LoanDocument"] as const;
+
+export function canCreateManualLoan(roles: readonly string[]) {
+  return roles.includes("BossAdmin");
+}
+
+export function canUploadLoanChecklistDocument(roles: readonly string[], category: DocumentCategory) {
+  return roles.includes("BossAdmin") || (roles.includes("Loan") && category === "LoanDocument");
+}
+
+export function loanDocumentChecklistStatus(category: DocumentCategory, isPresent: boolean) {
+  if (category === "LoanDocument") {
+    return isPresent ? "Uploaded and ready" : "Not uploaded yet";
+  }
+
+  return isPresent ? "Provided by Sales" : "Missing — request from Sales";
+}
 
 export type LoanFilters = {
   keyword?: string;

@@ -1,0 +1,19 @@
+diff --git a/apps/backoffice/src/App.tsx b/apps/backoffice/src/App.tsx
+--- a/apps/backoffice/src/App.tsx
++++ b/apps/backoffice/src/App.tsx
+@@ -100,6 +100,7 @@ import {
+   customerFromLead,
+   customerSelectLabel,
+   decideHrLeaveRequest,
++  exportAutoCountWorkbook,
+   exportPaymentsCsv,
+   generateHrPayslips,
+   getAuditLog,
+@@ -922,6 +923,7 @@ export default function App() {
+               onCreatePaymentVoucher={(voucher) => runCreate(() => createPaymentVoucher(voucher), (record) => setPaymentVouchers((items) => [record, ...items]), "Payment voucher created")}
+               onUpdatePaymentVoucher={(voucher) => runUpdate(() => updatePaymentVoucher(voucher), (record) => setPaymentVouchers((items) => replaceById(items, record)), "Payment voucher updated")}
+               onExportPayments={() => exportPaymentsCsv()}
++              onExportAutoCount={(from, to) => exportAutoCountWorkbook(from, to)}
+               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Finance document uploaded")}
+               onCreateCashHandover={(paymentRecordId, amount, notes) => runCreate(() => createCashHandover(paymentRecordId, amount, notes), (record) => setCashHandovers((items) => [record, ...items]), "Cash received recorded")}
+               onRequestCashHandover={(id) => runUpdate(() => requestCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover requested")}

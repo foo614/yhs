@@ -173,12 +173,6 @@ export function VehicleCatalogSettings() {
         </Form.Item>
       </Form>
       <div className="vehicleOperationFilters">
-        <Input.Search
-          allowClear
-          placeholder="Search make or model"
-          value={catalogFilters.keyword}
-          onChange={(event) => updateCatalogFilter("keyword", event.target.value)}
-        />
         <Select
           allowClear
           placeholder="Website status"

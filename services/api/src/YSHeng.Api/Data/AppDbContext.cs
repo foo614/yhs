@@ -16,6 +16,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<PurchaseInvoice> PurchaseInvoices => Set<PurchaseInvoice>();
     public DbSet<RepairJob> RepairJobs => Set<RepairJob>();
+    public DbSet<RepairReceipt> RepairReceipts => Set<RepairReceipt>();
+    public DbSet<RepairReceiptItem> RepairReceiptItems => Set<RepairReceiptItem>();
     public DbSet<SupplierInvoice> SupplierInvoices => Set<SupplierInvoice>();
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
@@ -55,8 +57,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<VehiclePhoto>().Property(photo => photo.Content).HasColumnType("bytea");
         builder.Entity<VehiclePhoto>().Property(photo => photo.Thumbnail).HasColumnType("bytea");
         builder.Entity<DocumentBlob>().Property(document => document.Content).HasColumnType("bytea");
+        builder.Entity<DocumentBlob>().HasIndex(document => document.OwnerId);
+        builder.Entity<DocumentBlob>().HasIndex(document => document.OwnershipType);
         builder.Entity<DocumentBlob>().HasIndex(document => document.RepairJobId);
         builder.Entity<DocumentBlob>().HasIndex(document => document.PaymentRecordId);
+        builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.RepairJobId);
+        builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.DocumentId).IsUnique();
+        builder.Entity<RepairReceiptItem>().HasIndex(item => new { item.RepairReceiptId, item.SortOrder });
         builder.Entity<FinanceInvoice>().Property(invoice => invoice.Content).HasColumnType("bytea");
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.PaymentRecordId).IsUnique();
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.InvoiceNumber).IsUnique();

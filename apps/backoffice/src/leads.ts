@@ -1,6 +1,29 @@
 import type { Customer, Lead, Vehicle, VehicleLookup } from "./api";
 
 export type LeadLinkFilter = "All" | "Linked" | "Unlinked";
+export type LeadSortMode = "CloseAsap" | "Received";
+
+export const leadFilterControlOptions: {
+  status: Array<{ value: Lead["status"] | "All"; label: string }>;
+  customerLink: Array<{ value: LeadLinkFilter; label: string }>;
+  sort: Array<{ value: LeadSortMode; label: string }>;
+} = {
+  status: [
+    { value: "All", label: "All Statuses" },
+    { value: "New", label: "New" },
+    { value: "Contacted", label: "Contacted" },
+    { value: "Closed", label: "Closed" }
+  ],
+  customerLink: [
+    { value: "All", label: "All Customers" },
+    { value: "Unlinked", label: "Needs Customer" },
+    { value: "Linked", label: "Linked Customer" }
+  ],
+  sort: [
+    { value: "CloseAsap", label: "Close ASAP first" },
+    { value: "Received", label: "Newest first" }
+  ]
+};
 export type LeadPriorityLabel = "Hot" | "Ready" | "Follow up" | "Closed";
 export type LeadVehicleInfo = VehicleLookup & Partial<Pick<Vehicle, "year" | "isPublic">>;
 export type LeadVehicleGroup = {
@@ -63,6 +86,9 @@ export function leadSourceSummary(lead: Lead) {
 
 export function leadVehicleLabel(lead: Lead, vehicles: LeadVehicleInfo[]) {
   if (!lead.vehicleId || lead.vehicleId === "00000000-0000-0000-0000-000000000000") {
+    if (lead.sourceCampaign === "in-store-qr") {
+      return "In-store QR enquiry";
+    }
     return "Website contact enquiry";
   }
 

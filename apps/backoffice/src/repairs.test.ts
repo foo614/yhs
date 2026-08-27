@@ -100,4 +100,12 @@ describe("repair supplier invoice helpers", () => {
     expect(filterRefurbishmentRecords([baseRepair], [baseInvoice], vehicles, {}).map((record) => record.key))
       .toEqual(["repair-repair-1", "supplier-supplier-1"]);
   });
+
+  it("filters repair records by the selected car plate", () => {
+    const repairVehicle = { ...vehicles[0], id: "vehicle-2", plateNumber: "BKC3003" };
+    const repair = { ...baseRepair, id: "repair-2", vehicleId: repairVehicle.id };
+
+    expect(filterRefurbishmentRecords([baseRepair, repair], [], [vehicles[0], repairVehicle], { keyword: "bkc3003" }).map((record) => record.key))
+      .toEqual(["repair-repair-2"]);
+  });
 });

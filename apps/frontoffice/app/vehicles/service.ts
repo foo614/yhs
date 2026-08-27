@@ -73,6 +73,16 @@ export type PublicContactPayload = {
   sourceCampaign?: string;
 };
 
+export type PublicShowroomEnquiryPayload = {
+  vehicleType: string;
+  preferredBrand?: string;
+  preferredModel?: string;
+  budgetRange: string;
+  customerName: string;
+  phone: string;
+  email?: string;
+};
+
 const publicApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
 const apiBaseUrl = typeof window === "undefined" ? process.env.API_BASE_URL ?? publicApiBaseUrl : publicApiBaseUrl;
 const neutralVehicleFallbackPhotoUrl = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/vehicle-photo-pending.svg`;
@@ -448,6 +458,36 @@ export async function submitPublicContact(payload: PublicContactPayload, baseUrl
 
   try {
     const response = await fetch(`${baseUrl}/api/public/contact-enquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cleanedPayload)
+    });
+
+    if (response.ok) return { ok: true };
+    return await validationError(response);
+  } catch {
+    return { ok: false, code: "submit_failed", message: "Could not send enquiry. Please try again." };
+  }
+}
+
+export async function submitPublicShowroomEnquiry(payload: PublicShowroomEnquiryPayload, baseUrl = apiBaseUrl): Promise<PublicLeadResult> {
+  const cleanedPayload = {
+    vehicleType: payload.vehicleType.trim(),
+    preferredBrand: payload.preferredBrand?.trim() ?? "",
+    preferredModel: payload.preferredModel?.trim() ?? "",
+    budgetRange: payload.budgetRange.trim(),
+    customerName: payload.customerName.trim(),
+    phone: payload.phone.trim(),
+    email: payload.email?.trim() ?? ""
+  };
+
+  if (!cleanedPayload.vehicleType) return { ok: false, code: "vehicle_type_required", message: "Choose a vehicle type." };
+  if (!cleanedPayload.budgetRange) return { ok: false, code: "budget_range_required", message: "Choose a budget range." };
+  if (!cleanedPayload.customerName) return { ok: false, code: "customer_name_required", message: "Name is required." };
+  if (!cleanedPayload.phone) return { ok: false, code: "phone_required", message: "Phone is required." };
+
+  try {
+    const response = await fetch(`${baseUrl}/api/public/showroom-enquiries`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cleanedPayload)

@@ -399,6 +399,37 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Showroom_enquiry_captures_a_general_lead_with_a_server_owned_qr_source()
+    {
+        var request = new ShowroomEnquiryRequest(" SUV ", " Toyota ", " Harrier ", " RM50k–RM80k ", " Ali Tan ", " 0123456789 ", " ali@example.com ");
+
+        var validation = WorkflowReferenceRules.ValidateShowroomEnquiry(request);
+        var lead = LeadCapture.CreateShowroomEnquiry(request);
+
+        Assert.True(validation.IsValid);
+        Assert.Equal(Guid.Empty, lead.VehicleId);
+        Assert.Equal("Ali Tan", lead.CustomerName);
+        Assert.Equal("0123456789", lead.Phone);
+        Assert.Equal("in-store-qr", lead.SourceCampaign);
+        Assert.Equal("/showroom-enquiry", lead.SourcePage);
+        Assert.Contains("Vehicle type: SUV", lead.Message);
+        Assert.Contains("Email: ali@example.com", lead.Message);
+    }
+
+    [Fact]
+    public void Showroom_enquiry_rejects_invalid_choices_and_contact_details()
+    {
+        var result = WorkflowReferenceRules.ValidateShowroomEnquiry(new ShowroomEnquiryRequest("Coupe", "", "", "Any budget", "", "", "not-an-email"));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "vehicle_type_invalid");
+        Assert.Contains(result.Errors, error => error.Code == "budget_range_invalid");
+        Assert.Contains(result.Errors, error => error.Code == "customer_name_required");
+        Assert.Contains(result.Errors, error => error.Code == "phone_required");
+        Assert.Contains(result.Errors, error => error.Code == "email_invalid");
+    }
+
+    [Fact]
     public void Public_contact_enquiry_message_is_limited_to_2000_characters()
     {
         var result = WorkflowReferenceRules.ValidatePublicContactEnquiry(new ContactEnquiryRequest("Ali Tan", "0123456789", new string('x', 2001)));
@@ -1505,6 +1536,31 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Daily_spend_reminders_include_only_unpaid_items_due_within_ten_calendar_days()
+    {
+        var today = new DateOnly(2026, 6, 1);
+        var reminders = ReminderInbox.Create(
+            [], [], [], [],
+            [
+                new DailySpend { Description = "Overdue", Amount = 100m, DueDate = today.AddDays(-1), IsPaid = false },
+                new DailySpend { Description = "Today", Amount = 200m, DueDate = today, IsPaid = false },
+                new DailySpend { Description = "Day ten", Amount = 300m, DueDate = today.AddDays(10), IsPaid = false },
+                new DailySpend { Description = "Day eleven", Amount = 400m, DueDate = today.AddDays(11), IsPaid = false },
+                new DailySpend { Description = "Paid", Amount = 500m, DueDate = today.AddDays(5), IsPaid = true }
+            ],
+            [], [], [], today);
+
+        Assert.Equal(3, reminders.Count);
+        Assert.Contains(reminders, reminder => reminder.Title == "Daily spend due: Overdue" && reminder.DueDate == today.AddDays(-1));
+        Assert.Contains(reminders, reminder => reminder.Title == "Daily spend due: Today" && reminder.DueDate == today);
+        Assert.Contains(reminders, reminder => reminder.Title == "Daily spend due: Day ten" && reminder.DueDate == today.AddDays(10));
+        Assert.DoesNotContain(reminders, reminder => reminder.Title.Contains("Day eleven") || reminder.Title.Contains("Paid"));
+        Assert.Equal(["Daily spend due: Day ten"], ReminderInbox.Filter(reminders, "DailySpendDue", "DueSoon", today).Select(reminder => reminder.Title));
+        Assert.Equal(["Daily spend due: Overdue"], ReminderInbox.Filter(reminders, "DailySpendDue", "Overdue", today).Select(reminder => reminder.Title));
+        Assert.Equal(["Daily spend due: Today"], ReminderInbox.Filter(reminders, "DailySpendDue", "DueToday", today).Select(reminder => reminder.Title));
+    }
+
+    [Fact]
     public void Reminder_inbox_filters_by_type_and_due_bucket()
     {
         var vehicleId = Guid.NewGuid();
@@ -1521,6 +1577,7 @@ public sealed class BusinessRulesTests
         Assert.Equal(["Delivery"], ReminderInbox.Filter(reminders, null, "Upcoming", today).Select(reminder => reminder.Title));
         Assert.Empty(ReminderInbox.Filter(reminders, "SettlementDue", "Overdue", today));
         Assert.True(ReminderInbox.IsValidDueFilter("DueToday"));
+        Assert.True(ReminderInbox.IsValidDueFilter("DueSoon"));
         Assert.False(ReminderInbox.IsValidDueFilter("Soon"));
     }
 
@@ -1616,6 +1673,35 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Vehicle_document_ownership_defaults_match_the_approved_categories()
+    {
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.IdentityCard));
+        Assert.Equal(DocumentOwnershipType.Seller, DocumentOwnershipRules.DefaultFor(FileCategory.PurchaseInvoice));
+        Assert.Equal(DocumentOwnershipType.Seller, DocumentOwnershipRules.DefaultFor(FileCategory.Voc));
+        Assert.Equal(DocumentOwnershipType.Seller, DocumentOwnershipRules.DefaultFor(FileCategory.ApDocument));
+        Assert.Equal(DocumentOwnershipType.Vehicle, DocumentOwnershipRules.DefaultFor(FileCategory.StatusReceipt));
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.LoanDocument));
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.DeliveryDocument));
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.Policy));
+        Assert.Equal(DocumentOwnershipType.Vehicle, DocumentOwnershipRules.DefaultFor(FileCategory.RoadTaxReceipt));
+        Assert.Equal(DocumentOwnershipType.Vehicle, DocumentOwnershipRules.DefaultFor(FileCategory.RepairInvoice));
+    }
+
+    [Fact]
+    public void Vehicle_document_ownership_validation_requires_the_matching_linked_person()
+    {
+        var sellerId = Guid.NewGuid();
+        var buyerId = Guid.NewGuid();
+        var validSeller = DocumentOwnershipRules.Validate(FileCategory.PurchaseInvoice, null, null, DocumentOwnershipType.Seller, null, sellerId);
+        var missingBuyer = DocumentOwnershipRules.Validate(FileCategory.IdentityCard, null, null, DocumentOwnershipType.Buyer, null, null);
+        var vehicleWithPerson = DocumentOwnershipRules.Validate(FileCategory.RepairInvoice, null, null, DocumentOwnershipType.Vehicle, buyerId, null);
+
+        Assert.True(validSeller.IsValid);
+        Assert.Contains(missingBuyer.Errors, error => error.Code == "document_buyer_required");
+        Assert.Contains(vehicleWithPerson.Errors, error => error.Code == "document_vehicle_link_invalid");
+    }
+
+    [Fact]
     public void Cash_custody_requires_matching_amount_and_separation_of_duties()
     {
         var customerId = Guid.NewGuid();
@@ -1701,6 +1787,19 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Dashboard_analytics_period_requires_an_inclusive_iso_date_pair()
+    {
+        Assert.True(DashboardAnalyticsPeriodRules.TryParse("2026-06-01", "2026-06-30", out var period, out var error));
+        Assert.Equal(new DateOnly(2026, 6, 1), period.From);
+        Assert.Equal(new DateOnly(2026, 6, 30), period.To);
+        Assert.Null(error);
+        Assert.False(DashboardAnalyticsPeriodRules.TryParse("2026-06-01", null, out _, out var missingPairError));
+        Assert.Contains("both from and to", missingPairError);
+        Assert.False(DashboardAnalyticsPeriodRules.TryParse("2026-06-30", "2026-06-01", out _, out var invertedError));
+        Assert.Contains("must not be after", invertedError);
+    }
+
+    [Fact]
     public void Dashboard_metrics_use_repair_jobs_for_repair_cost_and_profit()
     {
         var vehicleId = Guid.NewGuid();
@@ -1745,6 +1844,27 @@ public sealed class BusinessRulesTests
         Assert.Equal(summary.EstimatedProfit, summary.TotalProfit);
         Assert.Equal("Tint Shop", summary.TopSupplier);
         Assert.Equal(1, summary.SalesPerformance);
+    }
+
+    [Fact]
+    public void Vehicle_repair_cost_uses_final_repair_total_then_refurbishment_fallback()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: true) with
+        {
+            Id = Guid.NewGuid(),
+            RefurbishmentTotal = 1200m,
+            RepairCost = 9999m
+        };
+        var repairs = new[]
+        {
+            new RepairJob { VehicleId = vehicle.Id, WhatToDo = "Polish", Cost = 450m },
+            new RepairJob { VehicleId = vehicle.Id, WhatToDo = "Paint", Cost = 1500m, ChecklistDone = true, ApprovalStatus = RepairApprovalStatus.Pending }
+        };
+
+        var costs = VehicleRepairCosts.ByVehicle(repairs);
+
+        Assert.Equal(450m, VehicleRepairCosts.EffectiveCost(vehicle, costs));
+        Assert.Equal(1200m, VehicleRepairCosts.EffectiveCost(vehicle with { Id = Guid.NewGuid() }, costs));
     }
 
     [Fact]
@@ -1883,6 +2003,13 @@ public sealed class BusinessRulesTests
                 SellingPrice = 30000m,
                 RefurbishmentTotal = 1000m,
                 CommissionTotal = 500m
+            },
+            VehicleSeed.Sold(publicVisible: false) with
+            {
+                Id = Guid.NewGuid(),
+                Make = "Smoke",
+                Model = "Workflow",
+                StockOwner = StockOwner.KS
             }
         };
 
@@ -1915,17 +2042,19 @@ public sealed class BusinessRulesTests
                 new DebtRecoveryCase { VehicleId = soldVehicleId, CustomerId = Guid.NewGuid(), BalanceAmount = 1000m, Status = DebtRecoveryStatus.Closed, FollowUpDate = today }
             ],
             [
-                new Lead { VehicleId = availableVehicleId, CustomerName = "Ali", Phone = "012", Status = LeadStatus.New },
-                new Lead { VehicleId = loanVehicleId, CustomerName = "Tan", Phone = "013", Status = LeadStatus.Contacted },
-                new Lead { VehicleId = soldVehicleId, CustomerName = "Lim", Phone = "014", Status = LeadStatus.Closed }
+                new Lead { VehicleId = availableVehicleId, CustomerName = "Ali", Phone = "012", Status = LeadStatus.New, CreatedAt = new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc) },
+                new Lead { VehicleId = availableVehicleId, CustomerName = "Aminah", Phone = "015", Status = LeadStatus.Contacted, CreatedAt = new DateTime(2026, 5, 15, 1, 0, 0, DateTimeKind.Utc) },
+                new Lead { VehicleId = loanVehicleId, CustomerName = "Tan", Phone = "013", Status = LeadStatus.Contacted, CreatedAt = new DateTime(2026, 4, 15, 1, 0, 0, DateTimeKind.Utc) },
+                new Lead { VehicleId = soldVehicleId, CustomerName = "Lim", Phone = "014", Status = LeadStatus.Closed, CreatedAt = new DateTime(2026, 6, 1, 2, 0, 0, DateTimeKind.Utc) },
+                new Lead { VehicleId = LeadCapture.GeneralContactVehicleId, CustomerName = "Lee", Phone = "016", Status = LeadStatus.New, CreatedAt = new DateTime(2026, 6, 1, 3, 0, 0, DateTimeKind.Utc) }
             ],
             today);
 
         Assert.Contains(summary.StockStatusMix, item => item.Label == "Available" && item.Count == 1);
         Assert.Contains(summary.StockStatusMix, item => item.Label == "LoanProcessing" && item.Count == 1);
-        Assert.Contains(summary.StockStatusMix, item => item.Label == "Sold" && item.Count == 1);
+        Assert.Contains(summary.StockStatusMix, item => item.Label == "Sold" && item.Count == 2);
         Assert.Contains(summary.StockOwnerMix, item => item.Label == "YSHeng" && item.Count == 1);
-        Assert.Contains(summary.StockOwnerMix, item => item.Label == "KS" && item.Count == 2);
+        Assert.Contains(summary.StockOwnerMix, item => item.Label == "KS" && item.Count == 3);
         Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Outstanding Payment" && item.Amount == 58000m);
         Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Unpaid Settlement" && item.Amount == 25000m);
         Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Open Debt Recovery" && item.Amount == 3200m);
@@ -1936,10 +2065,85 @@ public sealed class BusinessRulesTests
         Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "DueToday" && item.Count == 5);
         Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "Upcoming" && item.Count == 1);
         Assert.Contains(summary.SalesFunnel.Stages, item => item.Label == "Closed" && item.Count == 1);
-        Assert.Equal(33.3m, summary.SalesFunnel.ConversionRate);
+        Assert.Equal(20m, summary.SalesFunnel.ConversionRate);
+        Assert.Equal(2, summary.TopEnquiredVehicles[0].Count);
+        Assert.Contains(vehicles[0].PlateNumber, summary.TopEnquiredVehicles[0].Label);
+        Assert.Equal(3, summary.RepairCostByVehicle.Length);
+        Assert.Equal(2000m, summary.RepairCostByVehicle[0].Amount);
+        Assert.Contains(vehicles[1].PlateNumber, summary.RepairCostByVehicle[0].Label);
+        Assert.Single(summary.TopSellingModels);
+        Assert.Equal(1, summary.TopSellingModels[0].Count);
+        Assert.DoesNotContain(summary.TopSellingModels, item => item.Label == "Smoke Workflow");
+        Assert.Equal(6, summary.LeadTrend.Length);
+        Assert.Equal("Jun 26", summary.LeadTrend[^1].Label);
+        Assert.Equal(3, summary.LeadTrend[^1].Count);
         Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Repair Cost" && item.Amount == summary.RepairCost);
         Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Estimated Profit" && item.Amount == summary.TotalProfit);
         Assert.Equal(["Tint Shop", "ABC Spray"], summary.SupplierSpendTop.Select(item => item.Label).ToArray());
+    }
+
+    [Fact]
+    public void Dashboard_metrics_scope_sales_profit_and_refurbishment_to_the_selected_singapore_period()
+    {
+        var today = new DateOnly(2026, 6, 2);
+        var soldInsidePeriodId = Guid.NewGuid();
+        var soldOutsidePeriodId = Guid.NewGuid();
+        var vehicles = new[]
+        {
+            VehicleSeed.Sold(publicVisible: false) with
+            {
+                Id = soldInsidePeriodId,
+                Make = "Toyota",
+                Model = "Vios",
+                PurchasePrice = 20000m,
+                SellingPrice = 30000m,
+                CommissionTotal = 500m,
+                SoldAt = new DateTime(2026, 5, 31, 17, 0, 0, DateTimeKind.Utc)
+            },
+            VehicleSeed.Sold(publicVisible: false) with
+            {
+                Id = soldOutsidePeriodId,
+                Make = "Honda",
+                Model = "City",
+                PurchasePrice = 15000m,
+                SellingPrice = 25000m,
+                SoldAt = new DateTime(2026, 5, 31, 15, 59, 59, DateTimeKind.Utc)
+            }
+        };
+
+        var summary = DashboardMetrics.Create(
+            vehicles,
+            [], [],
+            [new PaymentRecord { VehicleId = soldInsidePeriodId, NettPrice = 15000m, Status = PaymentStatus.Pending }],
+            [
+                new SettlementReminder { VehicleId = soldInsidePeriodId, Amount = 2000m, Deadline = today, IsPaid = false },
+                new SettlementReminder { VehicleId = soldOutsidePeriodId, Amount = 900m, Deadline = today.AddDays(1), IsPaid = false }
+            ],
+            [
+                new RepairJob { VehicleId = soldInsidePeriodId, WhatToDo = "Paint", Cost = 1000m, ChecklistDone = false, ExpectedCompletionDate = today.AddDays(-1), CreatedAt = new DateTime(2026, 6, 1, 2, 0, 0, DateTimeKind.Utc) },
+                new RepairJob { VehicleId = soldOutsidePeriodId, WhatToDo = "Tyres", Cost = 800m, ChecklistDone = true, CreatedAt = new DateTime(2026, 5, 31, 2, 0, 0, DateTimeKind.Utc) }
+            ],
+            [], [], [], [],
+            [new DebtRecoveryCase { VehicleId = soldInsidePeriodId, CustomerId = Guid.NewGuid(), BalanceAmount = 3000m, Status = DebtRecoveryStatus.Open, FollowUpDate = today }],
+            [new Lead { VehicleId = soldInsidePeriodId, CustomerName = "Ali", Phone = "012", Status = LeadStatus.Closed, CreatedAt = new DateTime(2026, 5, 31, 17, 0, 0, DateTimeKind.Utc) }],
+            today,
+            new DateOnly(2026, 6, 1),
+            today);
+
+        Assert.Equal(1, summary.TotalSales);
+        Assert.Equal(8500m, summary.ActualProfit);
+        Assert.Equal(18000m, summary.OutstandingCollection);
+        Assert.Equal(1, summary.SettlementDue);
+        Assert.Equal(2000m, summary.SettlementDueAmount);
+        Assert.Equal(1000m, summary.Refurbishment.FinalRepairSpend);
+        Assert.Equal(1, summary.Refurbishment.VehicleCount);
+        Assert.Equal(1000m, summary.Refurbishment.AverageSpendPerVehicle);
+        Assert.Equal(1, summary.Refurbishment.WorkInProgressCount);
+        Assert.Equal(1, summary.Refurbishment.OverdueWorkCount);
+        Assert.Single(summary.Refurbishment.HighestCostVehicles);
+        Assert.Contains(summary.TopSellingModels, item => item.Label == "Toyota Vios" && item.Count == 1);
+        Assert.Single(summary.LeadTrend);
+        Assert.Equal("Jun 26", summary.LeadTrend[0].Label);
     }
 
     [Fact]
@@ -2043,6 +2247,27 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Repair_receipt_validation_requires_named_nonnegative_items()
+    {
+        var invalid = new ConfirmRepairReceiptRequest(
+            Guid.NewGuid(),
+            "Workshop",
+            "INV-1",
+            100m,
+            [new ConfirmRepairReceiptItemRequest(" ", null, -1m, 1)]);
+        var valid = new ConfirmRepairReceiptRequest(
+            Guid.NewGuid(),
+            "Workshop",
+            "INV-1",
+            100m,
+            [new ConfirmRepairReceiptItemRequest("Replace wiper", "Wiper", 100m, 1)]);
+
+        Assert.False(RepairReceiptRules.Validate(invalid).IsValid);
+        Assert.Contains(RepairReceiptRules.Validate(invalid).Errors, error => error.Code == "repair_receipt_items_invalid");
+        Assert.True(RepairReceiptRules.Validate(valid).IsValid);
+    }
+
+    [Fact]
     public void Repair_validation_requires_approval_before_high_cost_completion()
     {
         var repair = new RepairJob
@@ -2060,6 +2285,26 @@ public sealed class BusinessRulesTests
         Assert.Contains(result.Errors, error => error.Code == "repair_approval_required");
         Assert.False(RepairRules.IsCostFinal(repair));
         Assert.True(RepairRules.IsCostFinal(repair with { ApprovalStatus = RepairApprovalStatus.Approved }));
+    }
+
+    [Fact]
+    public void Dashboard_metrics_show_uncontacted_leads_and_incomplete_repair_work()
+    {
+        var vehicleId = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(publicVisible: true) with { Id = vehicleId, PlateNumber = "VPK1234", Make = "Toyota", Model = "Vios" };
+
+        var summary = DashboardMetrics.Create(
+            [vehicle], [], [], [], [],
+            [new RepairJob { VehicleId = vehicleId, WhatToDo = "Paint touch-up", ChecklistDone = false }],
+            [], [], [], [], [],
+            [
+                new Lead { VehicleId = vehicleId, CustomerName = "Ali", Phone = "012", Status = LeadStatus.New, CreatedAt = DateTime.UtcNow.AddHours(-25) },
+                new Lead { VehicleId = vehicleId, CustomerName = "Tan", Phone = "013", Status = LeadStatus.Contacted, CreatedAt = DateTime.UtcNow.AddHours(-48) }
+            ],
+            new DateOnly(2026, 5, 30));
+
+        Assert.Equal(1, summary.LeadsAwaitingFirstResponse);
+        Assert.Contains(summary.RepairWorkInProgress, item => item.Label == "VPK1234 · Toyota Vios" && item.Count == 1);
     }
 
     [Fact]
@@ -2484,7 +2729,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Delivery_document_check_requires_policy_and_road_tax_receipt_for_release()
+    public void Delivery_document_check_requires_delivery_handover_policy_and_road_tax_evidence_for_release()
     {
         var delivery = new DeliverySchedule
         {
@@ -2518,6 +2763,7 @@ public sealed class BusinessRulesTests
         var result = DeliveryDocumentRules.CheckCompleteness(delivery, documents);
 
         Assert.False(result.IsComplete);
+        Assert.Contains(FileCategory.DeliveryDocument, result.MissingCategories);
         Assert.Contains(FileCategory.RoadTaxReceipt, result.MissingCategories);
         Assert.DoesNotContain(FileCategory.Policy, result.MissingCategories);
         var policyEvidence = result.Evidence.First(item => item.Category == FileCategory.Policy);
@@ -2529,6 +2775,9 @@ public sealed class BusinessRulesTests
         var roadTaxEvidence = result.Evidence.First(item => item.Category == FileCategory.RoadTaxReceipt);
         Assert.False(roadTaxEvidence.IsPresent);
         Assert.Null(roadTaxEvidence.DocumentId);
+        var deliveryEvidence = result.Evidence.First(item => item.Category == FileCategory.DeliveryDocument);
+        Assert.False(deliveryEvidence.IsPresent);
+        Assert.Null(deliveryEvidence.DocumentId);
     }
 
     [Fact]
@@ -2847,6 +3096,36 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Local_mock_ocr_rejects_image_files_instead_of_decoding_image_bytes_as_text()
+    {
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.IdentityCard,
+            FileName = "ic.jpg",
+            MimeType = "image/jpeg",
+            Content = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]
+        };
+
+        var error = Assert.Throws<InvalidOperationException>(() => new LocalMockOcrExtractor().Analyze(document, []));
+
+        Assert.Contains("cannot read image files", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MyKad_parser_ignores_a_misread_card_header_and_starts_the_address_at_its_house_number()
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var text = "KAD PENGENALAN\nSAAANMALAYSIAN\n900101-01-123 NO 12\nJALAN DEMO 4\nTAMAN CONTOH\n50000 KUALA LUMPUR\nALEX TAN\nWARGANEGARA\nLELAKI";
+
+        var result = OcrExtractionParser.Analyze(document, [], text, 0.9m, []);
+
+        Assert.Equal("ALEX TAN", result.Fields["customerName"]);
+        Assert.Equal("NO 12 JALAN DEMO 4 TAMAN CONTOH 50000 KUALA LUMPUR", result.Fields["address"]);
+        Assert.Equal("900101-01-123", result.Fields["icNumber"]);
+        Assert.Contains(result.Warnings, warning => warning.Contains("appears incomplete", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Local_mock_ocr_extracts_typed_voc_fields_without_invoice_values()
     {
         var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "WXY1234" };
@@ -2881,15 +3160,38 @@ public sealed class BusinessRulesTests
             Category = FileCategory.RepairInvoice,
             FileName = "repair.txt",
             MimeType = "text/plain",
-            Content = System.Text.Encoding.UTF8.GetBytes("Supplier Brilliant Spray invoice SUP-7788 plate ABC1234 total RM 880")
+            Content = System.Text.Encoding.UTF8.GetBytes("Brilliant Spray\nSupplier invoice SUP-7788 plate ABC1234 total RM 880\nRepair part: Bumper\nDescription: Paint bumper and polish\n1. Replace bumper qty 1 RM 180\n2. Paint bumper qty 1 RM 200\nTotal 380")
         };
 
         var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
 
-        Assert.Equal("Brilliant", result.Fields["supplierName"]);
+        Assert.Equal("Brilliant Spray", result.Fields["supplierName"]);
         Assert.Equal("SUP-7788", result.Fields["invoiceNumber"]);
         Assert.Equal("ABC1234", result.Fields["plateNumberOnInvoice"]);
-        Assert.Equal("880", result.Fields["amount"]);
+        Assert.Equal("380", result.Fields["amount"]);
+        Assert.DoesNotContain("repairPart", result.Fields.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("whatToDo", result.Fields.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(["Replace bumper qty 1 RM 180", "Paint bumper qty 1 RM 200"], result.LineItems?.Select(item => item.Description));
+    }
+
+    [Fact]
+    public void Google_document_ai_keeps_repair_line_items_out_of_repair_master_fields()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.RepairInvoice },
+            [],
+            "Repair invoice",
+            0.9m,
+            []);
+
+        var result = GoogleDocumentAiEntityMapper.Apply(extraction, [
+            new GoogleDocumentAiEntity("line_item/description", "Replace driver seat foam", 0.91m),
+            new GoogleDocumentAiEntity("line_item/description", "Repair driver backrest", 0.87m)
+        ]);
+
+        Assert.DoesNotContain("repairPart", result.Fields.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("whatToDo", result.Fields.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(["Replace driver seat foam", "Repair driver backrest"], result.LineItems?.Select(item => item.Description));
     }
 
     [Fact]

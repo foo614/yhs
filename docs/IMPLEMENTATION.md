@@ -77,8 +77,9 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Open Pending or Approved Payment Vouchers now appear in the dashboard reminder inbox until marked Paid.
 - Dashboard profit now subtracts outstation pickup allowance costs, using detailed Payment Voucher rows when present and falling back to the vehicle intake allowance amount for older records.
 - Dashboard stock aging now includes 0-30, 31-60, and 61+ day buckets so Boss/Admin can see whether unsold inventory is becoming stale, while the existing over-60 count remains available as the headline aging metric.
+- The Boss/Admin dashboard now ranks vehicle-linked enquiry demand, effective repair cost by vehicle, and sold units by make/model, while a six-month lead-volume chart and case-status view separate enquiry follow-up from confirmed vehicle sales. Known smoke-test workflow vehicles are excluded from the sales ranking.
 - Dashboard reminder due dates are tagged as overdue, due today, or upcoming for faster Boss/Admin triage.
-- Dashboard reminder inbox can be filtered by reminder type and due state so Boss/Admin can focus on overdue, due-today, or upcoming work.
+- Dashboard priority actions place overdue/due-today workflow tasks and cash follow-up in one decision queue, with direct links to the responsible module.
 - The dashboard reminder API also accepts `type` and `due` query filters; the back-office reminder controls call that filtered endpoint, and the smoke suite checks an overdue bank follow-up filter against the running stack.
 - The Finance table disables one-click reconciliation until the payment has receipt and invoice references, management review, and the completed internal finance checklist, matching the API validation rule.
 - The Finance table also disables one-click reconciliation when the receipt or payment invoice reference is already used by another row.
