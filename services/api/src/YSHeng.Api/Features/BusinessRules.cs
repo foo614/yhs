@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.ComponentModel.DataAnnotations;
+using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -95,6 +96,7 @@ public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal 
 public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
 public sealed record SupplierInvoiceAgingView(Guid InvoiceId, string SupplierName, string InvoiceNumber, Guid VehicleId, SupplierInvoiceAgingStatus Status, DateOnly? DueDate, DateOnly? PaidAt, decimal Amount);
 public sealed record ReminderItem(string Type, string Title, string VehiclePlate, Guid VehicleId, DateOnly DueDate, decimal? Amount);
+public sealed record PriorityActionItem(string Type, string Title, string Target, DateOnly DueDate, string? Subject = null, decimal? Amount = null);
 public sealed record ValidationError(string Code, string Message);
 public sealed record ApiError(string Message);
 public sealed record ValidationResult(IReadOnlyList<ValidationError> Errors)
@@ -148,6 +150,8 @@ public static class DepartmentAccess
 
     public static bool IsHrManager(ClaimsPrincipal principal) =>
         principal.IsInRole("BossAdmin") || principal.IsInRole("HrSalary");
+
+    public static bool IsBossAdmin(ClaimsPrincipal principal) => principal.IsInRole("BossAdmin");
 
     public static bool CanAccessHrStaff(ClaimsPrincipal principal, string staffUserId) =>
         IsHrManager(principal) || string.Equals(principal.FindFirstValue(ClaimTypes.NameIdentifier), staffUserId, StringComparison.Ordinal);
@@ -973,12 +977,17 @@ public static class HrRules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateLeaveDecision(HrLeaveRequest request)
+    public static ValidationResult ValidateLeaveDecision(HrLeaveRequest request, HrLeaveStatus? proposedStatus = null)
     {
         var errors = new List<ValidationError>();
         if (request.Status != HrLeaveStatus.Pending)
         {
             errors.Add(new ValidationError("leave_already_decided", "Leave request has already been decided."));
+        }
+
+        if (proposedStatus is not null && proposedStatus is not HrLeaveStatus.Approved and not HrLeaveStatus.Rejected)
+        {
+            errors.Add(new ValidationError("leave_decision_invalid", "Leave requests can only be approved or rejected."));
         }
 
         return new ValidationResult(errors);
@@ -1102,9 +1111,14 @@ public static class HrRules
             errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
         }
 
-        if (profile.MonthlyBaseSalary < 0 || profile.OvertimeHours < 0 || profile.OvertimeRate < 0 || profile.Allowances < 0 || profile.ManualDeductions < 0)
+        if (profile.MonthlyBaseSalary < 0 || profile.HourlyRate < 0 || profile.OvertimeHours < 0 || profile.OvertimeRate < 0 || profile.Allowances < 0 || profile.ManualDeductions < 0)
         {
             errors.Add(new ValidationError("payroll_amount_negative", "Payroll amounts cannot be negative."));
+        }
+
+        if (profile.EmploymentType == HrEmploymentType.Hourly && profile.HourlyRate <= 0)
+        {
+            errors.Add(new ValidationError("hourly_rate_required", "Hourly workers need an hourly rate greater than zero."));
         }
 
         return new ValidationResult(errors);
@@ -1152,8 +1166,35 @@ public static class HrRules
         };
     }
 
-    public static HrPayslip GeneratePayslip(HrPayrollProfile profile, HrPayPeriod period, IEnumerable<HrLeaveRequest> leaveRequests, Guid? id = null)
+    public static HrPayslip GeneratePayslip(HrPayrollProfile profile, HrPayPeriod period, IEnumerable<HrLeaveRequest> leaveRequests, Guid? id = null) =>
+        GeneratePayslip(profile, period, leaveRequests, [], id);
+
+    public static HrPayslip GeneratePayslip(HrPayrollProfile profile, HrPayPeriod period, IEnumerable<HrLeaveRequest> leaveRequests, IEnumerable<HrAttendanceRecord> attendanceRecords, Guid? id = null)
     {
+        if (profile.EmploymentType == HrEmploymentType.Hourly)
+        {
+            var workedHours = Math.Round(CompletedWorkedHours(attendanceRecords, profile.StaffUserId, period), 2, MidpointRounding.AwayFromZero);
+            var attendancePay = Math.Round(workedHours * profile.HourlyRate, 2, MidpointRounding.AwayFromZero);
+            var hourlyGross = Math.Round(attendancePay + profile.Allowances, 2, MidpointRounding.AwayFromZero);
+            var hourlyNet = Math.Round(hourlyGross - profile.ManualDeductions, 2, MidpointRounding.AwayFromZero);
+            return new HrPayslip
+            {
+                Id = id ?? Guid.NewGuid(),
+                StaffUserId = profile.StaffUserId,
+                PayPeriodId = period.Id,
+                Status = HrPayslipStatus.Generated,
+                EmploymentType = HrEmploymentType.Hourly,
+                HourlyRate = profile.HourlyRate,
+                WorkedHours = workedHours,
+                AttendancePay = attendancePay,
+                Allowances = profile.Allowances,
+                ManualDeductions = profile.ManualDeductions,
+                GrossPay = hourlyGross,
+                NetPay = hourlyNet,
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+
         var dailySalary = Math.Round(profile.MonthlyBaseSalary / period.WorkingDays, 2, MidpointRounding.AwayFromZero);
         var unpaidLeaveDays = ApprovedLeaveDays(leaveRequests, profile.StaffUserId, HrLeaveType.UnpaidLeave, period);
         var unpaidLeaveDeduction = Math.Round(dailySalary * unpaidLeaveDays, 2, MidpointRounding.AwayFromZero);
@@ -1167,6 +1208,7 @@ public static class HrRules
             StaffUserId = profile.StaffUserId,
             PayPeriodId = period.Id,
             Status = HrPayslipStatus.Generated,
+            EmploymentType = HrEmploymentType.Monthly,
             BaseSalary = profile.MonthlyBaseSalary,
             WorkingDays = period.WorkingDays,
             DailySalary = dailySalary,
@@ -1179,6 +1221,51 @@ public static class HrRules
             NetPay = net,
             GeneratedAt = DateTime.UtcNow
         };
+    }
+
+    public static ValidationResult ValidateAttendanceNetwork(HrAttendanceNetwork network)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(network.Label)) errors.Add(new ValidationError("attendance_network_label_required", "Office network label is required."));
+        if (!TryParseCidr(network.Cidr, out _, out _)) errors.Add(new ValidationError("attendance_network_cidr_invalid", "Office network must use a valid CIDR range."));
+        return new ValidationResult(errors);
+    }
+
+    public static HrAttendanceNetwork? FindMatchingAttendanceNetwork(IPAddress? clientAddress, IEnumerable<HrAttendanceNetwork> networks)
+    {
+        if (clientAddress is null) return null;
+        var normalizedClientAddress = clientAddress.IsIPv4MappedToIPv6 ? clientAddress.MapToIPv4() : clientAddress;
+        return networks.FirstOrDefault(network => network.IsActive && TryParseCidr(network.Cidr, out var networkAddress, out var prefixLength) && IsWithinCidr(normalizedClientAddress, networkAddress, prefixLength));
+    }
+
+    public static decimal CompletedWorkedHours(IEnumerable<HrAttendanceRecord> attendance, string staffUserId, HrPayPeriod period) =>
+        attendance
+            .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate >= period.StartDate && record.AttendanceDate <= period.EndDate)
+            .Where(record => record.Status != HrAttendanceStatus.Absent && record.CheckInAt is not null && record.CheckOutAt is not null)
+            .Sum(record => (decimal)(record.CheckOutAt!.Value - record.CheckInAt!.Value).TotalHours);
+
+    private static bool TryParseCidr(string? value, out IPAddress networkAddress, out int prefixLength)
+    {
+        networkAddress = IPAddress.None;
+        prefixLength = 0;
+        var parts = value?.Trim().Split('/', StringSplitOptions.TrimEntries) ?? [];
+        if (parts.Length != 2 || !IPAddress.TryParse(parts[0], out var parsedNetworkAddress) || !int.TryParse(parts[1], out prefixLength)) return false;
+        networkAddress = parsedNetworkAddress;
+        return prefixLength >= 0 && prefixLength <= networkAddress.GetAddressBytes().Length * 8;
+    }
+
+    private static bool IsWithinCidr(IPAddress candidate, IPAddress networkAddress, int prefixLength)
+    {
+        if (candidate.AddressFamily != networkAddress.AddressFamily) return false;
+        var candidateBytes = candidate.GetAddressBytes();
+        var networkBytes = networkAddress.GetAddressBytes();
+        for (var bit = 0; bit < prefixLength; bit++)
+        {
+            var byteIndex = bit / 8;
+            var bitMask = 1 << (7 - bit % 8);
+            if ((candidateBytes[byteIndex] & bitMask) != (networkBytes[byteIndex] & bitMask)) return false;
+        }
+        return true;
     }
 }
 
@@ -1806,6 +1893,63 @@ public static class FinanceRules
         }
 
         return new ValidationResult(errors);
+    }
+}
+
+public static class PriorityActionQueue
+{
+    public static IReadOnlyList<PriorityActionItem> Create(
+        IEnumerable<string> roles,
+        IEnumerable<LoanApplication> loans,
+        IEnumerable<DeliverySchedule> deliveries,
+        IEnumerable<SettlementReminder> settlements,
+        IEnumerable<PaymentRecord> payments,
+        IEnumerable<DailySpend> dailySpends,
+        IEnumerable<DebtRecoveryCase> debtRecoveries,
+        IEnumerable<PaymentVoucher> paymentVouchers,
+        IEnumerable<RepairJob> repairs,
+        IEnumerable<Lead> leads,
+        IEnumerable<HrLeaveRequest> leaveRequests,
+        IEnumerable<Vehicle> vehicles,
+        DateOnly today)
+    {
+        var roleSet = roles.ToHashSet(StringComparer.Ordinal);
+        var isBoss = roleSet.Contains("BossAdmin");
+        var vehicleById = vehicles.ToDictionary(vehicle => vehicle.Id);
+        var items = new List<PriorityActionItem>();
+        var reminders = ReminderInbox.Create(loans, deliveries, settlements, payments, dailySpends, debtRecoveries, paymentVouchers, vehicles, today);
+
+        void AddReminders(IEnumerable<ReminderItem> source, string target) =>
+            items.AddRange(source.Select(item => new PriorityActionItem(item.Type, item.Title, target, item.DueDate, item.VehiclePlate, item.Amount)));
+
+        if (isBoss || roleSet.Contains("Loan")) AddReminders(reminders.Where(item => item.Type == "LoanFollowUp"), "Loans");
+        if (isBoss || roleSet.Contains("Delivery")) AddReminders(reminders.Where(item => item.Type == "DeliveryPreparation"), "Delivery");
+        if (isBoss || roleSet.Contains("Finance")) AddReminders(reminders.Where(item => item.Type is "SettlementDue" or "PaymentBankFollowUp" or "PaymentStatusFollowUp" or "DailySpendDue" or "DebtRecoveryFollowUp" or "PaymentVoucherFollowUp"), "Finance");
+
+        if (isBoss || roleSet.Contains("Sales"))
+        {
+            items.AddRange(leads.Where(lead => lead.Status == LeadStatus.New)
+                .Select(lead => new PriorityActionItem("LeadFollowUp", "New enquiry needs first contact", "Leads", DateOnly.FromDateTime(lead.CreatedAt.ToUniversalTime()), lead.CustomerName)));
+        }
+
+        if (isBoss || roleSet.Contains("Repair"))
+        {
+            items.AddRange(repairs.Where(repair => !repair.ChecklistDone)
+                .Select(repair => new PriorityActionItem(
+                    "RepairWorkInProgress",
+                    repair.ExpectedCompletionDate is { } expected && expected < today ? "Repair work overdue" : "Repair work in progress",
+                    "Repairs",
+                    repair.ExpectedCompletionDate ?? DateOnly.FromDateTime(repair.CreatedAt.ToUniversalTime()),
+                    vehicleById.TryGetValue(repair.VehicleId, out var vehicle) ? vehicle.PlateNumber : "Unknown")));
+        }
+
+        if (isBoss || roleSet.Contains("HrSalary"))
+        {
+            items.AddRange(leaveRequests.Where(request => request.Status == HrLeaveStatus.Pending)
+                .Select(request => new PriorityActionItem("LeaveApproval", "Leave request awaiting decision", "HrSalary", request.StartDate, request.Type.ToString())));
+        }
+
+        return items.OrderBy(item => item.DueDate).ThenBy(item => item.Type).ToList();
     }
 }
 

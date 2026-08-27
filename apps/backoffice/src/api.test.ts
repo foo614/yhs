@@ -21,6 +21,7 @@ import {
   checkInHrAttendance,
   checkOutHrAttendance,
   cancelHrLeaveRequest,
+  createHrAttendanceNetwork,
   createHrLeaveAdjustment,
   createHrLeaveRequest,
   createHrPayPeriod,
@@ -41,11 +42,14 @@ import {
   getDailySpends,
   getDashboard,
   getDashboardReminders,
+  getPriorityActions,
   getDebtRecoveries,
   getDeliveries,
   getLeads,
   getDeliveryReleaseReadiness,
   getHrAttendance,
+  getHrAttendanceNetworks,
+  getHrBossCalendar,
   getHrLeaveAdjustments,
   getHrLeaveBalances,
   getHrLeavePolicies,
@@ -83,6 +87,7 @@ import {
   rejectCashHandover,
   requestCashHandover,
   updateHrLeaveBalance,
+  updateHrAttendanceNetwork,
   updateHrLeavePolicy,
   updateHrPayrollProfile,
   updateDelivery,
@@ -114,6 +119,7 @@ import {
   type DebtRecoveryCase,
   type Lead,
   type HrAttendanceRecord,
+  type HrAttendanceNetwork,
   type HrLeavePolicy,
   type HrLeaveRequest,
   type HrPayPeriod,
@@ -842,6 +848,13 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/reminders", { credentials: "include" });
   });
 
+  it("loads the signed-in staff member's priority actions", async () => {
+    const fetchMock = mockFetch([{ type: "LeaveApproval", title: "Leave request awaiting decision", target: "HrSalary", dueDate: "2026-06-01", subject: "AnnualLeave" }]);
+
+    await expect(getPriorityActions()).resolves.toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/priority-actions", { credentials: "include" });
+  });
+
   it("reports a dashboard reminder failure instead of presenting an empty inbox as success", async () => {
     mockFetch({ message: "Reminder service unavailable" }, false, 503);
 
@@ -1205,7 +1218,8 @@ describe("backoffice api client", () => {
       attendanceDate: "2026-06-06",
       checkInAt: "2026-06-06T01:00:00Z",
       status: "Present",
-      verificationMethod: "Manual"
+      verificationMethod: "OfficeIp",
+      officeNetworkLabel: "Showroom"
     };
     const leave: HrLeaveRequest = {
       id: "leave-1",
@@ -1248,7 +1262,7 @@ describe("backoffice api client", () => {
     await getHrLeaveAdjustments();
     await createHrLeaveAdjustment({ staffUserId: "staff-1", type: "AnnualLeave", direction: "Increase", days: 1, reason: "Carry forward" });
     await getHrPayrollProfiles();
-    await updateHrPayrollProfile({ id: "profile-1", staffUserId: "staff-1", monthlyBaseSalary: 2200, overtimeHours: 2, overtimeRate: 15, allowances: 100, manualDeductions: 20 });
+    await updateHrPayrollProfile({ id: "profile-1", staffUserId: "staff-1", employmentType: "Monthly", hourlyRate: 0, monthlyBaseSalary: 2200, overtimeHours: 2, overtimeRate: 15, allowances: 100, manualDeductions: 20 });
     await getHrPayPeriods();
     await createHrPayPeriod(period);
     await getHrPayslips();
@@ -1270,6 +1284,21 @@ describe("backoffice api client", () => {
     expect(hrMedicalCertificateContentUrl("leave-1")).toBe("http://localhost:5000/api/hr/leave-requests/leave-1/mc/content");
   });
 
+  it("uses protected Boss calendar and office-network HR endpoints", async () => {
+    const network: HrAttendanceNetwork = { id: "network-1", label: "Showroom", cidr: "203.0.113.0/24", isActive: true, createdAt: "2026-06-01T00:00:00Z" };
+    const fetchMock = mockFetch(network);
+
+    await getHrBossCalendar("2026-06-01", "2026-06-30");
+    await getHrAttendanceNetworks();
+    await createHrAttendanceNetwork(network);
+    await updateHrAttendanceNetwork({ ...network, isActive: false });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/hr/boss-calendar?from=2026-06-01&to=2026-06-30", { credentials: "include" });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/hr/attendance-networks", { credentials: "include" });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/hr/attendance-networks", expect.objectContaining({ method: "POST", body: JSON.stringify(network) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/hr/attendance-networks/network-1", expect.objectContaining({ method: "PUT", body: JSON.stringify({ ...network, isActive: false }) }));
+  });
+
   it("falls back to demo data when HR endpoints return 404", async () => {
     mockFetch({ message: "not found" }, false, 404);
 
@@ -1289,6 +1318,21 @@ describe("backoffice api client", () => {
     expect(checkOut.staffUserId).toBe("staff-demo-hr");
     expect(checkOut.status).toBe("Present");
     expect(checkOut.checkOutAt).toBeTruthy();
+  });
+
+  it("shows fictional calendar availability when the local API is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    vi.stubGlobal("window", { location: { hostname: "localhost" } });
+
+    const availability = await getHrBossCalendar("2026-08-01", "2026-08-31");
+
+    expect(availability).toEqual(expect.arrayContaining([
+      expect.objectContaining({ staffName: "Jason Tan", date: "2026-08-04", status: "Unavailable" }),
+      expect.objectContaining({ staffName: "Mei Ling", date: "2026-08-05", status: "Unavailable" }),
+      expect.objectContaining({ staffName: "Ah Ming", date: "2026-08-05", status: "Unavailable" })
+    ]));
+
+    vi.unstubAllGlobals();
   });
 
   it("updates workflow records with authenticated PUT requests", async () => {

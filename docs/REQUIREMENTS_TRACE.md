@@ -48,7 +48,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Leads triage | Implemented, verified | Public enquiries appear in back office, lead/customer linking, status/customer-link filters, duplicate phone reuse. |
 | Audit log | Implemented, verified | Authenticated mutations write staff actor; Boss/Admin audit log filters by actor/action/entity. |
 | Admin users/roles | Implemented, verified | Staff creation, role update, display-name update, password reset, enable/disable, validation, role enforcement. |
-| HR/Salary | Implemented as next MVP slice | Staff self-service attendance, leave/MC requests, own payslips, HR/Admin approvals, AL/MC balances, working-day setup, payroll profiles, and payslip generation are implemented under authenticated back-office access. |
+| HR/Salary | Implemented as first workforce-operations release | Staff self-service attendance and leave/MC requests; Boss-only approved-leave availability calendar; office CIDR attendance verification with no raw-IP history; audited HR corrections; AL/MC balances; monthly and hourly payroll profiles; and payslip generation under authenticated back-office access. WhatsApp/AI conflict reminders and outstation assignment remain blocked follow-up work. |
 
 ## API And Security
 
@@ -82,7 +82,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Workflow validations/status changes | Implemented, verified | Loan moves vehicles to LoanProcessing/private; reconciled/corrected payments update sold/loan-processing state; smoke checks automation. |
 | Audit trails | Implemented, verified | Mutation audit records with authenticated staff email; public lead audit actor. |
 | OCR/AI/WhatsApp/accounting export | OCR and manual accounting export implemented for first scope; other automation remains extension point | Document OCR uses Google Document AI with optional specialized invoice/expense processors and stores extracted draft fields in `OcrJobs`; Finance exports a spreadsheet for manual AutoCount submission, while WhatsApp, loan eligibility prediction, photo optimization, and profit prediction remain extension points. |
-| Salary/pay slip/CP58 generation | Implemented for HR payslips; CP58 remains extension point | HR payslips calculate daily salary from configured working days and exclude statutory payroll formulas; CP58 state remains represented without generating statutory forms. |
+| Salary/pay slip/CP58 generation | Implemented for monthly and hourly HR payslips; CP58 remains extension point | Monthly payslips retain configured-working-day calculation. Hourly payslips use completed eligible attendance time, hourly rate, allowances, and manual deductions; no automatic break, overtime multiplier, or paid leave/MC hours. CP58 state remains represented without generating statutory forms. |
 
 ## Verification Evidence
 

@@ -31,6 +31,8 @@ export type BackOfficeDataKey =
   | "hrReminders"
   | "hrReminderPolicies"
   | "hrBusinessTrips"
+  | "hrBossCalendar"
+  | "hrAttendanceNetworks"
   | "hrLeaveRequests"
   | "hrLeaveBalances"
   | "hrLeavePolicies"
@@ -96,6 +98,8 @@ const allDataKeys: BackOfficeDataKey[] = [
   "hrReminders",
   "hrReminderPolicies",
   "hrBusinessTrips",
+  "hrBossCalendar",
+  "hrAttendanceNetworks",
   "hrLeaveRequests",
   "hrLeaveBalances",
   "hrLeavePolicies",

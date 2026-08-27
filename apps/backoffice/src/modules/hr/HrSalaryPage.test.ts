@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import dayjs from "dayjs";
-import { datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodFromValues, withHrRecordFilterValue } from "./HrSalaryPage";
+import { datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodDefaults, payPeriodFromValues, shouldShowOptionalMcUpload, withHrRecordFilterValue } from "./HrSalaryPage";
 
 describe("HR record list helpers", () => {
   const records = [
@@ -53,5 +53,19 @@ describe("HR record list helpers", () => {
       workingDays: 22
     });
     expect(datePickerValueToDateString("2026-07-01")).toBe("2026-07-01");
+  });
+
+  it("fills the selected month's boundaries and Monday-to-Friday working days", () => {
+    const defaults = payPeriodDefaults(dayjs("2026-02-14"));
+
+    expect(defaults.payPeriod.format("YYYY-MM-DD")).toBe("2026-02-01");
+    expect(defaults.startDate.format("YYYY-MM-DD")).toBe("2026-02-01");
+    expect(defaults.endDate.format("YYYY-MM-DD")).toBe("2026-02-28");
+    expect(defaults.workingDays).toBe(20);
+  });
+
+  it("shows the optional MC picker only for medical leave", () => {
+    expect(shouldShowOptionalMcUpload("MedicalLeave")).toBe(true);
+    expect(shouldShowOptionalMcUpload("AnnualLeave")).toBe(false);
   });
 });

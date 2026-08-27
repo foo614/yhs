@@ -35,6 +35,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<HrAttendanceQrRedemption> HrAttendanceQrRedemptions => Set<HrAttendanceQrRedemption>();
     public DbSet<HrBusinessTrip> HrBusinessTrips => Set<HrBusinessTrip>();
     public DbSet<HrAttendanceReminderPolicy> HrAttendanceReminderPolicies => Set<HrAttendanceReminderPolicy>();
+    public DbSet<HrAttendanceNetwork> HrAttendanceNetworks => Set<HrAttendanceNetwork>();
     public DbSet<HrLeaveRequest> HrLeaveRequests => Set<HrLeaveRequest>();
     public DbSet<HrLeaveBalance> HrLeaveBalances => Set<HrLeaveBalance>();
     public DbSet<HrLeavePolicy> HrLeavePolicies => Set<HrLeavePolicy>();
@@ -77,6 +78,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<HrAttendanceQrRedemption>().HasIndex(redemption => new { redemption.ChallengeId, redemption.StaffUserId, redemption.Action }).IsUnique();
         builder.Entity<HrBusinessTrip>().HasIndex(trip => new { trip.StaffUserId, trip.StartDate, trip.EndDate });
         builder.Entity<HrAttendanceReminderPolicy>().HasIndex(policy => policy.Type).IsUnique();
+        builder.Entity<HrAttendanceNetwork>().HasIndex(network => network.Cidr).IsUnique();
         builder.Entity<HrLeaveBalance>().HasIndex(balance => balance.StaffUserId).IsUnique();
         builder.Entity<HrLeavePolicy>().HasIndex(policy => policy.Role).IsUnique();
         builder.Entity<HrLeaveAdjustment>().HasIndex(adjustment => new { adjustment.StaffUserId, adjustment.CreatedAt });

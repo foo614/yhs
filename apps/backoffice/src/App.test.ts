@@ -80,6 +80,7 @@ describe("management dashboard", () => {
       dashboard,
       dashboardLoadError: null,
       reminders: [],
+      priorityActions: [],
       reminderLoadError: null,
       lastCheckedAt: null,
       refreshing: false,

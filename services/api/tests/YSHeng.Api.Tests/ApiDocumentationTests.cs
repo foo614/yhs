@@ -89,6 +89,24 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<OcrReviewDecision>(apiDocs);
         AssertDocumentedEnum<AiService>(apiDocs);
         AssertDocumentedEnum<AiUsageStatus>(apiDocs);
+        AssertDocumentedEnum<HrEmploymentType>(apiDocs);
+        AssertDocumentedEnum<HrAttendanceVerificationMethod>(apiDocs);
+    }
+
+    [Fact]
+    public void Hr_workforce_routes_keep_calendar_private_and_attendance_proxy_bound()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+
+        Assert.Contains("hr.MapGet(\"/boss-calendar\"", program);
+        Assert.Contains("if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();", program);
+        Assert.Contains("new HrCalendarAvailability(leave.StaffUserId, names.GetValueOrDefault(leave.StaffUserId, \"Staff\"), day)", program);
+        Assert.Contains("app.UseForwardedHeaders();", program);
+        Assert.Contains("options.ForwardLimit = 1;", program);
+        Assert.Contains("FindMatchingAttendanceNetwork(context.Connection.RemoteIpAddress", program);
+        Assert.Contains("if (string.IsNullOrWhiteSpace(attendance.Notes))", program);
+        Assert.Contains("if (string.Equals(StaffIdentity.CurrentUserId(context), existing.StaffUserId, StringComparison.Ordinal)) return Results.Forbid();", program);
     }
 
     [Fact]

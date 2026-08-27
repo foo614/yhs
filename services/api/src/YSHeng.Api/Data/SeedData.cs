@@ -220,6 +220,8 @@ public static class SeedData
                 "CheckInAt" timestamp with time zone NULL,
                 "CheckOutAt" timestamp with time zone NULL,
                 "Status" integer NOT NULL,
+                "VerificationMethod" integer NOT NULL DEFAULT 0,
+                "OfficeNetworkLabel" text NULL,
                 "Notes" text NULL,
                 CONSTRAINT "PK_HrAttendanceRecords" PRIMARY KEY ("Id")
             );
@@ -268,6 +270,18 @@ public static class SeedData
                 "UpdatedAt" timestamp with time zone NOT NULL,
                 CONSTRAINT "PK_HrAttendanceReminderPolicies" PRIMARY KEY ("Id")
             );
+
+            CREATE TABLE IF NOT EXISTS "HrAttendanceNetworks" (
+                "Id" uuid NOT NULL,
+                "Label" text NOT NULL,
+                "Cidr" text NOT NULL,
+                "IsActive" boolean NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrAttendanceNetworks" PRIMARY KEY ("Id")
+            );
+
+            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "VerificationMethod" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "OfficeNetworkLabel" text NULL;
 
             CREATE TABLE IF NOT EXISTS "HrLeaveRequests" (
                 "Id" uuid NOT NULL,
@@ -323,7 +337,9 @@ public static class SeedData
             CREATE TABLE IF NOT EXISTS "HrPayrollProfiles" (
                 "Id" uuid NOT NULL,
                 "StaffUserId" text NOT NULL,
+                "EmploymentType" integer NOT NULL DEFAULT 0,
                 "MonthlyBaseSalary" numeric NOT NULL,
+                "HourlyRate" numeric NOT NULL DEFAULT 0,
                 "OvertimeHours" numeric NOT NULL,
                 "OvertimeRate" numeric NOT NULL,
                 "Allowances" numeric NOT NULL,
@@ -331,6 +347,9 @@ public static class SeedData
                 "Notes" text NULL,
                 CONSTRAINT "PK_HrPayrollProfiles" PRIMARY KEY ("Id")
             );
+
+            ALTER TABLE "HrPayrollProfiles" ADD COLUMN IF NOT EXISTS "EmploymentType" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "HrPayrollProfiles" ADD COLUMN IF NOT EXISTS "HourlyRate" numeric NOT NULL DEFAULT 0;
 
             CREATE TABLE IF NOT EXISTS "HrPayPeriods" (
                 "Id" uuid NOT NULL,
@@ -347,7 +366,11 @@ public static class SeedData
                 "StaffUserId" text NOT NULL,
                 "PayPeriodId" uuid NOT NULL,
                 "Status" integer NOT NULL,
+                "EmploymentType" integer NOT NULL DEFAULT 0,
                 "BaseSalary" numeric NOT NULL,
+                "HourlyRate" numeric NOT NULL DEFAULT 0,
+                "WorkedHours" numeric NOT NULL DEFAULT 0,
+                "AttendancePay" numeric NOT NULL DEFAULT 0,
                 "WorkingDays" integer NOT NULL,
                 "DailySalary" numeric NOT NULL,
                 "UnpaidLeaveDays" numeric NOT NULL,
@@ -361,12 +384,18 @@ public static class SeedData
                 CONSTRAINT "PK_HrPayslips" PRIMARY KEY ("Id")
             );
 
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "EmploymentType" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "HourlyRate" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "WorkedHours" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "AttendancePay" numeric NOT NULL DEFAULT 0;
+
             DROP INDEX IF EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate";
             CREATE INDEX IF NOT EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate" ON "HrAttendanceRecords" ("StaffUserId", "AttendanceDate");
             CREATE INDEX IF NOT EXISTS "IX_HrAttendanceQrChallenges_ExpiresAt" ON "HrAttendanceQrChallenges" ("ExpiresAt");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceQrRedemptions_ChallengeId_StaffUserId_Action" ON "HrAttendanceQrRedemptions" ("ChallengeId", "StaffUserId", "Action");
             CREATE INDEX IF NOT EXISTS "IX_HrBusinessTrips_StaffUserId_StartDate_EndDate" ON "HrBusinessTrips" ("StaffUserId", "StartDate", "EndDate");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceReminderPolicies_Type" ON "HrAttendanceReminderPolicies" ("Type");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceNetworks_Cidr" ON "HrAttendanceNetworks" ("Cidr");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeaveBalances_StaffUserId" ON "HrLeaveBalances" ("StaffUserId");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeavePolicies_Role" ON "HrLeavePolicies" ("Role");
             CREATE INDEX IF NOT EXISTS "IX_HrLeaveAdjustments_StaffUserId_CreatedAt" ON "HrLeaveAdjustments" ("StaffUserId", "CreatedAt");

@@ -268,12 +268,16 @@ Only one handover may exist per payment and only one official receipt may exist 
 
 ## HR And Salary
 
-All HR endpoints require authenticated back-office access. Staff can access their own attendance, leave, MC, balance, payroll profile, pay-period, and payslip records. HR/Salary and Admin users can review and manage all staff HR records.
+All HR endpoints require authenticated back-office access. Staff can access their own attendance, leave, MC, balance, payroll profile, pay-period, and payslip records. HR/Salary and Admin users can review and manage all staff HR records. Boss/Admin alone can view the privacy-limited leave calendar and manage office attendance-network ranges.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/hr/staff` | HR/Admin list of existing staff users for HR selectors. |
 | `GET` | `/api/hr/attendance` | List attendance records scoped to the current staff user, or all staff for HR/Admin. |
+| `GET` | `/api/hr/boss-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` | Boss/Admin only. Approved leave days as staff-name `Unavailable` entries; excludes leave reason, MC, and medical details. |
+| `GET` | `/api/hr/attendance-networks` | Boss/Admin only. List the office CIDR allow-list. |
+| `POST` | `/api/hr/attendance-networks` | Boss/Admin only. Add an office CIDR range with label and active status. |
+| `PUT` | `/api/hr/attendance-networks/{id}` | Boss/Admin only. Update or disable an office CIDR range. |
 | `POST` | `/api/hr/attendance/check-in` | Create or update today's check-in for the current staff user. |
 | `POST` | `/api/hr/attendance/check-out` | Create or update today's check-out for the current staff user. |
 | `GET` | `/api/hr/dashboard` | Role-scoped attendance counts for today's QR, manual, open-session, and outstation activity plus pending/upcoming trip counts. |
@@ -283,16 +287,16 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `GET` | `/api/hr/reminders` | Role-scoped active reminders for pending approvals, upcoming outstation duty, and missing check-out. |
 | `POST` | `/api/hr/attendance/qr/challenges` | HR/Admin create a five-minute rotating office QR challenge; the raw token is returned only for display and only its hash is stored. |
 | `POST` | `/api/hr/attendance/qr/redeem` | Authenticated staff redeem the office QR for one Check In or Check Out action; each staff member can use a challenge once per action. |
-| `POST` | `/api/hr/attendance/outstation/start` | Start attendance against an approved business trip covering today. |
-| `POST` | `/api/hr/attendance/outstation/end` | End attendance against an approved business trip covering today. |
-| `PUT` | `/api/hr/attendance/{id}` | HR/Admin update attendance status or notes. |
+| `POST` | `/api/hr/attendance/outstation/start` | Reserved for the future outstation workflow; currently refuses attendance bypass. |
+| `POST` | `/api/hr/attendance/outstation/end` | Reserved for the future outstation workflow; currently refuses attendance bypass. |
+| `PUT` | `/api/hr/attendance/{id}` | HR/Admin correction with a required note; records manual verification and audit history. |
 | `GET` | `/api/hr/business-trips` | List business trip and urgent outstation requests scoped to self, or all staff for HR/Admin. |
 | `POST` | `/api/hr/business-trips` | Submit a business trip or urgent outstation exception request; it remains pending until HR/Admin approval. |
 | `PUT` | `/api/hr/business-trips/{id}/decision` | HR/Admin approve or reject a pending business trip request. Approved trips do not consume leave balance. |
 | `POST` | `/api/hr/business-trips/{id}/cancel` | Staff cancel their own pending/approved request, or HR/Admin cancel any request. |
 | `GET` | `/api/hr/leave-requests` | List leave and MC requests scoped to the current staff user, or all staff for HR/Admin. |
 | `POST` | `/api/hr/leave-requests` | Submit a leave request. |
-| `PUT` | `/api/hr/leave-requests/{id}/decision` | HR/Admin approve or reject a leave request. |
+| `PUT` | `/api/hr/leave-requests/{id}/decision` | HR/Admin approve or reject a leave request. A staff member cannot approve their own request. |
 | `PUT` | `/api/hr/leave-requests/{id}/cancel` | Staff cancel their own pending leave request; HR/Admin can cancel any pending staff leave request. |
 | `POST` | `/api/hr/leave-requests/{id}/mc` | Upload a medical certificate document for the leave request, max 10 MB. |
 | `GET` | `/api/hr/leave-requests/{id}/mc/content` | Download the medical certificate for the owner or HR/Admin. |
@@ -303,7 +307,7 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `GET` | `/api/hr/leave-adjustments` | List leave adjustment history scoped to self, or all staff for HR/Admin. |
 | `POST` | `/api/hr/leave-adjustments` | HR/Admin increase or decrease one staff member's AL/MC balance with a reason and audit log. |
 | `GET` | `/api/hr/payroll-profiles` | List payroll profiles scoped to self, or all staff for HR/Admin. |
-| `PUT` | `/api/hr/payroll-profiles/{staffUserId}` | HR/Admin create or update base salary, overtime, allowances, and manual deductions. |
+| `PUT` | `/api/hr/payroll-profiles/{staffUserId}` | HR/Admin create or update Monthly or Hourly employment profile, salary/rate, allowances, and manual deductions. |
 | `GET` | `/api/hr/pay-periods` | List pay periods and configured working days. |
 | `POST` | `/api/hr/pay-periods` | HR/Admin create a working-day pay period. |
 | `GET` | `/api/hr/payslips` | List payslips scoped to self, or all staff for HR/Admin. |
@@ -316,7 +320,13 @@ dailySalary = monthlyBaseSalary / workingDays
 unpaidLeaveDeduction = dailySalary * approvedUnpaidLeaveDays
 grossPay = monthlyBaseSalary + overtimePay + allowances
 netPay = grossPay - unpaidLeaveDeduction - manualDeductions
+
+hourlyWorkedHours = completed Present, Late, and HalfDay check-out minus check-in within the pay period
+hourlyGrossPay = (hourlyWorkedHours * hourlyRate) + allowances
+hourlyNetPay = hourlyGrossPay - manualDeductions
 ```
+
+Attendance dates and payroll-period boundaries use `Asia/Kuala_Lumpur`. Check-in and check-out require the client address supplied by the trusted Caddy proxy to match an active office CIDR range; raw IP history is not stored. Remote and outstation exceptions are not available in this release.
 
 Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 
@@ -326,6 +336,7 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 | --- | --- | --- | --- |
 | `GET` | `/api/dashboard/summary?from=YYYY-MM-DD&to=YYYY-MM-DD` | `Dashboard` | Boss/Admin operational metrics. `from` and `to` are optional but must be supplied together as an inclusive analytics period. Live stock, loan, collection, settlement, purchase cost, repair cost, and aging metrics remain current; the period scopes sales, actual profit, lead, and refurbishment analysis. The response preserves `totalProfit` and `estimatedProfit`, and adds `purchaseCost`, `totalSales`, `actualProfit`, `outstandingCollection`, `settlementDueAmount`, and `refurbishment`. |
 | `GET` | `/api/dashboard/reminders?type={type}&due={All\|Overdue\|DueToday\|DueSoon\|Upcoming}` | `Dashboard` | Reminder inbox, optionally filtered. `DueSoon` applies only to unpaid Daily Spend due from tomorrow through the next 10 calendar days. |
+| `GET` | `/api/priority-actions` | `BackOffice` | Role-scoped operational queue. Returns only items the signed-in user's roles may action: Sales leads, Repair work, Loan follow-up, Delivery preparation, Finance follow-up, and HR leave approvals. Boss/Admin receives the combined management queue. |
 | `GET` | `/api/audit-log?actor=&action=&entityName=` | `BossAdmin` | Filterable audit history. |
 | `GET` | `/api/admin/ai-limits/ocr` | `BossAdmin` | Read the OCR enabled state, monthly and per-staff daily limits, and current-month usage. |
 | `PUT` | `/api/admin/ai-limits/ocr` | `BossAdmin` | Update the server-enforced OCR enabled state, monthly request limit, and per-staff daily request limit. |
@@ -354,6 +365,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `HrLeaveType`: `AnnualLeave`, `MedicalLeave`, `EmergencyLeave`, `UnpaidLeave`
 - `HrLeaveStatus`: `Pending`, `Approved`, `Rejected`, `Cancelled`
 - `HrPayslipStatus`: `Draft`, `Generated`
+- `HrEmploymentType`: `Monthly`, `Hourly`
+- `HrAttendanceVerificationMethod`: `Manual`, `OfficeQr`, `Outstation`, `ManualException`, `OfficeIp`
 - `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`
 - `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`
 - `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`

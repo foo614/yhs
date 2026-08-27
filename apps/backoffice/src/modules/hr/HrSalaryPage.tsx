@@ -4,7 +4,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard, ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
-import { DatePicker } from "antd";
+import { Calendar, DatePicker } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
@@ -26,6 +26,8 @@ import type {
   HrBusinessTrip,
   HrBusinessTripStatus,
   HrOutstationAttendanceRequest,
+  HrAttendanceNetwork,
+  HrCalendarAvailability,
   HrLeaveAdjustment,
   HrLeaveAdjustmentRequest,
   HrLeaveBalance,
@@ -48,6 +50,8 @@ type HrSalaryPageProps = {
   availabilityCalendar: HrAvailabilityCalendarItem[];
   attendanceReminders: HrAttendanceReminderItem[];
   attendanceReminderPolicies: HrAttendanceReminderPolicy[];
+  bossCalendar: HrCalendarAvailability[];
+  attendanceNetworks: HrAttendanceNetwork[];
   leaveRequests: HrLeaveRequest[];
   leaveBalances: HrLeaveBalance[];
   leavePolicies: HrLeavePolicy[];
@@ -69,7 +73,10 @@ type HrSalaryPageProps = {
   onStartOutstation: (request: HrOutstationAttendanceRequest) => Promise<void>;
   onEndOutstation: (request: HrOutstationAttendanceRequest) => Promise<void>;
   onUpdateReminderPolicy: (type: HrAttendanceReminderType, policy: Pick<HrAttendanceReminderPolicy, "isEnabled" | "leadHours">) => Promise<void>;
-  onCreateLeave: (leave: HrLeaveRequest) => Promise<void>;
+  onUpdateAttendance: (attendance: HrAttendanceRecord) => Promise<void>;
+  onLoadBossCalendar: (from: string, to: string) => Promise<void>;
+  onSaveAttendanceNetwork: (network: HrAttendanceNetwork) => Promise<void>;
+  onCreateLeave: (leave: HrLeaveRequest) => Promise<HrLeaveRequest>;
   onDecideLeave: (leaveId: string, status: HrLeaveStatus, decisionNotes?: string) => Promise<void>;
   onUploadMc: (leaveId: string, file: File) => Promise<void>;
   mcContentUrl: (leaveId: string) => string;
@@ -167,6 +174,8 @@ export function HrSalaryPage({
   availabilityCalendar,
   attendanceReminders,
   attendanceReminderPolicies,
+  bossCalendar,
+  attendanceNetworks,
   leaveRequests,
   leaveBalances,
   leavePolicies,
@@ -188,6 +197,9 @@ export function HrSalaryPage({
   onStartOutstation,
   onEndOutstation,
   onUpdateReminderPolicy,
+  onUpdateAttendance,
+  onLoadBossCalendar,
+  onSaveAttendanceNetwork,
   onCreateLeave,
   onDecideLeave,
   onUploadMc,
@@ -200,10 +212,17 @@ export function HrSalaryPage({
   onGeneratePayslips
 }: HrSalaryPageProps) {
   const isHrManager = Boolean(currentUser?.roles.some((role) => role === "BossAdmin" || role === "HrSalary"));
+  const isBossAdmin = Boolean(currentUser?.roles.includes("BossAdmin"));
   const [leaveForm] = Form.useForm();
   const [businessTripForm] = Form.useForm();
+  const [selectedMedicalCertificate, setSelectedMedicalCertificate] = useState<File | null>(null);
+  const [attendanceNetworkForm] = Form.useForm();
+  const [attendanceCorrectionForm] = Form.useForm();
+  const [payrollProfileForm] = Form.useForm();
+  const [payPeriodForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
   const [qrRedeeming, setQrRedeeming] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => dayjs());
   const [activeTab, setActiveTab] = useState("attendance");
   const [recordFilters, setRecordFilters] = useState<Record<HrRecordListKey, HrRecordFilters>>(initialHrRecordFilters);
   const [recordPages, setRecordPages] = useState<Record<HrRecordListKey, number>>(initialHrRecordPages);
@@ -231,10 +250,15 @@ export function HrSalaryPage({
   const leaveEndDate = datePickerValueToDateString(Form.useWatch("endDate", leaveForm));
   const leaveStartHalf = Form.useWatch("startHalf", leaveForm) as "AM" | "PM" | undefined;
   const leaveEndHalf = Form.useWatch("endHalf", leaveForm) as "AM" | "PM" | undefined;
+  const leaveType = Form.useWatch("type", leaveForm) as HrLeaveType | undefined;
   const calculatedLeaveDays = useMemo(
     () => calculateLeaveDays(leaveStartDate || today, leaveEndDate || today, leaveStartHalf || "AM", leaveEndHalf || "PM"),
     [leaveEndDate, leaveEndHalf, leaveStartDate, leaveStartHalf, today]
   );
+
+  useEffect(() => {
+    if (!shouldShowOptionalMcUpload(leaveType)) setSelectedMedicalCertificate(null);
+  }, [leaveType]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(new Date()), 1000);
@@ -275,7 +299,7 @@ export function HrSalaryPage({
     { title: "Status / 状态", dataIndex: "status", render: (status: HrAttendanceRecord["status"]) => <Tag color={attendanceStatusColor(status)}>{attendanceStatusLabel(status)}</Tag> },
     { title: "In / 上班", dataIndex: "checkInAt", render: formatDateTime },
     { title: "Out / 下班", dataIndex: "checkOutAt", render: formatDateTime },
-    { title: "Method / 方式", dataIndex: "verificationMethod", render: (method: HrAttendanceRecord["verificationMethod"]) => attendanceVerificationMethodLabel(method) }
+    { title: "Method / 方式", render: (_, record) => record.officeNetworkLabel ? <Tag color="blue">Office IP: {record.officeNetworkLabel}</Tag> : attendanceVerificationMethodLabel(record.verificationMethod) }
   ];
 
   const leaveColumns: ColumnsType<HrLeaveRequest> = [
@@ -338,7 +362,10 @@ export function HrSalaryPage({
     { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
     { title: "Period / 月份", dataIndex: "payPeriodId", render: (id: string) => payPeriodName(id, payPeriods) },
     { title: "Status / 状态", dataIndex: "status", render: (status: HrPayslip["status"]) => <Tag color={status === "Generated" ? "green" : "default"}>{payslipStatusLabel(status)}</Tag> },
+    { title: "Type / 类型", dataIndex: "employmentType", render: employmentTypeLabel },
     { title: "Base / 底薪", dataIndex: "baseSalary", render: money },
+    { title: "Hours / 小时", dataIndex: "workedHours", render: (value: number, record) => record.employmentType === "Hourly" ? value : "-" },
+    { title: "Hourly Pay / 时薪", dataIndex: "attendancePay", render: (value: number, record) => record.employmentType === "Hourly" ? money(value) : "-" },
     { title: "Work Days / 工作天", dataIndex: "workingDays" },
     { title: "Daily / 日薪", dataIndex: "dailySalary", render: money },
     { title: "Unpaid / 无薪假", dataIndex: "unpaidLeaveDays", render: (value: number) => `${value} days` },
@@ -348,6 +375,14 @@ export function HrSalaryPage({
     { title: "Manual Deduct / 手动扣", dataIndex: "manualDeductions", render: money },
     { title: "Gross / 应发", dataIndex: "grossPay", render: money },
     { title: "Net Pay / 实发", dataIndex: "netPay", render: (value: number) => <Typography.Text strong>{money(value)}</Typography.Text> }
+  ];
+
+  const payrollProfileColumns: ColumnsType<HrPayrollProfile> = [
+    { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
+    { title: "Type / 类型", dataIndex: "employmentType", render: (type: HrPayrollProfile["employmentType"]) => type === "Hourly" ? <Tag color="purple">Hourly / 时薪</Tag> : <Tag color="blue">Monthly / 月薪</Tag> },
+    { title: "Base / 底薪", dataIndex: "monthlyBaseSalary", render: money },
+    { title: "Hourly rate / 时薪", dataIndex: "hourlyRate", render: money },
+    { title: "Action / 操作", fixed: "right", render: (_, profile) => <Button size="small" onClick={() => payrollProfileForm.setFieldsValue(profile)}>Edit / 编辑</Button> }
   ];
 
   const attendanceStatusOptions = ["Present", "Late", "HalfDay", "Absent"].map((value) => ({ value, label: attendanceStatusLabel(value as HrAttendanceRecord["status"]) }));
@@ -391,6 +426,21 @@ export function HrSalaryPage({
   const balanceEmptyText = hrRecordEmptyText(leaveBalances.length, filteredLeaveBalances.length, "No leave balances yet / 暂无假期余额", "No leave balances match the current filters / 没有符合筛选条件的假期余额");
   const adjustmentEmptyText = hrRecordEmptyText(leaveAdjustments.length, filteredLeaveAdjustments.length, "No leave adjustments yet / 暂无假期调整记录", "No leave adjustments match the current filters / 没有符合筛选条件的假期调整记录");
   const payslipEmptyText = hrRecordEmptyText(payslips.length, filteredPayslips.length, "No payslips generated yet / 暂无薪资单", "No payslips match the current filters / 没有符合筛选条件的薪资单");
+  const calendarEventsByDate = useMemo(() => {
+    const events = new Map<string, HrCalendarAvailability[]>();
+    bossCalendar.forEach((item) => events.set(item.date, [...(events.get(item.date) ?? []), item]));
+    return events;
+  }, [bossCalendar]);
+  const attendanceNetworkColumns: ColumnsType<HrAttendanceNetwork> = [
+    { title: "Label / 标签", dataIndex: "label" },
+    { title: "CIDR range / 网段", dataIndex: "cidr" },
+    { title: "Status / 状态", dataIndex: "isActive", render: (active: boolean) => <Tag color={active ? "green" : "default"}>{active ? "Active / 启用" : "Disabled / 停用"}</Tag> },
+    {
+      title: "Action / 操作",
+      fixed: "right",
+      render: (_, network) => <Button size="small" disabled={!network.isActive} onClick={() => void onSaveAttendanceNetwork({ ...network, isActive: false })}>Disable / 停用</Button>
+    }
+  ];
   const tabLabel = (label: string, count: number) => <span className="tabLabelWithCount">{label}<Tag>{count}</Tag></span>;
 
   const attendanceMobileCards = (
@@ -600,8 +650,8 @@ export function HrSalaryPage({
               <Space key={trip.id} className="tableActionGroup" wrap>
                 <Tag color={businessTripStatusColor(trip.status)}>{businessTripStatusLabel(trip.status)}</Tag>
                 <Typography.Text>{trip.startDate} to {trip.endDate} · {trip.location}</Typography.Text>
-                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && !openSession && <Button size="small" onClick={() => onStartOutstation({ businessTripId: trip.id })}>Start Duty / 开始外勤</Button>}
-                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && openSession && <Button size="small" onClick={() => onEndOutstation({ businessTripId: trip.id })}>End Duty / 结束外勤</Button>}
+                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && !openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>Start Duty / 开始外勤</Button></Tooltip>}
+                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>End Duty / 结束外勤</Button></Tooltip>}
                 {(trip.status === "Pending" || trip.status === "Approved") && <Button size="small" onClick={() => onCancelBusinessTrip(trip.id)}>Cancel / 取消</Button>}
               </Space>
             ))}
@@ -655,11 +705,92 @@ export function HrSalaryPage({
         activeKey={activeTab}
         onChange={changeTab}
         items={[
+          ...(isBossAdmin ? [{
+            key: "staff-calendar",
+            label: "Staff Calendar / 员工日历",
+            children: (
+              <Space direction="vertical" size={16} className="fullWidth">
+                <Alert
+                  type="info"
+                  showIcon
+                  message="Approved leave availability only / 仅显示已批准的请假状态"
+                  description="Each name below means Unavailable for that day. Leave reason, MC and medical details are intentionally not shown. If this local preview cannot reach the API, fictional sample availability is shown instead."
+                />
+                <ProCard title="Monthly availability / 月度可用性">
+                  <Calendar
+                    fullscreen={false}
+                    value={calendarMonth}
+                    onPanelChange={(value) => {
+                      setCalendarMonth(value);
+                      const [from, to] = calendarMonthRange(value);
+                      void onLoadBossCalendar(from, to);
+                    }}
+                    cellRender={(value, info) => {
+                      if (info.type !== "date") return null;
+                      const events = calendarEventsByDate.get(value.format("YYYY-MM-DD")) ?? [];
+                      return events.map((event) => <Tag color="volcano" key={`${event.staffUserId}-${event.date}`}>{event.staffName} · Unavailable</Tag>);
+                    }}
+                  />
+                </ProCard>
+              </Space>
+            )
+          }, {
+            key: "office-network",
+            label: "Office Network / 办公室网络",
+            children: (
+              <Space direction="vertical" size={16} className="fullWidth">
+                <Alert type="warning" showIcon message="Attendance is accepted only from an active office CIDR range." description="Configure production office ranges before staff use this check-in method. Raw client IP history is not retained." />
+                <ProCard title="Office network allow-list / 办公室网络白名单">
+                  <Form
+                    form={attendanceNetworkForm}
+                    layout="vertical"
+                    className="formGrid"
+                    initialValues={{ isActive: true }}
+                    onFinish={(values) => {
+                      const network: HrAttendanceNetwork = {
+                        id: crypto.randomUUID(),
+                        label: String(values.label || ""),
+                        cidr: String(values.cidr || ""),
+                        isActive: Boolean(values.isActive),
+                        createdAt: new Date().toISOString()
+                      };
+                      void onSaveAttendanceNetwork(network).then(() => attendanceNetworkForm.resetFields());
+                    }}
+                  >
+                    <Form.Item name="label" label="Office label / 办公室标签" rules={[{ required: true }]}><Input placeholder="e.g. Showroom" /></Form.Item>
+                    <Form.Item name="cidr" label="CIDR range / 网段" rules={[{ required: true }]}><Input placeholder="e.g. 203.0.113.0/24" /></Form.Item>
+                    <Form.Item name="isActive" label="Status / 状态"><Select options={[{ value: true, label: "Active / 启用" }, { value: false, label: "Disabled / 停用" }]} /></Form.Item>
+                    <Form.Item className="formActions"><Button type="primary" htmlType="submit">Add office network / 新增办公室网络</Button></Form.Item>
+                  </Form>
+                  <Table className="desktopDataTable" rowKey="id" columns={attendanceNetworkColumns} dataSource={attendanceNetworks} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No office network configured / 尚未配置办公室网络" }} />
+                </ProCard>
+              </Space>
+            )
+          }] : []),
           {
             key: "attendance",
             label: tabLabel("Attendance / 打卡记录", attendance.length),
             children: (
               <>
+                {isHrManager && (
+                  <ProCard title="Attendance correction / 打卡更正" className="hrAttendanceCorrection">
+                    <Form
+                      form={attendanceCorrectionForm}
+                      layout="vertical"
+                      className="formGrid"
+                      onFinish={(values) => {
+                        const existing = attendance.find((record) => record.id === values.attendanceId);
+                        if (!existing) return;
+                        void onUpdateAttendance({ ...existing, status: values.status as HrAttendanceRecord["status"], notes: String(values.notes || "") }).then(() => attendanceCorrectionForm.resetFields());
+                      }}
+                    >
+                      <Form.Item name="attendanceId" label="Attendance record / 打卡记录" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={attendance.map((record) => ({ value: record.id, label: `${staffName(record.staffUserId, visibleStaff)} · ${record.attendanceDate}` }))} /></Form.Item>
+                      <Form.Item name="status" label="Corrected status / 更正状态" rules={[{ required: true }]}><Select options={attendanceStatusOptions} /></Form.Item>
+                      <Form.Item name="notes" label="Correction note / 更正说明" rules={[{ required: true, whitespace: true, message: "A correction note is required." }]}><Input /></Form.Item>
+                      <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save correction / 保存更正</Button></Form.Item>
+                    </Form>
+                  </ProCard>
+                )}
                 <HrRecordFilterControls
                   filters={recordFilters.attendance}
                   total={attendance.length}
@@ -720,7 +851,18 @@ export function HrSalaryPage({
             children: (
               <Space direction="vertical" size={16} className="fullWidth">
                 <ProCard title="Submit Leave Request / 提交请假申请" className="leaveRequestCard">
-                  <Form form={leaveForm} layout="vertical" className="leaveRequestForm" onFinish={(values) => onCreateLeave(leaveFromValues(values, selfId, calculatedLeaveDays))} initialValues={{ staffUserId: selfId, type: "AnnualLeave", startDate: dayjs(today), startHalf: "AM", endDate: dayjs(today), endHalf: "PM" }}>
+                  <Form
+                    form={leaveForm}
+                    layout="vertical"
+                    className="leaveRequestForm"
+                    onFinish={async (values) => {
+                      const leave = await onCreateLeave(leaveFromValues(values, selfId, calculatedLeaveDays));
+                      if (selectedMedicalCertificate) await onUploadMc(leave.id, selectedMedicalCertificate);
+                      leaveForm.resetFields();
+                      setSelectedMedicalCertificate(null);
+                    }}
+                    initialValues={{ staffUserId: selfId, type: "AnnualLeave", startDate: dayjs(today), startHalf: "AM", endDate: dayjs(today), endHalf: "PM" }}
+                  >
                     <div className="leaveIdentityGrid">
                       {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工"><Select options={staffOptions} /></Form.Item>}
                       <Form.Item name="type" label="Leave Type / 请假类型" rules={[{ required: true }]}><Select options={leaveTypes.map((value) => ({ value, label: leaveTypeLabel(value) }))} /></Form.Item>
@@ -743,6 +885,23 @@ export function HrSalaryPage({
                       </Form.Item>
                       <Form.Item name="reason" label="Reason / 原因"><Input.TextArea rows={3} /></Form.Item>
                     </div>
+                    {shouldShowOptionalMcUpload(leaveType) && (
+                      <Form.Item label="MC document (optional) / 病假单（可选）" extra="Upload a PDF or image now, or submit first and upload it later. Maximum 10 MB.">
+                        <Space direction="vertical" size={4}>
+                          <Upload
+                            accept=".pdf,image/png,image/jpeg,image/webp"
+                            beforeUpload={(file) => {
+                              setSelectedMedicalCertificate(file);
+                              return false;
+                            }}
+                            showUploadList={false}
+                          >
+                            <Button icon={<UploadOutlined />}>{selectedMedicalCertificate ? "Replace MC document / 更换病假单" : "Choose MC document / 选择病假单"}</Button>
+                          </Upload>
+                          {selectedMedicalCertificate && <Space size={6}><Typography.Text type="secondary">Selected: {selectedMedicalCertificate.name}</Typography.Text><Button type="link" size="small" onClick={() => setSelectedMedicalCertificate(null)}>Remove / 移除</Button></Space>}
+                        </Space>
+                      </Form.Item>
+                    )}
                     <div className="leaveFormActions">
                       <Button type="primary" htmlType="submit" disabled={calculatedLeaveDays <= 0}>Submit Request / 提交申请</Button>
                     </div>
@@ -852,30 +1011,33 @@ export function HrSalaryPage({
                 {isHrManager && (
                   <>
                     <ProCard title="Payroll Profile / 薪资资料">
-                      <Form layout="vertical" className="formGrid" onFinish={(values) => onUpdatePayrollProfile(profileFromValues(values))} initialValues={{ monthlyBaseSalary: 0, overtimeHours: 0, overtimeRate: 0, allowances: 0, manualDeductions: 0 }}>
+                      <Form form={payrollProfileForm} layout="vertical" className="formGrid" onFinish={(values) => onUpdatePayrollProfile(profileFromValues(values))} initialValues={{ employmentType: "Monthly", monthlyBaseSalary: 0, hourlyRate: 0, overtimeHours: 0, overtimeRate: 0, allowances: 0, manualDeductions: 0 }}>
                         <Form.Item name="id" hidden><Input /></Form.Item>
                         <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>
+                        <Form.Item name="employmentType" label="Employment type / 雇用类型" rules={[{ required: true }]}><Select options={[{ value: "Monthly", label: "Monthly / 月薪" }, { value: "Hourly", label: "Hourly / 时薪" }]} /></Form.Item>
                         <Form.Item name="monthlyBaseSalary" label="Base / 底薪"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+                        <Form.Item name="hourlyRate" label="Hourly rate / 时薪"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item name="overtimeHours" label="OT Hours / 加班小时"><InputNumber className="fullWidth" min={0} /></Form.Item>
                         <Form.Item name="overtimeRate" label="OT Rate / 加班费率"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item name="allowances" label="Allowances / 津贴"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item name="manualDeductions" label="Deductions / 扣除"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Profile / 保存资料</Button></Form.Item>
                       </Form>
+                      <Table className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
                     </ProCard>
                     <ProCard title="Working Day Pay Period / 薪资月份">
-                      <Form layout="vertical" className="formGrid" onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={{ payPeriod: dayjs(today), startDate: dayjs(today), endDate: dayjs(today), workingDays: 22 }}>
-                        <Form.Item name="payPeriod" label="Pay Period / 薪资月份" rules={[{ required: true }]}><DatePicker picker="month" className="fullWidth" format="MMMM YYYY" /></Form.Item>
-                        <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-                        <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-                        <Form.Item name="workingDays" label="Working Days / 工作天" rules={[{ required: true }]}><InputNumber className="fullWidth" min={1} /></Form.Item>
+                      <Form form={payPeriodForm} layout="vertical" className="formGrid" onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={payPeriodDefaults(dayjs(today))}>
+                        <Form.Item name="payPeriod" label="Pay Period / 薪资月份" rules={[{ required: true }]}><DatePicker picker="month" className="fullWidth" format="MMMM YYYY" onChange={(value) => value && payPeriodForm.setFieldsValue(payPeriodDefaults(value))} /></Form.Item>
+                        <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" disabled /></Form.Item>
+                        <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" disabled /></Form.Item>
+                        <Form.Item name="workingDays" label="Working Days / 工作天" extra="Auto-filled for Monday–Friday. Adjust for public holidays if needed." rules={[{ required: true }]}><InputNumber className="fullWidth" min={1} /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Period / 新增月份</Button></Form.Item>
                       </Form>
                     </ProCard>
                     <ProCard title="Generate Payslips / 生成薪资单">
                       <Space className="hrGenerateActions" wrap>
                         <Select options={payPeriods.map((period) => ({ value: period.id, label: `${period.name} / ${period.workingDays} days / 天` }))} className="hrPeriodSelect" onChange={(id) => void onGeneratePayslips(id)} placeholder="Select period to generate / 选择月份生成" />
-                        <Typography.Text type="secondary">Daily salary = base salary / working days / 日薪 = 底薪 / 工作天. Unpaid leave is deducted from approved leave only / 无薪假只按已批准假期扣除.</Typography.Text>
+                        <Typography.Text type="secondary">Monthly: base salary / working days, with approved unpaid leave deduction. Hourly: completed Present, Late and Half Day clock time × hourly rate + allowances − manual deductions. No break or overtime adjustment is applied automatically.</Typography.Text>
                       </Space>
                     </ProCard>
                   </>
@@ -1022,6 +1184,8 @@ function profileFromValues(values: Record<string, unknown>): HrPayrollProfile {
     id: String(values.id || crypto.randomUUID()),
     staffUserId: String(values.staffUserId || ""),
     monthlyBaseSalary: Number(values.monthlyBaseSalary ?? 0),
+    employmentType: values.employmentType === "Hourly" ? "Hourly" : "Monthly",
+    hourlyRate: Number(values.hourlyRate ?? 0),
     overtimeHours: Number(values.overtimeHours ?? 0),
     overtimeRate: Number(values.overtimeRate ?? 0),
     allowances: Number(values.allowances ?? 0),
@@ -1039,6 +1203,22 @@ export function payPeriodFromValues(values: Record<string, unknown>): HrPayPerio
     workingDays: Number(values.workingDays ?? 22),
     createdAt: new Date().toISOString()
   };
+}
+
+export function payPeriodDefaults(value: dayjs.Dayjs) {
+  const payPeriod = value.startOf("month");
+  const startDate = payPeriod.startOf("month");
+  const endDate = payPeriod.endOf("month");
+  let workingDays = 0;
+  for (let date = startDate; date.isBefore(endDate) || date.isSame(endDate, "day"); date = date.add(1, "day")) {
+    if (date.day() !== 0 && date.day() !== 6) workingDays += 1;
+  }
+
+  return { payPeriod, startDate, endDate, workingDays };
+}
+
+export function shouldShowOptionalMcUpload(type?: HrLeaveType) {
+  return type === "MedicalLeave";
 }
 
 export function datePickerValueToDateString(value: unknown) {
@@ -1151,7 +1331,7 @@ function attendanceStatusColor(status: HrAttendanceRecord["status"]) {
 }
 
 function attendanceVerificationMethodLabel(method: HrAttendanceRecord["verificationMethod"]) {
-  return method === "OfficeQr" ? "Office QR / 办公室二维码" : method === "Outstation" ? "Outstation / 外勤" : method === "ManualException" ? "Manual Exception / 人工例外" : "Manual / 手动";
+  return method === "OfficeIp" ? "Office IP / 办公室网络" : method === "OfficeQr" ? "Office QR / 办公室二维码" : method === "Outstation" ? "Outstation / 外勤" : method === "ManualException" ? "Manual Exception / 人工例外" : "Manual / 手动";
 }
 
 function businessTripCoversDate(trip: HrBusinessTrip, date: string) {
@@ -1182,6 +1362,14 @@ function businessTripFromValues(values: Record<string, unknown>, fallbackStaffUs
     isUrgentException: Boolean(values.isUrgentException),
     requestedAt: new Date().toISOString()
   };
+}
+
+function employmentTypeLabel(type: HrPayslip["employmentType"]) {
+  return type === "Hourly" ? <Tag color="purple">Hourly / 时薪</Tag> : <Tag color="blue">Monthly / 月薪</Tag>;
+}
+
+function calendarMonthRange(value: dayjs.Dayjs): [string, string] {
+  return [value.startOf("month").format("YYYY-MM-DD"), value.endOf("month").format("YYYY-MM-DD")];
 }
 
 function payslipStatusLabel(status: HrPayslip["status"]) {

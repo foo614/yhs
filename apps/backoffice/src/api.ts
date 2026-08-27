@@ -11,12 +11,13 @@ export type DebtRecoveryStatus = "Open" | "FollowedUp" | "Closed";
 export type RepairApprovalStatus = "Pending" | "Approved" | "Rejected";
 export type SupplierInvoiceAgingStatus = "Unmatched" | "DueSoon" | "Overdue" | "Paid";
 export type HrAttendanceStatus = "Present" | "Late" | "HalfDay" | "Absent";
-export type HrAttendanceVerificationMethod = "Manual" | "OfficeQr" | "Outstation" | "ManualException";
+export type HrAttendanceVerificationMethod = "Manual" | "OfficeQr" | "Outstation" | "ManualException" | "OfficeIp";
 export type HrAttendanceAction = "CheckIn" | "CheckOut";
 export type HrBusinessTripStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "UnpaidLeave";
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated";
+export type HrEmploymentType = "Monthly" | "Hourly";
 export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate";
 export type DocumentOwnershipType = "Seller" | "Buyer" | "Vehicle";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed";
@@ -203,6 +204,15 @@ export type DashboardReminderDueFilter = "All" | "Overdue" | "DueToday" | "DueSo
 export type DashboardReminderFilters = {
   type?: DashboardReminder["type"] | "All";
   due?: DashboardReminderDueFilter;
+};
+
+export type PriorityActionItem = {
+  type: "LoanFollowUp" | "DeliveryPreparation" | "SettlementDue" | "PaymentBankFollowUp" | "PaymentStatusFollowUp" | "DailySpendDue" | "DebtRecoveryFollowUp" | "PaymentVoucherFollowUp" | "LeadFollowUp" | "RepairWorkInProgress" | "LeaveApproval";
+  title: string;
+  target: "Loans" | "Delivery" | "Finance" | "Leads" | "Repairs" | "HrSalary";
+  dueDate: string;
+  subject?: string;
+  amount?: number;
 };
 
 export type DashboardProfitTrendSlice = {
@@ -605,6 +615,7 @@ export type HrAttendanceRecord = {
   checkOutAt?: string;
   status: HrAttendanceStatus;
   verificationMethod: HrAttendanceVerificationMethod;
+  officeNetworkLabel?: string;
   notes?: string;
 };
 
@@ -662,6 +673,21 @@ export type HrAvailabilityCalendarItem = {
 export type HrAttendanceReminderType = "PendingApproval" | "UpcomingOutstation" | "MissingCheckOut";
 export type HrAttendanceReminderPolicy = { id: string; type: HrAttendanceReminderType; isEnabled: boolean; leadHours: number; updatedBy: string; updatedAt: string };
 export type HrAttendanceReminderItem = { type: HrAttendanceReminderType; staffUserId: string; message: string; dueDate: string };
+
+export type HrAttendanceNetwork = {
+  id: string;
+  label: string;
+  cidr: string;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type HrCalendarAvailability = {
+  staffUserId: string;
+  staffName: string;
+  date: string;
+  status: "Unavailable";
+};
 
 export type HrLeaveRequest = {
   id: string;
@@ -729,7 +755,9 @@ export type HrLeaveAdjustmentResult = {
 export type HrPayrollProfile = {
   id: string;
   staffUserId: string;
+  employmentType: HrEmploymentType;
   monthlyBaseSalary: number;
+  hourlyRate: number;
   overtimeHours: number;
   overtimeRate: number;
   allowances: number;
@@ -751,7 +779,11 @@ export type HrPayslip = {
   staffUserId: string;
   payPeriodId: string;
   status: HrPayslipStatus;
+  employmentType: HrEmploymentType;
   baseSalary: number;
+  hourlyRate: number;
+  workedHours: number;
+  attendancePay: number;
   workingDays: number;
   dailySalary: number;
   unpaidLeaveDays: number;
@@ -1002,6 +1034,10 @@ export async function getDashboardReminders(filters: DashboardReminderFilters = 
   }
 }
 
+export async function getPriorityActions(): Promise<PriorityActionItem[]> {
+  return getWithNetworkFallback("/api/priority-actions", []);
+}
+
 export async function getLoanDocumentCheck(loanId: string): Promise<LoanDocumentCheck> {
   return getWithNetworkFallback(`/api/loans/${loanId}/document-check`, { isComplete: false, missingCategories: [] });
 }
@@ -1160,6 +1196,31 @@ export async function getHrStaffUsers(): Promise<StaffUser[]> {
 
 export async function getHrAttendance(): Promise<HrAttendanceRecord[]> {
   return getWithNetworkFallback("/api/hr/attendance", fallbackHrAttendance(), { onNotFoundFallback: true });
+}
+
+export async function getHrBossCalendar(from: string, to: string): Promise<HrCalendarAvailability[]> {
+  return getWithNetworkFallback(
+    `/api/hr/boss-calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    isLocalPreviewHost() ? fallbackHrBossCalendar(from, to) : []
+  );
+}
+
+export async function getHrAttendanceNetworks(): Promise<HrAttendanceNetwork[]> {
+  return getWithNetworkFallback("/api/hr/attendance-networks", []);
+}
+
+export async function createHrAttendanceNetwork(network: HrAttendanceNetwork): Promise<HrAttendanceNetwork> {
+  return request<HrAttendanceNetwork>("/api/hr/attendance-networks", {
+    method: "POST",
+    body: JSON.stringify(network)
+  });
+}
+
+export async function updateHrAttendanceNetwork(network: HrAttendanceNetwork): Promise<HrAttendanceNetwork> {
+  return request<HrAttendanceNetwork>(`/api/hr/attendance-networks/${network.id}`, {
+    method: "PUT",
+    body: JSON.stringify(network)
+  });
 }
 
 export async function checkInHrAttendance(): Promise<HrAttendanceRecord> {
@@ -2143,7 +2204,8 @@ function fallbackHrAttendance(): HrAttendanceRecord[] {
       checkInAt: "2026-06-06T01:03:00Z",
       checkOutAt: "2026-06-06T10:16:00Z",
       status: "Present",
-      verificationMethod: "Manual",
+      verificationMethod: "OfficeIp",
+      officeNetworkLabel: "Showroom",
       notes: "Showroom duty"
     },
     {
@@ -2152,7 +2214,8 @@ function fallbackHrAttendance(): HrAttendanceRecord[] {
       attendanceDate: "2026-06-06",
       checkInAt: "2026-06-06T01:28:00Z",
       status: "Late",
-      verificationMethod: "Manual",
+      verificationMethod: "OfficeIp",
+      officeNetworkLabel: "Showroom",
       notes: "JPJ runner queue"
     },
     {
@@ -2162,7 +2225,8 @@ function fallbackHrAttendance(): HrAttendanceRecord[] {
       checkInAt: "2026-06-05T00:55:00Z",
       checkOutAt: "2026-06-05T09:42:00Z",
       status: "Present",
-      verificationMethod: "Manual",
+      verificationMethod: "OfficeIp",
+      officeNetworkLabel: "Showroom",
       notes: "Payroll review completed"
     }
   ];
@@ -2181,7 +2245,8 @@ function fallbackHrCheckInAttendance(): HrAttendanceRecord {
     attendanceDate: clock.today,
     checkInAt: clock.now,
     status: "Present",
-    verificationMethod: "Manual",
+    verificationMethod: "OfficeIp",
+    officeNetworkLabel: "Showroom",
     notes: "Demo check-in"
   };
 }
@@ -2195,9 +2260,28 @@ function fallbackHrCheckOutAttendance(): HrAttendanceRecord {
     checkInAt: clock.now,
     checkOutAt: clock.now,
     status: "Present",
-    verificationMethod: "Manual",
+    verificationMethod: "OfficeIp",
+    officeNetworkLabel: "Showroom",
     notes: "Demo check-out"
   };
+}
+
+function fallbackHrBossCalendar(from: string, to: string): HrCalendarAvailability[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return [];
+
+  const month = from.slice(0, 7);
+  return [
+    { staffUserId: "staff-demo-sales", staffName: "Jason Tan", date: `${month}-04`, status: "Unavailable" as const },
+    { staffUserId: "staff-demo-delivery", staffName: "Ah Ming", date: `${month}-05`, status: "Unavailable" as const },
+    { staffUserId: "staff-demo-hr", staffName: "Mei Ling", date: `${month}-05`, status: "Unavailable" as const },
+    { staffUserId: "staff-demo-sales", staffName: "Jason Tan", date: `${month}-14`, status: "Unavailable" as const },
+    { staffUserId: "staff-demo-delivery", staffName: "Ah Ming", date: `${month}-20`, status: "Unavailable" as const }
+  ].filter((item) => item.date >= from && item.date <= to);
+}
+
+function isLocalPreviewHost(): boolean {
+  if (typeof window === "undefined") return false;
+  return ["localhost", "127.0.0.1"].includes(window.location.hostname.toLowerCase());
 }
 
 function fallbackHrLeaveRequests(): HrLeaveRequest[] {
@@ -2305,7 +2389,9 @@ function fallbackHrPayrollProfiles(): HrPayrollProfile[] {
     {
       id: "profile-demo-1",
       staffUserId: "staff-demo-sales",
+      employmentType: "Monthly",
       monthlyBaseSalary: 3200,
+      hourlyRate: 0,
       overtimeHours: 4,
       overtimeRate: 18,
       allowances: 250,
@@ -2315,7 +2401,9 @@ function fallbackHrPayrollProfiles(): HrPayrollProfile[] {
     {
       id: "profile-demo-2",
       staffUserId: "staff-demo-delivery",
+      employmentType: "Monthly",
       monthlyBaseSalary: 2800,
+      hourlyRate: 0,
       overtimeHours: 6,
       overtimeRate: 16,
       allowances: 180,
@@ -2325,7 +2413,9 @@ function fallbackHrPayrollProfiles(): HrPayrollProfile[] {
     {
       id: "profile-demo-3",
       staffUserId: "staff-demo-hr",
+      employmentType: "Monthly",
       monthlyBaseSalary: 3600,
+      hourlyRate: 0,
       overtimeHours: 2,
       overtimeRate: 20,
       allowances: 200,
@@ -2363,7 +2453,11 @@ function fallbackHrPayslips(): HrPayslip[] {
       staffUserId: "staff-demo-sales",
       payPeriodId: "period-demo-2026-05",
       status: "Generated",
+      employmentType: "Monthly",
       baseSalary: 3200,
+      hourlyRate: 0,
+      workedHours: 0,
+      attendancePay: 0,
       workingDays: 22,
       dailySalary: 145.45,
       unpaidLeaveDays: 0,
@@ -2380,7 +2474,11 @@ function fallbackHrPayslips(): HrPayslip[] {
       staffUserId: "staff-demo-delivery",
       payPeriodId: "period-demo-2026-05",
       status: "Generated",
+      employmentType: "Monthly",
       baseSalary: 2800,
+      hourlyRate: 0,
+      workedHours: 0,
+      attendancePay: 0,
       workingDays: 22,
       dailySalary: 127.27,
       unpaidLeaveDays: 1,
@@ -2397,7 +2495,11 @@ function fallbackHrPayslips(): HrPayslip[] {
       staffUserId: "staff-demo-hr",
       payPeriodId: "period-demo-2026-05",
       status: "Generated",
+      employmentType: "Monthly",
       baseSalary: 3600,
+      hourlyRate: 0,
+      workedHours: 0,
+      attendancePay: 0,
       workingDays: 22,
       dailySalary: 163.64,
       unpaidLeaveDays: 0,

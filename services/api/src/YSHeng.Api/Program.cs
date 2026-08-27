@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Security.Claims;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +18,14 @@ var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("172.16.0.0"), 12));
+});
 builder.Services.Configure<GoogleDocumentAiOptions>(builder.Configuration.GetSection("Ocr:GoogleDocumentAi"));
 builder.Services.AddSingleton<IGoogleAccessTokenProvider, GoogleApplicationDefaultAccessTokenProvider>();
 builder.Services.AddHttpClient<GoogleDocumentAiClient>();
@@ -79,6 +89,7 @@ if (workerEnabled)
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.Use(async (context, next) =>
 {
     SecurityHeaders.Apply(context.Response.Headers);
@@ -1401,7 +1412,6 @@ backOffice.MapPut("/payment-vouchers/{id:guid}", async (Guid id, PaymentVoucher 
     await db.SaveChangesAsync();
     return Results.Ok(voucher);
 }).RequireAuthorization("Finance");
-
 backOffice.MapGet("/leads", async (AppDbContext db) => await db.Leads.AsNoTracking().OrderByDescending(lead => lead.CreatedAt).ToListAsync()).RequireAuthorization("Sales");
 backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
@@ -1792,18 +1802,77 @@ hr.MapGet("/reminders", async (AppDbContext db, HttpContext context) =>
     return Results.Ok(result.OrderBy(item => item.DueDate).ThenBy(item => item.StaffUserId));
 });
 
+hr.MapGet("/boss-calendar", async (DateOnly from, DateOnly to, AppDbContext db, UserManager<AppUser> userManager, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    if (to < from || to.DayNumber - from.DayNumber > 370) return Results.BadRequest(new { message = "Calendar range must be a valid period of up to 12 months." });
+
+    var approvedLeaves = await db.HrLeaveRequests.AsNoTracking()
+        .Where(leave => leave.Status == HrLeaveStatus.Approved && leave.StartDate <= to && leave.EndDate >= from)
+        .ToListAsync();
+    var names = await userManager.Users.AsNoTracking().ToDictionaryAsync(user => user.Id, user => user.DisplayName);
+    var events = new List<HrCalendarAvailability>();
+    foreach (var leave in approvedLeaves)
+    {
+        var start = leave.StartDate < from ? from : leave.StartDate;
+        var end = leave.EndDate > to ? to : leave.EndDate;
+        for (var day = start; day <= end; day = day.AddDays(1))
+        {
+            events.Add(new HrCalendarAvailability(leave.StaffUserId, names.GetValueOrDefault(leave.StaffUserId, "Staff"), day));
+        }
+    }
+    return Results.Ok(events.OrderBy(item => item.Date).ThenBy(item => item.StaffName));
+});
+
+hr.MapGet("/attendance-networks", async (AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    return Results.Ok(await db.HrAttendanceNetworks.AsNoTracking().OrderBy(network => network.Label).ToListAsync());
+});
+
+hr.MapPost("/attendance-networks", async (HrAttendanceNetwork network, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    var normalized = network with { Label = network.Label.Trim(), Cidr = network.Cidr.Trim(), CreatedAt = DateTime.UtcNow };
+    var validation = HrRules.ValidateAttendanceNetwork(normalized);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (await db.HrAttendanceNetworks.AnyAsync(item => item.Cidr == normalized.Cidr)) return Results.BadRequest(new { message = "Office network CIDR already exists." });
+    db.HrAttendanceNetworks.Add(normalized);
+    ApiAudit.Add(db, context.User, "hr.attendanceNetwork.created", nameof(HrAttendanceNetwork), normalized.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/hr/attendance-networks/{normalized.Id}", normalized);
+});
+
+hr.MapPut("/attendance-networks/{id:guid}", async (Guid id, HrAttendanceNetwork network, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    if (id != network.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("attendance network"));
+    var existing = await db.HrAttendanceNetworks.FirstOrDefaultAsync(item => item.Id == id);
+    if (existing is null) return Results.NotFound();
+    var normalized = network with { Label = network.Label.Trim(), Cidr = network.Cidr.Trim(), CreatedAt = existing.CreatedAt };
+    var validation = HrRules.ValidateAttendanceNetwork(normalized);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (await db.HrAttendanceNetworks.AnyAsync(item => item.Id != id && item.Cidr == normalized.Cidr)) return Results.BadRequest(new { message = "Office network CIDR already exists." });
+    db.Entry(existing).CurrentValues.SetValues(normalized);
+    ApiAudit.Add(db, context.User, "hr.attendanceNetwork.updated", nameof(HrAttendanceNetwork), normalized.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(normalized);
+});
+
 hr.MapPost("/attendance/check-in", async (AppDbContext db, HttpContext context) =>
 {
     var staffUserId = StaffIdentity.CurrentUserId(context);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = HrBusinessClock.Today();
     var now = DateTime.UtcNow;
+    var officeNetwork = HrRules.FindMatchingAttendanceNetwork(context.Connection.RemoteIpAddress, await db.HrAttendanceNetworks.AsNoTracking().Where(network => network.IsActive).ToListAsync());
+    if (officeNetwork is null) return Results.BadRequest(new { message = "Attendance must be checked in from an approved office network." });
     var openSession = await db.HrAttendanceRecords
         .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
         .OrderByDescending(record => record.CheckInAt)
         .FirstOrDefaultAsync();
     var actionValidation = HrRules.ValidateCheckIn(openSession);
     if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present };
+    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present, VerificationMethod = HrAttendanceVerificationMethod.OfficeIp, OfficeNetworkLabel = officeNetwork.Label };
 
     var validation = HrRules.ValidateAttendance(attendance);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -1816,15 +1885,17 @@ hr.MapPost("/attendance/check-in", async (AppDbContext db, HttpContext context) 
 hr.MapPost("/attendance/check-out", async (AppDbContext db, HttpContext context) =>
 {
     var staffUserId = StaffIdentity.CurrentUserId(context);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = HrBusinessClock.Today();
     var now = DateTime.UtcNow;
+    var officeNetwork = HrRules.FindMatchingAttendanceNetwork(context.Connection.RemoteIpAddress, await db.HrAttendanceNetworks.AsNoTracking().Where(network => network.IsActive).ToListAsync());
+    if (officeNetwork is null) return Results.BadRequest(new { message = "Attendance must be checked out from an approved office network." });
     var openSession = await db.HrAttendanceRecords
         .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
         .OrderByDescending(record => record.CheckInAt)
         .FirstOrDefaultAsync();
     var actionValidation = HrRules.ValidateCheckOut(openSession);
     if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-    var attendance = openSession! with { CheckOutAt = now };
+    var attendance = openSession! with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.OfficeIp, OfficeNetworkLabel = officeNetwork.Label };
 
     var validation = HrRules.ValidateAttendance(attendance);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -2005,51 +2076,9 @@ hr.MapPost("/business-trips/{id:guid}/cancel", async (Guid id, AppDbContext db, 
     return Results.Ok(cancelled);
 });
 
-hr.MapPost("/attendance/outstation/start", async (HrOutstationAttendanceRequest request, AppDbContext db, HttpContext context) =>
-{
-    var staffUserId = StaffIdentity.CurrentUserId(context);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
-    var trip = await db.HrBusinessTrips.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.BusinessTripId && item.StaffUserId == staffUserId);
-    if (trip is null || !HrRules.BusinessTripCoversDate(trip, today)) return Results.BadRequest(new ApiError("An approved business trip covering today is required before starting outstation attendance."));
+hr.MapPost("/attendance/outstation/start", () => Results.BadRequest(new ApiError("Outstation attendance is not available yet. HR/Admin can correct attendance with a required note.")));
 
-    var openSession = await db.HrAttendanceRecords
-        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
-        .OrderByDescending(record => record.CheckInAt)
-        .FirstOrDefaultAsync();
-    var actionValidation = HrRules.ValidateCheckIn(openSession);
-    if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-
-    var now = DateTime.UtcNow;
-    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present, VerificationMethod = HrAttendanceVerificationMethod.Outstation, Notes = $"Business trip {trip.Id}" };
-    db.HrAttendanceRecords.Add(attendance);
-    ApiAudit.Add(db, context.User, "hr.attendance.outstationStarted", nameof(HrAttendanceRecord), attendance.Id);
-    await db.SaveChangesAsync();
-    return Results.Ok(attendance);
-});
-
-hr.MapPost("/attendance/outstation/end", async (HrOutstationAttendanceRequest request, AppDbContext db, HttpContext context) =>
-{
-    var staffUserId = StaffIdentity.CurrentUserId(context);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
-    var trip = await db.HrBusinessTrips.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.BusinessTripId && item.StaffUserId == staffUserId);
-    if (trip is null || !HrRules.BusinessTripCoversDate(trip, today)) return Results.BadRequest(new ApiError("An approved business trip covering today is required before ending outstation attendance."));
-
-    var openSession = await db.HrAttendanceRecords
-        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
-        .OrderByDescending(record => record.CheckInAt)
-        .FirstOrDefaultAsync();
-    var actionValidation = HrRules.ValidateCheckOut(openSession);
-    if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-
-    var now = DateTime.UtcNow;
-    var attendance = openSession! with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.Outstation, Notes = $"Business trip {trip.Id}" };
-    var validation = HrRules.ValidateAttendance(attendance);
-    if (!validation.IsValid) return Results.BadRequest(validation);
-    db.Entry(openSession!).CurrentValues.SetValues(attendance);
-    ApiAudit.Add(db, context.User, "hr.attendance.outstationEnded", nameof(HrAttendanceRecord), attendance.Id);
-    await db.SaveChangesAsync();
-    return Results.Ok(attendance);
-});
+hr.MapPost("/attendance/outstation/end", () => Results.BadRequest(new ApiError("Outstation attendance is not available yet. HR/Admin can correct attendance with a required note.")));
 
 hr.MapPut("/attendance/{id:guid}", async (Guid id, HrAttendanceRecord attendance, AppDbContext db, HttpContext context) =>
 {
@@ -2057,12 +2086,14 @@ hr.MapPut("/attendance/{id:guid}", async (Guid id, HrAttendanceRecord attendance
     if (id != attendance.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("attendance"));
     var existing = await db.HrAttendanceRecords.FirstOrDefaultAsync(record => record.Id == id);
     if (existing is null) return Results.NotFound();
-    var validation = HrRules.ValidateAttendance(attendance);
+    if (string.IsNullOrWhiteSpace(attendance.Notes)) return Results.BadRequest(new { message = "HR attendance corrections require a note." });
+    var corrected = attendance with { VerificationMethod = HrAttendanceVerificationMethod.Manual, OfficeNetworkLabel = null };
+    var validation = HrRules.ValidateAttendance(corrected);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    db.Entry(existing).CurrentValues.SetValues(attendance);
-    ApiAudit.Add(db, context.User, "hr.attendance.updated", nameof(HrAttendanceRecord), attendance.Id);
+    db.Entry(existing).CurrentValues.SetValues(corrected);
+    ApiAudit.Add(db, context.User, "hr.attendance.updated", nameof(HrAttendanceRecord), corrected.Id);
     await db.SaveChangesAsync();
-    return Results.Ok(attendance);
+    return Results.Ok(corrected);
 });
 
 hr.MapGet("/leave-requests", async (AppDbContext db, HttpContext context) =>
@@ -2103,7 +2134,8 @@ hr.MapPut("/leave-requests/{id:guid}/decision", async (Guid id, HrLeaveDecisionR
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
     var existing = await db.HrLeaveRequests.FirstOrDefaultAsync(request => request.Id == id);
     if (existing is null) return Results.NotFound();
-    var decisionValidation = HrRules.ValidateLeaveDecision(existing);
+    if (string.Equals(StaffIdentity.CurrentUserId(context), existing.StaffUserId, StringComparison.Ordinal)) return Results.Forbid();
+    var decisionValidation = HrRules.ValidateLeaveDecision(existing, decision.Status);
     if (!decisionValidation.IsValid) return Results.BadRequest(decisionValidation);
     var decided = existing with
     {
@@ -2286,11 +2318,12 @@ hr.MapPut("/payroll-profiles/{staffUserId}", async (string staffUserId, HrPayrol
     var validation = HrRules.ValidatePayrollProfile(profile);
     if (!validation.IsValid) return Results.BadRequest(validation);
     var existing = await db.HrPayrollProfiles.FirstOrDefaultAsync(item => item.StaffUserId == staffUserId);
-    if (existing is null) db.HrPayrollProfiles.Add(profile);
-    else db.Entry(existing).CurrentValues.SetValues(profile);
-    ApiAudit.Add(db, context.User, "hr.payrollProfile.updated", nameof(HrPayrollProfile), profile.Id);
+    var savedProfile = existing is null ? profile : profile with { Id = existing.Id };
+    if (existing is null) db.HrPayrollProfiles.Add(savedProfile);
+    else db.Entry(existing).CurrentValues.SetValues(savedProfile);
+    ApiAudit.Add(db, context.User, "hr.payrollProfile.updated", nameof(HrPayrollProfile), savedProfile.Id);
     await db.SaveChangesAsync();
-    return Results.Ok(profile);
+    return Results.Ok(savedProfile);
 });
 
 hr.MapGet("/pay-periods", async (AppDbContext db) =>
@@ -2325,11 +2358,12 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
     if (period is null) return Results.NotFound();
     var profiles = await db.HrPayrollProfiles.AsNoTracking().ToListAsync();
     var leaves = await db.HrLeaveRequests.AsNoTracking().ToListAsync();
+    var attendance = await db.HrAttendanceRecords.AsNoTracking().ToListAsync();
     var generated = new List<HrPayslip>();
     foreach (var profile in profiles)
     {
         var existing = await db.HrPayslips.FirstOrDefaultAsync(payslip => payslip.PayPeriodId == id && payslip.StaffUserId == profile.StaffUserId);
-        var payslip = HrRules.GeneratePayslip(profile, period, leaves, existing?.Id);
+        var payslip = HrRules.GeneratePayslip(profile, period, leaves, attendance, existing?.Id);
         if (existing is null) db.HrPayslips.Add(payslip);
         else db.Entry(existing).CurrentValues.SetValues(payslip);
         generated.Add(payslip);
@@ -2386,6 +2420,25 @@ backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, 
     return Results.Ok(ReminderInbox.Filter(reminders, type, due, today));
 }).RequireAuthorization("Dashboard");
 
+backOffice.MapGet("/priority-actions", async (AppDbContext db, HttpContext context) =>
+{
+    var today = BusinessClock.Today();
+    return Results.Ok(PriorityActionQueue.Create(
+        context.User.FindAll(ClaimTypes.Role).Select(claim => claim.Value),
+        await db.LoanApplications.AsNoTracking().ToListAsync(),
+        await db.DeliverySchedules.AsNoTracking().ToListAsync(),
+        await db.SettlementReminders.AsNoTracking().ToListAsync(),
+        await db.PaymentRecords.AsNoTracking().ToListAsync(),
+        await db.DailySpends.AsNoTracking().ToListAsync(),
+        await db.DebtRecoveryCases.AsNoTracking().ToListAsync(),
+        await db.PaymentVouchers.AsNoTracking().ToListAsync(),
+        await db.RepairJobs.AsNoTracking().ToListAsync(),
+        await db.Leads.AsNoTracking().ToListAsync(),
+        await db.HrLeaveRequests.AsNoTracking().ToListAsync(),
+        await db.Vehicles.AsNoTracking().ToListAsync(),
+        today));
+}).RequireAuthorization("BackOffice");
+
 backOffice.MapGet("/loans/{id:guid}/document-check", async (Guid id, AppDbContext db) =>
 {
     var loan = await db.LoanApplications.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
@@ -2435,6 +2488,25 @@ public sealed record UpdateStaffUserRolesRequest(string[] Roles);
 
 public sealed record HrLeaveDecisionRequest(HrLeaveStatus Status, string? DecisionNotes);
 public sealed record HrLeaveAdjustmentResult(HrLeaveBalance Balance, HrLeaveAdjustment Adjustment);
+
+internal static class HrBusinessClock
+{
+    private static readonly TimeZoneInfo KualaLumpurTimeZone = FindKualaLumpurTimeZone();
+
+    public static DateOnly Today() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, KualaLumpurTimeZone).DateTime);
+
+    private static TimeZoneInfo FindKualaLumpurTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Kuala_Lumpur");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Singapore Standard Time");
+        }
+    }
+}
 
 internal static class StaffIdentity
 {

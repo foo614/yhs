@@ -66,6 +66,10 @@ describe("backoffice role access", () => {
 
   it("keeps Boss/Admin and unauthenticated demo sessions broad while empty authenticated roles load nothing", () => {
     expect(backOfficeDataKeysForRoles(["BossAdmin"])).toContain("auditLog");
+    expect(backOfficeDataKeysForRoles(["BossAdmin"])).toContain("hrBossCalendar");
+    expect(backOfficeDataKeysForRoles(["BossAdmin"])).toContain("hrAttendanceNetworks");
+    expect(backOfficeDataKeysForRoles(["HrSalary"])).not.toContain("hrBossCalendar");
+    expect(backOfficeDataKeysForRoles(["HrSalary"])).not.toContain("hrAttendanceNetworks");
     expect(backOfficeDataKeysForRoles(undefined)).toContain("staffUsers");
     expect(backOfficeDataKeysForRoles([])).toEqual([]);
   });

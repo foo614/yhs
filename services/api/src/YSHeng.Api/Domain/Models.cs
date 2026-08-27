@@ -15,13 +15,14 @@ public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
 public enum RepairApprovalStatus { Pending, Approved, Rejected }
 public enum SupplierInvoiceAgingStatus { Unmatched, DueSoon, Overdue, Paid }
 public enum HrAttendanceStatus { Present, Late, HalfDay, Absent }
-public enum HrAttendanceVerificationMethod { Manual, OfficeQr, Outstation, ManualException }
+public enum HrAttendanceVerificationMethod { Manual, OfficeQr, Outstation, ManualException, OfficeIp }
 public enum HrAttendanceAction { CheckIn, CheckOut }
 public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave }
 public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrBusinessTripStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrAttendanceReminderType { PendingApproval, UpcomingOutstation, MissingCheckOut }
 public enum HrPayslipStatus { Draft, Generated }
+public enum HrEmploymentType { Monthly, Hourly }
 public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
 public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
@@ -387,6 +388,7 @@ public sealed record HrAttendanceRecord
     public DateTime? CheckOutAt { get; init; }
     public HrAttendanceStatus Status { get; init; } = HrAttendanceStatus.Present;
     public HrAttendanceVerificationMethod VerificationMethod { get; init; } = HrAttendanceVerificationMethod.Manual;
+    public string? OfficeNetworkLabel { get; init; }
     public string? Notes { get; init; }
 }
 
@@ -433,6 +435,17 @@ public sealed record HrAttendanceReminderPolicy
     public string UpdatedBy { get; init; } = "";
     public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }
+
+public sealed record HrAttendanceNetwork
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string Label { get; init; } = "";
+    public string Cidr { get; init; } = "";
+    public bool IsActive { get; init; } = true;
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrCalendarAvailability(string StaffUserId, string StaffName, DateOnly Date, string Status = "Unavailable");
 
 public sealed record HrLeaveRequest
 {
@@ -501,7 +514,9 @@ public sealed record HrPayrollProfile
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string StaffUserId { get; init; } = "";
+    public HrEmploymentType EmploymentType { get; init; } = HrEmploymentType.Monthly;
     public decimal MonthlyBaseSalary { get; init; }
+    public decimal HourlyRate { get; init; }
     public decimal OvertimeHours { get; init; }
     public decimal OvertimeRate { get; init; }
     public decimal Allowances { get; init; }
@@ -525,7 +540,11 @@ public sealed record HrPayslip
     public string StaffUserId { get; init; } = "";
     public Guid PayPeriodId { get; init; }
     public HrPayslipStatus Status { get; init; } = HrPayslipStatus.Generated;
+    public HrEmploymentType EmploymentType { get; init; } = HrEmploymentType.Monthly;
     public decimal BaseSalary { get; init; }
+    public decimal HourlyRate { get; init; }
+    public decimal WorkedHours { get; init; }
+    public decimal AttendancePay { get; init; }
     public int WorkingDays { get; init; }
     public decimal DailySalary { get; init; }
     public decimal UnpaidLeaveDays { get; init; }

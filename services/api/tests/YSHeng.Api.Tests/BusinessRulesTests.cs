@@ -687,6 +687,57 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Hr_hourly_payslip_uses_completed_eligible_attendance_with_allowances_and_deductions()
+    {
+        var profile = new HrPayrollProfile
+        {
+            StaffUserId = "daily-worker",
+            EmploymentType = HrEmploymentType.Hourly,
+            HourlyRate = 10m,
+            Allowances = 5m,
+            ManualDeductions = 3m
+        };
+        var period = new HrPayPeriod
+        {
+            Id = Guid.NewGuid(),
+            Name = "June 2026",
+            StartDate = new DateOnly(2026, 6, 1),
+            EndDate = new DateOnly(2026, 6, 30),
+            WorkingDays = 22
+        };
+        var attendance = new[]
+        {
+            new HrAttendanceRecord { StaffUserId = "daily-worker", AttendanceDate = new DateOnly(2026, 6, 2), Status = HrAttendanceStatus.Present, CheckInAt = new DateTime(2026, 6, 2, 9, 0, 0, DateTimeKind.Utc), CheckOutAt = new DateTime(2026, 6, 2, 17, 0, 0, DateTimeKind.Utc) },
+            new HrAttendanceRecord { StaffUserId = "daily-worker", AttendanceDate = new DateOnly(2026, 6, 3), Status = HrAttendanceStatus.Late, CheckInAt = new DateTime(2026, 6, 3, 10, 0, 0, DateTimeKind.Utc), CheckOutAt = new DateTime(2026, 6, 3, 14, 0, 0, DateTimeKind.Utc) },
+            new HrAttendanceRecord { StaffUserId = "daily-worker", AttendanceDate = new DateOnly(2026, 6, 4), Status = HrAttendanceStatus.Absent, CheckInAt = new DateTime(2026, 6, 4, 9, 0, 0, DateTimeKind.Utc), CheckOutAt = new DateTime(2026, 6, 4, 18, 0, 0, DateTimeKind.Utc) },
+            new HrAttendanceRecord { StaffUserId = "daily-worker", AttendanceDate = new DateOnly(2026, 7, 1), Status = HrAttendanceStatus.Present, CheckInAt = new DateTime(2026, 7, 1, 9, 0, 0, DateTimeKind.Utc), CheckOutAt = new DateTime(2026, 7, 1, 13, 0, 0, DateTimeKind.Utc) }
+        };
+
+        var payslip = HrRules.GeneratePayslip(profile, period, [], attendance);
+
+        Assert.Equal(HrEmploymentType.Hourly, payslip.EmploymentType);
+        Assert.Equal(12m, payslip.WorkedHours);
+        Assert.Equal(120m, payslip.AttendancePay);
+        Assert.Equal(125m, payslip.GrossPay);
+        Assert.Equal(122m, payslip.NetPay);
+    }
+
+    [Fact]
+    public void Hr_attendance_network_matches_active_cidr_without_accepting_other_ranges()
+    {
+        var networks = new[]
+        {
+            new HrAttendanceNetwork { Label = "Showroom", Cidr = "203.0.113.0/24", IsActive = true },
+            new HrAttendanceNetwork { Label = "Old office", Cidr = "198.51.100.0/24", IsActive = false }
+        };
+
+        Assert.Equal("Showroom", HrRules.FindMatchingAttendanceNetwork(IPAddress.Parse("203.0.113.42"), networks)?.Label);
+        Assert.Null(HrRules.FindMatchingAttendanceNetwork(IPAddress.Parse("198.51.100.42"), networks));
+        Assert.Null(HrRules.FindMatchingAttendanceNetwork(IPAddress.Parse("192.0.2.42"), networks));
+        Assert.False(HrRules.ValidateAttendanceNetwork(new HrAttendanceNetwork { Label = "Bad", Cidr = "203.0.113.0/99" }).IsValid);
+    }
+
+    [Fact]
     public void Hr_leave_approval_updates_al_and_mc_balances_only()
     {
         var balance = new HrLeaveBalance { StaffUserId = "staff-1", AnnualLeaveDays = 8m, MedicalLeaveDays = 14m };
@@ -1579,6 +1630,28 @@ public sealed class BusinessRulesTests
         Assert.True(ReminderInbox.IsValidDueFilter("DueToday"));
         Assert.True(ReminderInbox.IsValidDueFilter("DueSoon"));
         Assert.False(ReminderInbox.IsValidDueFilter("Soon"));
+    }
+
+    [Fact]
+    public void Priority_actions_only_include_the_signed_in_roles_work_queue()
+    {
+        var today = new DateOnly(2026, 6, 1);
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), PlateNumber = "VPK1234" };
+        var actions = PriorityActionQueue.Create(
+            ["Loan", "HrSalary"],
+            [new LoanApplication { VehicleId = vehicle.Id, CustomerId = Guid.NewGuid(), Status = LoanStatus.Pending, SubmittedAt = today.AddDays(-3) }],
+            [new DeliverySchedule { VehicleId = vehicle.Id, Pic = "Delivery", Status = DeliveryStatus.Scheduled, ScheduledDate = today.AddDays(2) }],
+            [new SettlementReminder { VehicleId = vehicle.Id, Amount = 10m, Deadline = today, IsPaid = false }],
+            [], [], [], [],
+            [],
+            [new Lead { VehicleId = vehicle.Id, CustomerName = "New lead", Phone = "0123456789", Status = LeadStatus.New }],
+            [new HrLeaveRequest { StaffUserId = "staff-1", Status = HrLeaveStatus.Pending, StartDate = today, EndDate = today, Days = 1m }],
+            [vehicle],
+            today);
+
+        Assert.Contains(actions, action => action.Type == "LoanFollowUp" && action.Target == "Loans");
+        Assert.Contains(actions, action => action.Type == "LeaveApproval" && action.Target == "HrSalary");
+        Assert.DoesNotContain(actions, action => action.Target is "Delivery" or "Finance" or "Leads" or "Repairs");
     }
 
     [Fact]

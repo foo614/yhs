@@ -98,6 +98,7 @@ import {
   createDailySpend,
   createDebtRecovery,
   createDelivery,
+  createHrAttendanceNetwork,
   createLoan,
   createOwner,
   createPayment,
@@ -126,6 +127,7 @@ import {
   getDashboard,
   getDebtRecoveries,
   getDashboardReminders,
+  getPriorityActions,
   getDeliveryReleaseReadiness,
   getDeliveries,
   getHrAttendance,
@@ -135,6 +137,8 @@ import {
   getHrAttendanceReminders,
   updateHrAttendanceReminderPolicy,
   getHrBusinessTrips,
+  getHrAttendanceNetworks,
+  getHrBossCalendar,
   getHrLeaveAdjustments,
   getHrLeaveBalances,
   getHrLeavePolicies,
@@ -174,7 +178,9 @@ import {
   requestCashHandover,
   hrMedicalCertificateContentUrl,
   updateHrLeaveBalance,
+  updateHrAttendance,
   updateHrLeavePolicy,
+  updateHrAttendanceNetwork,
   updateHrPayrollProfile,
   updateDelivery,
   updateBrokerCommission,
@@ -227,6 +233,8 @@ import {
   type HrAttendanceReminderPolicy,
   type HrAttendanceQrChallenge,
   type HrBusinessTrip,
+  type HrAttendanceNetwork,
+  type HrCalendarAvailability,
   type HrLeaveAdjustment,
   type HrLeaveBalance,
   type HrLeavePolicy,
@@ -240,6 +248,7 @@ import {
   type LoanDocumentCheck,
   type PaymentRecord,
   type PaymentVoucher,
+  type PriorityActionItem,
   type Owner,
   type PurchaseInvoice,
   type OcrJob,
@@ -398,6 +407,15 @@ function tablePagination(pageSize = 8): TablePaginationConfig {
 const mobileWorkflowPageSize = 8;
 const defaultDashboardAnalyticsPeriod = dashboardAnalyticsPeriodForPreset("ThisMonth");
 
+function hrCalendarMonthRange(value = new Date()): [string, string] {
+  const year = value.getFullYear();
+  const month = value.getMonth();
+  const from = new Date(year, month, 1);
+  const to = new Date(year, month + 1, 0);
+  const format = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return [format(from), format(to)];
+}
+
 type LocalTableProps<RecordType extends object> = TableProps<RecordType> & {
   request?: ProTableProps<RecordType, Record<string, unknown>>["request"];
   proSearch?: boolean;
@@ -430,6 +448,7 @@ export default function App() {
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [dashboardLoadError, setDashboardLoadError] = useState<string | null>(null);
   const [reminders, setReminders] = useState<DashboardReminder[]>([]);
+  const [priorityActions, setPriorityActions] = useState<PriorityActionItem[]>([]);
   const [reminderLoadError, setReminderLoadError] = useState<string | null>(null);
   const [dashboardLastCheckedAt, setDashboardLastCheckedAt] = useState<Date | null>(null);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
@@ -464,6 +483,8 @@ export default function App() {
   const [hrBusinessTrips, setHrBusinessTrips] = useState<HrBusinessTrip[]>([]);
   const [hrAttendanceQrChallenge, setHrAttendanceQrChallenge] = useState<HrAttendanceQrChallenge | null>(null);
   const [attendanceQrToken, setAttendanceQrToken] = useState<string | undefined>(() => new URLSearchParams(window.location.hash.slice(1)).get("attendanceQr") ?? undefined);
+  const [hrBossCalendar, setHrBossCalendar] = useState<HrCalendarAvailability[]>([]);
+  const [hrAttendanceNetworks, setHrAttendanceNetworks] = useState<HrAttendanceNetwork[]>([]);
   const [hrLeaveRequests, setHrLeaveRequests] = useState<HrLeaveRequest[]>([]);
   const [hrLeaveBalances, setHrLeaveBalances] = useState<HrLeaveBalance[]>([]);
   const [hrLeavePolicies, setHrLeavePolicies] = useState<HrLeavePolicy[]>([]);
@@ -486,6 +507,7 @@ export default function App() {
     const [
       dashboardData,
       reminderData,
+      priorityActionData,
       vehicleData,
       vehicleLookupData,
       customerData,
@@ -508,11 +530,13 @@ export default function App() {
       staffUserData,
       hrStaffUserData,
       hrAttendanceData,
-      hrAttendanceDashboardData,
-      hrAvailabilityCalendarData,
-      hrAttendanceReminderData,
-      hrAttendanceReminderPolicyData,
-      hrBusinessTripData,
+  hrAttendanceDashboardData,
+  hrAvailabilityCalendarData,
+  hrAttendanceReminderData,
+  hrAttendanceReminderPolicyData,
+  hrBusinessTripData,
+  hrBossCalendarData,
+  hrAttendanceNetworkData,
       hrLeaveRequestData,
       hrLeaveBalanceData,
       hrLeavePolicyData,
@@ -523,6 +547,7 @@ export default function App() {
     ] = await Promise.all([
       canLoad("dashboard") ? getDashboard(defaultDashboardAnalyticsPeriod) : Promise.resolve({ dashboard: null as DashboardSummary | null, error: undefined as string | undefined }),
       canLoad("reminders") ? getDashboardReminders() : Promise.resolve({ reminders: [] as DashboardReminder[], error: undefined as string | undefined }),
+      getPriorityActions(),
       canLoad("vehicles") ? getVehicles() : Promise.resolve([]),
       canLoad("vehicleLookup") ? getVehicleLookup() : Promise.resolve([]),
       canLoad("customers") ? getCustomers() : Promise.resolve([]),
@@ -545,11 +570,13 @@ export default function App() {
       canLoad("staffUsers") ? getStaffUsers() : Promise.resolve([]),
       canLoad("hrStaffUsers") ? getHrStaffUsers() : Promise.resolve([]),
       canLoad("hrAttendance") ? getHrAttendance() : Promise.resolve([]),
-      canLoad("hrDashboard") ? getHrAttendanceDashboard() : Promise.resolve(null as HrAttendanceDashboardSummary | null),
-      canLoad("hrAvailabilityCalendar") ? getHrAvailabilityCalendar() : Promise.resolve([]),
-      canLoad("hrReminders") ? getHrAttendanceReminders() : Promise.resolve([]),
-      canLoad("hrReminderPolicies") ? getHrAttendanceReminderPolicies() : Promise.resolve([]),
-      canLoad("hrBusinessTrips") ? getHrBusinessTrips() : Promise.resolve([]),
+  canLoad("hrDashboard") ? getHrAttendanceDashboard() : Promise.resolve(null as HrAttendanceDashboardSummary | null),
+  canLoad("hrAvailabilityCalendar") ? getHrAvailabilityCalendar() : Promise.resolve([]),
+  canLoad("hrReminders") ? getHrAttendanceReminders() : Promise.resolve([]),
+  canLoad("hrReminderPolicies") ? getHrAttendanceReminderPolicies() : Promise.resolve([]),
+  canLoad("hrBusinessTrips") ? getHrBusinessTrips() : Promise.resolve([]),
+  canLoad("hrBossCalendar") ? getHrBossCalendar(...hrCalendarMonthRange()) : Promise.resolve([]),
+  canLoad("hrAttendanceNetworks") ? getHrAttendanceNetworks() : Promise.resolve([]),
       canLoad("hrLeaveRequests") ? getHrLeaveRequests() : Promise.resolve([]),
       canLoad("hrLeaveBalances") ? getHrLeaveBalances() : Promise.resolve([]),
       canLoad("hrLeavePolicies") ? getHrLeavePolicies() : Promise.resolve([]),
@@ -561,6 +588,7 @@ export default function App() {
     setDashboard(dashboardData.dashboard);
     setDashboardLoadError(dashboardData.error ?? null);
     setReminders(reminderData.reminders);
+    setPriorityActions(priorityActionData);
     setReminderLoadError(reminderData.error ?? null);
     setDashboardLastCheckedAt(new Date());
     setVehicles(vehicleData);
@@ -585,11 +613,13 @@ export default function App() {
     setStaffUsers(staffUserData);
     setHrStaffUsers(hrStaffUserData);
     setHrAttendance(hrAttendanceData);
-    setHrAttendanceDashboard(hrAttendanceDashboardData);
-    setHrAvailabilityCalendar(hrAvailabilityCalendarData);
-    setHrAttendanceReminders(hrAttendanceReminderData);
-    setHrAttendanceReminderPolicies(hrAttendanceReminderPolicyData);
-    setHrBusinessTrips(hrBusinessTripData);
+  setHrAttendanceDashboard(hrAttendanceDashboardData);
+  setHrAvailabilityCalendar(hrAvailabilityCalendarData);
+  setHrAttendanceReminders(hrAttendanceReminderData);
+  setHrAttendanceReminderPolicies(hrAttendanceReminderPolicyData);
+  setHrBusinessTrips(hrBusinessTripData);
+  setHrBossCalendar(hrBossCalendarData);
+  setHrAttendanceNetworks(hrAttendanceNetworkData);
     setHrLeaveRequests(hrLeaveRequestData);
     setHrLeaveBalances(hrLeaveBalanceData);
     setHrLeavePolicies(hrLeavePolicyData);
@@ -944,7 +974,8 @@ export default function App() {
             hrLeaveRequests={hrLeaveRequests}
             hrPayslips={hrPayslips}
           />
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={refreshDashboard} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} />}
+          {pathname !== "/dashboard" && <PriorityActionsPanel actions={priorityActions} onNavigate={navigateTo} />}
+          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={refreshDashboard} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} />}
           {pathname === "/vehicles" && (
             <VehiclePage
               vehicles={vehicles}
@@ -1098,10 +1129,12 @@ export default function App() {
               currentUser={currentUser}
               staffUsers={hrStaffUsers}
               attendance={hrAttendance}
-              attendanceDashboard={hrAttendanceDashboard}
-              availabilityCalendar={hrAvailabilityCalendar}
-              attendanceReminders={hrAttendanceReminders}
-              attendanceReminderPolicies={hrAttendanceReminderPolicies}
+  attendanceDashboard={hrAttendanceDashboard}
+  availabilityCalendar={hrAvailabilityCalendar}
+  attendanceReminders={hrAttendanceReminders}
+  attendanceReminderPolicies={hrAttendanceReminderPolicies}
+  bossCalendar={hrBossCalendar}
+  attendanceNetworks={hrAttendanceNetworks}
               leaveRequests={hrLeaveRequests}
               leaveBalances={hrLeaveBalances}
               leavePolicies={hrLeavePolicies}
@@ -1118,15 +1151,28 @@ export default function App() {
               }}
               onCheckIn={() => runUpdate(() => checkInHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked in")}
               onCheckOut={() => runUpdate(() => checkOutHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked out")}
-              onCreateQrChallenge={() => runCreate(createHrAttendanceQrChallenge, setHrAttendanceQrChallenge, "Office QR created")}
-              onRedeemQr={(requestBody) => runUpdate(() => redeemHrAttendanceQr(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), requestBody.action === "CheckIn" ? "Attendance checked in by QR" : "Attendance checked out by QR")}
-              onCreateBusinessTrip={(trip) => runCreate(() => createHrBusinessTrip(trip), (record) => setHrBusinessTrips((items) => [record, ...items]), "Outstation request submitted")}
-              onDecideBusinessTrip={(tripId, status, decisionNotes) => runUpdate(() => decideHrBusinessTrip(tripId, status, decisionNotes), (record) => setHrBusinessTrips((items) => replaceById(items, record)), status === "Approved" ? "Outstation request approved" : "Outstation request rejected")}
-              onCancelBusinessTrip={(tripId) => runUpdate(() => cancelHrBusinessTrip(tripId), (record) => setHrBusinessTrips((items) => replaceById(items, record)), "Outstation request cancelled")}
-              onStartOutstation={(requestBody) => runUpdate(() => startHrOutstation(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Outstation duty started")}
-              onEndOutstation={(requestBody) => runUpdate(() => endHrOutstation(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Outstation duty ended")}
-              onUpdateReminderPolicy={(type, policy) => runUpdate(() => updateHrAttendanceReminderPolicy(type, policy), (record) => setHrAttendanceReminderPolicies((items) => replaceById(items, record)), "Attendance reminder updated")}
-              onCreateLeave={(leave) => runCreate(() => createHrLeaveRequest(leave), (record) => setHrLeaveRequests((items) => [record, ...items]), "Leave request submitted")}
+  onCreateQrChallenge={() => runCreate(createHrAttendanceQrChallenge, setHrAttendanceQrChallenge, "Office QR created")}
+  onRedeemQr={(requestBody) => runUpdate(() => redeemHrAttendanceQr(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), requestBody.action === "CheckIn" ? "Attendance checked in by QR" : "Attendance checked out by QR")}
+  onCreateBusinessTrip={(trip) => runCreate(() => createHrBusinessTrip(trip), (record) => setHrBusinessTrips((items) => [record, ...items]), "Outstation request submitted")}
+  onDecideBusinessTrip={(tripId, status, decisionNotes) => runUpdate(() => decideHrBusinessTrip(tripId, status, decisionNotes), (record) => setHrBusinessTrips((items) => replaceById(items, record)), status === "Approved" ? "Outstation request approved" : "Outstation request rejected")}
+  onCancelBusinessTrip={(tripId) => runUpdate(() => cancelHrBusinessTrip(tripId), (record) => setHrBusinessTrips((items) => replaceById(items, record)), "Outstation request cancelled")}
+  onStartOutstation={(requestBody) => runUpdate(() => startHrOutstation(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Outstation duty started")}
+  onEndOutstation={(requestBody) => runUpdate(() => endHrOutstation(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Outstation duty ended")}
+  onUpdateReminderPolicy={(type, policy) => runUpdate(() => updateHrAttendanceReminderPolicy(type, policy), (record) => setHrAttendanceReminderPolicies((items) => replaceById(items, record)), "Attendance reminder updated")}
+  onUpdateAttendance={(attendance) => runUpdate(() => updateHrAttendance(attendance), (record) => setHrAttendance((items) => replaceById(items, record)), "Attendance correction saved")}
+              onLoadBossCalendar={async (from, to) => {
+                try {
+                  setHrBossCalendar(await getHrBossCalendar(from, to));
+                } catch (error) {
+                  notifyError("Calendar could not be loaded", humanizeApiError(error));
+                }
+              }}
+              onSaveAttendanceNetwork={(network) => runUpdate(
+                () => hrAttendanceNetworks.some((item) => item.id === network.id) ? updateHrAttendanceNetwork(network) : createHrAttendanceNetwork(network),
+                (record) => setHrAttendanceNetworks((items) => replaceByIdOrPrepend(items, record)),
+                network.isActive ? "Office network saved" : "Office network disabled"
+  )}
+  onCreateLeave={(leave) => runCreateWithResult(() => createHrLeaveRequest(leave), (record) => setHrLeaveRequests((items) => [record, ...items]), "Leave request submitted")}
               onDecideLeave={(leaveId, status, decisionNotes) => runUpdate(() => decideHrLeaveRequest(leaveId, status, decisionNotes), (record) => setHrLeaveRequests((items) => replaceById(items, record)), status === "Approved" ? "Leave approved" : "Leave rejected")}
               onUploadMc={async (leaveId, file) => {
                 await runUpload(() => uploadHrMedicalCertificate(leaveId, file), "MC uploaded");
@@ -1386,6 +1432,42 @@ function ModuleCommandBar({
   );
 }
 
+function PriorityActionsPanel({ actions, onNavigate }: { actions: PriorityActionItem[]; onNavigate: (path: string) => void }) {
+  const visibleActions = actions.slice(0, 6);
+
+  return (
+    <ProCard
+      title="My priority actions / 我的待办"
+      extra={<Tag color={actions.length > 0 ? "orange" : "green"}>{actions.length > 0 ? `${actions.length} action${actions.length === 1 ? "" : "s"}` : "All clear"}</Tag>}
+    >
+      {visibleActions.length > 0 ? (
+        <div className="dashboardPriorityList">
+          {visibleActions.map((action) => (
+            <article className="dashboardPriorityAction" key={`${action.type}-${action.subject}-${action.dueDate}`}>
+              <Tag className="dashboardStatusBadge" color={action.dueDate < today() ? "red" : "orange"}>{action.dueDate < today() ? "Overdue" : "Action"}</Tag>
+              <div className="dashboardPriorityDetails"><strong>{action.title}</strong><span>{action.subject ?? "General"}</span></div>
+              <div className="dashboardPriorityDue"><small>Due / 到期</small><strong>{action.dueDate}</strong></div>
+              {action.amount !== undefined && <div className="dashboardPriorityAmount"><small>Exposure / 金额</small><strong>{formatMoney(action.amount)}</strong></div>}
+              <Button type="primary" size="small" onClick={() => onNavigate(priorityActionTarget(action.target))}>Open action</Button>
+            </article>
+          ))}
+        </div>
+      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No pending actions for your role." />}
+    </ProCard>
+  );
+}
+
+function priorityActionTarget(target: PriorityActionItem["target"]) {
+  return {
+    Loans: "/loans?status=Pending",
+    Delivery: "/delivery",
+    Finance: "/finance",
+    Leads: "/leads",
+    Repairs: "/repairs",
+    HrSalary: "/hr-salary"
+  }[target];
+}
+
 function moduleStats(pathname: string, data: {
   dashboard: DashboardSummary | null;
   reminders: DashboardReminder[];
@@ -1628,6 +1710,7 @@ export function DashboardPage({
   dashboard,
   dashboardLoadError,
   reminders,
+  priorityActions,
   reminderLoadError,
   vehicles = [],
   lastCheckedAt,
@@ -1641,6 +1724,7 @@ export function DashboardPage({
   dashboard: DashboardSummary | null;
   dashboardLoadError: string | null;
   reminders: DashboardReminder[];
+  priorityActions: PriorityActionItem[];
   reminderLoadError: string | null;
   vehicles?: Vehicle[];
   lastCheckedAt: Date | null;
@@ -1699,6 +1783,7 @@ export function DashboardPage({
   const clampedMobileReminderPage = Math.min(mobileReminderPage, mobileReminderPageCount);
   const mobileReminders = filteredReminders.slice((clampedMobileReminderPage - 1) * 8, clampedMobileReminderPage * 8);
   const urgentReminders = urgentDashboardReminders(reminders);
+  const leaveApprovals = priorityActions.filter((action) => action.type === "LeaveApproval");
   const cashFollowUpItems = moneyRiskBreakdown.filter((item) => item.amount > 0);
   const collectCashItemCount = cashFollowUpItems.filter((item) => receivableLabels.has(item.label)).length;
   const payCashItemCount = cashFollowUpItems.length - collectCashItemCount;
@@ -1845,6 +1930,10 @@ export function DashboardPage({
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No overdue, due-today, or Daily Spend due-soon actions." />
           )}
           {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
+          {leaveApprovals.length > 0 && <div className="dashboardCashActions">
+            <div className="dashboardCashActionsHeader"><div><strong>HR approvals / 人事审批</strong><span>Pending leave requests requiring a decision.</span></div><Tag color="orange">{leaveApprovals.length} pending</Tag></div>
+            <div className="dashboardCashActionList">{leaveApprovals.map((action) => <article className="dashboardCashAction" key={`${action.type}-${action.subject}-${action.dueDate}`}><Tag className="dashboardStatusBadge" color="orange">Approve</Tag><strong>{action.title}</strong><span>{action.subject}</span><Button size="small" onClick={() => onNavigate("/hr-salary")}>Open leave requests</Button></article>)}</div>
+          </div>}
           <div className="dashboardCashActions">
             <div className="dashboardCashActionsHeader">
               <div><strong>Cash follow-up / 收付款跟进</strong><span>Money requiring a decision or follow-up.</span></div>
@@ -5759,11 +5848,13 @@ function dataKeyLabel(key: BackOfficeDataKey) {
     staffUsers: "Staff users",
     hrStaffUsers: "HR staff users",
     hrAttendance: "HR attendance",
-    hrDashboard: "HR attendance dashboard",
-    hrAvailabilityCalendar: "HR shared availability calendar",
-    hrReminders: "HR attendance reminders",
-    hrReminderPolicies: "HR reminder settings",
-    hrBusinessTrips: "HR business trips and outstation duty",
+  hrDashboard: "HR attendance dashboard",
+  hrAvailabilityCalendar: "HR shared availability calendar",
+  hrReminders: "HR attendance reminders",
+  hrReminderPolicies: "HR reminder settings",
+  hrBusinessTrips: "HR business trips and outstation duty",
+  hrBossCalendar: "Boss leave calendar",
+  hrAttendanceNetworks: "Office attendance networks",
     hrLeaveRequests: "HR leave requests",
     hrLeaveBalances: "HR leave balances",
     hrLeavePolicies: "HR leave policies",
