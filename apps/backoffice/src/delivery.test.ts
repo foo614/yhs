@@ -91,7 +91,6 @@ describe("delivery workflow helpers", () => {
     expect(canReleaseDelivery({ ...readyDelivery, roadTaxHandled: false })).toBe(false);
     expect(canReleaseDelivery({ ...readyDelivery, windscreenInsuranceHandled: false })).toBe(false);
     expect(canReleaseDelivery({ ...readyDelivery, inspectionReportReference: " " })).toBe(false);
-    expect(canReleaseDelivery({ ...readyDelivery, signedHandoverReceived: false })).toBe(false);
     expect(canReleaseDelivery({ ...readyDelivery, roadTaxExpiryDate: "2026-06-01" })).toBe(false);
     expect(canReleaseDelivery({ ...readyDelivery, status: "Released" })).toBe(false);
   });
@@ -106,9 +105,9 @@ describe("delivery workflow helpers", () => {
     expect(canMarkDeliveryReady(checklistComplete)).toBe(true);
     expect(canMarkDeliveryReady({ ...checklistComplete, inspectionReportReference: undefined })).toBe(false);
     expect(canMarkDeliveryReady({ ...checklistComplete, roadTaxHandled: false })).toBe(false);
-    expect(canMarkDeliveryReady({ ...checklistComplete, finalChecklistConfirmed: false })).toBe(false);
     expect(canMarkDeliveryReady({ ...checklistComplete, insuranceExpiryDate: undefined })).toBe(false);
     expect(canMarkDeliveryReady({ ...checklistComplete, status: "ReadyForRelease" })).toBe(false);
+    expect(canMarkDeliveryReady({ ...checklistComplete, status: "Inspection" })).toBe(false);
 
     const ready = markDeliveryReady(checklistComplete);
     expect(ready.status).toBe("ReadyForRelease");
@@ -124,7 +123,7 @@ describe("delivery workflow helpers", () => {
   });
 
   it("limits delivery uploads to delivery-owned handover document categories", () => {
-    expect(deliveryDocumentCategories).toEqual(["DeliveryDocument", "Policy", "RoadTaxReceipt"]);
+    expect(deliveryDocumentCategories).toEqual(["DeliveryDocument", "HandoverPhoto", "SignedHandover", "Policy", "RoadTaxReceipt"]);
   });
 
   it("blocks manual ready-for-release submissions until the checklist is complete", () => {

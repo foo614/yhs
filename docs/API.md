@@ -170,7 +170,7 @@ Document upload ownership:
 | --- | --- |
 | `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt` | `BossAdmin`, `Sales` |
 | `LoanDocument` | `BossAdmin`, `Loan` |
-| `DeliveryDocument`, `Policy`, `RoadTaxReceipt` | `BossAdmin`, `Delivery` |
+| `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt` | `BossAdmin`, `Delivery` |
 | `RepairInvoice` | `BossAdmin`, `Repair` |
 | `PaymentReceipt`, `PaymentInvoice` | `BossAdmin`, `Finance` |
 | `MedicalCertificate` | `BossAdmin`, `HrSalary` |
@@ -212,11 +212,13 @@ Delivery release-readiness responses include:
 
 - `isReady`: true only when the release checklist is complete and required release documents are uploaded.
 - `missingCategories`: required release document categories still missing.
-- `missingEvidence`: release evidence flags still incomplete, such as handover photo, signed handover, customer acknowledgement, or final checklist.
+- `missingEvidence`: required handover-photo or signed-handover uploads still missing.
 - `expiredDocuments`: delivery-critical expiry blockers for insurance, road tax, or windscreen insurance.
-- `evidence`: one item for each required release document category (`DeliveryDocument`, `Policy`, and `RoadTaxReceipt`), with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`.
+- `evidence`: one item for each required release document category (`DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, and `RoadTaxReceipt`), with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`.
 
-For delivery release, upload a handover photo or signed handover through the ordinary `DeliveryDocument` path. This preserves the existing document checksum, uploader, MIME type, timestamp, and protected download behavior without introducing a separate delivery-photo record; vehicle inventory photos remain separate media.
+For delivery release, upload the handover photo and signed handover in their dedicated delivery categories. The files retain the existing checksum, uploader, MIME type, timestamp, and protected download behavior; vehicle inventory photos remain separate media.
+
+Delivery schedules start at booking inspection or scheduled. Later status changes move one stage at a time; moving back requires a reschedule/rework reason, and released or cancelled schedules remain terminal. An outstation delivery additionally records its destination address and transport method. Invoice updates remain a Finance responsibility.
 
 Workflow integrity:
 
@@ -354,7 +356,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `LeadStatus`: `New`, `Contacted`, `Closed`
 - `LeadClosureOutcome`: `Sold`, `Lost`, `Invalid`
 - `LoanStatus`: `Draft`, `Pending`, `Approved`, `Rejected`, `Done`
-- `DeliveryStatus`: `BookingInspection`, `Scheduled`, `Inspection`, `PreparingDocuments`, `CarPreparation`, `ReadyForRelease`, `Released`
+- `DeliveryStatus`: `BookingInspection`, `Scheduled`, `Inspection`, `PreparingDocuments`, `CarPreparation`, `ReadyForRelease`, `Released`, `Cancelled`
+- `DeliveryType`: `Standard`, `Outstation`
 - `PaymentStatus`: `Pending`, `Approved`, `Disbursed`, `Reconciled`
 - `PaymentVoucherStatus`: `Pending`, `Approved`, `Paid`
 - `CashHandoverStatus`: `ReceivedBySales`, `PendingHandover`, `HandedOver`, `Rejected`, `Receipted`
@@ -367,7 +370,7 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `HrPayslipStatus`: `Draft`, `Generated`
 - `HrEmploymentType`: `Monthly`, `Hourly`
 - `HrAttendanceVerificationMethod`: `Manual`, `OfficeQr`, `Outstation`, `ManualException`, `OfficeIp`
-- `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`
+- `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`
 - `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`
 - `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`
 - `AiService`: `Ocr`

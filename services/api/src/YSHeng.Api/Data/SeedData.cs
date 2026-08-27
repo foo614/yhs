@@ -640,6 +640,12 @@ public static class SeedData
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "SignedHandoverReceived" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CustomerAcknowledged" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "FinalChecklistConfirmed" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "DeliveryType" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "ScheduledTime" time without time zone NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "DeliveryAddress" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "TransportMethod" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RescheduleReason" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CancellationReason" text NULL;
 
             CREATE TABLE IF NOT EXISTS "DailySpends" (
                 "Id" uuid NOT NULL,

@@ -2762,9 +2762,7 @@ public sealed class BusinessRulesTests
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { WindscreenInsuranceHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { InspectionReportReference = " " }));
-        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { SignedHandoverReceived = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxExpiryDate = new DateOnly(2026, 6, 1) }));
-        Assert.Contains("Signed handover document", DeliveryRules.MissingReleaseEvidence(delivery with { SignedHandoverReceived = false }));
         Assert.Contains("Road tax expired before scheduled delivery", DeliveryRules.ExpiredDeliveryDocuments(delivery with { RoadTaxExpiryDate = new DateOnly(2026, 6, 1) }));
     }
 
@@ -2879,6 +2877,8 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsComplete);
         Assert.Contains(FileCategory.DeliveryDocument, result.MissingCategories);
+        Assert.Contains(FileCategory.HandoverPhoto, result.MissingCategories);
+        Assert.Contains(FileCategory.SignedHandover, result.MissingCategories);
         Assert.Contains(FileCategory.RoadTaxReceipt, result.MissingCategories);
         Assert.DoesNotContain(FileCategory.Policy, result.MissingCategories);
         var policyEvidence = result.Evidence.First(item => item.Category == FileCategory.Policy);
@@ -2932,6 +2932,35 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "inspection_report_required");
+    }
+
+    [Fact]
+    public void Delivery_validation_requires_outstation_destination_and_transport()
+    {
+        var delivery = new DeliverySchedule
+        {
+            VehicleId = Guid.NewGuid(),
+            Pic = "Ah Ming",
+            Status = DeliveryStatus.Scheduled,
+            DeliveryType = DeliveryType.Outstation,
+            ScheduledDate = new DateOnly(2026, 8, 27)
+        };
+
+        var result = DeliveryRules.Validate(delivery);
+
+        Assert.Contains(result.Errors, error => error.Code == "outstation_delivery_address_required");
+        Assert.Contains(result.Errors, error => error.Code == "outstation_transport_required");
+    }
+
+    [Fact]
+    public void Delivery_transition_requires_order_or_a_rework_reason()
+    {
+        var scheduled = new DeliverySchedule { Pic = "Ah Ming", Status = DeliveryStatus.Scheduled, ScheduledDate = new DateOnly(2026, 8, 27) };
+
+        Assert.True(DeliveryRules.ValidateTransition(scheduled, scheduled with { Status = DeliveryStatus.Inspection }).IsValid);
+        Assert.False(DeliveryRules.ValidateTransition(scheduled, scheduled with { Status = DeliveryStatus.ReadyForRelease }).IsValid);
+        Assert.True(DeliveryRules.ValidateTransition(scheduled with { Status = DeliveryStatus.CarPreparation }, scheduled with { Status = DeliveryStatus.Inspection, RescheduleReason = "Tint needs rework" }).IsValid);
+        Assert.False(DeliveryRules.ValidateTransition(scheduled with { Status = DeliveryStatus.Released }, scheduled with { Status = DeliveryStatus.Scheduled }).IsValid);
     }
 
     [Fact]
@@ -3158,6 +3187,8 @@ public sealed class BusinessRulesTests
         Assert.True(DepartmentAccess.CanUploadDocument(["Sales"], FileCategory.Voc));
         Assert.True(DepartmentAccess.CanUploadDocument(["Loan"], FileCategory.LoanDocument));
         Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.Policy));
+        Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.HandoverPhoto));
+        Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.SignedHandover));
         Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.RoadTaxReceipt));
         Assert.True(DepartmentAccess.CanUploadDocument(["Repair"], FileCategory.RepairInvoice));
         Assert.True(DepartmentAccess.CanUploadDocument(["Finance"], FileCategory.PaymentReceipt));

@@ -7,7 +7,8 @@ public enum VehicleStatus { Available, LoanProcessing, Sold }
 public enum LeadStatus { New, Contacted, Closed }
 public enum LeadClosureOutcome { Sold, Lost, Invalid }
 public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
-public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released }
+public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released, Cancelled }
+public enum DeliveryType { Standard, Outstation }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum CashHandoverStatus { ReceivedBySales, PendingHandover, HandedOver, Rejected, Receipted }
@@ -23,7 +24,7 @@ public enum HrBusinessTripStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrAttendanceReminderType { PendingApproval, UpcomingOutstation, MissingCheckOut }
 public enum HrPayslipStatus { Draft, Generated }
 public enum HrEmploymentType { Monthly, Hourly }
-public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
+public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
 public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
 public enum OcrReviewDecision { Pending, Accepted, Rejected }
@@ -225,7 +226,13 @@ public sealed record DeliverySchedule
     public Guid VehicleId { get; init; }
     public string Pic { get; init; } = "";
     public DeliveryStatus Status { get; init; } = DeliveryStatus.BookingInspection;
+    public DeliveryType DeliveryType { get; init; } = DeliveryType.Standard;
     public DateOnly ScheduledDate { get; init; }
+    public TimeOnly? ScheduledTime { get; init; }
+    public string? DeliveryAddress { get; init; }
+    public string? TransportMethod { get; init; }
+    public string? RescheduleReason { get; init; }
+    public string? CancellationReason { get; init; }
     public bool PolishDone { get; init; }
     public bool TintedDone { get; init; }
     public bool WashDone { get; init; }

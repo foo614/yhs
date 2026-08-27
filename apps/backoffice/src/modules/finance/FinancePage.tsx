@@ -1521,6 +1521,8 @@ function documentCategoryLabel(category: DocumentCategory) {
     StatusReceipt: "Status Receipt",
     LoanDocument: "Loan Document",
     DeliveryDocument: "Delivery Document",
+    HandoverPhoto: "Handover Photo",
+    SignedHandover: "Signed Handover",
     Policy: "Policy",
     RoadTaxReceipt: "Road Tax Receipt",
     RepairInvoice: "Repair Invoice",

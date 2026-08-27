@@ -282,11 +282,7 @@ const deliveryChecklistFields = [
   "roadTaxHandled",
   "windscreenInsuranceHandled",
   "notificationSent",
-  "twoDayNoticeSent",
-  "handoverPhotoCaptured",
-  "signedHandoverReceived",
-  "customerAcknowledged",
-  "finalChecklistConfirmed"
+  "twoDayNoticeSent"
 ] as const;
 
 type DeliveryChecklistField = (typeof deliveryChecklistFields)[number];
@@ -301,11 +297,7 @@ const deliveryFieldLabels: Record<DeliveryChecklistField, string> = {
   roadTaxHandled: "Road Tax Handled / 路税",
   windscreenInsuranceHandled: "Windscreen Insurance / 挡风玻璃保险",
   notificationSent: "Customer Notified / 已通知客户",
-  twoDayNoticeSent: "2-day Notice Sent / 提前2天通知",
-  handoverPhotoCaptured: "Handover Photo",
-  signedHandoverReceived: "Signed Handover",
-  customerAcknowledged: "Customer Acknowledged",
-  finalChecklistConfirmed: "Final Checklist"
+  twoDayNoticeSent: "2-day Notice Sent / 提前2天通知"
 };
 
 const deliveryPreparationChecklist: DeliveryChecklistField[] = [
@@ -321,11 +313,7 @@ const deliveryPreparationChecklist: DeliveryChecklistField[] = [
 
 const deliveryNotificationChecklist: DeliveryChecklistField[] = [
   "notificationSent",
-  "twoDayNoticeSent",
-  "handoverPhotoCaptured",
-  "signedHandoverReceived",
-  "customerAcknowledged",
-  "finalChecklistConfirmed"
+  "twoDayNoticeSent"
 ];
 
 const bilingual = {
@@ -3964,7 +3952,8 @@ export function DeliveryPage({
     PreparingDocuments: "Preparing docs",
     CarPreparation: "Car prep",
     ReadyForRelease: "Ready",
-    Released: "Released"
+    Released: "Released",
+    Cancelled: "Cancelled"
   })[status] ?? status;
 
   const deliveryStatusColor = (status: DeliverySchedule["status"]) => ({
@@ -3974,7 +3963,8 @@ export function DeliveryPage({
     PreparingDocuments: "purple",
     CarPreparation: "geekblue",
     ReadyForRelease: "green",
-    Released: "default"
+    Released: "default",
+    Cancelled: "red"
   })[status] ?? "default";
 
   const deliveryActionDisabledReason = (row: DeliverySchedule) => {
@@ -4174,7 +4164,13 @@ export function DeliveryPage({
                 vehicleId: values.vehicleId,
                 pic: values.pic,
                 status: values.status,
+                deliveryType: values.deliveryType ?? "Standard",
                 scheduledDate: values.scheduledDate,
+                scheduledTime: values.scheduledTime?.trim() || undefined,
+                deliveryAddress: values.deliveryAddress?.trim() || undefined,
+                transportMethod: values.transportMethod?.trim() || undefined,
+                rescheduleReason: values.rescheduleReason?.trim() || undefined,
+                cancellationReason: values.cancellationReason?.trim() || undefined,
                 polishDone: selectedDelivery.polishDone,
                 tintedDone: selectedDelivery.tintedDone,
                 washDone: selectedDelivery.washDone,
@@ -4225,7 +4221,13 @@ export function DeliveryPage({
             </Form.Item>
             <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="scheduledTime" label="Schedule Time"><Input placeholder="HH:MM" /></Form.Item>
+            <Form.Item name="deliveryType" label="Delivery Type"><Select options={["Standard", "Outstation"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="deliveryAddress" label="Delivery Address / 交车地点"><Input /></Form.Item>
+            <Form.Item name="transportMethod" label="Transport Method / 运输方式"><Input placeholder="Driver, runner, transporter..." /></Form.Item>
+            <Form.Item name="rescheduleReason" label="Reschedule or Rework Reason"><Input /></Form.Item>
+            <Form.Item name="cancellationReason" label="Cancellation Reason"><Input /></Form.Item>
+            <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released", "Cancelled"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
             <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
             <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
@@ -4241,7 +4243,7 @@ export function DeliveryPage({
           <Space direction="vertical" size={12} className="fullWidth">
             <DocumentUploadChecklist
               title="Required delivery documents / 必需出车文件"
-              description="Add files as they arrive. Upload a handover photo or signed handover as a Delivery Document, plus Policy and Road Tax Receipt, before release."
+              description="Add files as they arrive. Upload the handover photo, signed handover, Policy, and Road Tax Receipt before release."
               items={deliveryDocumentCategories.map((category) => {
                 const isPresent = !missingDeliveryDocuments.includes(category);
                 return {
@@ -4270,7 +4272,7 @@ export function DeliveryPage({
                 type="warning"
                 showIcon
                 message={`${missingDeliveryDocuments.length} document${missingDeliveryDocuments.length === 1 ? "" : "s"} still needed before release`}
-                description="Uploads remain optional while preparing. Before release, provide a Delivery Document (handover photo or signed handover), Policy, and Road Tax Receipt."
+                description="Uploads remain optional while preparing. Before release, provide a Delivery Document, Handover Photo, Signed Handover, Policy, and Road Tax Receipt."
               />
             )}
             {selectedDeliveryReadiness?.evidence.length ? (
@@ -4560,7 +4562,13 @@ export function DeliveryPage({
             vehicleId: values.vehicleId,
             pic: values.pic,
             status: values.status,
+            deliveryType: values.deliveryType ?? "Standard",
             scheduledDate: values.scheduledDate,
+            scheduledTime: values.scheduledTime?.trim() || undefined,
+            deliveryAddress: values.deliveryAddress?.trim() || undefined,
+            transportMethod: values.transportMethod?.trim() || undefined,
+            rescheduleReason: values.rescheduleReason?.trim() || undefined,
+            cancellationReason: values.cancellationReason?.trim() || undefined,
             polishDone: values.polishDone,
             tintedDone: values.tintedDone,
             washDone: values.washDone,
@@ -4600,7 +4608,7 @@ export function DeliveryPage({
 
           onCreate(delivery);
           setDeliveryCreateOpen(false);
-        }} initialValues={{ vehicleId: eligibleDeliveryVehicles[0]?.id, status: "Scheduled", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
+        }} initialValues={{ vehicleId: eligibleDeliveryVehicles[0]?.id, status: "Scheduled", deliveryType: "Standard", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
           <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
             <Select
               showSearch
@@ -4611,7 +4619,13 @@ export function DeliveryPage({
           </Form.Item>
           <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="scheduledTime" label="Schedule Time"><Input placeholder="HH:MM" /></Form.Item>
+          <Form.Item name="deliveryType" label="Delivery Type"><Select options={["Standard", "Outstation"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="deliveryAddress" label="Delivery Address / 交车地点"><Input /></Form.Item>
+          <Form.Item name="transportMethod" label="Transport Method / 运输方式"><Input placeholder="Driver, runner, transporter..." /></Form.Item>
+          <Form.Item name="rescheduleReason" label="Reschedule or Rework Reason"><Input /></Form.Item>
+          <Form.Item name="cancellationReason" label="Cancellation Reason"><Input /></Form.Item>
+          <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released", "Cancelled"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
           <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
           <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
@@ -4646,7 +4660,13 @@ export function DeliveryPage({
               vehicleId: values.vehicleId,
               pic: values.pic,
               status: values.status,
+              deliveryType: values.deliveryType ?? "Standard",
               scheduledDate: values.scheduledDate,
+              scheduledTime: values.scheduledTime?.trim() || undefined,
+              deliveryAddress: values.deliveryAddress?.trim() || undefined,
+              transportMethod: values.transportMethod?.trim() || undefined,
+              rescheduleReason: values.rescheduleReason?.trim() || undefined,
+              cancellationReason: values.cancellationReason?.trim() || undefined,
               polishDone: values.polishDone,
               tintedDone: values.tintedDone,
               washDone: values.washDone,
@@ -4706,7 +4726,13 @@ export function DeliveryPage({
           </Form.Item>
           <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="scheduledTime" label="Schedule Time"><Input placeholder="HH:MM" /></Form.Item>
+          <Form.Item name="deliveryType" label="Delivery Type"><Select options={["Standard", "Outstation"].map((value) => ({ value }))} /></Form.Item>
+          <Form.Item name="deliveryAddress" label="Delivery Address / 交车地点"><Input /></Form.Item>
+          <Form.Item name="transportMethod" label="Transport Method / 运输方式"><Input placeholder="Driver, runner, transporter..." /></Form.Item>
+          <Form.Item name="rescheduleReason" label="Reschedule or Rework Reason"><Input /></Form.Item>
+          <Form.Item name="cancellationReason" label="Cancellation Reason"><Input /></Form.Item>
+          <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released", "Cancelled"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
           <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
           <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
@@ -5932,6 +5958,8 @@ function documentCategoryLabel(category: DocumentCategory) {
     StatusReceipt: "Status Receipt",
     LoanDocument: "Loan Document",
     DeliveryDocument: "Delivery Document",
+    HandoverPhoto: "Handover Photo",
+    SignedHandover: "Signed Handover",
     Policy: "Policy",
     RoadTaxReceipt: "Road Tax Receipt",
     RepairInvoice: "Repair Invoice",
@@ -6082,10 +6110,6 @@ function isDeliveryReady(delivery: DeliverySchedule) {
     delivery.roadTaxHandled &&
     delivery.windscreenInsuranceHandled &&
     delivery.twoDayNoticeSent &&
-    delivery.handoverPhotoCaptured &&
-    delivery.signedHandoverReceived &&
-    delivery.customerAcknowledged &&
-    delivery.finalChecklistConfirmed &&
     Boolean(delivery.insuranceExpiryDate && delivery.insuranceExpiryDate >= delivery.scheduledDate) &&
     Boolean(delivery.roadTaxExpiryDate && delivery.roadTaxExpiryDate >= delivery.scheduledDate) &&
     Boolean(delivery.windscreenInsuranceExpiryDate && delivery.windscreenInsuranceExpiryDate >= delivery.scheduledDate);

@@ -810,6 +810,10 @@ backOffice.MapPost("/deliveries", async (DeliverySchedule delivery, AppDbContext
     if (!validation.IsValid) return Results.BadRequest(validation);
     var deliveryValidation = DeliveryRules.Validate(delivery);
     if (!deliveryValidation.IsValid) return Results.BadRequest(deliveryValidation);
+    if (delivery.Status is not (DeliveryStatus.BookingInspection or DeliveryStatus.Scheduled))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_initial_status_invalid", "New delivery must start at booking inspection or scheduled.")]));
+    }
     var releaseValidation = DeliveryRules.ValidateRelease(delivery);
     if (!releaseValidation.IsValid) return Results.BadRequest(releaseValidation);
     var documentValidation = DeliveryDocumentRules.ValidateReadyDocuments(delivery, await db.DocumentBlobs.AsNoTracking().ToListAsync());
@@ -822,7 +826,8 @@ backOffice.MapPost("/deliveries", async (DeliverySchedule delivery, AppDbContext
 backOffice.MapPut("/deliveries/{id:guid}", async (Guid id, DeliverySchedule delivery, AppDbContext db, HttpContext context) =>
 {
     if (id != delivery.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("delivery"));
-    if (!await db.DeliverySchedules.AnyAsync(item => item.Id == id)) return Results.NotFound();
+    var existingDelivery = await db.DeliverySchedules.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (existingDelivery is null) return Results.NotFound();
     var validation = WorkflowReferenceRules.ValidateCanonicalBuyer(
         delivery.VehicleId,
         await db.Vehicles.AsNoTracking().ToListAsync(),
@@ -831,6 +836,8 @@ backOffice.MapPut("/deliveries/{id:guid}", async (Guid id, DeliverySchedule deli
     if (!validation.IsValid) return Results.BadRequest(validation);
     var deliveryValidation = DeliveryRules.Validate(delivery);
     if (!deliveryValidation.IsValid) return Results.BadRequest(deliveryValidation);
+    var transitionValidation = DeliveryRules.ValidateTransition(existingDelivery, delivery);
+    if (!transitionValidation.IsValid) return Results.BadRequest(transitionValidation);
     var releaseValidation = DeliveryRules.ValidateRelease(delivery);
     if (!releaseValidation.IsValid) return Results.BadRequest(releaseValidation);
     var documentValidation = DeliveryDocumentRules.ValidateReadyDocuments(delivery, await db.DocumentBlobs.AsNoTracking().ToListAsync());
@@ -2458,13 +2465,14 @@ backOffice.MapGet("/deliveries/{id:guid}/release-readiness", async (Guid id, App
     var delivery = await db.DeliverySchedules.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (delivery is null) return Results.NotFound();
     var documentCheck = DeliveryDocumentRules.CheckCompleteness(delivery, await db.DocumentBlobs.AsNoTracking().ToListAsync());
-    var missingEvidence = DeliveryRules.MissingReleaseEvidence(delivery);
     var expiredDocuments = DeliveryRules.ExpiredDeliveryDocuments(delivery);
     return Results.Ok(new
     {
         isReady = DeliveryRules.IsReadyForRelease(delivery) && documentCheck.IsComplete,
         missingCategories = documentCheck.MissingCategories,
-        missingEvidence,
+        missingEvidence = documentCheck.MissingCategories
+            .Where(category => category is FileCategory.HandoverPhoto or FileCategory.SignedHandover)
+            .Select(category => category == FileCategory.HandoverPhoto ? "Handover photo" : "Signed handover document"),
         expiredDocuments,
         evidence = documentCheck.Evidence
     });

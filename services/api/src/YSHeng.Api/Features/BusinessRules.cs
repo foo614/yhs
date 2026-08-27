@@ -166,7 +166,7 @@ public static class DepartmentAccess
         {
             FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.IdentityCard or FileCategory.ApDocument or FileCategory.StatusReceipt => roleSet.Contains("Sales"),
             FileCategory.LoanDocument => roleSet.Contains("Loan"),
-            FileCategory.DeliveryDocument or FileCategory.Policy or FileCategory.RoadTaxReceipt => roleSet.Contains("Delivery"),
+            FileCategory.DeliveryDocument or FileCategory.HandoverPhoto or FileCategory.SignedHandover or FileCategory.Policy or FileCategory.RoadTaxReceipt => roleSet.Contains("Delivery"),
             FileCategory.RepairInvoice => roleSet.Contains("Repair"),
             FileCategory.PaymentReceipt or FileCategory.PaymentInvoice => roleSet.Contains("Finance"),
             FileCategory.MedicalCertificate => roleSet.Contains("HrSalary"),
@@ -2382,18 +2382,7 @@ public static class DeliveryRules
         delivery.RoadTaxHandled &&
         delivery.WindscreenInsuranceHandled &&
         delivery.TwoDayNoticeSent &&
-        MissingReleaseEvidence(delivery).Count == 0 &&
         ExpiredDeliveryDocuments(delivery).Count == 0;
-
-    public static IReadOnlyList<string> MissingReleaseEvidence(DeliverySchedule delivery)
-    {
-        var missing = new List<string>();
-        if (!delivery.HandoverPhotoCaptured) missing.Add("Handover photo");
-        if (!delivery.SignedHandoverReceived) missing.Add("Signed handover document");
-        if (!delivery.CustomerAcknowledged) missing.Add("Customer acknowledgement");
-        if (!delivery.FinalChecklistConfirmed) missing.Add("Final checklist");
-        return missing;
-    }
 
     public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery)
     {
@@ -2417,6 +2406,24 @@ public static class DeliveryRules
             errors.Add(new ValidationError("delivery_schedule_required", "Delivery schedule date is required."));
         }
 
+        if (delivery.Status == DeliveryStatus.Cancelled && string.IsNullOrWhiteSpace(delivery.CancellationReason))
+        {
+            errors.Add(new ValidationError("delivery_cancellation_reason_required", "Give a cancellation reason before cancelling delivery."));
+        }
+
+        if (delivery.DeliveryType == DeliveryType.Outstation)
+        {
+            if (string.IsNullOrWhiteSpace(delivery.DeliveryAddress))
+            {
+                errors.Add(new ValidationError("outstation_delivery_address_required", "Outstation delivery requires the destination address."));
+            }
+
+            if (string.IsNullOrWhiteSpace(delivery.TransportMethod))
+            {
+                errors.Add(new ValidationError("outstation_transport_required", "Outstation delivery requires the transport method."));
+            }
+        }
+
         if (delivery.InspectionDone && string.IsNullOrWhiteSpace(delivery.InspectionReportReference))
         {
             errors.Add(new ValidationError("inspection_report_required", "Inspection report reference is required after inspection is complete."));
@@ -2428,6 +2435,32 @@ public static class DeliveryRules
         }
 
         return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateTransition(DeliverySchedule existing, DeliverySchedule update)
+    {
+        if (existing.Status == update.Status) return new ValidationResult([]);
+        if (existing.Status is DeliveryStatus.Released or DeliveryStatus.Cancelled)
+        {
+            return new ValidationResult([new ValidationError("delivery_terminal_status", "Released or cancelled delivery cannot be changed. Create a new delivery schedule instead.")]);
+        }
+
+        if (update.Status == DeliveryStatus.Cancelled) return new ValidationResult([]);
+        var statuses = new[]
+        {
+            DeliveryStatus.BookingInspection,
+            DeliveryStatus.Scheduled,
+            DeliveryStatus.Inspection,
+            DeliveryStatus.PreparingDocuments,
+            DeliveryStatus.CarPreparation,
+            DeliveryStatus.ReadyForRelease,
+            DeliveryStatus.Released
+        };
+        var existingIndex = Array.IndexOf(statuses, existing.Status);
+        var updateIndex = Array.IndexOf(statuses, update.Status);
+        if (updateIndex == existingIndex + 1) return new ValidationResult([]);
+        if (updateIndex < existingIndex && !string.IsNullOrWhiteSpace(update.RescheduleReason)) return new ValidationResult([]);
+        return new ValidationResult([new ValidationError("delivery_transition_invalid", "Move delivery one stage at a time. Give a reschedule/rework reason when moving it back.")]);
     }
 
     public static ValidationResult ValidateRelease(DeliverySchedule delivery)
@@ -2466,6 +2499,8 @@ public static class DeliveryDocumentRules
     private static readonly FileCategory[] RequiredCategories =
     [
         FileCategory.DeliveryDocument,
+        FileCategory.HandoverPhoto,
+        FileCategory.SignedHandover,
         FileCategory.Policy,
         FileCategory.RoadTaxReceipt
     ];
@@ -2507,7 +2542,7 @@ public static class DeliveryDocumentRules
         var check = CheckCompleteness(delivery, documents);
         return check.IsComplete
             ? new ValidationResult([])
-            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires an uploaded Delivery Document, Policy, and Road Tax Receipt before release.")]);
+            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires uploaded delivery, handover photo, signed handover, policy, and road tax evidence before release.")]);
     }
 }
 

@@ -1,6 +1,6 @@
 import type { DeliveryReleaseReadiness, DeliverySchedule, VehicleLookup } from "./api";
 
-export const deliveryDocumentCategories = ["DeliveryDocument", "Policy", "RoadTaxReceipt"] as const;
+export const deliveryDocumentCategories = ["DeliveryDocument", "HandoverPhoto", "SignedHandover", "Policy", "RoadTaxReceipt"] as const;
 
 export type DeliveryFilters = {
   keyword?: string;
@@ -49,8 +49,7 @@ export function canReleaseDelivery(delivery: DeliverySchedule) {
 }
 
 export function canMarkDeliveryReady(delivery: DeliverySchedule) {
-  return delivery.status !== "ReadyForRelease" &&
-    delivery.status !== "Released" &&
+  return delivery.status === "CarPreparation" &&
     isChecklistComplete(delivery);
 }
 
@@ -89,15 +88,7 @@ function isChecklistComplete(delivery: DeliverySchedule) {
     delivery.roadTaxHandled &&
     delivery.windscreenInsuranceHandled &&
     delivery.twoDayNoticeSent &&
-    releaseEvidenceComplete(delivery) &&
     expiryDatesCurrent(delivery);
-}
-
-function releaseEvidenceComplete(delivery: DeliverySchedule) {
-  return delivery.handoverPhotoCaptured &&
-    delivery.signedHandoverReceived &&
-    delivery.customerAcknowledged &&
-    delivery.finalChecklistConfirmed;
 }
 
 function expiryDatesCurrent(delivery: DeliverySchedule) {
