@@ -45,6 +45,14 @@
 		reverse_proxy ops-proxy:8080
 	}
 
+	# The metrics chart loads its own module and Plotly bundle from absolute root
+	# paths. Recover only those two dashboard assets through the /ops adapter.
+	@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js
+	handle @ops-metrics-scripts {
+		rewrite * /ops{uri}
+		reverse_proxy ops-proxy:8080
+	}
+
 	# Aspire 13 emits these dashboard routes as root-relative URLs. Recover only
 	# the known dashboard route families through the protected /ops proxy so an
 	# escaped trace or log link cannot fall through to the back-office SPA.
