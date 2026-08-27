@@ -906,7 +906,7 @@ textarea:focus-visible {
 .ecosystemSection,
 .conciergeSection,
 .workshopSection,
-.trustReviewSection,
+.trustEvidenceSection,
 .inventorySection,
 .detailPage,
 .contactGrid,
@@ -919,7 +919,7 @@ textarea:focus-visible {
 .featuredInventorySection,
 .ecosystemSection,
 .workshopSection,
-.trustReviewSection,
+.trustEvidenceSection,
 .inventorySection,
 .contactGrid,
 .atelierServicePanel {
@@ -1003,7 +1003,6 @@ textarea:focus-visible {
 .vehicleCard,
 .solutionGrid article,
 .trustRow,
-.reviewBlock,
 .detailPanels article,
 .financeBox,
 .filterPanel,
@@ -1116,7 +1115,6 @@ textarea:focus-visible {
 .vehicleHeader h3,
 .solutionGrid h3,
 .trustRow h3,
-.reviewBlock h3,
 .detailPanels h2,
 .financeBox h2,
 .contactCard h2,
@@ -1132,7 +1130,6 @@ textarea:focus-visible {
 .conciergeSection p,
 .workshopCopy p,
 .trustRow p,
-.reviewBlock p,
 .detailLead,
 .detailPanels p,
 .financeBox p,
@@ -1176,8 +1173,7 @@ textarea:focus-visible {
 .personaCard:hover,
 .vehicleCard:hover,
 .solutionGrid article:hover,
-.trustRow:hover,
-.reviewBlock:hover {
+.trustRow:hover {
   transform: translateY(-6px);
   border-color: rgba(186, 0, 47, .24);
   box-shadow: 0 22px 54px rgba(93, 24, 38, .13);
@@ -1255,7 +1251,7 @@ textarea:focus-visible {
 }
 
 .workshopSection,
-.trustReviewSection {
+.trustEvidenceSection {
   display: grid;
   grid-template-columns: .9fr 1.1fr;
   gap: 36px;
@@ -1323,7 +1319,7 @@ textarea:focus-visible {
   font-weight: 900;
 }
 
-.trustReviewSection {
+.trustEvidenceSection {
   align-items: start;
   padding-bottom: 110px;
 }
@@ -1344,10 +1340,10 @@ textarea:focus-visible {
   margin: 0;
 }
 
-.testimonialPanel {
+.evidencePanel {
   display: grid;
-  gap: 14px;
-  padding: 24px;
+  gap: 20px;
+  padding: 30px;
   color: #fff;
   background:
     radial-gradient(circle at 82% 16%, rgba(186, 0, 47, .32), rgba(186, 0, 47, 0) 32%),
@@ -1356,37 +1352,68 @@ textarea:focus-visible {
   box-shadow: var(--shadow-strong);
 }
 
-.testimonialHeader {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
+.evidenceHeader {
+  display: grid;
+  gap: 9px;
 }
 
-.testimonialHeader h3 {
+.evidenceHeader > p {
   margin: 0;
-  font-size: 24px;
-}
-
-.testimonialHeader span {
   color: var(--primary-soft);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 900;
+  letter-spacing: .1em;
+  text-transform: uppercase;
 }
 
-.reviewBlock {
-  padding: 18px;
-  color: var(--text);
+.evidenceHeader h3 {
+  margin: 0;
+  font-family: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+  font-size: clamp(26px, 3vw, 36px);
+  line-height: 1.1;
+  letter-spacing: -.03em;
 }
 
-.reviewBlock div {
-  display: flex;
-  gap: 3px;
-  color: var(--primary);
+.evidenceHeader > span {
+  color: rgba(255, 255, 255, .72);
+  line-height: 1.6;
 }
 
-.reviewBlock strong {
-  color: var(--ink);
+.evidenceList {
+  display: grid;
+  gap: 10px;
+}
+
+.evidenceItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 15px;
+  background: rgba(255, 255, 255, .07);
+  border: 1px solid rgba(255, 255, 255, .11);
+  border-radius: 16px;
+}
+
+.evidenceItem > svg {
+  margin-top: 1px;
+  color: var(--primary-soft);
+}
+
+.evidenceItem strong {
+  display: block;
+  color: #fff;
+  font-size: 14px;
+}
+
+.evidenceItem p {
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, .7);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.evidencePanel > .secondaryAction {
+  width: fit-content;
 }
 
 .atelierSubNav {
@@ -2882,7 +2909,7 @@ textarea:focus-visible {
 
 .atelierFooter {
   display: grid;
-  grid-template-columns: 1.3fr repeat(4, minmax(120px, 1fr));
+  grid-template-columns: 1.3fr repeat(3, minmax(120px, 1fr));
   gap: 28px;
   padding: 54px max(24px, calc((100vw - 1240px) / 2 + 24px)) 76px;
   color: var(--text);
@@ -3122,7 +3149,7 @@ textarea:focus-visible {
   .detailGrid,
   .enquiryShell,
   .workshopSection,
-  .trustReviewSection,
+  .trustEvidenceSection,
   .conciergeSection,
   .locationPanel,
   .contactEnquiryPanel {
@@ -3245,7 +3272,7 @@ textarea:focus-visible {
   .ecosystemSection,
   .conciergeSection,
   .workshopSection,
-  .trustReviewSection,
+  .trustEvidenceSection,
   .inventorySection,
   .detailPage,
   .contactGrid,
@@ -3439,6 +3466,13 @@ textarea:focus-visible {
 
   .atelierFooter {
     padding-bottom: 104px;
+  }
+
+  .atelierFooter a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 6px 0;
   }
 
   .atelierMobileNav {

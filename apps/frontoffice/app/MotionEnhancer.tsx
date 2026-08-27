@@ -19,7 +19,7 @@ const revealSelector = [
   ".conciergeSection > *",
   ".workshopSection > *",
   ".trustRow",
-  ".testimonialPanel",
+  ".evidencePanel",
   ".filterPanel",
   ".inventoryToolbar",
   ".vehicleCard",
