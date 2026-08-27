@@ -963,7 +963,6 @@ export default function App() {
             hrLeaveRequests={hrLeaveRequests}
             hrPayslips={hrPayslips}
           />
-          {pathname !== "/dashboard" && <PriorityActionsPanel actions={priorityActions} onNavigate={navigateTo} />}
           {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={refreshDashboard} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} />}
           {pathname === "/vehicles" && (
             <VehiclePage
