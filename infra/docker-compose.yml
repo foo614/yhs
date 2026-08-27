@@ -57,7 +57,7 @@ services:
       SeedData__Enabled: ${SEED_DATA_ENABLED:-true}
       Worker__Enabled: "true"
     depends_on:
-      api:
+      postgres:
         condition: service_healthy
 
   frontoffice:
