@@ -100,3 +100,13 @@ No actionable P0, P1, or P2 differences remain for the approved desktop companio
 - Replace the Canvas hero and tile PNGs with higher-resolution source exports if a future brand-art refresh is available.
 
 final result: passed
+
+---
+
+## Showroom desktop follow-up: Canvas fade and spacing
+
+- Desktop hero: replaced the artificial backdrop blur with the Canvas-style white lower fade. The source image remains legible at the edge, then fades cleanly into the page canvas.
+- Vehicle cards: added 28 px grid top padding, producing a measured 25 px visual gap between the 600 px hero and the first vehicle card.
+- Mobile heading: the live `.showroomProgress` is `display: none` below 640 px; at 393 x 852 it has a zero-sized box, `looking` is clear, and the body is exactly 393 px wide.
+
+final result: passed

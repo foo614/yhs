@@ -42,8 +42,11 @@ describe("showroom enquiry flow rules", () => {
     expect(styles).toContain("max-width: 1248px");
     expect(styles).toContain("width: min(100%, 1248px)");
     expect(styles).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
+    expect(styles).toContain("linear-gradient(to bottom, transparent 0%, rgb(255 250 248 / 30%) 55%, #fffaf8 100%)");
+    expect(styles).toContain("padding-top: 28px");
     expect(styles).toContain("@media (max-width: 639px)");
     expect(styles).toContain("width: auto;");
+    expect(styles).toContain(".showroomDirectionOne .showroomProgress");
     expect(styles).toContain('canvas-direction-one.png');
   });
 });

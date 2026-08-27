@@ -4596,6 +4596,18 @@ textarea:focus-visible {
     object-position: center top;
   }
 
+  .showroomDirectionOne .showroomHeroImage::before {
+    background: linear-gradient(to bottom, transparent 0%, rgb(255 250 248 / 30%) 55%, #fffaf8 100%);
+    bottom: 0;
+    content: "";
+    height: 150px;
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+    z-index: 1;
+  }
+
   /* The Canvas hero carries a mobile progress row near its lower-left edge.
      Desktop renders its accessible progress row above the copy, so mask the
      embedded mobile-only dots instead of showing both. */
@@ -4607,6 +4619,7 @@ textarea:focus-visible {
     left: 0;
     position: absolute;
     width: 31%;
+    z-index: 2;
   }
 
   .showroomDirectionOne .showroomEnquiryHeader {
@@ -4637,6 +4650,7 @@ textarea:focus-visible {
     gap: 20px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-bottom: 34px;
+    padding-top: 28px;
   }
 
   .showroomDirectionOne .showroomVehicleTiles button {
