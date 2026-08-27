@@ -66,6 +66,44 @@
     root.querySelectorAll?.("a[href]").forEach(rebaseAnchor);
   }
 
+  function wrapNavigateTo(target) {
+    if (!target || typeof target.navigateTo !== "function") {
+      return;
+    }
+
+    const originalNavigateTo = target.navigateTo;
+    target.navigateTo = function (url, ...args) {
+      return originalNavigateTo.call(this, rebaseDashboardUrl(url), ...args);
+    };
+  }
+
+  function adaptBlazorNavigation(blazor) {
+    wrapNavigateTo(blazor);
+    wrapNavigateTo(blazor?._internal?.navigationManager);
+  }
+
+  // Aspire uses root-relative NavigationManager targets. Wrap Blazor as it is
+  // initialized so those targets stay inside the dashboard's /ops base path.
+  if (window.Blazor) {
+    adaptBlazorNavigation(window.Blazor);
+  } else {
+    Object.defineProperty(window, "Blazor", {
+      configurable: true,
+      get() {
+        return undefined;
+      },
+      set(value) {
+        Object.defineProperty(window, "Blazor", {
+          configurable: true,
+          enumerable: true,
+          value,
+          writable: true
+        });
+        adaptBlazorNavigation(value);
+      }
+    });
+  }
+
   for (const methodName of ["pushState", "replaceState"]) {
     const originalMethod = window.history[methodName].bind(window.history);
     window.history[methodName] = (state, unused, url) => originalMethod(state, unused, rebaseDashboardUrl(url));

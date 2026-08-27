@@ -56,6 +56,30 @@ class MutationObserver {
 vm.runInNewContext(adapterSource, { MutationObserver, PopStateEvent, URL, document, history, window });
 assert.deepEqual(historyCalls[0], ["replaceState", null, "", "/ops/traces/detail/initial-trace?spanId=initial-span"]);
 
+const blazorNavigationCalls = [];
+window.Blazor = {
+  navigateTo(...args) {
+    blazorNavigationCalls.push(["public", ...args]);
+  },
+  _internal: {
+    navigationManager: {
+      navigateTo(...args) {
+        blazorNavigationCalls.push(["internal", ...args]);
+      }
+    }
+  }
+};
+window.Blazor.navigateTo("/metrics/resource/api?view=Graph", { replaceHistoryEntry: true });
+window.Blazor._internal.navigationManager.navigateTo("/traces/detail/trace-id", { forceLoad: false });
+window.Blazor.navigateTo("/api/auth/me", false);
+window.Blazor._internal.navigationManager.navigateTo("https://example.com/metrics", true);
+assert.deepEqual(blazorNavigationCalls, [
+  ["public", "/ops/metrics/resource/api?view=Graph", { replaceHistoryEntry: true }],
+  ["internal", "/ops/traces/detail/trace-id", { forceLoad: false }],
+  ["public", "/api/auth/me", false],
+  ["internal", "https://example.com/metrics", true]
+]);
+
 for (const [route, expected] of [
   ["/", "/ops/"],
   ["/resources/api", "/ops/resources/api"],
