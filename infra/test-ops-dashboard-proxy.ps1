@@ -23,7 +23,7 @@ foreach ($expected in @(
   'uri replace /js/app-theme.js /ops/js/app-theme.js',
   '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
   'uri replace /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js /ops/_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
-  '@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js',
+  '@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js /Components/Controls/Chart/MetricTable.razor.js',
   '@ops-dashboard-route path /resources /resources/* /consolelogs /consolelogs/* /structuredlogs /structuredlogs/* /traces /traces/* /metrics /metrics/*',
   'rewrite * /ops{uri}',
   'reverse_proxy ops-proxy:8080'
@@ -42,7 +42,7 @@ if ($loginRouteIndex -lt 0 -or $dashboardRouteIndex -lt 0 -or $apiRouteIndex -lt
 foreach ($assetRoute in @(
   '@ops-theme-script path /js/app-theme.js',
   '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
-  '@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js'
+  '@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js /Components/Controls/Chart/MetricTable.razor.js'
 )) {
   $assetRouteIndex = $caddyfile.IndexOf($assetRoute)
   if ($assetRouteIndex -lt 0 -or $assetRouteIndex -ge $apiRouteIndex -or $assetRouteIndex -ge $backOfficeFallbackIndex) {
@@ -50,9 +50,9 @@ foreach ($assetRoute in @(
   }
 }
 
-$metricsAssetRoutePattern = '(?s)@ops-metrics-scripts path /js/app-metrics\.js /js/plotly-basic-2\.35\.2\.min\.js\s+handle @ops-metrics-scripts \{\s+rewrite \* /ops\{uri\}\s+reverse_proxy ops-proxy:8080\s+\}'
+$metricsAssetRoutePattern = '(?s)@ops-metrics-scripts path /js/app-metrics\.js /js/plotly-basic-2\.35\.2\.min\.js /Components/Controls/Chart/MetricTable\.razor\.js\s+handle @ops-metrics-scripts \{\s+rewrite \* /ops\{uri\}\s+reverse_proxy ops-proxy:8080\s+\}'
 if (-not [regex]::IsMatch($caddyfile, $metricsAssetRoutePattern)) {
-  throw "The Aspire metrics asset route must rebase both exact JavaScript paths through /ops."
+  throw "The Aspire metrics asset route must rebase all three exact JavaScript paths through /ops."
 }
 
 foreach ($expected in @(
