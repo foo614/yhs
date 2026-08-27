@@ -163,6 +163,7 @@ export type DashboardSummary = {
   outstandingCollection: number;
   settlementDueAmount: number;
   refurbishment: DashboardRefurbishmentSummary;
+  aiDocumentProcessing?: DashboardAiDocumentProcessing;
 };
 
 export type DashboardAgingBucket = {
@@ -229,6 +230,29 @@ export type DashboardRefurbishmentSummary = {
   workInProgressCount: number;
   overdueWorkCount: number;
   highestCostVehicles: DashboardAmountSlice[];
+};
+
+export type DashboardAiDocumentCategory = {
+  category: "IdentityCard" | "Voc" | "InvoicesAndReceipts" | "SupportingDocuments";
+  label: string;
+  scanCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  lowConfidenceCount: number;
+  failedCount: number;
+};
+
+export type DashboardAiDocumentProcessing = {
+  scanCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  lowConfidenceCount: number;
+  failedCount: number;
+  pendingReviewCount: number;
+  usedThisMonth: number;
+  monthlyRequestLimit: number;
+  remainingThisMonth: number;
+  categories: DashboardAiDocumentCategory[];
 };
 
 export type DashboardAnalyticsPeriod = {

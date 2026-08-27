@@ -2373,7 +2373,7 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
     return Results.Ok(generated);
 });
 
-backOffice.MapGet("/dashboard/summary", async (AppDbContext db, string? from, string? to) =>
+backOffice.MapGet("/dashboard/summary", async (AppDbContext db, AiUsageQuotaService aiUsageQuota, string? from, string? to, CancellationToken cancellationToken) =>
 {
     if (!DashboardAnalyticsPeriodRules.TryParse(from, to, out var analyticsPeriod, out var error))
     {
@@ -2381,7 +2381,7 @@ backOffice.MapGet("/dashboard/summary", async (AppDbContext db, string? from, st
     }
 
     var today = BusinessClock.Today();
-    return Results.Ok(DashboardMetrics.Create(
+    var summary = DashboardMetrics.Create(
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.LoanApplications.AsNoTracking().ToListAsync(),
         await db.DeliverySchedules.AsNoTracking().ToListAsync(),
@@ -2396,7 +2396,13 @@ backOffice.MapGet("/dashboard/summary", async (AppDbContext db, string? from, st
         await db.Leads.AsNoTracking().ToListAsync(),
         today,
         analyticsPeriod.From,
-        analyticsPeriod.To));
+        analyticsPeriod.To);
+    var aiDocumentProcessing = AiDocumentProcessingMetrics.Create(
+        await db.OcrJobs.AsNoTracking().ToListAsync(cancellationToken),
+        await aiUsageQuota.GetOcrSnapshotAsync(cancellationToken),
+        analyticsPeriod.From,
+        analyticsPeriod.To);
+    return Results.Ok(summary with { AiDocumentProcessing = aiDocumentProcessing });
 }).RequireAuthorization("Dashboard");
 
 backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, string? due) =>

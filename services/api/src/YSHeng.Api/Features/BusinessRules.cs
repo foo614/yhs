@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using YSHeng.Api.Domain;
 using SkiaSharp;
@@ -77,7 +78,10 @@ public sealed record DashboardSummary(
     decimal ActualProfit,
     decimal OutstandingCollection,
     decimal SettlementDueAmount,
-    DashboardRefurbishmentSummary Refurbishment);
+    DashboardRefurbishmentSummary Refurbishment)
+{
+    public DashboardAiDocumentProcessing AiDocumentProcessing { get; init; } = DashboardAiDocumentProcessing.Empty;
+}
 
 public sealed record DashboardAgingBucket(string Label, int Count);
 public sealed record DashboardCountSlice(string Label, int Count);
@@ -91,6 +95,28 @@ public sealed record DashboardRefurbishmentSummary(
     int WorkInProgressCount,
     int OverdueWorkCount,
     DashboardAmountSlice[] HighestCostVehicles);
+public sealed record DashboardAiDocumentCategory(
+    string Category,
+    string Label,
+    int ScanCount,
+    int AcceptedCount,
+    int RejectedCount,
+    int LowConfidenceCount,
+    int FailedCount);
+public sealed record DashboardAiDocumentProcessing(
+    int ScanCount,
+    int AcceptedCount,
+    int RejectedCount,
+    int LowConfidenceCount,
+    int FailedCount,
+    int PendingReviewCount,
+    int UsedThisMonth,
+    int MonthlyRequestLimit,
+    int RemainingThisMonth,
+    DashboardAiDocumentCategory[] Categories)
+{
+    public static readonly DashboardAiDocumentProcessing Empty = new(0, 0, 0, 0, 0, 0, 0, 0, 0, []);
+}
 public sealed record DashboardWorkflowBlockers(DashboardCountSlice[] ByType, DashboardCountSlice[] DueBuckets);
 public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal ConversionRate);
 public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
@@ -2505,6 +2531,83 @@ public static class BusinessClock
             return TimeZoneInfo.FindSystemTimeZoneById("Singapore Standard Time");
         }
     }
+}
+
+public static class AiDocumentProcessingMetrics
+{
+    private const decimal CheckCarefullyConfidenceThreshold = 0.75m;
+
+    private static readonly (string Category, string Label)[] Categories =
+    [
+        ("IdentityCard", "IC"),
+        ("Voc", "VOC"),
+        ("InvoicesAndReceipts", "Invoices & receipts"),
+        ("SupportingDocuments", "Supporting documents")
+    ];
+
+    public static DashboardAiDocumentProcessing Create(
+        IEnumerable<OcrJob> jobs,
+        AiUsageLimitSnapshot usage,
+        DateOnly? analyticsFrom = null,
+        DateOnly? analyticsTo = null)
+    {
+        var jobList = jobs.ToList();
+        var periodJobs = jobList
+            .Where(job => IsInAnalyticsRange(BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(job.CreatedAt, DateTimeKind.Utc))), analyticsFrom, analyticsTo))
+            .ToArray();
+        var categories = Categories
+            .Select(category => CreateCategory(category.Category, category.Label, periodJobs))
+            .ToArray();
+
+        return new DashboardAiDocumentProcessing(
+            periodJobs.Length,
+            periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
+            periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
+            periodJobs.Count(IsLowConfidence),
+            periodJobs.Count(job => job.Status == OcrJobStatus.Failed),
+            jobList.Count(job => job.Status == OcrJobStatus.NeedsReview && job.ReviewDecision == OcrReviewDecision.Pending),
+            usage.UsedThisMonth,
+            usage.Limit.MonthlyRequestLimit,
+            usage.RemainingThisMonth,
+            categories);
+    }
+
+    private static DashboardAiDocumentCategory CreateCategory(string category, string label, IEnumerable<OcrJob> jobs)
+    {
+        var categoryJobs = jobs.Where(job => CategoryFor(job.Category) == category).ToArray();
+        return new DashboardAiDocumentCategory(
+            category,
+            label,
+            categoryJobs.Length,
+            categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
+            categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
+            categoryJobs.Count(IsLowConfidence),
+            categoryJobs.Count(job => job.Status == OcrJobStatus.Failed));
+    }
+
+    private static string CategoryFor(FileCategory category) => category switch
+    {
+        FileCategory.IdentityCard => "IdentityCard",
+        FileCategory.Voc => "Voc",
+        FileCategory.PurchaseInvoice or FileCategory.RepairInvoice or FileCategory.PaymentReceipt or FileCategory.PaymentInvoice => "InvoicesAndReceipts",
+        _ => "SupportingDocuments"
+    };
+
+    private static bool IsLowConfidence(OcrJob job)
+    {
+        if (string.IsNullOrWhiteSpace(job.ResultJson)) return false;
+        try
+        {
+            return JsonSerializer.Deserialize<OcrExtractionResult>(job.ResultJson)?.Confidence < CheckCarefullyConfidenceThreshold;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsInAnalyticsRange(DateOnly value, DateOnly? from, DateOnly? to) =>
+        (from is null || value >= from) && (to is null || value <= to);
 }
 
 public static class DashboardMetrics

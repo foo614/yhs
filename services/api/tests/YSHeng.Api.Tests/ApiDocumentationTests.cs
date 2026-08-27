@@ -49,6 +49,20 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Dashboard_ai_document_processing_remains_aggregate_and_dashboard_only()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var dashboardRoute = program[program.IndexOf("backOffice.MapGet(\"/dashboard/summary\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapGet(\"/dashboard/reminders\"", StringComparison.Ordinal)];
+
+        Assert.Contains("AiDocumentProcessingMetrics.Create", dashboardRoute);
+        Assert.Contains("AiDocumentProcessing = aiDocumentProcessing", dashboardRoute);
+        Assert.Contains("}).RequireAuthorization(\"Dashboard\");", dashboardRoute);
+        Assert.DoesNotContain("ResultJson", dashboardRoute);
+        Assert.DoesNotContain("DocumentBlob", dashboardRoute);
+    }
+
+    [Fact]
     public void Api_reference_paths_match_minimal_api_routes()
     {
         var root = FindRepositoryRoot();

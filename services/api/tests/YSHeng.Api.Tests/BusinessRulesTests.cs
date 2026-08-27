@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using YSHeng.Api.Data;
@@ -1870,6 +1871,47 @@ public sealed class BusinessRulesTests
         Assert.Contains("both from and to", missingPairError);
         Assert.False(DashboardAnalyticsPeriodRules.TryParse("2026-06-30", "2026-06-01", out _, out var invertedError));
         Assert.Contains("must not be after", invertedError);
+    }
+
+    [Fact]
+    public void Ai_document_processing_metrics_group_period_activity_without_exposing_document_content()
+    {
+        var acceptedResult = JsonSerializer.Serialize(new OcrExtractionResult(FileCategory.IdentityCard, 0.92m, [], [], "identity text", [], null));
+        var lowConfidenceResult = JsonSerializer.Serialize(new OcrExtractionResult(FileCategory.Voc, 0.70m, [], [], "voc text", [], null));
+        var rejectedResult = JsonSerializer.Serialize(new OcrExtractionResult(FileCategory.ApDocument, 0.86m, [], [], "supporting text", [], null));
+        var jobs = new[]
+        {
+            new OcrJob { Category = FileCategory.IdentityCard, Status = OcrJobStatus.NeedsReview, ReviewDecision = OcrReviewDecision.Accepted, ResultJson = acceptedResult, CreatedAt = new DateTime(2026, 6, 10, 8, 0, 0, DateTimeKind.Utc) },
+            new OcrJob { Category = FileCategory.Voc, Status = OcrJobStatus.NeedsReview, ReviewDecision = OcrReviewDecision.Pending, ResultJson = lowConfidenceResult, CreatedAt = new DateTime(2026, 6, 11, 8, 0, 0, DateTimeKind.Utc) },
+            new OcrJob { Category = FileCategory.RepairInvoice, Status = OcrJobStatus.Failed, CreatedAt = new DateTime(2026, 6, 12, 8, 0, 0, DateTimeKind.Utc) },
+            new OcrJob { Category = FileCategory.ApDocument, Status = OcrJobStatus.NeedsReview, ReviewDecision = OcrReviewDecision.Rejected, ResultJson = rejectedResult, CreatedAt = new DateTime(2026, 6, 13, 8, 0, 0, DateTimeKind.Utc) },
+            new OcrJob { Category = FileCategory.LoanDocument, Status = OcrJobStatus.NeedsReview, ReviewDecision = OcrReviewDecision.Pending, CreatedAt = new DateTime(2026, 5, 25, 8, 0, 0, DateTimeKind.Utc) }
+        };
+        var usage = new AiUsageLimitSnapshot(
+            new AiServiceLimit { Service = AiService.Ocr, MonthlyRequestLimit = 100 },
+            UsedThisMonth: 32,
+            RemainingThisMonth: 68);
+
+        var metrics = AiDocumentProcessingMetrics.Create(jobs, usage, new DateOnly(2026, 6, 1), new DateOnly(2026, 6, 30));
+
+        Assert.Equal(4, metrics.ScanCount);
+        Assert.Equal(1, metrics.AcceptedCount);
+        Assert.Equal(1, metrics.RejectedCount);
+        Assert.Equal(1, metrics.LowConfidenceCount);
+        Assert.Equal(1, metrics.FailedCount);
+        Assert.Equal(2, metrics.PendingReviewCount);
+        Assert.Equal(32, metrics.UsedThisMonth);
+        Assert.Equal(100, metrics.MonthlyRequestLimit);
+        Assert.Equal(68, metrics.RemainingThisMonth);
+        Assert.Collection(metrics.Categories,
+            category => Assert.Equal(("IC", 1, 1, 0, 0, 0), (category.Label, category.ScanCount, category.AcceptedCount, category.RejectedCount, category.LowConfidenceCount, category.FailedCount)),
+            category => Assert.Equal(("VOC", 1, 0, 0, 1, 0), (category.Label, category.ScanCount, category.AcceptedCount, category.RejectedCount, category.LowConfidenceCount, category.FailedCount)),
+            category => Assert.Equal(("Invoices & receipts", 1, 0, 0, 0, 1), (category.Label, category.ScanCount, category.AcceptedCount, category.RejectedCount, category.LowConfidenceCount, category.FailedCount)),
+            category => Assert.Equal(("Supporting documents", 1, 0, 1, 0, 0), (category.Label, category.ScanCount, category.AcceptedCount, category.RejectedCount, category.LowConfidenceCount, category.FailedCount)));
+        var responseJson = JsonSerializer.Serialize(metrics);
+        Assert.DoesNotContain("identity text", responseJson);
+        Assert.DoesNotContain("voc text", responseJson);
+        Assert.DoesNotContain("supporting text", responseJson);
     }
 
     [Fact]

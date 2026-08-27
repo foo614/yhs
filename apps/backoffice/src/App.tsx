@@ -218,6 +218,7 @@ import {
   type CurrentUser,
   type Customer,
   type DailySpend,
+  type DashboardAiDocumentProcessing,
   type DashboardAnalyticsPeriod,
   type DashboardReminder,
   type DashboardSummary,
@@ -1753,6 +1754,7 @@ export function DashboardPage({
   const topSellingDisplayItems = topSellingModels;
   const topSellingModel = topSellingDisplayItems[0];
   const refurbishment = dashboard?.refurbishment;
+  const aiDocumentProcessing = dashboard?.aiDocumentProcessing;
   const refurbishmentHighestCosts = refurbishment?.highestCostVehicles ?? [];
   const analyticsPeriodLabel = dashboardAnalyticsPeriodLabel(analyticsPeriod);
   const receivableLabels = new Set(["Outstanding Payment", "Open Debt Recovery"]);
@@ -1852,6 +1854,8 @@ export function DashboardPage({
             <Metric label="Aging / 超60天库存" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
           </div>
         </ProCard>
+
+        {aiDocumentProcessing && <DashboardAiDocumentProcessingPanel processing={aiDocumentProcessing} analyticsPeriodLabel={analyticsPeriodLabel} />}
 
         {/* The upstream fallback is retained in data-safe form by the priority, cash, and aging panels below. */}
         {/*
@@ -2134,6 +2138,51 @@ export function DashboardPage({
           </ProCard>
         </div>
     </Space>
+  );
+}
+
+function DashboardAiDocumentProcessingPanel({
+  processing,
+  analyticsPeriodLabel
+}: {
+  processing: DashboardAiDocumentProcessing;
+  analyticsPeriodLabel: string;
+}) {
+  return (
+    <ProCard title="AI document processing / AI 文件处理" className="dashboardOverviewCard">
+      <Space direction="vertical" size={12} className="fullWidth">
+        <Alert
+          type="info"
+          showIcon
+          message="AI assistance only — staff must check extracted values before saving."
+          description="This management overview shows counts only. It never shows document images, identity details, file names, raw OCR text, or extracted values."
+        />
+        <div className="metricGrid dashboardMetricGrid">
+          <Metric label="Scans processed" value={processing.scanCount} meta={analyticsPeriodLabel} />
+          <Metric label="Staff-approved AI results" value={processing.acceptedCount} meta="Reviewed before saving" tone="profit" />
+          <Metric label="Need checking" value={processing.lowConfidenceCount} meta="Below 75% confidence" tone={processing.lowConfidenceCount > 0 ? "work" : "neutral"} />
+          <Metric label="Failed scans" value={processing.failedCount} tone={processing.failedCount > 0 ? "risk" : "neutral"} />
+          <Metric label="Waiting for review" value={processing.pendingReviewCount} meta="Live backlog" tone={processing.pendingReviewCount > 0 ? "work" : "neutral"} />
+          <Metric label="OCR capacity" value={`${processing.remainingThisMonth} remaining`} meta={`${processing.usedThisMonth} of ${processing.monthlyRequestLimit} used this month`} />
+        </div>
+        <AntTable
+          rowKey="category"
+          size="small"
+          pagination={false}
+          scroll={{ x: 760 }}
+          columns={[
+            { title: "Document type", dataIndex: "label" },
+            { title: "Scans", dataIndex: "scanCount", align: "right" },
+            { title: "Approved", dataIndex: "acceptedCount", align: "right" },
+            { title: "Rejected", dataIndex: "rejectedCount", align: "right" },
+            { title: "Need checking", dataIndex: "lowConfidenceCount", align: "right", render: (value) => value > 0 ? <Tag color="gold">{value}</Tag> : value },
+            { title: "Failed", dataIndex: "failedCount", align: "right", render: (value) => value > 0 ? <Tag color="red">{value}</Tag> : value }
+          ]}
+          dataSource={processing.categories}
+          locale={{ emptyText: "No OCR activity in this period." }}
+        />
+      </Space>
+    </ProCard>
   );
 }
 

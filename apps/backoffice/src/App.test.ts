@@ -73,7 +73,24 @@ describe("management dashboard", () => {
       actualProfit: 5000,
       outstandingCollection: 15000,
       settlementDueAmount: 2000,
-      refurbishment: { finalRepairSpend: 1500, vehicleCount: 1, averageSpendPerVehicle: 1500, workInProgressCount: 1, overdueWorkCount: 0, highestCostVehicles: [] }
+      refurbishment: { finalRepairSpend: 1500, vehicleCount: 1, averageSpendPerVehicle: 1500, workInProgressCount: 1, overdueWorkCount: 0, highestCostVehicles: [] },
+      aiDocumentProcessing: {
+        scanCount: 8,
+        acceptedCount: 4,
+        rejectedCount: 1,
+        lowConfidenceCount: 2,
+        failedCount: 1,
+        pendingReviewCount: 3,
+        usedThisMonth: 32,
+        monthlyRequestLimit: 100,
+        remainingThisMonth: 68,
+        categories: [
+          { category: "IdentityCard", label: "IC", scanCount: 2, acceptedCount: 1, rejectedCount: 0, lowConfidenceCount: 1, failedCount: 0 },
+          { category: "Voc", label: "VOC", scanCount: 2, acceptedCount: 1, rejectedCount: 1, lowConfidenceCount: 0, failedCount: 0 },
+          { category: "InvoicesAndReceipts", label: "Invoices & receipts", scanCount: 3, acceptedCount: 2, rejectedCount: 0, lowConfidenceCount: 1, failedCount: 0 },
+          { category: "SupportingDocuments", label: "Supporting documents", scanCount: 1, acceptedCount: 0, rejectedCount: 0, lowConfidenceCount: 0, failedCount: 1 }
+        ]
+      }
     } satisfies DashboardSummary;
 
     const markup = renderToStaticMarkup(createElement(DashboardPage, {
@@ -100,6 +117,43 @@ describe("management dashboard", () => {
     expect(markup).toContain("Repair Cost / 整备费用");
     expect(markup).toContain("Projected Stock Profit / 库存预计利润");
     expect(markup).not.toContain("Estimated Profit / 预估利润");
+    expect(markup).toContain("AI document processing / AI 文件处理");
+    expect(markup).toContain("Staff-approved AI results");
+    expect(markup).toContain("Invoices &amp; receipts");
+    expect(markup).not.toContain("identity text");
+
+    const emptyMarkup = renderToStaticMarkup(createElement(DashboardPage, {
+      dashboard: { ...dashboard, aiDocumentProcessing: { ...dashboard.aiDocumentProcessing!, categories: [] } },
+      dashboardLoadError: null,
+      reminders: [],
+      priorityActions: [],
+      reminderLoadError: null,
+      lastCheckedAt: null,
+      refreshing: false,
+      analyticsPeriod: { from: "2026-06-01", to: "2026-06-30" },
+      analyticsRangePreset: "ThisMonth",
+      onRefresh: async () => {},
+      onAnalyticsPeriodChange: async () => {},
+      onNavigate: () => {}
+    }));
+    expect(emptyMarkup).toContain("No OCR activity in this period.");
+
+    const errorMarkup = renderToStaticMarkup(createElement(DashboardPage, {
+      dashboard: null,
+      dashboardLoadError: "Dashboard request failed",
+      reminders: [],
+      priorityActions: [],
+      reminderLoadError: null,
+      lastCheckedAt: null,
+      refreshing: false,
+      analyticsPeriod: {},
+      analyticsRangePreset: "ThisMonth",
+      onRefresh: async () => {},
+      onAnalyticsPeriodChange: async () => {},
+      onNavigate: () => {}
+    }));
+    expect(errorMarkup).toContain("Dashboard data could not be loaded");
+    expect(errorMarkup).not.toContain("identity text");
   });
 });
 
