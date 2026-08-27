@@ -33,11 +33,79 @@ public sealed class AutoCountExportTests
         Assert.Contains("Purchases", workbook);
         Assert.Contains("Payments", workbook);
         Assert.Contains("Expenses", workbook);
+        Assert.Contains("SalesInvoices", workbook);
+        Assert.Contains("Collections", workbook);
         Assert.Contains("Remark", Read(archive, "xl/worksheets/sheet1.xml"));
         Assert.Contains("direct AutoCount import", Read(archive, "xl/worksheets/sheet1.xml"));
         Assert.Contains("ABC1234", Read(archive, "xl/worksheets/sheet3.xml"));
         Assert.Contains("Test Buyer", Read(archive, "xl/worksheets/sheet2.xml"));
         Assert.Contains("t=\"n\"><v>50000</v>", Read(archive, "xl/worksheets/sheet5.xml"));
+    }
+
+    [Fact]
+    public void Export_adds_v2_invoice_and_collection_sheets_without_moving_legacy_sheets()
+    {
+        var vehicle = new Vehicle { PlateNumber = "V2CAR", IntakeDate = new DateOnly(2026, 8, 1), CustomerId = Guid.NewGuid() };
+        var customer = new Customer { Id = vehicle.CustomerId!.Value, Name = "V2 Buyer" };
+        var payment = new PaymentRecord { VehicleId = vehicle.Id, CustomerId = customer.Id, NettPrice = 500m, FinanceWorkflowVersion = 2, CreatedAt = new DateTime(2026, 8, 2, 0, 0, 0, DateTimeKind.Utc) };
+        var invoice = new FinanceInvoice { PaymentRecordId = payment.Id, VehicleId = vehicle.Id, CustomerId = customer.Id, CustomerName = customer.Name, VehiclePlateNumber = vehicle.PlateNumber, InvoiceNumber = "YSH-INV-2026-000001", InvoiceDate = new DateOnly(2026, 8, 2), Amount = 500m };
+        var collection = new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 200m, Method = CollectionMethod.DownPayment, Status = CollectionStatus.Reconciled, Reference = "PAY-1", ReceivedDate = new DateOnly(2026, 8, 3), CreatedBy = "finance-1" };
+        var input = Input([vehicle], [customer], [payment]) with { FinanceInvoices = [invoice], Collections = [collection] };
+
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(input)), ZipArchiveMode.Read);
+        Assert.Contains("YSH-INV-2026-000001", Read(archive, "xl/worksheets/sheet7.xml"));
+        Assert.Contains("PAY-1", Read(archive, "xl/worksheets/sheet8.xml"));
+        Assert.Contains("DownPayment", Read(archive, "xl/worksheets/sheet8.xml"));
+        Assert.Contains("Expenses", Read(archive, "xl/workbook.xml"));
+    }
+
+    [Fact]
+    public void August_collection_keeps_its_july_invoice_reference_without_reexporting_the_july_invoice()
+    {
+        var vehicle = new Vehicle { PlateNumber = "PERIOD1", IntakeDate = new DateOnly(2026, 7, 1), CustomerId = Guid.NewGuid() };
+        var customer = new Customer { Id = vehicle.CustomerId!.Value, Name = "Period Buyer" };
+        var payment = new PaymentRecord
+        {
+            VehicleId = vehicle.Id,
+            CustomerId = customer.Id,
+            NettPrice = 500m,
+            FinanceWorkflowVersion = 2,
+            CreatedAt = new DateTime(2026, 7, 2, 0, 0, 0, DateTimeKind.Utc)
+        };
+        var invoice = new FinanceInvoice
+        {
+            PaymentRecordId = payment.Id,
+            VehicleId = vehicle.Id,
+            CustomerId = customer.Id,
+            CustomerName = customer.Name,
+            VehiclePlateNumber = vehicle.PlateNumber,
+            InvoiceNumber = "YSH-INV-2026-000099",
+            InvoiceDate = new DateOnly(2026, 7, 2),
+            Amount = 500m
+        };
+        var collection = new CollectionTransaction
+        {
+            PaymentRecordId = payment.Id,
+            Amount = 200m,
+            Method = CollectionMethod.BankTransfer,
+            Status = CollectionStatus.Reconciled,
+            Reference = "AUG-PAY-1",
+            ReceivedDate = new DateOnly(2026, 8, 3)
+        };
+        var input = Input([vehicle], [customer], [payment]) with
+        {
+            FinanceInvoices = [invoice],
+            Collections = [collection],
+            From = new DateOnly(2026, 8, 1),
+            To = new DateOnly(2026, 8, 31)
+        };
+
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(input)), ZipArchiveMode.Read);
+        var salesInvoices = Read(archive, "xl/worksheets/sheet7.xml");
+        var collections = Read(archive, "xl/worksheets/sheet8.xml");
+        Assert.DoesNotContain(invoice.InvoiceNumber, salesInvoices);
+        Assert.Contains(invoice.InvoiceNumber, collections);
+        Assert.Contains(collection.Reference, collections);
     }
 
     [Fact]

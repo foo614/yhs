@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  approveNettPriceOverride,
   approvePaymentManagementReview,
   approveRepair,
   cancelDelivery,
@@ -8,6 +9,8 @@ import {
   createCustomer,
   createBrokerCommission,
   createCashHandover,
+  createCollection,
+  createFinanceSale,
   createDailySpend,
   createDebtRecovery,
   createLoan,
@@ -35,6 +38,7 @@ import {
   generateHrPayslips,
   getAuditLog,
   getCurrentUser,
+  getFinanceVehicleOptions,
   getCustomers,
   getCustomerProfile,
   getCustomerProfileOptions,
@@ -88,10 +92,13 @@ import {
   vehiclePhotoContentUrl,
   login,
   logout,
+  mergeFinanceVehicleOptions,
   hrMedicalCertificateContentUrl,
   acceptCashHandover,
   recordCashHandover,
+  reconcileCollection,
   rejectCashHandover,
+  reverseCollection,
   releaseDelivery,
   requestCashHandover,
   requestDeliveryInvoiceUpdate,
@@ -110,12 +117,14 @@ import {
   updateOwner,
   updatePayment,
   updatePaymentVoucher,
+  updateCollectionFinancingStatus,
   updatePurchaseInvoice,
   updateRepair,
   updateSettlementReminder,
   updateStaffUserRoles,
   updateStaffUserStatus,
   updateSupplierInvoice,
+  issueFinanceInvoice,
   updateVehicle,
   startOcrJob,
   uploadVehicleDocument,
@@ -127,6 +136,7 @@ import {
   type DailySpend,
   type DashboardReminder,
   type DebtRecoveryCase,
+  type FinanceVehicleOption,
   type Lead,
   type HrAttendanceRecord,
   type HrAttendanceNetwork,
@@ -235,6 +245,41 @@ describe("backoffice api client", () => {
     await expect(getVehicleLookup()).resolves.toEqual([lookup]);
 
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicle-lookup", { credentials: "include" });
+  });
+
+  it("loads Finance-only vehicle defaults separately and merges them into invoice options", async () => {
+    const lookup: VehicleLookup = {
+      id: "vehicle-1",
+      plateNumber: "VPK1234",
+      make: "Toyota",
+      model: "Vios",
+      stockOwner: "YSHeng",
+      status: "Available",
+      customerId: "customer-1"
+    };
+    const financeOption: FinanceVehicleOption = {
+      id: lookup.id,
+      plateNumber: lookup.plateNumber,
+      make: lookup.make,
+      model: lookup.model,
+      status: lookup.status,
+      customerId: lookup.customerId,
+      sellingPrice: 58_000,
+      additionalCharges: 750
+    };
+    const fetchMock = mockFetch([financeOption]);
+
+    await expect(getFinanceVehicleOptions()).resolves.toEqual([financeOption]);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/finance/vehicle-options", { credentials: "include" });
+    expect(mergeFinanceVehicleOptions([lookup], [financeOption])).toEqual([
+      { ...lookup, sellingPrice: 58_000, additionalCharges: 750 }
+    ]);
+  });
+
+  it("fails closed when Finance vehicle defaults cannot be loaded", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(getFinanceVehicleOptions()).rejects.toThrow("Failed to fetch");
   });
 
   it("surfaces backend validation result messages for failed JSON requests", async () => {
@@ -351,6 +396,37 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/loans", expect.objectContaining({ method: "POST", credentials: "include" }));
     expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:5000/api/deliveries", expect.objectContaining({ method: "POST", credentials: "include" }));
     expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:5000/api/payments", expect.objectContaining({ method: "POST", credentials: "include" }));
+  });
+
+  it("uses authenticated Finance V2 invoice and partial-collection endpoints", async () => {
+    const aggregate = { id: "payment-v2", vehicleId: "vehicle-1", financeWorkflowVersion: 2 };
+    const fetchMock = mockFetch(aggregate);
+    const sale = { vehicleId: "vehicle-1", salesPrice: 60000, interestAdditionalCharges: 500, ncdAmount: 100, windscreenCharges: 200 };
+    const collection = {
+      idempotencyKey: "00000000-0000-0000-0000-000000000123",
+      amount: 10000,
+      method: "DownPayment" as const,
+      financingStatus: "NotApplicable" as const,
+      reference: "MB-1001",
+      receivedDate: "2026-08-27",
+      notes: "First partial payment"
+    };
+
+    await createFinanceSale(sale);
+    await approveNettPriceOverride("payment-v2");
+    await issueFinanceInvoice("payment-v2");
+    await createCollection("payment-v2", collection);
+    await updateCollectionFinancingStatus("collection-1", "Approved");
+    await reconcileCollection("collection-1");
+    await reverseCollection("collection-1", "Bank transfer returned");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/payments/finance-sale", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(sale) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/payments/payment-v2/nett-price-override/approve", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/payments/payment-v2/invoice", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/payments/payment-v2/collections", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(collection) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:5000/api/collection-transactions/collection-1/financing-status", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ status: "Approved" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:5000/api/collection-transactions/collection-1/reconcile", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:5000/api/collection-transactions/collection-1/reverse", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ reason: "Bank transfer returned" }) }));
   });
 
   it("updates vehicle status and public visibility with an authenticated PUT request", async () => {
@@ -584,7 +660,7 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/payments/export", { credentials: "include" });
   });
 
-  it("exports the AutoCount V1 workbook as an authenticated blob with an optional period", async () => {
+  it("exports the AutoCount V2 workbook as an authenticated blob with an optional period", async () => {
     const workbook = new Blob(["xlsx-bytes"], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -682,7 +758,7 @@ describe("backoffice api client", () => {
     const document = new File(["document-bytes"], "evidence.pdf", { type: "application/pdf" });
 
     await uploadVehicleDocument("vehicle-1", document, "RepairInvoice", { repairJobId: "repair-1" });
-    await uploadVehicleDocument("vehicle-1", document, "PaymentReceipt", { paymentRecordId: "payment-1" });
+    await uploadVehicleDocument("vehicle-1", document, "PaymentReceipt", { paymentRecordId: "payment-1", collectionTransactionId: "collection-1" });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -691,7 +767,7 @@ describe("backoffice api client", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=PaymentReceipt&paymentRecordId=payment-1",
+      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=PaymentReceipt&paymentRecordId=payment-1&collectionTransactionId=collection-1",
       expect.objectContaining({ method: "POST", credentials: "include", body: expect.any(FormData) })
     );
   });
@@ -1116,7 +1192,7 @@ describe("backoffice api client", () => {
     await expect(getSupplierInvoices()).resolves.toEqual([]);
     await expect(getLoans()).resolves.toEqual([]);
     await expect(getDeliveries()).resolves.toEqual([]);
-    await expect(getPayments()).resolves.toEqual([]);
+    await expect(getPayments()).rejects.toThrow("Forbidden");
     await expect(getBrokerCommissions()).resolves.toEqual([]);
     await expect(getDebtRecoveries()).resolves.toEqual([]);
     await expect(getPaymentVouchers()).resolves.toEqual([]);

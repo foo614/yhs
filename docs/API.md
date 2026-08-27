@@ -144,7 +144,7 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `POST` | `/api/vehicles/{id}/photos` | `Vehicles` | Upload vehicle photo, max 5 MB. |
 | `GET` | `/api/vehicles/{id}/photos` | `BackOffice` | List photo metadata. |
 | `GET` | `/api/vehicles/{id}/photos/{photoId}/content` | `BackOffice` | Download original photo content. |
-| `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}&deliveryScheduleId={id}` | Category-specific role | Upload document, max 10 MB; workflow-record IDs are mutually exclusive. Delivery categories require `deliveryScheduleId`; the server verifies the schedule, route vehicle, and schedule-locked customer before storing the evidence. |
+| `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}&collectionTransactionId={id}&deliveryScheduleId={id}` | Category-specific role | Upload document, max 10 MB. Repair and delivery workflow links are exclusive. Collection evidence requires both `paymentRecordId` and `collectionTransactionId`; delivery categories require `deliveryScheduleId`. The server verifies each linked record, route vehicle, and locked customer before storing the evidence. |
 | `GET` | `/api/vehicles/{id}/documents` | Category-specific role | List document metadata visible to the signed-in department. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | Category-specific role | Download document content visible to the signed-in department. |
 | `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start Google Document AI analysis for the authorized uploaded document category, including IC, VOC, invoice, and receipt review. |
@@ -192,10 +192,10 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `GET` | `/api/deliveries/pic-options` | `Deliveries` | Return active Delivery or Boss/Admin staff choices for PIC assignment. |
 | `POST` | `/api/deliveries` | `Deliveries` | Create one active delivery plan for a vehicle with an existing canonical buyer and a valid staff PIC. The server locks the buyer and starts the internal status at `BookingInspection`. |
 | `PUT` | `/api/deliveries/{id}` | `Deliveries` | Update an active delivery plan. Vehicle, buyer, and internal status are server-owned; schedule changes require a reschedule reason. |
-| `POST` | `/api/deliveries/{id}/correct-buyer` | `BossAdmin` | Lock the vehicle's current canonical buyer onto an active legacy delivery with a required reason. The server rejects another customer or evidence already owned by someone else. |
+| `POST` | `/api/deliveries/{id}/correct-buyer` | `BossAdmin` | Correct the vehicle and active delivery buyer with a required reason. Once a Finance V2 receivable exists, only a safe repair to that receivable customer is allowed; the server also rejects evidence already owned by someone else. |
 | `GET` | `/api/deliveries/{id}/activity` | `Deliveries` | List append-only delivery activity with the staff actor and server timestamp. |
 | `GET` | `/api/deliveries/{id}/release-readiness` | `Deliveries` | Check the exact delivery checklist, required delivery-owned documents, and release evidence metadata. |
-| `POST` | `/api/deliveries/{id}/request-invoice-update` | `Deliveries` | Record a reasoned request for Finance; it does not edit invoice or payment data. |
+| `POST` | `/api/deliveries/{id}/request-invoice-update` | `Deliveries` | Record a reasoned pre-issuance request for Finance; it does not edit invoice or payment data and is rejected after the immutable Finance V2 invoice exists. |
 | `GET` | `/api/deliveries/invoice-update-requests` | `Finance` | List open Delivery invoice-update requests with the vehicle, locked customer, reason, and request time for Finance follow-up. |
 | `POST` | `/api/deliveries/{id}/release` | `Deliveries` | Release a ready vehicle after exact evidence and reconciled Finance clearance pass server validation. |
 | `POST` | `/api/deliveries/{id}/cancel` | `Deliveries` | Cancel an active delivery plan with a required reason. |
@@ -244,16 +244,28 @@ Workflow integrity:
 
 ## Finance
 
-All finance endpoints require the `Finance` policy, except the separately authorized Boss/Admin management-review action.
+Finance V2 uses one receivable per vehicle, one immutable YS Heng invoice snapshot, and multiple partial collection rows. Creating the receivable locks the buyer identity even while a manual nett-price variance is waiting for approval. An active Delivery invoice-update request must be resolved or cancelled before the immutable invoice is issued, and no new request can be opened or closed after issuance. All finance endpoints require the `Finance` policy except the Boss/Admin-only legacy management review, nett-price variance approval, and collection reversal actions.
+
+First-deploy assumption: no pre-existing Finance V2 invoice can already have an open Delivery invoice-update request. If invalid data is imported later, the API rejects invoice issuance and request resolution instead of claiming that an immutable PDF was changed.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` / `POST` | `/api/payments` | List/create payment records. |
+| `GET` | `/api/finance/vehicle-options` | Return the Finance-only car plate choices with canonical customer, selling price, and additional charges used to prefill invoice preparation. Purchase and refurbishment values are excluded. |
+| `GET` | `/api/payments` | List legacy and V2 payment records. Each row includes the linked invoice, collection history, collected amount, balance, amount still available to allocate, and plain-language receivable status. |
+| `POST` | `/api/payments` | Create a legacy payment record. New sales should use `/api/payments/finance-sale`. |
+| `POST` | `/api/payments/finance-sale` | Create a Finance V2 sale. The server calculates nett price and issues the invoice immediately when no manual variance exists. |
 | `GET` | `/api/payments/export` | Export payment CSV after Finance/Admin authorization and audit logging. |
-| `PUT` | `/api/payments/{id}` | Update payment workflow/reconciliation. |
-| `POST` | `/api/payments/{id}/management-review` | Boss/Admin marks the payment as management-reviewed with an audit record. Payment CRUD cannot self-assert this review, and material finance edits reset it. |
-| `POST` | `/api/deliveries/{id}/resolve-invoice-update` | Finance closes an open Delivery invoice-update request after handling it; this records the Finance actor and server timestamp and removes that release blocker. |
-| `GET` | `/api/finance-invoices/{invoiceId}/content` | Download a historical finance-invoice PDF; no new finance invoices are generated by this system. |
+| `GET` | `/api/payments/export-autocount?from=YYYY-MM-DD&to=YYYY-MM-DD` | Export the AutoCount Excel review workbook with period-scoped sales-invoice and collection sheets. A collection keeps its invoice number even when that invoice was issued before the selected period. This remains a manual mapping aid, not a verified direct-import template. |
+| `PUT` | `/api/payments/{id}` | Update a legacy payment workflow. V2 rows reject this general update route, and legacy requests cannot alter server-owned V2 customer, formula, variance, approval, or workflow-version fields. |
+| `POST` | `/api/payments/{id}/management-review` | Boss/Admin marks a legacy payment as management-reviewed. Payment CRUD cannot self-assert this review, and material legacy edits reset it. |
+| `POST` | `/api/payments/{id}/nett-price-override/approve` | Boss/Admin approves a V2 manual nett-price variance and atomically issues the invoice. The requester cannot approve their own variance. |
+| `POST` | `/api/payments/{id}/invoice` | Idempotently issue or recover an eligible V2 invoice after any active Delivery invoice-update request is resolved or cancelled. |
+| `POST` | `/api/payments/{id}/collections` | Add one non-cash partial collection without exceeding the unallocated invoice balance. New clients supply an `idempotencyKey`; an exact retry returns the existing aggregate, while reuse with different details is rejected. Every allowed method requires a traceable reference. |
+| `POST` | `/api/collection-transactions/{id}/financing-status` | Record the external bank progression from `Pending` to `Approved` to `Disbursed`. A bank-disbursement collection always starts at `Pending`. |
+| `POST` | `/api/collection-transactions/{id}/reconcile` | Reconcile a collection after the funds are confirmed. The recorder cannot reconcile their own collection, evidence must be linked to that exact collection, and only reconciled collections reduce balance. |
+| `POST` | `/api/collection-transactions/{id}/reverse` | Boss/Admin reverses a collection with a required reason; no collection row is deleted. |
+| `POST` | `/api/deliveries/{id}/resolve-invoice-update` | Finance closes a legacy pre-issuance Delivery invoice-update request after handling it; this records the Finance actor and server timestamp. Resolution is rejected after an immutable Finance V2 invoice exists. |
+| `GET` | `/api/finance-invoices/{invoiceId}/content` | Download the protected YS Heng sales-invoice PDF and record the authenticated Finance actor in the audit log before content is returned. |
 | `GET` / `POST` | `/api/settlement-reminders` | List/create settlement reminders. |
 | `PUT` | `/api/settlement-reminders/{id}` | Update settlement reminder. |
 | `GET` / `POST` | `/api/daily-spends` | List/create daily spend rows. |
@@ -265,9 +277,18 @@ All finance endpoints require the `Finance` policy, except the separately author
 | `GET` / `POST` | `/api/payment-vouchers` | List/create payment vouchers. |
 | `PUT` | `/api/payment-vouchers/{id}` | Update payment voucher. |
 
-`PaymentRecord.OutstationDeliveryDate` is a compatibility field derived from the active outstation delivery schedule during payment create/update. Client-supplied Finance values do not override the Delivery-owned schedule date.
+Finance V2 nett price is calculated to two decimal places:
 
-Payment reconciliation also requires a canonical existing vehicle buyer, the existing receipt/invoice references, finance checklist, and a separate Boss/Admin management review. The review is set only by `POST /api/payments/{id}/management-review`; later material payment edits clear it.
+```text
+calculatedNettPrice = salesPrice + interestAdditionalCharges + windscreenCharges - ncdAmount
+nettPriceVariance = agreedNettPrice - calculatedNettPrice
+```
+
+The agreed nett price may differ from the calculation only with a reason and approval from a different Boss/Admin user. After a V2 receivable exists, the confirmed buyer cannot be reassigned through ordinary vehicle or legacy-payment updates. Collection creation and reconciliation recheck that the vehicle, receivable, and immutable invoice snapshot still identify the same buyer. A V2 receivable is finance-settled only after an invoice exists and reconciled, non-reversed collections reduce the balance to zero. Pending allocations reserve available balance but do not count as collected. A vehicle becomes `Sold` only when that Finance clearance and a released delivery are both present.
+
+Collection requests are serialized per receivable. Active collection references are normalized and unique per payment method across sales, and the database enforces this invariant for concurrent requests. Upload `PaymentReceipt` or `PaymentInvoice` evidence with both `paymentRecordId` and `collectionTransactionId`; the collection must belong to that payment and vehicle. Evidence MIME type and filename extension must match the detected content; PDFs are parsed strictly with PdfPig, while images are decoded and dimension-bounded before storage. Invoice issuance and collection mutations are audit logged.
+
+`PaymentRecord.OutstationDeliveryDate` is a compatibility field derived from the active outstation delivery schedule during legacy payment create/update. Client-supplied Finance values do not override the Delivery-owned schedule date. Finance V2 rows are excluded from legacy Cash Custody because that flow cannot yet link one handover to a partial collection safely.
 
 ## Cash Custody And Official Receipts
 
@@ -378,6 +399,10 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `DeliveryType`: `Standard`, `Outstation`
 - `DeliveryStage`: `PlanDelivery`, `PrepareCar`, `ClearDocuments`, `Handover`, `Completed`, `Cancelled`
 - `PaymentStatus`: `Pending`, `Approved`, `Disbursed`, `Reconciled`
+- `CollectionStatus`: `Pending`, `Reconciled`, `Reversed`
+- `CollectionMethod`: `BookingDeposit`, `DownPayment`, `BankTransfer`, `BankDisbursement`, `Cheque`, `Card`, `TradeInCredit`, `Other`, `Cash`
+- `FinancingStatus`: `NotApplicable`, `Pending`, `Approved`, `Disbursed`
+- `ReceivableStatus`: `Draft`, `WaitingForApproval`, `ReadyToCollect`, `PartiallyPaid`, `Paid`, `AttentionNeeded`
 - `PaymentVoucherStatus`: `Pending`, `Approved`, `Paid`
 - `CashHandoverStatus`: `ReceivedBySales`, `PendingHandover`, `HandedOver`, `Rejected`, `Receipted`
 - `DebtRecoveryStatus`: `Open`, `FollowedUp`, `Closed`

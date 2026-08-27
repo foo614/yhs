@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace YSHeng.Api.Domain;
 
@@ -11,6 +12,10 @@ public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, Preparing
 public enum DeliveryType { Standard, Outstation }
 public enum DeliveryStage { PlanDelivery, PrepareCar, ClearDocuments, Handover, Completed, Cancelled }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
+public enum CollectionStatus { Pending, Reconciled, Reversed }
+public enum CollectionMethod { BookingDeposit, DownPayment, BankTransfer, BankDisbursement, Cheque, Card, TradeInCredit, Other, Cash }
+public enum FinancingStatus { NotApplicable, Pending, Approved, Disbursed }
+public enum ReceivableStatus { Draft, WaitingForApproval, ReadyToCollect, PartiallyPaid, Paid, AttentionNeeded }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum CashHandoverStatus { ReceivedBySales, PendingHandover, HandedOver, Rejected, Receipted }
 public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
@@ -153,6 +158,7 @@ public sealed record DocumentBlob
     public Guid? OwnerId { get; init; }
     public Guid? RepairJobId { get; init; }
     public Guid? PaymentRecordId { get; init; }
+    public Guid? CollectionTransactionId { get; init; }
     public Guid? DeliveryScheduleId { get; init; }
     public DocumentOwnershipType OwnershipType { get; init; } = DocumentOwnershipType.Vehicle;
     public FileCategory Category { get; init; }
@@ -285,7 +291,17 @@ public sealed record PaymentRecord
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
+    public Guid? CustomerId { get; init; }
     public decimal NettPrice { get; init; }
+    public decimal CalculatedNettPrice { get; init; }
+    public decimal NettPriceVariance { get; init; }
+    public string? NettPriceOverrideReason { get; init; }
+    public string? NettPriceOverrideRequestedBy { get; init; }
+    public DateTime? NettPriceOverrideRequestedAt { get; init; }
+    public string? NettPriceOverrideApprovedBy { get; init; }
+    public DateTime? NettPriceOverrideApprovedAt { get; init; }
+    public string FormulaVersion { get; init; } = "legacy";
+    public int FinanceWorkflowVersion { get; init; } = 1;
     public PaymentStatus Status { get; init; } = PaymentStatus.Pending;
     public string? ReceiptNumber { get; init; }
     public string? InvoiceNumber { get; init; }
@@ -308,6 +324,11 @@ public sealed record FinanceInvoice
     public Guid PaymentRecordId { get; init; }
     public Guid VehicleId { get; init; }
     public Guid CustomerId { get; init; }
+    public string CustomerName { get; init; } = "";
+    public string? CustomerPhone { get; init; }
+    public string? CustomerAddress { get; init; }
+    public string VehiclePlateNumber { get; init; } = "";
+    public string VehicleDescription { get; init; } = "";
     public string InvoiceNumber { get; init; } = "";
     public DateOnly InvoiceDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
     public decimal Amount { get; init; }
@@ -408,6 +429,31 @@ public sealed record OfficialReceipt
     public string ContentMimeType { get; init; } = "application/pdf";
     public string CreatedBy { get; init; } = "";
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record CollectionTransaction
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid PaymentRecordId { get; init; }
+    public Guid IdempotencyKey { get; init; } = Guid.NewGuid();
+    [JsonIgnore]
+    public string IdempotencyFingerprint { get; init; } = "";
+    public decimal Amount { get; init; }
+    public CollectionMethod Method { get; init; }
+    public CollectionStatus Status { get; init; } = CollectionStatus.Pending;
+    public FinancingStatus FinancingStatus { get; init; } = FinancingStatus.NotApplicable;
+    public string? Reference { get; init; }
+    [JsonIgnore]
+    public string? NormalizedReference { get; init; }
+    public DateOnly ReceivedDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public string? Notes { get; init; }
+    public string CreatedBy { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public string? ReconciledBy { get; init; }
+    public DateTime? ReconciledAt { get; init; }
+    public string? ReversedBy { get; init; }
+    public DateTime? ReversedAt { get; init; }
+    public string? ReversalReason { get; init; }
 }
 
 public sealed record HrAttendanceRecord

@@ -1869,6 +1869,30 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Collection_evidence_requires_strict_pdf_content_and_matching_declared_type()
+    {
+        var invalidPdf = "%PDF-1.7\nnot a PDF document"u8.ToArray();
+        var payment = new PaymentRecord { VehicleId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), NettPrice = 100m, SalesPrice = 100m };
+        var vehicle = new Vehicle { Id = payment.VehicleId, PlateNumber = "ABC1234", Make = "Toyota", Model = "Vios", Year = 2022, CustomerId = payment.CustomerId };
+        var customer = new Customer { Id = payment.CustomerId!.Value, Name = "Ali", Phone = "0123" };
+        var validPdf = FinanceInvoiceFactory.Create(payment, vehicle, customer, "YSH-INV-2026-000001", "finance-1", DateTime.UtcNow).Content;
+
+        var invalid = UploadPolicy.ValidateCollectionEvidenceContent("receipt.pdf", "application/pdf", invalidPdf);
+        var valid = UploadPolicy.ValidateCollectionEvidenceContent("receipt.pdf", "application/pdf", validPdf);
+        var mimeMismatch = UploadPolicy.ValidateCollectionEvidenceContent("receipt.pdf", "image/png", validPdf);
+        var extensionMismatch = UploadPolicy.ValidateCollectionEvidenceContent("receipt.png", "application/pdf", validPdf);
+
+        Assert.False(invalid.Result.IsValid);
+        Assert.Contains(invalid.Result.Errors, error => error.Code == "collection_evidence_content_invalid");
+        Assert.True(valid.Result.IsValid);
+        Assert.Equal("application/pdf", valid.MimeType);
+        Assert.False(mimeMismatch.Result.IsValid);
+        Assert.Contains(mimeMismatch.Result.Errors, error => error.Code == "collection_evidence_mime_mismatch");
+        Assert.False(extensionMismatch.Result.IsValid);
+        Assert.Contains(extensionMismatch.Result.Errors, error => error.Code == "collection_evidence_extension_mismatch");
+    }
+
+    [Fact]
     public void Document_ownership_validation_requires_one_compatible_workflow_record()
     {
         var repairId = Guid.NewGuid();

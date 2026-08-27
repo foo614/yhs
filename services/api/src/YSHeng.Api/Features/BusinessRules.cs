@@ -8,6 +8,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using YSHeng.Api.Domain;
 using SkiaSharp;
+using UglyToad.PdfPig;
 
 namespace YSHeng.Api.Features;
 
@@ -2094,8 +2095,121 @@ public static class UploadPolicy
             ? new ValidationResult([new ValidationError("invalid_document_category", "Vehicle photos must be uploaded through the photo endpoint.")])
             : new ValidationResult([]);
 
+    public static (ValidationResult Result, string? MimeType) ValidateCollectionEvidenceContent(
+        string fileName,
+        string? declaredMimeType,
+        ReadOnlySpan<byte> bytes)
+    {
+        var detectedMimeType = DetectCollectionEvidenceMimeType(bytes);
+        if (detectedMimeType is null || !IsStructurallyValidCollectionEvidence(detectedMimeType, bytes))
+        {
+            return (new ValidationResult([new ValidationError(
+                "collection_evidence_content_invalid",
+                "Collection evidence must be a valid PDF, JPEG, PNG, or WebP file.")]), null);
+        }
+
+        var normalizedDeclaredMimeType = declaredMimeType?.Split(';', 2)[0].Trim().ToLowerInvariant() switch
+        {
+            "image/jpg" => "image/jpeg",
+            { Length: > 0 } value => value,
+            _ => null
+        };
+        if (!string.Equals(normalizedDeclaredMimeType, detectedMimeType, StringComparison.Ordinal))
+        {
+            return (new ValidationResult([new ValidationError(
+                "collection_evidence_mime_mismatch",
+                "The uploaded evidence content does not match its declared file type.")]), null);
+        }
+
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        var extensionMatches = detectedMimeType switch
+        {
+            "application/pdf" => extension == ".pdf",
+            "image/jpeg" => extension is ".jpg" or ".jpeg",
+            "image/png" => extension == ".png",
+            "image/webp" => extension == ".webp",
+            _ => false
+        };
+        if (!extensionMatches)
+        {
+            return (new ValidationResult([new ValidationError(
+                "collection_evidence_extension_mismatch",
+                "The uploaded evidence filename does not match its verified file type.")]), null);
+        }
+
+        return (new ValidationResult([]), detectedMimeType);
+    }
+
     public static long LimitFor(FileCategory category) =>
         category == FileCategory.VehiclePhoto ? VehiclePhotoLimit : DocumentLimit;
+
+    private static string? DetectCollectionEvidenceMimeType(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length >= 5 && bytes[..5].SequenceEqual("%PDF-"u8)) return "application/pdf";
+        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return "image/jpeg";
+        if (bytes.Length >= 8 && bytes[..8].SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A })) return "image/png";
+        if (bytes.Length >= 12 && bytes[..4].SequenceEqual("RIFF"u8) && bytes.Slice(8, 4).SequenceEqual("WEBP"u8)) return "image/webp";
+        return null;
+    }
+
+    private static bool IsStructurallyValidCollectionEvidence(string mimeType, ReadOnlySpan<byte> bytes) =>
+        mimeType == "application/pdf" ? IsStructurallyValidPdf(bytes) : IsDecodableReceiptImage(mimeType, bytes);
+
+    private static bool IsDecodableReceiptImage(string mimeType, ReadOnlySpan<byte> bytes)
+    {
+        try
+        {
+            using var data = SKData.CreateCopy(bytes.ToArray());
+            using var codec = SKCodec.Create(data);
+            if (codec is null) return false;
+            SKEncodedImageFormat? expectedFormat = mimeType switch
+            {
+                "image/jpeg" => SKEncodedImageFormat.Jpeg,
+                "image/png" => SKEncodedImageFormat.Png,
+                "image/webp" => SKEncodedImageFormat.Webp,
+                _ => null
+            };
+            var info = codec.Info;
+            if (expectedFormat is null || codec.EncodedFormat != expectedFormat.Value || info.Width <= 0 || info.Height <= 0 || info.Width > 10_000 || info.Height > 10_000 || (long)info.Width * info.Height > 40_000_000)
+            {
+                return false;
+            }
+
+            using var bitmap = new SKBitmap(info);
+            return codec.GetPixels(info, bitmap.GetPixels()) == SKCodecResult.Success;
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsStructurallyValidPdf(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length < 8 || bytes.Length > DocumentLimit ||
+            !bytes[..5].SequenceEqual("%PDF-"u8) || bytes[5] is < (byte)'1' or > (byte)'2' ||
+            bytes[6] != (byte)'.' || bytes[7] is < (byte)'0' or > (byte)'9')
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = PdfDocument.Open(bytes.ToArray(), ParsingOptions.LenientParsingOff);
+            if (document.NumberOfPages is < 1 or > 100) return false;
+
+            for (var pageNumber = 1; pageNumber <= document.NumberOfPages; pageNumber++)
+            {
+                _ = document.GetPage(pageNumber);
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
 }
 
 public static class UploadMetadata
@@ -2735,12 +2849,16 @@ public static class DashboardMetrics
         IEnumerable<Lead> leads,
         DateOnly today,
         DateOnly? analyticsFrom = null,
-        DateOnly? analyticsTo = null)
+        DateOnly? analyticsTo = null,
+        IEnumerable<CollectionTransaction>? collections = null)
     {
         var vehicleList = vehicles.ToList();
         var loanList = loans.ToList();
         var deliveryList = deliveries.ToList();
         var paymentList = payments.ToList();
+        var collectionsByPayment = (collections ?? [])
+            .GroupBy(collection => collection.PaymentRecordId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<CollectionTransaction>)group.ToList());
         var settlementList = settlements.ToList();
         var repairList = repairs.ToList();
         var supplierInvoiceList = supplierInvoices.ToList();
@@ -2871,7 +2989,9 @@ public static class DashboardMetrics
                     soldVehicles.Length);
             })
             .ToArray();
-        var outstandingPayment = paymentList.Where(payment => payment.Status != PaymentStatus.Reconciled).Sum(payment => payment.NettPrice);
+        var outstandingPayment = paymentList.Sum(payment => payment.FinanceWorkflowVersion == 2
+            ? FinanceV2Rules.Balance(payment, collectionsByPayment.GetValueOrDefault(payment.Id) ?? [])
+            : payment.Status != PaymentStatus.Reconciled ? payment.NettPrice : 0m);
         var openDebtRecovery = debtRecoveryList.Where(debt => debt.Status != DebtRecoveryStatus.Closed).Sum(debt => debt.BalanceAmount);
         var dueSettlements = settlementList.Where(settlement => ReminderRules.IsSettlementDue(settlement, today)).ToArray();
         var settlementDue = dueSettlements.Length;

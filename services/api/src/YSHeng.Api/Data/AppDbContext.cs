@@ -24,6 +24,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<DeliveryActivity> DeliveryActivities => Set<DeliveryActivity>();
     public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
     public DbSet<FinanceInvoice> FinanceInvoices => Set<FinanceInvoice>();
+    public DbSet<CollectionTransaction> CollectionTransactions => Set<CollectionTransaction>();
     public DbSet<SettlementReminder> SettlementReminders => Set<SettlementReminder>();
     public DbSet<DailySpend> DailySpends => Set<DailySpend>();
     public DbSet<BrokerCommission> BrokerCommissions => Set<BrokerCommission>();
@@ -63,6 +64,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<DocumentBlob>().HasIndex(document => document.OwnershipType);
         builder.Entity<DocumentBlob>().HasIndex(document => document.RepairJobId);
         builder.Entity<DocumentBlob>().HasIndex(document => document.PaymentRecordId);
+        builder.Entity<DocumentBlob>().HasIndex(document => document.CollectionTransactionId);
         builder.Entity<DocumentBlob>().HasIndex(document => document.DeliveryScheduleId);
         builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.VehicleId);
         builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.CustomerId);
@@ -73,6 +75,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<FinanceInvoice>().Property(invoice => invoice.Content).HasColumnType("bytea");
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.PaymentRecordId).IsUnique();
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.InvoiceNumber).IsUnique();
+        builder.Entity<PaymentRecord>()
+            .HasIndex(payment => payment.VehicleId)
+            .HasDatabaseName("IX_PaymentRecords_VehicleId_FinanceV2")
+            .HasFilter("\"FinanceWorkflowVersion\" = 2")
+            .IsUnique();
+        builder.Entity<CollectionTransaction>().HasIndex(collection => new { collection.PaymentRecordId, collection.CreatedAt });
+        builder.Entity<CollectionTransaction>()
+            .HasIndex(collection => new { collection.PaymentRecordId, collection.IdempotencyKey })
+            .HasDatabaseName("IX_CollectionTransactions_PaymentRecordId_IdempotencyKey")
+            .IsUnique();
+        builder.Entity<CollectionTransaction>().HasIndex(collection => new { collection.Status, collection.ReceivedDate });
+        builder.Entity<CollectionTransaction>().HasIndex(collection => collection.Reference);
+        builder.Entity<CollectionTransaction>()
+            .HasIndex(collection => new { collection.Method, collection.NormalizedReference })
+            .HasDatabaseName("UX_CollectionTransactions_ActiveMethod_NormalizedReference")
+            .HasFilter("\"NormalizedReference\" IS NOT NULL AND \"Status\" <> 2")
+            .IsUnique();
         builder.Entity<CashHandover>().HasIndex(handover => handover.PaymentRecordId).IsUnique();
         builder.Entity<CashHandover>().HasIndex(handover => new { handover.Status, handover.CollectedAt });
         builder.Entity<OfficialReceipt>().Property(receipt => receipt.Content).HasColumnType("bytea");

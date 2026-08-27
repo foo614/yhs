@@ -9,13 +9,15 @@ export function filterFinanceRows<T>(
   keyword: string,
   status: string | undefined,
   searchValues: (row: T) => Array<string | undefined | null>,
-  rowStatus: (row: T) => string
+  rowStatus: (row: T) => string | string[]
 ) {
   const normalizedKeyword = keyword.trim().toLocaleLowerCase();
 
   return rows.filter((row) => {
     const matchesKeyword = !normalizedKeyword || searchValues(row).some((value) => value?.toLocaleLowerCase().includes(normalizedKeyword));
-    return matchesKeyword && (!status || rowStatus(row) === status);
+    const statuses = rowStatus(row);
+    const matchesStatus = !status || (Array.isArray(statuses) ? statuses.includes(status) : statuses === status);
+    return matchesKeyword && matchesStatus;
   });
 }
 

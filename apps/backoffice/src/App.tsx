@@ -88,9 +88,12 @@ import {
   createHrAttendanceQrChallenge,
   createHrBusinessTrip,
   acceptCashHandover,
+  approveNettPriceOverride,
   approvePaymentManagementReview,
   approveRepair,
   createCashHandover,
+  createCollection,
+  createFinanceSale,
   createHrLeaveAdjustment,
   createHrLeaveRequest,
   createHrPayPeriod,
@@ -119,6 +122,7 @@ import {
   generateHrPayslips,
   getAuditLog,
   getCurrentUser,
+  getFinanceVehicleOptions,
   getCustomers,
   getBrokerCommissions,
   getCashHandovers,
@@ -164,8 +168,10 @@ import {
   getVehicleOcrJobs,
   getVehicles,
   humanizeApiError,
+  issueFinanceInvoice,
   login,
   logout,
+  mergeFinanceVehicleOptions,
   cancelHrBusinessTrip,
   decideHrBusinessTrip,
   endHrOutstation,
@@ -173,7 +179,9 @@ import {
   redeemHrAttendanceQr,
   resetStaffUserPassword,
   recordCashHandover,
+  reconcileCollection,
   rejectCashHandover,
+  reverseCollection,
   requestCashHandover,
   hrMedicalCertificateContentUrl,
   updateHrLeaveBalance,
@@ -191,6 +199,7 @@ import {
   updateOcrUsageLimit,
   updatePayment,
   updatePaymentVoucher,
+  updateCollectionFinancingStatus,
   updatePurchaseInvoice,
   updateRepair,
   updateSettlementReminder,
@@ -223,6 +232,7 @@ import {
   type DebtRecoveryCase,
   type DeliverySchedule,
   type DocumentCategory,
+  type DocumentUploadOwner,
   type HrAttendanceRecord,
   type HrAttendanceDashboardSummary,
   type HrAvailabilityCalendarItem,
@@ -240,6 +250,7 @@ import {
   type HrPayPeriod,
   type HrPayrollProfile,
   type HrPayslip,
+  type FinanceVehicleOption,
   type Lead,
   type LoanApplication,
   type LoanDocumentCheck,
@@ -404,6 +415,8 @@ export default function App() {
   const [loans, setLoans] = useState<LoanApplication[]>([]);
   const [deliveries, setDeliveries] = useState<DeliverySchedule[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [paymentLoadError, setPaymentLoadError] = useState<string | null>(null);
+  const [paymentRefreshing, setPaymentRefreshing] = useState(false);
   const [cashHandovers, setCashHandovers] = useState<CashHandover[]>([]);
   const [cashHandoverPaymentLookup, setCashHandoverPaymentLookup] = useState<CashHandoverPaymentLookup[]>([]);
   const [settlements, setSettlements] = useState<SettlementReminder[]>([]);
@@ -434,6 +447,9 @@ export default function App() {
   const [hrPayPeriods, setHrPayPeriods] = useState<HrPayPeriod[]>([]);
   const [hrPayslips, setHrPayslips] = useState<HrPayslip[]>([]);
   const [vehicleLookup, setVehicleLookup] = useState<VehicleLookup[]>([]);
+  const [financeVehicleOptions, setFinanceVehicleOptions] = useState<FinanceVehicleOption[]>([]);
+  const [financeVehicleOptionLoadError, setFinanceVehicleOptionLoadError] = useState<string | null>(null);
+  const [financeVehicleOptionRefreshing, setFinanceVehicleOptionRefreshing] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [logoutSucceeded, setLogoutSucceeded] = useState(false);
@@ -441,6 +457,10 @@ export default function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const currentRoles = useMemo(() => currentUser?.roles ?? [], [currentUser?.roles]);
+  const financeVehicles = useMemo(
+    () => mergeFinanceVehicleOptions(vehicleLookup, financeVehicleOptions),
+    [financeVehicleOptions, vehicleLookup]
+  );
 
   const loadBackOfficeData = useCallback(async (roles?: string[]) => {
     const allowed = new Set(backOfficeDataKeysForRoles(roles));
@@ -451,6 +471,7 @@ export default function App() {
       priorityActionData,
       vehicleData,
       vehicleLookupData,
+      financeVehicleOptionResult,
       customerData,
       ownerData,
       purchaseInvoiceData,
@@ -458,7 +479,7 @@ export default function App() {
       repairData,
       loanData,
       deliveryData,
-      paymentData,
+      paymentResult,
       cashHandoverData,
       cashHandoverPaymentLookupData,
       settlementData,
@@ -491,6 +512,11 @@ export default function App() {
       getPriorityActions(),
       canLoad("vehicles") ? getVehicles() : Promise.resolve([]),
       canLoad("vehicleLookup") ? getVehicleLookup() : Promise.resolve([]),
+      canLoad("financeVehicleOptions")
+        ? getFinanceVehicleOptions()
+            .then((data) => ({ data, error: null as string | null }))
+            .catch((error) => ({ data: [] as FinanceVehicleOption[], error: humanizeApiError(error, "Vehicle prices could not be loaded.") }))
+        : Promise.resolve({ data: [] as FinanceVehicleOption[], error: null as string | null }),
       canLoad("customers") ? getCustomers() : Promise.resolve([]),
       canLoad("owners") ? getOwners() : Promise.resolve([]),
       canLoad("purchaseInvoices") ? getPurchaseInvoices() : Promise.resolve([]),
@@ -498,7 +524,11 @@ export default function App() {
       canLoad("repairs") ? getRepairs() : Promise.resolve([]),
       canLoad("loans") ? getLoans() : Promise.resolve([]),
       canLoad("deliveries") ? getDeliveries() : Promise.resolve([]),
-      canLoad("payments") ? getPayments() : Promise.resolve([]),
+      canLoad("payments")
+        ? getPayments()
+            .then((data) => ({ data, error: null as string | null }))
+            .catch((error) => ({ data: [] as PaymentRecord[], error: humanizeApiError(error, "Finance records could not be loaded.") }))
+        : Promise.resolve({ data: [] as PaymentRecord[], error: null as string | null }),
       canLoad("cashHandovers") ? getCashHandovers() : Promise.resolve([]),
       canLoad("cashHandoverPaymentLookup") ? getCashHandoverPaymentLookup() : Promise.resolve([]),
       canLoad("settlements") ? getSettlementReminders() : Promise.resolve([]),
@@ -534,6 +564,8 @@ export default function App() {
     setDashboardLastCheckedAt(new Date());
     setVehicles(vehicleData);
     setVehicleLookup(vehicleLookupData);
+    setFinanceVehicleOptions(financeVehicleOptionResult.data);
+    setFinanceVehicleOptionLoadError(financeVehicleOptionResult.error);
     setCustomers(customerData);
     setOwners(ownerData);
     setPurchaseInvoices(purchaseInvoiceData);
@@ -541,7 +573,8 @@ export default function App() {
     setRepairs(repairData);
     setLoans(loanData);
     setDeliveries(deliveryData);
-    setPayments(paymentData);
+    setPayments(paymentResult.data);
+    setPaymentLoadError(paymentResult.error);
     setCashHandovers(cashHandoverData);
     setCashHandoverPaymentLookup(cashHandoverPaymentLookupData);
     setSettlements(settlementData);
@@ -709,6 +742,34 @@ export default function App() {
     }
   }, [dashboardPeriod]);
 
+  const refreshPayments = useCallback(async () => {
+    setPaymentRefreshing(true);
+    try {
+      const records = await getPayments();
+      setPayments(records);
+      setPaymentLoadError(null);
+    } catch (error) {
+      setPayments([]);
+      setPaymentLoadError(humanizeApiError(error, "Finance records could not be loaded."));
+    } finally {
+      setPaymentRefreshing(false);
+    }
+  }, []);
+
+  const refreshFinanceVehicleOptions = useCallback(async () => {
+    setFinanceVehicleOptionRefreshing(true);
+    try {
+      const options = await getFinanceVehicleOptions();
+      setFinanceVehicleOptions(options);
+      setFinanceVehicleOptionLoadError(null);
+    } catch (error) {
+      setFinanceVehicleOptions([]);
+      setFinanceVehicleOptionLoadError(humanizeApiError(error, "Vehicle prices could not be loaded."));
+    } finally {
+      setFinanceVehicleOptionRefreshing(false);
+    }
+  }, []);
+
   const changeDashboardPeriod = useCallback(async (preset: DashboardAnalyticsRangePreset, period: DashboardAnalyticsPeriod) => {
     setDashboardRangePreset(preset);
     setDashboardPeriod(period);
@@ -773,6 +834,19 @@ export default function App() {
       success(record);
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
       notifySuccess(text, "The record has been updated and synced.");
+    } catch (error) {
+      notifyError("Update failed", humanizeApiError(error));
+      throw error;
+    }
+  }
+
+  async function runUpdateWithResult<T>(action: () => Promise<T>, success: (record: T) => void, text: string): Promise<T> {
+    try {
+      const record = await action();
+      success(record);
+      await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
+      notifySuccess(text, "The record has been updated and synced.");
+      return record;
     } catch (error) {
       notifyError("Update failed", humanizeApiError(error));
       throw error;
@@ -992,10 +1066,14 @@ export default function App() {
           )}
           {pathname === "/finance" && (
             <FinancePage
-              vehicles={vehicleLookup}
+              vehicles={financeVehicles}
               customers={customers}
               owners={owners}
               payments={payments}
+              paymentLoadError={paymentLoadError}
+              paymentRefreshing={paymentRefreshing}
+              financeVehicleOptionLoadError={financeVehicleOptionLoadError}
+              financeVehicleOptionRefreshing={financeVehicleOptionRefreshing}
               settlements={settlements}
               dailySpends={dailySpends}
               brokerCommissions={brokerCommissions}
@@ -1004,11 +1082,20 @@ export default function App() {
               currentUser={currentUser}
               dashboardFocus={dashboardDrilldown}
               onClearDashboardFocus={(tab) => navigateTo(`/finance?tab=${encodeURIComponent(tab)}`)}
+              onRetryPayments={refreshPayments}
+              onRetryFinanceVehicleOptions={refreshFinanceVehicleOptions}
               cashHandovers={cashHandovers}
               cashHandoverPaymentLookup={cashHandoverPaymentLookup}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
               onApproveManagementReview={(paymentId) => runUpdate(() => approvePaymentManagementReview(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Management review approved")}
+              onCreateFinanceSale={(input) => runCreateWithResult(() => createFinanceSale(input), (record) => setPayments((items) => replaceByIdOrPrepend(items, record)), "Invoice prepared")}
+              onApproveNettPriceOverride={(paymentId) => runUpdateWithResult(() => approveNettPriceOverride(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Price adjustment approved")}
+              onIssueInvoice={(paymentId) => runUpdateWithResult(() => issueFinanceInvoice(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Invoice issued")}
+              onCreateCollection={(paymentId, input) => runUpdateWithResult(() => createCollection(paymentId, input), (record) => setPayments((items) => replaceById(items, record)), "Payment added")}
+              onUpdateCollectionFinancingStatus={(collectionId, status) => runUpdateWithResult(() => updateCollectionFinancingStatus(collectionId, status), (record) => setPayments((items) => replaceById(items, record)), "Financing status updated")}
+              onReconcileCollection={(collectionId) => runUpdateWithResult(() => reconcileCollection(collectionId), (record) => setPayments((items) => replaceById(items, record)), "Payment reconciled")}
+              onReverseCollection={(collectionId, reason) => runUpdateWithResult(() => reverseCollection(collectionId, reason), (record) => setPayments((items) => replaceById(items, record)), "Payment reversed")}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
               onCreateSettlement={(settlement) => runCreate(() => createSettlementReminder(settlement), (record) => setSettlements((items) => [record, ...items]), "Settlement reminder created")}
               onUpdateSettlement={(settlement) => runUpdate(() => updateSettlementReminder(settlement), (record) => setSettlements((items) => replaceById(items, record)), "Settlement reminder updated")}
@@ -1022,7 +1109,7 @@ export default function App() {
               onUpdatePaymentVoucher={(voucher) => runUpdate(() => updatePaymentVoucher(voucher), (record) => setPaymentVouchers((items) => replaceById(items, record)), "Payment voucher updated")}
               onExportPayments={() => exportPaymentsCsv()}
               onExportAutoCount={(from, to) => exportAutoCountWorkbook(from, to)}
-              onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Finance document uploaded")}
+              onUploadDocument={(vehicleId, file, category, owner?: DocumentUploadOwner) => runUpload(() => uploadVehicleDocument(vehicleId, file, category, owner), "Finance document uploaded")}
               onCreateCashHandover={(paymentRecordId, amount, notes) => runCreate(() => createCashHandover(paymentRecordId, amount, notes), (record) => setCashHandovers((items) => [record, ...items]), "Cash received recorded")}
               onRequestCashHandover={(id) => runUpdate(() => requestCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover requested")}
               onRecordCashHandover={(id) => runUpdate(() => recordCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash receipt confirmed")}
@@ -4977,6 +5064,7 @@ function dataKeyLabel(key: BackOfficeDataKey) {
     reminders: "Reminder inbox",
     vehicles: "Vehicle records",
     vehicleLookup: "Car plate lookup",
+    financeVehicleOptions: "Finance invoice vehicle defaults",
     customers: "Customer records",
     owners: "Owner records",
     purchaseInvoices: "Purchase invoices",

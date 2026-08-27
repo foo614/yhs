@@ -1,6 +1,43 @@
-import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
+import type { BrokerCommission, CollectionCreateInput, Customer, DailySpend, DebtRecoveryCase, FinanceSaleInput, Owner, PaymentRecord, PaymentVoucher, ReceivableStatus, SettlementReminder, VehicleLookup } from "./api";
 
 export const financeDocumentCategories = ["PaymentReceipt", "PaymentInvoice"] as const;
+
+export function isFinanceV2(payment: PaymentRecord) {
+  return (payment.financeWorkflowVersion ?? 1) >= 2;
+}
+
+export function calculateFinanceNettPrice(values: Pick<FinanceSaleInput, "salesPrice" | "interestAdditionalCharges" | "ncdAmount" | "windscreenCharges">) {
+  return roundMoney(values.salesPrice + values.interestAdditionalCharges + values.windscreenCharges - values.ncdAmount);
+}
+
+export function financeSaleBlockReason(input: FinanceSaleInput, vehicles: VehicleLookup[] = []) {
+  if (!vehicles.some((vehicle) => vehicle.id === input.vehicleId && Boolean(vehicle.customerId))) return "Select a vehicle with a confirmed buyer.";
+  if (input.salesPrice < 0 || input.interestAdditionalCharges < 0 || input.ncdAmount < 0 || input.windscreenCharges < 0) return "Invoice amounts cannot be negative.";
+
+  const calculated = calculateFinanceNettPrice(input);
+  const agreed = input.nettPrice ?? calculated;
+  if (calculated <= 0 || agreed <= 0) return "Invoice total must be greater than zero.";
+  if (roundMoney(agreed - calculated) !== 0 && !input.nettPriceOverrideReason?.trim()) return "Explain the price adjustment before sending it for approval.";
+  return undefined;
+}
+
+export function collectionCreateBlockReason(payment: PaymentRecord, input: CollectionCreateInput) {
+  const available = payment.availableToAllocate ?? payment.balanceAmount ?? payment.nettPrice;
+  if (input.amount <= 0) return "Payment amount must be greater than zero.";
+  if (input.amount > available) return `Payment amount cannot exceed the available balance of RM ${available.toFixed(2)}.`;
+  if (!input.receivedDate?.trim()) return "Received date is required.";
+  if (!input.reference?.trim()) return "Enter a traceable payment reference.";
+  if (input.method === "BankDisbursement" && input.financingStatus !== "Pending") return "New bank financing must start as Pending.";
+  return undefined;
+}
+
+export function receivableStatusLabel(status: ReceivableStatus | undefined) {
+  return ({ Draft: "Draft", WaitingForApproval: "Price approval needed", ReadyToCollect: "Ready to collect", PartiallyPaid: "Partially paid", Paid: "Paid", AttentionNeeded: "Needs attention" } satisfies Record<ReceivableStatus, string>)[status ?? "Draft"];
+}
+
+export function receivableStatusColor(status: ReceivableStatus | undefined) {
+  return ({ Draft: "default", WaitingForApproval: "gold", ReadyToCollect: "blue", PartiallyPaid: "orange", Paid: "green", AttentionNeeded: "red" } satisfies Record<ReceivableStatus, string>)[status ?? "Draft"];
+}
 
 export function canReconcilePayment(payment: PaymentRecord, existing: PaymentRecord[] = []) {
   return paymentReconcileBlockReason(payment, existing) === undefined;
@@ -212,4 +249,8 @@ function hasDuplicateReference(payment: PaymentRecord, existing: PaymentRecord[]
 
 function normalizeReference(value?: string) {
   return value?.trim().toLowerCase() ?? "";
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
