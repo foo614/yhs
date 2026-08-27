@@ -106,6 +106,7 @@ services:
       dockerfile: apps/backoffice/Dockerfile
       args:
         VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+        VITE_FRONTOFFICE_ORIGIN: ${FRONTOFFICE_ORIGIN}
     restart: unless-stopped
     depends_on:
       api:

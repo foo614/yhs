@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterOperationIntakeVehicles, getVehicleWorkflowState, vehicleCustomerEditPolicy, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep } from "./VehiclePage";
-import type { Lead, LoanApplication, PurchaseInvoice, Vehicle } from "../../api";
+import { effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, getVehicleWorkflowState, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import type { Lead, LoanApplication, PurchaseInvoice, RepairJob, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
   id: "vehicle-1",
@@ -72,6 +72,30 @@ describe("filterOperationIntakeVehicles", () => {
   });
 });
 
+describe("vehicleSoldInAnalyticsPeriod", () => {
+  it("uses the Singapore sale date for dashboard sold drill-downs", () => {
+    const soldVehicle = { ...baseVehicle, status: "Sold" as const, soldAt: "2026-05-31T17:00:00.000Z" };
+
+    expect(vehicleSoldInAnalyticsPeriod(soldVehicle, { from: "2026-06-01", to: "2026-06-01" })).toBe(true);
+    expect(vehicleSoldInAnalyticsPeriod(soldVehicle, { from: "2026-05-31", to: "2026-05-31" })).toBe(false);
+    expect(vehicleSoldInAnalyticsPeriod({ ...soldVehicle, soldAt: undefined }, { from: "2026-06-01", to: "2026-06-01" })).toBe(false);
+  });
+});
+
+describe("vehicle repair cost display", () => {
+  it("uses the server final-repair value first, then final repairs, then the intake fallback for the same profit calculation", () => {
+    const repairs: RepairJob[] = [
+      { id: "repair-1", vehicleId: baseVehicle.id, repairPart: "Paint", whatToDo: "Polish", cost: 450, checklistDone: false, approvalStatus: "Pending" },
+      { id: "repair-2", vehicleId: baseVehicle.id, repairPart: "Paint", whatToDo: "Paint", cost: 1500, checklistDone: true, approvalStatus: "Pending" }
+    ];
+
+    expect(effectiveRepairCost(baseVehicle, repairs)).toBe(450);
+    expect(effectiveRepairCost({ ...baseVehicle, repairCost: 900 }, repairs)).toBe(900);
+    expect(effectiveRepairCost({ ...baseVehicle, id: "vehicle-no-repairs" }, repairs)).toBe(1200);
+    expect(estimatedVehicleProfit(baseVehicle, effectiveRepairCost({ ...baseVehicle, repairCost: 900 }, repairs))).toBe(4800);
+  });
+});
+
 describe("vehicleLoanHandoffStep", () => {
   it("opens an existing loan without asking for the buyer again", () => {
     expect(vehicleLoanHandoffStep({ status: "LoanProcessing", customerId: undefined })).toBe("open-existing");
@@ -108,6 +132,26 @@ describe("vehicleCustomerEditPolicy", () => {
   });
 });
 
+describe("vehicle linked-person creation", () => {
+  it("routes New Customer to the vehicle customer link update", () => {
+    expect(vehicleDetailsPersonCreateFlags("customer")).toEqual({ customer: true, owner: false });
+  });
+
+  it("routes New Owner to the vehicle owner link update", () => {
+    expect(vehicleDetailsPersonCreateFlags("owner")).toEqual({ customer: false, owner: true });
+  });
+});
+
+describe("vehicle status labels", () => {
+  it("renders vehicle status values in English without changing enum values", () => {
+    expect(vehicleStatusLabel).toEqual({
+      Available: "Available",
+      LoanProcessing: "Loan in progress",
+      Sold: "Sold"
+    });
+  });
+});
+
 describe("getVehicleWorkflowState", () => {
   it("uses one state model for approval, publishing, buyer linking, and loans", () => {
     expect(getVehicleWorkflowState({ status: "Available", bossConfirmed: false, isPublic: false, customerId: undefined }).nextLabel).toBe("Review Approval");
@@ -116,5 +160,64 @@ describe("getVehicleWorkflowState", () => {
     expect(getVehicleWorkflowState({ status: "Available", bossConfirmed: true, isPublic: true, customerId: "customer-1" }).action).toBe("start-loan");
     expect(getVehicleWorkflowState({ status: "LoanProcessing", bossConfirmed: true, isPublic: false, customerId: "customer-1" }).nextLabel).toBe("Open Loan");
     expect(getVehicleWorkflowState({ status: "Sold", bossConfirmed: true, isPublic: false, customerId: "customer-1" }).action).toBe("none");
+  });
+});
+
+describe("vehicleFromCreateIntakeValues", () => {
+  const intakeValues = {
+    plateNumber: "VAA1001",
+    make: "Toyota",
+    model: "Vios",
+    year: 2022,
+    bossConfirmed: true,
+    isPublic: true
+  };
+
+  it("keeps new vehicles Available and defaults the stock owner", () => {
+    expect(vehicleFromCreateIntakeValues(intakeValues, false, "vehicle-new")).toMatchObject({
+      id: "vehicle-new",
+      status: "Available",
+      stockOwner: "YSHeng",
+      bossConfirmed: false,
+      isPublic: false
+    });
+  });
+
+  it("keeps new vehicles hidden even when management approves intake", () => {
+    expect(vehicleFromCreateIntakeValues(intakeValues, true, "vehicle-new")).toMatchObject({
+      bossConfirmed: true,
+      isPublic: false
+    });
+  });
+});
+
+describe("vehicle document ownership", () => {
+  it("uses the approved defaults and only offers person selection for person-owned categories", () => {
+    expect(vehicleDocumentOwnershipDefault("IdentityCard")).toBe("Buyer");
+    expect(vehicleDocumentOwnershipDefault("PurchaseInvoice")).toBe("Seller");
+    expect(vehicleDocumentOwnershipDefault("Voc")).toBe("Seller");
+    expect(vehicleDocumentOwnershipDefault("ApDocument")).toBe("Seller");
+    expect(vehicleDocumentOwnershipDefault("LoanDocument")).toBe("Buyer");
+    expect(vehicleDocumentOwnershipDefault("DeliveryDocument")).toBe("Buyer");
+    expect(vehicleDocumentOwnershipDefault("Policy")).toBe("Buyer");
+    expect(vehicleDocumentOwnershipDefault("RepairInvoice")).toBe("Vehicle");
+    expect(vehicleDocumentAllowsPersonSelection("IdentityCard")).toBe(true);
+    expect(vehicleDocumentAllowsPersonSelection("PurchaseInvoice")).toBe(true);
+    expect(vehicleDocumentAllowsPersonSelection("LoanDocument")).toBe(true);
+    expect(vehicleDocumentAllowsPersonSelection("RepairInvoice")).toBe(false);
+  });
+
+  it("keeps IdentityCard available in both person tabs without duplicating history", () => {
+    const documents = [
+      { id: "seller-ic", category: "IdentityCard", ownershipType: "Seller" },
+      { id: "buyer-ic", category: "IdentityCard", ownershipType: "Buyer" },
+      { id: "repair", category: "RepairInvoice", ownershipType: "Vehicle" }
+    ] as VehicleDocument[];
+
+    expect(vehicleDocumentCategoriesForOwnership("Seller")).toEqual(["PurchaseInvoice", "Voc", "IdentityCard", "ApDocument"]);
+    expect(vehicleDocumentCategoriesForOwnership("Buyer")).toEqual(["IdentityCard", "LoanDocument", "DeliveryDocument", "Policy"]);
+    expect(vehicleDocumentsForOwnership(documents, "Seller", "IdentityCard").map((document) => document.id)).toEqual(["seller-ic"]);
+    expect(vehicleDocumentsForOwnership(documents, "Buyer", "IdentityCard").map((document) => document.id)).toEqual(["buyer-ic"]);
+    expect(vehicleDocumentsForOwnership(documents, "Vehicle", "RepairInvoice").map((document) => document.id)).toEqual(["repair"]);
   });
 });

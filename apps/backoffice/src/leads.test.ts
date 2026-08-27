@@ -7,6 +7,7 @@ import {
   groupLeadsByVehicle,
   leadCustomerLinkLabel,
   leadCustomerLinkTagColor,
+  leadFilterControlOptions,
   leadPriorityLabel,
   leadSourceSummary,
   leadVehicleLabel,
@@ -86,6 +87,16 @@ describe("lead customer link display", () => {
     expect(filterLeadsForTriage(leads, { status: "Contacted", link: "All" }).map((lead) => lead.id)).toEqual(["lead-2"]);
   });
 
+  it("keeps the Leads filter labels and status choices English-only", () => {
+    expect(leadFilterControlOptions.status).toEqual([
+      { value: "All", label: "All Statuses" },
+      { value: "New", label: "New" },
+      { value: "Contacted", label: "Contacted" },
+      { value: "Closed", label: "Closed" }
+    ]);
+    expect([...leadFilterControlOptions.customerLink, ...leadFilterControlOptions.sort].every((option) => /^[\x00-\x7F]+$/.test(option.label))).toBe(true);
+  });
+
   it("counts multiple open leads against one vehicle while excluding closed leads", () => {
     const leads: Lead[] = [
       baseLead,
@@ -136,6 +147,11 @@ describe("lead customer link display", () => {
   it("labels general website contact enquiries for sales triage", () => {
     expect(leadVehicleLabel({ ...baseLead, vehicleId: "00000000-0000-0000-0000-000000000000" }, vehicles))
       .toBe("Website contact enquiry");
+  });
+
+  it("labels showroom QR enquiries clearly for sales triage", () => {
+    expect(leadVehicleLabel({ ...baseLead, vehicleId: "00000000-0000-0000-0000-000000000000", sourceCampaign: "in-store-qr" }, vehicles))
+      .toBe("In-store QR enquiry");
   });
 
   it("groups leads under the same vehicle for expandable sales triage", () => {

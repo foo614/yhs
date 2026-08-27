@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
 import { Alert, Button, Descriptions, Empty, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import {
   officialReceiptContentUrl,
   type CashHandover,
@@ -53,7 +54,7 @@ export function CashCustodyPage({
         </Space>
       )
     },
-    { title: "Amount / 金额", render: (_, handover) => `RM ${handover.amount.toLocaleString()}` },
+    { title: "Amount / 金额", render: (_, handover) => formatMoney(handover.amount) },
     {
       title: "Status / 状态",
       render: (_, handover) => (
@@ -148,7 +149,7 @@ export function CashCustodyPage({
               placeholder="Select payment"
               options={availablePayments.map((payment) => ({
                 value: payment.paymentRecordId,
-                label: `${payment.plateNumber} / ${payment.customerName} / ${payment.invoiceNumber || "No invoice"} / RM ${payment.nettPrice.toLocaleString()}`
+                label: `${payment.plateNumber} / ${payment.customerName} / ${payment.invoiceNumber || "No invoice"} / ${formatMoney(payment.nettPrice)}`
               }))}
               onChange={(paymentRecordId) => {
                 const payment = paymentLookup.find((item) => item.paymentRecordId === paymentRecordId);
@@ -157,7 +158,7 @@ export function CashCustodyPage({
             />
           </Form.Item>
           <Form.Item name="amount" label="Cash Amount" rules={[{ required: true }]}>
-            <InputNumber className="fullWidth" min={0.01} precision={2} />
+            <InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
           </Form.Item>
           <Form.Item name="notes" label="Collection Notes"><Input.TextArea rows={3} maxLength={1000} /></Form.Item>
           <Form.Item>

@@ -188,9 +188,26 @@ app.MapPost("/api/public/contact-enquiries", async (ContactEnquiryRequest reques
     return Results.Created($"/api/public/contact-enquiries/{lead.Id}", new { id = lead.Id });
 });
 
+app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest request, AppDbContext db) =>
+{
+    var validation = WorkflowReferenceRules.ValidateShowroomEnquiry(request);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var lead = LeadCapture.CreateShowroomEnquiry(request);
+    db.Leads.Add(lead);
+    ApiAudit.Add(db, "public", "showroomEnquiry.created", nameof(Lead), lead.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/public/showroom-enquiries/{lead.Id}", new { id = lead.Id });
+});
+
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
 
-backOffice.MapGet("/vehicles", async (AppDbContext db) => await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync()).RequireAuthorization("Vehicles");
+backOffice.MapGet("/vehicles", async (AppDbContext db) =>
+{
+    var vehicles = await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync();
+    var repairCostsByVehicle = VehicleRepairCosts.ByVehicle(await db.RepairJobs.AsNoTracking().ToListAsync());
+    return Results.Ok(vehicles.Select(vehicle => vehicle with { RepairCost = VehicleRepairCosts.EffectiveCost(vehicle, repairCostsByVehicle) }));
+}).RequireAuthorization("Vehicles");
 backOffice.MapGet("/vehicle-catalog/models", async (AppDbContext db) =>
     await db.VehicleCatalogModels.AsNoTracking()
         .OrderBy(item => item.Make)
@@ -234,6 +251,7 @@ backOffice.MapGet("/vehicle-lookup", async (AppDbContext db) =>
         .Select(BackOfficeVehicleLookup.ToResponse)).RequireAuthorization("VehicleRead");
 backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpContext context) =>
 {
+    vehicle = vehicle with { RepairCost = null };
     vehicle = VehicleRules.NormalizeDateTimes(vehicle);
     var workflowStatusValidation = VehicleWorkflowRules.ValidateCreate(vehicle);
     if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
@@ -244,9 +262,10 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
     if (!validation.IsValid) return Results.BadRequest(validation);
     var contactLinkValidation = VehicleRules.ValidateContactLinks(
         vehicle,
-        await db.Customers.AsNoTracking().ToListAsync(),
-        await db.Owners.AsNoTracking().ToListAsync(),
-        await db.LoanApplications.AsNoTracking().ToListAsync());
+         await db.Customers.AsNoTracking().ToListAsync(),
+         await db.Owners.AsNoTracking().ToListAsync(),
+         await db.LoanApplications.AsNoTracking().ToListAsync(),
+         requireOwner: true);
     if (!contactLinkValidation.IsValid) return Results.BadRequest(contactLinkValidation);
     var uniquePlateValidation = VehicleRules.ValidateUniquePlate(vehicle, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!uniquePlateValidation.IsValid) return Results.BadRequest(uniquePlateValidation);
@@ -262,6 +281,7 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
 }).RequireAuthorization("Vehicles");
 backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbContext db, HttpContext context) =>
 {
+    update = update with { RepairCost = null };
     update = VehicleRules.NormalizeDateTimes(update);
     if (id != update.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("vehicle"));
     var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
@@ -360,7 +380,7 @@ backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Gu
     return photo is null ? Results.NotFound() : Results.File(photo.Content, photo.MimeType);
 });
 
-backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
 {
     var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (vehicle is null)
@@ -369,7 +389,20 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     }
     var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
     if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
-    var ownershipValidation = DocumentOwnershipRules.Validate(category, repairJobId, paymentRecordId);
+    var resolvedOwnership = ownershipType ?? (ownerId.HasValue
+        ? DocumentOwnershipType.Seller
+        : customerId.HasValue
+            ? DocumentOwnershipType.Buyer
+            : DocumentOwnershipRules.DefaultFor(category));
+    var selectedCustomerId = customerId;
+    var selectedOwnerId = ownerId;
+    if (!ownershipType.HasValue)
+    {
+        selectedCustomerId ??= resolvedOwnership == DocumentOwnershipType.Buyer ? vehicle.CustomerId : null;
+        selectedOwnerId ??= resolvedOwnership == DocumentOwnershipType.Seller ? vehicle.OwnerId : null;
+    }
+
+    var ownershipValidation = DocumentOwnershipRules.Validate(category, repairJobId, paymentRecordId, ownershipType, selectedCustomerId, selectedOwnerId);
     if (!ownershipValidation.IsValid) return Results.BadRequest(ownershipValidation);
     var roles = SeedData.Roles.Where(context.User.IsInRole);
     if (!DepartmentAccess.CanUploadDocument(roles, category)) return Results.Forbid();
@@ -389,6 +422,18 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         if (payment.VehicleId != id) return Results.BadRequest(new { message = "Selected payment record is not linked to this vehicle." });
     }
 
+    if (selectedOwnerId.HasValue)
+    {
+        if (vehicle.OwnerId != selectedOwnerId.Value) return Results.BadRequest(new { message = "Selected original owner is not linked to this vehicle." });
+        if (!await db.Owners.AsNoTracking().AnyAsync(item => item.Id == selectedOwnerId.Value)) return Results.BadRequest(new { message = "Selected original owner does not exist." });
+    }
+
+    if (selectedCustomerId.HasValue)
+    {
+        if (vehicle.CustomerId != selectedCustomerId.Value) return Results.BadRequest(new { message = "Selected customer is not linked to this vehicle." });
+        if (!await db.Customers.AsNoTracking().AnyAsync(item => item.Id == selectedCustomerId.Value)) return Results.BadRequest(new { message = "Selected customer does not exist." });
+    }
+
     await using var stream = file.OpenReadStream();
     using var memory = new MemoryStream();
     await stream.CopyToAsync(memory);
@@ -396,9 +441,11 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     var document = new DocumentBlob
     {
         VehicleId = id,
-        CustomerId = vehicle.CustomerId,
+        CustomerId = selectedCustomerId,
+        OwnerId = selectedOwnerId,
         RepairJobId = repairJobId,
         PaymentRecordId = paymentRecordId,
+        OwnershipType = resolvedOwnership,
         Category = category,
         FileName = file.FileName,
         MimeType = file.ContentType,
@@ -409,7 +456,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     db.DocumentBlobs.Add(document);
     ApiAudit.Add(db, context.User, "vehicle.document.uploaded", nameof(DocumentBlob), document.Id);
     await db.SaveChangesAsync();
-    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt });
+    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt });
 }).DisableAntiforgery();
 
 backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext db, HttpContext context) =>
@@ -421,7 +468,7 @@ backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext 
         .ToListAsync();
     return Results.Ok(documents
         .Where(document => DepartmentAccess.CanUploadDocument(roles, document.Category))
-        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt }));
+        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt }));
 });
 
 backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", async (Guid id, Guid documentId, AppDbContext db, HttpContext context) =>
@@ -796,6 +843,39 @@ backOffice.MapPost("/repairs", async (RepairJob repair, AppDbContext db, HttpCon
     await db.SaveChangesAsync();
     return Results.Created($"/api/repairs/{repair.Id}", repair);
 }).RequireAuthorization("Repairs");
+backOffice.MapPost("/repairs/from-receipt", async (CreateRepairWithReceiptRequest request, AppDbContext db, HttpContext context) =>
+{
+    var repair = RepairApprovalRules.PrepareForCreate(request.Repair);
+    var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var vehicleValidation = WorkflowReferenceRules.ValidateVehicleLink(repair.VehicleId, vehicles);
+    if (!vehicleValidation.IsValid) return Results.BadRequest(vehicleValidation);
+    var repairValidation = RepairRules.Validate(repair);
+    if (!repairValidation.IsValid) return Results.BadRequest(repairValidation);
+    if (request.Invoice.VehicleId != repair.VehicleId) return Results.BadRequest(new ApiError("Supplier invoice and repair task must use the same vehicle."));
+    // A receipt plate mismatch is surfaced as an OCR review warning; it must not
+    // block creating the repair after the operator explicitly confirms it.
+    var invoiceValidation = SupplierInvoiceRules.Validate(request.Invoice with { PlateNumberOnInvoice = null }, await db.SupplierInvoices.AsNoTracking().ToListAsync(), vehicles);
+    if (!invoiceValidation.IsValid) return Results.BadRequest(invoiceValidation);
+    var receiptValidation = RepairReceiptRules.Validate(request.Receipt);
+    if (!receiptValidation.IsValid) return Results.BadRequest(receiptValidation);
+
+    var document = await db.DocumentBlobs.FirstOrDefaultAsync(item => item.Id == request.Receipt.DocumentId && item.VehicleId == repair.VehicleId && item.Category == FileCategory.RepairInvoice);
+    if (document is null || document.RepairJobId.HasValue) return Results.BadRequest(new ApiError("Upload an unlinked repair receipt for this vehicle before creating the repair task."));
+    if (await db.RepairReceipts.AnyAsync(item => item.DocumentId == document.Id)) return Results.Conflict(new ApiError("This repair receipt has already been confirmed."));
+
+    var receipt = new RepairReceipt { RepairJobId = repair.Id, DocumentId = document.Id, SupplierName = request.Receipt.SupplierName?.Trim(), InvoiceNumber = request.Receipt.InvoiceNumber?.Trim(), TotalAmount = request.Receipt.TotalAmount };
+    var items = request.Receipt.Items.Select(item => new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = item.Description.Trim(), RepairPart = item.RepairPart?.Trim(), Amount = item.Amount, SortOrder = item.SortOrder }).ToList();
+    db.RepairJobs.Add(repair);
+    db.SupplierInvoices.Add(request.Invoice);
+    db.Entry(document).CurrentValues.SetValues(document with { RepairJobId = repair.Id });
+    db.RepairReceipts.Add(receipt);
+    db.RepairReceiptItems.AddRange(items);
+    ApiAudit.Add(db, context.User, "repair.created", nameof(RepairJob), repair.Id);
+    ApiAudit.Add(db, context.User, "supplierInvoice.created", nameof(SupplierInvoice), request.Invoice.Id);
+    ApiAudit.Add(db, context.User, "repairReceipt.confirmed", nameof(RepairReceipt), receipt.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/repairs/{repair.Id}", new CreateRepairWithReceiptResponse(repair, request.Invoice, receipt, items));
+}).RequireAuthorization("Repairs");
 backOffice.MapPut("/repairs/{id:guid}", async (Guid id, RepairJob repair, AppDbContext db, HttpContext context) =>
 {
     if (id != repair.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("repair"));
@@ -822,6 +902,35 @@ backOffice.MapPost("/repairs/{id:guid}/approval", async (Guid id, RepairApproval
     await db.SaveChangesAsync();
     return Results.Ok(repair);
 }).RequireAuthorization("BossAdmin");
+
+backOffice.MapGet("/repairs/{id:guid}/receipts", async (Guid id, AppDbContext db) =>
+{
+    if (!await db.RepairJobs.AnyAsync(item => item.Id == id)) return Results.NotFound();
+    var receipts = await db.RepairReceipts.AsNoTracking().Where(item => item.RepairJobId == id).OrderByDescending(item => item.CreatedAt).ToListAsync();
+    var receiptIds = receipts.Select(item => item.Id).ToList();
+    var items = await db.RepairReceiptItems.AsNoTracking().Where(item => receiptIds.Contains(item.RepairReceiptId)).OrderBy(item => item.SortOrder).ToListAsync();
+    return Results.Ok(receipts.Select(receipt => new { Receipt = receipt, Items = items.Where(item => item.RepairReceiptId == receipt.Id).ToList() }));
+}).RequireAuthorization("Repairs");
+
+backOffice.MapPost("/repairs/{id:guid}/receipts/confirm", async (Guid id, ConfirmRepairReceiptRequest request, AppDbContext db, HttpContext context) =>
+{
+    var repair = await db.RepairJobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (repair is null) return Results.NotFound();
+    var receiptValidation = RepairReceiptRules.Validate(request);
+    if (!receiptValidation.IsValid) return Results.BadRequest(receiptValidation);
+
+    var document = await db.DocumentBlobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.DocumentId && item.RepairJobId == id && item.Category == FileCategory.RepairInvoice);
+    if (document is null) return Results.BadRequest(new ApiError("Upload the repair receipt for this repair job before confirming its items."));
+    if (await db.RepairReceipts.AnyAsync(item => item.DocumentId == request.DocumentId)) return Results.Conflict(new ApiError("This repair receipt has already been confirmed."));
+
+    var receipt = new RepairReceipt { RepairJobId = id, DocumentId = request.DocumentId, SupplierName = request.SupplierName?.Trim(), InvoiceNumber = request.InvoiceNumber?.Trim(), TotalAmount = request.TotalAmount };
+    var items = request.Items.Select(item => new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = item.Description.Trim(), RepairPart = item.RepairPart?.Trim(), Amount = item.Amount, SortOrder = item.SortOrder }).ToList();
+    db.RepairReceipts.Add(receipt);
+    db.RepairReceiptItems.AddRange(items);
+    ApiAudit.Add(db, context.User, "repairReceipt.confirmed", nameof(RepairReceipt), receipt.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/repairs/{id}/receipts/{receipt.Id}", new { Receipt = receipt, Items = items });
+}).RequireAuthorization("Repairs");
 
 backOffice.MapGet("/suppliers", async (AppDbContext db) =>
     SupplierInvoiceRules.CreateSupplierSummaries(await db.SupplierInvoices.AsNoTracking().ToListAsync())).RequireAuthorization("Repairs");
@@ -2230,10 +2339,15 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
     return Results.Ok(generated);
 });
 
-backOffice.MapGet("/dashboard/summary", async (AppDbContext db) =>
+backOffice.MapGet("/dashboard/summary", async (AppDbContext db, string? from, string? to) =>
 {
+    if (!DashboardAnalyticsPeriodRules.TryParse(from, to, out var analyticsPeriod, out var error))
+    {
+        return Results.BadRequest(new { message = error });
+    }
+
     var today = BusinessClock.Today();
-    return DashboardMetrics.Create(
+    return Results.Ok(DashboardMetrics.Create(
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.LoanApplications.AsNoTracking().ToListAsync(),
         await db.DeliverySchedules.AsNoTracking().ToListAsync(),
@@ -2246,7 +2360,9 @@ backOffice.MapGet("/dashboard/summary", async (AppDbContext db) =>
         await db.DailySpends.AsNoTracking().ToListAsync(),
         await db.DebtRecoveryCases.AsNoTracking().ToListAsync(),
         await db.Leads.AsNoTracking().ToListAsync(),
-        today);
+        today,
+        analyticsPeriod.From,
+        analyticsPeriod.To));
 }).RequireAuthorization("Dashboard");
 
 backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, string? due) =>
@@ -2254,7 +2370,7 @@ backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, 
     var today = BusinessClock.Today();
     if (!ReminderInbox.IsValidDueFilter(due))
     {
-        return Results.BadRequest(new { message = "Reminder due filter must be All, Overdue, DueToday, or Upcoming." });
+        return Results.BadRequest(new { message = "Reminder due filter must be All, Overdue, DueToday, DueSoon, or Upcoming." });
     }
 
     var reminders = ReminderInbox.Create(
@@ -2421,6 +2537,9 @@ internal static class OcrJobResponses
             document.FileName,
             document.MimeType,
             document.Category,
+            document.OwnershipType,
+            document.CustomerId,
+            document.OwnerId,
             document.Checksum,
             document.UploadedBy,
             document.UploadedAt

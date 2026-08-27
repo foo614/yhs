@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { calculateFlatRateLoan, DEFAULT_LOAN_RATE, DEFAULT_LOAN_YEARS } from "./loan-calculator";
+import { formatThousands } from "../formatters";
 
 export function LoanCalculator({ sellingPrice }: { sellingPrice: number }) {
   const defaultDownPayment = Math.round(sellingPrice * 0.1 / 100) * 100;
@@ -57,7 +58,7 @@ export function LoanCalculator({ sellingPrice }: { sellingPrice: number }) {
 }
 
 function formatRinggit(value: number) {
-  return `RM ${value.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `RM ${formatThousands(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function clamp(value: number, minimum: number, maximum: number) {

@@ -89,8 +89,10 @@ services:
       dockerfile: apps/backoffice/Dockerfile
       args:
         VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}
+        VITE_FRONTOFFICE_ORIGIN: ${FRONTOFFICE_ORIGIN:-http://localhost:3000}
     environment:
       VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:5000}
+      VITE_FRONTOFFICE_ORIGIN: ${FRONTOFFICE_ORIGIN:-http://localhost:3000}
     ports:
       - "127.0.0.1:${BACKOFFICE_PORT:-3001}:3001"
     depends_on:
