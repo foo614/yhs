@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace YSHeng.Api.Domain;
 
 public enum StockOwner { YSHeng, KS }
@@ -17,6 +19,7 @@ public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave
 public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrPayslipStatus { Draft, Generated }
 public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
+public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
 public enum OcrReviewDecision { Pending, Accepted, Rejected }
 public enum AiService { Ocr }
@@ -40,6 +43,8 @@ public sealed record Vehicle
     public decimal SellingPrice { get; init; }
     public decimal AdditionalCharges { get; init; }
     public decimal RefurbishmentTotal { get; init; }
+    [NotMapped]
+    public decimal? RepairCost { get; init; }
     public decimal CommissionTotal { get; init; }
     public bool BossConfirmed { get; init; }
     public decimal ContraRangePrice { get; init; }
@@ -139,6 +144,7 @@ public sealed record DocumentBlob
     public Guid? OwnerId { get; init; }
     public Guid? RepairJobId { get; init; }
     public Guid? PaymentRecordId { get; init; }
+    public DocumentOwnershipType OwnershipType { get; init; } = DocumentOwnershipType.Vehicle;
     public FileCategory Category { get; init; }
     public string FileName { get; init; } = "";
     public string MimeType { get; init; } = "";

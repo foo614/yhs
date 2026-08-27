@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, markLoanApproved, markLoanDone } from "./loan";
+import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanApproved, markLoanDone } from "./loan";
 import type { Customer, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 
 const baseLoan: LoanApplication = {
@@ -53,6 +53,25 @@ describe("loan workflow helpers", () => {
 
   it("limits loan uploads to loan workflow document categories", () => {
     expect(loanDocumentCategories).toEqual(["Voc", "ApDocument", "StatusReceipt", "LoanDocument"]);
+  });
+
+  it("keeps manual loan creation restricted to Boss/Admin", () => {
+    expect(canCreateManualLoan(["Loan"])).toBe(false);
+    expect(canCreateManualLoan(["BossAdmin"])).toBe(true);
+  });
+
+  it("only offers Loan staff an upload action they are authorized to perform", () => {
+    expect(canUploadLoanChecklistDocument(["Loan"], "LoanDocument")).toBe(true);
+    expect(canUploadLoanChecklistDocument(["Loan"], "Voc")).toBe(false);
+    expect(canUploadLoanChecklistDocument(["Loan"], "ApDocument")).toBe(false);
+    expect(canUploadLoanChecklistDocument(["Loan"], "StatusReceipt")).toBe(false);
+    expect(canUploadLoanChecklistDocument(["BossAdmin"], "Voc")).toBe(true);
+  });
+
+  it("labels Sales-provided evidence without sending Loan staff to a forbidden upload", () => {
+    expect(loanDocumentChecklistStatus("Voc", true)).toBe("Provided by Sales");
+    expect(loanDocumentChecklistStatus("StatusReceipt", false)).toBe("Missing — request from Sales");
+    expect(loanDocumentChecklistStatus("LoanDocument", false)).toBe("Not uploaded yet");
   });
 
   it("filters loans by combined user-facing status and document criteria", () => {

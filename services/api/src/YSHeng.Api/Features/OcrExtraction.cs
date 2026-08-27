@@ -290,19 +290,6 @@ public static class GoogleDocumentAiEntityMapper
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            if (repairDetails.Count > 0)
-            {
-                fields["repairPart"] = repairDetails[0];
-                fields["whatToDo"] = string.Join(Environment.NewLine, repairDetails);
-                var repairConfidence = entities
-                    .Where(entity => repairDetails.Contains(entity.Value.Trim(), StringComparer.OrdinalIgnoreCase))
-                    .Select(entity => entity.Confidence)
-                    .DefaultIfEmpty(0)
-                    .Average();
-                fieldConfidence["repairPart"] = repairConfidence;
-                fieldConfidence["whatToDo"] = repairConfidence;
-            }
-
             var lineItems = repairDetails
                 .Select(value => new OcrLineItem(value, null, null, null, entities
                     .Where(entity => string.Equals(entity.Value.Trim(), value, StringComparison.OrdinalIgnoreCase))
@@ -539,8 +526,6 @@ public static class OcrExtractionParser
             fields["invoiceNumber"] = FindRepairInvoiceNumber(text) ?? fields["invoiceNumber"];
             fields["amount"] = FindRepairTotal(text) ?? fields["amount"];
             fields["plateNumberOnInvoice"] = FindRepairVehiclePlate(text, vehicles);
-            fields["repairPart"] = FindLabeledLine(text, "repair part", "part");
-            fields["whatToDo"] = FindLabeledLine(text, "description", "particulars", "service", "repair");
         }
 
         if (document.Category == FileCategory.PaymentReceipt)
@@ -592,7 +577,11 @@ public static class OcrExtractionParser
             warnings.Add("Supplier name was not detected.");
         }
 
-        if (document.Category == FileCategory.RepairInvoice && string.IsNullOrWhiteSpace(fields["whatToDo"]))
+        var lineItems = document.Category == FileCategory.RepairInvoice
+            ? ParseRepairLineItems(text, confidence)
+            : null;
+
+        if (document.Category == FileCategory.RepairInvoice && lineItems is not { Count: > 0 })
         {
             warnings.Add("Repair details were not detected. Check the item descriptions before saving.");
         }
@@ -619,10 +608,6 @@ public static class OcrExtractionParser
             if (string.IsNullOrWhiteSpace(fields["chassisNumber"])) warnings.Add("No chassis number was detected. Confirm the VOC manually before saving vehicle details.");
             if (string.IsNullOrWhiteSpace(fields["engineNumber"])) warnings.Add("No engine number was detected. Confirm the VOC manually before saving vehicle details.");
         }
-
-        var lineItems = document.Category == FileCategory.RepairInvoice
-            ? ParseRepairLineItems(text, confidence)
-            : null;
 
         return new OcrExtractionResult(
             document.Category,
@@ -735,20 +720,6 @@ public static class OcrExtractionParser
             var match = Regex.Match(
                 text,
                 $@"\b{Regex.Escape(label)}\b\s*[:#-]?\s*(?<value>[A-Za-z0-9][A-Za-z0-9 ./'-]{{0,100}}?)(?=\s+(?:Registration|Plate|Chassis|VIN|Engine|Make|Model|Year|Owner)\b|$)",
-                RegexOptions.IgnoreCase);
-            if (match.Success) return match.Groups["value"].Value.Trim();
-        }
-
-        return null;
-    }
-
-    private static string? FindLabeledLine(string text, params string[] labels)
-    {
-        foreach (var label in labels)
-        {
-            var match = Regex.Match(
-                text,
-                $@"(?:^|[\r\n])\s*{Regex.Escape(label)}\s*[:#-]?\s*(?<value>[^\r\n]{{2,200}})",
                 RegexOptions.IgnoreCase);
             if (match.Success) return match.Groups["value"].Value.Trim();
         }

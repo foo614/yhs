@@ -315,7 +315,7 @@ export function OcrUploadReview({
             {fields.map((field) => (
               <Form.Item key={field.name} name={field.name} label={fieldLabel(field, job)}>
                 {field.type === "number" ? (
-                  <InputNumber className="fullWidth" min={0} formatter={isMoneyField(field.name) ? formatMoneyInput : undefined} parser={isMoneyField(field.name) ? parseMoneyInput : undefined} />
+                  <InputNumber className="fullWidth" min={0} precision={isMoneyField(field.name) ? 2 : undefined} formatter={isMoneyField(field.name) ? formatMoneyInput : undefined} parser={isMoneyField(field.name) ? parseMoneyInput : undefined} />
                 ) : field.type === "select" ? (
                   <Select showSearch optionFilterProp="label" options={field.options ?? []} />
                 ) : (

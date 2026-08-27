@@ -177,6 +177,15 @@ body {
   max-width: 360px;
 }
 
+.settingsGuidanceList {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+
+.settingsGuidanceList li + li {
+  margin-top: 4px;
+}
+
 .ocrUploadGuide {
   display: flex;
   align-items: flex-start;
@@ -959,6 +968,41 @@ body {
   margin-top: 2px;
 }
 
+.dashboardAnalyticsControls {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(32, 54, 48, .1);
+  border-radius: 7px;
+  background: #f8fbfa;
+}
+
+.dashboardAnalyticsControls > div {
+  display: grid;
+  gap: 2px;
+}
+
+.dashboardAnalyticsControls strong {
+  color: #14251f;
+  font-size: 13px;
+}
+
+.dashboardAnalyticsControls span {
+  color: #687973;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dashboardAnalyticsControls .ant-select {
+  min-width: 144px;
+}
+
+.dashboardAnalyticsControls .ant-input {
+  width: 142px;
+}
+
 .dashboardSimpleGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1651,6 +1695,31 @@ body {
   gap: 14px;
 }
 
+.refurbishmentSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.refurbishmentSummaryGrid > span {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: #f6f9f8;
+}
+
+.refurbishmentSummaryGrid small {
+  color: #687973;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.refurbishmentSummaryGrid strong {
+  color: #14251f;
+  font-size: 15px;
+}
+
 .repairCostRow {
   min-width: 0;
   display: grid;
@@ -2130,6 +2199,14 @@ body {
 
 .recordCreateModal .ant-modal-body {
   padding-top: 14px;
+}
+
+.manualLoanRecordAlert {
+  margin-bottom: 16px;
+}
+
+.detailWorkflowAction {
+  margin-top: 16px;
 }
 
 .recordCreateModal .ant-pro-steps-form-container {
@@ -2929,6 +3006,20 @@ body {
 .toolbarForm {
   margin-bottom: 16px;
   row-gap: 12px;
+}
+
+.leadFilterControls {
+  align-items: flex-end;
+  margin-bottom: 16px;
+  row-gap: 12px;
+}
+
+.leadFilterControl {
+  display: grid;
+  gap: 4px;
+  color: #4e5d58;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .stepGrid {
@@ -4561,4 +4652,16 @@ body {
 .staffFilterBar,
 .toolbarForm {
   display: none !important;
+}
+
+@media (max-width: 720px) {
+  .leadFilterControls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .leadFilterControl,
+  .leadFilterControl .ant-select {
+    width: 100%;
+  }
 }

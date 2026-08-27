@@ -188,9 +188,26 @@ app.MapPost("/api/public/contact-enquiries", async (ContactEnquiryRequest reques
     return Results.Created($"/api/public/contact-enquiries/{lead.Id}", new { id = lead.Id });
 });
 
+app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest request, AppDbContext db) =>
+{
+    var validation = WorkflowReferenceRules.ValidateShowroomEnquiry(request);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var lead = LeadCapture.CreateShowroomEnquiry(request);
+    db.Leads.Add(lead);
+    ApiAudit.Add(db, "public", "showroomEnquiry.created", nameof(Lead), lead.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/public/showroom-enquiries/{lead.Id}", new { id = lead.Id });
+});
+
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
 
-backOffice.MapGet("/vehicles", async (AppDbContext db) => await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync()).RequireAuthorization("Vehicles");
+backOffice.MapGet("/vehicles", async (AppDbContext db) =>
+{
+    var vehicles = await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync();
+    var repairCostsByVehicle = VehicleRepairCosts.ByVehicle(await db.RepairJobs.AsNoTracking().ToListAsync());
+    return Results.Ok(vehicles.Select(vehicle => vehicle with { RepairCost = VehicleRepairCosts.EffectiveCost(vehicle, repairCostsByVehicle) }));
+}).RequireAuthorization("Vehicles");
 backOffice.MapGet("/vehicle-catalog/models", async (AppDbContext db) =>
     await db.VehicleCatalogModels.AsNoTracking()
         .OrderBy(item => item.Make)
@@ -234,6 +251,7 @@ backOffice.MapGet("/vehicle-lookup", async (AppDbContext db) =>
         .Select(BackOfficeVehicleLookup.ToResponse)).RequireAuthorization("VehicleRead");
 backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpContext context) =>
 {
+    vehicle = vehicle with { RepairCost = null };
     vehicle = VehicleRules.NormalizeDateTimes(vehicle);
     var workflowStatusValidation = VehicleWorkflowRules.ValidateCreate(vehicle);
     if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
@@ -263,6 +281,7 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
 }).RequireAuthorization("Vehicles");
 backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbContext db, HttpContext context) =>
 {
+    update = update with { RepairCost = null };
     update = VehicleRules.NormalizeDateTimes(update);
     if (id != update.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("vehicle"));
     var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
@@ -361,7 +380,7 @@ backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Gu
     return photo is null ? Results.NotFound() : Results.File(photo.Content, photo.MimeType);
 });
 
-backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, Guid? ownerId, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
 {
     var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (vehicle is null)
@@ -370,7 +389,20 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     }
     var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
     if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
-    var ownershipValidation = DocumentOwnershipRules.Validate(category, repairJobId, paymentRecordId);
+    var resolvedOwnership = ownershipType ?? (ownerId.HasValue
+        ? DocumentOwnershipType.Seller
+        : customerId.HasValue
+            ? DocumentOwnershipType.Buyer
+            : DocumentOwnershipRules.DefaultFor(category));
+    var selectedCustomerId = customerId;
+    var selectedOwnerId = ownerId;
+    if (!ownershipType.HasValue)
+    {
+        selectedCustomerId ??= resolvedOwnership == DocumentOwnershipType.Buyer ? vehicle.CustomerId : null;
+        selectedOwnerId ??= resolvedOwnership == DocumentOwnershipType.Seller ? vehicle.OwnerId : null;
+    }
+
+    var ownershipValidation = DocumentOwnershipRules.Validate(category, repairJobId, paymentRecordId, ownershipType, selectedCustomerId, selectedOwnerId);
     if (!ownershipValidation.IsValid) return Results.BadRequest(ownershipValidation);
     var roles = SeedData.Roles.Where(context.User.IsInRole);
     if (!DepartmentAccess.CanUploadDocument(roles, category)) return Results.Forbid();
@@ -390,11 +422,16 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         if (payment.VehicleId != id) return Results.BadRequest(new { message = "Selected payment record is not linked to this vehicle." });
     }
 
-    if (ownerId.HasValue)
+    if (selectedOwnerId.HasValue)
     {
-        if (category != FileCategory.IdentityCard) return Results.BadRequest(new { message = "Only identity card documents can be linked to an original owner." });
-        if (vehicle.OwnerId != ownerId.Value) return Results.BadRequest(new { message = "Selected original owner is not linked to this vehicle." });
-        if (!await db.Owners.AsNoTracking().AnyAsync(item => item.Id == ownerId.Value)) return Results.BadRequest(new { message = "Selected original owner does not exist." });
+        if (vehicle.OwnerId != selectedOwnerId.Value) return Results.BadRequest(new { message = "Selected original owner is not linked to this vehicle." });
+        if (!await db.Owners.AsNoTracking().AnyAsync(item => item.Id == selectedOwnerId.Value)) return Results.BadRequest(new { message = "Selected original owner does not exist." });
+    }
+
+    if (selectedCustomerId.HasValue)
+    {
+        if (vehicle.CustomerId != selectedCustomerId.Value) return Results.BadRequest(new { message = "Selected customer is not linked to this vehicle." });
+        if (!await db.Customers.AsNoTracking().AnyAsync(item => item.Id == selectedCustomerId.Value)) return Results.BadRequest(new { message = "Selected customer does not exist." });
     }
 
     await using var stream = file.OpenReadStream();
@@ -404,10 +441,11 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     var document = new DocumentBlob
     {
         VehicleId = id,
-        CustomerId = ownerId.HasValue ? null : vehicle.CustomerId,
-        OwnerId = ownerId,
+        CustomerId = selectedCustomerId,
+        OwnerId = selectedOwnerId,
         RepairJobId = repairJobId,
         PaymentRecordId = paymentRecordId,
+        OwnershipType = resolvedOwnership,
         Category = category,
         FileName = file.FileName,
         MimeType = file.ContentType,
@@ -418,7 +456,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     db.DocumentBlobs.Add(document);
     ApiAudit.Add(db, context.User, "vehicle.document.uploaded", nameof(DocumentBlob), document.Id);
     await db.SaveChangesAsync();
-    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt });
+    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt });
 }).DisableAntiforgery();
 
 backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext db, HttpContext context) =>
@@ -430,7 +468,7 @@ backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext 
         .ToListAsync();
     return Results.Ok(documents
         .Where(document => DepartmentAccess.CanUploadDocument(roles, document.Category))
-        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt }));
+        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt }));
 });
 
 backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", async (Guid id, Guid documentId, AppDbContext db, HttpContext context) =>
@@ -1936,10 +1974,15 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
     return Results.Ok(generated);
 });
 
-backOffice.MapGet("/dashboard/summary", async (AppDbContext db) =>
+backOffice.MapGet("/dashboard/summary", async (AppDbContext db, string? from, string? to) =>
 {
+    if (!DashboardAnalyticsPeriodRules.TryParse(from, to, out var analyticsPeriod, out var error))
+    {
+        return Results.BadRequest(new { message = error });
+    }
+
     var today = BusinessClock.Today();
-    return DashboardMetrics.Create(
+    return Results.Ok(DashboardMetrics.Create(
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.LoanApplications.AsNoTracking().ToListAsync(),
         await db.DeliverySchedules.AsNoTracking().ToListAsync(),
@@ -1952,7 +1995,9 @@ backOffice.MapGet("/dashboard/summary", async (AppDbContext db) =>
         await db.DailySpends.AsNoTracking().ToListAsync(),
         await db.DebtRecoveryCases.AsNoTracking().ToListAsync(),
         await db.Leads.AsNoTracking().ToListAsync(),
-        today);
+        today,
+        analyticsPeriod.From,
+        analyticsPeriod.To));
 }).RequireAuthorization("Dashboard");
 
 backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, string? due) =>
@@ -1960,7 +2005,7 @@ backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, 
     var today = BusinessClock.Today();
     if (!ReminderInbox.IsValidDueFilter(due))
     {
-        return Results.BadRequest(new { message = "Reminder due filter must be All, Overdue, DueToday, or Upcoming." });
+        return Results.BadRequest(new { message = "Reminder due filter must be All, Overdue, DueToday, DueSoon, or Upcoming." });
     }
 
     var reminders = ReminderInbox.Create(
@@ -2127,6 +2172,9 @@ internal static class OcrJobResponses
             document.FileName,
             document.MimeType,
             document.Category,
+            document.OwnershipType,
+            document.CustomerId,
+            document.OwnerId,
             document.Checksum,
             document.UploadedBy,
             document.UploadedAt

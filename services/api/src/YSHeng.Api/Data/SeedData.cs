@@ -440,12 +440,25 @@ public static class SeedData
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "RepairJobId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "PaymentRecordId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnershipType" integer NOT NULL DEFAULT 2;
             ALTER TABLE "Owners" ADD COLUMN IF NOT EXISTS "IcNumber" text NULL;
             ALTER TABLE "Owners" ADD COLUMN IF NOT EXISTS "Address" text NULL;
+
+            UPDATE "DocumentBlobs"
+            SET "OwnershipType" = CASE
+                WHEN "OwnerId" IS NOT NULL THEN 0
+                WHEN "CustomerId" IS NOT NULL THEN 1
+                WHEN "Category" IN (1, 2, 4) THEN 0
+                WHEN "Category" IN (3, 6, 7, 8) THEN 1
+                ELSE 2
+            END
+            WHERE "OwnershipType" = 2
+              AND ("OwnerId" IS NOT NULL OR "CustomerId" IS NOT NULL OR "Category" IN (1, 2, 3, 4, 6, 7, 8));
 
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_OwnerId" ON "DocumentBlobs" ("OwnerId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_RepairJobId" ON "DocumentBlobs" ("RepairJobId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_PaymentRecordId" ON "DocumentBlobs" ("PaymentRecordId");
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_OwnershipType" ON "DocumentBlobs" ("OwnershipType");
         """);
     }
 

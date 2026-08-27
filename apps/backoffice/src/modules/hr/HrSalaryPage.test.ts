@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterHrRecords, paginateHrRecords, withHrRecordFilterValue } from "./HrSalaryPage";
+import dayjs from "dayjs";
+import { datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodFromValues, withHrRecordFilterValue } from "./HrSalaryPage";
 
 describe("HR record list helpers", () => {
   const records = [
@@ -26,5 +27,31 @@ describe("HR record list helpers", () => {
   it("preserves spaces while a multi-word keyword is being typed", () => {
     expect(withHrRecordFilterValue({}, "keyword", "Alicia ")).toEqual({ keyword: "Alicia " });
     expect(withHrRecordFilterValue({ keyword: "Alicia " }, "keyword", "Alicia T")).toEqual({ keyword: "Alicia T" });
+  });
+
+  it("keeps policy editing to the existing rows and disables row creation", () => {
+    expect(leavePolicyTableConfig).toEqual({
+      search: false,
+      options: false,
+      pagination: false,
+      recordCreatorProps: false
+    });
+  });
+
+  it("formats month and date picker values into the existing pay-period contract", () => {
+    const period = payPeriodFromValues({
+      payPeriod: dayjs("2026-06-01"),
+      startDate: dayjs("2026-06-01"),
+      endDate: dayjs("2026-06-30"),
+      workingDays: 22
+    });
+
+    expect(period).toMatchObject({
+      name: "June 2026",
+      startDate: "2026-06-01",
+      endDate: "2026-06-30",
+      workingDays: 22
+    });
+    expect(datePickerValueToDateString("2026-07-01")).toBe("2026-07-01");
   });
 });

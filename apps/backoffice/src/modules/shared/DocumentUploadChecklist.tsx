@@ -4,6 +4,7 @@ import { Space, Tag, Typography } from "antd";
 export type DocumentChecklistItem = {
   label: string;
   isPresent: boolean;
+  statusText?: string;
   action?: ReactNode;
 };
 
@@ -39,7 +40,7 @@ export function DocumentUploadChecklist({
           <div className="documentUploadChecklistItem" key={item.label}>
             <div>
               <Typography.Text strong>{item.label}</Typography.Text>
-              <Typography.Text type="secondary">{item.isPresent ? "Uploaded and ready" : "Not uploaded yet"}</Typography.Text>
+              <Typography.Text type="secondary">{item.statusText ?? (item.isPresent ? "Uploaded and ready" : "Not uploaded yet")}</Typography.Text>
             </div>
             {item.isPresent ? (
               <Space size={6} wrap>

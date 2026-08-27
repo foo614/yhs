@@ -15,6 +15,7 @@ export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "U
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated";
 export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate";
+export type DocumentOwnershipType = "Seller" | "Buyer" | "Vehicle";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed";
 export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected";
 
@@ -58,6 +59,9 @@ export type OcrDocumentSummary = {
   fileName: string;
   mimeType: string;
   category: DocumentCategory;
+  ownershipType: DocumentOwnershipType;
+  customerId?: string;
+  ownerId?: string;
   checksum: string;
   uploadedBy: string;
   uploadedAt: string;
@@ -69,6 +73,8 @@ export type VehicleOcrJob = OcrJob & {
 
 export type UploadProgressHandler = (percent: number) => void;
 export type DocumentUploadOwner = {
+  ownershipType?: DocumentOwnershipType;
+  customerId?: string;
   ownerId?: string;
   repairJobId?: string;
   paymentRecordId?: string;
@@ -91,6 +97,7 @@ export type Vehicle = {
   sellingPrice: number;
   additionalCharges: number;
   refurbishmentTotal: number;
+  repairCost?: number;
   commissionTotal: number;
   bossConfirmed?: boolean;
   contraRangePrice?: number;
@@ -98,6 +105,7 @@ export type Vehicle = {
   customerId?: string;
   ownerId?: string;
   intakeDate?: string;
+  soldAt?: string;
   outstationPickupAllowance?: number;
   outstationPickupScheduledAt?: string;
   outstationPickupBookingSlip?: string;
@@ -120,6 +128,7 @@ export type VehicleIntakeValues = Omit<Vehicle, "id">;
 
 export type DashboardSummary = {
   totalStock: number;
+  purchaseCost?: number;
   pendingLoan: number;
   outstandingPayment: number;
   settlementDue: number;
@@ -145,6 +154,11 @@ export type DashboardSummary = {
   monthlyProfitTrend: DashboardProfitTrendSlice[];
   profitBreakdown: DashboardAmountSlice[];
   supplierSpendTop: DashboardAmountSlice[];
+  totalSales: number;
+  actualProfit: number;
+  outstandingCollection: number;
+  settlementDueAmount: number;
+  refurbishment: DashboardRefurbishmentSummary;
 };
 
 export type DashboardAgingBucket = {
@@ -181,7 +195,7 @@ export type DashboardReminder = {
   amount?: number | null;
 };
 
-export type DashboardReminderDueFilter = "All" | "Overdue" | "DueToday" | "Upcoming";
+export type DashboardReminderDueFilter = "All" | "Overdue" | "DueToday" | "DueSoon" | "Upcoming";
 
 export type DashboardReminderFilters = {
   type?: DashboardReminder["type"] | "All";
@@ -193,6 +207,20 @@ export type DashboardProfitTrendSlice = {
   estimatedProfit: number;
   soldProfit: number;
   soldCount: number;
+};
+
+export type DashboardRefurbishmentSummary = {
+  finalRepairSpend: number;
+  vehicleCount: number;
+  averageSpendPerVehicle: number;
+  workInProgressCount: number;
+  overdueWorkCount: number;
+  highestCostVehicles: DashboardAmountSlice[];
+};
+
+export type DashboardAnalyticsPeriod = {
+  from?: string;
+  to?: string;
 };
 
 export type DashboardReminderLoadResult = {
@@ -716,6 +744,8 @@ export type VehicleDocument = {
   fileName: string;
   mimeType: string;
   category: DocumentCategory;
+  ownershipType: DocumentOwnershipType;
+  customerId?: string;
   ownerId?: string;
   repairJobId?: string;
   paymentRecordId?: string;
@@ -884,9 +914,15 @@ const sampleVehicle: Vehicle = {
     ownerId: undefined
 };
 
-export async function getDashboard(): Promise<DashboardLoadResult> {
+export async function getDashboard(period: DashboardAnalyticsPeriod = {}): Promise<DashboardLoadResult> {
+  const params = new URLSearchParams();
+  if (period.from && period.to) {
+    params.set("from", period.from);
+    params.set("to", period.to);
+  }
+  const query = params.toString();
   try {
-    const response = await fetch(`${apiBaseUrl}/api/dashboard/summary`, { credentials: "include" });
+    const response = await fetch(`${apiBaseUrl}/api/dashboard/summary${query ? `?${query}` : ""}`, { credentials: "include" });
     if (response.ok) return { dashboard: await response.json() };
     return { dashboard: null, error: await responseErrorMessage(response, "Dashboard data could not be loaded. Please try again.") };
   } catch {
@@ -1607,6 +1643,8 @@ export async function uploadVehicleDocumentWithProgress(vehicleId: string, file:
 
 function documentUploadPath(vehicleId: string, category: DocumentCategory, owner?: DocumentUploadOwner) {
   const query = new URLSearchParams({ category });
+  if (owner?.ownershipType) query.set("ownershipType", owner.ownershipType);
+  if (owner?.customerId) query.set("customerId", owner.customerId);
   if (owner?.ownerId) query.set("ownerId", owner.ownerId);
   if (owner?.repairJobId) query.set("repairJobId", owner.repairJobId);
   if (owner?.paymentRecordId) query.set("paymentRecordId", owner.paymentRecordId);

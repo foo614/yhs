@@ -23,14 +23,17 @@ foreach ($expected in @(
   'uri replace /js/app-theme.js /ops/js/app-theme.js',
   '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
   'uri replace /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js /ops/_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
+  '@ops-dashboard-route path /resources /resources/* /consolelogs /consolelogs/* /structuredlogs /structuredlogs/* /traces /traces/* /metrics /metrics/*',
+  'rewrite * /ops{uri}',
   'reverse_proxy ops-proxy:8080'
 )) {
   Assert-Contains -Name "Caddy Aspire dashboard route" -Text $caddyfile -Expected $expected
 }
 
 $loginRouteIndex = $caddyfile.IndexOf('@ops-login-script path /Components/Pages/Login.razor.js')
+$dashboardRouteIndex = $caddyfile.IndexOf('@ops-dashboard-route path /resources')
 $apiRouteIndex = $caddyfile.IndexOf('@api path /api/*')
-if ($loginRouteIndex -lt 0 -or $apiRouteIndex -lt 0 -or $loginRouteIndex -ge $apiRouteIndex) {
+if ($loginRouteIndex -lt 0 -or $dashboardRouteIndex -lt 0 -or $apiRouteIndex -lt 0 -or $loginRouteIndex -ge $apiRouteIndex -or $dashboardRouteIndex -ge $apiRouteIndex) {
   throw "The Aspire login script route must be evaluated before the back-office API route."
 }
 
@@ -46,9 +49,11 @@ foreach ($assetRoute in @(
 
 foreach ($expected in @(
   'location = /ops/Components/Pages/Login.razor.js',
+  'location = /ops/ops-subpath-navigation.js',
+  'alias /usr/share/nginx/html/ops-subpath-navigation.js;',
   'sub_filter_types text/javascript;',
   "sub_filter `"fetch('/api/validatetoken'`" `"fetch('/ops/api/validatetoken'`";",
-  "sub_filter '<base href=`"/`">' '<base href=`"/ops/`">';",
+  "sub_filter '<base href=`"/`">' '<base href=`"/ops/`"><script src=`"/ops/ops-subpath-navigation.js`"></script>';",
   'proxy_set_header X-Forwarded-Proto https;',
   'proxy_redirect ~*^(?:https?://[^/]+)?/login\?returnUrl=%2f(.+)$ /ops/login?returnUrl=%2Fops%2F$1;',
   'proxy_cookie_path / /ops/'
@@ -76,6 +81,11 @@ $rewrittenLoginLocation = [regex]::Replace(
 )
 if ($rewrittenLoginLocation -ne '/ops/login?returnUrl=%2Fops%2Fstructuredlogs') {
   throw "The Aspire return URL rewrite must preserve /ops for an absolute upstream redirect."
+}
+
+& node (Join-Path $repoRoot "infra/test-ops-subpath-navigation.mjs")
+if ($LASTEXITCODE -ne 0) {
+  throw "The Aspire /ops subpath navigation adapter tests failed."
 }
 
 Write-Host "Aspire /ops login proxy contract passed."

@@ -1,15 +1,16 @@
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
-  maximumFractionDigits: 0
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
 });
 
 /** Format a monetary value with an explicit thousands separator. */
 export function formatMoney(value: number) {
-  return `RM ${moneyFormatter.format(Math.round(value))}`;
+  return `RM ${moneyFormatter.format(value)}`;
 }
 
 /** Format a monetary value without the currency prefix for labels that add it themselves. */
 export function formatMoneyNumber(value: number) {
-  return moneyFormatter.format(Math.round(value));
+  return moneyFormatter.format(value);
 }
 
 export function formatMoneyInput(value: string | number | undefined) {

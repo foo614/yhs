@@ -54,6 +54,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<VehiclePhoto>().Property(photo => photo.Thumbnail).HasColumnType("bytea");
         builder.Entity<DocumentBlob>().Property(document => document.Content).HasColumnType("bytea");
         builder.Entity<DocumentBlob>().HasIndex(document => document.OwnerId);
+        builder.Entity<DocumentBlob>().HasIndex(document => document.OwnershipType);
         builder.Entity<DocumentBlob>().HasIndex(document => document.RepairJobId);
         builder.Entity<DocumentBlob>().HasIndex(document => document.PaymentRecordId);
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.RepairJobId);

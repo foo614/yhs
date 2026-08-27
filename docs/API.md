@@ -39,6 +39,7 @@ Public endpoints are unauthenticated and must not expose purchase price, refurbi
 | `GET` | `/api/public/vehicles/{id}/photos/{photoId}` | Return one full public gallery photo for a public available vehicle. |
 | `POST` | `/api/public/leads` | Create a public lead for a visible available vehicle. |
 | `POST` | `/api/public/contact-enquiries` | Create a general website contact enquiry for Sales triage. |
+| `POST` | `/api/public/showroom-enquiries` | Create a no-login in-store QR showroom enquiry. The API records the server-owned `in-store-qr` source and stores vehicle preferences in the lead message for Sales triage. |
 
 `GET /api/public/vehicles` returns the compact inventory DTO. `GET /api/public/vehicles/{id}` additionally returns optional `descriptionMarkdown`, the staff-authored public listing description. It is returned only after the existing visible-and-available vehicle filter; it must contain marketing copy only and never internal vehicle, customer, finance, repair, audit, or workflow information.
 
@@ -73,6 +74,22 @@ Public contact-enquiry payload:
 
 `customerName`, `phone`, and `message` are required. `message` is limited to 2,000 characters. General contact enquiries use no vehicle link and appear in the Sales lead queue as `Website contact enquiry`; the public response returns only the new enquiry ID.
 
+Showroom QR enquiry payload:
+
+```json
+{
+  "vehicleType": "SUV",
+  "preferredBrand": "Toyota",
+  "preferredModel": "Harrier",
+  "budgetRange": "RM50k–RM80k",
+  "customerName": "Buyer name",
+  "phone": "012-3456789",
+  "email": "buyer@example.com"
+}
+```
+
+`vehicleType`, `budgetRange`, `customerName`, and `phone` are required. The email is optional. This endpoint does not accept an arbitrary source value: it writes the stable `/showroom-enquiry` page and `in-store-qr` source for Sales triage, and its response returns only the new enquiry ID.
+
 ## Back-Office Role Policies
 
 All `/api/*` back-office routes require the broad `BackOffice` role policy first. Module policies then narrow access:
@@ -98,7 +115,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/vehicles` | `Vehicles` | Full vehicle records for Boss/Admin and Sales. |
+| `GET` | `/api/vehicles` | `Vehicles` | Full vehicle records for Boss/Admin and Sales, including read-only `repairCost`: final repair-job cost when present, otherwise the intake refurbishment total. |
 | `GET` | `/api/vehicle-catalog/models` | `Vehicles` | List active and inactive make/model catalogue entries. |
 | `POST` | `/api/vehicle-catalog/models` | `Vehicles` | Add a make/model option for public filters. |
 | `PUT` | `/api/vehicle-catalog/models/{id}` | `Vehicles` | Edit or deactivate a make/model option without changing existing vehicle records. |
@@ -137,7 +154,7 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 
 OCR runtime:
 
-- IC extraction returns customer name, IC number, and address. VOC extraction returns registration, chassis, engine, make, model, year, and registered-owner suggestions. Invoice and receipt extraction retains the existing finance and supplier fields.
+- IC extraction returns customer name, IC number, and address. VOC extraction returns registration, chassis, engine, make, model, year, and registered-owner suggestions. Invoice and receipt extraction retains the existing finance and supplier fields. Repair-invoice extraction also proposes repair-part and repair-detail values from recognized line items so the reviewer can populate the Repair task form.
 - The back-office review drawer shows field confidence. When a suggestion differs from the current customer or vehicle master value, `Keep current value` is the default and the reviewer must explicitly select `Use reviewed OCR value` before the accepted values are applied.
 
 - The default OCR provider is `GoogleDocumentAi`. Configure `Ocr__GoogleDocumentAi__ProjectId`, `Location`, and `DefaultProcessorId`; the deployment environment uses the equivalent `GOOGLE_DOCUMENT_AI_*` values.
@@ -176,8 +193,11 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `GET` | `/api/deliveries/{id}/release-readiness` | `Deliveries` | Check delivery checklist, required documents, and release evidence metadata. |
 | `GET` | `/api/repairs` | `Repairs` | List repair jobs. |
 | `POST` | `/api/repairs` | `Repairs` | Create repair job. |
+| `POST` | `/api/repairs/from-receipt` | `Repairs` | After OCR review, atomically create a repair job, supplier invoice, linked repair receipt, and its confirmed receipt items from an unlinked vehicle repair-invoice upload. |
 | `PUT` | `/api/repairs/{id}` | `Repairs` | Update repair job. |
 | `POST` | `/api/repairs/{id}/approval` | `BossAdmin` | Approve a repair with the authenticated Boss/Admin actor and server timestamp. Repair CRUD cannot supply an approval; material repair changes reset it. |
+| `GET` | `/api/repairs/{id}/receipts` | `Repairs` | List confirmed repair receipts and their child items. |
+| `POST` | `/api/repairs/{id}/receipts/confirm` | `Repairs` | Confirm one uploaded repair receipt and its reviewed child items for an existing repair job. |
 | `GET` | `/api/suppliers` | `Repairs` | Derived supplier master summary from supplier invoices. |
 | `GET` | `/api/supplier-invoices` | `Repairs` | List supplier invoices. |
 | `GET` | `/api/supplier-invoices/aging` | `Repairs` | Supplier invoice aging view for unmatched, due-soon, overdue, and paid states. |
@@ -194,7 +214,9 @@ Delivery release-readiness responses include:
 - `missingCategories`: required release document categories still missing.
 - `missingEvidence`: release evidence flags still incomplete, such as handover photo, signed handover, customer acknowledgement, or final checklist.
 - `expiredDocuments`: delivery-critical expiry blockers for insurance, road tax, or windscreen insurance.
-- `evidence`: one item for each required release document category, with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`.
+- `evidence`: one item for each required release document category (`DeliveryDocument`, `Policy`, and `RoadTaxReceipt`), with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`.
+
+For delivery release, upload a handover photo or signed handover through the ordinary `DeliveryDocument` path. This preserves the existing document checksum, uploader, MIME type, timestamp, and protected download behavior without introducing a separate delivery-photo record; vehicle inventory photos remain separate media.
 
 Workflow integrity:
 
@@ -288,8 +310,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/dashboard/summary` | `Dashboard` | Boss/Admin operational metrics, including `totalProfit` and backward-compatible `estimatedProfit`. |
-| `GET` | `/api/dashboard/reminders?type={type}&due={All\|Overdue\|DueToday\|Upcoming}` | `Dashboard` | Reminder inbox, optionally filtered. |
+| `GET` | `/api/dashboard/summary?from=YYYY-MM-DD&to=YYYY-MM-DD` | `Dashboard` | Boss/Admin operational metrics. `from` and `to` are optional but must be supplied together as an inclusive analytics period. Live stock, loan, collection, settlement, purchase cost, repair cost, and aging metrics remain current; the period scopes sales, actual profit, lead, and refurbishment analysis. The response preserves `totalProfit` and `estimatedProfit`, and adds `purchaseCost`, `totalSales`, `actualProfit`, `outstandingCollection`, `settlementDueAmount`, and `refurbishment`. |
+| `GET` | `/api/dashboard/reminders?type={type}&due={All\|Overdue\|DueToday\|DueSoon\|Upcoming}` | `Dashboard` | Reminder inbox, optionally filtered. `DueSoon` applies only to unpaid Daily Spend due from tomorrow through the next 10 calendar days. |
 | `GET` | `/api/audit-log?actor=&action=&entityName=` | `BossAdmin` | Filterable audit history. |
 | `GET` | `/api/admin/ai-limits/ocr` | `BossAdmin` | Read the OCR enabled state, monthly and per-staff daily limits, and current-month usage. |
 | `PUT` | `/api/admin/ai-limits/ocr` | `BossAdmin` | Update the server-enforced OCR enabled state, monthly request limit, and per-staff daily request limit. |
@@ -305,6 +327,7 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `StockOwner`: `YSHeng`, `KS`
 - `VehicleStatus`: `Available`, `LoanProcessing`, `Sold`
 - `LeadStatus`: `New`, `Contacted`, `Closed`
+- `LeadClosureOutcome`: `Sold`, `Lost`, `Invalid`
 - `LoanStatus`: `Draft`, `Pending`, `Approved`, `Rejected`, `Done`
 - `DeliveryStatus`: `BookingInspection`, `Scheduled`, `Inspection`, `PreparingDocuments`, `CarPreparation`, `ReadyForRelease`, `Released`
 - `PaymentStatus`: `Pending`, `Approved`, `Disbursed`, `Reconciled`
