@@ -55,6 +55,11 @@ if (-not [regex]::IsMatch($caddyfile, $metricsAssetRoutePattern)) {
   throw "The Aspire metrics asset route must rebase all three exact JavaScript paths through /ops."
 }
 
+$dashboardRoutePattern = '(?s)@ops-dashboard-route path /resources /resources/\* /consolelogs /consolelogs/\* /structuredlogs /structuredlogs/\* /traces /traces/\* /metrics /metrics/\*\s+handle @ops-dashboard-route \{\s+redir \* /ops\{uri\} temporary\s+\}'
+if (-not [regex]::IsMatch($caddyfile, $dashboardRoutePattern)) {
+  throw "Escaped Aspire dashboard routes must redirect the browser to /ops before dashboard authentication."
+}
+
 foreach ($expected in @(
   'location = /ops/Components/Pages/Login.razor.js',
   'location = /ops/ops-subpath-navigation.js',

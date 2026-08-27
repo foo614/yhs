@@ -54,13 +54,12 @@
 		reverse_proxy ops-proxy:8080
 	}
 
-	# Aspire 13 emits these dashboard routes as root-relative URLs. Recover only
-	# the known dashboard route families through the protected /ops proxy so an
-	# escaped trace or log link cannot fall through to the back-office SPA.
+	# Aspire 13 emits these dashboard routes as root-relative URLs. Redirect the
+	# browser to /ops before dashboard authentication so its /ops-scoped cookie
+	# is sent, while escaped trace or log links cannot reach the back-office SPA.
 	@ops-dashboard-route path /resources /resources/* /consolelogs /consolelogs/* /structuredlogs /structuredlogs/* /traces /traces/* /metrics /metrics/*
 	handle @ops-dashboard-route {
-		rewrite * /ops{uri}
-		reverse_proxy ops-proxy:8080
+		redir * /ops{uri} temporary
 	}
 
 	@api path /api/*
