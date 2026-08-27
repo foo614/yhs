@@ -51,3 +51,52 @@ The minimal pass has no actionable P0, P1, or P2 visual findings. The desktop an
 The captured source shows a failed-login state while the implementation capture shows the normal state. The exact error state was not reproduced in browser QA to avoid transmitting a password.
 
 final result: passed
+
+---
+
+# Showroom enquiry desktop companion QA
+
+## Capture setup
+
+- Source visual truth: `C:\Users\User\.codex\generated_images\01a03954-fb8e-74c2-980f-ba61fab8dbe7\exec-ffa7d201-bf5f-4aa2-9ae2-da0b0de2daa9.png`.
+- Implementation: `http://localhost:3003/showroom-enquiry`, captured in the Codex in-app browser. The browser emitted the screenshot directly to the visual comparison and does not expose a stable local screenshot path.
+- Comparison input: the 1487 x 1058 source was normalized proportionally to the 1440 x 1024 browser capture (0.968 scale, device pixel ratio 1) and emitted with that final browser capture in the same visual comparison.
+- State: first step, no vehicle selected. The vehicle-tile selection and Next transition were also exercised separately without submitting an enquiry.
+- Responsive check: 393 x 852 CSS pixels. The preserved Canvas mobile composition had no horizontal overflow after the CTA width correction.
+
+## Full-view comparison evidence
+
+The desktop screen now uses a 1248 px showroom canvas instead of a narrow mobile column: a large left-aligned logo and heading sit over the pale showroom treatment, the hero continues across the full composition, the four vehicle types form one row, and the primary action remains compact and left-aligned. The duplicate progress dots embedded in the mobile hero asset are masked on desktop; the accessible desktop progress row remains visible above the copy.
+
+## Focused-region comparison evidence
+
+- Header and hierarchy: the logo, five-dot progress treatment, showroom label, two-line heading, and supporting copy retain the source's left-side hierarchy.
+- Vehicle choices: Sedan, SUV, MPV, and Pickup render as four equal image cards; selecting Sedan sets `aria-pressed` and Next reaches the preferences step.
+- Responsive layout: at 1440 px the shell is 1248 px wide with four 297 px tracks; at 393 px the mobile Canvas artwork remains the first-screen treatment and the CTA ends at x=369 within the viewport.
+
+## Findings
+
+No actionable P0, P1, or P2 differences remain for the approved desktop companion design.
+
+- [P3] The browser-scaled source crop is slightly softer than the design image at the showroom logo and vehicle edges. This comes from the existing supplied Canvas raster assets; it does not affect hierarchy, crop, or interaction.
+
+## Comparison history
+
+1. Initial desktop pass: the 680 px mobile canvas was widened to a four-card desktop row, but its logo, title wrap, card scale, and vertical rhythm still read as a stretched mobile screen.
+2. Alignment pass: expanded the desktop canvas to 1248 px, enlarged the hero and logo, restored the two-line heading, and matched the reference card and CTA placement.
+3. Asset pass: hid the mobile-only embedded progress row in the desktop hero so only one five-dot progress indicator remains.
+4. Mobile regression pass: corrected the absolute CTA to `width: auto`; the 393 px viewport now has `scrollWidth: 393`.
+
+## Implementation checklist
+
+- [x] Keep the mobile Canvas direction unchanged.
+- [x] Use one responsive desktop showroom composition at 900 px and above.
+- [x] Keep four image tiles visible in a single desktop row.
+- [x] Preserve no-login enquiry flow behavior and avoid any submission during browser QA.
+- [x] Run focused front-office tests and a production front-office build.
+
+## Follow-up polish
+
+- Replace the Canvas hero and tile PNGs with higher-resolution source exports if a future brand-art refresh is available.
+
+final result: passed
