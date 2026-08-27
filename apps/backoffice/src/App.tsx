@@ -53,7 +53,6 @@ import type { TableProps } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import type { ProTableProps } from "@ant-design/pro-table";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
-import { canMarkDeliveryReady, canMarkNotificationSent, canMarkTwoDayNoticeSent, canReleaseDelivery, deliveryCreateBlockReason, deliveryDocumentCategories, filterDeliverySchedules, markDeliveryReady, markNotificationSent, markTwoDayNoticeSent, type DeliveryFilters } from "./delivery";
 import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanApproved, markLoanDone, type LoanFilters } from "./loan";
 import {
   activeLeadCountByVehicle,
@@ -80,6 +79,8 @@ import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSetting
 import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
+import { DeliveryWorkboardPage } from "./modules/delivery/DeliveryWorkboardPage";
+import { SalesMyCarsPanel } from "./modules/leads/SalesMyCarsPanel";
 import { formatMoney as formatRinggit, formatMoneyInput, parseMoneyInput } from "./money";
 import {
   checkInHrAttendance,
@@ -97,7 +98,6 @@ import {
   createBrokerCommission,
   createDailySpend,
   createDebtRecovery,
-  createDelivery,
   createHrAttendanceNetwork,
   createLoan,
   createOwner,
@@ -128,7 +128,6 @@ import {
   getDebtRecoveries,
   getDashboardReminders,
   getPriorityActions,
-  getDeliveryReleaseReadiness,
   getDeliveries,
   getHrAttendance,
   getHrAttendanceDashboard,
@@ -182,7 +181,6 @@ import {
   updateHrLeavePolicy,
   updateHrAttendanceNetwork,
   updateHrPayrollProfile,
-  updateDelivery,
   updateBrokerCommission,
   updateCustomer,
   updateDailySpend,
@@ -223,9 +221,7 @@ import {
   type DashboardReminder,
   type DashboardSummary,
   type DebtRecoveryCase,
-  type DeliveryEvidenceItem,
   type DeliverySchedule,
-  type DeliveryReleaseReadiness,
   type DocumentCategory,
   type HrAttendanceRecord,
   type HrAttendanceDashboardSummary,
@@ -271,50 +267,6 @@ import {
 } from "./api";
 
 const staffRoles: StaffRole[] = assignableStaffRoles;
-
-const deliveryChecklistFields = [
-  "inspectionDone",
-  "documentsPrepared",
-  "polishDone",
-  "tintedDone",
-  "washDone",
-  "insuranceHandled",
-  "roadTaxHandled",
-  "windscreenInsuranceHandled",
-  "notificationSent",
-  "twoDayNoticeSent"
-] as const;
-
-type DeliveryChecklistField = (typeof deliveryChecklistFields)[number];
-
-const deliveryFieldLabels: Record<DeliveryChecklistField, string> = {
-  inspectionDone: "Inspection Done / 正式检查",
-  documentsPrepared: "Documents Prepared / 准备文件",
-  polishDone: "Polish Done / 抛光",
-  tintedDone: "Tinted Done / 隔热膜",
-  washDone: "Wash Done / 洗车",
-  insuranceHandled: "Insurance Handled / 保险",
-  roadTaxHandled: "Road Tax Handled / 路税",
-  windscreenInsuranceHandled: "Windscreen Insurance / 挡风玻璃保险",
-  notificationSent: "Customer Notified / 已通知客户",
-  twoDayNoticeSent: "2-day Notice Sent / 提前2天通知"
-};
-
-const deliveryPreparationChecklist: DeliveryChecklistField[] = [
-  "inspectionDone",
-  "documentsPrepared",
-  "polishDone",
-  "tintedDone",
-  "washDone",
-  "insuranceHandled",
-  "roadTaxHandled",
-  "windscreenInsuranceHandled"
-];
-
-const deliveryNotificationChecklist: DeliveryChecklistField[] = [
-  "notificationSent",
-  "twoDayNoticeSent"
-];
 
 const bilingual = {
   dashboard: "Dashboard / 管理层分析",
@@ -1032,13 +984,10 @@ export default function App() {
           {pathname === "/delivery" && (
             <DeliveryPage
               vehicles={vehicleLookup}
-              deliveries={deliveries}
+              canCorrectBuyer={currentRoles.includes("BossAdmin")}
               dashboardFocus={dashboardDrilldown}
               onClearDashboardFocus={() => navigateTo("/delivery")}
-              onCreate={(delivery) => runCreate(() => createDelivery(delivery), (record) => setDeliveries((items) => [record, ...items]), "Delivery scheduled")}
-              onUpdate={(delivery) => runUpdate(() => updateDelivery(delivery), (record) => setDeliveries((items) => replaceById(items, record)), "Delivery updated")}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
-              onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Delivery document uploaded")}
             />
           )}
           {pathname === "/finance" && (
@@ -1478,7 +1427,6 @@ function moduleStats(pathname: string, data: {
   const publicVehicles = data.vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingLoans = data.loans.filter((loan) => loan.status === "Pending").length;
   const openPayments = data.payments.filter((payment) => payment.status !== "Reconciled").length;
-  const pendingDeliveries = data.deliveries.filter((delivery) => delivery.status !== "Released").length;
   const newLeads = data.leads.filter((lead) => lead.status === "New").length;
   const todayText = today();
   const attendanceToday = data.hrAttendance.filter((record) => record.attendanceDate === todayText).length;
@@ -1504,11 +1452,7 @@ function moduleStats(pathname: string, data: {
         { label: "reminders", value: data.reminders.filter((reminder) => reminder.type === "LoanFollowUp").length }
       ];
     case "/delivery":
-      return [
-        { label: "scheduled", value: data.deliveries.length },
-        { label: "open", value: pendingDeliveries },
-        { label: "release due", value: data.reminders.filter((reminder) => reminder.type === "DeliveryPreparation").length }
-      ];
+      return [];
     case "/finance":
       return [
         { label: "payments", value: data.payments.length },
@@ -3845,908 +3789,25 @@ export function LoanPage({
 
 export function DeliveryPage({
   vehicles,
-  deliveries,
+  canCorrectBuyer = false,
   dashboardFocus,
   onClearDashboardFocus,
-  onCreate,
-  onUpdate,
-  onOpenCustomer,
-  onUploadDocument
+  onOpenCustomer
 }: {
   vehicles: VehicleLookup[];
-  deliveries: DeliverySchedule[];
+  canCorrectBuyer?: boolean;
   dashboardFocus: DashboardDrilldown;
   onClearDashboardFocus: () => void;
-  onCreate: (delivery: DeliverySchedule) => void;
-  onUpdate: (delivery: DeliverySchedule) => void;
   onOpenCustomer: (customerId: string) => void;
-  onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
-  const [releaseReadiness, setReleaseReadiness] = useState<Record<string, DeliveryReleaseReadiness>>({});
-  const [uploadDeliveryId, setUploadDeliveryId] = useState("");
-  const [editDeliveryId, setEditDeliveryId] = useState(deliveries[0]?.id ?? "");
-  const [deliveryEditorOpen, setDeliveryEditorOpen] = useState(false);
-  const [deliveryCreateOpen, setDeliveryCreateOpen] = useState(false);
-  const [documentReloadKey, setDocumentReloadKey] = useState(0);
-  const [deliveryFilters, setDeliveryFilters] = useState<DeliveryFilters>({});
-  const [deliveryFilterForm] = Form.useForm<DeliveryFilters>();
-  const [mobileDeliveryPage, setMobileDeliveryPage] = useState(1);
-  const selectedDelivery: DeliverySchedule | undefined = deliveries.find((delivery) => delivery.id === uploadDeliveryId);
-  const selectedEditDelivery: DeliverySchedule | undefined = deliveries.find((delivery) => delivery.id === editDeliveryId) ?? deliveries[0];
-  const selectedDeliveryReadiness = selectedDelivery
-    ? releaseReadiness[selectedDelivery.id]
-    : selectedEditDelivery
-      ? releaseReadiness[selectedEditDelivery.id]
-      : undefined;
-  const eligibleDeliveryVehicles = vehicles.filter((vehicle) => Boolean(vehicle.customerId));
-  const customerIdForVehicle = (vehicleId: string) => vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId;
-  const filteredDeliveries = filterDeliverySchedules(deliveries, vehicles, releaseReadiness, deliveryFilters);
-  const deliveryFiltersActive = Object.values(deliveryFilters).some((value) => value !== undefined && value !== "" && value !== "All");
-  const mobileDeliveryPageCount = Math.max(1, Math.ceil(filteredDeliveries.length / mobileWorkflowPageSize));
-  const clampedMobileDeliveryPage = Math.min(mobileDeliveryPage, mobileDeliveryPageCount);
-  const mobileDeliveries = filteredDeliveries.slice(
-    (clampedMobileDeliveryPage - 1) * mobileWorkflowPageSize,
-    clampedMobileDeliveryPage * mobileWorkflowPageSize
-  );
-  const updateDeliveryFilters = (next: Partial<DeliveryFilters>) => {
-    setDeliveryFilters((current) => ({ ...current, ...next }));
-    setMobileDeliveryPage(1);
-  };
-  const deliveryEmptyText = deliveries.length > 0 ? "No deliveries match the current filters." : "No delivery records yet.";
-
-  useEffect(() => {
-    const nextFilters = { vehicleId: dashboardFocus.vehicleId } satisfies DeliveryFilters;
-    setDeliveryFilters(nextFilters);
-    deliveryFilterForm.resetFields();
-    deliveryFilterForm.setFieldsValue(nextFilters);
-    setMobileDeliveryPage(1);
-  }, [dashboardFocus.vehicleId, deliveryFilterForm]);
-
-  useEffect(() => {
-    let active = true;
-    if (deliveries.length === 0) {
-      setReleaseReadiness({});
-      return () => {
-        active = false;
-      };
-    }
-
-    void Promise.all(deliveries.map(async (delivery) => [delivery.id, await getDeliveryReleaseReadiness(delivery.id)] as const))
-      .then((items) => {
-        if (active) setReleaseReadiness(Object.fromEntries(items));
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [deliveries, documentReloadKey]);
-
-  useEffect(() => {
-    if (!editDeliveryId && deliveries[0]?.id) {
-      setEditDeliveryId(deliveries[0].id);
-    }
-  }, [editDeliveryId, deliveries]);
-
-  const selectDeliveryRecord = (deliveryId: string) => {
-    setUploadDeliveryId(deliveryId);
-    setEditDeliveryId(deliveryId);
-  };
-
-  const selectDelivery = (deliveryId: string) => {
-    setEditDeliveryId(deliveryId);
-    setDeliveryEditorOpen(true);
-  };
-
-  const tableHeader = (label: string, secondary: string) => (
-    <span className="tableHeaderStack">
-      <span>{label}</span>
-      <span>{secondary}</span>
-    </span>
-  );
-
-  const deliveryStatusLabel = (status: DeliverySchedule["status"]) => ({
-    BookingInspection: "Booking inspection",
-    Scheduled: "Scheduled",
-    Inspection: "Inspection",
-    PreparingDocuments: "Preparing docs",
-    CarPreparation: "Car prep",
-    ReadyForRelease: "Ready",
-    Released: "Released",
-    Cancelled: "Cancelled"
-  })[status] ?? status;
-
-  const deliveryStatusColor = (status: DeliverySchedule["status"]) => ({
-    BookingInspection: "blue",
-    Scheduled: "gold",
-    Inspection: "cyan",
-    PreparingDocuments: "purple",
-    CarPreparation: "geekblue",
-    ReadyForRelease: "green",
-    Released: "default",
-    Cancelled: "red"
-  })[status] ?? "default";
-
-  const deliveryActionDisabledReason = (row: DeliverySchedule) => {
-    const readiness = releaseReadiness[row.id];
-    const missingDocuments = readiness?.missingCategories ?? [];
-    const missingEvidence = readiness?.missingEvidence ?? [];
-    const expiredDocuments = readiness?.expiredDocuments ?? [];
-    if (missingDocuments.length > 0) {
-      return `Missing ${missingDocuments.map(documentCategoryLabel).join(", ")}`;
-    }
-    if (missingEvidence.length > 0) {
-      return `Missing ${missingEvidence.join(", ")}`;
-    }
-    if (expiredDocuments.length > 0) {
-      return expiredDocuments.join(", ");
-    }
-    if (!canMarkDeliveryReady(row) && !canReleaseDelivery(row)) {
-      return "Finish the previous delivery steps first.";
-    }
-    return "";
-  };
-
-  const confirmDeliveryRelease = (
-    delivery: DeliverySchedule,
-    readiness: DeliveryReleaseReadiness | undefined,
-    onConfirm: () => Promise<void> | void
-  ) => {
-    Modal.confirm({
-      title: "Release vehicle? / 确认交车？",
-      content: (
-        <Descriptions size="small" column={1}>
-          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, delivery.vehicleId)}</Descriptions.Item>
-          <Descriptions.Item label="PIC">{delivery.pic}</Descriptions.Item>
-          <Descriptions.Item label="Scheduled Date / 日期">{delivery.scheduledDate}</Descriptions.Item>
-          <Descriptions.Item label="Release Check">{readiness?.isReady ?? canReleaseDelivery(delivery) ? "All prerequisites complete" : "Prerequisites need review"}</Descriptions.Item>
-        </Descriptions>
-      ),
-      okText: "Release Vehicle",
-      cancelText: "Keep Ready",
-      onOk: onConfirm
-    });
-  };
-
-  const renderNextDeliveryAction = (row: DeliverySchedule) => {
-    const readiness = releaseReadiness[row.id];
-    const missingDocuments = readiness?.missingCategories ?? [];
-    const missingEvidence = readiness?.missingEvidence ?? [];
-    const expiredDocuments = readiness?.expiredDocuments ?? [];
-    const blocksReleaseStep = missingDocuments.length > 0 || missingEvidence.length > 0 || expiredDocuments.length > 0;
-    const blockedReason = deliveryActionDisabledReason(row);
-
-    if (canMarkNotificationSent(row)) {
-      return <Button type="primary" size="small" onClick={() => onUpdate(markNotificationSent(row))}>Notify</Button>;
-    }
-    if (canMarkTwoDayNoticeSent(row)) {
-      return <Button type="primary" size="small" onClick={() => onUpdate(markTwoDayNoticeSent(row))}>Notice</Button>;
-    }
-    if (canMarkDeliveryReady(row)) {
-      return (
-        <Tooltip title={blocksReleaseStep ? blockedReason : ""}>
-          <Button
-            type="primary"
-            size="small"
-            onClick={() => onUpdate(markDeliveryReady(row))}
-            disabled={blocksReleaseStep || !canMarkDeliveryReady(row)}
-          >
-            Ready
-          </Button>
-        </Tooltip>
-      );
-    }
-    if (row.status === "ReadyForRelease") {
-      return (
-        <Tooltip title={blocksReleaseStep ? blockedReason : ""}>
-          <Button
-            type="primary"
-            size="small"
-            onClick={() => confirmDeliveryRelease(row, readiness, () => onUpdate({ ...row, status: "Released" }))}
-            disabled={blocksReleaseStep || !canReleaseDelivery(row)}
-          >
-            Release
-          </Button>
-        </Tooltip>
-      );
-    }
-    if (row.status === "Released") {
-      return <Tag color="default">Done</Tag>;
-    }
-    return null;
-  };
-
-  const columns: ColumnsType<DeliverySchedule> = [
-    {
-      title: tableHeader("Car Plate", "车牌"),
-      dataIndex: "vehicleId",
-      width: 116,
-      filters: tableTextFilters(deliveries.map((delivery) => plateFor(vehicles, delivery.vehicleId))),
-      filterSearch: true,
-      onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === String(value),
-      render: (vehicleId) => <Typography.Text strong className="nowrapText">{plateFor(vehicles, vehicleId)}</Typography.Text>
-    },
-    {
-      title: shortformLabel("PIC", "Person in charge"),
-      dataIndex: "pic",
-      width: 154,
-      ellipsis: true,
-      render: (pic) => <Typography.Text ellipsis={{ tooltip: pic }} className="deliveryTableText">{pic}</Typography.Text>
-    },
-    {
-      title: tableHeader("Schedule", "时间"),
-      dataIndex: "scheduledDate",
-      width: 122,
-      render: (value) => <span className="nowrapText">{value}</span>
-    },
-    {
-      title: tableHeader("Status", "状态"),
-      dataIndex: "status",
-      width: 146,
-      render: (status: DeliverySchedule["status"]) => <Tag color={deliveryStatusColor(status)}>{deliveryStatusLabel(status)}</Tag>
-    },
-    {
-      title: tableHeader("Notify", "通知"),
-      dataIndex: "notificationSent",
-      width: 96,
-      render: (sent) => <Badge status={sent ? "success" : "warning"} text={sent ? "Sent" : "Pending"} />
-    },
-    {
-      title: tableHeader("Release Ready", "可出车"),
-      width: 190,
-      render: (_, row) => {
-        const readiness = releaseReadiness[row.id];
-        const ready = readiness?.isReady ?? isDeliveryReady(row);
-        const missingCategories = readiness?.missingCategories ?? [];
-        const missingEvidence = readiness?.missingEvidence ?? [];
-        const expiredDocuments = readiness?.expiredDocuments ?? [];
-        const missingLabel = missingCategories.map(documentCategoryLabel).join(", ");
-        return (
-          <Space direction="vertical" size={3} className="deliveryReadinessCell">
-            <Tag color={ready ? "green" : "red"}>{ready ? "Ready" : "Blocked"}</Tag>
-            {missingCategories.length > 0 && (
-              <Tooltip title={missingLabel}>
-                <Typography.Text type="danger" className="deliveryTableText">
-                  {missingCategories.length} missing
-                </Typography.Text>
-              </Tooltip>
-            )}
-            {missingEvidence.length > 0 && <Typography.Text type="danger" className="deliveryTableText">{missingEvidence.length} evidence</Typography.Text>}
-            {expiredDocuments.length > 0 && <Typography.Text type="danger" className="deliveryTableText">{expiredDocuments.length} expired</Typography.Text>}
-          </Space>
-        );
-      }
-    },
-    {
-      title: tableHeader("Next Action", "操作"),
-      fixed: "right",
-      width: 240,
-      render: (_, row) => {
-        const customerId = customerIdForVehicle(row.vehicleId);
-        return (
-          <Space className="tableActionGroup deliveryActionCell" wrap size={6}>
-            <Button size="small" type="primary" onClick={() => selectDeliveryRecord(row.id)}>Details</Button>
-            <Button size="small" disabled={!customerId} onClick={() => customerId && onOpenCustomer(customerId)}>Customer 360</Button>
-            {renderNextDeliveryAction(row) ?? <Typography.Text type="secondary">No workflow action</Typography.Text>}
-          </Space>
-        );
-      }
-    }
-  ];
-
-  if (selectedDelivery) {
-    const missingDeliveryDocuments = selectedDeliveryReadiness?.missingCategories ?? deliveryDocumentCategories;
-    return (
-      <Space direction="vertical" size={16} className="fullWidth">
-        <Button onClick={() => setUploadDeliveryId("")}>Back to Delivery List</Button>
-        <ProCard title={`Delivery Details / 出车详情 - ${plateFor(vehicles, selectedDelivery.vehicleId)}`}>
-          <Descriptions size="small" column={{ xs: 1, md: 3 }}>
-            <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedDelivery.vehicleId)}</Descriptions.Item>
-            <Descriptions.Item label={shortformLabel("PIC", "Person in charge")}>{selectedDelivery.pic}</Descriptions.Item>
-            <Descriptions.Item label="Schedule / 时间">{selectedDelivery.scheduledDate}</Descriptions.Item>
-            <Descriptions.Item label="Status / 状态">{selectedDelivery.status}</Descriptions.Item>
-            <Descriptions.Item label="Ready / 可出车">
-              <Tag color={selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "green" : "red"}>
-                {selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "Ready for release" : "Blocked"}
-              </Tag>
-            </Descriptions.Item>
-          </Descriptions>
-        </ProCard>
-        <ProCard title="Delivery Record / 出车资料">
-          <Form
-            key={`${selectedDelivery.id}-delivery-record`}
-            layout="vertical"
-            className="formGrid"
-            initialValues={selectedDelivery}
-            onFinish={(values) => {
-              const delivery: DeliverySchedule = {
-                ...selectedDelivery,
-                vehicleId: values.vehicleId,
-                pic: values.pic,
-                status: values.status,
-                deliveryType: values.deliveryType ?? "Standard",
-                scheduledDate: values.scheduledDate,
-                scheduledTime: values.scheduledTime?.trim() || undefined,
-                deliveryAddress: values.deliveryAddress?.trim() || undefined,
-                transportMethod: values.transportMethod?.trim() || undefined,
-                rescheduleReason: values.rescheduleReason?.trim() || undefined,
-                cancellationReason: values.cancellationReason?.trim() || undefined,
-                polishDone: selectedDelivery.polishDone,
-                tintedDone: selectedDelivery.tintedDone,
-                washDone: selectedDelivery.washDone,
-                documentsPrepared: selectedDelivery.documentsPrepared,
-                inspectionDone: selectedDelivery.inspectionDone,
-                inspectionBookingReference: values.inspectionBookingReference?.trim() || undefined,
-                inspectionReportReference: values.inspectionReportReference?.trim() || undefined,
-                notificationSent: selectedDelivery.notificationSent,
-                twoDayNoticeSent: selectedDelivery.twoDayNoticeSent,
-                insuranceHandled: selectedDelivery.insuranceHandled,
-                insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
-                insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
-                roadTaxHandled: selectedDelivery.roadTaxHandled,
-                roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
-                roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
-                windscreenInsuranceHandled: selectedDelivery.windscreenInsuranceHandled,
-                windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
-                windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
-                handoverPhotoCaptured: selectedDelivery.handoverPhotoCaptured,
-                signedHandoverReceived: selectedDelivery.signedHandoverReceived,
-                customerAcknowledged: selectedDelivery.customerAcknowledged,
-                finalChecklistConfirmed: selectedDelivery.finalChecklistConfirmed
-              };
-              const blockReason = deliveryCreateBlockReason(delivery);
-              if (blockReason) {
-                message.warning(blockReason);
-                return;
-              }
-
-              if (selectedDelivery.status !== "Released" && delivery.status === "Released") {
-                confirmDeliveryRelease(delivery, selectedDeliveryReadiness, () => onUpdate(delivery));
-                return;
-              }
-
-              onUpdate(delivery);
-            }}
-          >
-            <Form.Item name="id" label="Selected Delivery">
-              <Select
-                showSearch
-                optionFilterProp="label"
-                options={deliveries.map((delivery) => ({ value: delivery.id, label: `${plateFor(vehicles, delivery.vehicleId)} / ${delivery.status}` }))}
-                onChange={selectDeliveryRecord}
-              />
-            </Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
-              <Select showSearch optionFilterProp="label" placeholder="Select car plate" options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedDelivery.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} />
-            </Form.Item>
-            <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="scheduledTime" label="Schedule Time"><Input placeholder="HH:MM" /></Form.Item>
-            <Form.Item name="deliveryType" label="Delivery Type"><Select options={["Standard", "Outstation"].map((value) => ({ value }))} /></Form.Item>
-            <Form.Item name="deliveryAddress" label="Delivery Address / 交车地点"><Input /></Form.Item>
-            <Form.Item name="transportMethod" label="Transport Method / 运输方式"><Input placeholder="Driver, runner, transporter..." /></Form.Item>
-            <Form.Item name="rescheduleReason" label="Reschedule or Rework Reason"><Input /></Form.Item>
-            <Form.Item name="cancellationReason" label="Cancellation Reason"><Input /></Form.Item>
-            <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released", "Cancelled"].map((value) => ({ value }))} /></Form.Item>
-            <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
-            <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
-            <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
-            <Form.Item name="insuranceExpiryDate" label="Insurance Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
-            <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
-            <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Delivery</Button></Form.Item>
-          </Form>
-        </ProCard>
-        <ProCard title="Delivery Documents / 出车文件">
-          <Space direction="vertical" size={12} className="fullWidth">
-            <DocumentUploadChecklist
-              title="Required delivery documents / 必需出车文件"
-              description="Add files as they arrive. Upload the handover photo, signed handover, Policy, and Road Tax Receipt before release."
-              items={deliveryDocumentCategories.map((category) => {
-                const isPresent = !missingDeliveryDocuments.includes(category);
-                return {
-                  label: documentCategoryLabel(category),
-                  isPresent,
-                  action: (
-                    <Upload
-                      showUploadList={false}
-                      customRequest={(option) => {
-                        void onUploadDocument(selectedDelivery.vehicleId, option.file as File, category)
-                          .then(() => {
-                            setDocumentReloadKey((value) => value + 1);
-                            option.onSuccess?.({ ok: true });
-                          })
-                          .catch((error) => option.onError?.(error));
-                      }}
-                    >
-                      <Button type="primary" size="small" icon={<UploadOutlined />}>{isPresent ? `Upload another ${documentCategoryLabel(category)}` : `Upload ${documentCategoryLabel(category)}`}</Button>
-                    </Upload>
-                  )
-                };
-              })}
-            />
-            {missingDeliveryDocuments.length > 0 && (
-              <Alert
-                type="warning"
-                showIcon
-                message={`${missingDeliveryDocuments.length} document${missingDeliveryDocuments.length === 1 ? "" : "s"} still needed before release`}
-                description="Uploads remain optional while preparing. Before release, provide a Delivery Document, Handover Photo, Signed Handover, Policy, and Road Tax Receipt."
-              />
-            )}
-            {selectedDeliveryReadiness?.evidence.length ? (
-              <AntTable<DeliveryEvidenceItem>
-                size="small"
-                rowKey="category"
-                pagination={false}
-                scroll={{ x: "max-content" }}
-                dataSource={selectedDeliveryReadiness.evidence}
-                columns={[
-                  {
-                    title: "Required Evidence / 必需文件",
-                    dataIndex: "category",
-                    render: (category: DocumentCategory) => documentCategoryLabel(category)
-                  },
-                  {
-                    title: "Status / 状态",
-                    dataIndex: "isPresent",
-                    render: (isPresent: boolean) => <Tag color={isPresent ? "green" : "red"}>{isPresent ? "Uploaded" : "Missing"}</Tag>
-                  },
-                  {
-                    title: "Latest File / 最新文件",
-                    render: (_, item) => item.documentId ? (
-                      <Button
-                        size="small"
-                        icon={<DownloadOutlined />}
-                        href={vehicleDocumentContentUrl(selectedDelivery.vehicleId, item.documentId)}
-                        target="_blank"
-                      >
-                        {item.fileName || "Open file"}
-                      </Button>
-                    ) : <Typography.Text type="secondary">-</Typography.Text>
-                  },
-                  {
-                    title: "Uploaded / 日期",
-                    dataIndex: "uploadedAt",
-                    render: (value?: string | null) => value ? String(value).slice(0, 10) : "-"
-                  },
-                  {
-                    title: "Uploaded By / 上传者",
-                    dataIndex: "uploadedBy",
-                    render: (value?: string | null) => value || "-"
-                  }
-                ]}
-              />
-            ) : null}
-            <ModuleDocumentList
-              vehicleId={selectedDelivery.vehicleId}
-              categories={deliveryDocumentCategories}
-              reloadKey={documentReloadKey}
-              showOcrResults={false}
-            />
-          </Space>
-        </ProCard>
-        <ProCard title="Final Checklist / 最后核对">
-          <Space direction="vertical" size={12} className="fullWidth">
-            <Alert
-              type="info"
-              showIcon
-              message="Update final release preparation here."
-              description="Use this checklist to mark preparation work done from the detail page. Upload required Policy/Road Tax/Delivery documents above, then use Ready or Release from the Delivery Workflow table when readiness is complete."
-            />
-            <Space wrap>
-              <Tag color="blue">{plateFor(vehicles, selectedDelivery.vehicleId)}</Tag>
-              <Tag color={selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "green" : "red"}>
-                {selectedDeliveryReadiness?.isReady ?? isDeliveryReady(selectedDelivery) ? "Ready for release" : "Blocked"}
-              </Tag>
-              {selectedDeliveryReadiness?.missingCategories.map((category) => (
-                <Tag color="red" key={category}>Missing {documentCategoryLabel(category)}</Tag>
-              ))}
-              {selectedDeliveryReadiness?.missingEvidence.map((item) => (
-                <Tag color="red" key={item}>Missing {item}</Tag>
-              ))}
-              {selectedDeliveryReadiness?.expiredDocuments.map((item) => (
-                <Tag color="volcano" key={item}>{item}</Tag>
-              ))}
-            </Space>
-            <Form
-              key={`${selectedDelivery.id}-final-checklist`}
-              layout="vertical"
-              className="deliveryChecklistForm"
-              initialValues={deliveryChecklistFields.reduce((values, field) => ({ ...values, [field]: selectedDelivery[field] }), {})}
-              onFinish={(values) => {
-                const delivery: DeliverySchedule = {
-                  ...selectedDelivery,
-                  ...deliveryChecklistFields.reduce(
-                    (updates, field) => ({ ...updates, [field]: Boolean(values[field]) }),
-                    {} as Pick<DeliverySchedule, DeliveryChecklistField>
-                  )
-                };
-                const blockReason = deliveryCreateBlockReason(delivery);
-                if (blockReason) {
-                  message.warning(blockReason);
-                  return;
-                }
-
-                onUpdate(delivery);
-              }}
-            >
-              <div className="deliveryChecklistSection">
-                <div>
-                  <Typography.Text className="mobileRecordLabel">Preparation / 出车准备</Typography.Text>
-                  <div className="deliveryChecklistEditGrid">
-                    {deliveryPreparationChecklist.map((field) => (
-                      <Form.Item key={field} name={field} valuePropName="checked">
-                        <Checkbox>{deliveryFieldLabels[field]}</Checkbox>
-                      </Form.Item>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <Typography.Text className="mobileRecordLabel">Notification / 通知</Typography.Text>
-                  <div className="deliveryChecklistEditGrid compact">
-                    {deliveryNotificationChecklist.map((field) => (
-                      <Form.Item key={field} name={field} valuePropName="checked">
-                        <Checkbox>{deliveryFieldLabels[field]}</Checkbox>
-                      </Form.Item>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="checklistReferenceGrid">
-                {deliveryReferenceChecklist(selectedDelivery).map((item) => (
-                  <div className="checkItem" key={item.label}><Badge status={item.done ? "success" : "error"} text={item.label} /></div>
-                ))}
-              </div>
-              <Form.Item className="formActions">
-                <Button type="primary" htmlType="submit">Save Checklist</Button>
-              </Form.Item>
-            </Form>
-          </Space>
-        </ProCard>
-      </Space>
-    );
-  }
-
   return (
-    <Space direction="vertical" size={16} className="fullWidth">
-      <ProCard
-        title="Delivery Workflow / 出车流程"
-        extra={<Space wrap><Tag color="blue">{deliveries.length} deliveries</Tag><Tag color={deliveries.some((delivery) => delivery.status !== "Released") ? "orange" : "default"}>{deliveries.filter((delivery) => delivery.status !== "Released").length} open</Tag><Button type="primary" disabled={eligibleDeliveryVehicles.length === 0} onClick={() => setDeliveryCreateOpen(true)}>New Delivery</Button></Space>}
-      >
-        {dashboardFocus.vehicleId && <Alert type="info" showIcon message="Dashboard focus: delivery preparation for the selected vehicle" action={<Button size="small" onClick={onClearDashboardFocus}>Clear focus</Button>} />}
-        <Space direction="vertical" size={12} className="fullWidth">
-          <Alert
-            type="info"
-            showIcon
-            message="Click Details to view delivery documents, edit the record, and update the final checklist."
-          />
-          {eligibleDeliveryVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before scheduling delivery." />}
-          <Form
-            form={deliveryFilterForm}
-            layout="inline"
-            className="toolbarForm workflowFilterBar"
-            onFinish={(values: DeliveryFilters) => updateDeliveryFilters(values)}
-          >
-            <Form.Item name="keyword">
-              <Input allowClear placeholder="Search plate, PIC, schedule, status" style={{ width: 280 }} />
-            </Form.Item>
-            <Form.Item name="status" initialValue="All">
-              <Select
-                options={[
-                  { value: "All", label: "All statuses" },
-                  ...(["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released"] as DeliverySchedule["status"][])
-                    .map((value) => ({ value, label: deliveryStatusLabel(value) }))
-                ]}
-                style={{ width: 190 }}
-              />
-            </Form.Item>
-            <Form.Item name="readiness" initialValue="All">
-              <Select
-                options={[
-                  { value: "All", label: "All readiness" },
-                  { value: "Ready", label: "Release ready" },
-                  { value: "Blocked", label: "Blocked" }
-                ]}
-                style={{ width: 170 }}
-              />
-            </Form.Item>
-            <Form.Item><Button type="primary" htmlType="submit">Query</Button></Form.Item>
-            <Form.Item><Button htmlType="button" onClick={() => {
-              deliveryFilterForm.resetFields();
-              if (dashboardFocus.vehicleId) {
-                onClearDashboardFocus();
-                return;
-              }
-              setDeliveryFilters({});
-              setMobileDeliveryPage(1);
-            }}>Reset</Button></Form.Item>
-            <Tag color={deliveryFiltersActive ? "blue" : "default"}>{deliveryFiltersActive ? `${filteredDeliveries.length} of ${deliveries.length} matching` : `${deliveries.length} ${deliveries.length === 1 ? "delivery" : "deliveries"}`}</Tag>
-            {/*
-            {deliveryFiltersActive && <Button
-              size="small"
-              onClick={() => {
-                if (dashboardFocus.vehicleId) {
-                  onClearDashboardFocus();
-                  return;
-                }
-                setDeliveryFilters({});
-                setMobileDeliveryPage(1);
-              }}
-            >
-              Clear filters
-            </Button>}
-          </Space>
-            */}
-          </Form>
-          <div className="mobileRecordList">
-            {filteredDeliveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={deliveryEmptyText} />}
-            {mobileDeliveries.map((delivery) => {
-              const readiness = releaseReadiness[delivery.id];
-              const ready = readiness?.isReady ?? isDeliveryReady(delivery);
-              const missingCategories = readiness?.missingCategories ?? [];
-              const nextAction = renderNextDeliveryAction(delivery);
-              return (
-                <article className="mobileRecordCard" key={delivery.id}>
-                  <div className="mobileRecordHeader">
-                    <div>
-                      <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                      <Typography.Title level={5}>{plateFor(vehicles, delivery.vehicleId)}</Typography.Title>
-                    </div>
-                    <Tag color={deliveryStatusColor(delivery.status)}>{deliveryStatusLabel(delivery.status)}</Tag>
-                  </div>
-                  <div className="mobileRecordMeta">
-                    <span>
-                      <small>{shortformLabel("PIC", "Person in charge")}</small>
-                      <strong>{delivery.pic}</strong>
-                    </span>
-                    <span>
-                      <small>Schedule / 时间</small>
-                      <strong>{delivery.scheduledDate}</strong>
-                    </span>
-                  </div>
-                  <div className="mobileRecordSection">
-                    <Typography.Text className="mobileRecordLabel">Readiness / 可出车</Typography.Text>
-                    <Space wrap size={6}>
-                      <Tag color={ready ? "green" : "red"}>{ready ? "Ready" : "Blocked"}</Tag>
-                      <Badge status={delivery.notificationSent ? "success" : "warning"} text={delivery.notificationSent ? "Notified" : "Notify pending"} />
-                      {missingCategories.map((category) => (
-                        <Tag color="red" key={category}>Missing {documentCategoryLabel(category)}</Tag>
-                      ))}
-                    </Space>
-                  </div>
-                  <div className="mobileRecordFooter">
-                    <Space className="tableActionGroup" wrap size={6}>
-                      <Button size="small" type="primary" onClick={() => selectDeliveryRecord(delivery.id)}>Details</Button>
-                      {nextAction}
-                    </Space>
-                  </div>
-                </article>
-                );
-              })}
-            {filteredDeliveries.length > mobileWorkflowPageSize && (
-              <Pagination
-                current={clampedMobileDeliveryPage}
-                pageSize={mobileWorkflowPageSize}
-                total={filteredDeliveries.length}
-                showSizeChanger={false}
-                onChange={setMobileDeliveryPage}
-              />
-            )}
-          </div>
-          <Table
-            rowKey="id"
-            className="deliveryWorkflowTable desktopDataTable"
-            columns={columns}
-            dataSource={filteredDeliveries}
-            proSearch={false}
-            pagination={{ ...tablePagination(8), current: clampedMobileDeliveryPage, onChange: setMobileDeliveryPage }}
-            scroll={{ x: "max-content" }}
-            locale={{ emptyText: deliveryEmptyText }}
-          />
-        </Space>
-      </ProCard>
-      <Modal
-        title="Schedule New Delivery / 新增出车安排"
-        width={820}
-        open={deliveryCreateOpen}
-        onCancel={() => setDeliveryCreateOpen(false)}
-        footer={null}
-        destroyOnClose
-        className="recordCreateModal"
-      >
-        <Form layout="vertical" className="modalForm formGrid" onFinish={(values) => {
-          const delivery: DeliverySchedule = {
-            id: newId(),
-            vehicleId: values.vehicleId,
-            pic: values.pic,
-            status: values.status,
-            deliveryType: values.deliveryType ?? "Standard",
-            scheduledDate: values.scheduledDate,
-            scheduledTime: values.scheduledTime?.trim() || undefined,
-            deliveryAddress: values.deliveryAddress?.trim() || undefined,
-            transportMethod: values.transportMethod?.trim() || undefined,
-            rescheduleReason: values.rescheduleReason?.trim() || undefined,
-            cancellationReason: values.cancellationReason?.trim() || undefined,
-            polishDone: values.polishDone,
-            tintedDone: values.tintedDone,
-            washDone: values.washDone,
-            documentsPrepared: values.documentsPrepared,
-            inspectionDone: values.inspectionDone,
-            inspectionBookingReference: values.inspectionBookingReference?.trim() || undefined,
-            inspectionReportReference: values.inspectionReportReference?.trim() || undefined,
-            notificationSent: values.notificationSent,
-            twoDayNoticeSent: values.twoDayNoticeSent,
-            insuranceHandled: values.insuranceHandled,
-            insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
-            insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
-            roadTaxHandled: values.roadTaxHandled,
-            roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
-            roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
-            windscreenInsuranceHandled: values.windscreenInsuranceHandled,
-            windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
-            windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
-            handoverPhotoCaptured: Boolean(values.handoverPhotoCaptured),
-            signedHandoverReceived: Boolean(values.signedHandoverReceived),
-            customerAcknowledged: Boolean(values.customerAcknowledged),
-            finalChecklistConfirmed: Boolean(values.finalChecklistConfirmed)
-          };
-          const blockReason = deliveryCreateBlockReason(delivery);
-          if (blockReason) {
-            message.warning(blockReason);
-            return;
-          }
-
-          if (delivery.status === "Released") {
-            confirmDeliveryRelease(delivery, undefined, async () => {
-              await onCreate(delivery);
-              setDeliveryCreateOpen(false);
-            });
-            return;
-          }
-
-          onCreate(delivery);
-          setDeliveryCreateOpen(false);
-        }} initialValues={{ vehicleId: eligibleDeliveryVehicles[0]?.id, status: "Scheduled", deliveryType: "Standard", scheduledDate: today(), inspectionBookingReference: "", inspectionReportReference: "", insurancePolicyReference: "", insuranceExpiryDate: "", roadTaxReceiptReference: "", roadTaxExpiryDate: "", windscreenPolicyReference: "", windscreenInsuranceExpiryDate: "", polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false, handoverPhotoCaptured: false, signedHandoverReceived: false, customerAcknowledged: false, finalChecklistConfirmed: false }}>
-          <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
-            <Select
-              showSearch
-              optionFilterProp="label"
-              placeholder="Select car plate"
-              options={eligibleDeliveryVehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
-            />
-          </Form.Item>
-          <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="scheduledTime" label="Schedule Time"><Input placeholder="HH:MM" /></Form.Item>
-          <Form.Item name="deliveryType" label="Delivery Type"><Select options={["Standard", "Outstation"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="deliveryAddress" label="Delivery Address / 交车地点"><Input /></Form.Item>
-          <Form.Item name="transportMethod" label="Transport Method / 运输方式"><Input placeholder="Driver, runner, transporter..." /></Form.Item>
-          <Form.Item name="rescheduleReason" label="Reschedule or Rework Reason"><Input /></Form.Item>
-          <Form.Item name="cancellationReason" label="Cancellation Reason"><Input /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released", "Cancelled"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
-          <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
-          <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
-          <Form.Item name="insuranceExpiryDate" label="Insurance Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
-          <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
-          <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          {deliveryChecklistFields.map((field) => (
-            <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
-          ))}
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Schedule</Button></Form.Item>
-        </Form>
-      </Modal>
-      <Drawer
-        title="Edit Delivery / 修改出车安排"
-        width={560}
-        open={deliveryEditorOpen}
-        onClose={() => setDeliveryEditorOpen(false)}
-        destroyOnClose
-        className="recordEditDrawer"
-      >
-        <Form
-          key={selectedEditDelivery?.id ?? "delivery-edit"}
-          layout="vertical"
-          className="drawerForm"
-          initialValues={selectedEditDelivery}
-          onFinish={(values) => {
-            if (!selectedEditDelivery) return;
-            const delivery: DeliverySchedule = {
-              ...selectedEditDelivery,
-              vehicleId: values.vehicleId,
-              pic: values.pic,
-              status: values.status,
-              deliveryType: values.deliveryType ?? "Standard",
-              scheduledDate: values.scheduledDate,
-              scheduledTime: values.scheduledTime?.trim() || undefined,
-              deliveryAddress: values.deliveryAddress?.trim() || undefined,
-              transportMethod: values.transportMethod?.trim() || undefined,
-              rescheduleReason: values.rescheduleReason?.trim() || undefined,
-              cancellationReason: values.cancellationReason?.trim() || undefined,
-              polishDone: values.polishDone,
-              tintedDone: values.tintedDone,
-              washDone: values.washDone,
-              documentsPrepared: values.documentsPrepared,
-              inspectionDone: values.inspectionDone,
-              inspectionBookingReference: values.inspectionBookingReference?.trim() || undefined,
-              inspectionReportReference: values.inspectionReportReference?.trim() || undefined,
-              notificationSent: values.notificationSent,
-              twoDayNoticeSent: values.twoDayNoticeSent,
-              insuranceHandled: values.insuranceHandled,
-              insurancePolicyReference: values.insurancePolicyReference?.trim() || undefined,
-              insuranceExpiryDate: values.insuranceExpiryDate?.trim() || undefined,
-              roadTaxHandled: values.roadTaxHandled,
-              roadTaxReceiptReference: values.roadTaxReceiptReference?.trim() || undefined,
-              roadTaxExpiryDate: values.roadTaxExpiryDate?.trim() || undefined,
-              windscreenInsuranceHandled: values.windscreenInsuranceHandled,
-              windscreenPolicyReference: values.windscreenPolicyReference?.trim() || undefined,
-              windscreenInsuranceExpiryDate: values.windscreenInsuranceExpiryDate?.trim() || undefined,
-              handoverPhotoCaptured: Boolean(values.handoverPhotoCaptured),
-              signedHandoverReceived: Boolean(values.signedHandoverReceived),
-              customerAcknowledged: Boolean(values.customerAcknowledged),
-              finalChecklistConfirmed: Boolean(values.finalChecklistConfirmed)
-            };
-            const blockReason = deliveryCreateBlockReason(delivery);
-            if (blockReason) {
-              message.warning(blockReason);
-              return;
-            }
-
-            if (selectedEditDelivery.status !== "Released" && delivery.status === "Released") {
-              confirmDeliveryRelease(delivery, releaseReadiness[selectedEditDelivery.id], async () => {
-                await onUpdate(delivery);
-                setDeliveryEditorOpen(false);
-              });
-              return;
-            }
-
-            onUpdate(delivery);
-            setDeliveryEditorOpen(false);
-          }}
-        >
-          <Form.Item name="id" label="Edit Delivery / 修改出车记录">
-            <Select
-              showSearch
-              optionFilterProp="label"
-              options={deliveries.map((delivery) => ({ value: delivery.id, label: `${plateFor(vehicles, delivery.vehicleId)} / ${delivery.status}` }))}
-              onChange={selectDelivery}
-            />
-          </Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}>
-            <Select
-              showSearch
-              optionFilterProp="label"
-              placeholder="Select car plate"
-              options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
-            />
-          </Form.Item>
-          <Form.Item name="pic" label={shortformLabel("PIC", "Person in charge")} rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="scheduledDate" label="Schedule Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="scheduledTime" label="Schedule Time"><Input placeholder="HH:MM" /></Form.Item>
-          <Form.Item name="deliveryType" label="Delivery Type"><Select options={["Standard", "Outstation"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="deliveryAddress" label="Delivery Address / 交车地点"><Input /></Form.Item>
-          <Form.Item name="transportMethod" label="Transport Method / 运输方式"><Input placeholder="Driver, runner, transporter..." /></Form.Item>
-          <Form.Item name="rescheduleReason" label="Reschedule or Rework Reason"><Input /></Form.Item>
-          <Form.Item name="cancellationReason" label="Cancellation Reason"><Input /></Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["BookingInspection", "Scheduled", "Inspection", "PreparingDocuments", "CarPreparation", "ReadyForRelease", "Released", "Cancelled"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="inspectionBookingReference" label="Inspection Booking Reference / 验车预约编号"><Input placeholder="Booking slip no. or appointment reference" /></Form.Item>
-          <Form.Item name="inspectionReportReference" label="Inspection Report Reference / 检查报告编号"><Input placeholder="Report no. or uploaded file reference" /></Form.Item>
-          <Form.Item name="insurancePolicyReference" label="Insurance Policy Reference / 保险保单编号"><Input placeholder="Policy no. or cover note reference" /></Form.Item>
-          <Form.Item name="insuranceExpiryDate" label="Insurance Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="roadTaxReceiptReference" label="Road Tax Receipt Reference / 路税收据编号"><Input placeholder="Road tax receipt no." /></Form.Item>
-          <Form.Item name="roadTaxExpiryDate" label="Road Tax Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="windscreenPolicyReference" label="Windscreen Policy Reference / 挡风玻璃保单编号"><Input placeholder="Windscreen policy reference" /></Form.Item>
-          <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen Expiry"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          {deliveryChecklistFields.map((field) => (
-            <Form.Item key={field} name={field} label={deliveryFieldLabels[field]}><Select options={[{ value: true, label: "Done" }, { value: false, label: "Pending" }]} /></Form.Item>
-          ))}
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDelivery}>Update Delivery</Button></Form.Item>
-        </Form>
-      </Drawer>
-    </Space>
+    <DeliveryWorkboardPage
+      vehicles={vehicles}
+      canCorrectBuyer={canCorrectBuyer}
+      dashboardFocus={dashboardFocus}
+      onClearDashboardFocus={onClearDashboardFocus}
+      onOpenCustomer={onOpenCustomer}
+    />
   );
 }
 
@@ -4756,6 +3817,7 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
   const [leadSortMode, setLeadSortMode] = useState<"CloseAsap" | "Received">("CloseAsap");
   const [closingLead, setClosingLead] = useState<Lead | null>(null);
   const [closureOutcome, setClosureOutcome] = useState<"Sold" | "Lost" | "Invalid">("Lost");
+  const [leadView, setLeadView] = useState<"Leads" | "MyCars">("Leads");
   const filteredLeads = filterLeadsForTriage(leads, { status: leadStatusFilter, link: leadLinkFilter });
   const displayedLeads = leadSortMode === "CloseAsap"
     ? sortLeadsByHotCarDemand(filteredLeads, vehicles)
@@ -4932,6 +3994,18 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
 
   return (
     <Space direction="vertical" size={16} className="fullWidth leadsPage">
+      <Radio.Group
+        className="salesLeadViewSwitch"
+        optionType="button"
+        buttonStyle="solid"
+        value={leadView}
+        onChange={(event) => setLeadView(event.target.value)}
+        options={[
+          { value: "Leads", label: "Leads / 客户询问" },
+          { value: "MyCars", label: "My Cars / 我的车辆" }
+        ]}
+      />
+      {leadView === "Leads" ? <>
       <ProCard title={bilingual.leads}>
         <div className="leadCloseAsapBand">
           <div>
@@ -5056,6 +4130,7 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
           { value: "Invalid", label: "Invalid / 无效询问" }
         ]} />
       </Modal>
+      </> : <SalesMyCarsPanel currentUser={currentUser} />}
     </Space>
   );
 }
@@ -5964,7 +5039,9 @@ function documentCategoryLabel(category: DocumentCategory) {
     RepairInvoice: "Repair Invoice",
     PaymentReceipt: "Payment Receipt",
     PaymentInvoice: "Payment Invoice",
-    MedicalCertificate: "Medical Certificate"
+    MedicalCertificate: "Medical Certificate",
+    InspectionReport: "Inspection Report",
+    WindscreenPolicy: "Windscreen Policy"
   };
   return labels[category];
 }
@@ -6095,36 +5172,6 @@ function tableFilterValues<RecordType extends object>(row: RecordType, dataIndex
   }
 
   return [String(value)];
-}
-
-function isDeliveryReady(delivery: DeliverySchedule) {
-  return delivery.status === "ReadyForRelease" &&
-    delivery.inspectionDone &&
-    Boolean(delivery.inspectionReportReference?.trim()) &&
-    delivery.documentsPrepared &&
-    delivery.polishDone &&
-    delivery.tintedDone &&
-    delivery.washDone &&
-    delivery.insuranceHandled &&
-    delivery.roadTaxHandled &&
-    delivery.windscreenInsuranceHandled &&
-    delivery.twoDayNoticeSent &&
-    Boolean(delivery.insuranceExpiryDate && delivery.insuranceExpiryDate >= delivery.scheduledDate) &&
-    Boolean(delivery.roadTaxExpiryDate && delivery.roadTaxExpiryDate >= delivery.scheduledDate) &&
-    Boolean(delivery.windscreenInsuranceExpiryDate && delivery.windscreenInsuranceExpiryDate >= delivery.scheduledDate);
-}
-
-function deliveryReferenceChecklist(delivery: DeliverySchedule) {
-  return [
-    { label: "Inspection Booking / 验车预约", done: Boolean(delivery.inspectionBookingReference?.trim()) },
-    { label: "Inspection Report / 检查报告", done: Boolean(delivery.inspectionReportReference?.trim()) },
-    { label: `Policy Ref / 保单: ${delivery.insurancePolicyReference?.trim() || "-"}`, done: Boolean(delivery.insurancePolicyReference?.trim()) },
-    { label: `Policy Expiry: ${delivery.insuranceExpiryDate || "-"}`, done: Boolean(delivery.insuranceExpiryDate && delivery.insuranceExpiryDate >= delivery.scheduledDate) },
-    { label: `Road Tax Receipt / 路税收据: ${delivery.roadTaxReceiptReference?.trim() || "-"}`, done: Boolean(delivery.roadTaxReceiptReference?.trim()) },
-    { label: `Road Tax Expiry: ${delivery.roadTaxExpiryDate || "-"}`, done: Boolean(delivery.roadTaxExpiryDate && delivery.roadTaxExpiryDate >= delivery.scheduledDate) },
-    { label: `Windscreen Ref: ${delivery.windscreenPolicyReference?.trim() || "-"}`, done: Boolean(delivery.windscreenPolicyReference?.trim()) },
-    { label: `Windscreen Expiry: ${delivery.windscreenInsuranceExpiryDate || "-"}`, done: Boolean(delivery.windscreenInsuranceExpiryDate && delivery.windscreenInsuranceExpiryDate >= delivery.scheduledDate) }
-  ];
 }
 
 function replaceById<T extends { id: string }>(items: T[], record: T) {

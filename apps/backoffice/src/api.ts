@@ -19,7 +19,7 @@ export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "U
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated";
 export type HrEmploymentType = "Monthly" | "Hourly";
-export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate";
+export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate" | "InspectionReport" | "WindscreenPolicy";
 export type DocumentOwnershipType = "Seller" | "Buyer" | "Vehicle";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed";
 export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected";
@@ -83,6 +83,7 @@ export type DocumentUploadOwner = {
   ownerId?: string;
   repairJobId?: string;
   paymentRecordId?: string;
+  deliveryScheduleId?: string;
 };
 
 export type Vehicle = {
@@ -354,6 +355,8 @@ export type LoanApplication = {
 export type DeliverySchedule = {
   id: string;
   vehicleId: string;
+  customerId?: string;
+  picUserId?: string;
   pic: string;
   status: DeliveryStatus;
   deliveryType?: DeliveryType;
@@ -385,6 +388,104 @@ export type DeliverySchedule = {
   signedHandoverReceived?: boolean;
   customerAcknowledged?: boolean;
   finalChecklistConfirmed?: boolean;
+};
+
+export type DeliveryWorkboardStage = "PlanDelivery" | "PrepareCar" | "ClearDocuments" | "Handover" | "Completed" | "Cancelled";
+
+export type DeliveryWorkboardItem = {
+  id: string;
+  vehicleId: string;
+  plateNumber: string;
+  vehicleLabel: string;
+  customerId?: string;
+  customerName: string;
+  picUserId?: string;
+  picName: string;
+  deliveryType?: DeliveryType;
+  scheduledDate: string;
+  scheduledTime?: string;
+  deliveryAddress?: string;
+  transportMethod?: string;
+  rescheduleReason?: string;
+  cancellationReason?: string;
+  status: DeliveryStatus;
+  stage: DeliveryWorkboardStage;
+  stageLabel: string;
+  nextAction: string;
+  blocker?: string | null;
+  financeCleared: boolean;
+  canRelease: boolean;
+  terminal: boolean;
+  invoiceUpdateRequested?: boolean;
+  invoiceUpdateRequestReason?: string | null;
+  polishDone: boolean;
+  tintedDone: boolean;
+  washDone: boolean;
+  documentsPrepared: boolean;
+  inspectionDone: boolean;
+  inspectionBookingReference?: string;
+  inspectionReportReference?: string;
+  notificationSent: boolean;
+  twoDayNoticeSent: boolean;
+  insuranceHandled: boolean;
+  insurancePolicyReference?: string;
+  insuranceExpiryDate?: string;
+  roadTaxHandled: boolean;
+  roadTaxReceiptReference?: string;
+  roadTaxExpiryDate?: string;
+  windscreenInsuranceHandled: boolean;
+  windscreenPolicyReference?: string;
+  windscreenInsuranceExpiryDate?: string;
+  handoverPhotoCaptured?: boolean;
+  signedHandoverReceived?: boolean;
+  customerAcknowledged?: boolean;
+  finalChecklistConfirmed?: boolean;
+  missingCategories: DocumentCategory[];
+  evidence: DeliveryEvidenceItem[];
+};
+
+export type DeliveryInvoiceUpdateRequestItem = {
+  id: string;
+  vehicleId: string;
+  plateNumber: string;
+  vehicleLabel: string;
+  customerName: string;
+  requestReason: string;
+  requestedAt: string;
+};
+
+export type DeliveryPicOption = {
+  id: string;
+  displayName: string;
+};
+
+export type DeliveryActivity = {
+  id: string;
+  deliveryScheduleId: string;
+  action: string;
+  actorUserId?: string | null;
+  actorName: string;
+  summary: string;
+  createdAt: string;
+};
+
+export type SalesWorkboardItem = {
+  vehicleId: string;
+  plateNumber: string;
+  vehicleLabel: string;
+  salesAgentUserId?: string | null;
+  salesAgentName?: string | null;
+  process: string;
+  responsibleDepartment: string;
+  nextAction: string;
+  soldAt?: string | null;
+};
+
+export type SalesWorkboard = {
+  soldThisMonth: number;
+  inProgressCount: number;
+  availableAgents: DeliveryPicOption[];
+  items: SalesWorkboardItem[];
 };
 
 export type PaymentRecord = {
@@ -870,6 +971,7 @@ export type VehicleDocument = {
   ownerId?: string;
   repairJobId?: string;
   paymentRecordId?: string;
+  deliveryScheduleId?: string;
   uploadedBy: string;
   checksum: string;
   uploadedAt: string;
@@ -902,6 +1004,7 @@ export type LoanDocumentCheck = {
 
 export type DeliveryReleaseReadiness = {
   isReady: boolean;
+  financeCleared: boolean;
   missingCategories: DocumentCategory[];
   missingEvidence: string[];
   expiredDocuments: string[];
@@ -1074,7 +1177,7 @@ export async function getLoanDocumentCheck(loanId: string): Promise<LoanDocument
 }
 
 export async function getDeliveryReleaseReadiness(deliveryId: string): Promise<DeliveryReleaseReadiness> {
-  return getWithNetworkFallback(`/api/deliveries/${deliveryId}/release-readiness`, { isReady: false, missingCategories: [], missingEvidence: [], expiredDocuments: [], evidence: [] });
+  return getWithNetworkFallback(`/api/deliveries/${deliveryId}/release-readiness`, { isReady: false, financeCleared: false, missingCategories: [], missingEvidence: [], expiredDocuments: [], evidence: [] });
 }
 
 export async function login(email: string, password: string) {
@@ -1148,6 +1251,18 @@ export async function getDeliveries(): Promise<DeliverySchedule[]> {
   return getWithNetworkFallback("/api/deliveries", fallbackDeliveries());
 }
 
+export async function getDeliveryWorkboard(): Promise<DeliveryWorkboardItem[]> {
+  return request<DeliveryWorkboardItem[]>("/api/deliveries/workboard");
+}
+
+export async function getDeliveryPicOptions(): Promise<DeliveryPicOption[]> {
+  return request<DeliveryPicOption[]>("/api/deliveries/pic-options");
+}
+
+export async function getDeliveryActivity(deliveryId: string): Promise<DeliveryActivity[]> {
+  return request<DeliveryActivity[]>(`/api/deliveries/${deliveryId}/activity`);
+}
+
 export async function getPayments(): Promise<PaymentRecord[]> {
   return getWithNetworkFallback("/api/payments", fallbackPayments());
 }
@@ -1202,6 +1317,12 @@ export async function getPaymentVouchers(): Promise<PaymentVoucher[]> {
 
 export async function getLeads(): Promise<Lead[]> {
   return getWithNetworkFallback("/api/leads", fallbackLeads());
+}
+
+export async function getSalesWorkboard(agentUserId?: string): Promise<SalesWorkboard> {
+  const query = agentUserId ? `?agentUserId=${encodeURIComponent(agentUserId)}` : "";
+  const path = "/api/sales/workboard";
+  return request<SalesWorkboard>(`${path}${query}`);
 }
 
 export async function getAuditLog(filters: AuditLogFilters = {}): Promise<AuditLog[]> {
@@ -1658,6 +1779,43 @@ export async function updateDelivery(delivery: DeliverySchedule): Promise<Delive
   });
 }
 
+export async function releaseDelivery(deliveryId: string): Promise<DeliverySchedule> {
+  return request<DeliverySchedule>(`/api/deliveries/${deliveryId}/release`, {
+    method: "POST"
+  });
+}
+
+export async function cancelDelivery(deliveryId: string, reason: string): Promise<DeliverySchedule> {
+  return request<DeliverySchedule>(`/api/deliveries/${deliveryId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
+  });
+}
+
+export async function requestDeliveryInvoiceUpdate(deliveryId: string, reason: string): Promise<DeliverySchedule> {
+  return request<DeliverySchedule>(`/api/deliveries/${deliveryId}/request-invoice-update`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
+  });
+}
+
+export async function correctDeliveryBuyer(deliveryId: string, customerId: string, reason: string): Promise<DeliverySchedule> {
+  return request<DeliverySchedule>(`/api/deliveries/${deliveryId}/correct-buyer`, {
+    method: "POST",
+    body: JSON.stringify({ customerId, reason })
+  });
+}
+
+export async function getDeliveryInvoiceUpdateRequests(): Promise<DeliveryInvoiceUpdateRequestItem[]> {
+  return request<DeliveryInvoiceUpdateRequestItem[]>("/api/deliveries/invoice-update-requests");
+}
+
+export async function resolveDeliveryInvoiceUpdate(deliveryId: string): Promise<{ id: string; resolvedAt: string }> {
+  return request<{ id: string; resolvedAt: string }>(`/api/deliveries/${deliveryId}/resolve-invoice-update`, {
+    method: "POST"
+  });
+}
+
 export async function updatePayment(payment: PaymentRecord): Promise<PaymentRecord> {
   return request<PaymentRecord>(`/api/payments/${payment.id}`, {
     method: "PUT",
@@ -1863,6 +2021,7 @@ function documentUploadPath(vehicleId: string, category: DocumentCategory, owner
   if (owner?.ownerId) query.set("ownerId", owner.ownerId);
   if (owner?.repairJobId) query.set("repairJobId", owner.repairJobId);
   if (owner?.paymentRecordId) query.set("paymentRecordId", owner.paymentRecordId);
+  if (owner?.deliveryScheduleId) query.set("deliveryScheduleId", owner.deliveryScheduleId);
   return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
 }
 

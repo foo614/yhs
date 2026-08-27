@@ -1,5 +1,7 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { createUnpaidDailySpend, dailySpendMatchesDashboardAttention, financeTabForUrl, payDailySpend } from "./FinancePage";
+import { createUnpaidDailySpend, dailySpendMatchesDashboardAttention, financeTabForUrl, InvoiceUpdateRequestQueue, payDailySpend } from "./FinancePage";
 
 describe("finance module navigation", () => {
   it("keeps legacy cash custody links on the consolidated cash handover tab", () => {
@@ -32,5 +34,32 @@ describe("Daily Spend creation and payment", () => {
 
     expect(spend).toMatchObject({ description: "Electric Bill", amount: 385, dueDate: "2026-06-15", isPaid: false });
     expect(payDailySpend(spend)).toEqual({ ...spend, isPaid: true });
+  });
+});
+
+describe("delivery invoice update handoff", () => {
+  it("shows Finance the open request reason and one explicit resolution action without payment details", () => {
+    const markup = renderToStaticMarkup(createElement(InvoiceUpdateRequestQueue, {
+      requests: [{
+        id: "delivery-1",
+        vehicleId: "vehicle-1",
+        plateNumber: "VPK 1234",
+        vehicleLabel: "Toyota Vios",
+        customerName: "Ali Tan",
+        requestReason: "Correct the customer address",
+        requestedAt: "2026-08-27T08:30:00Z"
+      }],
+      loading: false,
+      resolvingId: undefined,
+      onRetry: () => {},
+      onResolve: () => {}
+    }));
+
+    expect(markup).toContain("Delivery invoice update requests / 交车发票更新");
+    expect(markup).toContain("VPK 1234");
+    expect(markup).toContain("Correct the customer address");
+    expect(markup).toContain("Mark resolved");
+    expect(markup).not.toContain("Invoice amount");
+    expect(markup).not.toContain("Payment status");
   });
 });

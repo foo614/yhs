@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
 import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
 import dayjs from "dayjs";
@@ -25,8 +25,10 @@ import {
 } from "../../finance";
 import {
   customerSelectLabel,
+  getDeliveryInvoiceUpdateRequests,
   getVehicleDocuments,
   humanizeApiError,
+  resolveDeliveryInvoiceUpdate,
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
@@ -34,6 +36,7 @@ import {
   type Customer,
   type DailySpend,
   type DebtRecoveryCase,
+  type DeliveryInvoiceUpdateRequestItem,
   type DocumentCategory,
   type Owner,
   type PaymentRecord,
@@ -55,6 +58,55 @@ export function createUnpaidDailySpend(id: string, description: string, amount: 
 
 export function payDailySpend(spend: DailySpend): DailySpend {
   return { ...spend, isPaid: true };
+}
+
+export function InvoiceUpdateRequestQueue({
+  requests,
+  loading,
+  error,
+  resolvingId,
+  onRetry,
+  onResolve
+}: {
+  requests: DeliveryInvoiceUpdateRequestItem[];
+  loading: boolean;
+  error?: string;
+  resolvingId?: string;
+  onRetry: () => void;
+  onResolve: (requestItem: DeliveryInvoiceUpdateRequestItem) => void;
+}) {
+  return (
+    <ProCard
+      title="Delivery invoice update requests / 交车发票更新"
+      extra={<Tag color={requests.length > 0 ? "orange" : "green"}>{requests.length} open</Tag>}
+      loading={loading}
+      className="financeInvoiceRequestQueue"
+    >
+      {error ? <Alert type="error" showIcon message={error} action={<Button onClick={onRetry}>Try again</Button>} />
+        : requests.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No open delivery invoice requests." />
+          : <div className="financeInvoiceRequestList">
+            {requests.map((requestItem) => (
+              <article key={requestItem.id} className="financeInvoiceRequestItem">
+                <div>
+                  <Space size={6} wrap>
+                    <Typography.Text strong>{requestItem.plateNumber}</Typography.Text>
+                    <Typography.Text type="secondary">{requestItem.vehicleLabel}</Typography.Text>
+                  </Space>
+                  <Typography.Text>{requestItem.customerName}</Typography.Text>
+                  <Typography.Text className="financeInvoiceRequestReason">Requested: {requestItem.requestReason}</Typography.Text>
+                  <Typography.Text type="secondary">{String(requestItem.requestedAt).replace("T", " ").slice(0, 16)}</Typography.Text>
+                </div>
+                <Button
+                  type="primary"
+                  loading={resolvingId === requestItem.id}
+                  disabled={Boolean(resolvingId && resolvingId !== requestItem.id)}
+                  onClick={() => onResolve(requestItem)}
+                >Mark resolved</Button>
+              </article>
+            ))}
+          </div>}
+    </ProCard>
+  );
 }
 
 export function FinancePage({
@@ -153,6 +205,10 @@ export function FinancePage({
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [paymentDocuments, setPaymentDocuments] = useState<VehicleDocument[]>([]);
   const [paymentOcrDraft, setPaymentOcrDraft] = useState<OcrReviewValues | null>(null);
+  const [invoiceUpdateRequests, setInvoiceUpdateRequests] = useState<DeliveryInvoiceUpdateRequestItem[]>([]);
+  const [invoiceRequestLoading, setInvoiceRequestLoading] = useState(canManageFinance);
+  const [invoiceRequestError, setInvoiceRequestError] = useState<string>();
+  const [resolvingInvoiceRequestId, setResolvingInvoiceRequestId] = useState<string>();
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
@@ -163,6 +219,45 @@ export function FinancePage({
   const selectedEditPaymentVoucher = paymentVouchers.find((voucher) => voucher.id === editPaymentVoucherId) ?? paymentVouchers[0];
   const dashboardToday = singaporeTodayIsoDate();
   const dashboardFocusActive = Boolean(dashboardFocus.vehicleId || dashboardFocus.attention);
+
+  const loadInvoiceUpdateRequests = useCallback(async () => {
+    if (!canManageFinance) return;
+    setInvoiceRequestLoading(true);
+    try {
+      setInvoiceUpdateRequests(await getDeliveryInvoiceUpdateRequests());
+      setInvoiceRequestError(undefined);
+    } catch (error) {
+      setInvoiceRequestError(humanizeApiError(error, "Delivery invoice update requests could not be loaded."));
+    } finally {
+      setInvoiceRequestLoading(false);
+    }
+  }, [canManageFinance]);
+
+  useEffect(() => {
+    void loadInvoiceUpdateRequests();
+  }, [loadInvoiceUpdateRequests]);
+
+  const confirmInvoiceRequestResolved = (requestItem: DeliveryInvoiceUpdateRequestItem) => {
+    Modal.confirm({
+      title: `Mark ${requestItem.plateNumber} invoice request resolved?`,
+      content: "Confirm only after the requested invoice correction is complete. Delivery will then be able to continue its release checks.",
+      okText: "Mark resolved",
+      cancelText: "Keep open",
+      onOk: async () => {
+        setResolvingInvoiceRequestId(requestItem.id);
+        try {
+          await resolveDeliveryInvoiceUpdate(requestItem.id);
+          message.success("Delivery invoice request marked resolved");
+          await loadInvoiceUpdateRequests();
+        } catch (error) {
+          message.error(humanizeApiError(error, "Invoice update request could not be resolved."));
+          throw error;
+        } finally {
+          setResolvingInvoiceRequestId(undefined);
+        }
+      }
+    });
+  };
 
   useEffect(() => {
     const syncFinanceTabFromLocation = () => setFinanceTab(financeTabFromLocation(canManageFinance));
@@ -628,6 +723,14 @@ export function FinancePage({
         message={dashboardFocus.vehicleId ? "Dashboard focus: records for the selected vehicle" : dashboardFocus.attention === "dueSoon" ? "Dashboard focus: Daily Spend due soon" : dashboardFocus.attention === "due" ? "Dashboard focus: due follow-up items" : "Dashboard focus: open follow-up items"}
         action={<Button size="small" onClick={() => onClearDashboardFocus(financeTab)}>Clear focus</Button>}
       />}
+      {canManageFinance && <InvoiceUpdateRequestQueue
+        requests={invoiceUpdateRequests}
+        loading={invoiceRequestLoading}
+        error={invoiceRequestError}
+        resolvingId={resolvingInvoiceRequestId}
+        onRetry={() => void loadInvoiceUpdateRequests()}
+        onResolve={confirmInvoiceRequestResolved}
+      />}
       {financeTab === "cash-custody" && (
         <CashCustodyPage
           currentUser={currentUser}
@@ -763,7 +866,6 @@ export function FinancePage({
             interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
             ncdAmount: Number(values.ncdAmount ?? 0),
             windscreenCharges: Number(values.windscreenCharges ?? 0),
-            outstationDeliveryDate: values.outstationDeliveryDate,
             bankName: values.bankName,
             bankFollowUpDate: values.bankFollowUpDate,
             createdAt: new Date().toISOString()
@@ -786,7 +888,6 @@ export function FinancePage({
           <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-          <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Payment</Button></Form.Item>
@@ -823,7 +924,6 @@ export function FinancePage({
               interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
               ncdAmount: Number(values.ncdAmount ?? 0),
               windscreenCharges: Number(values.windscreenCharges ?? 0),
-              outstationDeliveryDate: values.outstationDeliveryDate?.trim() || undefined,
               bankName: values.bankName?.trim() || undefined,
               bankFollowUpDate: values.bankFollowUpDate?.trim() || undefined
             };
@@ -853,7 +953,11 @@ export function FinancePage({
           <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-          <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+          <Descriptions size="small" column={1} className="fullWidth">
+            <Descriptions.Item label="Outstation Delivery Date / 外地送车日期">
+              {selectedEditPayment?.outstationDeliveryDate || "Set in Delivery Workboard"}
+            </Descriptions.Item>
+          </Descriptions>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPayment}>Update Payment</Button></Form.Item>
@@ -1528,7 +1632,9 @@ function documentCategoryLabel(category: DocumentCategory) {
     RepairInvoice: "Repair Invoice",
     PaymentReceipt: "Payment Receipt",
     PaymentInvoice: "Payment Invoice",
-    MedicalCertificate: "Medical Certificate"
+    MedicalCertificate: "Medical Certificate",
+    InspectionReport: "Inspection Report",
+    WindscreenPolicy: "Windscreen Policy"
   };
 
   return labels[category];

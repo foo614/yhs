@@ -21,6 +21,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<SupplierInvoice> SupplierInvoices => Set<SupplierInvoice>();
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
+    public DbSet<DeliveryActivity> DeliveryActivities => Set<DeliveryActivity>();
     public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
     public DbSet<FinanceInvoice> FinanceInvoices => Set<FinanceInvoice>();
     public DbSet<SettlementReminder> SettlementReminders => Set<SettlementReminder>();
@@ -62,6 +63,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<DocumentBlob>().HasIndex(document => document.OwnershipType);
         builder.Entity<DocumentBlob>().HasIndex(document => document.RepairJobId);
         builder.Entity<DocumentBlob>().HasIndex(document => document.PaymentRecordId);
+        builder.Entity<DocumentBlob>().HasIndex(document => document.DeliveryScheduleId);
+        builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.VehicleId);
+        builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.CustomerId);
+        builder.Entity<DeliveryActivity>().HasIndex(activity => new { activity.DeliveryScheduleId, activity.CreatedAt });
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.RepairJobId);
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.DocumentId).IsUnique();
         builder.Entity<RepairReceiptItem>().HasIndex(item => new { item.RepairReceiptId, item.SortOrder });

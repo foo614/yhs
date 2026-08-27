@@ -25,6 +25,7 @@ public static class SeedData
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
         await EnsureRepairReceiptSchemaAsync(db);
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
+        await EnsureDeliveryWorkboardSchemaAsync(db);
 
         if (!await db.AiServiceLimits.AnyAsync(limit => limit.Service == AiService.Ocr))
         {
@@ -195,6 +196,50 @@ public static class SeedData
         }
 
         await db.SaveChangesAsync();
+    }
+
+    public static async Task EnsureDeliveryWorkboardSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureDeliveryWorkboardSchemaAsync(db);
+    }
+
+    private static async Task EnsureDeliveryWorkboardSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "SalesAgentUserId" text NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "SalesAgentName" text NULL;
+
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "DeliveryScheduleId" uuid NULL;
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_DeliveryScheduleId" ON "DocumentBlobs" ("DeliveryScheduleId");
+
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CustomerId" uuid NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "PicUserId" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "ReleasedAt" timestamp with time zone NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "ReleasedByUserId" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateRequestedAt" timestamp with time zone NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateRequestedByUserId" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateRequestReason" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateResolvedAt" timestamp with time zone NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateResolvedByUserId" text NULL;
+            CREATE INDEX IF NOT EXISTS "IX_DeliverySchedules_VehicleId" ON "DeliverySchedules" ("VehicleId");
+            CREATE INDEX IF NOT EXISTS "IX_DeliverySchedules_CustomerId" ON "DeliverySchedules" ("CustomerId");
+
+            CREATE TABLE IF NOT EXISTS "DeliveryActivities" (
+                "Id" uuid NOT NULL,
+                "DeliveryScheduleId" uuid NOT NULL,
+                "Action" text NOT NULL,
+                "ActorUserId" text NOT NULL,
+                "ActorName" text NOT NULL,
+                "Summary" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_DeliveryActivities" PRIMARY KEY ("Id")
+            );
+            CREATE INDEX IF NOT EXISTS "IX_DeliveryActivities_DeliveryScheduleId_CreatedAt"
+                ON "DeliveryActivities" ("DeliveryScheduleId", "CreatedAt");
+        """);
     }
 
     private static async Task EnsureLeadSchemaAsync(AppDbContext db)

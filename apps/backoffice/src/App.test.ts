@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { activeLoanForVehicle, browserRouteUrl, customerIdFromRouteUrl, DashboardPage, DeliveryPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
-import type { Customer, DashboardSummary, DeliverySchedule, LoanApplication, VehicleLookup } from "./api";
+import type { Customer, DashboardSummary, LoanApplication, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
   it("retains Customer 360 query changes for Back and Forward navigation", () => {
@@ -234,24 +234,19 @@ describe("workflow list query controls", () => {
   const loans: LoanApplication[] = [{
     id: "loan-1", vehicleId: "vehicle-1", customerId: "customer-1", status: "Pending", louApproved: false, louDone: false, submittedAt: "2026-08-25"
   }];
-  const deliveries: DeliverySchedule[] = [{
-    id: "delivery-1", vehicleId: "vehicle-1", pic: "Ah Ming", status: "Scheduled", scheduledDate: "2026-08-26",
-    polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false,
-    notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false
-  }];
-
   it("renders explicit local Query and Reset controls instead of an inert ProTable query form", () => {
     const loanMarkup = renderToStaticMarkup(createElement(LoanPage, {
       vehicles, customers, loans, roles: ["Loan"], dashboardFocus: {}, onClearDashboardFocus: () => {}, onBackToList: () => {}, onCreate: () => {}, onUpdate: () => {}, onUploadDocument: async () => {}
     }));
     const deliveryMarkup = renderToStaticMarkup(createElement(DeliveryPage, {
-      vehicles, deliveries, dashboardFocus: {}, onClearDashboardFocus: () => {}, onCreate: () => {}, onUpdate: () => {}, onOpenCustomer: () => {}, onUploadDocument: async () => {}
+      vehicles, dashboardFocus: {}, onClearDashboardFocus: () => {}, onOpenCustomer: () => {}
     }));
 
-    for (const markup of [loanMarkup, deliveryMarkup]) {
-      expect(markup).toContain("Query");
-      expect(markup).toContain("Reset");
-      expect(markup).not.toContain("ant-pro-query-filter");
-    }
+    expect(loanMarkup).toContain("Query");
+    expect(loanMarkup).toContain("Reset");
+    expect(loanMarkup).not.toContain("ant-pro-query-filter");
+    expect(deliveryMarkup).toContain("Delivery Workboard / 交车工作台");
+    expect(deliveryMarkup).toContain("See every car, customer, PIC, stage, and next action in one place.");
+    expect(deliveryMarkup).not.toContain("ReadyForRelease");
   });
 });

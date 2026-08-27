@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   approvePaymentManagementReview,
   approveRepair,
+  cancelDelivery,
+  correctDeliveryBuyer,
   createDelivery,
   createCustomer,
   createBrokerCommission,
@@ -45,8 +47,12 @@ import {
   getPriorityActions,
   getDebtRecoveries,
   getDeliveries,
+  getDeliveryActivity,
+  getDeliveryInvoiceUpdateRequests,
+  getDeliveryPicOptions,
   getLeads,
   getDeliveryReleaseReadiness,
+  getDeliveryWorkboard,
   getHrAttendance,
   getHrAttendanceNetworks,
   getHrBossCalendar,
@@ -75,6 +81,7 @@ import {
   getVehicleDocuments,
   getVehicleOcrJobs,
   getVehiclePhotos,
+  getSalesWorkboard,
   humanizeApiError,
   vehicleDocumentContentUrl,
   officialReceiptContentUrl,
@@ -85,7 +92,10 @@ import {
   acceptCashHandover,
   recordCashHandover,
   rejectCashHandover,
+  releaseDelivery,
   requestCashHandover,
+  requestDeliveryInvoiceUpdate,
+  resolveDeliveryInvoiceUpdate,
   updateHrLeaveBalance,
   updateHrAttendanceNetwork,
   updateHrLeavePolicy,
@@ -686,6 +696,48 @@ describe("backoffice api client", () => {
     );
   });
 
+  it("uses the server-owned delivery workboard actions and the sales-safe workboard", async () => {
+    const fetchMock = mockFetch([]);
+
+    await getDeliveryWorkboard();
+    await getDeliveryPicOptions();
+    await getDeliveryActivity("delivery-1");
+    await releaseDelivery("delivery-1");
+    await cancelDelivery("delivery-1", "Customer postponed the purchase");
+    await requestDeliveryInvoiceUpdate("delivery-1", "Correct customer address");
+    await correctDeliveryBuyer("delivery-1", "customer-1", "Repair legacy buyer lock");
+    await getDeliveryInvoiceUpdateRequests();
+    await resolveDeliveryInvoiceUpdate("delivery-1");
+    await getSalesWorkboard("agent-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/deliveries/workboard", expect.objectContaining({ credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/deliveries/pic-options", expect.objectContaining({ credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/deliveries/delivery-1/activity", expect.objectContaining({ credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/deliveries/delivery-1/release", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:5000/api/deliveries/delivery-1/cancel", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ reason: "Customer postponed the purchase" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:5000/api/deliveries/delivery-1/request-invoice-update", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ reason: "Correct customer address" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:5000/api/deliveries/delivery-1/correct-buyer", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ customerId: "customer-1", reason: "Repair legacy buyer lock" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(8, "http://localhost:5000/api/deliveries/invoice-update-requests", expect.objectContaining({ credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(9, "http://localhost:5000/api/deliveries/delivery-1/resolve-invoice-update", expect.objectContaining({ method: "POST", credentials: "include" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(10, "http://localhost:5000/api/sales/workboard?agentUserId=agent-1", expect.objectContaining({ credentials: "include" }));
+  });
+
+  it("binds delivery evidence to the selected delivery and locked buyer", async () => {
+    const fetchMock = mockFetch({ id: "uploaded" });
+    const document = new File(["document-bytes"], "inspection.pdf", { type: "application/pdf" });
+
+    await uploadVehicleDocument("vehicle-1", document, "InspectionReport", {
+      ownershipType: "Buyer",
+      customerId: "customer-1",
+      deliveryScheduleId: "delivery-1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=InspectionReport&ownershipType=Buyer&customerId=customer-1&deliveryScheduleId=delivery-1",
+      expect.objectContaining({ method: "POST", credentials: "include", body: expect.any(FormData) })
+    );
+  });
+
   it("sends explicit vehicle document ownership and linked party", async () => {
     const fetchMock = mockFetch({ id: "uploaded" });
     const document = new File(["document-bytes"], "purchase-invoice.pdf", { type: "application/pdf" });
@@ -999,6 +1051,7 @@ describe("backoffice api client", () => {
   it("loads delivery release readiness with missing handover document categories", async () => {
     const readiness: DeliveryReleaseReadiness = {
       isReady: false,
+      financeCleared: false,
       missingCategories: ["RoadTaxReceipt"],
       missingEvidence: ["Signed handover document"],
       expiredDocuments: ["Road tax expired before scheduled delivery"],

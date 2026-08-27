@@ -166,7 +166,7 @@ public static class DepartmentAccess
         {
             FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.IdentityCard or FileCategory.ApDocument or FileCategory.StatusReceipt => roleSet.Contains("Sales"),
             FileCategory.LoanDocument => roleSet.Contains("Loan"),
-            FileCategory.DeliveryDocument or FileCategory.HandoverPhoto or FileCategory.SignedHandover or FileCategory.Policy or FileCategory.RoadTaxReceipt => roleSet.Contains("Delivery"),
+            FileCategory.DeliveryDocument or FileCategory.InspectionReport or FileCategory.HandoverPhoto or FileCategory.SignedHandover or FileCategory.Policy or FileCategory.RoadTaxReceipt or FileCategory.WindscreenPolicy => roleSet.Contains("Delivery"),
             FileCategory.RepairInvoice => roleSet.Contains("Repair"),
             FileCategory.PaymentReceipt or FileCategory.PaymentInvoice => roleSet.Contains("Finance"),
             FileCategory.MedicalCertificate => roleSet.Contains("HrSalary"),
@@ -225,14 +225,26 @@ public static class DocumentOwnershipRules
         FileCategory.ApDocument,
         FileCategory.LoanDocument,
         FileCategory.DeliveryDocument,
-        FileCategory.Policy
+        FileCategory.InspectionReport,
+        FileCategory.HandoverPhoto,
+        FileCategory.SignedHandover,
+        FileCategory.Policy,
+        FileCategory.RoadTaxReceipt,
+        FileCategory.WindscreenPolicy
     ];
 
     public static DocumentOwnershipType DefaultFor(FileCategory category) => category switch
     {
         FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.ApDocument => DocumentOwnershipType.Seller,
         FileCategory.IdentityCard => DocumentOwnershipType.Buyer,
-        FileCategory.LoanDocument or FileCategory.DeliveryDocument or FileCategory.Policy => DocumentOwnershipType.Buyer,
+        FileCategory.LoanDocument or
+        FileCategory.DeliveryDocument or
+        FileCategory.InspectionReport or
+        FileCategory.HandoverPhoto or
+        FileCategory.SignedHandover or
+        FileCategory.Policy or
+        FileCategory.RoadTaxReceipt or
+        FileCategory.WindscreenPolicy => DocumentOwnershipType.Buyer,
         _ => DocumentOwnershipType.Vehicle
     };
 
@@ -715,22 +727,18 @@ public static class LeadRules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateStatusOwner(Lead existing, Lead incoming, string currentUserId)
+    public static ValidationResult ValidateStatusOwner(Lead existing, Lead incoming, string currentUserId, bool canManageAll = false)
     {
-        if (existing.Status == incoming.Status)
-        {
-            return new ValidationResult([]);
-        }
-
         if (string.IsNullOrWhiteSpace(currentUserId))
         {
-            return new ValidationResult([new ValidationError("lead_user_required", "A signed-in staff user is required to change lead status.")]);
+            return new ValidationResult([new ValidationError("lead_user_required", "A signed-in staff user is required to update a lead.")]);
         }
 
         if (!string.IsNullOrWhiteSpace(existing.TakenByUserId) &&
-            !string.Equals(existing.TakenByUserId, currentUserId, StringComparison.Ordinal))
+            !string.Equals(existing.TakenByUserId, currentUserId, StringComparison.Ordinal) &&
+            !canManageAll)
         {
-            return new ValidationResult([new ValidationError("lead_assignee_required", "Only the staff member who took this lead can change its status.")]);
+            return new ValidationResult([new ValidationError("lead_assignee_required", "Only the assigned sales agent or Admin can update this lead.")]);
         }
 
         return new ValidationResult([]);
@@ -756,6 +764,7 @@ public static class LeadRules
 
         return incoming with
         {
+            VehicleId = existing.VehicleId,
             CreatedAt = existing.CreatedAt,
             SourcePage = existing.SourcePage,
             SourceReferrer = existing.SourceReferrer,
@@ -1438,6 +1447,16 @@ public static class WorkflowReferenceRules
     }
 }
 
+public static class LoanMutationRules
+{
+    public static ValidationResult ValidateIdentity(LoanApplication existing, LoanApplication update) =>
+        existing.VehicleId == update.VehicleId
+            ? new ValidationResult([])
+            : new ValidationResult([new ValidationError(
+                "loan_vehicle_locked",
+                "Loan vehicle identity cannot be changed after the loan is created.")]);
+}
+
 public static class WorkflowStatusRules
 {
     public static bool IsActiveLoan(LoanApplication loan) =>
@@ -1453,11 +1472,24 @@ public static class WorkflowStatusRules
         return vehicle;
     }
 
-    public static Vehicle ApplyWorkflowStatus(Vehicle vehicle, IEnumerable<LoanApplication> loans, IEnumerable<PaymentRecord> payments)
+    public static Vehicle ApplyWorkflowStatus(
+        Vehicle vehicle,
+        IEnumerable<LoanApplication> loans,
+        IEnumerable<PaymentRecord> payments,
+        IEnumerable<DeliverySchedule>? deliveries = null)
     {
-        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
+        var deliveryList = (deliveries ?? []).ToList();
+        var financeCleared = payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled);
+        var releasedAt = deliveryList
+            .Where(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released)
+            .Select(delivery => delivery.ReleasedAt)
+            .Where(timestamp => timestamp.HasValue)
+            .OrderBy(timestamp => timestamp)
+            .FirstOrDefault();
+        var released = deliveryList.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released);
+        if (financeCleared && released)
         {
-            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? DateTime.UtcNow };
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? releasedAt ?? DateTime.UtcNow };
         }
 
         var activeLoan = loans.FirstOrDefault(loan => loan.VehicleId == vehicle.Id && IsActiveLoan(loan));
@@ -1467,24 +1499,32 @@ public static class WorkflowStatusRules
         }
 
         return vehicle.Status is VehicleStatus.LoanProcessing or VehicleStatus.Sold
-            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false, SoldAt = null }
+            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false }
             : vehicle;
     }
 
-    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, PaymentRecord payment)
+    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, PaymentRecord payment, IEnumerable<DeliverySchedule>? deliveries = null)
     {
-        return ApplyPaymentStatus(vehicle, [payment]);
+        return ApplyPaymentStatus(vehicle, [payment], deliveries);
     }
 
-    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, IEnumerable<PaymentRecord> payments)
+    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, IEnumerable<PaymentRecord> payments, IEnumerable<DeliverySchedule>? deliveries = null)
     {
-        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
+        var deliveryList = (deliveries ?? []).ToList();
+        var releasedAt = deliveryList
+            .Where(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released)
+            .Select(delivery => delivery.ReleasedAt)
+            .Where(timestamp => timestamp.HasValue)
+            .OrderBy(timestamp => timestamp)
+            .FirstOrDefault();
+        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled) &&
+            deliveryList.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released))
         {
-            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? DateTime.UtcNow };
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? releasedAt ?? DateTime.UtcNow };
         }
 
         return vehicle.Status == VehicleStatus.Sold
-            ? vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false, SoldAt = null }
+            ? vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false }
             : vehicle;
     }
 }
@@ -1520,7 +1560,7 @@ public static class ReminderRules
         !spend.IsPaid && spend.DueDate <= today;
 
     public static bool IsDeliveryPreparationDue(DeliverySchedule delivery, DateOnly today) =>
-        delivery.Status != DeliveryStatus.Released &&
+        DeliveryWorkboardRules.IsActive(delivery) &&
         !delivery.TwoDayNoticeSent &&
         delivery.ScheduledDate.AddDays(-2) <= today;
 
@@ -1951,6 +1991,21 @@ public static class PriorityActionQueue
         if (isBoss || roleSet.Contains("Loan")) AddReminders(reminders.Where(item => item.Type == "LoanFollowUp"), "Loans");
         if (isBoss || roleSet.Contains("Delivery")) AddReminders(reminders.Where(item => item.Type == "DeliveryPreparation"), "Delivery");
         if (isBoss || roleSet.Contains("Finance")) AddReminders(reminders.Where(item => item.Type is "SettlementDue" or "PaymentBankFollowUp" or "PaymentStatusFollowUp" or "DailySpendDue" or "DebtRecoveryFollowUp" or "PaymentVoucherFollowUp"), "Finance");
+        if (isBoss || roleSet.Contains("Finance"))
+        {
+            items.AddRange(deliveries
+                .Where(DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest)
+                .Select(delivery => new PriorityActionItem(
+                    "DeliveryInvoiceUpdate",
+                    "Delivery requested an invoice update",
+                    "Finance",
+                    delivery.InvoiceUpdateRequestedAt.HasValue
+                        ? BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(delivery.InvoiceUpdateRequestedAt.Value, DateTimeKind.Utc)))
+                        : today,
+                    vehicleById.TryGetValue(delivery.VehicleId, out var vehicle)
+                        ? $"{vehicle.PlateNumber}: {delivery.InvoiceUpdateRequestReason}"
+                        : delivery.InvoiceUpdateRequestReason)));
+        }
 
         if (isBoss || roleSet.Contains("Sales"))
         {
@@ -1984,6 +2039,9 @@ public static class PaymentManagementReviewRules
     public static PaymentRecord PrepareForCreate(PaymentRecord payment) =>
         payment with { BossChecked = false };
 
+    public static PaymentRecord ApplyManagementReview(PaymentRecord payment) =>
+        payment with { BossChecked = true };
+
     public static PaymentRecord PrepareForUpdate(PaymentRecord existing, PaymentRecord update) =>
         update with
         {
@@ -2005,6 +2063,21 @@ public static class PaymentManagementReviewRules
         existing.BankFollowUpDate != update.BankFollowUpDate ||
         existing.DocumentsPrepared != update.DocumentsPrepared ||
         existing.ChecklistValidated != update.ChecklistValidated;
+
+    public static bool HasInvoiceRelatedChanges(PaymentRecord existing, PaymentRecord update) =>
+        existing.NettPrice != update.NettPrice ||
+        !string.Equals(existing.InvoiceNumber?.Trim(), update.InvoiceNumber?.Trim(), StringComparison.Ordinal) ||
+        existing.SalesPrice != update.SalesPrice ||
+        existing.InterestAdditionalCharges != update.InterestAdditionalCharges ||
+        existing.NcdAmount != update.NcdAmount ||
+        existing.WindscreenCharges != update.WindscreenCharges;
+
+    public static ValidationResult ValidateIdentity(PaymentRecord existing, PaymentRecord update) =>
+        existing.VehicleId == update.VehicleId
+            ? new ValidationResult([])
+            : new ValidationResult([new ValidationError(
+                "payment_vehicle_locked",
+                "Payment vehicle identity cannot be changed after the payment is created.")]);
 }
 
 public static class UploadPolicy
@@ -2370,10 +2443,8 @@ public static class LoanDocumentRules
 
 public static class DeliveryRules
 {
-    public static bool IsReadyForRelease(DeliverySchedule delivery) =>
-        delivery.Status == DeliveryStatus.ReadyForRelease &&
+    public static bool IsReadyForRelease(DeliverySchedule delivery, DateOnly? releaseDate = null) =>
         delivery.InspectionDone &&
-        !string.IsNullOrWhiteSpace(delivery.InspectionReportReference) &&
         delivery.DocumentsPrepared &&
         delivery.PolishDone &&
         delivery.TintedDone &&
@@ -2382,14 +2453,17 @@ public static class DeliveryRules
         delivery.RoadTaxHandled &&
         delivery.WindscreenInsuranceHandled &&
         delivery.TwoDayNoticeSent &&
-        ExpiredDeliveryDocuments(delivery).Count == 0;
+        delivery.CustomerAcknowledged &&
+        delivery.FinalChecklistConfirmed &&
+        ExpiredDeliveryDocuments(delivery, releaseDate).Count == 0;
 
-    public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery)
+    public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery, DateOnly? releaseDate = null)
     {
         var issues = new List<string>();
-        AddExpiryIssue(issues, delivery.InsuranceExpiryDate, delivery.ScheduledDate, "Insurance policy");
-        AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, delivery.ScheduledDate, "Road tax");
-        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, delivery.ScheduledDate, "Windscreen insurance");
+        var comparisonDate = releaseDate.HasValue && releaseDate.Value > delivery.ScheduledDate ? releaseDate.Value : delivery.ScheduledDate;
+        AddExpiryIssue(issues, delivery.InsuranceExpiryDate, comparisonDate, "Insurance policy");
+        AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, comparisonDate, "Road tax");
+        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, comparisonDate, "Windscreen insurance");
         return issues;
     }
 
@@ -2424,26 +2498,20 @@ public static class DeliveryRules
             }
         }
 
-        if (delivery.InspectionDone && string.IsNullOrWhiteSpace(delivery.InspectionReportReference))
-        {
-            errors.Add(new ValidationError("inspection_report_required", "Inspection report reference is required after inspection is complete."));
-        }
-
-        if (delivery.Status == DeliveryStatus.ReadyForRelease && !IsReadyForRelease(delivery))
-        {
-            errors.Add(new ValidationError("delivery_not_ready", DeliveryNotReadyMessage));
-        }
-
         return new ValidationResult(errors);
     }
 
     public static ValidationResult ValidateTransition(DeliverySchedule existing, DeliverySchedule update)
     {
-        if (existing.Status == update.Status) return new ValidationResult([]);
-        if (existing.Status is DeliveryStatus.Released or DeliveryStatus.Cancelled)
+        if (existing.Status == DeliveryStatus.Released)
         {
-            return new ValidationResult([new ValidationError("delivery_terminal_status", "Released or cancelled delivery cannot be changed. Create a new delivery schedule instead.")]);
+            return new ValidationResult([new ValidationError("delivery_terminal_status", "Released delivery is read-only and cannot be changed.")]);
         }
+        if (existing.Status == DeliveryStatus.Cancelled)
+        {
+            return new ValidationResult([new ValidationError("delivery_terminal_status", "Cancelled delivery cannot be changed. Create a new delivery schedule instead.")]);
+        }
+        if (existing.Status == update.Status) return new ValidationResult([]);
 
         if (update.Status == DeliveryStatus.Cancelled) return new ValidationResult([]);
         var statuses = new[]
@@ -2499,16 +2567,21 @@ public static class DeliveryDocumentRules
     private static readonly FileCategory[] RequiredCategories =
     [
         FileCategory.DeliveryDocument,
+        FileCategory.InspectionReport,
         FileCategory.HandoverPhoto,
         FileCategory.SignedHandover,
         FileCategory.Policy,
-        FileCategory.RoadTaxReceipt
+        FileCategory.RoadTaxReceipt,
+        FileCategory.WindscreenPolicy
     ];
 
     public static DeliveryDocumentCheck CheckCompleteness(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
     {
         var deliveryDocuments = documents
-            .Where(document => document.VehicleId == delivery.VehicleId)
+            .Where(document =>
+                document.VehicleId == delivery.VehicleId &&
+                document.DeliveryScheduleId == delivery.Id &&
+                document.CustomerId == delivery.CustomerId)
             .ToList();
         var evidence = RequiredCategories
             .Select(category =>
@@ -2542,7 +2615,7 @@ public static class DeliveryDocumentRules
         var check = CheckCompleteness(delivery, documents);
         return check.IsComplete
             ? new ValidationResult([])
-            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires uploaded delivery, handover photo, signed handover, policy, and road tax evidence before release.")]);
+            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires delivery documents, inspection report, handover evidence, insurance policy, road tax, and windscreen policy uploaded for this delivery and buyer before release.")]);
     }
 }
 

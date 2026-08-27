@@ -9,6 +9,7 @@ public enum LeadClosureOutcome { Sold, Lost, Invalid }
 public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
 public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released, Cancelled }
 public enum DeliveryType { Standard, Outstation }
+public enum DeliveryStage { PlanDelivery, PrepareCar, ClearDocuments, Handover, Completed, Cancelled }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum CashHandoverStatus { ReceivedBySales, PendingHandover, HandedOver, Rejected, Receipted }
@@ -24,7 +25,7 @@ public enum HrBusinessTripStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrAttendanceReminderType { PendingApproval, UpcomingOutstation, MissingCheckOut }
 public enum HrPayslipStatus { Draft, Generated }
 public enum HrEmploymentType { Monthly, Hourly }
-public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
+public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate, InspectionReport, WindscreenPolicy }
 public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
 public enum OcrReviewDecision { Pending, Accepted, Rejected }
@@ -62,6 +63,8 @@ public sealed record Vehicle
     public string? OutstationPickupBookingSlip { get; init; }
     public DateOnly IntakeDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
     public DateTime? SoldAt { get; init; }
+    public string? SalesAgentUserId { get; init; }
+    public string? SalesAgentName { get; init; }
 }
 
 public sealed record VehicleCatalogModel
@@ -150,6 +153,7 @@ public sealed record DocumentBlob
     public Guid? OwnerId { get; init; }
     public Guid? RepairJobId { get; init; }
     public Guid? PaymentRecordId { get; init; }
+    public Guid? DeliveryScheduleId { get; init; }
     public DocumentOwnershipType OwnershipType { get; init; } = DocumentOwnershipType.Vehicle;
     public FileCategory Category { get; init; }
     public string FileName { get; init; } = "";
@@ -224,6 +228,8 @@ public sealed record DeliverySchedule
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
+    public Guid? CustomerId { get; init; }
+    public string? PicUserId { get; init; }
     public string Pic { get; init; } = "";
     public DeliveryStatus Status { get; init; } = DeliveryStatus.BookingInspection;
     public DeliveryType DeliveryType { get; init; } = DeliveryType.Standard;
@@ -255,6 +261,24 @@ public sealed record DeliverySchedule
     public bool SignedHandoverReceived { get; init; }
     public bool CustomerAcknowledged { get; init; }
     public bool FinalChecklistConfirmed { get; init; }
+    public DateTime? ReleasedAt { get; init; }
+    public string? ReleasedByUserId { get; init; }
+    public DateTime? InvoiceUpdateRequestedAt { get; init; }
+    public string? InvoiceUpdateRequestedByUserId { get; init; }
+    public string? InvoiceUpdateRequestReason { get; init; }
+    public DateTime? InvoiceUpdateResolvedAt { get; init; }
+    public string? InvoiceUpdateResolvedByUserId { get; init; }
+}
+
+public sealed record DeliveryActivity
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid DeliveryScheduleId { get; init; }
+    public string Action { get; init; } = "";
+    public string ActorUserId { get; init; } = "";
+    public string ActorName { get; init; } = "";
+    public string Summary { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record PaymentRecord
