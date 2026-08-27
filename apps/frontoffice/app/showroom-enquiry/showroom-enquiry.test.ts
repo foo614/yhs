@@ -2,9 +2,20 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { metadata } from "./page";
 import { showroomBudgetRanges, showroomStepError, showroomVehicleTypes } from "./showroom-enquiry";
 
 const showroomRoot = dirname(fileURLToPath(import.meta.url));
+
+describe("showroom enquiry discovery", () => {
+  it("publishes complete sharing metadata but keeps the in-showroom funnel out of search indexes", () => {
+    expect(metadata).toMatchObject({
+      alternates: { canonical: "http://localhost:3000/showroom-enquiry" },
+      openGraph: { url: "http://localhost:3000/showroom-enquiry" },
+      robots: { index: false, follow: false }
+    });
+  });
+});
 
 describe("showroom enquiry flow rules", () => {
   it("keeps the approved tap-first vehicle and budget choices", () => {
@@ -54,8 +65,15 @@ describe("showroom enquiry flow rules", () => {
     const styles = readFileSync(join(showroomRoot, "..", "styles.css"), "utf8");
     const mobileCanvas = styles.slice(styles.lastIndexOf("@media (max-width: 639px)"));
 
-    expect(mobileCanvas).toContain(".showroomDirectionOne .showroomStep {\n    min-height: calc(100vw * 1843 / 853);");
+    expect(mobileCanvas).toMatch(/\.showroomDirectionOne \.showroomStep\s*\{\s*min-height:\s*calc\(100vw \* 1843 \/ 853\);/);
     expect(mobileCanvas).toContain(".showroomDirectionOne .showroomFormError {");
     expect(mobileCanvas).toContain("top: calc(100vw * 690 / 853);");
+  });
+
+  it("keeps the mobile primary action inside its left and right offsets", () => {
+    const styles = readFileSync(join(showroomRoot, "..", "styles.css"), "utf8");
+    const mobileStyles = styles.slice(styles.indexOf("@media (max-width: 639px)"));
+
+    expect(mobileStyles).toMatch(/\.showroomDirectionOne \.showroomPrimaryAction\s*\{[^}]*left:[^;]+;[^}]*right:[^;]+;[^}]*width:\s*auto;/s);
   });
 });

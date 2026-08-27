@@ -2,6 +2,16 @@
 
 This document separates technical discovery from search ranking, answer-engine citation, and qualified sales outcomes. A successful deployment proves only that public signals are available to crawlers; it does not prove ranking or citation.
 
+## Public content guardrails
+
+- Answer the buyer's question before introducing the dealership.
+- Use `YS HENG AUTOMOTIVE SDN BHD` naturally when establishing the entity, and associate the business with Kluang, Johor, Malaysia only where the source supports it.
+- Publish inventory, services, prices, reviews, hours, policies, and business attributes only when they are backed by the public system or verified business information.
+- Omit unknown vehicle facts instead of inferring mileage, condition, location, warranty, service history, financing availability, or trade-in value.
+- Keep structured data aligned with facts visible on the same page.
+- Use current primary sources for Malaysian financing, inspection, and ownership-transfer guidance, and show a review date on content that can change.
+- Treat helpful, accurate buyer information as the goal. Rankings and answer-engine citations are outcomes to measure, not claims to promise.
+
 ## Public discovery check
 
 Run the credential-free check after each public deployment:
@@ -13,9 +23,11 @@ Run the credential-free check after each public deployment:
 The check verifies:
 
 - The home page returns successfully with a canonical, Open Graph metadata, and `AutoDealer` structured data.
+- The home page visibly names `YS HENG AUTOMOTIVE SDN BHD` and does not publish the removed unsupported `500+ Reviews` claim.
+- The contact page visibly publishes the official business identity and does not publish an unsupported review count.
 - `robots.txt` permits discovery by `OAI-SearchBot` and references the production sitemap.
 - The sitemap contains the home, inventory, contact, and local buyer-guide routes.
-- Each local buyer guide returns successfully with a canonical and `WebPage` structured data.
+- Each local buyer guide returns successfully with a canonical plus visible FAQs, breadcrumbs, a review date, and matching `WebPage`, `FAQPage`, and `BreadcrumbList` structured data.
 
 Use `-SkipGuidePages` only when checking a deployment from before the local guide routes were released.
 

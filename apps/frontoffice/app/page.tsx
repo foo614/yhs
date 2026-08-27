@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { ArrowRight, BadgeCheck, Banknote, Car, MapPin, ShieldCheck, Sparkles, Star, Wrench } from "lucide-react";
+import { ArrowRight, BadgeCheck, Banknote, Car, MapPin, ShieldCheck, Sparkles, Wrench } from "lucide-react";
 import heroImage from "../public/hero-price-bay-option2@2x.png";
 import { googleMapsUrl, showroomAddress } from "./business";
 import { HeroVehicleFilters } from "./HeroVehicleFilters";
@@ -32,10 +32,12 @@ const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 export async function generateMetadata({ searchParams }: { searchParams?: Promise<SearchParams> }): Promise<Metadata> {
   const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
   return pageMetadata({
-    title: language === "zh" ? "居銮二手车买卖 | YS Heng Cars" : "Used cars in Kluang | YS Heng Cars",
+    title: language === "zh"
+      ? "居銮二手车 | YS HENG AUTOMOTIVE SDN BHD"
+      : "Used Cars in Kluang | YS HENG AUTOMOTIVE SDN BHD",
     description: language === "zh"
-      ? "浏览居銮 YS Heng 的二手车源、透明售价，并咨询看车、贷款与 trade-in 流程。"
-      : "Browse YS Heng used cars in Kluang with clear prices and support for viewing, financing, trade-in, and handover.",
+      ? "YS HENG AUTOMOTIVE SDN BHD 位于柔佛州居銮。浏览目前可售二手车与已发布售价，并咨询看车、贷款流程及 Trade-in。"
+      : "Browse currently available used cars and published selling prices from YS HENG AUTOMOTIVE SDN BHD in Kluang, Johor. Confirm viewing, loan-process, and trade-in details.",
     path: "/",
     language
   });
@@ -119,15 +121,15 @@ export const previewFeaturedVehicles: PublicVehicle[] = [
 const featuredCopy = {
   en: {
     kicker: "Featured Inventory",
-    title: "Ready-to-view cars with clear prices",
-    text: "A tighter showcase of available second-hand cars, shaped for quick comparison before you arrange viewing.",
+    title: "Currently available cars with clear prices",
+    text: "Compare currently available second-hand cars and published prices before contacting the team to confirm viewing details.",
     viewAll: "View all cars",
     trustLabel: "Buyer confidence"
   },
   zh: {
     kicker: "精选车源",
-    title: "可预约看车，价格清楚",
-    text: "精选可比较的二手车源，让买家更快查看价格、年份与下一步看车安排。",
+    title: "目前可售车源，价格清楚",
+    text: "比较目前可售的二手车与已发布售价，再联络团队确认看车详情。",
     viewAll: "查看全部车源",
     trustLabel: "买家信心"
   }
@@ -298,7 +300,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         </div>
       </section>
 
-      <section className="trustReviewSection">
+      <section className="trustEvidenceSection">
         <div className="trustColumn">
           <p className="atelierKicker">{t.home.whyKicker}</p>
           <h2>{t.home.whyTitle}</h2>
@@ -306,14 +308,26 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
           <TrustRow icon={<Sparkles />} title={t.home.trustRows[1].title} text={t.home.trustRows[1].text} />
           <TrustRow icon={<ShieldCheck />} title={t.home.trustRows[2].title} text={t.home.trustRows[2].text} />
         </div>
-        <div className="testimonialPanel">
-          <div className="testimonialHeader">
-            <h3>{t.home.reviews}</h3>
-            <span>Facebook</span>
+        <div className="evidencePanel">
+          <div className="evidenceHeader">
+            <p>{t.home.evidenceKicker}</p>
+            <h3>{t.home.evidenceTitle}</h3>
+            <span>{t.home.evidenceIntro}</span>
           </div>
-          <Review text={t.home.reviewOne} name={t.home.reviewName} />
-          <Review text={t.home.reviewTwo} name={t.home.reviewName} />
-          <Link href={hrefWithLanguage("/contact", language)}>{t.home.readReviews}</Link>
+          <div className="evidenceList">
+            {t.home.evidenceItems.map((item) => (
+              <article className="evidenceItem" key={item.title}>
+                <BadgeCheck size={20} aria-hidden="true" />
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+          <Link href={hrefWithLanguage("/vehicles", language)} className="secondaryAction">
+            {t.home.evidenceAction} <ArrowRight size={16} aria-hidden="true" />
+          </Link>
         </div>
       </section>
 
@@ -364,16 +378,6 @@ function TrustRow({ icon, title, text }: { icon: ReactNode; title: string; text:
         <h3>{title}</h3>
         <p>{text}</p>
       </div>
-    </article>
-  );
-}
-
-function Review({ text, name }: { text: string; name: string }) {
-  return (
-    <article className="reviewBlock">
-      <div>{Array.from({ length: 5 }).map((_, index) => <Star size={13} fill="currentColor" key={index} />)}</div>
-      <p>"{text}"</p>
-      <strong>- {name}</strong>
     </article>
   );
 }
