@@ -34,4 +34,16 @@ describe("showroom enquiry flow rules", () => {
     expect(flow).not.toContain('src="/hero-price-bay-option2.png"');
     expect(styles).toContain('canvas-direction-one.png');
   });
+
+  it("turns Direction 1 into a wide four-tile layout on desktop without changing its mobile Canvas treatment", () => {
+    const styles = readFileSync(join(showroomRoot, "..", "styles.css"), "utf8");
+
+    expect(styles).toContain("@media (min-width: 900px)");
+    expect(styles).toContain("max-width: 1248px");
+    expect(styles).toContain("width: min(100%, 1248px)");
+    expect(styles).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
+    expect(styles).toContain("@media (max-width: 639px)");
+    expect(styles).toContain("width: auto;");
+    expect(styles).toContain('canvas-direction-one.png');
+  });
 });

@@ -4573,6 +4573,90 @@ textarea:focus-visible {
   }
 }
 
+/* Direction 1 begins as a scan-and-select mobile surface. At desktop width it
+   becomes a single wide showroom composition instead of centring that mobile
+   canvas inside a large empty page. */
+@media (min-width: 900px) {
+  .showroomEnquiryPage:has(.showroomDirectionOne) {
+    padding: 0 48px 56px;
+  }
+
+  .showroomEnquiryShell.showroomDirectionOne {
+    max-width: 1248px;
+    padding: 0 0 48px;
+    width: min(100%, 1248px);
+  }
+
+  .showroomDirectionOne .showroomHeroImage {
+    aspect-ratio: auto;
+    height: 600px;
+  }
+
+  .showroomDirectionOne .showroomHeroImage img {
+    object-position: center top;
+  }
+
+  /* The Canvas hero carries a mobile progress row near its lower-left edge.
+     Desktop renders its accessible progress row above the copy, so mask the
+     embedded mobile-only dots instead of showing both. */
+  .showroomDirectionOne .showroomHeroImage::after {
+    background: #fffaf8;
+    bottom: 0;
+    content: "";
+    height: 150px;
+    left: 0;
+    position: absolute;
+    width: 31%;
+  }
+
+  .showroomDirectionOne .showroomEnquiryHeader {
+    margin-bottom: 50px;
+    padding-top: 72px;
+  }
+
+  .showroomDirectionOne .showroomEnquiryHeader img {
+    width: 250px;
+  }
+
+  .showroomDirectionOne .showroomProgress {
+    margin-bottom: 52px;
+  }
+
+  .showroomDirectionOne .showroomStep h1 {
+    font-size: clamp(3.5rem, 5.3vw, 5rem);
+    margin: 24px 0 20px;
+    max-width: 12ch;
+  }
+
+  .showroomDirectionOne .showroomIntro {
+    font-size: 1.15rem;
+    margin-bottom: 74px;
+  }
+
+  .showroomDirectionOne .showroomVehicleTiles {
+    gap: 20px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-bottom: 34px;
+  }
+
+  .showroomDirectionOne .showroomVehicleTiles button {
+    border-radius: 24px;
+    padding-bottom: 18px;
+  }
+
+  .showroomDirectionOne .showroomVehicleTiles img {
+    height: 217px;
+  }
+
+  .showroomDirectionOne .showroomVehicleTiles strong {
+    font-size: 1.45rem;
+  }
+
+  .showroomDirectionOne .showroomPrimaryAction {
+    max-width: 420px;
+  }
+}
+
 @media (max-width: 639px) {
   .showroomEnquiryPage:has(.showroomDirectionOne) {
     padding: 0;
@@ -4646,6 +4730,7 @@ textarea:focus-visible {
     padding: 0;
     position: absolute;
     right: calc(100vw * 52 / 853);
+    width: auto;
   }
 
   .showroomDirectionOne .showroomPrimaryAction:focus-visible {
