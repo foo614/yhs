@@ -27,6 +27,7 @@ import {
   customerSelectLabel,
   getVehicleDocuments,
   humanizeApiError,
+  paymentVoucherPdfUrl,
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
@@ -451,10 +452,11 @@ export function FinancePage({
     {
       title: "Action / 操作",
       fixed: "right",
-      width: 180,
+      width: 260,
       render: (_, row) => (
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectPaymentVoucher(row.id)}>Details</Button>
+          <Button size="small" href={paymentVoucherPdfUrl(row.id)} target="_blank">PDF</Button>
           {row.status === "Pending" ? (
             <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Approved" })}>Approve</Button>
           ) : (

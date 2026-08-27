@@ -1600,6 +1600,43 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Payment_voucher_pdf_is_stable_marks_pending_vouchers_as_draft_and_lists_standard_fields()
+    {
+        var voucher = new PaymentVoucher
+        {
+            Id = Guid.Parse("fedcba98-7654-4321-9876-abcdef123456"),
+            VehicleId = Guid.NewGuid(),
+            PayeeName = "Ah Ming",
+            Amount = 180.50m,
+            Purpose = "Outstation Pickup Allowance",
+            Status = PaymentVoucherStatus.Pending,
+            IssuedDate = new DateOnly(2026, 8, 27),
+            Notes = "Booking slip BOOK-1001"
+        };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "VPK1234" };
+        var first = PaymentVoucherPdfFactory.Create(voucher, vehicle);
+        var second = PaymentVoucherPdfFactory.Create(voucher, vehicle);
+        var content = System.Text.Encoding.ASCII.GetString(first.Content);
+
+        Assert.Equal(first.VoucherNumber, second.VoucherNumber);
+        Assert.Equal("YSV-20260827-FEDCBA", first.VoucherNumber);
+        Assert.StartsWith("%PDF-", content);
+        Assert.Contains("PAYMENT VOUCHER", content);
+        Assert.Contains("DRAFT", content);
+        Assert.Contains("PAYEE", content);
+        Assert.Contains("Ah Ming", content);
+        Assert.Contains("VPK1234", content);
+        Assert.Contains("RM 180.50", content);
+        Assert.Contains("Ringgit Malaysia", content);
+        Assert.Contains("Fifty Only", content);
+        Assert.Contains("PREPARED BY", content);
+
+        var approvedContent = System.Text.Encoding.ASCII.GetString(PaymentVoucherPdfFactory.Create(voucher with { Status = PaymentVoucherStatus.Approved }, vehicle).Content);
+        Assert.Contains("STATUS: APPROVED", approvedContent);
+        Assert.DoesNotContain("DRAFT", approvedContent);
+    }
+
+    [Fact]
     public void Daily_spend_validation_requires_description_amount_and_due_date()
     {
         var spend = new DailySpend

@@ -246,6 +246,7 @@ All finance endpoints require the `Finance` policy, except the separately author
 | `PUT` | `/api/debt-recoveries/{id}` | Update debt recovery case. |
 | `GET` / `POST` | `/api/payment-vouchers` | List/create payment vouchers. |
 | `PUT` | `/api/payment-vouchers/{id}` | Update payment voucher. |
+| `GET` | `/api/payment-vouchers/{id}/pdf` | Download the finance-controlled standard Payment Voucher PDF. Pending vouchers are marked draft; every download is audited. |
 
 Payment reconciliation also requires a canonical existing vehicle buyer, the existing receipt/invoice references, finance checklist, and a separate Boss/Admin management review. The review is set only by `POST /api/payments/{id}/management-review`; later material payment edits clear it.
 

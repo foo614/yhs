@@ -21,13 +21,19 @@ internal static class SimplePdf
         }
 
         pageText.AppendLine("ET");
-        var contentBytes = Encoding.ASCII.GetBytes(pageText.ToString());
+        return CreatePage(pageText.ToString());
+    }
+
+    internal static byte[] CreatePage(string pageText)
+    {
+        var contentBytes = Encoding.ASCII.GetBytes(pageText);
         var objects = new[]
         {
             "<< /Type /Catalog /Pages 2 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>",
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
             $"<< /Length {contentBytes.Length} >>\nstream\n{pageText}endstream"
         };
 
@@ -51,5 +57,12 @@ internal static class SimplePdf
         return Encoding.ASCII.GetBytes(builder.ToString());
     }
 
-    private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("(", "\\(", StringComparison.Ordinal).Replace(")", "\\)", StringComparison.Ordinal);
+    internal static string EscapeText(string value) => value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("(", "\\(", StringComparison.Ordinal)
+        .Replace(")", "\\)", StringComparison.Ordinal)
+        .Replace('\r', ' ')
+        .Replace('\n', ' ');
+
+    private static string Escape(string value) => EscapeText(value);
 }

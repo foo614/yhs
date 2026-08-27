@@ -1401,6 +1401,19 @@ backOffice.MapPut("/payment-vouchers/{id:guid}", async (Guid id, PaymentVoucher 
     await db.SaveChangesAsync();
     return Results.Ok(voucher);
 }).RequireAuthorization("Finance");
+backOffice.MapGet("/payment-vouchers/{id:guid}/pdf", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var voucher = await db.PaymentVouchers.FirstOrDefaultAsync(item => item.Id == id);
+    if (voucher is null) return Results.NotFound();
+
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == voucher.VehicleId);
+    if (vehicle is null) return Results.BadRequest(new ApiError("Payment voucher vehicle is unavailable."));
+
+    var pdf = PaymentVoucherPdfFactory.Create(voucher, vehicle);
+    ApiAudit.Add(db, context.User, "paymentVoucher.pdfDownloaded", nameof(PaymentVoucher), voucher.Id);
+    await db.SaveChangesAsync();
+    return Results.File(pdf.Content, "application/pdf", $"{pdf.VoucherNumber}.pdf");
+}).RequireAuthorization("Finance");
 
 backOffice.MapGet("/leads", async (AppDbContext db) => await db.Leads.AsNoTracking().OrderByDescending(lead => lead.CreatedAt).ToListAsync()).RequireAuthorization("Sales");
 backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>

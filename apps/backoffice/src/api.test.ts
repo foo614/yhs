@@ -1448,6 +1448,12 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/payment-vouchers/${voucher.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify({ ...voucher, status: "Paid" }) }));
   });
 
+  it("builds the protected payment voucher PDF URL", async () => {
+    const { paymentVoucherPdfUrl } = await import("./api");
+
+    expect(paymentVoucherPdfUrl("voucher-123")).toBe("http://localhost:5000/api/payment-vouchers/voucher-123/pdf");
+  });
+
   it("creates and updates customer and owner contact records", async () => {
     const customer: Customer = {
       id: "00000000-0000-0000-0000-000000000030",
