@@ -45,9 +45,10 @@
 		reverse_proxy ops-proxy:8080
 	}
 
-	# The metrics chart loads its own module and Plotly bundle from absolute root
-	# paths. Recover only those two dashboard assets through the /ops adapter.
-	@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js
+	# Aspire renders both metric views, so the graph module, Plotly bundle, and
+	# hidden table module all load from absolute root paths. Recover only those
+	# three dashboard assets through the /ops adapter.
+	@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js /Components/Controls/Chart/MetricTable.razor.js
 	handle @ops-metrics-scripts {
 		rewrite * /ops{uri}
 		reverse_proxy ops-proxy:8080
