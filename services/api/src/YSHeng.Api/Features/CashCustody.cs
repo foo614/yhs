@@ -12,6 +12,7 @@ public static class CashCustodyRules
     {
         var errors = new List<ValidationError>();
         if (payment is null) errors.Add(new("payment_not_found", "Cash handover must reference an existing payment."));
+        else if (payment.FinanceWorkflowVersion == 2) errors.Add(new("finance_v2_cash_not_supported", "Finance V2 cash collection is not available yet. Do not use legacy Cash Custody because it cannot reduce the V2 invoice balance."));
         if (vehicle is null) errors.Add(new("vehicle_not_found", "Cash handover payment must reference an existing vehicle."));
         else if (vehicle.CustomerId is null) errors.Add(new("customer_required", "Cash handover vehicle must be linked to a customer."));
         if (request.Amount <= 0) errors.Add(new("cash_handover_amount_invalid", "Cash handover amount must be greater than zero."));

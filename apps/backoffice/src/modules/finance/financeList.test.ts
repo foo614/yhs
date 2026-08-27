@@ -12,6 +12,16 @@ describe("finance list helpers", () => {
     expect(filterFinanceRows(rows, "", "Pending", (row) => [row.plate], (row) => row.status)).toEqual([rows[0]]);
   });
 
+  it("matches nested workflow statuses used by partial collections", () => {
+    const collectionRows = [
+      { plate: "VAA 1234", statuses: ["PartiallyPaid", "Pending", "Approved"] },
+      { plate: "WBB 5678", statuses: ["Paid", "Reconciled", "Disbursed"] }
+    ];
+
+    expect(filterFinanceRows(collectionRows, "", "Approved", (row) => [row.plate], (row) => row.statuses)).toEqual([collectionRows[0]]);
+    expect(filterFinanceRows(collectionRows, "", "Disbursed", (row) => [row.plate], (row) => row.statuses)).toEqual([collectionRows[1]]);
+  });
+
   it("uses eight rows per page and clamps an out-of-range current page", () => {
     const pageRows = Array.from({ length: FINANCE_LIST_PAGE_SIZE + 1 }, (_, index) => index + 1);
 

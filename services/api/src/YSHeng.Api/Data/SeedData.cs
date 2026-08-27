@@ -23,6 +23,7 @@ public static class SeedData
         await EnsureVehicleEnhancementSchemaAsync(db);
         await EnsureVehicleCatalogSchemaAsync(db);
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
+        await EnsureFinanceV2SchemaAsync(db);
         await EnsureRepairReceiptSchemaAsync(db);
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
         await EnsureDeliveryWorkboardSchemaAsync(db);
@@ -204,6 +205,14 @@ public static class SeedData
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
         await EnsureDeliveryWorkboardSchemaAsync(db);
+    }
+
+    public static async Task EnsureFinanceV2SchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureFinanceV2SchemaAsync(db);
     }
 
     private static async Task EnsureDeliveryWorkboardSchemaAsync(AppDbContext db)
@@ -734,6 +743,108 @@ public static class SeedData
                 "Notes" text NULL,
                 CONSTRAINT "PK_PaymentVouchers" PRIMARY KEY ("Id")
             );
+        """);
+    }
+
+    private static async Task EnsureFinanceV2SchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "CollectionTransactionId" uuid NULL;
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_CollectionTransactionId" ON "DocumentBlobs" ("CollectionTransactionId");
+
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "CustomerId" uuid NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "CalculatedNettPrice" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NettPriceVariance" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NettPriceOverrideReason" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NettPriceOverrideRequestedBy" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NettPriceOverrideRequestedAt" timestamp with time zone NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NettPriceOverrideApprovedBy" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NettPriceOverrideApprovedAt" timestamp with time zone NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "FormulaVersion" text NOT NULL DEFAULT 'legacy';
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "FinanceWorkflowVersion" integer NOT NULL DEFAULT 1;
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_PaymentRecords_VehicleId_FinanceV2" ON "PaymentRecords" ("VehicleId") WHERE "FinanceWorkflowVersion" = 2;
+
+            CREATE TABLE IF NOT EXISTS "FinanceInvoices" (
+                "Id" uuid NOT NULL,
+                "PaymentRecordId" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "CustomerId" uuid NOT NULL,
+                "CustomerName" text NOT NULL DEFAULT '',
+                "CustomerPhone" text NULL,
+                "CustomerAddress" text NULL,
+                "VehiclePlateNumber" text NOT NULL DEFAULT '',
+                "VehicleDescription" text NOT NULL DEFAULT '',
+                "InvoiceNumber" text NOT NULL,
+                "InvoiceDate" date NOT NULL,
+                "Amount" numeric NOT NULL,
+                "SalesPrice" numeric NOT NULL,
+                "InterestAdditionalCharges" numeric NOT NULL,
+                "NcdAmount" numeric NOT NULL,
+                "WindscreenCharges" numeric NOT NULL,
+                "Content" bytea NOT NULL,
+                "ContentMimeType" text NOT NULL,
+                "CreatedBy" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_FinanceInvoices" PRIMARY KEY ("Id")
+            );
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "CustomerName" text NOT NULL DEFAULT '';
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "CustomerPhone" text NULL;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "CustomerAddress" text NULL;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "VehiclePlateNumber" text NOT NULL DEFAULT '';
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "VehicleDescription" text NOT NULL DEFAULT '';
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "Content" bytea NOT NULL DEFAULT '\x'::bytea;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "ContentMimeType" text NOT NULL DEFAULT 'application/pdf';
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "CreatedBy" text NOT NULL DEFAULT '';
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "CreatedAt" timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP;
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_FinanceInvoices_PaymentRecordId" ON "FinanceInvoices" ("PaymentRecordId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_FinanceInvoices_InvoiceNumber" ON "FinanceInvoices" ("InvoiceNumber");
+            CREATE SEQUENCE IF NOT EXISTS "FinanceInvoiceNumberSequence" AS bigint START WITH 1 INCREMENT BY 1;
+
+            CREATE TABLE IF NOT EXISTS "CollectionTransactions" (
+                "Id" uuid NOT NULL,
+                "PaymentRecordId" uuid NOT NULL,
+                "IdempotencyKey" uuid NOT NULL,
+                "IdempotencyFingerprint" text NOT NULL,
+                "Amount" numeric NOT NULL,
+                "Method" integer NOT NULL,
+                "Status" integer NOT NULL,
+                "FinancingStatus" integer NOT NULL,
+                "Reference" text NULL,
+                "NormalizedReference" text NULL,
+                "ReceivedDate" date NOT NULL,
+                "Notes" text NULL,
+                "CreatedBy" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "ReconciledBy" text NULL,
+                "ReconciledAt" timestamp with time zone NULL,
+                "ReversedBy" text NULL,
+                "ReversedAt" timestamp with time zone NULL,
+                "ReversalReason" text NULL,
+                CONSTRAINT "PK_CollectionTransactions" PRIMARY KEY ("Id")
+            );
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "IdempotencyKey" uuid NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "IdempotencyFingerprint" text NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "NormalizedReference" text NULL;
+            UPDATE "CollectionTransactions" SET "IdempotencyKey" = "Id" WHERE "IdempotencyKey" IS NULL;
+            UPDATE "CollectionTransactions" SET "IdempotencyFingerprint" = 'legacy:' || "Id"::text WHERE "IdempotencyFingerprint" IS NULL OR "IdempotencyFingerprint" = '';
+            UPDATE "CollectionTransactions" SET "NormalizedReference" = NULLIF(UPPER(BTRIM("Reference")), '') WHERE "Reference" IS NOT NULL AND "NormalizedReference" IS NULL;
+            ALTER TABLE "CollectionTransactions" ALTER COLUMN "IdempotencyKey" SET NOT NULL;
+            ALTER TABLE "CollectionTransactions" ALTER COLUMN "IdempotencyFingerprint" SET NOT NULL;
+            CREATE INDEX IF NOT EXISTS "IX_CollectionTransactions_PaymentRecordId_CreatedAt" ON "CollectionTransactions" ("PaymentRecordId", "CreatedAt");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_CollectionTransactions_PaymentRecordId_IdempotencyKey" ON "CollectionTransactions" ("PaymentRecordId", "IdempotencyKey");
+            CREATE INDEX IF NOT EXISTS "IX_CollectionTransactions_Status_ReceivedDate" ON "CollectionTransactions" ("Status", "ReceivedDate");
+            CREATE INDEX IF NOT EXISTS "IX_CollectionTransactions_Reference" ON "CollectionTransactions" ("Reference");
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_CollectionTransactions_ActiveMethod_NormalizedReference"
+                ON "CollectionTransactions" ("Method", "NormalizedReference")
+                WHERE "NormalizedReference" IS NOT NULL AND "Status" <> 2;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "Notes" text NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "CreatedBy" text NOT NULL DEFAULT '';
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "CreatedAt" timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "ReconciledBy" text NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "ReconciledAt" timestamp with time zone NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "ReversedBy" text NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "ReversedAt" timestamp with time zone NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "ReversalReason" text NULL;
         """);
     }
 

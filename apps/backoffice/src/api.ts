@@ -6,6 +6,10 @@ export type LoanStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Done";
 export type DeliveryStatus = "BookingInspection" | "Scheduled" | "Inspection" | "PreparingDocuments" | "CarPreparation" | "ReadyForRelease" | "Released" | "Cancelled";
 export type DeliveryType = "Standard" | "Outstation";
 export type PaymentStatus = "Pending" | "Approved" | "Disbursed" | "Reconciled";
+export type CollectionMethod = "BookingDeposit" | "DownPayment" | "BankTransfer" | "BankDisbursement" | "Cheque" | "Card" | "TradeInCredit" | "Other" | "Cash";
+export type CollectionStatus = "Pending" | "Reconciled" | "Reversed";
+export type FinancingStatus = "NotApplicable" | "Pending" | "Approved" | "Disbursed";
+export type ReceivableStatus = "Draft" | "WaitingForApproval" | "ReadyToCollect" | "PartiallyPaid" | "Paid" | "AttentionNeeded";
 export type PaymentVoucherStatus = "Pending" | "Approved" | "Paid";
 export type CashHandoverStatus = "ReceivedBySales" | "PendingHandover" | "HandedOver" | "Rejected" | "Receipted";
 export type DebtRecoveryStatus = "Open" | "FollowedUp" | "Closed";
@@ -83,6 +87,7 @@ export type DocumentUploadOwner = {
   ownerId?: string;
   repairJobId?: string;
   paymentRecordId?: string;
+  collectionTransactionId?: string;
   deliveryScheduleId?: string;
 };
 
@@ -117,7 +122,10 @@ export type Vehicle = {
   outstationPickupBookingSlip?: string;
 };
 
-export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status" | "customerId">;
+export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status" | "customerId"> &
+  Partial<Pick<Vehicle, "sellingPrice" | "additionalCharges">>;
+
+export type FinanceVehicleOption = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "status" | "customerId" | "sellingPrice" | "additionalCharges">;
 
 export type StockMovement = {
   id: string;
@@ -506,6 +514,22 @@ export type PaymentRecord = {
   bankName?: string;
   bankFollowUpDate?: string;
   createdAt: string;
+  customerId?: string;
+  calculatedNettPrice?: number;
+  nettPriceVariance?: number;
+  nettPriceOverrideReason?: string;
+  nettPriceOverrideRequestedBy?: string;
+  nettPriceOverrideRequestedAt?: string;
+  nettPriceOverrideApprovedBy?: string;
+  nettPriceOverrideApprovedAt?: string;
+  formulaVersion?: string;
+  financeWorkflowVersion?: number;
+  invoice?: FinanceInvoice;
+  collections?: CollectionTransaction[];
+  collectedAmount?: number;
+  balanceAmount?: number;
+  availableToAllocate?: number;
+  receivableStatus?: ReceivableStatus;
 };
 
 export type FinanceInvoice = {
@@ -513,6 +537,11 @@ export type FinanceInvoice = {
   paymentRecordId: string;
   vehicleId: string;
   customerId: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  vehiclePlateNumber?: string;
+  vehicleDescription?: string;
   invoiceNumber: string;
   invoiceDate: string;
   amount: number;
@@ -607,6 +636,47 @@ export type RepairReceipt = {
   invoiceNumber?: string;
   totalAmount?: number;
   createdAt: string;
+};
+
+export type CollectionTransaction = {
+  id: string;
+  paymentRecordId: string;
+  amount: number;
+  method: CollectionMethod;
+  status: CollectionStatus;
+  financingStatus: FinancingStatus;
+  reference?: string;
+  receivedDate: string;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  reconciledBy?: string;
+  reconciledAt?: string;
+  reversedBy?: string;
+  reversedAt?: string;
+  reversalReason?: string;
+  officialReceiptId?: string;
+  officialReceiptNumber?: string;
+};
+
+export type FinanceSaleInput = {
+  vehicleId: string;
+  salesPrice: number;
+  interestAdditionalCharges: number;
+  ncdAmount: number;
+  windscreenCharges: number;
+  nettPrice?: number;
+  nettPriceOverrideReason?: string;
+};
+
+export type CollectionCreateInput = {
+  idempotencyKey: string;
+  amount: number;
+  method: CollectionMethod;
+  financingStatus: FinancingStatus;
+  reference?: string;
+  receivedDate: string;
+  notes?: string;
 };
 
 export type RepairReceiptWithItems = {
@@ -971,6 +1041,7 @@ export type VehicleDocument = {
   ownerId?: string;
   repairJobId?: string;
   paymentRecordId?: string;
+  collectionTransactionId?: string;
   deliveryScheduleId?: string;
   uploadedBy: string;
   checksum: string;
@@ -1207,6 +1278,29 @@ export async function getVehicleLookup(): Promise<VehicleLookup[]> {
   return getWithNetworkFallback("/api/vehicle-lookup", [vehicleLookupFromVehicle(sampleVehicle)]);
 }
 
+export async function getFinanceVehicleOptions(): Promise<FinanceVehicleOption[]> {
+  return request<FinanceVehicleOption[]>("/api/finance/vehicle-options");
+}
+
+export function mergeFinanceVehicleOptions(vehicles: VehicleLookup[], financeOptions: FinanceVehicleOption[]): VehicleLookup[] {
+  const financeOptionById = new Map(financeOptions.map((option) => [option.id, option]));
+  return vehicles.map((vehicle) => {
+    const financeOption = financeOptionById.get(vehicle.id);
+    return financeOption
+      ? {
+          ...vehicle,
+          plateNumber: financeOption.plateNumber,
+          make: financeOption.make,
+          model: financeOption.model,
+          status: financeOption.status,
+          customerId: financeOption.customerId,
+          sellingPrice: financeOption.sellingPrice,
+          additionalCharges: financeOption.additionalCharges
+        }
+      : vehicle;
+  });
+}
+
 export async function getCustomers(): Promise<Customer[]> {
   return getWithNetworkFallback("/api/customers", []);
 }
@@ -1264,7 +1358,7 @@ export async function getDeliveryActivity(deliveryId: string): Promise<DeliveryA
 }
 
 export async function getPayments(): Promise<PaymentRecord[]> {
-  return getWithNetworkFallback("/api/payments", fallbackPayments());
+  return request<PaymentRecord[]>("/api/payments", {}, "Unable to load finance records");
 }
 
 export async function getCashHandovers(): Promise<CashHandover[]> {
@@ -1723,6 +1817,13 @@ export async function createPayment(payment: PaymentRecord): Promise<PaymentReco
   });
 }
 
+export async function createFinanceSale(input: FinanceSaleInput): Promise<PaymentRecord> {
+  return request<PaymentRecord>("/api/payments/finance-sale", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
 export async function createStaffUser(user: CreateStaffUserRequest): Promise<StaffUser> {
   return request<StaffUser>("/api/admin/users", {
     method: "POST",
@@ -1826,6 +1927,39 @@ export async function updatePayment(payment: PaymentRecord): Promise<PaymentReco
 export async function approvePaymentManagementReview(paymentId: string): Promise<PaymentRecord> {
   return request<PaymentRecord>(`/api/payments/${paymentId}/management-review`, {
     method: "POST"
+  });
+}
+
+export async function approveNettPriceOverride(paymentId: string): Promise<PaymentRecord> {
+  return request<PaymentRecord>(`/api/payments/${paymentId}/nett-price-override/approve`, { method: "POST" });
+}
+
+export async function issueFinanceInvoice(paymentId: string): Promise<PaymentRecord> {
+  return request<PaymentRecord>(`/api/payments/${paymentId}/invoice`, { method: "POST" });
+}
+
+export async function createCollection(paymentId: string, input: CollectionCreateInput): Promise<PaymentRecord> {
+  return request<PaymentRecord>(`/api/payments/${paymentId}/collections`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateCollectionFinancingStatus(collectionId: string, status: FinancingStatus): Promise<PaymentRecord> {
+  return request<PaymentRecord>(`/api/collection-transactions/${collectionId}/financing-status`, {
+    method: "POST",
+    body: JSON.stringify({ status })
+  });
+}
+
+export async function reconcileCollection(collectionId: string): Promise<PaymentRecord> {
+  return request<PaymentRecord>(`/api/collection-transactions/${collectionId}/reconcile`, { method: "POST" });
+}
+
+export async function reverseCollection(collectionId: string, reason: string): Promise<PaymentRecord> {
+  return request<PaymentRecord>(`/api/collection-transactions/${collectionId}/reverse`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
   });
 }
 
@@ -1960,6 +2094,10 @@ export async function getVehicleDocuments(vehicleId: string): Promise<VehicleDoc
   return [];
 }
 
+export async function getVehicleDocumentsStrict(vehicleId: string): Promise<VehicleDocument[]> {
+  return request<VehicleDocument[]>(`/api/vehicles/${vehicleId}/documents`, {}, "Unable to load finance evidence");
+}
+
 export async function getVehicleOcrJobs(vehicleId: string): Promise<VehicleOcrJob[]> {
   try {
     const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/ocr-jobs`, { credentials: "include" });
@@ -2021,6 +2159,7 @@ function documentUploadPath(vehicleId: string, category: DocumentCategory, owner
   if (owner?.ownerId) query.set("ownerId", owner.ownerId);
   if (owner?.repairJobId) query.set("repairJobId", owner.repairJobId);
   if (owner?.paymentRecordId) query.set("paymentRecordId", owner.paymentRecordId);
+  if (owner?.collectionTransactionId) query.set("collectionTransactionId", owner.collectionTransactionId);
   if (owner?.deliveryScheduleId) query.set("deliveryScheduleId", owner.deliveryScheduleId);
   return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
 }
@@ -2262,30 +2401,6 @@ function fallbackDeliveries(): DeliverySchedule[] {
       signedHandoverReceived: true,
       customerAcknowledged: true,
       finalChecklistConfirmed: true
-    }
-  ];
-}
-
-function fallbackPayments(): PaymentRecord[] {
-  return [
-    {
-      id: "7e0dcbee-5369-4f26-a97f-46f3c7784c6d",
-      vehicleId: sampleVehicle.id,
-      nettPrice: 58000,
-      status: "Pending",
-      receiptNumber: "RCPT-DEMO-1001",
-      invoiceNumber: "INV-DEMO-1001",
-      bossChecked: false,
-      documentsPrepared: true,
-      checklistValidated: true,
-      salesPrice: 58000,
-      interestAdditionalCharges: 600,
-      ncdAmount: 1200,
-      windscreenCharges: 450,
-      outstationDeliveryDate: "2026-06-05",
-      bankName: "Maybank",
-      bankFollowUpDate: "2026-06-01",
-      createdAt: "2026-05-30T00:00:00Z"
     }
   ];
 }
@@ -2711,6 +2826,7 @@ function vehicleLookupFromVehicle(vehicle: Vehicle): VehicleLookup {
     make: vehicle.make,
     model: vehicle.model,
     stockOwner: vehicle.stockOwner,
-    status: vehicle.status
+    status: vehicle.status,
+    customerId: vehicle.customerId
   };
 }

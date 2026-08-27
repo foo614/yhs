@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
-import dayjs from "dayjs";
+import { Alert, Badge, Button, Checkbox, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
@@ -12,32 +12,46 @@ import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import {
   brokerCommissionCreateBlockReason,
+  calculateFinanceNettPrice,
   canReconcilePayment,
   canReopenPaidDailySpend,
   canReopenPaidSettlement,
+  collectionCreateBlockReason,
   dailySpendCreateBlockReason,
   debtRecoveryCreateBlockReason,
   financeDocumentCategories,
+  financeSaleBlockReason,
+  isFinanceV2,
   paymentCreateBlockReason,
   paymentReconcileBlockReason,
   paymentVoucherCreateBlockReason,
+  receivableStatusColor,
+  receivableStatusLabel,
   settlementCreateBlockReason
 } from "../../finance";
 import {
   customerSelectLabel,
+  financeInvoiceContentUrl,
   getDeliveryInvoiceUpdateRequests,
-  getVehicleDocuments,
+  getVehicleDocumentsStrict,
   humanizeApiError,
   resolveDeliveryInvoiceUpdate,
+  vehicleDocumentContentUrl,
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
+  type CollectionCreateInput,
+  type CollectionMethod,
+  type CollectionTransaction,
   type CurrentUser,
   type Customer,
   type DailySpend,
   type DebtRecoveryCase,
   type DeliveryInvoiceUpdateRequestItem,
   type DocumentCategory,
+  type DocumentUploadOwner,
+  type FinanceSaleInput,
+  type FinancingStatus,
   type Owner,
   type PaymentRecord,
   type PaymentVoucher,
@@ -52,6 +66,21 @@ export function dailySpendMatchesDashboardAttention(spend: Pick<DailySpend, "isP
   return true;
 }
 
+export function financeInvoiceVehicleDefaults(vehicle: Pick<VehicleLookup, "sellingPrice" | "additionalCharges">) {
+  return {
+    salesPrice: vehicle.sellingPrice ?? 0,
+    interestAdditionalCharges: vehicle.additionalCharges ?? 0,
+    ncdAmount: 0,
+    windscreenCharges: 0,
+    nettPrice: undefined,
+    nettPriceOverrideReason: undefined
+  };
+}
+
+export function canPrepareFinanceInvoice(paymentLoadError: string | null, vehiclePriceLoadError: string | null, eligibleVehicleCount: number) {
+  return !paymentLoadError && !vehiclePriceLoadError && eligibleVehicleCount > 0;
+}
+
 export function createUnpaidDailySpend(id: string, description: string, amount: number, dueDate: string): DailySpend {
   return { id, description, amount, dueDate, isPaid: false };
 }
@@ -59,6 +88,18 @@ export function createUnpaidDailySpend(id: string, description: string, amount: 
 export function payDailySpend(spend: DailySpend): DailySpend {
   return { ...spend, isPaid: true };
 }
+
+export function financeInvoiceSubmitLabel(calculatedTotal: number, agreedTotal: number | null | undefined, adjusting: boolean) {
+  const hasVariance = adjusting && agreedTotal !== null && agreedTotal !== undefined && Math.round(Number(agreedTotal) * 100) !== Math.round(calculatedTotal * 100);
+  return hasVariance ? "Review & send for approval" : "Review & generate invoice";
+}
+
+export function financeRequesterLabel(requestedBy?: string, currentUserId?: string) {
+  if (!requestedBy) return "-";
+  return requestedBy === currentUserId ? "You" : "Finance staff";
+}
+
+type CollectionFormValues = Omit<CollectionCreateInput, "receivedDate" | "idempotencyKey"> & { receivedDate?: Dayjs };
 
 export function InvoiceUpdateRequestQueue({
   requests,
@@ -114,6 +155,10 @@ export function FinancePage({
   customers,
   owners,
   payments,
+  paymentLoadError,
+  paymentRefreshing,
+  financeVehicleOptionLoadError,
+  financeVehicleOptionRefreshing,
   settlements,
   dailySpends,
   brokerCommissions,
@@ -122,11 +167,20 @@ export function FinancePage({
   currentUser,
   dashboardFocus,
   onClearDashboardFocus,
+  onRetryPayments,
+  onRetryFinanceVehicleOptions,
   cashHandovers,
   cashHandoverPaymentLookup,
   onCreate,
   onUpdate,
   onApproveManagementReview,
+  onCreateFinanceSale,
+  onApproveNettPriceOverride,
+  onIssueInvoice,
+  onCreateCollection,
+  onUpdateCollectionFinancingStatus,
+  onReconcileCollection,
+  onReverseCollection,
   onOpenCustomer,
   onCreateSettlement,
   onUpdateSettlement,
@@ -140,7 +194,7 @@ export function FinancePage({
   onUpdatePaymentVoucher,
   onExportPayments,
   onExportAutoCount,
-  onUploadDocument: _onUploadDocument,
+  onUploadDocument,
   onCreateCashHandover,
   onRequestCashHandover,
   onRecordCashHandover,
@@ -151,6 +205,10 @@ export function FinancePage({
   customers: Customer[];
   owners: Owner[];
   payments: PaymentRecord[];
+  paymentLoadError: string | null;
+  paymentRefreshing: boolean;
+  financeVehicleOptionLoadError: string | null;
+  financeVehicleOptionRefreshing: boolean;
   settlements: SettlementReminder[];
   dailySpends: DailySpend[];
   brokerCommissions: BrokerCommission[];
@@ -159,11 +217,20 @@ export function FinancePage({
   currentUser: CurrentUser | null;
   dashboardFocus: DashboardDrilldown;
   onClearDashboardFocus: (tab: string) => void;
+  onRetryPayments: () => Promise<void>;
+  onRetryFinanceVehicleOptions: () => Promise<void>;
   cashHandovers: CashHandover[];
   cashHandoverPaymentLookup: CashHandoverPaymentLookup[];
   onCreate: (payment: PaymentRecord) => void;
   onUpdate: (payment: PaymentRecord) => void;
   onApproveManagementReview: (paymentId: string) => Promise<void>;
+  onCreateFinanceSale: (input: FinanceSaleInput) => Promise<PaymentRecord>;
+  onApproveNettPriceOverride: (paymentId: string) => Promise<PaymentRecord>;
+  onIssueInvoice: (paymentId: string) => Promise<PaymentRecord>;
+  onCreateCollection: (paymentId: string, input: CollectionCreateInput) => Promise<PaymentRecord>;
+  onUpdateCollectionFinancingStatus: (collectionId: string, status: FinancingStatus) => Promise<PaymentRecord>;
+  onReconcileCollection: (collectionId: string) => Promise<PaymentRecord>;
+  onReverseCollection: (collectionId: string, reason: string) => Promise<PaymentRecord>;
   onOpenCustomer: (customerId: string) => void;
   onCreateSettlement: (settlement: SettlementReminder) => void;
   onUpdateSettlement: (settlement: SettlementReminder) => void;
@@ -177,7 +244,7 @@ export function FinancePage({
   onUpdatePaymentVoucher: (voucher: PaymentVoucher) => void;
   onExportPayments: () => Promise<string>;
   onExportAutoCount: (from?: string, to?: string) => Promise<Blob>;
-  onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
+  onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, owner?: DocumentUploadOwner) => Promise<void>;
   onCreateCashHandover: (paymentRecordId: string, amount: number, notes?: string) => Promise<void>;
   onRequestCashHandover: (id: string) => Promise<void>;
   onRecordCashHandover: (id: string) => Promise<void>;
@@ -187,6 +254,8 @@ export function FinancePage({
   const canManageFinance = !currentUser?.isAuthenticated || currentUser.roles.some((role) => role === "BossAdmin" || role === "Finance");
   const canApproveManagementReview = Boolean(currentUser?.roles.includes("BossAdmin"));
   const eligiblePaymentVehicles = vehicles.filter((vehicle) => Boolean(vehicle.customerId));
+  const eligibleInvoiceVehicles = eligiblePaymentVehicles.filter((vehicle) => !payments.some((payment) => payment.vehicleId === vehicle.id));
+  const canPrepareInvoice = canPrepareFinanceInvoice(paymentLoadError, financeVehicleOptionLoadError, eligibleInvoiceVehicles.length);
   const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
   const [editPaymentId, setEditPaymentId] = useState(payments[0]?.id ?? "");
   const [editSettlementId, setEditSettlementId] = useState(settlements[0]?.id ?? "");
@@ -204,13 +273,27 @@ export function FinancePage({
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("PaymentReceipt");
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [paymentDocuments, setPaymentDocuments] = useState<VehicleDocument[]>([]);
+  const [paymentDocumentsLoadError, setPaymentDocumentsLoadError] = useState<string>();
+  const [paymentDocumentsLoading, setPaymentDocumentsLoading] = useState(false);
   const [paymentOcrDraft, setPaymentOcrDraft] = useState<OcrReviewValues | null>(null);
   const [invoiceUpdateRequests, setInvoiceUpdateRequests] = useState<DeliveryInvoiceUpdateRequestItem[]>([]);
   const [invoiceRequestLoading, setInvoiceRequestLoading] = useState(canManageFinance);
   const [invoiceRequestError, setInvoiceRequestError] = useState<string>();
   const [resolvingInvoiceRequestId, setResolvingInvoiceRequestId] = useState<string>();
+  const [prepareInvoiceOpen, setPrepareInvoiceOpen] = useState(false);
+  const [adjustInvoicePrice, setAdjustInvoicePrice] = useState(false);
+  const [collectionPaymentId, setCollectionPaymentId] = useState<string>();
+  const [collectionIdempotencyKey, setCollectionIdempotencyKey] = useState<string>();
+  const [v2DetailsPaymentId, setV2DetailsPaymentId] = useState<string>();
+  const [reverseCollectionId, setReverseCollectionId] = useState<string>();
+  const [reverseReason, setReverseReason] = useState("");
+  const [v2MutationKey, setV2MutationKey] = useState<string>();
+  const [prepareInvoiceForm] = Form.useForm<FinanceSaleInput>();
+  const [collectionForm] = Form.useForm<CollectionFormValues>();
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
+  const selectedCollectionPayment = payments.find((payment) => payment.id === collectionPaymentId);
+  const selectedV2DetailsPayment = payments.find((payment) => payment.id === v2DetailsPaymentId);
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
   const selectedEditSettlement = settlements.find((settlement) => settlement.id === editSettlementId) ?? settlements[0];
   const selectedEditDailySpend = dailySpends.find((spend) => spend.id === editDailySpendId) ?? dailySpends[0];
@@ -219,6 +302,19 @@ export function FinancePage({
   const selectedEditPaymentVoucher = paymentVouchers.find((voucher) => voucher.id === editPaymentVoucherId) ?? paymentVouchers[0];
   const dashboardToday = singaporeTodayIsoDate();
   const dashboardFocusActive = Boolean(dashboardFocus.vehicleId || dashboardFocus.attention);
+  const invoiceSalesPrice = Form.useWatch("salesPrice", prepareInvoiceForm) ?? 0;
+  const invoiceAdditionalCharges = Form.useWatch("interestAdditionalCharges", prepareInvoiceForm) ?? 0;
+  const invoiceNcdAmount = Form.useWatch("ncdAmount", prepareInvoiceForm) ?? 0;
+  const invoiceWindscreenCharges = Form.useWatch("windscreenCharges", prepareInvoiceForm) ?? 0;
+  const invoiceAgreedTotal = Form.useWatch("nettPrice", prepareInvoiceForm);
+  const selectedCollectionMethod = Form.useWatch("method", collectionForm);
+  const invoiceCalculatedTotal = calculateFinanceNettPrice({
+    salesPrice: Number(invoiceSalesPrice),
+    interestAdditionalCharges: Number(invoiceAdditionalCharges),
+    ncdAmount: Number(invoiceNcdAmount),
+    windscreenCharges: Number(invoiceWindscreenCharges)
+  });
+  const invoiceSubmitLabel = financeInvoiceSubmitLabel(invoiceCalculatedTotal, invoiceAgreedTotal, adjustInvoicePrice);
 
   const loadInvoiceUpdateRequests = useCallback(async () => {
     if (!canManageFinance) return;
@@ -326,14 +422,27 @@ export function FinancePage({
     let active = true;
     if (!selectedPayment) {
       setPaymentDocuments([]);
+      setPaymentDocumentsLoadError(undefined);
+      setPaymentDocumentsLoading(false);
       return () => {
         active = false;
       };
     }
 
-    void getVehicleDocuments(selectedPayment.vehicleId).then((documents) => {
-      if (active) setPaymentDocuments(documents.filter((document) => document.paymentRecordId === selectedPayment.id));
-    });
+    setPaymentDocumentsLoading(true);
+    setPaymentDocumentsLoadError(undefined);
+    void getVehicleDocumentsStrict(selectedPayment.vehicleId)
+      .then((documents) => {
+        if (active) setPaymentDocuments(documents.filter((document) => document.paymentRecordId === selectedPayment.id));
+      })
+      .catch((error) => {
+        if (!active) return;
+        setPaymentDocuments([]);
+        setPaymentDocumentsLoadError(humanizeApiError(error, "Payment evidence could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setPaymentDocumentsLoading(false);
+      });
 
     return () => {
       active = false;
@@ -370,6 +479,155 @@ export function FinancePage({
     setFinanceEditorOpen("paymentVoucher");
   };
 
+  const runV2Mutation = async <T,>(key: string, action: () => Promise<T>) => {
+    setV2MutationKey(key);
+    try {
+      return await action();
+    } finally {
+      setV2MutationKey(undefined);
+    }
+  };
+
+  const openPrepareInvoice = () => {
+    if (!canPrepareInvoice) return;
+    const vehicle = eligibleInvoiceVehicles[0];
+    if (!vehicle) return;
+    setAdjustInvoicePrice(false);
+    prepareInvoiceForm.setFieldsValue({
+      vehicleId: vehicle.id,
+      ...financeInvoiceVehicleDefaults(vehicle)
+    });
+    setPrepareInvoiceOpen(true);
+  };
+
+  const updateInvoiceVehicleDefaults = (vehicleId: string) => {
+    const vehicle = eligibleInvoiceVehicles.find((item) => item.id === vehicleId);
+    if (!vehicle) return;
+    prepareInvoiceForm.setFieldsValue(financeInvoiceVehicleDefaults(vehicle));
+    setAdjustInvoicePrice(false);
+  };
+
+  const prepareFinanceSale = (values: FinanceSaleInput) => {
+    const input: FinanceSaleInput = {
+      vehicleId: values.vehicleId,
+      salesPrice: Number(values.salesPrice ?? 0),
+      interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
+      ncdAmount: Number(values.ncdAmount ?? 0),
+      windscreenCharges: Number(values.windscreenCharges ?? 0),
+      ...(adjustInvoicePrice ? {
+        nettPrice: Number(values.nettPrice ?? 0),
+        nettPriceOverrideReason: values.nettPriceOverrideReason?.trim() || undefined
+      } : {})
+    };
+    const blockReason = financeSaleBlockReason(input, eligibleInvoiceVehicles);
+    if (blockReason) {
+      message.warning(blockReason);
+      return;
+    }
+
+    const vehicle = vehicles.find((item) => item.id === input.vehicleId);
+    const agreedTotal = input.nettPrice ?? calculateFinanceNettPrice(input);
+    const hasVariance = agreedTotal !== calculateFinanceNettPrice(input);
+    Modal.confirm({
+      title: hasVariance ? "Send adjusted price for approval?" : "Generate this invoice?",
+      content: `${vehicle?.plateNumber ?? "Selected vehicle"} · ${formatMoney(agreedTotal)}${hasVariance ? " · Boss/Admin approval is required before issue." : ""}`,
+      okText: hasVariance ? "Send for approval" : "Generate invoice",
+      cancelText: "Check again",
+      onOk: async () => {
+        await runV2Mutation("prepare-invoice", () => onCreateFinanceSale(input));
+        setPrepareInvoiceOpen(false);
+        prepareInvoiceForm.resetFields();
+        setAdjustInvoicePrice(false);
+      }
+    });
+  };
+
+  const openAddPayment = (payment: PaymentRecord) => {
+    const amount = payment.availableToAllocate ?? payment.balanceAmount ?? payment.nettPrice;
+    setUploadPaymentId(payment.id);
+    setCollectionPaymentId(payment.id);
+    setCollectionIdempotencyKey(newId());
+    collectionForm.setFieldsValue({
+      amount,
+      method: "BankTransfer",
+      financingStatus: "NotApplicable",
+      receivedDate: dayjs(),
+      reference: undefined,
+      notes: undefined
+    });
+  };
+
+  const submitCollection = async (values: CollectionFormValues) => {
+    if (!selectedCollectionPayment || !collectionIdempotencyKey) return;
+    const input: CollectionCreateInput = {
+      idempotencyKey: collectionIdempotencyKey,
+      amount: Number(values.amount ?? 0),
+      method: values.method,
+      financingStatus: values.method === "BankDisbursement" ? values.financingStatus : "NotApplicable",
+      reference: values.reference?.trim() || undefined,
+      receivedDate: values.receivedDate?.format("YYYY-MM-DD") ?? "",
+      notes: values.notes?.trim() || undefined
+    };
+    const blockReason = collectionCreateBlockReason(selectedCollectionPayment, input);
+    if (blockReason) {
+      message.warning(blockReason);
+      return;
+    }
+
+    const save = async () => {
+      const updated = await runV2Mutation(`collection-${selectedCollectionPayment.id}`, () => onCreateCollection(selectedCollectionPayment.id, input));
+      setCollectionPaymentId(undefined);
+      setCollectionIdempotencyKey(undefined);
+      collectionForm.resetFields();
+      setUploadPaymentId(updated.id);
+      setV2DetailsPaymentId(updated.id);
+    };
+    const balance = selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice;
+    if (input.amount === balance) {
+      Modal.confirm({
+        title: "This payment covers the remaining balance",
+        content: "Add it now? The sale becomes Paid only after Finance reconciles the payment.",
+        okText: "Add payment",
+        cancelText: "Check again",
+        onOk: save
+      });
+      return;
+    }
+    try {
+      await save();
+    } catch {
+      // The app-level mutation handler already surfaces the server validation message.
+    }
+  };
+
+  const approveAndIssueInvoice = (payment: PaymentRecord) => {
+    Modal.confirm({
+      title: "Approve the adjusted price and issue the invoice?",
+      content: `${plateFor(vehicles, payment.vehicleId)} · ${formatMoney(payment.nettPrice)} · ${payment.nettPriceOverrideReason ?? "Manual adjustment"}`,
+      okText: "Approve & issue",
+      cancelText: "Cancel",
+      onOk: async () => {
+        await runV2Mutation(`approve-${payment.id}`, () => onApproveNettPriceOverride(payment.id));
+      }
+    });
+  };
+
+  const updateFinancing = async (collection: CollectionTransaction, status: FinancingStatus) => {
+    try {
+      await runV2Mutation(`financing-${collection.id}`, () => onUpdateCollectionFinancingStatus(collection.id, status));
+    } catch {
+      // The app-level mutation handler already surfaces the server validation message.
+    }
+  };
+
+  const reconcileV2Collection = async (collection: CollectionTransaction) => {
+    try {
+      await runV2Mutation(`reconcile-${collection.id}`, () => onReconcileCollection(collection.id));
+    } catch {
+      // The app-level mutation handler already surfaces the server validation message.
+    }
+  };
+
   const handleExportPayments = async () => {
     try {
       const csv = await onExportPayments();
@@ -393,51 +651,94 @@ export function FinancePage({
       const link = document.createElement("a");
       link.href = url;
       const period = autoCountPeriod.from && autoCountPeriod.to ? `${autoCountPeriod.from}-${autoCountPeriod.to}` : "all";
-      link.download = `autocount-v1-${period}.xlsx`;
+      link.download = `autocount-v2-${period}.xlsx`;
       link.click();
       URL.revokeObjectURL(url);
-      message.success("AutoCount V1 mapping workbook exported for manual review");
+      message.success("AutoCount Excel workbook exported for manual submission");
     } catch (error) {
       message.error(humanizeApiError(error, "AutoCount workbook export failed. Please try again."));
     }
   };
 
+  const v2PrimaryAction = (payment: PaymentRecord) => {
+    const available = payment.availableToAllocate ?? payment.balanceAmount ?? payment.nettPrice;
+    if (payment.receivableStatus === "WaitingForApproval") {
+      return canApproveManagementReview
+        ? <Button size="small" type="primary" loading={v2MutationKey === `approve-${payment.id}`} onClick={() => approveAndIssueInvoice(payment)}>Approve & issue</Button>
+        : <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View approval request</Button>;
+    }
+    if (!payment.invoice) return <Button size="small" type="primary" loading={v2MutationKey === `invoice-${payment.id}`} onClick={() => void runV2Mutation(`invoice-${payment.id}`, () => onIssueInvoice(payment.id)).catch(() => undefined)}>Issue invoice</Button>;
+    if (payment.collections?.some((collection) => collection.status === "Pending")) return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>Review payment</Button>;
+    if (payment.receivableStatus === "Paid") return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View</Button>;
+    if (available > 0 && payment.receivableStatus !== "AttentionNeeded") return <Button size="small" type="primary" onClick={() => openAddPayment(payment)}>Add payment</Button>;
+    return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View</Button>;
+  };
+
+  const openV2Details = (paymentId: string) => {
+    setUploadPaymentId(paymentId);
+    setV2DetailsPaymentId(paymentId);
+  };
+
+  const collectionHistory = (payment: PaymentRecord) => (
+    <section className="financeCollectionHistory" aria-label="Collection history">
+      <div className="financeCollectionHistoryHeader">
+        <Typography.Title level={5}>Payment history / 收款记录</Typography.Title>
+        <Tag>{payment.collections?.length ?? 0} record{payment.collections?.length === 1 ? "" : "s"}</Tag>
+      </div>
+      {selectedPayment?.id === payment.id && paymentDocumentsLoadError && <Alert type="error" showIcon message="Payment evidence is unavailable" description={paymentDocumentsLoadError} action={<Button size="small" onClick={() => setDocumentReloadKey((value) => value + 1)}>Retry</Button>} />}
+      {(payment.collections?.length ?? 0) === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No payments added yet." /> : payment.collections?.map((collection) => {
+        const bankDisbursement = collection.method === "BankDisbursement";
+        const evidence = paymentDocuments.filter((document) => document.collectionTransactionId === collection.id);
+        const hasEvidence = evidence.length > 0;
+        const evidenceUnavailable = selectedPayment?.id !== payment.id || paymentDocumentsLoading || Boolean(paymentDocumentsLoadError);
+        const createdByCurrentUser = Boolean(currentUser?.id && collection.createdBy === currentUser.id);
+        const canReconcile = collection.status === "Pending" && !evidenceUnavailable && hasEvidence && !createdByCurrentUser && (!bankDisbursement || collection.financingStatus === "Disbursed");
+        return <article className="financeCollectionItem" key={collection.id}>
+          <div><strong>{formatMoney(collection.amount)}</strong><Tag color={collection.status === "Reconciled" ? "green" : collection.status === "Reversed" ? "red" : "gold"}>{collectionStatusLabel(collection.status)}</Tag></div>
+          <dl>
+            <div><dt>Method</dt><dd>{collectionMethodLabel(collection.method)}</dd></div>
+            <div><dt>Received</dt><dd>{collection.receivedDate}</dd></div>
+            <div><dt>Reference</dt><dd>{collection.reference || "-"}</dd></div>
+            {bankDisbursement && <div><dt>Financing</dt><dd>{financingStatusLabel(collection.financingStatus)}</dd></div>}
+          </dl>
+          {collection.notes && <Typography.Paragraph type="secondary">{collection.notes}</Typography.Paragraph>}
+          {collection.reversalReason && <Alert type="warning" showIcon message={`Reversed: ${collection.reversalReason}`} />}
+          <Space wrap size={6}>
+            <Tag color={evidenceUnavailable ? "red" : hasEvidence ? "green" : "gold"}>{evidenceUnavailable ? paymentDocumentsLoading ? "Loading evidence" : "Evidence unavailable" : hasEvidence ? `${evidence.length} evidence file${evidence.length === 1 ? "" : "s"}` : "Evidence needed"}</Tag>
+            {collection.status === "Pending" && <Upload accept="image/*,.pdf" maxCount={1} showUploadList={false} customRequest={async (option) => {
+              try {
+                await onUploadDocument(payment.vehicleId, option.file as File, "PaymentReceipt", { paymentRecordId: payment.id, collectionTransactionId: collection.id });
+                setDocumentReloadKey((value) => value + 1);
+                option.onSuccess?.({ ok: true });
+              } catch (error) {
+                option.onError?.(error instanceof Error ? error : new Error("Evidence upload failed."));
+              }
+            }}><Button size="small">{hasEvidence ? "Add evidence" : "Attach evidence"}</Button></Upload>}
+          </Space>
+          {evidence.length > 0 && <div className="financeCollectionEvidenceList">{evidence.map((document) => <div key={document.id}><Typography.Link href={vehicleDocumentContentUrl(payment.vehicleId, document.id)} target="_blank">{document.fileName}</Typography.Link><Typography.Text type="secondary">Uploaded {document.uploadedAt.slice(0, 10)} by {financeRequesterLabel(document.uploadedBy, currentUser?.id)}</Typography.Text></div>)}</div>}
+          {collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
+            {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
+            {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => Modal.confirm({ title: "Record funds disbursed?", content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.", okText: "Record funds disbursed", cancelText: "Cancel", onOk: () => updateFinancing(collection, "Disbursed") })}>Record funds disbursed</Button>}
+            {collection.status === "Pending" && <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : createdByCurrentUser ? "Another Finance user must reconcile a payment you recorded." : "Bank financing must be disbursed before reconciliation."}><span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({ title: "Reconcile this payment?", content: "Only reconcile after the amount is visible in the company account.", okText: "Reconcile", cancelText: "Cancel", onOk: () => reconcileV2Collection(collection) })}>Reconcile</Button></span></Tooltip>}
+            {collection.status === "Reconciled" && canApproveManagementReview && <Button size="small" danger onClick={() => { setReverseCollectionId(collection.id); setReverseReason(""); }}>Reverse</Button>}
+          </Space>}
+        </article>;
+      })}
+    </section>
+  );
+
   const columns: ColumnsType<PaymentRecord> = [
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Collection / 收款", dataIndex: "nettPrice", render: (value) => formatMoney(value) },
-    { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Reconciled" ? "green" : "orange"}>{status}</Tag> },
-    {
-      title: "Reference / 单据",
-      render: (_, row) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text>{row.receiptNumber || "No receipt"}</Typography.Text>
-          <Typography.Text type="secondary">{row.invoiceNumber || "No invoice"}</Typography.Text>
-        </Space>
-      )
-    },
-    {
-      title: "Bank Follow-up / 银行跟进",
-      render: (_, row) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text>{row.bankName || "-"}</Typography.Text>
-          <Typography.Text type="secondary">{row.bankFollowUpDate || "No follow-up"}</Typography.Text>
-        </Space>
-      )
-    },
-    {
-      title: "Ready / 准备",
-      render: (_, row) => (
-        <Space wrap size={4}>
-          <Tag color={row.bossChecked ? "green" : "orange"}>{row.bossChecked ? "Reviewed" : "Review pending"}</Tag>
-          {paymentChecklistReady(row) ? <Tag color="green">Checklist done</Tag> : <Tag color="gold">Checklist pending</Tag>}
-        </Space>
-      )
-    },
+    { title: "Vehicle & Customer / 车辆与客户", dataIndex: "vehicleId", render: (vehicleId, row) => isFinanceV2(row) ? <Space direction="vertical" size={0}><Typography.Text strong>{plateFor(vehicles, vehicleId)}</Typography.Text><Typography.Text type="secondary">{customerLabel(customers, row.customerId ?? vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId)}</Typography.Text></Space> : plateFor(vehicles, vehicleId) },
+    { title: "Invoice Total / 发票总额", dataIndex: "nettPrice", render: (value, row) => formatMoney(isFinanceV2(row) ? row.invoice?.amount ?? value : value) },
+    { title: "Collected / 已收", render: (_, row) => isFinanceV2(row) ? formatMoney(row.collectedAmount ?? 0) : <Tag color={row.status === "Reconciled" ? "green" : "orange"}>{row.status}</Tag> },
+    { title: "Balance Due / 未收", render: (_, row) => isFinanceV2(row) ? formatMoney(row.balanceAmount ?? row.nettPrice) : <Space direction="vertical" size={0}><Typography.Text>{row.receiptNumber || "No receipt"}</Typography.Text><Typography.Text type="secondary">{row.invoiceNumber || "No invoice"}</Typography.Text></Space> },
+    { title: "Status & Invoice / 状态与发票", render: (_, row) => isFinanceV2(row) ? <Space direction="vertical" size={2}><Tag color={receivableStatusColor(row.receivableStatus)}>{receivableStatusLabel(row.receivableStatus)}</Tag>{row.invoice ? <Typography.Link href={financeInvoiceContentUrl(row.invoice.id)} target="_blank">{row.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Invoice not issued</Typography.Text>}</Space> : <Space wrap size={4}><Tag>Legacy</Tag><Tag color={row.bossChecked ? "green" : "orange"}>{row.bossChecked ? "Reviewed" : "Review pending"}</Tag>{paymentChecklistReady(row) ? <Tag color="green">Checklist done</Tag> : <Tag color="gold">Checklist pending</Tag>}</Space> },
     {
       title: "Action / 操作",
       fixed: "right",
-      width: 190,
+      width: 210,
       render: (_, row) => {
+        if (isFinanceV2(row)) return <div className="financeV2PrimaryAction">{v2PrimaryAction(row)}</div>;
         const reconcileReason = paymentReconcileBlockReason(row, payments);
         return (
           <Space className="tableActionGroup" wrap size={6}>
@@ -560,8 +861,13 @@ export function FinancePage({
     }
   ];
   const filteredPayments = filterFinanceRows(payments, financeKeyword, financeStatus, (payment) => [
-    plateFor(vehicles, payment.vehicleId), payment.receiptNumber, payment.invoiceNumber, payment.bankName, payment.bankFollowUpDate
-  ], (payment) => payment.status).filter((payment) => matchesDashboardFinanceFocus(dashboardFocus, payment.vehicleId, dashboardFocus.attention === "open" ? payment.status !== "Reconciled" : true));
+    plateFor(vehicles, payment.vehicleId),
+    customerLabel(customers, payment.customerId ?? vehicles.find((vehicle) => vehicle.id === payment.vehicleId)?.customerId),
+    payment.receiptNumber, payment.invoiceNumber, payment.invoice?.invoiceNumber, payment.bankName, payment.bankFollowUpDate,
+    ...(payment.collections ?? []).flatMap((collection) => [collection.reference, collection.method, collection.status, collection.financingStatus])
+  ], (payment) => isFinanceV2(payment)
+    ? [payment.receivableStatus ?? "Draft", ...(payment.collections ?? []).flatMap((collection) => [collection.status, collection.financingStatus])]
+    : payment.status).filter((payment) => matchesDashboardFinanceFocus(dashboardFocus, payment.vehicleId, dashboardFocus.attention === "open" ? isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled" : true));
   const filteredSettlements = filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
     plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
   ], (settlement) => settlement.isPaid ? "Paid" : "Due").filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, dashboardFocus.attention === "due" ? !settlement.isPaid && settlement.deadline <= dashboardToday : true));
@@ -637,7 +943,7 @@ export function FinancePage({
   const brokerCommissionEmptyText = financeEmptyText(brokerCommissions.length, filteredBrokerCommissions.length, "broker commissions");
   const debtRecoveryEmptyText = financeEmptyText(debtRecoveries.length, filteredDebtRecoveries.length, "debt recovery cases");
   const paymentVoucherEmptyText = financeEmptyText(paymentVouchers.length, filteredPaymentVouchers.length, "payment vouchers");
-  const outstanding = payments.filter((payment) => payment.status !== "Reconciled").reduce((sum, payment) => sum + payment.nettPrice, 0);
+  const outstanding = payments.reduce((sum, payment) => sum + (isFinanceV2(payment) ? payment.balanceAmount ?? payment.nettPrice : payment.status !== "Reconciled" ? payment.nettPrice : 0), 0);
   const settlementOutstanding = settlements.filter((settlement) => !settlement.isPaid).reduce((sum, settlement) => sum + settlement.amount, 0);
   const dailySpendOutstanding = dailySpends.filter((spend) => !spend.isPaid).reduce((sum, spend) => sum + spend.amount, 0);
   const brokerCommissionOutstanding = brokerCommissions.filter((commission) => !commission.isPaid).reduce((sum, commission) => sum + commission.amount, 0);
@@ -683,9 +989,9 @@ export function FinancePage({
         ];
       default:
         return [
-          { label: "Rows", value: payments.length },
-          { label: "Open bank", value: payments.filter((payment) => payment.status !== "Reconciled").length },
-          { label: "Outstanding", value: formatMoney(outstanding) }
+          { label: "Sales", value: payments.length },
+          { label: "Need collection", value: payments.filter((payment) => isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled").length },
+          { label: "Balance due", value: formatMoney(outstanding) }
         ];
     }
   })();
@@ -698,7 +1004,7 @@ export function FinancePage({
           onChange={changeFinanceTab}
           items={[
             ...(canManageFinance ? [
-              { key: "payments", label: "Bank Collection / 收款Bank" },
+              { key: "payments", label: "Invoices & Collections / 发票与收款" },
               { key: "settlements", label: "Settlement / 结算" },
               { key: "commissions", label: "Broker Commission / 经纪佣金" },
               { key: "debt", label: "Debt Recovery / 欠款追讨" },
@@ -745,24 +1051,50 @@ export function FinancePage({
         />
       )}
       {financeTab === "payments" && <ProCard
-        title="Bank Collection / 收款Bank"
+        title="Invoices & Collections / 发票与收款"
         extra={<Space wrap>
           <DatePicker.RangePicker
             aria-label="AutoCount export period"
             onChange={(dates) => setAutoCountPeriod(dates?.[0] && dates?.[1] ? { from: dates[0].format("YYYY-MM-DD"), to: dates[1].format("YYYY-MM-DD") } : {})}
           />
-          <Button onClick={handleExportAutoCount}>Export AutoCount V1 (.xlsx)</Button>
-          <Button onClick={handleExportPayments}>Export Spreadsheet (CSV)</Button>
-          <Button type="primary" disabled={eligiblePaymentVehicles.length === 0} onClick={() => setFinanceCreateOpen("payment")}>New Bank Collection</Button>
+          <Button disabled={Boolean(paymentLoadError)} onClick={handleExportAutoCount}>Export for AutoCount (.xlsx)</Button>
+          <Button disabled={Boolean(paymentLoadError)} onClick={handleExportPayments}>Legacy export (.csv)</Button>
+          <Button type="primary" disabled={!canPrepareInvoice} onClick={openPrepareInvoice}>Prepare invoice</Button>
         </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
-          <Alert type="info" showIcon message="AutoCount V1 is a mapping workbook for manual review, not a verified direct import template. The selected period applies to persisted records only." />
+          <Alert type="info" showIcon message="YS Heng issues the invoice here. The AutoCount Excel export is reviewed and submitted manually; it is not a direct integration." />
+          {paymentLoadError && <Alert type="error" showIcon message="Finance records are unavailable" description={`${paymentLoadError} No demo or cached balances are shown.`} action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>} />}
+          {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
           {financeFilters}
-          {eligiblePaymentVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before recording a collection." />}
+          {!financeVehicleOptionLoadError && eligiblePaymentVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before preparing an invoice." />}
+          {!financeVehicleOptionLoadError && eligiblePaymentVehicles.length > 0 && eligibleInvoiceVehicles.length === 0 && <Alert type="info" showIcon message="All buyer-linked vehicles already have a finance record. Search the records below to continue collection work." />}
           <div className="mobileRecordList">
           {filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
           {visiblePayments.map((payment) => {
+            if (isFinanceV2(payment)) {
+              return (
+                <article className="mobileRecordCard financeV2MobileCard" key={payment.id}>
+                  <div className="mobileRecordHeader">
+                    <div>
+                      <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
+                      <Typography.Title level={5}>{plateFor(vehicles, payment.vehicleId)}</Typography.Title>
+                      <Typography.Text type="secondary">{customerLabel(customers, payment.customerId ?? vehicles.find((vehicle) => vehicle.id === payment.vehicleId)?.customerId)}</Typography.Text>
+                    </div>
+                    <Tag color={receivableStatusColor(payment.receivableStatus)}>{receivableStatusLabel(payment.receivableStatus)}</Tag>
+                  </div>
+                  <div className="mobileRecordMeta">
+                    <span><small>Invoice Total / 发票总额</small><strong>{formatMoney(payment.invoice?.amount ?? payment.nettPrice)}</strong></span>
+                    <span><small>Collected / 已收</small><strong>{formatMoney(payment.collectedAmount ?? 0)}</strong></span>
+                    <span><small>Balance Due / 未收</small><strong>{formatMoney(payment.balanceAmount ?? payment.nettPrice)}</strong></span>
+                  </div>
+                  <div className="mobileRecordFooter">
+                    {payment.invoice ? <Typography.Link href={financeInvoiceContentUrl(payment.invoice.id)} target="_blank">{payment.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Invoice not issued</Typography.Text>}
+                    <div className="financeV2PrimaryAction">{v2PrimaryAction(payment)}</div>
+                  </div>
+                </article>
+              );
+            }
             return (
             <article className="mobileRecordCard" key={payment.id}>
               <div className="mobileRecordHeader">
@@ -804,6 +1136,97 @@ export function FinancePage({
           <Table className="desktopDataTable" rowKey="id" columns={columns} dataSource={filteredPayments} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentEmptyText }} />
         </Space>
       </ProCard>}
+      <Modal
+        title="Prepare invoice / 准备发票"
+        width={700}
+        open={prepareInvoiceOpen}
+        onCancel={() => {
+          setPrepareInvoiceOpen(false);
+          setAdjustInvoicePrice(false);
+          prepareInvoiceForm.resetFields();
+        }}
+        footer={null}
+        destroyOnClose
+        className="recordCreateModal financeV2Modal"
+      >
+        <Form form={prepareInvoiceForm} layout="vertical" className="modalForm" onFinish={prepareFinanceSale}>
+          <Alert type="info" showIcon message="Check the buyer and amounts below. YS Heng generates the invoice; AutoCount only receives the reviewed Excel export." />
+          <Form.Item name="vehicleId" label="Vehicle & Buyer / 车辆与买家" rules={[{ required: true, message: "Select a vehicle." }]}>
+            <Select showSearch optionFilterProp="label" onChange={updateInvoiceVehicleDefaults} options={eligibleInvoiceVehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model} · ${customerLabel(customers, vehicle.customerId)}` }))} />
+          </Form.Item>
+          <div className="financeV2AmountGrid">
+            <Form.Item name="salesPrice" label="Selling price / 售价" rules={[{ required: true, message: "Selling price is required." }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="interestAdditionalCharges" label="Additional charges / 附加费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="windscreenCharges" label="Windscreen charges / 挡风玻璃费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          </div>
+          <div className="financeV2CalculatedTotal"><span>Calculated invoice total / 系统计算总额</span><strong>{formatMoney(invoiceCalculatedTotal)}</strong><small>Selling price + additional charges + windscreen charges − NCD</small></div>
+          <Checkbox checked={adjustInvoicePrice} onChange={(event) => {
+            const checked = event.target.checked;
+            setAdjustInvoicePrice(checked);
+            prepareInvoiceForm.setFieldsValue({ nettPrice: checked ? invoiceCalculatedTotal : undefined, nettPriceOverrideReason: undefined });
+          }}>Adjust price / 手动调整</Checkbox>
+          {adjustInvoicePrice && <>
+            <Form.Item name="nettPrice" label="Agreed invoice total / 协议总额" rules={[{ required: true, message: "Enter the agreed total." }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="nettPriceOverrideReason" label="Reason for adjustment / 调整原因" rules={[{ required: true, whitespace: true, message: "Explain why the total is different." }]}><Input.TextArea rows={3} maxLength={500} showCount placeholder="Example: agreed discount approved during final negotiation" /></Form.Item>
+            <Alert type="warning" showIcon message="A different agreed total waits for Boss/Admin approval before the invoice is issued." />
+          </>}
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === "prepare-invoice"}>{invoiceSubmitLabel}</Button></Form.Item>
+        </Form>
+      </Modal>
+      <Drawer
+        title="Add payment / 新增收款"
+        width={600}
+        open={Boolean(collectionPaymentId)}
+        onClose={() => {
+          setCollectionPaymentId(undefined);
+          setCollectionIdempotencyKey(undefined);
+          collectionForm.resetFields();
+        }}
+        destroyOnClose
+        className="recordEditDrawer financeV2Drawer"
+      >
+        {selectedCollectionPayment && <Space direction="vertical" size={16} className="fullWidth">
+          <FinanceV2BalanceSummary payment={selectedCollectionPayment} vehicles={vehicles} customers={customers} />
+          <Form form={collectionForm} layout="vertical" className="drawerForm" onFinish={(values) => void submitCollection(values)}>
+            <Form.Item name="amount" label="Amount received / 已收金额" rules={[{ required: true, message: "Enter the payment amount." }]}><InputNumber className="fullWidth" min={0.01} max={selectedCollectionPayment.availableToAllocate ?? selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="method" label="Payment method / 收款方式" rules={[{ required: true, message: "Choose a payment method." }]}><Select onChange={(method) => collectionForm.setFieldValue("financingStatus", method === "BankDisbursement" ? "Pending" : "NotApplicable")} options={collectionMethodOptions} /></Form.Item>
+            {selectedCollectionMethod === "BankDisbursement" && <Form.Item name="financingStatus" label="Bank financing status / 银行放款状态" rules={[{ required: true }]}><Select disabled options={[{ value: "Pending", label: financingStatusLabel("Pending") }]} /></Form.Item>}
+            <Form.Item name="receivedDate" label="Received date / 收款日期" rules={[{ required: true, message: "Choose the received date." }]}><DatePicker className="fullWidth" /></Form.Item>
+            <Form.Item name="reference" label="Payment reference / 收款编号" rules={[{ required: true, whitespace: true, message: "Enter a bank, cheque, card, or agreement reference." }]}><Input maxLength={100} placeholder="Example: bank transaction or cheque number" /></Form.Item>
+            <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
+            <Alert type="warning" showIcon message="Physical cash cannot be allocated to this V2 invoice yet. Existing cash records remain in Cash Custody." />
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === `collection-${selectedCollectionPayment.id}`}>Add payment</Button></Form.Item>
+          </Form>
+          {collectionHistory(selectedCollectionPayment)}
+        </Space>}
+      </Drawer>
+      <Drawer title="Invoice & payment details / 发票与收款详情" width={600} open={Boolean(v2DetailsPaymentId)} onClose={() => setV2DetailsPaymentId(undefined)} className="recordEditDrawer financeV2Drawer">
+        {selectedV2DetailsPayment && <Space direction="vertical" size={16} className="fullWidth">
+          <FinanceV2BalanceSummary payment={selectedV2DetailsPayment} vehicles={vehicles} customers={customers} />
+          {(selectedV2DetailsPayment.nettPriceVariance ?? 0) !== 0 && <ProCard size="small" title="Price adjustment / 价格调整"><Descriptions size="small" column={1}>
+            <Descriptions.Item label="Calculated total">{formatMoney(selectedV2DetailsPayment.calculatedNettPrice ?? selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
+            <Descriptions.Item label="Agreed invoice total">{formatMoney(selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
+            <Descriptions.Item label="Variance">{formatMoney(selectedV2DetailsPayment.nettPriceVariance ?? 0)}</Descriptions.Item>
+            <Descriptions.Item label="Reason">{selectedV2DetailsPayment.nettPriceOverrideReason ?? "-"}</Descriptions.Item>
+            <Descriptions.Item label="Requested by">{financeRequesterLabel(selectedV2DetailsPayment.nettPriceOverrideRequestedBy, currentUser?.id)}</Descriptions.Item>
+            <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for Boss/Admin"}</Descriptions.Item>
+          </Descriptions></ProCard>}
+          {selectedV2DetailsPayment.invoice && <Button block href={financeInvoiceContentUrl(selectedV2DetailsPayment.invoice.id)} target="_blank">Open invoice PDF · {selectedV2DetailsPayment.invoice.invoiceNumber}</Button>}
+          {selectedV2DetailsPayment.receivableStatus !== "Paid" && (selectedV2DetailsPayment.availableToAllocate ?? 0) > 0 && <Button block type="primary" onClick={() => { setV2DetailsPaymentId(undefined); openAddPayment(selectedV2DetailsPayment); }}>Add payment</Button>}
+          {collectionHistory(selectedV2DetailsPayment)}
+        </Space>}
+      </Drawer>
+      <Modal title="Reverse reconciled payment" open={Boolean(reverseCollectionId)} okText="Reverse payment" okButtonProps={{ danger: true, disabled: !reverseReason.trim(), loading: v2MutationKey === `reverse-${reverseCollectionId}` }} onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }} onOk={async () => {
+        if (!reverseCollectionId || !reverseReason.trim()) return;
+        await runV2Mutation(`reverse-${reverseCollectionId}`, () => onReverseCollection(reverseCollectionId, reverseReason.trim()));
+        setReverseCollectionId(undefined);
+        setReverseReason("");
+      }}>
+        <Alert type="warning" showIcon message="Reversal restores the outstanding balance and stays in the audit history." />
+        <Typography.Text strong>Reason for reversal</Typography.Text>
+        <Input.TextArea aria-label="Reason for reversal" className="financeV2ReverseReason" rows={3} maxLength={500} showCount value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="Explain why this reconciled payment must be reversed" />
+      </Modal>
       <Modal
         title="New Bank Collection / 新增收款"
         width={680}
@@ -965,7 +1388,7 @@ export function FinancePage({
       </Drawer>
       {financeTab === "payments" && <ProCard title="Finance Documents / 财务文件">
         <Space direction="vertical" size={12} className="fullWidth">
-          <MissingUploadReminder
+          {selectedPayment && !isFinanceV2(selectedPayment) && <MissingUploadReminder
             title="Payment evidence required"
             description="Attach the receipt or invoice to this collection record before finance reconciliation."
             items={financeDocumentCategories.map((category) => ({
@@ -973,18 +1396,23 @@ export function FinancePage({
               isPresent: paymentDocuments.some((document) => document.category === category)
             }))}
             onAction={() => setDocumentCategory(financeDocumentCategories.find((category) => !paymentDocuments.some((document) => document.category === category)) ?? "PaymentReceipt")}
-          />
+          />}
+          {selectedPayment && isFinanceV2(selectedPayment) && <Alert type="info" showIcon message="Attach evidence to the matching partial payment before reconciliation." action={<Button size="small" onClick={() => openV2Details(selectedPayment.id)}>Open payment history</Button>} />}
           <Form layout="vertical" className="formGrid">
             <Form.Item label="Payment Record / 收款记录">
               <Select
                 value={selectedPayment?.id}
-                onChange={setUploadPaymentId}
+                onChange={(paymentId) => {
+                  setUploadPaymentId(paymentId);
+                  if (isFinanceV2(payments.find((payment) => payment.id === paymentId) ?? payments[0])) setDocumentCategory("PaymentReceipt");
+                }}
                 options={payments.map((payment) => ({
                   value: payment.id,
                   label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.invoiceNumber || "No invoice"}`
                 }))}
               />
             </Form.Item>
+            {selectedPayment && !isFinanceV2(selectedPayment) && <>
             <Form.Item label="Document Type / 文件类型">
               <Select<DocumentCategory>
                 value={documentCategory}
@@ -994,10 +1422,9 @@ export function FinancePage({
             </Form.Item>
             <Form.Item label="Receipt / Invoice Upload / 收据与发票上传">
               <OcrUploadReview
-                vehicleId={selectedPayment?.vehicleId}
+                vehicleId={selectedPayment.vehicleId}
                 category={documentCategory}
-                disabled={!selectedPayment}
-                uploadOwner={selectedPayment ? { paymentRecordId: selectedPayment.id } : undefined}
+                uploadOwner={{ paymentRecordId: selectedPayment.id }}
                 buttonLabel="Add receipt or invoice photo"
                 applyLabel="Use details in payment"
                 fields={[
@@ -1010,18 +1437,21 @@ export function FinancePage({
                   { name: "bankFollowUpDate", label: "Bank Follow-up" }
                 ]}
                 onApply={(values) => {
-                  if (selectedPayment) setEditPaymentId(selectedPayment.id);
+                  setEditPaymentId(selectedPayment.id);
                   setPaymentOcrDraft(values);
                   setFinanceEditorOpen("payment");
                 }}
                 onUploaded={() => setDocumentReloadKey((value) => value + 1)}
               />
             </Form.Item>
+            </>}
           </Form>
           <Alert
             type="info"
             showIcon
-            message="Upload payment receipts and invoices against the linked car plate for finance audit and reconciliation. / 上传收据和发票并关联车牌,方便财务审核与对账。"
+            message={selectedPayment && isFinanceV2(selectedPayment)
+              ? "V2 evidence is attached from Payment history so each file stays linked to the correct partial payment."
+              : "Upload payment evidence against the linked sale for finance audit. / 上传付款证据供财务审核。"}
           />
         </Space>
       </ProCard>}
@@ -1615,6 +2045,48 @@ export function FinancePage({
   );
 }
 
+export function FinanceV2BalanceSummary({ payment, vehicles, customers }: { payment: PaymentRecord; vehicles: VehicleLookup[]; customers: Customer[] }) {
+  return (
+    <section className="financeV2BalanceSummary">
+      <div className="financeV2BalanceHeader">
+        <div>
+          <Typography.Text type="secondary">{plateFor(vehicles, payment.vehicleId)}</Typography.Text>
+          <Typography.Title level={4}>{customerLabel(customers, payment.customerId ?? vehicles.find((vehicle) => vehicle.id === payment.vehicleId)?.customerId)}</Typography.Title>
+        </div>
+        <Tag color={receivableStatusColor(payment.receivableStatus)}>{receivableStatusLabel(payment.receivableStatus)}</Tag>
+      </div>
+      <div className="financeV2BalanceGrid">
+        <span><small>Invoice total</small><strong>{formatMoney(payment.invoice?.amount ?? payment.nettPrice)}</strong></span>
+        <span><small>Collected</small><strong>{formatMoney(payment.collectedAmount ?? 0)}</strong></span>
+        <span><small>Balance due</small><strong>{formatMoney(payment.balanceAmount ?? payment.nettPrice)}</strong></span>
+      </div>
+    </section>
+  );
+}
+
+const collectionMethodOptions: Array<{ value: Exclude<CollectionMethod, "Cash">; label: string }> = [
+  { value: "BookingDeposit", label: "Booking deposit" },
+  { value: "DownPayment", label: "Down payment" },
+  { value: "BankTransfer", label: "Bank transfer" },
+  { value: "BankDisbursement", label: "Bank financing disbursement" },
+  { value: "Cheque", label: "Cheque" },
+  { value: "Card", label: "Card" },
+  { value: "TradeInCredit", label: "Trade-in credit" },
+  { value: "Other", label: "Other non-cash payment" }
+];
+
+function collectionMethodLabel(method: CollectionMethod) {
+  return ({ BookingDeposit: "Booking deposit", DownPayment: "Down payment", BankTransfer: "Bank transfer", BankDisbursement: "Bank financing disbursement", Cheque: "Cheque", Card: "Card", TradeInCredit: "Trade-in credit", Other: "Other", Cash: "Cash custody" } satisfies Record<CollectionMethod, string>)[method];
+}
+
+function collectionStatusLabel(status: CollectionTransaction["status"]) {
+  return ({ Pending: "Pending reconciliation", Reconciled: "Reconciled", Reversed: "Reversed" })[status];
+}
+
+function financingStatusLabel(status: FinancingStatus) {
+  return ({ NotApplicable: "Not applicable", Pending: "Pending bank approval", Approved: "Approved", Disbursed: "Disbursed" })[status];
+}
+
 
 function documentCategoryLabel(category: DocumentCategory) {
   const labels: Record<DocumentCategory, string> = {
@@ -1669,7 +2141,8 @@ function plateFor(vehicles: VehicleLookup[], vehicleId: string) {
   return vehicles.find((vehicle) => vehicle.id === vehicleId)?.plateNumber ?? "Unknown";
 }
 
-function customerLabel(customers: Customer[], customerId: string) {
+function customerLabel(customers: Customer[], customerId?: string) {
+  if (!customerId) return "Unknown";
   return customers.find((customer) => customer.id === customerId)?.name ?? "Unknown";
 }
 
@@ -1714,7 +2187,7 @@ function financeEmptyText(totalRows: number, filteredRows: number, itemName: str
 
 function statusOptionsForFinanceTab(tab: string) {
   const labels = tab === "payments"
-    ? ["Pending", "Approved", "Disbursed", "Reconciled"]
+    ? ["WaitingForApproval", "ReadyToCollect", "PartiallyPaid", "Paid", "AttentionNeeded", "Pending", "Approved", "Disbursed", "Reconciled"]
     : tab === "settlements" || tab === "daily"
       ? ["Due", "Paid"]
       : tab === "commissions"
@@ -1725,7 +2198,12 @@ function statusOptionsForFinanceTab(tab: string) {
             ? ["Pending", "Approved", "Paid"]
             : [];
 
-  return labels.map((value) => ({ label: financeStatusLabel(value), value }));
+  return labels.map((value) => ({
+    label: ["WaitingForApproval", "ReadyToCollect", "PartiallyPaid", "Paid", "AttentionNeeded"].includes(value)
+      ? receivableStatusLabel(value as PaymentRecord["receivableStatus"])
+      : financeStatusLabel(value),
+    value
+  }));
 }
 
 function addCalendarDays(isoDate: string, days: number) {
