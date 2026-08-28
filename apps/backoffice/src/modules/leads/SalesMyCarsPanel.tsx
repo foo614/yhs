@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Empty, Pagination, Select, Skeleton, Space, Table, Tag, Typography } from "antd";
+import { Alert, Button, Empty, Input, Pagination, Select, Skeleton, Space, Tag, Typography } from "antd";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
 import {
   getSalesWorkboard,
@@ -9,6 +10,20 @@ import {
   type SalesWorkboard,
   type SalesWorkboardItem
 } from "../../api";
+
+export function filterSalesMyCars(items: readonly SalesWorkboardItem[], keyword?: string) {
+  const normalizedKeyword = keyword?.trim().toLocaleLowerCase();
+  if (!normalizedKeyword) return [...items];
+
+  return items.filter((item) => [
+    item.plateNumber,
+    item.vehicleLabel,
+    item.process,
+    item.responsibleDepartment,
+    item.nextAction,
+    item.salesAgentName
+  ].some((value) => value?.toLocaleLowerCase().includes(normalizedKeyword)));
+}
 
 export function SalesMyCarsPanel({
   currentUser,
@@ -23,12 +38,14 @@ export function SalesMyCarsPanel({
   const [loading, setLoading] = useState(autoLoad);
   const [loadError, setLoadError] = useState<string>();
   const [agentUserId, setAgentUserId] = useState<string | "All">("All");
+  const [keyword, setKeyword] = useState("");
   const [mobilePage, setMobilePage] = useState(1);
   const isBoss = currentUser?.roles.includes("BossAdmin") ?? false;
   const mobilePageSize = 6;
-  const mobilePageCount = Math.max(1, Math.ceil((data?.items.length ?? 0) / mobilePageSize));
+  const filteredItems = filterSalesMyCars(data?.items ?? [], keyword);
+  const mobilePageCount = Math.max(1, Math.ceil(filteredItems.length / mobilePageSize));
   const clampedMobilePage = Math.min(mobilePage, mobilePageCount);
-  const mobileItems = (data?.items ?? []).slice((clampedMobilePage - 1) * mobilePageSize, clampedMobilePage * mobilePageSize);
+  const mobileItems = filteredItems.slice((clampedMobilePage - 1) * mobilePageSize, clampedMobilePage * mobilePageSize);
 
   const load = useCallback(async (selectedAgent: string | "All" = agentUserId) => {
     setLoading(true);
@@ -48,7 +65,7 @@ export function SalesMyCarsPanel({
 
   useEffect(() => {
     setMobilePage(1);
-  }, [agentUserId]);
+  }, [agentUserId, keyword]);
 
   const columns: ColumnsType<SalesWorkboardItem> = [
     {
@@ -66,6 +83,15 @@ export function SalesMyCarsPanel({
     <ProCard title="My Cars / 我的车辆" className="salesMyCarsPanel">
       <div className="salesMyCarsHeader">
         <Typography.Text type="secondary">See the cars you sold or are following, their current process, and which team owns the next step.</Typography.Text>
+      </div>
+      <Space wrap className="toolbarForm salesMyCarsFilterBar">
+        <Input.Search
+          allowClear
+          value={keyword}
+          placeholder="Search plate, model or next action"
+          aria-label="Search My Cars"
+          onChange={(event) => setKeyword(event.target.value)}
+        />
         {isBoss && <Select
           showSearch
           optionFilterProp="label"
@@ -79,7 +105,11 @@ export function SalesMyCarsPanel({
           ]}
           aria-label="Filter My Cars by agent"
         />}
-      </div>
+        <Tag color={keyword.trim() ? "blue" : undefined}>
+          {keyword.trim() ? `${filteredItems.length} of ${data?.items.length ?? 0} matching` : `${data?.items.length ?? 0} cars`}
+        </Tag>
+        {keyword.trim() && <Button size="small" onClick={() => setKeyword("")}>Clear search</Button>}
+      </Space>
       <div className="salesMyCarsStats" aria-label="Sales car summary">
         <span><strong>{data?.soldThisMonth ?? 0}</strong>Sold this month</span>
         <span><strong>{data?.inProgressCount ?? 0}</strong>Cars in progress</span>
@@ -87,7 +117,7 @@ export function SalesMyCarsPanel({
       {loadError && <Alert type="error" showIcon message={loadError} action={<Button size="small" onClick={() => void load()}>Try again</Button>} />}
       {loading ? <Skeleton active paragraph={{ rows: 5 }} /> : <>
         <div className="salesMyCarsMobileList">
-          {(data?.items.length ?? 0) === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No cars are assigned to this sales view yet." />}
+          {filteredItems.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={keyword.trim() ? "No cars match this search." : "No cars are assigned to this sales view yet."} />}
           {mobileItems.map((item) => (
             <article className="salesMyCarsMobileCard" key={`${item.vehicleId}:${item.salesAgentUserId ?? "unassigned"}`}>
               <div><Typography.Title level={5}>{item.plateNumber}</Typography.Title><Typography.Text type="secondary">{item.vehicleLabel}</Typography.Text></div>
@@ -96,23 +126,23 @@ export function SalesMyCarsPanel({
               {isBoss && <Typography.Text type="secondary">Agent: {item.salesAgentName || "Unassigned"}</Typography.Text>}
             </article>
           ))}
-          {(data?.items.length ?? 0) > mobilePageSize && <Pagination
+          {filteredItems.length > mobilePageSize && <Pagination
             current={clampedMobilePage}
             pageSize={mobilePageSize}
-            total={data?.items.length ?? 0}
+            total={filteredItems.length}
             showSizeChanger={false}
             onChange={setMobilePage}
           />}
         </div>
-        <Table
+        <OperationsProTable
           className="salesMyCarsTable"
           rowKey={(item) => `${item.vehicleId}:${item.salesAgentUserId ?? "unassigned"}`}
           size="small"
           columns={columns}
-          dataSource={data?.items ?? []}
+          dataSource={filteredItems}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           scroll={{ x: 880 }}
-          locale={{ emptyText: "No cars are assigned to this sales view yet." }}
+          locale={{ emptyText: keyword.trim() ? "No cars match this search." : "No cars are assigned to this sales view yet." }}
         />
       </>}
     </ProCard>

@@ -30,3 +30,11 @@ export function pageFinanceRows<T>(rows: T[], page: number, pageSize = FINANCE_L
   const start = (currentPage - 1) * pageSize;
   return rows.slice(start, start + pageSize);
 }
+
+export function financeEmptyText(totalRows: number, filteredRows: number, itemName: string) {
+  return totalRows === 0
+    ? `No ${itemName} yet.`
+    : filteredRows === 0
+      ? `No ${itemName} match the current filters.`
+      : `No ${itemName} yet.`;
+}

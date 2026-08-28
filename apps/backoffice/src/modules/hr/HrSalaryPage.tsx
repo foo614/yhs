@@ -4,6 +4,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard, ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import { Calendar, DatePicker } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
@@ -107,16 +108,18 @@ const johorHolidayReference = [
   "Public holidays should be reviewed yearly by HR"
 ];
 const hrRecordPageSize = 8;
+const businessTripPageSize = 5;
 
 export type HrRecordFilters = {
   keyword?: string;
   status?: string;
 };
 
-type HrRecordListKey = "attendance" | "leave" | "balances" | "adjustments" | "payslips";
+type HrRecordListKey = "attendance" | "businessTrips" | "leave" | "balances" | "adjustments" | "payslips";
 
 const initialHrRecordPages: Record<HrRecordListKey, number> = {
   attendance: 1,
+  businessTrips: 1,
   leave: 1,
   balances: 1,
   adjustments: 1,
@@ -125,6 +128,7 @@ const initialHrRecordPages: Record<HrRecordListKey, number> = {
 
 const initialHrRecordFilters: Record<HrRecordListKey, HrRecordFilters> = {
   attendance: {},
+  businessTrips: {},
   leave: {},
   balances: {},
   adjustments: {},
@@ -157,6 +161,18 @@ export function paginateHrRecords<T>(records: T[], page: number, pageSize = hrRe
 
 export function withHrRecordFilterValue(filters: HrRecordFilters, key: keyof HrRecordFilters, value?: string) {
   return { ...filters, [key]: value === "" ? undefined : value };
+}
+
+export function businessTripSearchText(trip: HrBusinessTrip, staffDisplayName: string) {
+  return [
+    staffDisplayName,
+    trip.startDate,
+    trip.endDate,
+    trip.location,
+    trip.purpose,
+    businessTripStatusLabel(trip.status),
+    trip.decisionNotes
+  ].filter(Boolean).join(" ");
 }
 
 export const leavePolicyTableConfig = {
@@ -322,6 +338,8 @@ export function HrSalaryPage({
     },
     {
       title: "Action / 操作",
+      fixed: "right",
+      width: 220,
       render: (_, record) => record.status === "Pending" ? (
         <Space className="tableActionGroup" wrap size={6}>
           {isHrManager && <Button type="primary" onClick={() => onDecideLeave(record.id, "Approved")}>Approve / 批准</Button>}
@@ -386,6 +404,7 @@ export function HrSalaryPage({
   ];
 
   const attendanceStatusOptions = ["Present", "Late", "HalfDay", "Absent"].map((value) => ({ value, label: attendanceStatusLabel(value as HrAttendanceRecord["status"]) }));
+  const businessTripStatusOptions = ["Pending", "Approved", "Rejected", "Cancelled"].map((value) => ({ value, label: businessTripStatusLabel(value as HrBusinessTripStatus) }));
   const leaveStatusOptions = ["Pending", "Approved", "Rejected", "Cancelled"].map((value) => ({ value, label: leaveStatusLabel(value as HrLeaveStatus) }));
   const payslipStatusOptions = ["Draft", "Generated"].map((value) => ({ value, label: payslipStatusLabel(value as HrPayslip["status"]) }));
   const filteredAttendance = filterHrRecords(
@@ -393,6 +412,12 @@ export function HrSalaryPage({
     recordFilters.attendance,
     (record) => [staffName(record.staffUserId, visibleStaff), record.attendanceDate, attendanceStatusLabel(record.status), record.notes, formatDateTime(record.checkInAt), formatDateTime(record.checkOutAt)].filter(Boolean).join(" "),
     (record) => record.status
+  );
+  const filteredBusinessTrips = filterHrRecords(
+    businessTrips,
+    recordFilters.businessTrips,
+    (trip) => businessTripSearchText(trip, staffName(trip.staffUserId, visibleStaff)),
+    (trip) => trip.status
   );
   const filteredLeaveRequests = filterHrRecords(
     leaveRequests,
@@ -417,11 +442,13 @@ export function HrSalaryPage({
     (record) => record.status
   );
   const attendancePage = paginateHrRecords(filteredAttendance, recordPages.attendance);
+  const businessTripPage = paginateHrRecords(filteredBusinessTrips, recordPages.businessTrips, businessTripPageSize);
   const leavePage = paginateHrRecords(filteredLeaveRequests, recordPages.leave);
   const balancePage = paginateHrRecords(filteredLeaveBalances, recordPages.balances);
   const adjustmentPage = paginateHrRecords(filteredLeaveAdjustments, recordPages.adjustments);
   const payslipPage = paginateHrRecords(filteredPayslips, recordPages.payslips);
   const attendanceEmptyText = hrRecordEmptyText(attendance.length, filteredAttendance.length, "No attendance records yet / 暂无打卡记录", "No attendance records match the current filters / 没有符合筛选条件的打卡记录");
+  const businessTripEmptyText = hrRecordEmptyText(businessTrips.length, filteredBusinessTrips.length, "No outstation requests yet / 暂无外勤申请", "No outstation requests match the current filters / 没有符合筛选条件的外勤申请");
   const leaveEmptyText = hrRecordEmptyText(leaveRequests.length, filteredLeaveRequests.length, "No leave requests yet / 暂无请假记录", "No leave requests match the current filters / 没有符合筛选条件的请假记录");
   const balanceEmptyText = hrRecordEmptyText(leaveBalances.length, filteredLeaveBalances.length, "No leave balances yet / 暂无假期余额", "No leave balances match the current filters / 没有符合筛选条件的假期余额");
   const adjustmentEmptyText = hrRecordEmptyText(leaveAdjustments.length, filteredLeaveAdjustments.length, "No leave adjustments yet / 暂无假期调整记录", "No leave adjustments match the current filters / 没有符合筛选条件的假期调整记录");
@@ -463,6 +490,41 @@ export function HrSalaryPage({
         </article>
       ))}
       {filteredAttendance.length > hrRecordPageSize && <Pagination current={attendancePage.current} pageSize={hrRecordPageSize} total={filteredAttendance.length} showSizeChanger={false} onChange={(page) => setRecordPage("attendance", page)} />}
+    </div>
+  );
+
+  const businessTripMobileCards = (
+    <div className="mobileRecordList">
+      {filteredBusinessTrips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={businessTripEmptyText} />}
+      {businessTripPage.items.map((trip) => (
+        <article className="mobileRecordCard" key={trip.id}>
+          <div className="mobileRecordHeader">
+            <div>
+              <Typography.Text className="mobileRecordEyebrow">Outstation Request / 外勤申请</Typography.Text>
+              <Typography.Title level={5}>{staffName(trip.staffUserId, visibleStaff)}</Typography.Title>
+            </div>
+            <Tag color={businessTripStatusColor(trip.status)}>{businessTripStatusLabel(trip.status)}</Tag>
+          </div>
+          <div className="mobileRecordGrid">
+            <div><span>Start / 开始</span><strong>{trip.startDate}</strong></div>
+            <div><span>End / 结束</span><strong>{trip.endDate}</strong></div>
+            <div><span>Location / 地点</span><strong>{trip.location}</strong></div>
+          </div>
+          <div className="mobileRecordSection">
+            <Typography.Text className="mobileRecordLabel">Purpose / 目的</Typography.Text>
+            <div className="mobileRecordTextBlock"><span>{trip.purpose}</span></div>
+          </div>
+          <div className="mobileRecordFooter hrMobileActions">
+            {trip.isUrgentException && <Tag color="red">Urgent / 紧急</Tag>}
+            {trip.status === "Pending" && <>
+              <Button size="small" type="primary" onClick={() => onDecideBusinessTrip(trip.id, "Approved")}>Approve / 批准</Button>
+              <Button size="small" danger onClick={() => onDecideBusinessTrip(trip.id, "Rejected")}>Reject / 拒绝</Button>
+            </>}
+            {trip.status !== "Pending" && trip.decisionNotes && <Typography.Text type="secondary">{trip.decisionNotes}</Typography.Text>}
+          </div>
+        </article>
+      ))}
+      {filteredBusinessTrips.length > businessTripPageSize && <Pagination current={businessTripPage.current} pageSize={businessTripPageSize} total={filteredBusinessTrips.length} showSizeChanger={false} onChange={(page) => setRecordPage("businessTrips", page)} />}
     </div>
   );
 
@@ -657,20 +719,36 @@ export function HrSalaryPage({
             ))}
             {ownBusinessTrips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No outstation requests / 暂无外勤申请" />}
           </Space>
-          {isHrManager && <Table
-            rowKey="id"
-            size="small"
-            pagination={{ pageSize: 5, showSizeChanger: false }}
-            dataSource={businessTrips}
-            columns={[
-              { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
-              { title: "Dates / 日期", render: (_: unknown, trip: HrBusinessTrip) => `${trip.startDate} to ${trip.endDate}` },
-              { title: "Location / 地点", dataIndex: "location" },
-              { title: "Purpose / 目的", dataIndex: "purpose" },
-              { title: "Status / 状态", dataIndex: "status", render: (status: HrBusinessTripStatus) => <Tag color={businessTripStatusColor(status)}>{businessTripStatusLabel(status)}</Tag> },
-              { title: "Action / 操作", render: (_: unknown, trip: HrBusinessTrip) => trip.status === "Pending" ? <Space><Button size="small" type="primary" onClick={() => onDecideBusinessTrip(trip.id, "Approved")}>Approve</Button><Button size="small" danger onClick={() => onDecideBusinessTrip(trip.id, "Rejected")}>Reject</Button></Space> : trip.decisionNotes || "-" }
-            ]}
-          />}
+          {isHrManager && <>
+            <HrRecordFilterControls
+              filters={recordFilters.businessTrips}
+              total={businessTrips.length}
+              filtered={filteredBusinessTrips.length}
+              keywordPlaceholder="Search staff, location or purpose / 搜索员工、地点或目的"
+              statusOptions={businessTripStatusOptions}
+              onKeywordChange={(value) => updateRecordFilter("businessTrips", "keyword", value)}
+              onStatusChange={(value) => updateRecordFilter("businessTrips", "status", value)}
+              onClear={() => clearRecordFilters("businessTrips")}
+            />
+            {businessTripMobileCards}
+            <OperationsProTable
+              className="desktopDataTable"
+              rowKey="id"
+              size="small"
+              pagination={{ ...tablePagination(businessTripPageSize), current: businessTripPage.current, onChange: (page) => setRecordPage("businessTrips", page) }}
+              scroll={{ x: "max-content" }}
+              locale={{ emptyText: businessTripEmptyText }}
+              dataSource={filteredBusinessTrips}
+              columns={[
+                { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
+                { title: "Dates / 日期", render: (_: unknown, trip: HrBusinessTrip) => `${trip.startDate} to ${trip.endDate}` },
+                { title: "Location / 地点", dataIndex: "location" },
+                { title: "Purpose / 目的", dataIndex: "purpose" },
+                { title: "Status / 状态", dataIndex: "status", render: (status: HrBusinessTripStatus) => <Tag color={businessTripStatusColor(status)}>{businessTripStatusLabel(status)}</Tag> },
+                { title: "Action / 操作", fixed: "right", width: 220, render: (_: unknown, trip: HrBusinessTrip) => trip.status === "Pending" ? <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => onDecideBusinessTrip(trip.id, "Approved")}>Approve / 批准</Button><Button size="small" danger onClick={() => onDecideBusinessTrip(trip.id, "Rejected")}>Reject / 拒绝</Button></Space> : trip.decisionNotes || "-" }
+              ]}
+            />
+          </>}
         </Space>
       </ProCard>
 
@@ -802,7 +880,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("attendance")}
                 />
                 {attendanceMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
+                <OperationsProTable className="desktopDataTable" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
               </>
             )
           },
@@ -933,7 +1011,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("leave")}
                 />
                 {leaveMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={leaveColumns} dataSource={filteredLeaveRequests} pagination={{ ...tablePagination(hrRecordPageSize), current: leavePage.current, onChange: (page) => setRecordPage("leave", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: leaveEmptyText }} />
+                <OperationsProTable className="desktopDataTable" rowKey="id" columns={leaveColumns} dataSource={filteredLeaveRequests} pagination={{ ...tablePagination(hrRecordPageSize), current: leavePage.current, onChange: (page) => setRecordPage("leave", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: leaveEmptyText }} />
               </Space>
             )
           },
@@ -989,7 +1067,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("balances")}
                 />
                 {balanceMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={balanceColumns} dataSource={filteredLeaveBalances} pagination={{ ...tablePagination(hrRecordPageSize), current: balancePage.current, onChange: (page) => setRecordPage("balances", page) }} locale={{ emptyText: balanceEmptyText }} />
+                <OperationsProTable className="desktopDataTable" rowKey="id" columns={balanceColumns} dataSource={filteredLeaveBalances} pagination={{ ...tablePagination(hrRecordPageSize), current: balancePage.current, onChange: (page) => setRecordPage("balances", page) }} locale={{ emptyText: balanceEmptyText }} />
                 <HrRecordFilterControls
                   filters={recordFilters.adjustments}
                   total={leaveAdjustments.length}
@@ -999,7 +1077,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("adjustments")}
                 />
                 {adjustmentMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={adjustmentColumns} dataSource={filteredLeaveAdjustments} pagination={{ ...tablePagination(hrRecordPageSize), current: adjustmentPage.current, onChange: (page) => setRecordPage("adjustments", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: adjustmentEmptyText }} />
+                <OperationsProTable className="desktopDataTable" rowKey="id" columns={adjustmentColumns} dataSource={filteredLeaveAdjustments} pagination={{ ...tablePagination(hrRecordPageSize), current: adjustmentPage.current, onChange: (page) => setRecordPage("adjustments", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: adjustmentEmptyText }} />
               </Space>
             )
           },
@@ -1053,7 +1131,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("payslips")}
                 />
                 {payslipMobileCards}
-                <Table className="desktopDataTable" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
+                <OperationsProTable className="desktopDataTable" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
               </Space>
             )
           }
@@ -1063,7 +1141,7 @@ export function HrSalaryPage({
   );
 }
 
-function HrRecordFilterControls({
+export function HrRecordFilterControls({
   filters,
   total,
   filtered,
@@ -1086,6 +1164,7 @@ function HrRecordFilterControls({
 
   return (
     <Space wrap size={8} className="toolbarForm">
+      <Input.Search allowClear placeholder={keywordPlaceholder} value={filters.keyword} style={{ width: 280 }} onChange={(event) => onKeywordChange(event.target.value)} />
       {statusOptions && <Select allowClear placeholder="Status / 状态" value={filters.status} options={statusOptions} style={{ minWidth: 160 }} onChange={onStatusChange} />}
       <Tag color={filterActive ? "blue" : "default"}>{filterActive ? `${filtered} of ${total} matching / 相符` : `${total} record${total === 1 ? "" : "s"} / 记录`}</Tag>
       {filterActive && <Button size="small" onClick={onClear}>Clear filters / 清除筛选</Button>}

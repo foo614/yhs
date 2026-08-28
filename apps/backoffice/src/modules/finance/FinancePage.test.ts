@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { canPrepareFinanceInvoice, createUnpaidDailySpend, dailySpendMatchesDashboardAttention, FinanceV2BalanceSummary, financeInvoiceSubmitLabel, financeInvoiceVehicleDefaults, financeRequesterLabel, financeTabForUrl, InvoiceUpdateRequestQueue, payDailySpend } from "./FinancePage";
+import { canPrepareFinanceInvoice, createUnpaidDailySpend, dailySpendMatchesDashboardAttention, FinanceV2BalanceSummary, financeInvoiceSubmitLabel, financeInvoiceVehicleDefaults, financeRequesterLabel, financeSearchCopy, financeTabForUrl, InvoiceUpdateRequestQueue, payDailySpend } from "./FinancePage";
 
 describe("finance module navigation", () => {
   it("keeps legacy cash custody links on the consolidated cash handover tab", () => {
@@ -13,6 +13,15 @@ describe("finance module navigation", () => {
     expect(financeTabForUrl("/finance", "?tab=payments", false)).toBe("cash-custody");
     expect(financeTabForUrl("/finance", "?tab=settlements", true)).toBe("settlements");
     expect(financeTabForUrl("/finance", "?tab=unknown", true)).toBe("payments");
+  });
+
+  it("describes the searchable fields for each finance tab", () => {
+    expect(financeSearchCopy("payments").placeholder).toBe("Search plate, customer, invoice or reference");
+    expect(financeSearchCopy("settlements").placeholder).toBe("Search plate, owner or deadline");
+    expect(financeSearchCopy("commissions").placeholder).toBe("Search plate or broker");
+    expect(financeSearchCopy("debt").placeholder).toBe("Search plate, customer, date or notes");
+    expect(financeSearchCopy("vouchers").placeholder).toBe("Search plate, payee, purpose or notes");
+    expect(financeSearchCopy("daily").placeholder).toBe("Search description or due date");
   });
 });
 

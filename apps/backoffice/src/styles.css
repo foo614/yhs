@@ -4528,13 +4528,6 @@ body {
     padding: 32px;
   }
 }
-.workflowFilterBar,
-.vehicleOperationFilters,
-.staffFilterBar,
-.toolbarForm {
-  display: none !important;
-}
-
 @media (max-width: 720px) {
   .leadFilterControls {
     align-items: stretch;
@@ -4778,9 +4771,13 @@ body {
   align-self: flex-start;
 }
 
-.salesMyCarsHeader .ant-select {
+.salesMyCarsFilterBar .ant-select {
   width: 220px;
   flex: 0 0 auto;
+}
+
+.salesMyCarsFilterBar .ant-input-search {
+  width: min(320px, 100%);
 }
 
 .salesMyCarsStats {
@@ -4828,7 +4825,7 @@ body {
   .deliveryWorkboardToolbar .ant-input-search,
   .deliveryWorkboardToolbar .ant-select,
   .deliveryFinanceGate .ant-btn,
-  .salesMyCarsHeader .ant-select {
+  .salesMyCarsFilterBar .ant-select {
     width: 100%;
   }
 

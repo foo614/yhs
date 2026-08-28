@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, Checkbox, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, Badge, Button, Checkbox, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
-import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
+import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import {
   brokerCommissionCreateBlockReason,
@@ -97,6 +98,23 @@ export function financeInvoiceSubmitLabel(calculatedTotal: number, agreedTotal: 
 export function financeRequesterLabel(requestedBy?: string, currentUserId?: string) {
   if (!requestedBy) return "-";
   return requestedBy === currentUserId ? "You" : "Finance staff";
+}
+
+export function financeSearchCopy(tab: string) {
+  switch (tab) {
+    case "settlements":
+      return { placeholder: "Search plate, owner or deadline", ariaLabel: "Search settlements by plate, owner, or deadline" };
+    case "commissions":
+      return { placeholder: "Search plate or broker", ariaLabel: "Search broker commissions by plate or broker" };
+    case "debt":
+      return { placeholder: "Search plate, customer, date or notes", ariaLabel: "Search debt recovery by plate, customer, follow-up date, or notes" };
+    case "vouchers":
+      return { placeholder: "Search plate, payee, purpose or notes", ariaLabel: "Search payment vouchers by plate, payee, purpose, date, or notes" };
+    case "daily":
+      return { placeholder: "Search description or due date", ariaLabel: "Search daily spend by description or due date" };
+    default:
+      return { placeholder: "Search plate, customer, invoice or reference", ariaLabel: "Search invoices and collections by plate, customer, invoice, or reference" };
+  }
 }
 
 type CollectionFormValues = Omit<CollectionCreateInput, "receivedDate" | "idempotencyKey"> & { receivedDate?: Dayjs };
@@ -882,6 +900,7 @@ export function FinancePage({
     plateFor(vehicles, voucher.vehicleId), voucher.payeeName, voucher.purpose, voucher.issuedDate, voucher.notes
   ], (voucher) => voucher.status).filter((voucher) => matchesDashboardFinanceFocus(dashboardFocus, voucher.vehicleId, dashboardFocus.attention === "open" ? voucher.status !== "Paid" : dashboardFocus.attention === "due" ? voucher.status !== "Paid" && voucher.issuedDate <= dashboardToday : true));
   const financeStatusOptions = statusOptionsForFinanceTab(financeTab);
+  const searchCopy = financeSearchCopy(financeTab);
   const activeFinanceList = financeTab === "settlements"
     ? { filtered: filteredSettlements.length, total: settlements.length }
     : financeTab === "commissions"
@@ -896,6 +915,21 @@ export function FinancePage({
   const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus || dashboardFocusActive);
   const financeFilters = (
     <Space wrap className="toolbarForm">
+      <Input.Search
+        aria-label={searchCopy.ariaLabel}
+        className="financeKeywordFilter"
+        allowClear
+        value={financeKeyword}
+        placeholder={searchCopy.placeholder}
+        onChange={(event) => {
+          setFinanceKeyword(event.target.value);
+          setFinancePage(1);
+        }}
+        onSearch={(value) => {
+          setFinanceKeyword(value);
+          setFinancePage(1);
+        }}
+      />
       <Select
         allowClear
         aria-label="Filter finance records by status"
@@ -1133,7 +1167,7 @@ export function FinancePage({
           })}
           <Pagination className="mobileRecordPagination" current={paymentPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPayments.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={columns} dataSource={filteredPayments} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentEmptyText }} />
+          <OperationsProTable className="desktopDataTable" rowKey="id" columns={columns} dataSource={filteredPayments} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentEmptyText }} />
         </Space>
       </ProCard>}
       <Modal
@@ -1499,7 +1533,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={settlementPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredSettlements.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={settlementColumns} dataSource={filteredSettlements} pagination={tablePagination(filteredSettlements.length, settlementPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: settlementEmptyText }} />
+          <OperationsProTable className="desktopDataTable" rowKey="id" columns={settlementColumns} dataSource={filteredSettlements} pagination={tablePagination(filteredSettlements.length, settlementPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: settlementEmptyText }} />
           <Modal
             title="New Settlement / 新增结算提醒"
             width={620}
@@ -1618,7 +1652,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredBrokerCommissions.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage)} scroll={{ x: 760 }} locale={{ emptyText: brokerCommissionEmptyText }} />
+          <OperationsProTable className="desktopDataTable" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage)} scroll={{ x: 760 }} locale={{ emptyText: brokerCommissionEmptyText }} />
           <Modal
             title="New Broker Commission / 新增经纪人佣金"
             width={620}
@@ -1734,7 +1768,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={debtRecoveryPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredDebtRecoveries.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
+          <OperationsProTable className="desktopDataTable" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
           <Modal
             title="New Debt Recovery Case / 新增欠款追讨"
             width={620}
@@ -1850,7 +1884,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={paymentVoucherPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPaymentVouchers.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
+          <OperationsProTable className="desktopDataTable" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
           <Modal
             title="New Payment Voucher / 新增付款凭证"
             width={620}
@@ -1969,7 +2003,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={dailySpendPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredDailySpends.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <Table className="desktopDataTable" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
+          <OperationsProTable className="desktopDataTable" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
           <Modal
             title="New Daily Spend / 新增日常支出"
             width={560}
@@ -2175,14 +2209,6 @@ function tablePagination(total: number, current: number, onChange: (page: number
     onChange,
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`
   };
-}
-
-function financeEmptyText(totalRows: number, filteredRows: number, itemName: string) {
-  return totalRows === 0
-    ? `No ${itemName} yet.`
-    : filteredRows === 0
-      ? `No ${itemName} match the current filters.`
-      : `No ${itemName} yet.`;
 }
 
 function statusOptionsForFinanceTab(tab: string) {

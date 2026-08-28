@@ -8,6 +8,7 @@ import {
   UserOutlined
 } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import {
   Alert,
   Button,
@@ -24,7 +25,6 @@ import {
   Select,
   Skeleton,
   Space,
-  Table,
   Tag,
   Timeline,
   Typography,
@@ -608,7 +608,7 @@ export function DeliveryWorkboardPage({
               onChange={setMobilePage}
             />}
           </div>
-          <Table
+          <OperationsProTable
             className="deliveryWorkboardTable"
             rowKey="id"
             size="small"

@@ -15,7 +15,7 @@ import {
   UploadOutlined,
   UserOutlined
 } from "@ant-design/icons";
-import { PageContainer, ProCard, ProLayout, ProTable } from "@ant-design/pro-components";
+import { PageContainer, ProCard, ProLayout } from "@ant-design/pro-components";
 import dayjs from "dayjs";
 import {
   Alert,
@@ -49,9 +49,7 @@ import {
   notification
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import type { TableProps } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
-import type { ProTableProps } from "@ant-design/pro-table";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
 import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanApproved, markLoanDone, type LoanFilters } from "./loan";
 import {
@@ -78,6 +76,7 @@ import { ShowroomEnquiryQrSettings } from "./modules/settings/ShowroomEnquiryQrS
 import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSettings";
 import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
+import { OperationsProTable as Table } from "./modules/shared/OperationsProTable";
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import { DeliveryWorkboardPage } from "./modules/delivery/DeliveryWorkboardPage";
 import { SalesMyCarsPanel } from "./modules/leads/SalesMyCarsPanel";
@@ -366,31 +365,6 @@ function hrCalendarMonthRange(value = new Date()): [string, string] {
   const to = new Date(year, month + 1, 0);
   const format = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   return [format(from), format(to)];
-}
-
-type LocalTableProps<RecordType extends object> = TableProps<RecordType> & {
-  request?: ProTableProps<RecordType, Record<string, unknown>>["request"];
-  proSearch?: boolean;
-  columnFilters?: boolean;
-};
-
-function Table<RecordType extends object>({ columns, dataSource, pagination, request, proSearch = true, columnFilters = true, ...props }: LocalTableProps<RecordType>) {
-  const tableColumns = useMemo(
-    () => columnFilters ? ensureColumnFilters(columns, dataSource) : columns,
-    [columnFilters, columns, dataSource]
-  );
-
-  return (
-    <ProTable
-      {...props}
-      request={request}
-      columns={tableColumns as any}
-      dataSource={dataSource}
-      search={proSearch ? { labelWidth: 120 } : false}
-      options={false}
-      pagination={pagination ?? tablePagination()}
-    />
-  );
 }
 
 export default function App() {
@@ -1684,25 +1658,21 @@ export function ModuleDocumentList({
 
   return (
     <Space direction="vertical" size={12} className="fullWidth">
-      <Table
+      <AntTable
         rowKey="id"
         size="small"
         columns={columns}
         dataSource={documents}
-        proSearch={!repairJobId}
-        columnFilters={!repairJobId}
         pagination={tablePagination(5)}
         scroll={{ x: 760 }}
         locale={{ emptyText: vehicleId ? "No uploaded documents for this selected record." : "Select a record to view uploaded documents." }}
       />
       {showOcrResults && (
-        <Table
+        <AntTable
           rowKey="id"
           size="small"
           columns={ocrColumns}
           dataSource={ocrJobs}
-          proSearch={!repairJobId}
-          columnFilters={!repairJobId}
           pagination={tablePagination(5)}
           scroll={{ x: 760 }}
           locale={{ emptyText: vehicleId ? "No OCR results for these documents yet." : "Select a record to view OCR results." }}
@@ -1879,7 +1849,7 @@ export function DashboardPage({
         {/*
         <div className="dashboardSimpleGrid">
           <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard">
-          <Table
+          <AntTable
             rowKey="label"
             size="small"
             columns={[
@@ -1892,7 +1862,7 @@ export function DashboardPage({
           />
           </ProCard>
           <ProCard title="Cash follow-up / 收付款跟进" className="dashboardSimpleCard" extra={<Space size={4} wrap><Tag color={moneyToCollect > 0 ? "blue" : "green"}>Collect {formatCompactMoney(moneyToCollect)}</Tag><Tag color={moneyToPay > 0 ? "volcano" : "green"}>Pay {formatCompactMoney(moneyToPay)}</Tag></Space>}>
-          <Table
+          <AntTable
             rowKey="label"
             size="small"
             columns={[
@@ -2065,6 +2035,27 @@ export function DashboardPage({
             <Select value={reminderDueFilter} options={[{ value: "All", label: "All Due / 全部到期" }, { value: "Overdue", label: "Overdue / 已逾期" }, { value: "DueToday", label: "Due today / 今日到期" }, { value: "DueSoon", label: "Due soon / 即将到期" }, { value: "Upcoming", label: "Upcoming / 后续到期" }]} onChange={(value) => { setReminderDueFilter(value); setMobileReminderPage(1); }} style={{ width: 170 }} />
             {reminderFiltersActive && <Button size="small" onClick={resetReminderFilters}>Clear filters</Button>}
           </Space>
+          <div className="mobileRecordList dashboardReminderMobileList">
+            {mobileReminders.map((reminder) => (
+              <article className="mobileRecordCard" key={`${reminder.type}-${reminder.vehicleId}-${reminder.dueDate}`}>
+                <div className="mobileRecordHeader">
+                  <div>
+                    <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
+                    <Typography.Title level={5}>{reminder.vehiclePlate}</Typography.Title>
+                  </div>
+                  <Tag>{dashboardLabel(reminder.type)}</Tag>
+                </div>
+                <div className="mobileRecordMeta">
+                  <span><small>Due / 到期</small><strong>{reminder.dueDate} · {dashboardLabel(reminderDueLabel(reminder))}</strong></span>
+                  <span><small>Amount / 金额</small><strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "-"}</strong></span>
+                </div>
+                <div className="mobileRecordTextBlock">{reminder.title}</div>
+                <div className="mobileRecordFooter"><Button type="primary" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
+              </article>
+            ))}
+            {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "Retry to load reminders." : "No reminders match the current filters."} />}
+            <Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} />
+          </div>
           <Table
             className="desktopDataTable"
             rowKey={(row) => `${row.type}-${row.vehicleId}-${row.dueDate}`}
@@ -2622,6 +2613,22 @@ type RefurbishmentTableRecord = RefurbishmentRecord & {
   createdAt: string;
 };
 
+export function buildRefurbishmentTableRecords(
+  repairs: RepairJob[],
+  supplierInvoices: SupplierInvoice[],
+  vehicles: VehicleLookup[],
+  filters: RefurbishmentFilters
+): RefurbishmentTableRecord[] {
+  return filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, filters).map((record) => {
+    const source = record.kind === "repair" ? record.repair : record.invoice;
+    return {
+      ...record,
+      plateNumber: plateFor(vehicles, source.vehicleId),
+      createdAt: formatRecordDate(source.createdAt)
+    };
+  });
+}
+
 
 function RepairPage({
   vehicles,
@@ -2761,14 +2768,8 @@ function RepairPage({
       onOk: () => onApproveRepair(repair.id, repair.approvalNotes)
     });
   };
-  const refurbishmentRecordCount = repairs.length;
-  const refurbishmentRecords: RefurbishmentTableRecord[] = filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters)
-    .filter((record) => record.kind === "repair")
-    .map((record) => ({
-      ...record,
-      plateNumber: plateFor(vehicles, record.repair.vehicleId),
-      createdAt: formatRecordDate(record.repair.createdAt)
-    }));
+  const refurbishmentRecordCount = repairs.length + supplierInvoices.length;
+  const refurbishmentRecords = buildRefurbishmentTableRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters);
   const refurbishmentFiltersActive = Object.values(refurbishmentFilters).some((value) => value !== undefined && value !== "" && value !== "All");
   const mobileRefurbishmentPageCount = Math.max(1, Math.ceil(refurbishmentRecords.length / mobileWorkflowPageSize));
   const clampedMobileRefurbishmentPage = Math.min(mobileRefurbishmentPage, mobileRefurbishmentPageCount);
@@ -2991,7 +2992,7 @@ function RepairPage({
               reloadKey={documentReloadKey}
             />
             <Typography.Text strong>Confirmed receipt items / 已确认收据项目</Typography.Text>
-            <Table
+            <AntTable
               size="small"
               rowKey="id"
               columns={[
@@ -3001,8 +3002,6 @@ function RepairPage({
                 { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(Number(value ?? 0)) }
               ]}
               dataSource={repairReceipts.flatMap(({ receipt, items }) => items.map((item) => ({ ...item, invoiceNumber: receipt.invoiceNumber, supplierName: receipt.supplierName })))}
-              proSearch={false}
-              columnFilters={false}
               pagination={tablePagination(8)}
               scroll={{ x: 720 }}
               locale={{ emptyText: "No receipt items confirmed for this repair yet." }}
@@ -3025,9 +3024,45 @@ function RepairPage({
         title="Supplier & Refurbishment / 供应商与整备"
         extra={<Space wrap><Tag color="blue">{refurbishmentRecordCount} records</Tag><Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button></Space>}
       >
-        <div className="workflowFilterSummary">
+        <Space className="toolbarForm workflowFilterBar" wrap>
+          <Input.Search
+            allowClear
+            placeholder="Search plate, repair, supplier, or invoice"
+            value={refurbishmentFilters.keyword ?? ""}
+            onChange={(event) => updateRefurbishmentFilters({ keyword: event.target.value })}
+            style={{ width: 300 }}
+          />
+          <Select
+            value={refurbishmentFilters.kind ?? "All"}
+            onChange={(kind) => updateRefurbishmentFilters({ kind })}
+            options={[
+              { value: "All", label: "All record types" },
+              { value: "Repair", label: "Repair tasks" },
+              { value: "SupplierInvoice", label: "Supplier invoices" }
+            ]}
+            style={{ width: 180 }}
+          />
+          <Select
+            value={refurbishmentFilters.state ?? "All"}
+            onChange={(state) => updateRefurbishmentFilters({ state })}
+            options={[
+              { value: "All", label: "All states" },
+              { value: "Open", label: "Open" },
+              { value: "Done", label: "Done" }
+            ]}
+            style={{ width: 140 }}
+          />
           <Tag color={refurbishmentFiltersActive ? "blue" : "default"}>{refurbishmentFiltersActive ? `${refurbishmentRecords.length} of ${refurbishmentRecordCount} matching` : `${refurbishmentRecordCount} record${refurbishmentRecordCount === 1 ? "" : "s"}`}</Tag>
-        </div>
+          {refurbishmentFiltersActive && <Button
+            size="small"
+            onClick={() => {
+              setRefurbishmentFilters({});
+              setMobileRefurbishmentPage(1);
+            }}
+          >
+            Clear filters
+          </Button>}
+        </Space>
         <div className="mobileRecordList">
           {refurbishmentRecords.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={refurbishmentEmptyText} />}
           {mobileRefurbishmentRecords.map((record) => {
@@ -3095,15 +3130,7 @@ function RepairPage({
           className="desktopDataTable"
           rowKey="key"
           columns={refurbishmentColumns}
-          request={async (params) => {
-            const plateQuery = String(params.plateNumber ?? "").trim().toLowerCase();
-            const createdQuery = String(params.createdAt ?? "").trim().toLowerCase();
-            const data = refurbishmentRecords.filter((record) =>
-              (!plateQuery || record.plateNumber.toLowerCase().includes(plateQuery))
-              && (!createdQuery || record.createdAt.toLowerCase().includes(createdQuery))
-            );
-            return { data, success: true, total: data.length };
-          }}
+          dataSource={refurbishmentRecords}
           pagination={{ ...tablePagination(8), current: clampedMobileRefurbishmentPage, onChange: setMobileRefurbishmentPage }}
           scroll={{ x: 820 }}
           locale={{ emptyText: refurbishmentEmptyText }}
@@ -3818,7 +3845,7 @@ export function LoanPage({
             />
           )}
         </div>
-        <Table className="desktopDataTable loanWorkflowTable" rowKey="id" columns={columns} dataSource={filteredLoans} proSearch={false} pagination={{ ...tablePagination(8), current: clampedMobileLoanPage, onChange: setMobileLoanPage }} scroll={{ x: "max-content" }} locale={{ emptyText: loanEmptyText }} />
+        <Table className="desktopDataTable loanWorkflowTable" rowKey="id" columns={columns} dataSource={filteredLoans} pagination={{ ...tablePagination(8), current: clampedMobileLoanPage, onChange: setMobileLoanPage }} scroll={{ x: "max-content" }} locale={{ emptyText: loanEmptyText }} />
       </ProCard>
       <Modal
         title="Manual Loan Record / 手动贷款记录"
@@ -4186,7 +4213,7 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
           expandable={{
             defaultExpandAllRows: groupedLeadRows.length <= 3,
             expandedRowRender: (group) => (
-              <Table
+              <AntTable
                 rowKey="id"
                 size="small"
                 columns={leadDetailColumns}
@@ -4493,6 +4520,17 @@ function AdminPage({
                   <span><strong>{adminStaffCount}</strong>Admin</span>
                 </div>
                 <Space className="toolbarForm staffFilterBar" wrap>
+                  <Input
+                    aria-label="Search staff name or email"
+                    placeholder="Search name or email / 搜索姓名或电邮"
+                    value={staffKeywordFilter}
+                    onChange={(event) => {
+                      setStaffKeywordFilter(event.target.value);
+                      setMobileStaffPage(1);
+                    }}
+                    allowClear
+                    style={{ width: 240 }}
+                  />
                   <Select
                     value={staffStatusFilter}
                     options={[
@@ -4910,7 +4948,7 @@ function SystemFlowReference() {
           </article>
         ))}
       </div>
-      <Table
+      <AntTable
         rowKey="role"
         size="small"
         className="systemOwnershipTable desktopDataTable"
@@ -5033,7 +5071,7 @@ function RbacListing() {
           </article>
         ))}
       </div>
-      <Table className="rbacTable desktopDataTable" rowKey="role" columns={columns} dataSource={rows} pagination={tablePagination(8)} scroll={{ x: 980 }} locale={{ emptyText: "No role access rows configured." }} />
+      <AntTable className="rbacTable desktopDataTable" rowKey="role" columns={columns} dataSource={rows} pagination={tablePagination(8)} scroll={{ x: 980 }} locale={{ emptyText: "No role access rows configured." }} />
       <Alert
         type="info"
         showIcon
@@ -5189,77 +5227,6 @@ function tableTextFilters(values: Array<string | undefined | null>) {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))))
     .sort((a, b) => a.localeCompare(b))
     .map((value) => ({ text: value, value }));
-}
-
-function ensureColumnFilters<RecordType extends object>(
-  columns: TableProps<RecordType>["columns"],
-  dataSource: TableProps<RecordType>["dataSource"]
-): TableProps<RecordType>["columns"] {
-  if (!columns || !Array.isArray(dataSource)) {
-    return columns;
-  }
-
-  return columns.map((column) => {
-    if ("children" in column && column.children) {
-      return {
-        ...column,
-        children: ensureColumnFilters(column.children, dataSource)
-      };
-    }
-
-    const filterableColumn = column as typeof column & {
-      dataIndex?: string | number | readonly (string | number)[];
-      filters?: unknown;
-      filterDropdown?: unknown;
-    };
-
-    if (!filterableColumn.dataIndex || filterableColumn.filters || filterableColumn.filterDropdown) {
-      return column;
-    }
-
-    const dataIndex = filterableColumn.dataIndex;
-    const leafKey = String(Array.isArray(dataIndex) ? dataIndex[dataIndex.length - 1] : dataIndex);
-    if (/(?:^id$|Id$|At$|Date$)/.test(leafKey)) {
-      return column;
-    }
-
-    const filterValues = dataSource
-      .flatMap((row) => tableFilterValues(row, dataIndex))
-      .filter((value) => value.length > 0);
-    const uniqueValues = Array.from(new Set(filterValues)).sort((a, b) => a.localeCompare(b));
-
-    if (uniqueValues.length === 0) {
-      return column;
-    }
-
-    return {
-      ...column,
-      filters: uniqueValues.map((value) => ({ text: value, value })),
-      filterSearch: column.filterSearch ?? uniqueValues.length > 8,
-      onFilter: column.onFilter ?? ((value, row) => tableFilterValues(row, dataIndex).includes(String(value)))
-    };
-  });
-}
-
-function tableFilterValues<RecordType extends object>(row: RecordType, dataIndex: string | number | readonly (string | number)[]) {
-  const keys = Array.isArray(dataIndex) ? dataIndex : [dataIndex];
-  const value = keys.reduce<unknown>((current, key) => {
-    if (current && typeof current === "object") {
-      return (current as Record<string, unknown>)[String(key)];
-    }
-
-    return undefined;
-  }, row);
-
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item));
-  }
-
-  if (value === undefined || value === null) {
-    return [];
-  }
-
-  return [String(value)];
 }
 
 function replaceById<T extends { id: string }>(items: T[], record: T) {

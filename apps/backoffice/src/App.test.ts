@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { activeLoanForVehicle, browserRouteUrl, customerIdFromRouteUrl, DashboardPage, DeliveryPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
-import type { Customer, DashboardSummary, LoanApplication, VehicleLookup } from "./api";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, customerIdFromRouteUrl, DashboardPage, DeliveryPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
+import type { Customer, DashboardSummary, LoanApplication, RepairJob, SupplierInvoice, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
   it("retains Customer 360 query changes for Back and Forward navigation", () => {
@@ -122,6 +122,31 @@ describe("management dashboard", () => {
     expect(markup).toContain("Invoices &amp; receipts");
     expect(markup).not.toContain("identity text");
 
+    const reminderMarkup = renderToStaticMarkup(createElement(DashboardPage, {
+      dashboard,
+      dashboardLoadError: null,
+      reminders: [{
+        type: "SettlementDue",
+        title: "Settlement deadline due",
+        vehiclePlate: "VPK1234",
+        vehicleId: "vehicle-1",
+        dueDate: "2099-06-01",
+        amount: 25000
+      }],
+      priorityActions: [],
+      reminderLoadError: null,
+      lastCheckedAt: null,
+      refreshing: false,
+      analyticsPeriod: { from: "2026-06-01", to: "2026-06-30" },
+      analyticsRangePreset: "ThisMonth",
+      onRefresh: async () => {},
+      onAnalyticsPeriodChange: async () => {},
+      onNavigate: () => {}
+    }));
+    expect(reminderMarkup).toContain("dashboardReminderMobileList");
+    expect(reminderMarkup).toContain("Settlement deadline due");
+    expect(reminderMarkup).toContain("Open follow-up");
+
     const emptyMarkup = renderToStaticMarkup(createElement(DashboardPage, {
       dashboard: { ...dashboard, aiDocumentProcessing: { ...dashboard.aiDocumentProcessing!, categories: [] } },
       dashboardLoadError: null,
@@ -194,6 +219,27 @@ describe("repair receipt OCR drafts", () => {
     ]);
     expect(draft).not.toHaveProperty("repairPart");
     expect(draft).not.toHaveProperty("whatToDo");
+  });
+});
+
+describe("supplier and refurbishment records", () => {
+  it("keeps repair tasks and supplier invoices in the shared operational list", () => {
+    const vehicles: VehicleLookup[] = [{
+      id: "vehicle-1", plateNumber: "VPK 1234", make: "Toyota", model: "Vios", stockOwner: "YSHeng", status: "Available"
+    }];
+    const repairs: RepairJob[] = [{
+      id: "repair-1", vehicleId: "vehicle-1", repairPart: "Bumper", whatToDo: "Polish bumper", cost: 800, checklistDone: false, createdAt: "2026-08-20T08:00:00Z"
+    }];
+    const supplierInvoices: SupplierInvoice[] = [{
+      id: "invoice-1", vehicleId: "vehicle-1", supplierName: "ABC Spray", invoiceNumber: "INV-1001", amount: 800, createdAt: "2026-08-21T08:00:00Z"
+    }];
+
+    const records = buildRefurbishmentTableRecords(repairs, supplierInvoices, vehicles, {});
+
+    expect(records.map((record) => ({ key: record.key, kind: record.kind, plateNumber: record.plateNumber }))).toEqual([
+      { key: "repair-repair-1", kind: "repair", plateNumber: "VPK 1234" },
+      { key: "supplier-invoice-1", kind: "supplierInvoice", plateNumber: "VPK 1234" }
+    ]);
   });
 });
 

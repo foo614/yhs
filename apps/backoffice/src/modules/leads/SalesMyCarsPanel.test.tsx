@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SalesWorkboard } from "../../api";
-import { SalesMyCarsPanel } from "./SalesMyCarsPanel";
+import { filterSalesMyCars, SalesMyCarsPanel } from "./SalesMyCarsPanel";
 
 const workboard: SalesWorkboard = {
   soldThisMonth: 3,
@@ -21,6 +21,17 @@ const workboard: SalesWorkboard = {
 };
 
 describe("Sales My Cars", () => {
+  it("filters the loaded workboard by practical sales keywords", () => {
+    const items = [
+      workboard.items[0],
+      { ...workboard.items[0], vehicleId: "vehicle-2", plateNumber: "WXY 5678", nextAction: "Collect signed handover" }
+    ];
+
+    expect(filterSalesMyCars(items, "wxy").map((item) => item.vehicleId)).toEqual(["vehicle-2"]);
+    expect(filterSalesMyCars(items, "handover").map((item) => item.vehicleId)).toEqual(["vehicle-2"]);
+    expect(filterSalesMyCars(items, " ")).toEqual(items);
+  });
+
   it("shows the sales agent only their useful process summary without finance details", () => {
     const markup = renderToStaticMarkup(createElement(SalesMyCarsPanel, {
       currentUser: { isAuthenticated: true, id: "agent-1", name: "Jason Tan", roles: ["Sales"] },
@@ -31,6 +42,7 @@ describe("Sales My Cars", () => {
     expect(markup).toContain("Sold this month");
     expect(markup).toContain("Cars in progress");
     expect(markup).toContain("Current process / 当前流程");
+    expect(markup).toContain("Search plate, model or next action");
     expect(markup).toContain("Responsible team / 负责部门");
     expect(markup).toContain("Prepare the car");
     expect(markup).not.toContain("Invoice");

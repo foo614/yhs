@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Switch, Tag, Typography, message } from "antd";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
 import {
   createVehicleCatalogModel,
@@ -30,6 +31,12 @@ export function filterVehicleCatalogModels(models: VehicleCatalogModel[], filter
   });
 }
 
+export function vehicleCatalogEmptyText(totalModels: number) {
+  return totalModels === 0
+    ? "No catalogue options yet."
+    : "No catalogue options match the current filters.";
+}
+
 export function VehicleCatalogSettings() {
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
   const [catalogFilters, setCatalogFilters] = useState<VehicleCatalogFilters>({});
@@ -47,6 +54,7 @@ export function VehicleCatalogSettings() {
     clampedMobileCatalogPage * mobileCatalogPageSize
   );
   const catalogFilterActive = Object.values(catalogFilters).some((value) => value !== undefined && value !== "");
+  const catalogEmptyText = vehicleCatalogEmptyText(catalogModels.length);
   const activeModelCount = catalogModels.filter((item) => item.isActive).length;
   const makeCount = new Set(catalogModels.map((item) => item.make.toLocaleLowerCase())).size;
 
@@ -173,6 +181,12 @@ export function VehicleCatalogSettings() {
         </Form.Item>
       </Form>
       <div className="vehicleOperationFilters">
+        <Input.Search
+          allowClear
+          value={catalogFilters.keyword}
+          placeholder="Search make or model"
+          onChange={(event) => updateCatalogFilter("keyword", event.target.value)}
+        />
         <Select
           allowClear
           placeholder="Website status"
@@ -189,7 +203,7 @@ export function VehicleCatalogSettings() {
         </div>
       </div>
       <div className="mobileRecordList">
-        {filteredCatalogModels.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No catalogue options match the current filters." />}
+        {filteredCatalogModels.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={catalogEmptyText} />}
         {mobileCatalogModels.map((item) => (
           <article className="mobileRecordCard" key={item.id}>
             <div className="mobileRecordHeader">
@@ -216,14 +230,14 @@ export function VehicleCatalogSettings() {
           />
         )}
       </div>
-      <Table
+      <OperationsProTable
         className="desktopDataTable"
         rowKey="id"
         columns={catalogColumns}
         dataSource={filteredCatalogModels}
         pagination={{ pageSize: 8, showSizeChanger: false, current: clampedMobileCatalogPage, onChange: setMobileCatalogPage }}
         scroll={{ x: 640 }}
-        locale={{ emptyText: catalogModels.length === 0 ? "No catalogue options yet." : "No catalogue options match the current filters." }}
+        locale={{ emptyText: catalogEmptyText }}
       />
     </Space>
   );
