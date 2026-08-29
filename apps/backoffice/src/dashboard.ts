@@ -1,4 +1,4 @@
-import type { DashboardAnalyticsPeriod, DashboardReminder, DashboardReminderFilters, Vehicle } from "./api";
+import type { DashboardAnalyticsPeriod, DashboardReminder, DashboardReminderFilters, PriorityActionItem, Vehicle } from "./api";
 
 export type ReminderDueFilter = NonNullable<DashboardReminderFilters["due"]>;
 
@@ -13,6 +13,17 @@ export type DashboardDrilldown = {
   loanStatus?: "Pending";
   attention?: "open" | "due" | "dueSoon";
   analyticsPeriod?: DashboardAnalyticsPeriod;
+};
+
+export type DashboardPriorityEntry = {
+  source: "reminder" | "action";
+  key: string;
+  type: PriorityActionItem["type"];
+  title: string;
+  subject?: string;
+  dueDate: string;
+  amount?: number | null;
+  target: string;
 };
 
 export function safeDashboardStockSummary(vehicles: Vehicle[]) {
@@ -87,7 +98,7 @@ export function dashboardMetricTarget(metric: "stock" | "sold" | "fresh" | "watc
     case "settlements":
       return "/finance?tab=settlements&attention=due";
     case "profit":
-      return dashboardPeriodTarget("/vehicles?dashboard=profit", analyticsPeriod);
+      return "/vehicles?dashboard=profit";
     case "aging":
       return "/vehicles?dashboard=aging";
   }
@@ -117,6 +128,33 @@ export function urgentDashboardReminders(reminders: DashboardReminder[], today =
     });
 }
 
+export function dashboardPriorityEntries(reminders: DashboardReminder[], priorityActions: PriorityActionItem[], today = todayIsoDate()): DashboardPriorityEntry[] {
+  const reminderEntries = urgentDashboardReminders(reminders, today).map((reminder): DashboardPriorityEntry => ({
+    source: "reminder",
+    key: `reminder:${reminder.type}:${reminder.vehicleId}:${reminder.dueDate}`,
+    type: reminder.type,
+    title: reminder.title,
+    subject: reminder.vehiclePlate,
+    dueDate: reminder.dueDate,
+    amount: reminder.amount,
+    target: dashboardReminderTarget(reminder)
+  }));
+  const actionEntries = priorityActions.map((action): DashboardPriorityEntry => ({
+    source: "action",
+    key: `action:${action.type}:${action.subject ?? ""}:${action.dueDate}`,
+    type: action.type,
+    title: action.title,
+    subject: action.subject,
+    dueDate: action.dueDate,
+    amount: action.amount,
+    target: priorityActionTarget(action.target)
+  }));
+
+  return [...reminderEntries, ...actionEntries]
+    .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.key === entry.key) === index)
+    .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || (right.amount ?? 0) - (left.amount ?? 0));
+}
+
 export function dashboardReminderTarget(reminder: Pick<DashboardReminder, "type" | "vehicleId">) {
   switch (reminder.type) {
     case "LoanFollowUp":
@@ -138,11 +176,22 @@ export function dashboardReminderTarget(reminder: Pick<DashboardReminder, "type"
 }
 
 export function financeRiskTarget(label: string) {
-  if (label === "Unpaid Settlement") return "/finance?tab=settlements&attention=due";
+  if (label === "Unpaid Settlement") return "/finance?tab=settlements&attention=open";
   if (label === "Open Debt Recovery") return "/finance?tab=debt&attention=open";
-  if (label === "Unpaid Daily Spend") return "/finance?tab=daily&attention=due";
+  if (label === "Unpaid Daily Spend") return "/finance?tab=daily&attention=open";
   if (label === "Open Payment Voucher") return "/finance?tab=vouchers&attention=open";
   return "/finance?tab=payments&attention=open";
+}
+
+function priorityActionTarget(target: PriorityActionItem["target"]) {
+  return {
+    Loans: "/loans?status=Pending",
+    Delivery: "/delivery",
+    Finance: "/finance",
+    Leads: "/leads",
+    Repairs: "/repairs",
+    HrSalary: "/hr-salary"
+  }[target];
 }
 
 export function dashboardDrilldownFromRouteUrl(routeUrl: string): DashboardDrilldown {

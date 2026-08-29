@@ -274,6 +274,11 @@ export type DashboardReminderLoadResult = {
   error?: string;
 };
 
+export type PriorityActionLoadResult = {
+  actions: PriorityActionItem[];
+  error?: string;
+};
+
 export type DashboardLoadResult = {
   dashboard: DashboardSummary | null;
   error?: string;
@@ -1239,8 +1244,14 @@ export async function getDashboardReminders(filters: DashboardReminderFilters = 
   }
 }
 
-export async function getPriorityActions(): Promise<PriorityActionItem[]> {
-  return getWithNetworkFallback("/api/priority-actions", []);
+export async function getPriorityActions(): Promise<PriorityActionLoadResult> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/priority-actions`, { credentials: "include" });
+    if (response.ok) return { actions: await response.json() };
+    return { actions: [], error: await responseErrorMessage(response, "Priority action queue could not be loaded. Please try again.") };
+  } catch {
+    return { actions: [], error: "Priority action queue could not be loaded. Check the connection and try again." };
+  }
 }
 
 export async function getLoanDocumentCheck(loanId: string): Promise<LoanDocumentCheck> {

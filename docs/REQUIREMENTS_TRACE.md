@@ -39,7 +39,7 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 
 | Module | Status | Evidence |
 | --- | --- | --- |
-| Dashboard | Implemented, verified | Summary metrics including Total Profit, aging buckets, reminder inbox filters; backend tests and smoke checks. |
+| Dashboard | Implemented, verified | Current unsold-stock cost and projected margin, selected-period realised sold profit, aging buckets, and the role-scoped priority queue; backend, back-office, and smoke checks. |
 | Vehicles/intake | Implemented, verified | Vehicle CRUD, customer/owner links, purchase invoice tracking, duplicate plate validation, upload metadata. |
 | Repairs/refurbishment | Implemented, verified | Repair jobs, repair parts, supplier invoices, duplicate/wrong-plate validation, derived supplier summary, supplier invoice aging, high-cost repair approval gates, repair document uploads. |
 | Loan workflow | Implemented, verified | Loan CRUD, LOU status rules, document completeness check, 3-day reminders, loan-owned uploads. |

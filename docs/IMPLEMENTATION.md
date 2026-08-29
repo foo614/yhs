@@ -162,6 +162,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - The Loan screen now exposes loan-owned document uploads for VOC, AP Document, Status Receipt, and Loan Document so Loan staff can resolve checklist gaps without Sales vehicle-intake access.
 - Active loan workflow records require a submitted date so 3-day follow-up reminders can be calculated reliably.
 - Dashboard repair cost and estimated profit now use detailed repair job costs when repair rows exist for a vehicle, falling back to the vehicle refurbishment total for older intake records.
+- Dashboard `TotalProfit` and the backward-compatible `EstimatedProfit` field both represent projected margin on current unsold stock. Selected-period realised sold profit remains separate in `ActualProfit`.
 - Dashboard summary now includes Top Supplier from supplier invoice totals and Sales Performance from closed public enquiries, matching the management dashboard suggestions.
 - Dashboard summary now exposes Total Profit alongside the earlier estimated-profit field, so the Boss/Admin dashboard matches the original Total Profit wording while keeping the API backward-compatible.
 - Public leads now require a visible available vehicle, and back-office workflow records reject unknown vehicle/customer links before saving.

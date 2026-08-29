@@ -979,7 +979,7 @@ describe("backoffice api client", () => {
   it("loads the signed-in staff member's priority actions", async () => {
     const fetchMock = mockFetch([{ type: "LeaveApproval", title: "Leave request awaiting decision", target: "HrSalary", dueDate: "2026-06-01", subject: "AnnualLeave" }]);
 
-    await expect(getPriorityActions()).resolves.toHaveLength(1);
+    await expect(getPriorityActions()).resolves.toMatchObject({ actions: [{ type: "LeaveApproval" }] });
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/priority-actions", { credentials: "include" });
   });
 

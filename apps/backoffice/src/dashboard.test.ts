@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
+import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
 import type { DashboardReminder } from "./api";
 
 describe("dashboard reminder helpers", () => {
@@ -37,7 +37,7 @@ describe("dashboard reminder helpers", () => {
     expect(dashboardMetricTarget("sold")).toBe("/vehicles?dashboard=sold");
     expect(dashboardMetricTarget("sold", { from: "2026-06-01", to: "2026-06-30" })).toBe("/vehicles?dashboard=sold&from=2026-06-01&to=2026-06-30");
     expect(dashboardMetricTarget("watch")).toBe("/vehicles?dashboard=watch");
-    expect(financeRiskTarget("Unpaid Settlement")).toBe("/finance?tab=settlements&attention=due");
+    expect(financeRiskTarget("Unpaid Settlement")).toBe("/finance?tab=settlements&attention=open");
     expect(dashboardReminderTarget({
       type: "DebtRecoveryFollowUp",
       vehicleId: "vehicle 1"
@@ -55,6 +55,17 @@ describe("dashboard reminder helpers", () => {
     ];
 
     expect(urgentDashboardReminders(reminders, "2026-05-31").map((reminder) => reminder.title)).toEqual(["Older overdue", "Later overdue", "Due today", "Daily soon"]);
+  });
+
+  it("merges role actions into the dashboard priority queue", () => {
+    const entries = dashboardPriorityEntries(
+      [{ type: "LoanFollowUp", title: "Loan", vehiclePlate: "AAA1", vehicleId: "vehicle-1", dueDate: "2026-05-31" }],
+      [{ type: "LeadFollowUp", title: "New enquiry", target: "Leads", subject: "Customer", dueDate: "2026-05-30" }],
+      "2026-05-31"
+    );
+
+    expect(entries.map((entry) => entry.title)).toEqual(["New enquiry", "Loan"]);
+    expect(entries[0].target).toBe("/leads");
   });
 
   it("parses supported dashboard drill-downs and uses the Singapore business day", () => {

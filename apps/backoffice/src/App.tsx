@@ -67,7 +67,7 @@ import {
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
 import { filterRefurbishmentRecords, isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
-import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
+import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
@@ -356,7 +356,12 @@ function tablePagination(pageSize = 8): TablePaginationConfig {
 }
 
 const mobileWorkflowPageSize = 8;
-const defaultDashboardAnalyticsPeriod = dashboardAnalyticsPeriodForPreset("ThisMonth");
+const defaultDashboardAnalyticsPeriod = dashboardAnalyticsPeriodForPreset("AllTime");
+
+function combinedDashboardActionLoadError(...errors: Array<string | undefined>) {
+  const messageText = errors.filter((error): error is string => Boolean(error)).join(" ");
+  return messageText || null;
+}
 
 function hrCalendarMonthRange(value = new Date()): [string, string] {
   const year = value.getFullYear();
@@ -379,7 +384,7 @@ export default function App() {
   const [dashboardLastCheckedAt, setDashboardLastCheckedAt] = useState<Date | null>(null);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardAnalyticsPeriod>(defaultDashboardAnalyticsPeriod);
-  const [dashboardRangePreset, setDashboardRangePreset] = useState<DashboardAnalyticsRangePreset>("ThisMonth");
+  const [dashboardRangePreset, setDashboardRangePreset] = useState<DashboardAnalyticsRangePreset>("AllTime");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [owners, setOwners] = useState<Owner[]>([]);
@@ -533,8 +538,8 @@ export default function App() {
     setDashboard(dashboardData.dashboard);
     setDashboardLoadError(dashboardData.error ?? null);
     setReminders(reminderData.reminders);
-    setPriorityActions(priorityActionData);
-    setReminderLoadError(reminderData.error ?? null);
+    setPriorityActions(priorityActionData.actions);
+    setReminderLoadError(combinedDashboardActionLoadError(reminderData.error, priorityActionData.error));
     setDashboardLastCheckedAt(new Date());
     setVehicles(vehicleData);
     setVehicleLookup(vehicleLookupData);
@@ -705,11 +710,12 @@ export default function App() {
   const refreshDashboard = useCallback(async () => {
     setDashboardRefreshing(true);
     try {
-      const [dashboardData, reminderData] = await Promise.all([getDashboard(dashboardPeriod), getDashboardReminders()]);
+      const [dashboardData, reminderData, priorityActionData] = await Promise.all([getDashboard(dashboardPeriod), getDashboardReminders(), getPriorityActions()]);
       setDashboard(dashboardData.dashboard);
       setDashboardLoadError(dashboardData.error ?? null);
       setReminders(reminderData.reminders);
-      setReminderLoadError(reminderData.error ?? null);
+      setPriorityActions(priorityActionData.actions);
+      setReminderLoadError(combinedDashboardActionLoadError(reminderData.error, priorityActionData.error));
       setDashboardLastCheckedAt(new Date());
     } finally {
       setDashboardRefreshing(false);
@@ -973,6 +979,8 @@ export default function App() {
               owners={owners}
               purchaseInvoices={purchaseInvoices}
               repairs={repairs}
+              brokerCommissions={brokerCommissions}
+              paymentVouchers={paymentVouchers}
               canApproveVehicles={canApproveVehicles(currentRoles)}
               dashboardFocus={dashboardDrilldown.vehicleFocus}
               dashboardAnalyticsPeriod={dashboardDrilldown.analyticsPeriod}
@@ -1773,7 +1781,16 @@ export function DashboardPage({
   const clampedMobileReminderPage = Math.min(mobileReminderPage, mobileReminderPageCount);
   const mobileReminders = filteredReminders.slice((clampedMobileReminderPage - 1) * 8, clampedMobileReminderPage * 8);
   const urgentReminders = urgentDashboardReminders(reminders);
-  const leaveApprovals = priorityActions.filter((action) => action.type === "LeaveApproval");
+  const dashboardToday = singaporeTodayIsoDate();
+  const priorityEntries = dashboardPriorityEntries(reminders, priorityActions, dashboardToday);
+  const priorityDueNowCount = priorityEntries.filter((entry) => entry.dueDate <= dashboardToday).length;
+  const priorityStatus = reminderLoadError
+    ? { color: "orange", label: "Check incomplete" }
+    : priorityDueNowCount > 0
+      ? { color: "red", label: `${priorityDueNowCount} action${priorityDueNowCount === 1 ? "" : "s"} due now` }
+      : priorityEntries.length > 0
+        ? { color: "blue", label: `${priorityEntries.length} active action${priorityEntries.length === 1 ? "" : "s"}` }
+        : { color: "green", label: "All clear" };
   const cashFollowUpItems = moneyRiskBreakdown.filter((item) => item.amount > 0);
   const collectCashItemCount = cashFollowUpItems.filter((item) => receivableLabels.has(item.label)).length;
   const payCashItemCount = cashFollowUpItems.length - collectCashItemCount;
@@ -1820,7 +1837,7 @@ export function DashboardPage({
         <ProCard
           title="Operations dashboard / 运营看板"
           className="dashboardOverviewCard"
-          extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "green"}>{urgentReminderCount} due now</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
+          extra={<Space size={8} wrap><Tag color={reminderLoadError ? "orange" : priorityDueNowCount > 0 ? "red" : "green"}>{reminderLoadError ? "Check incomplete" : `${priorityDueNowCount} due now`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
         >
           <DashboardAnalyticsControls
             period={analyticsPeriod}
@@ -1828,7 +1845,7 @@ export function DashboardPage({
             disabled={refreshing}
             onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)}
           />
-          <Typography.Text type="secondary">Live stock, loan, collection, settlement, and aging figures are current as of now. Sales, realised profit, lead, and refurbishment analysis use {analyticsPeriodLabel}. {lastCheckedAt ? `Last checked ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet."}</Typography.Text>
+          <Typography.Text type="secondary">Live stock, current-stock cost, projected margin, loan, collection, settlement, and aging figures are current as of now. Sales, realised profit, lead, and refurbishment analysis use {analyticsPeriodLabel}. {lastCheckedAt ? `Last checked ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet."}</Typography.Text>
           <div className="metricGrid dashboardMetricGrid">
             <Metric label="Total Stock / 总库存" value={dashboard.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
             <Metric label="Total Sales / 销售总数" value={totalSales} meta={analyticsPeriodLabel} tone="profit" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
@@ -1836,9 +1853,9 @@ export function DashboardPage({
             <Metric label="Pending Loan / 贷款待跟进" value={dashboard.pendingLoan} tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
             <Metric label="Outstanding Collection / 待收总额" value={formatCompactMoney(outstandingCollection)} meta="Unreconciled payments + open debt" tone={outstandingCollection > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("payments"))} />
             <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} meta={formatCompactMoney(settlementDueAmount)} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
-            <Metric label="Purchase Cost / 收车成本" value={formatCompactMoney(purchaseCost)} tone="neutral" onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Repair Cost / 整备费用" value={formatCompactMoney(dashboard.repairCost)} tone={dashboard.repairCost > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
-            <Metric label="Projected Stock Profit / 库存预计利润" value={formatCompactMoney(projectedStockProfit)} tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+            <Metric label="Purchase Cost / 收车成本" value={formatCompactMoney(purchaseCost)} meta="Current unsold stock" tone="neutral" onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+            <Metric label="Repair Cost / 整备费用" value={formatCompactMoney(dashboard.repairCost)} meta="Current unsold stock" tone={dashboard.repairCost > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+            <Metric label="Projected Stock Profit / 库存预计利润" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
             <Metric label="Aging / 超60天库存" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
           </div>
         </ProCard>
@@ -1889,43 +1906,46 @@ export function DashboardPage({
         <ProCard
           title="Priority actions / 老板待办"
           className="dashboardPriorityCard"
-          extra={<Tag color={urgentReminderCount > 0 ? "red" : urgentReminders.length > 0 ? "blue" : "green"}>{urgentReminderCount > 0 ? `${urgentReminderCount} action${urgentReminderCount === 1 ? "" : "s"} due now` : urgentReminders.length > 0 ? `${urgentReminders.length} daily spend due soon` : "All clear"}</Tag>}
+          extra={<Tag color={priorityStatus.color}>{priorityStatus.label}</Tag>}
         >
-          {urgentReminders.length > 0 ? (
+          {priorityEntries.length > 0 ? (
             <>
-              <Typography.Text type="secondary">Start here: overdue and due-today work comes first; Daily Spend due soon is shown after urgent actions.</Typography.Text>
+              <Typography.Text type="secondary">Start here: overdue and due-today work comes first; upcoming department actions and Daily Spend due soon follow.</Typography.Text>
               <div className="dashboardPriorityList">
-                {urgentReminders.map((reminder) => {
-                  const dueLabel = reminderDueLabel(reminder);
+                {priorityEntries.map((entry) => {
+                  const dueLabel = entry.dueDate < dashboardToday
+                    ? "Overdue"
+                    : entry.dueDate === dashboardToday
+                      ? "Due today"
+                      : entry.source === "reminder" && entry.type === "DailySpendDue"
+                        ? "Due soon"
+                        : "Action";
+                  const dueColor = dueLabel === "Overdue" ? "red" : dueLabel === "Due today" ? "orange" : dueLabel === "Due soon" ? "blue" : "default";
                   return (
-                    <article className="dashboardPriorityAction" key={`${reminder.type}-${reminder.vehicleId}-${reminder.dueDate}`}>
-                      <Tag className="dashboardStatusBadge" color={reminderDueTagColor(reminder)}>{dashboardLabel(dueLabel)}</Tag>
+                    <article className="dashboardPriorityAction" key={entry.key}>
+                      <Tag className="dashboardStatusBadge" color={dueColor}>{dashboardLabel(dueLabel)}</Tag>
                       <div className="dashboardPriorityDetails">
-                        <strong>{reminder.title}</strong>
-                        <span>{dashboardLabel(reminder.type)} · {reminder.vehiclePlate}</span>
+                        <strong>{entry.title}</strong>
+                        <span>{dashboardLabel(entry.type)} · {entry.subject ?? "General"}</span>
                       </div>
                       <div className="dashboardPriorityDue">
                         <small>Due / 到期</small>
-                        <strong>{reminder.dueDate}</strong>
+                        <strong>{entry.dueDate}</strong>
                       </div>
                       <div className="dashboardPriorityAmount">
                         <small>Exposure / 金额</small>
-                        <strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "—"}</strong>
+                        <strong>{entry.amount ? formatMoney(Number(entry.amount)) : "—"}</strong>
                       </div>
-                      <Button type="primary" size="small" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button>
+                      <Button type="primary" size="small" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button>
                     </article>
                   );
                 })}
               </div>
             </>
           ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No overdue, due-today, or Daily Spend due-soon actions." />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "The action queue could not be checked completely." : "No overdue, due-today, due-soon, or department actions."} />
           )}
           {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
-          {leaveApprovals.length > 0 && <div className="dashboardCashActions">
-            <div className="dashboardCashActionsHeader"><div><strong>HR approvals / 人事审批</strong><span>Pending leave requests requiring a decision.</span></div><Tag color="orange">{leaveApprovals.length} pending</Tag></div>
-            <div className="dashboardCashActionList">{leaveApprovals.map((action) => <article className="dashboardCashAction" key={`${action.type}-${action.subject}-${action.dueDate}`}><Tag className="dashboardStatusBadge" color="orange">Approve</Tag><strong>{action.title}</strong><span>{action.subject}</span><Button size="small" onClick={() => onNavigate("/hr-salary")}>Open leave requests</Button></article>)}</div>
-          </div>}
           <div className="dashboardCashActions">
             <div className="dashboardCashActionsHeader">
               <div><strong>Cash follow-up / 收付款跟进</strong><span>Money requiring a decision or follow-up.</span></div>

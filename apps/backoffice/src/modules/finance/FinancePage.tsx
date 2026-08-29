@@ -62,8 +62,15 @@ import {
 } from "../../api";
 
 export function dailySpendMatchesDashboardAttention(spend: Pick<DailySpend, "isPaid" | "dueDate">, attention: DashboardDrilldown["attention"], today = singaporeTodayIsoDate()) {
+  if (attention === "open") return !spend.isPaid;
   if (attention === "due") return !spend.isPaid && spend.dueDate <= today;
   if (attention === "dueSoon") return !spend.isPaid && spend.dueDate > today && spend.dueDate <= addCalendarDays(today, 10);
+  return true;
+}
+
+export function settlementMatchesDashboardAttention(settlement: Pick<SettlementReminder, "isPaid" | "deadline">, attention: DashboardDrilldown["attention"], today = singaporeTodayIsoDate()) {
+  if (attention === "open") return !settlement.isPaid;
+  if (attention === "due") return !settlement.isPaid && settlement.deadline <= today;
   return true;
 }
 
@@ -888,7 +895,7 @@ export function FinancePage({
     : payment.status).filter((payment) => matchesDashboardFinanceFocus(dashboardFocus, payment.vehicleId, dashboardFocus.attention === "open" ? isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled" : true));
   const filteredSettlements = filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
     plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
-  ], (settlement) => settlement.isPaid ? "Paid" : "Due").filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, dashboardFocus.attention === "due" ? !settlement.isPaid && settlement.deadline <= dashboardToday : true));
+  ], (settlement) => settlement.isPaid ? "Paid" : "Due").filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, settlementMatchesDashboardAttention(settlement, dashboardFocus.attention, dashboardToday)));
   const filteredDailySpends = filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due").filter((spend) => matchesDashboardFinanceFocus(dashboardFocus, undefined, dailySpendMatchesDashboardAttention(spend, dashboardFocus.attention, dashboardToday)));
   const filteredBrokerCommissions = filterFinanceRows(brokerCommissions, financeKeyword, financeStatus, (commission) => [
     plateFor(vehicles, commission.vehicleId), commission.brokerName

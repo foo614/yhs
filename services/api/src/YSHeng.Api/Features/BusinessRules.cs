@@ -2939,7 +2939,8 @@ public static class DashboardMetrics
                 ? pickupAllowanceCost
                 : vehicle.OutstationPickupAllowance;
 
-        var repairCostByVehicle = vehicleList
+        var unsoldVehicles = vehicleList.Where(vehicle => vehicle.Status != VehicleStatus.Sold).ToList();
+        var repairCostByVehicle = unsoldVehicles
             .Select(vehicle => new DashboardAmountSlice(VehicleLabel(vehicle), EffectiveRepairCost(vehicle)))
             .Where(item => item.Amount > 0)
             .OrderByDescending(item => item.Amount)
@@ -2966,7 +2967,6 @@ public static class DashboardMetrics
             OverdueWorkCount: analyticsRepairList.Count(repair => !repair.ChecklistDone && repair.ExpectedCompletionDate is { } expectedCompletion && expectedCompletion < today),
             HighestCostVehicles: refurbishmentHighestCostVehicles);
 
-        var unsoldVehicles = vehicleList.Where(vehicle => vehicle.Status != VehicleStatus.Sold).ToList();
         var agingBuckets = new[]
         {
             new DashboardAgingBucket("0-30", unsoldVehicles.Count(vehicle => AgeInDays(vehicle, today) <= 30)),
@@ -2974,7 +2974,7 @@ public static class DashboardMetrics
             new DashboardAgingBucket("61+", unsoldVehicles.Count(vehicle => AgeInDays(vehicle, today) > 60))
         };
 
-        var totalProfit = vehicleList.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
+        var totalProfit = unsoldVehicles.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
         var realisedProfit = vehicleList.Where(vehicle => vehicle.Status == VehicleStatus.Sold).Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
         var actualProfit = analyticsSoldVehicles.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
         var monthlyProfitTrend = trendMonths
@@ -3040,11 +3040,11 @@ public static class DashboardMetrics
         var salesFunnel = new DashboardSalesFunnel(
             salesStages,
             analyticsLeadList.Count == 0 ? 0m : decimal.Round(analyticsLeadList.Count(lead => lead.Status == LeadStatus.Closed) * 100m / analyticsLeadList.Count, 1));
-        var totalRevenue = vehicleList.Sum(vehicle => vehicle.SellingPrice + vehicle.AdditionalCharges);
-        var purchaseCost = vehicleList.Sum(vehicle => vehicle.PurchasePrice);
-        var repairCost = vehicleList.Sum(EffectiveRepairCost);
-        var commissionCost = vehicleList.Sum(EffectiveCommissionCost);
-        var pickupAllowanceCost = vehicleList.Sum(EffectivePickupAllowanceCost);
+        var totalRevenue = unsoldVehicles.Sum(vehicle => vehicle.SellingPrice + vehicle.AdditionalCharges);
+        var purchaseCost = unsoldVehicles.Sum(vehicle => vehicle.PurchasePrice);
+        var repairCost = unsoldVehicles.Sum(EffectiveRepairCost);
+        var commissionCost = unsoldVehicles.Sum(EffectiveCommissionCost);
+        var pickupAllowanceCost = unsoldVehicles.Sum(EffectivePickupAllowanceCost);
         var profitBreakdown = new[]
         {
             new DashboardAmountSlice("Selling + Charges", totalRevenue),

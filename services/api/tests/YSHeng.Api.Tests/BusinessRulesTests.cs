@@ -2353,9 +2353,10 @@ public sealed class BusinessRulesTests
         Assert.Equal(20m, summary.SalesFunnel.ConversionRate);
         Assert.Equal(2, summary.TopEnquiredVehicles[0].Count);
         Assert.Contains(vehicles[0].PlateNumber, summary.TopEnquiredVehicles[0].Label);
-        Assert.Equal(3, summary.RepairCostByVehicle.Length);
+        Assert.Equal(2, summary.RepairCostByVehicle.Length);
         Assert.Equal(2000m, summary.RepairCostByVehicle[0].Amount);
         Assert.Contains(vehicles[1].PlateNumber, summary.RepairCostByVehicle[0].Label);
+        Assert.DoesNotContain(summary.RepairCostByVehicle, item => item.Amount == 1000m);
         Assert.Single(summary.TopSellingModels);
         Assert.Equal(1, summary.TopSellingModels[0].Count);
         Assert.DoesNotContain(summary.TopSellingModels, item => item.Label == "Smoke Workflow");
