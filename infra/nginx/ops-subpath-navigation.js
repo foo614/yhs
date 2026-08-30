@@ -82,6 +82,21 @@
     wrapNavigateTo(blazor?._internal?.navigationManager);
   }
 
+  function navigateDashboardUrl(url) {
+    if (typeof window.Blazor?.navigateTo === "function") {
+      window.Blazor.navigateTo(url);
+      return;
+    }
+
+    const navigationManager = window.Blazor?._internal?.navigationManager;
+    if (typeof navigationManager?.navigateTo === "function") {
+      navigationManager.navigateTo(url);
+      return;
+    }
+
+    window.location.assign(url);
+  }
+
   // Aspire uses root-relative NavigationManager targets. Wrap Blazor as it is
   // initialized so those targets stay inside the dashboard's /ops base path.
   if (window.Blazor) {
@@ -149,8 +164,7 @@
       anchor.setAttribute("href", rebasedHref);
       event.preventDefault();
       event.stopImmediatePropagation();
-      window.history.pushState(null, "", rebasedHref);
-      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+      navigateDashboardUrl(rebasedHref);
     }
   }, true);
 })();

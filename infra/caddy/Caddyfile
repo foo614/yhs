@@ -45,11 +45,19 @@
 		reverse_proxy ops-proxy:8080
 	}
 
-	# Aspire renders both metric views, so the graph module, Plotly bundle, and
-	# hidden table module all load from absolute root paths. Recover only those
-	# three dashboard assets through the /ops adapter.
-	@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js /Components/Controls/Chart/MetricTable.razor.js
-	handle @ops-metrics-scripts {
+	# Aspire page controls import these modules from absolute root paths. Recover
+	# only the known dashboard-owned assets through the /ops adapter so the
+	# back-office application retains every other /js and /Components route.
+	@ops-dashboard-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js /Components/Controls/Chart/MetricTable.razor.js /Components/Controls/TextVisualizer.razor.js /Components/Controls/MarkdownRenderer.razor.js /Components/Controls/AssistantChat.razor.js /Components/Dialogs/InteractionsInputDialog.razor.js /js/highlight-11.11.1.min.js /js/app-resourcegraph.js /js/d3.v7.min.js
+	handle @ops-dashboard-scripts {
+		rewrite * /ops{uri}
+		reverse_proxy ops-proxy:8080
+	}
+
+	# The dashboard language selector posts to this absolute API path. Keep the
+	# exact Aspire endpoint ahead of the application's general /api handler.
+	@ops-language-api path /api/set-language
+	handle @ops-language-api {
 		rewrite * /ops{uri}
 		reverse_proxy ops-proxy:8080
 	}
