@@ -1,4 +1,5 @@
-import { ProTable, type ProTableProps } from "@ant-design/pro-components";
+import { ProTable } from "@ant-design/pro-components";
+import type { ProTableProps } from "@ant-design/pro-table";
 import type { TableProps } from "antd";
 import type { ColumnType, ColumnsType } from "antd/es/table";
 import { useMemo } from "react";
@@ -51,9 +52,9 @@ export function addOperationsColumnFilters<RecordType extends object>(
       .sort((a, b) => a.localeCompare(b));
 
     if (
-      uniqueValues.length < 2
-      || uniqueValues.length > MAX_AUTO_FILTER_VALUES
-      || uniqueValues.some((value) => value.length > MAX_AUTO_FILTER_VALUE_LENGTH)
+      uniqueValues.length < 2 ||
+      uniqueValues.length > MAX_AUTO_FILTER_VALUES ||
+      uniqueValues.some((value) => value.length > MAX_AUTO_FILTER_VALUE_LENGTH)
     ) {
       return column;
     }
@@ -71,6 +72,9 @@ function isSafeAutoFilterKey(key: string) {
   const normalized = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
   if (!normalized) return false;
 
+  // Automatic menus are intentionally limited to stable operational enums.
+  // Names, identifiers, dates, amounts and narrative text need deliberate
+  // search controls or explicit caller-provided filters.
   return /(?:status|state|type|category|kind|role|department|team|process|source|method|priority|stage|visibility|approval|owner|stockowner|active|enabled|ispublic)$/.test(normalized);
 }
 

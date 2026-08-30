@@ -2,9 +2,20 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { metadata } from "./page";
 import { showroomBudgetRanges, showroomStepError, showroomVehicleTypes } from "./showroom-enquiry";
 
 const showroomRoot = dirname(fileURLToPath(import.meta.url));
+
+describe("showroom enquiry discovery", () => {
+  it("publishes complete sharing metadata but keeps the in-showroom funnel out of search indexes", () => {
+    expect(metadata).toMatchObject({
+      alternates: { canonical: "http://localhost:3000/showroom-enquiry" },
+      openGraph: { url: "http://localhost:3000/showroom-enquiry" },
+      robots: { index: false, follow: false }
+    });
+  });
+});
 
 describe("showroom enquiry flow rules", () => {
   it("keeps the approved tap-first vehicle and budget choices", () => {
@@ -35,12 +46,34 @@ describe("showroom enquiry flow rules", () => {
     expect(styles).toContain('canvas-direction-one.png');
   });
 
+  it("turns Direction 1 into a wide four-tile layout on desktop without changing its mobile Canvas treatment", () => {
+    const styles = readFileSync(join(showroomRoot, "..", "styles.css"), "utf8");
+
+    expect(styles).toContain("@media (min-width: 900px)");
+    expect(styles).toContain("max-width: 1248px");
+    expect(styles).toContain("width: min(100%, 1248px)");
+    expect(styles).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
+    expect(styles).toContain("linear-gradient(to bottom, transparent 0%, rgb(255 250 248 / 30%) 55%, #fffaf8 100%)");
+    expect(styles).toContain("padding-top: 28px");
+    expect(styles).toContain("@media (max-width: 639px)");
+    expect(styles).toContain("width: auto;");
+    expect(styles).toContain(".showroomDirectionOne .showroomProgress");
+    expect(styles).toContain('canvas-direction-one.png');
+  });
+
   it("keeps the mobile Canvas Next target and validation feedback on the first screen", () => {
     const styles = readFileSync(join(showroomRoot, "..", "styles.css"), "utf8");
     const mobileCanvas = styles.slice(styles.lastIndexOf("@media (max-width: 639px)"));
 
-    expect(mobileCanvas).toContain(".showroomDirectionOne .showroomStep {\n    min-height: calc(100vw * 1843 / 853);");
+    expect(mobileCanvas).toMatch(/\.showroomDirectionOne \.showroomStep\s*\{\s*min-height:\s*calc\(100vw \* 1843 \/ 853\);/);
     expect(mobileCanvas).toContain(".showroomDirectionOne .showroomFormError {");
     expect(mobileCanvas).toContain("top: calc(100vw * 690 / 853);");
+  });
+
+  it("keeps the mobile primary action inside its left and right offsets", () => {
+    const styles = readFileSync(join(showroomRoot, "..", "styles.css"), "utf8");
+    const mobileStyles = styles.slice(styles.indexOf("@media (max-width: 639px)"));
+
+    expect(mobileStyles).toMatch(/\.showroomDirectionOne \.showroomPrimaryAction\s*\{[^}]*left:[^;]+;[^}]*right:[^;]+;[^}]*width:\s*auto;/s);
   });
 });

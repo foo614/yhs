@@ -1,17 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  createUnpaidDailySpend,
-  dailySpendMatchesDashboardAttention,
-  FinanceV2BalanceSummary,
-  financeInvoiceSubmitLabel,
-  financeRequesterLabel,
-  financeSearchCopy,
-  financeTabForUrl,
-  payDailySpend,
-  settlementMatchesDashboardAttention
-} from "./FinancePage";
+import { describe, expect, it } from "vitest";
+import { canPrepareFinanceInvoice, createUnpaidDailySpend, dailySpendMatchesDashboardAttention, FinanceV2BalanceSummary, financeInvoiceSubmitLabel, financeInvoiceVehicleDefaults, financeRequesterLabel, financeSearchCopy, financeTabForUrl, InvoiceUpdateRequestQueue, payDailySpend, settlementMatchesDashboardAttention } from "./FinancePage";
 
 describe("finance module navigation", () => {
   it("keeps legacy cash custody links on the consolidated cash handover tab", () => {
@@ -25,7 +15,7 @@ describe("finance module navigation", () => {
     expect(financeTabForUrl("/finance", "?tab=unknown", true)).toBe("payments");
   });
 
-  it("describes the actual searchable fields for each finance tab", () => {
+  it("describes the searchable fields for each finance tab", () => {
     expect(financeSearchCopy("payments").placeholder).toBe("Search plate, customer, invoice or reference");
     expect(financeSearchCopy("settlements").placeholder).toBe("Search plate, owner or deadline");
     expect(financeSearchCopy("commissions").placeholder).toBe("Search plate or broker");
@@ -103,6 +93,22 @@ describe("Finance V2 summary", () => {
 });
 
 describe("Finance V2 review copy", () => {
+  it("prefills invoice pricing from the Finance vehicle option", () => {
+    expect(financeInvoiceVehicleDefaults({ sellingPrice: 58_000, additionalCharges: 750 })).toMatchObject({
+      salesPrice: 58_000,
+      interestAdditionalCharges: 750,
+      ncdAmount: 0,
+      windscreenCharges: 0
+    });
+  });
+
+  it("disables invoice preparation until both finance records and canonical vehicle prices are available", () => {
+    expect(canPrepareFinanceInvoice(null, null, 1)).toBe(true);
+    expect(canPrepareFinanceInvoice("Payments unavailable", null, 1)).toBe(false);
+    expect(canPrepareFinanceInvoice(null, "Vehicle prices unavailable", 1)).toBe(false);
+    expect(canPrepareFinanceInvoice(null, null, 0)).toBe(false);
+  });
+
   it("distinguishes immediate invoice generation from a real price-variance approval", () => {
     expect(financeInvoiceSubmitLabel(60_000, undefined, false)).toBe("Review & generate invoice");
     expect(financeInvoiceSubmitLabel(60_000, 60_000, true)).toBe("Review & generate invoice");
@@ -113,5 +119,32 @@ describe("Finance V2 review copy", () => {
     expect(financeRequesterLabel()).toBe("-");
     expect(financeRequesterLabel("finance-user", "finance-user")).toBe("You");
     expect(financeRequesterLabel("other-user", "finance-user")).toBe("Finance staff");
+  });
+});
+
+describe("delivery invoice update handoff", () => {
+  it("shows Finance the open request reason and one explicit resolution action without payment details", () => {
+    const markup = renderToStaticMarkup(createElement(InvoiceUpdateRequestQueue, {
+      requests: [{
+        id: "delivery-1",
+        vehicleId: "vehicle-1",
+        plateNumber: "VPK 1234",
+        vehicleLabel: "Toyota Vios",
+        customerName: "Ali Tan",
+        requestReason: "Correct the customer address",
+        requestedAt: "2026-08-27T08:30:00Z"
+      }],
+      loading: false,
+      resolvingId: undefined,
+      onRetry: () => {},
+      onResolve: () => {}
+    }));
+
+    expect(markup).toContain("Delivery invoice update requests / 交车发票更新");
+    expect(markup).toContain("VPK 1234");
+    expect(markup).toContain("Correct the customer address");
+    expect(markup).toContain("Mark resolved");
+    expect(markup).not.toContain("Invoice amount");
+    expect(markup).not.toContain("Payment status");
   });
 });

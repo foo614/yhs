@@ -1,18 +1,32 @@
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
+import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
+import { QRCodeSVG } from "qrcode.react";
+import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard, ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
-import { Alert, Badge, Button, Calendar, DatePicker, Empty, Form, Input, InputNumber, Pagination, Select, Space, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { OperationsProTable } from "../shared/OperationsProTable";
+import { Calendar, DatePicker } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
-import { OperationsProTable } from "../shared/OperationsProTable";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
 import type {
   CurrentUser,
+  HrAttendanceAction,
+  HrAttendanceDashboardSummary,
+  HrAttendanceReminderItem,
+  HrAttendanceReminderPolicy,
+  HrAttendanceReminderType,
   HrAttendanceRecord,
+  HrAvailabilityCalendarItem,
+  HrAttendanceQrChallenge,
+  HrAttendanceQrRedemptionRequest,
+  HrBusinessTrip,
+  HrBusinessTripStatus,
+  HrOutstationAttendanceRequest,
   HrAttendanceNetwork,
   HrCalendarAvailability,
   HrLeaveAdjustment,
@@ -33,6 +47,10 @@ type HrSalaryPageProps = {
   currentUser: CurrentUser | null;
   staffUsers: StaffUser[];
   attendance: HrAttendanceRecord[];
+  attendanceDashboard: HrAttendanceDashboardSummary | null;
+  availabilityCalendar: HrAvailabilityCalendarItem[];
+  attendanceReminders: HrAttendanceReminderItem[];
+  attendanceReminderPolicies: HrAttendanceReminderPolicy[];
   bossCalendar: HrCalendarAvailability[];
   attendanceNetworks: HrAttendanceNetwork[];
   leaveRequests: HrLeaveRequest[];
@@ -42,8 +60,20 @@ type HrSalaryPageProps = {
   payrollProfiles: HrPayrollProfile[];
   payPeriods: HrPayPeriod[];
   payslips: HrPayslip[];
+  attendanceQrChallenge: HrAttendanceQrChallenge | null;
+  attendanceQrToken?: string;
+  businessTrips: HrBusinessTrip[];
+  onClearAttendanceQrToken: () => void;
   onCheckIn: () => Promise<void>;
   onCheckOut: () => Promise<void>;
+  onCreateQrChallenge: () => Promise<void>;
+  onRedeemQr: (request: HrAttendanceQrRedemptionRequest) => Promise<void>;
+  onCreateBusinessTrip: (trip: HrBusinessTrip) => Promise<void>;
+  onDecideBusinessTrip: (tripId: string, status: Exclude<HrBusinessTripStatus, "Pending" | "Cancelled">, decisionNotes?: string) => Promise<void>;
+  onCancelBusinessTrip: (tripId: string) => Promise<void>;
+  onStartOutstation: (request: HrOutstationAttendanceRequest) => Promise<void>;
+  onEndOutstation: (request: HrOutstationAttendanceRequest) => Promise<void>;
+  onUpdateReminderPolicy: (type: HrAttendanceReminderType, policy: Pick<HrAttendanceReminderPolicy, "isEnabled" | "leadHours">) => Promise<void>;
   onUpdateAttendance: (attendance: HrAttendanceRecord) => Promise<void>;
   onLoadBossCalendar: (from: string, to: string) => Promise<void>;
   onSaveAttendanceNetwork: (network: HrAttendanceNetwork) => Promise<void>;
@@ -78,16 +108,18 @@ const johorHolidayReference = [
   "Public holidays should be reviewed yearly by HR"
 ];
 const hrRecordPageSize = 8;
+const businessTripPageSize = 5;
 
 export type HrRecordFilters = {
   keyword?: string;
   status?: string;
 };
 
-type HrRecordListKey = "attendance" | "leave" | "balances" | "adjustments" | "payslips";
+type HrRecordListKey = "attendance" | "businessTrips" | "leave" | "balances" | "adjustments" | "payslips";
 
 const initialHrRecordPages: Record<HrRecordListKey, number> = {
   attendance: 1,
+  businessTrips: 1,
   leave: 1,
   balances: 1,
   adjustments: 1,
@@ -96,6 +128,7 @@ const initialHrRecordPages: Record<HrRecordListKey, number> = {
 
 const initialHrRecordFilters: Record<HrRecordListKey, HrRecordFilters> = {
   attendance: {},
+  businessTrips: {},
   leave: {},
   balances: {},
   adjustments: {},
@@ -130,6 +163,18 @@ export function withHrRecordFilterValue(filters: HrRecordFilters, key: keyof HrR
   return { ...filters, [key]: value === "" ? undefined : value };
 }
 
+export function businessTripSearchText(trip: HrBusinessTrip, staffDisplayName: string) {
+  return [
+    staffDisplayName,
+    trip.startDate,
+    trip.endDate,
+    trip.location,
+    trip.purpose,
+    businessTripStatusLabel(trip.status),
+    trip.decisionNotes
+  ].filter(Boolean).join(" ");
+}
+
 export const leavePolicyTableConfig = {
   search: false,
   options: false,
@@ -152,6 +197,10 @@ export function HrSalaryPage({
   currentUser,
   staffUsers,
   attendance,
+  attendanceDashboard,
+  availabilityCalendar,
+  attendanceReminders,
+  attendanceReminderPolicies,
   bossCalendar,
   attendanceNetworks,
   leaveRequests,
@@ -161,8 +210,20 @@ export function HrSalaryPage({
   payrollProfiles,
   payPeriods,
   payslips,
+  attendanceQrChallenge,
+  attendanceQrToken,
+  businessTrips,
+  onClearAttendanceQrToken,
   onCheckIn,
   onCheckOut,
+  onCreateQrChallenge,
+  onRedeemQr,
+  onCreateBusinessTrip,
+  onDecideBusinessTrip,
+  onCancelBusinessTrip,
+  onStartOutstation,
+  onEndOutstation,
+  onUpdateReminderPolicy,
   onUpdateAttendance,
   onLoadBossCalendar,
   onSaveAttendanceNetwork,
@@ -180,12 +241,14 @@ export function HrSalaryPage({
   const isHrManager = Boolean(currentUser?.roles.some((role) => role === "BossAdmin" || role === "HrSalary"));
   const isBossAdmin = Boolean(currentUser?.roles.includes("BossAdmin"));
   const [leaveForm] = Form.useForm();
+  const [businessTripForm] = Form.useForm();
   const [selectedMedicalCertificate, setSelectedMedicalCertificate] = useState<File | null>(null);
   const [attendanceNetworkForm] = Form.useForm();
   const [attendanceCorrectionForm] = Form.useForm();
   const [payrollProfileForm] = Form.useForm();
   const [payPeriodForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
+  const [qrRedeeming, setQrRedeeming] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => dayjs());
   const [activeTab, setActiveTab] = useState("attendance");
   const [recordFilters, setRecordFilters] = useState<Record<HrRecordListKey, HrRecordFilters>>(initialHrRecordFilters);
@@ -201,9 +264,14 @@ export function HrSalaryPage({
   const checkInHelpText = canCheckInToday ? "" : "Already checked in. Check out before starting a new session.";
   const checkOutHelpText = canCheckOutToday ? "" : "Check in first before checking out.";
   const attendanceActionHint = openSession
-    ? "Check out when the shift ends."
-    : "Start today attendance with Check In.";
+    ? "Scan the office QR when the shift ends, or use manual Check Out as a fallback."
+    : "Scan the office QR to start today attendance, or use manual Check In as a fallback.";
+  const qrAction: HrAttendanceAction = openSession ? "CheckOut" : "CheckIn";
+  const qrUrl = attendanceQrChallenge ? `${window.location.origin}/hr-salary#attendanceQr=${attendanceQrChallenge.token}` : "";
+  const qrSecondsRemaining = attendanceQrChallenge ? Math.max(0, Math.ceil((new Date(attendanceQrChallenge.expiresAt).getTime() - clockNow.getTime()) / 1000)) : 0;
   const visibleStaff = staffUsers.length ? staffUsers : [{ id: selfId, email: currentUser?.name ?? "", displayName: selfName, roles: [], isActive: true }];
+  const ownBusinessTrips = businessTrips.filter((trip) => trip.staffUserId === selfId);
+  const approvedTripForToday = ownBusinessTrips.find((trip) => businessTripCoversDate(trip, today));
   const missingMedicalCertificateCount = leaveRequests.filter((record) => record.type === "MedicalLeave" && !record.medicalCertificateDocumentId).length;
   const leaveStartDate = datePickerValueToDateString(Form.useWatch("startDate", leaveForm));
   const leaveEndDate = datePickerValueToDateString(Form.useWatch("endDate", leaveForm));
@@ -223,6 +291,15 @@ export function HrSalaryPage({
     const timer = window.setInterval(() => setClockNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!attendanceQrToken || qrRedeeming) return;
+    setQrRedeeming(true);
+    void onRedeemQr({ token: attendanceQrToken, action: qrAction }).finally(() => {
+      onClearAttendanceQrToken();
+      setQrRedeeming(false);
+    });
+  }, [attendanceQrToken, onClearAttendanceQrToken, onRedeemQr, openSession, qrAction, qrRedeeming]);
 
   const updateRecordFilter = (list: HrRecordListKey, key: keyof HrRecordFilters, value?: string) => {
     setRecordFilters((current) => ({
@@ -249,7 +326,7 @@ export function HrSalaryPage({
     { title: "Status / 状态", dataIndex: "status", render: (status: HrAttendanceRecord["status"]) => <Tag color={attendanceStatusColor(status)}>{attendanceStatusLabel(status)}</Tag> },
     { title: "In / 上班", dataIndex: "checkInAt", render: formatDateTime },
     { title: "Out / 下班", dataIndex: "checkOutAt", render: formatDateTime },
-    { title: "Verified / 验证", render: (_, record) => record.officeNetworkLabel ? <Tag color="blue">Office IP: {record.officeNetworkLabel}</Tag> : <Tag>Manual correction</Tag> }
+    { title: "Method / 方式", render: (_, record) => record.officeNetworkLabel ? <Tag color="blue">Office IP: {record.officeNetworkLabel}</Tag> : attendanceVerificationMethodLabel(record.verificationMethod) }
   ];
 
   const leaveColumns: ColumnsType<HrLeaveRequest> = [
@@ -272,6 +349,8 @@ export function HrSalaryPage({
     },
     {
       title: "Action / 操作",
+      fixed: "right",
+      width: 220,
       render: (_, record) => record.status === "Pending" ? (
         <Space className="tableActionGroup" wrap size={6}>
           {isHrManager && <Button type="primary" onClick={() => onDecideLeave(record.id, "Approved")}>Approve / 批准</Button>}
@@ -336,6 +415,7 @@ export function HrSalaryPage({
   ];
 
   const attendanceStatusOptions = ["Present", "Late", "HalfDay", "Absent"].map((value) => ({ value, label: attendanceStatusLabel(value as HrAttendanceRecord["status"]) }));
+  const businessTripStatusOptions = ["Pending", "Approved", "Rejected", "Cancelled"].map((value) => ({ value, label: businessTripStatusLabel(value as HrBusinessTripStatus) }));
   const leaveStatusOptions = ["Pending", "Approved", "Rejected", "Cancelled"].map((value) => ({ value, label: leaveStatusLabel(value as HrLeaveStatus) }));
   const payslipStatusOptions = ["Draft", "Generated"].map((value) => ({ value, label: payslipStatusLabel(value as HrPayslip["status"]) }));
   const filteredAttendance = filterHrRecords(
@@ -343,6 +423,12 @@ export function HrSalaryPage({
     recordFilters.attendance,
     (record) => [staffName(record.staffUserId, visibleStaff), record.attendanceDate, attendanceStatusLabel(record.status), record.notes, formatDateTime(record.checkInAt), formatDateTime(record.checkOutAt)].filter(Boolean).join(" "),
     (record) => record.status
+  );
+  const filteredBusinessTrips = filterHrRecords(
+    businessTrips,
+    recordFilters.businessTrips,
+    (trip) => businessTripSearchText(trip, staffName(trip.staffUserId, visibleStaff)),
+    (trip) => trip.status
   );
   const filteredLeaveRequests = filterHrRecords(
     leaveRequests,
@@ -367,17 +453,21 @@ export function HrSalaryPage({
     (record) => record.status
   );
   const attendancePage = paginateHrRecords(filteredAttendance, recordPages.attendance);
+  const businessTripPage = paginateHrRecords(filteredBusinessTrips, recordPages.businessTrips, businessTripPageSize);
   const leavePage = paginateHrRecords(filteredLeaveRequests, recordPages.leave);
   const balancePage = paginateHrRecords(filteredLeaveBalances, recordPages.balances);
   const adjustmentPage = paginateHrRecords(filteredLeaveAdjustments, recordPages.adjustments);
   const payslipPage = paginateHrRecords(filteredPayslips, recordPages.payslips);
   const attendanceEmptyText = hrRecordEmptyText(attendance.length, filteredAttendance.length, "No attendance records yet / 暂无打卡记录", "No attendance records match the current filters / 没有符合筛选条件的打卡记录");
+  const businessTripEmptyText = hrRecordEmptyText(businessTrips.length, filteredBusinessTrips.length, "No outstation requests yet / 暂无外勤申请", "No outstation requests match the current filters / 没有符合筛选条件的外勤申请");
   const leaveEmptyText = hrRecordEmptyText(leaveRequests.length, filteredLeaveRequests.length, "No leave requests yet / 暂无请假记录", "No leave requests match the current filters / 没有符合筛选条件的请假记录");
   const balanceEmptyText = hrRecordEmptyText(leaveBalances.length, filteredLeaveBalances.length, "No leave balances yet / 暂无假期余额", "No leave balances match the current filters / 没有符合筛选条件的假期余额");
   const adjustmentEmptyText = hrRecordEmptyText(leaveAdjustments.length, filteredLeaveAdjustments.length, "No leave adjustments yet / 暂无假期调整记录", "No leave adjustments match the current filters / 没有符合筛选条件的假期调整记录");
   const payslipEmptyText = hrRecordEmptyText(payslips.length, filteredPayslips.length, "No payslips generated yet / 暂无薪资单", "No payslips match the current filters / 没有符合筛选条件的薪资单");
   const calendarEventsByDate = useMemo(() => {
-    return groupCalendarAvailabilityByDate(bossCalendar);
+    const events = new Map<string, HrCalendarAvailability[]>();
+    bossCalendar.forEach((item) => events.set(item.date, [...(events.get(item.date) ?? []), item]));
+    return events;
   }, [bossCalendar]);
   const attendanceNetworkColumns: ColumnsType<HrAttendanceNetwork> = [
     { title: "Label / 标签", dataIndex: "label" },
@@ -411,6 +501,41 @@ export function HrSalaryPage({
         </article>
       ))}
       {filteredAttendance.length > hrRecordPageSize && <Pagination current={attendancePage.current} pageSize={hrRecordPageSize} total={filteredAttendance.length} showSizeChanger={false} onChange={(page) => setRecordPage("attendance", page)} />}
+    </div>
+  );
+
+  const businessTripMobileCards = (
+    <div className="mobileRecordList">
+      {filteredBusinessTrips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={businessTripEmptyText} />}
+      {businessTripPage.items.map((trip) => (
+        <article className="mobileRecordCard" key={trip.id}>
+          <div className="mobileRecordHeader">
+            <div>
+              <Typography.Text className="mobileRecordEyebrow">Outstation Request / 外勤申请</Typography.Text>
+              <Typography.Title level={5}>{staffName(trip.staffUserId, visibleStaff)}</Typography.Title>
+            </div>
+            <Tag color={businessTripStatusColor(trip.status)}>{businessTripStatusLabel(trip.status)}</Tag>
+          </div>
+          <div className="mobileRecordGrid">
+            <div><span>Start / 开始</span><strong>{trip.startDate}</strong></div>
+            <div><span>End / 结束</span><strong>{trip.endDate}</strong></div>
+            <div><span>Location / 地点</span><strong>{trip.location}</strong></div>
+          </div>
+          <div className="mobileRecordSection">
+            <Typography.Text className="mobileRecordLabel">Purpose / 目的</Typography.Text>
+            <div className="mobileRecordTextBlock"><span>{trip.purpose}</span></div>
+          </div>
+          <div className="mobileRecordFooter hrMobileActions">
+            {trip.isUrgentException && <Tag color="red">Urgent / 紧急</Tag>}
+            {trip.status === "Pending" && <>
+              <Button size="small" type="primary" onClick={() => onDecideBusinessTrip(trip.id, "Approved")}>Approve / 批准</Button>
+              <Button size="small" danger onClick={() => onDecideBusinessTrip(trip.id, "Rejected")}>Reject / 拒绝</Button>
+            </>}
+            {trip.status !== "Pending" && trip.decisionNotes && <Typography.Text type="secondary">{trip.decisionNotes}</Typography.Text>}
+          </div>
+        </article>
+      ))}
+      {filteredBusinessTrips.length > businessTripPageSize && <Pagination current={businessTripPage.current} pageSize={businessTripPageSize} total={filteredBusinessTrips.length} showSizeChanger={false} onChange={(page) => setRecordPage("businessTrips", page)} />}
     </div>
   );
 
@@ -547,8 +672,97 @@ export function HrSalaryPage({
         className="operationalInfoAlert"
         type="info"
         showIcon
-        message="Staff record attendance and leave here; HR/Admin manage balances, payroll, and payslips. / 员工记录打卡和请假；HR/Admin 管理假期、薪资和薪资单。"
+        message="HR Records / 人事记录"
+        description="Attendance guide: Office staff — scan the office QR at both the start and end of the shift; use Manual Check In/Out only if QR is unavailable. Outstation staff follow their approved Business Trip / Outstation Duty flow on mobile. / 打卡说明：办公室员工——上班和放工都扫描办公室二维码，二维码不能用时才手动打卡；外勤员工按已批准的出差流程在手机上开始和结束打卡。"
       />
+
+      {attendanceDashboard && <ProCard title="Attendance Dashboard / 打卡概览">
+        <Space wrap size={[28, 18]}>
+          <Statistic title="Checked In / 已上班" value={attendanceDashboard.checkedInToday} />
+          <Statistic title="Checked Out / 已放工" value={attendanceDashboard.checkedOutToday} />
+          <Statistic title="Open Sessions / 未放工" value={attendanceDashboard.openSessionsToday} />
+          <Statistic title="Office QR / 办公室二维码" value={attendanceDashboard.officeQrSessionsToday} />
+          <Statistic title="Manual / 手动" value={attendanceDashboard.manualSessionsToday} />
+          <Statistic title="Outstation / 外勤" value={attendanceDashboard.outstationSessionsToday} />
+          <Statistic title="Pending Trips / 待审批外勤" value={attendanceDashboard.pendingBusinessTripRequests} />
+          <Statistic title="Active Outstation / 当前外勤" value={attendanceDashboard.activeOutstationToday} />
+          <Statistic title="Next 7 Days / 未来7天安排" value={attendanceDashboard.upcomingApprovedTrips} />
+        </Space>
+      </ProCard>}
+
+      <ProCard title="Attendance Reminders / 打卡提醒">
+        <Space direction="vertical" size={12} className="fullWidth">
+          {attendanceReminders.length === 0 ? <Typography.Text type="secondary">No active reminders / 暂无提醒</Typography.Text> : attendanceReminders.map((reminder) => <Alert key={`${reminder.type}-${reminder.staffUserId}-${reminder.dueDate}`} type="warning" showIcon message={`${attendanceReminderTypeLabel(reminder.type)} · ${reminder.dueDate}`} description={isHrManager ? `${staffName(reminder.staffUserId, visibleStaff)}: ${reminder.message}` : reminder.message} />)}
+          {isHrManager && <>
+            <Typography.Text strong>Reminder settings / 提醒设置</Typography.Text>
+            {attendanceReminderPolicies.map((policy) => <Form key={policy.type} layout="inline" initialValues={policy} onFinish={(values) => onUpdateReminderPolicy(policy.type, { isEnabled: Boolean(values.isEnabled), leadHours: Number(values.leadHours) })}>
+              <Typography.Text>{attendanceReminderTypeLabel(policy.type)}</Typography.Text>
+              <Form.Item name="isEnabled" valuePropName="checked"><Switch /></Form.Item>
+              <Form.Item name="leadHours" rules={[{ required: true, type: "number", min: 0, max: 720 }]}><InputNumber min={0} max={720} addonAfter="hours" /></Form.Item>
+              <Button htmlType="submit">Save / 保存</Button>
+            </Form>)}
+          </>}
+        </Space>
+      </ProCard>
+
+      <ProCard title="Business Trip / Outstation Duty / 出差外勤">
+        <Space direction="vertical" size={14} className="fullWidth">
+          <Typography.Text type="secondary">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</Typography.Text>
+          <Form form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: today, endDate: today, isUrgentException: false }}>
+            <div className="leaveDetailsGrid">
+              {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>}
+              <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><Input type="date" /></Form.Item>
+              <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><Input type="date" /></Form.Item>
+              <Form.Item name="location" label="Location / 地点" rules={[{ required: true }]}><Input placeholder="Customer site / 客户地点" /></Form.Item>
+              <Form.Item name="purpose" label="Purpose / 目的" rules={[{ required: true }]}><Input placeholder="Sales visit / 跑销" /></Form.Item>
+              <Form.Item name="isUrgentException" valuePropName="checked"><Checkbox>Urgent exception / 临时外勤例外</Checkbox></Form.Item>
+            </div>
+            <Button type="primary" htmlType="submit">Submit Outstation Request / 提交外勤申请</Button>
+          </Form>
+          <Space wrap>
+            {ownBusinessTrips.slice(0, 4).map((trip) => (
+              <Space key={trip.id} className="tableActionGroup" wrap>
+                <Tag color={businessTripStatusColor(trip.status)}>{businessTripStatusLabel(trip.status)}</Tag>
+                <Typography.Text>{trip.startDate} to {trip.endDate} · {trip.location}</Typography.Text>
+                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && !openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>Start Duty / 开始外勤</Button></Tooltip>}
+                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>End Duty / 结束外勤</Button></Tooltip>}
+                {(trip.status === "Pending" || trip.status === "Approved") && <Button size="small" onClick={() => onCancelBusinessTrip(trip.id)}>Cancel / 取消</Button>}
+              </Space>
+            ))}
+            {ownBusinessTrips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No outstation requests / 暂无外勤申请" />}
+          </Space>
+          {isHrManager && <>
+            <HrRecordFilterControls
+              filters={recordFilters.businessTrips}
+              total={businessTrips.length}
+              filtered={filteredBusinessTrips.length}
+              keywordPlaceholder="Search staff, location or purpose / 搜索员工、地点或目的"
+              statusOptions={businessTripStatusOptions}
+              onKeywordChange={(value) => updateRecordFilter("businessTrips", "keyword", value)}
+              onStatusChange={(value) => updateRecordFilter("businessTrips", "status", value)}
+              onClear={() => clearRecordFilters("businessTrips")}
+            />
+            {businessTripMobileCards}
+            <OperationsProTable
+              className="desktopDataTable"
+              rowKey="id"
+              size="small"
+              pagination={{ ...tablePagination(businessTripPageSize), current: businessTripPage.current, onChange: (page) => setRecordPage("businessTrips", page) }}
+              scroll={{ x: "max-content" }}
+              locale={{ emptyText: businessTripEmptyText }}
+              dataSource={filteredBusinessTrips}
+              columns={[
+                { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
+                { title: "Dates / 日期", render: (_: unknown, trip: HrBusinessTrip) => `${trip.startDate} to ${trip.endDate}` },
+                { title: "Location / 地点", dataIndex: "location" },
+                { title: "Purpose / 目的", dataIndex: "purpose" },
+                { title: "Status / 状态", dataIndex: "status", render: (status: HrBusinessTripStatus) => <Tag color={businessTripStatusColor(status)}>{businessTripStatusLabel(status)}</Tag> },
+                { title: "Action / 操作", fixed: "right", width: 220, render: (_: unknown, trip: HrBusinessTrip) => trip.status === "Pending" ? <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => onDecideBusinessTrip(trip.id, "Approved")}>Approve / 批准</Button><Button size="small" danger onClick={() => onDecideBusinessTrip(trip.id, "Rejected")}>Reject / 拒绝</Button></Space> : trip.decisionNotes || "-" }
+              ]}
+            />
+          </>}
+        </Space>
+      </ProCard>
 
       <ProCard title="Today Attendance / 今日打卡">
         <Space direction="vertical" size={12} className="fullWidth attendancePunchCard">
@@ -564,12 +778,16 @@ export function HrSalaryPage({
           </div>
           <div className="attendancePunchActions">
             <Tooltip title={checkInHelpText}>
-              <Button type="primary" icon={<ClockCircleOutlined />} onClick={onCheckIn} disabled={!canCheckInToday}>Check In / 上班打卡</Button>
+              <Button icon={<ClockCircleOutlined />} onClick={onCheckIn} disabled={!canCheckInToday}>Manual Check In / 手动上班</Button>
             </Tooltip>
             <Tooltip title={checkOutHelpText}>
-              <Button onClick={onCheckOut} disabled={!canCheckOutToday}>Check Out / 下班打卡</Button>
+              <Button onClick={onCheckOut} disabled={!canCheckOutToday}>Manual Check Out / 手动放工</Button>
+            </Tooltip>
+            <Tooltip title="Use your phone camera to scan the rotating QR shown on the office screen.">
+              <Button type="primary" icon={<QrcodeOutlined />} disabled={!canCheckInToday && !canCheckOutToday} onClick={() => window.alert("Use your phone camera to scan the QR shown on the office screen. / 请用手机相机扫描办公室屏幕上的二维码。")}>Scan Office QR / 扫码打卡</Button>
             </Tooltip>
           </div>
+          {attendanceQrToken && <Alert type="info" showIcon message="Office QR detected / 已识别办公室二维码" description={`Recording QR ${qrAction === "CheckIn" ? "Check In / 上班" : "Check Out / 放工"} now. / 正在记录二维码${qrAction === "CheckIn" ? "上班" : "放工"}打卡。`} />}
         </Space>
       </ProCard>
 
@@ -586,39 +804,23 @@ export function HrSalaryPage({
                   type="info"
                   showIcon
                   message="Approved leave availability only / 仅显示已批准的请假状态"
-                  description="Each name below means Unavailable for that day. Leave reason, MC and medical details are intentionally not shown. Local previews include fictional sample availability so the calendar remains populated."
+                  description="Each name below means Unavailable for that day. Leave reason, MC and medical details are intentionally not shown. If this local preview cannot reach the API, fictional sample availability is shown instead."
                 />
-                <ProCard
-                  title="Monthly availability / 月度可用性"
-                  extra={<Badge status="error" text="Unavailable / 无法上班" />}
-                >
-                  <div className="hrAvailabilityCalendarViewport" aria-label="Monthly staff availability calendar">
-                    <Calendar
-                      className="hrAvailabilityCalendar"
-                      value={calendarMonth}
-                      onPanelChange={(value) => {
-                        setCalendarMonth(value);
-                        const [from, to] = calendarMonthRange(value);
-                        void onLoadBossCalendar(from, to);
-                      }}
-                      cellRender={(value, info) => {
-                        if (info.type !== "date") return null;
-                        const events = calendarEventsByDate.get(value.format("YYYY-MM-DD")) ?? [];
-                        if (events.length === 0) return null;
-                        const { visibleEvents, remainingCount } = calendarAvailabilityCellItems(events);
-                        return (
-                          <ul className="hrAvailabilityEvents">
-                            {visibleEvents.map((event) => (
-                              <li key={`${event.staffUserId}-${event.date}`} title={`${event.staffName} · Unavailable`}>
-                                <Badge status="error" text={`${event.staffName} · Unavailable`} />
-                              </li>
-                            ))}
-                            {remainingCount > 0 && <li className="hrAvailabilityMore">+{remainingCount} more unavailable</li>}
-                          </ul>
-                        );
-                      }}
-                    />
-                  </div>
+                <ProCard title="Monthly availability / 月度可用性">
+                  <Calendar
+                    fullscreen={false}
+                    value={calendarMonth}
+                    onPanelChange={(value) => {
+                      setCalendarMonth(value);
+                      const [from, to] = calendarMonthRange(value);
+                      void onLoadBossCalendar(from, to);
+                    }}
+                    cellRender={(value, info) => {
+                      if (info.type !== "date") return null;
+                      const events = calendarEventsByDate.get(value.format("YYYY-MM-DD")) ?? [];
+                      return events.map((event) => <Tag color="volcano" key={`${event.staffUserId}-${event.date}`}>{event.staffName} · Unavailable</Tag>);
+                    }}
+                  />
                 </ProCard>
               </Space>
             )
@@ -650,7 +852,7 @@ export function HrSalaryPage({
                     <Form.Item name="isActive" label="Status / 状态"><Select options={[{ value: true, label: "Active / 启用" }, { value: false, label: "Disabled / 停用" }]} /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit">Add office network / 新增办公室网络</Button></Form.Item>
                   </Form>
-                  <OperationsProTable className="desktopDataTable" rowKey="id" columns={attendanceNetworkColumns} dataSource={attendanceNetworks} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No office network configured / 尚未配置办公室网络" }} />
+                  <Table className="desktopDataTable" rowKey="id" columns={attendanceNetworkColumns} dataSource={attendanceNetworks} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No office network configured / 尚未配置办公室网络" }} />
                 </ProCard>
               </Space>
             )
@@ -692,6 +894,45 @@ export function HrSalaryPage({
                 {attendanceMobileCards}
                 <OperationsProTable className="desktopDataTable" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
               </>
+            )
+          },
+          ...(isHrManager ? [{
+            key: "qr-display",
+            label: "QR Display / 二维码",
+            children: (
+              <ProCard title="Office Attendance QR / 办公室打卡二维码" extra={<Button icon={<ReloadOutlined />} onClick={() => void onCreateQrChallenge()}>Generate 5-minute QR / 生成5分钟二维码</Button>}>
+                <Space direction="vertical" size={16} align="center" className="fullWidth">
+                  {attendanceQrChallenge ? <>
+                    <QRCodeSVG value={qrUrl} size={260} includeMargin />
+                    <Typography.Text strong>Expires in {Math.floor(qrSecondsRemaining / 60)}:{String(qrSecondsRemaining % 60).padStart(2, "0")} / 剩余时间</Typography.Text>
+                    <Typography.Text type="secondary">Employees scan this QR at both the start and end of their shift. Manual Punch In/Out is the fallback. / 员工上班和放工都扫描此二维码，手动打卡只作备用。</Typography.Text>
+                  </> : <Empty description="Generate a QR code for the office display / 先生成办公室二维码" />}
+                </Space>
+              </ProCard>
+            )
+          }] : []),
+          {
+            key: "availability",
+            label: "Shared Calendar / 共享日历",
+            children: (
+              <ProCard title="Team Availability / 团队可用时间">
+                <Space direction="vertical" size={12} className="fullWidth">
+                  <Typography.Text type="secondary">Staff see only busy status for other people; HR/Admin can see approved trip details. This calendar does not track GPS or replace attendance. / 员工只能看到其他人的忙碌状态；HR/Admin 可看到已批准外勤详情。此日历不追踪 GPS，也不取代打卡。</Typography.Text>
+                  <Table
+                    rowKey={(item) => `${item.staffUserId}-${item.kind}-${item.startDate}-${item.endDate}`}
+                    dataSource={availabilityCalendar}
+                    pagination={{ pageSize: 8, showSizeChanger: false }}
+                    columns={[
+                      { title: "Staff / 员工", dataIndex: "staffDisplayName" },
+                      { title: "Dates / 日期", render: (_: unknown, item: HrAvailabilityCalendarItem) => `${item.startDate} to ${item.endDate}` },
+                      { title: "Type / 类型", dataIndex: "kind", render: (kind: HrAvailabilityCalendarItem["kind"]) => kind === "Outstation" ? "Outstation / 外勤" : "Leave / 请假" },
+                      { title: "Status / 状态", dataIndex: "status", render: () => <Tag color="orange">Busy / 忙碌</Tag> },
+                      { title: "Details / 详情", render: (_: unknown, item: HrAvailabilityCalendarItem) => item.location || item.purpose || "Busy / 忙碌" }
+                    ]}
+                    locale={{ emptyText: "No approved leave or outstation plans / 暂无已批准请假或外勤安排" }}
+                  />
+                </Space>
+              </ProCard>
             )
           },
           {
@@ -872,7 +1113,7 @@ export function HrSalaryPage({
                         <Form.Item name="manualDeductions" label="Deductions / 扣除"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Profile / 保存资料</Button></Form.Item>
                       </Form>
-                      <OperationsProTable className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
+                      <Table className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
                     </ProCard>
                     <ProCard title="Working Day Pay Period / 薪资月份">
                       <Form form={payPeriodForm} layout="vertical" className="formGrid" onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={payPeriodDefaults(dayjs(today))}>
@@ -935,7 +1176,7 @@ export function HrRecordFilterControls({
 
   return (
     <Space wrap size={8} className="toolbarForm">
-      <Input.Search aria-label={keywordPlaceholder} allowClear placeholder={keywordPlaceholder} value={filters.keyword} style={{ width: 280 }} onChange={(event) => onKeywordChange(event.target.value)} />
+      <Input.Search allowClear placeholder={keywordPlaceholder} value={filters.keyword} style={{ width: 280 }} onChange={(event) => onKeywordChange(event.target.value)} />
       {statusOptions && <Select allowClear placeholder="Status / 状态" value={filters.status} options={statusOptions} style={{ minWidth: 160 }} onChange={onStatusChange} />}
       <Tag color={filterActive ? "blue" : "default"}>{filterActive ? `${filtered} of ${total} matching / 相符` : `${total} record${total === 1 ? "" : "s"} / 记录`}</Tag>
       {filterActive && <Button size="small" onClick={onClear}>Clear filters / 清除筛选</Button>}
@@ -1180,8 +1421,42 @@ function attendanceStatusColor(status: HrAttendanceRecord["status"]) {
   return status === "Present" ? "green" : status === "Late" ? "orange" : status === "Absent" ? "red" : "blue";
 }
 
+function attendanceVerificationMethodLabel(method: HrAttendanceRecord["verificationMethod"]) {
+  return method === "OfficeIp" ? "Office IP / 办公室网络" : method === "OfficeQr" ? "Office QR / 办公室二维码" : method === "Outstation" ? "Outstation / 外勤" : method === "ManualException" ? "Manual Exception / 人工例外" : "Manual / 手动";
+}
+
+function businessTripCoversDate(trip: HrBusinessTrip, date: string) {
+  return trip.status === "Approved" && trip.startDate <= date && trip.endDate >= date;
+}
+
+function businessTripStatusLabel(status: HrBusinessTripStatus) {
+  return status === "Approved" ? "Approved / 已批准" : status === "Rejected" ? "Rejected / 已拒绝" : status === "Cancelled" ? "Cancelled / 已取消" : "Pending / 待审批";
+}
+
+function businessTripStatusColor(status: HrBusinessTripStatus) {
+  return status === "Approved" ? "green" : status === "Rejected" ? "red" : status === "Cancelled" ? "default" : "orange";
+}
+
+function attendanceReminderTypeLabel(type: HrAttendanceReminderType) {
+  return type === "PendingApproval" ? "Pending approval / 待审批" : type === "UpcomingOutstation" ? "Upcoming outstation / 即将外勤" : "Missing Check Out / 未放工打卡";
+}
+
+function businessTripFromValues(values: Record<string, unknown>, fallbackStaffUserId: string): HrBusinessTrip {
+  return {
+    id: "",
+    staffUserId: String(values.staffUserId || fallbackStaffUserId),
+    status: "Pending",
+    startDate: String(values.startDate || ""),
+    endDate: String(values.endDate || ""),
+    location: String(values.location || "").trim(),
+    purpose: String(values.purpose || "").trim(),
+    isUrgentException: Boolean(values.isUrgentException),
+    requestedAt: new Date().toISOString()
+  };
+}
+
 function employmentTypeLabel(type: HrPayslip["employmentType"]) {
-  return type === "Hourly" ? <Tag color="purple">Hourly / 日薪</Tag> : <Tag color="blue">Monthly / 月薪</Tag>;
+  return type === "Hourly" ? <Tag color="purple">Hourly / 时薪</Tag> : <Tag color="blue">Monthly / 月薪</Tag>;
 }
 
 function calendarMonthRange(value: dayjs.Dayjs): [string, string] {

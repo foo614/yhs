@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
+import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 
 describe("finance list helpers", () => {
   const rows = [
@@ -28,6 +28,15 @@ describe("finance list helpers", () => {
 
     expect(financePageFor(pageRows.length, 9)).toBe(2);
     expect(pageFinanceRows(pageRows, 2)).toEqual([9]);
+  });
+
+  it("restores all records when search and status filters are cleared", () => {
+    expect(filterFinanceRows(rows, "", undefined, (row) => [row.plate], (row) => row.status)).toEqual(rows);
+  });
+
+  it("distinguishes an empty register from an empty filtered result", () => {
+    expect(financeEmptyText(0, 0, "cash handovers")).toBe("No cash handovers yet.");
+    expect(financeEmptyText(2, 0, "cash handovers")).toBe("No cash handovers match the current filters.");
   });
 
   it("presents workflow status codes as readable labels", () => {

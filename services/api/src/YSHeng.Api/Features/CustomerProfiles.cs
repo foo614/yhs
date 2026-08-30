@@ -66,11 +66,8 @@ public static class CustomerProfileFinanceRules
             .ToHashSet();
         var ownedPayments = payments
             .Where(payment =>
-                payment.CustomerId == customerId ||
                 ownedPaymentIds.Contains(payment.Id) ||
-                (!payment.CustomerId.HasValue &&
-                 canonicalVehicleIds.Contains(payment.VehicleId) &&
-                 !conflictingPaymentIds.Contains(payment.Id)))
+                (canonicalVehicleIds.Contains(payment.VehicleId) && !conflictingPaymentIds.Contains(payment.Id)))
             .ToList();
         return new CustomerProfileFinanceSelection(ownedPayments, ownedInvoices);
     }
@@ -128,8 +125,16 @@ public static class CustomerProfileFactory
             .ToList();
         var vehicleIds = profileVehicles.Select(vehicle => vehicle.Id).ToHashSet();
         var profileLoans = customerLoans.Where(loan => vehicleIds.Contains(loan.VehicleId)).OrderByDescending(loan => loan.SubmittedAt).ToList();
+        var vehicleById = profileVehicles.ToDictionary(vehicle => vehicle.Id);
         var profileDeliveries = deliveryList
-            .Where(delivery => delivery.CustomerId == customer.Id && vehicleIds.Contains(delivery.VehicleId))
+            .Where(delivery =>
+                vehicleIds.Contains(delivery.VehicleId) &&
+                (delivery.CustomerId == customer.Id ||
+                 (delivery.CustomerId is null &&
+                  vehicleById.TryGetValue(delivery.VehicleId, out var vehicle) &&
+                  (vehicle.CustomerId == customer.Id ||
+                   (vehicle.CustomerId is null && unambiguousLegacyVehicleIds.Contains(vehicle.Id))) &&
+                  !loanList.Any(loan => loan.VehicleId == delivery.VehicleId && loan.CustomerId != customer.Id))))
             .OrderByDescending(delivery => delivery.ScheduledDate)
             .ToList();
         var financeSelection = CustomerProfileFinanceRules.Select(customer.Id, profileVehicles, payments, invoices);
@@ -137,14 +142,14 @@ public static class CustomerProfileFactory
         var profileInvoices = financeSelection.Invoices.OrderByDescending(invoice => invoice.InvoiceDate).ToList();
         var profileHandovers = handovers.Where(handover => handover.CustomerId == customer.Id).ToList();
         var handoverIds = profileHandovers.Select(handover => handover.Id).ToHashSet();
-        var deliveryIds = profileDeliveries.Select(delivery => delivery.Id).ToHashSet();
+        var profileDeliveryIds = profileDeliveries.Select(delivery => delivery.Id).ToHashSet();
         var profileDocuments = documents
             .Where(document => document.VehicleId is { } vehicleId && vehicleIds.Contains(vehicleId))
             .Where(document =>
                 DeliveryEvidenceUploadRules.IsDeliveryCategory(document.Category)
                     ? document.CustomerId == customer.Id &&
                       document.DeliveryScheduleId.HasValue &&
-                      deliveryIds.Contains(document.DeliveryScheduleId.Value)
+                      profileDeliveryIds.Contains(document.DeliveryScheduleId.Value)
                     : document.OwnershipType == DocumentOwnershipType.Buyer
                         ? document.CustomerId == customer.Id
                         : !document.CustomerId.HasValue)
@@ -200,13 +205,12 @@ public static class CustomerProfileFactory
                 ? leads.Where(lead => lead.CustomerId == customer.Id).OrderByDescending(lead => lead.CreatedAt)
                     .Select(lead => new CustomerProfileEnquiry(lead.Id, lead.VehicleId, lead.Status, lead.Message, lead.SourcePage, lead.CreatedAt)).ToList()
                 : [],
-            MissingDocuments(roleSet, customer.Id, vehicleIds, profileLoans, profileDeliveries, profileDocuments),
+            MissingDocuments(roleSet, vehicleIds, profileLoans, profileDeliveries, profileDocuments),
             new CustomerProfilePermissions(canViewIdentity, canViewLoans, canViewDelivery, canViewFinance, canViewDocuments, canViewEnquiries));
     }
 
     private static IReadOnlyList<CustomerProfileMissingDocument> MissingDocuments(
         IReadOnlySet<string> roles,
-        Guid customerId,
         IReadOnlySet<Guid> vehicleIds,
         IReadOnlyList<LoanApplication> loans,
         IReadOnlyList<DeliverySchedule> deliveries,
@@ -244,7 +248,7 @@ public static class CustomerProfileFactory
         {
             foreach (var delivery in deliveries)
             {
-                foreach (var category in DeliveryDocumentRules.CheckCompleteness(delivery, customerId, documents).MissingCategories)
+                foreach (var category in DeliveryDocumentRules.CheckCompleteness(delivery, documents).MissingCategories)
                 {
                     missing.Add(new(delivery.VehicleId, category, $"Delivery documentation is missing {category}."));
                 }

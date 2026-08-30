@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
-import type { DashboardReminder, PriorityActionItem } from "./api";
+import type { DashboardReminder } from "./api";
 
 describe("dashboard reminder helpers", () => {
   it("labels Daily Spend through the ten-day due-soon boundary without changing other reminders", () => {
@@ -39,7 +39,6 @@ describe("dashboard reminder helpers", () => {
     expect(dashboardMetricTarget("profit", { from: "2026-06-01", to: "2026-06-30" })).toBe("/vehicles?dashboard=profit");
     expect(dashboardMetricTarget("watch")).toBe("/vehicles?dashboard=watch");
     expect(financeRiskTarget("Unpaid Settlement")).toBe("/finance?tab=settlements&attention=open");
-    expect(financeRiskTarget("Unpaid Daily Spend")).toBe("/finance?tab=daily&attention=open");
     expect(dashboardReminderTarget({
       type: "DebtRecoveryFollowUp",
       vehicleId: "vehicle 1"
@@ -59,26 +58,15 @@ describe("dashboard reminder helpers", () => {
     expect(urgentDashboardReminders(reminders, "2026-05-31").map((reminder) => reminder.title)).toEqual(["Older overdue", "Later overdue", "Due today", "Daily soon"]);
   });
 
-  it("adds lead, repair, and HR work without duplicating reminder-backed actions", () => {
-    const reminders: DashboardReminder[] = [
-      { type: "LoanFollowUp", title: "3-day loan follow-up", vehiclePlate: "VPK1234", vehicleId: "vehicle-1", dueDate: "2026-05-30" }
-    ];
-    const actions: PriorityActionItem[] = [
-      { type: "LoanFollowUp", title: "3-day loan follow-up", target: "Loans", dueDate: "2026-05-30", subject: "VPK1234" },
-      { type: "LeadFollowUp", title: "New enquiry needs first contact", target: "Leads", dueDate: "2026-05-29", subject: "Smoke Test Lead" },
-      { type: "RepairWorkInProgress", title: "Repair work in progress", target: "Repairs", dueDate: "2026-06-02", subject: "BKC3003" },
-      { type: "LeaveApproval", title: "Leave request awaiting decision", target: "HrSalary", dueDate: "2026-06-03", subject: "AnnualLeave" }
-    ];
+  it("merges role actions into the dashboard priority queue", () => {
+    const entries = dashboardPriorityEntries(
+      [{ type: "LoanFollowUp", title: "Loan", vehiclePlate: "AAA1", vehicleId: "vehicle-1", dueDate: "2026-05-31" }],
+      [{ type: "LeadFollowUp", title: "New enquiry", target: "Leads", subject: "Customer", dueDate: "2026-05-30" }],
+      "2026-05-31"
+    );
 
-    const entries = dashboardPriorityEntries(reminders, actions, "2026-05-31");
-
-    expect(entries.map((entry) => entry.title)).toEqual([
-      "New enquiry needs first contact",
-      "3-day loan follow-up",
-      "Repair work in progress",
-      "Leave request awaiting decision"
-    ]);
-    expect(entries.filter((entry) => entry.type === "LoanFollowUp")).toHaveLength(1);
+    expect(entries.map((entry) => entry.title)).toEqual(["New enquiry", "Loan"]);
+    expect(entries[0].target).toBe("/leads");
   });
 
   it("parses supported dashboard drill-downs and uses the Singapore business day", () => {

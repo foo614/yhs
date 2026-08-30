@@ -132,22 +132,24 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Repair task records can now be edited from the Repair screen so staff can correct car plate, repair part, work description, cost, and checklist state without recreating the task.
 - The Repair screen now exposes repair-owned document uploads for Repair Invoice files linked to the repair car plate.
 - Plate-linked repair cost validation, loan document completeness, and delivery release readiness are covered by backend rules.
-- Vehicle `LoanProcessing` and `Sold` statuses are workflow-owned: ordinary vehicle intake edits cannot set them, active work remains private in `LoanProcessing`, and a reconciled payment moves the vehicle to `Sold` and private.
+- Vehicle `LoanProcessing` and `Sold` statuses are workflow-owned: ordinary vehicle intake edits cannot set them, active work remains private in `LoanProcessing`, and `Sold` requires both a reconciled payment and a released delivery.
 - Active Pending, Approved, or Done loans atomically establish or verify the vehicle's canonical buyer; loan completion requires all four document categories for that same buyer and vehicle.
 - Existing loan documents without recorded buyer ownership stay readable but must be re-uploaded through the loan checklist before an in-flight loan can be completed; no automatic ownership backfill is performed.
 - Repair approval is a Boss/Admin-only server action. Ordinary repair edits cannot supply approval identity, and changing the vehicle, task, repair part, or cost resets the prior approval.
 - Finance management review is a Boss/Admin-only server action. Ordinary payment edits cannot assert the review flag, and changes to payment evidence, amounts, banking details, or finance checklist invalidate the prior review.
-- Delivery uses the local Docker list/detail workflow and its ordered statuses for inspection, preparation, documents, handover, release, and cancellation.
-- New delivery entry requires the car, PIC, schedule, and applicable showroom or outstation details. The API stores the vehicle's canonical buyer on creation and prevents the delivery from being reassigned to another vehicle or buyer.
-- Delivery keeps inspection booking, inspection completion, polish, tint, car wash, delivery-document preparation, insurance, road tax, windscreen insurance, customer notice, handover, and final-checklist data in the existing local forms.
-- Delivery evidence must be uploaded against the exact delivery schedule and its server-locked buyer, which must still match the vehicle's current confirmed buyer. Vehicle-only files, files from another delivery, or files for another buyer do not satisfy release.
+- Delivery now uses one scannable workboard with four server-derived active stages: Plan delivery, Prepare car, Clear documents, and Handover. Completed and cancelled records remain visible as read-only history.
+- New delivery entry asks only for the car, an active staff PIC, date/time, and showroom or outstation details. The server locks the car's canonical buyer, starts the internal workflow state, and refuses a second active delivery for the same vehicle.
+- The workboard exposes one next action and one blocker per row. Opening a delivery expands the current stage; earlier stages remain collapsed summaries so staff do not face one long form.
+- Delivery keeps inspection booking, inspection completion, polish, tint, car wash, delivery-document preparation, insurance, road tax, windscreen insurance, customer notice, handover, and final-checklist data without exposing raw status editing.
+- Delivery evidence must be uploaded against the exact delivery schedule and locked buyer. Vehicle-only files or files from an older delivery do not satisfy the current plan.
 - Required delivery categories are `DeliveryDocument`, `InspectionReport`, `Policy`, `RoadTaxReceipt`, `WindscreenPolicy`, `HandoverPhoto`, and `SignedHandover`. The API detects PDF/image content before storing evidence instead of trusting the declared MIME type.
-- Historical or unscoped delivery ownership is not guessed or backfilled. Staff must create or use a delivery with the correct locked buyer and re-upload evidence against it before release; Customer 360 filters delivery, Finance, and evidence history by recorded customer ownership.
-- Release readiness shows Finance as blocked until a reconciled payment exists. Only Finance can change the payment record.
-- A transition to `Released` requires the complete schedule-bound checklist and all seven evidence categories, current coverage on the delivery date, customer notice, and a reconciled Finance payment. Release identity and time are server-owned even though the local UI keeps its existing update flow.
+- Historical delivery rows without a locked buyer are not guessed or backfilled. Customer 360 may retain a conservative read-only association, while workboard update, evidence upload, and release stay blocked until Boss/Admin locks the vehicle's current canonical buyer with a reason; the server rejects correction after conflicting evidence exists. Ordinary vehicle edits cannot replace the canonical buyer once non-cancelled delivery history exists.
+- The Clear documents stage shows Finance only as Waiting or Cleared. Delivery may send a reasoned invoice-update request, but only Finance can edit invoice and payment records; an unresolved request blocks handover and release.
+- The release action requires the complete schedule-bound checklist and evidence, current coverage on the delivery date, customer notice, final handover confirmation, no open invoice-update request, and a reconciled Finance payment. Release identity and time are server-owned.
 - Released and cancelled delivery records are terminal. Ordinary updates, repeat release, and other delivery actions cannot mutate them.
-- Delivery mutations and release continue to write the shared authenticated API audit record; a separate delivery-activity timeline is not part of the selected local Docker slice.
-- The newer Delivery workboard and Sales My Cars views are not part of the selected local Docker slice.
+- Delivery activity records create, update, evidence upload, invoice request, release, and cancellation events with the authenticated actor and server timestamp.
+- The Leads module includes a separate My Cars view. Sales staff see only their assigned vehicles, Sold this month, Cars in progress, current process, responsible department, and next action; Boss/Admin can select an agent. A released car is complete only while Finance remains reconciled; after a correction it returns to the in-progress list with Finance as the owner of the next action.
+- A lead closed as Sold establishes the vehicle's Sales agent attribution. The server uses that attribution for My Cars and the monthly sold count.
 - Delivery preparation reminders still stop after staff mark the 2-day notice as sent.
 - Document upload authorization remains category-aware: Sales owns intake documents, Loan owns loan documents, Delivery owns schedule-bound delivery evidence, Repair owns repair invoices, and Finance owns payment evidence; Boss/Admin retains cross-department access.
 - Repair jobs reject blank task descriptions and negative costs before they affect dashboard repair cost or estimated profit.
@@ -242,10 +244,13 @@ The smoke test checks:
 - Wrong-plate supplier invoices are smoke-tested before repair costs enter the workflow.
 - Supplier invoice rows now expose a derived supplier master summary and aging states for unmatched, due-soon, overdue, and paid invoices.
 - High-cost repair tasks require approval before they can be completed or counted as final repair cost/profit.
-- Delivery smoke exercises the local ordered status workflow and rejects skipped release stages.
-- Delivery-owned upload smoke rejects unscoped and fake-content evidence, then links all seven required categories to the exact delivery and confirmed buyer.
-- Delivery release smoke verifies that complete operational evidence is still blocked while Finance is waiting, then succeeds through the existing update flow only after reconciliation and returns the server-owned release actor/time.
+- Delivery smoke uses one active schedule for the workflow vehicle and verifies the server rejects a second active plan.
+- Delivery workboard smoke checks the locked buyer/PIC, server-derived stage and next action, and active staff PIC choices.
+- Delivery-owned upload smoke links all required categories to the exact schedule and verifies a mismatched delivery owner is rejected.
+- Delivery release smoke verifies that complete operational evidence is still blocked while Finance is waiting, then succeeds through the dedicated release action only after reconciliation.
+- Released delivery smoke verifies the terminal record rejects later edits.
 - Delivery 2-day notice reminders are smoke-tested before and after the notice is marked sent.
+- Sales workboard smoke checks the server-scoped current-process response without exposing Finance amounts.
 - Payment, broker commission, debt recovery, payment voucher, and settlement APIs reject invalid finance amounts and missing required references before they affect dashboard totals; settlement owner links and broker CP58 state are validated, and reconciled payment validation checks receipt and invoice references, Boss Check, finance checklist completion, duplicate receipt/invoice reuse, and bank follow-up reminders.
 - Finance/Admin users can export payment CSV from `/api/payments/export`; unauthorized back-office users receive a structured 403 before payment rows are loaded, and successful exports write audit records.
 - Payment Pending/Approved/Disbursed status reminders are smoke-tested through the dashboard reminder inbox.

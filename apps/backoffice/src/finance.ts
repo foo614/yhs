@@ -7,32 +7,20 @@ export function isFinanceV2(payment: PaymentRecord) {
 }
 
 export function calculateFinanceNettPrice(values: Pick<FinanceSaleInput, "salesPrice" | "interestAdditionalCharges" | "ncdAmount" | "windscreenCharges" | "insurancePaidOnBehalfAmount" | "roadTaxPaidOnBehalfAmount" | "advancePaidOnBehalfAmount">) {
-  return roundMoney(values.salesPrice + values.interestAdditionalCharges + values.windscreenCharges + (values.insurancePaidOnBehalfAmount ?? 0) + (values.roadTaxPaidOnBehalfAmount ?? 0) + (values.advancePaidOnBehalfAmount ?? 0) - values.ncdAmount);
+  return roundMoney(values.salesPrice + values.interestAdditionalCharges + values.windscreenCharges
+    + (values.insurancePaidOnBehalfAmount ?? 0) + (values.roadTaxPaidOnBehalfAmount ?? 0) + (values.advancePaidOnBehalfAmount ?? 0) - values.ncdAmount);
 }
 
 export function financeSaleBlockReason(input: FinanceSaleInput, vehicles: VehicleLookup[] = []) {
-  if (!vehicles.some((vehicle) => vehicle.id === input.vehicleId && Boolean(vehicle.customerId))) {
-    return "Select a vehicle with a confirmed buyer.";
-  }
-
-  if (input.salesPrice < 0 || input.interestAdditionalCharges < 0 || input.ncdAmount < 0 || input.windscreenCharges < 0) {
-    return "Invoice amounts cannot be negative.";
-  }
-  if (!input.salesAgentUserId) return "Select the responsible sales agent.";
-  if ((input.insurancePaidOnBehalfAmount ?? 0) < 0 || (input.roadTaxPaidOnBehalfAmount ?? 0) < 0 || (input.advancePaidOnBehalfAmount ?? 0) < 0) {
-    return "Paid-on-behalf amounts cannot be negative.";
-  }
+  if (!vehicles.some((vehicle) => vehicle.id === input.vehicleId && Boolean(vehicle.customerId))) return "Select a vehicle with a confirmed buyer.";
+  if (!input.salesAgentUserId?.trim()) return "Select the responsible sales agent.";
+  if ([input.salesPrice, input.interestAdditionalCharges, input.ncdAmount, input.windscreenCharges].some((amount) => amount < 0)) return "Invoice amounts cannot be negative.";
+  if ([input.insurancePaidOnBehalfAmount ?? 0, input.roadTaxPaidOnBehalfAmount ?? 0, input.advancePaidOnBehalfAmount ?? 0].some((amount) => amount < 0)) return "Paid-on-behalf amounts cannot be negative.";
 
   const calculated = calculateFinanceNettPrice(input);
   const agreed = input.nettPrice ?? calculated;
-  if (calculated <= 0 || agreed <= 0) {
-    return "Invoice total must be greater than zero.";
-  }
-
-  if (roundMoney(agreed - calculated) !== 0 && !input.nettPriceOverrideReason?.trim()) {
-    return "Explain the price adjustment before sending it for approval.";
-  }
-
+  if (calculated <= 0 || agreed <= 0) return "Invoice total must be greater than zero.";
+  if (roundMoney(agreed - calculated) !== 0 && !input.nettPriceOverrideReason?.trim()) return "Explain the price adjustment before sending it for approval.";
   return undefined;
 }
 
@@ -42,32 +30,16 @@ export function collectionCreateBlockReason(payment: PaymentRecord, input: Colle
   if (input.amount > available) return `Payment amount cannot exceed the available balance of RM ${available.toFixed(2)}.`;
   if (!input.receivedDate?.trim()) return "Received date is required.";
   if (!input.reference?.trim()) return "Enter a traceable payment reference.";
-  if (input.method === "BankDisbursement" && input.financingStatus !== "Pending") {
-    return "New bank financing must start as Pending.";
-  }
+  if (input.method === "BankDisbursement" && input.financingStatus !== "Pending") return "New bank financing must start as Pending.";
   return undefined;
 }
 
 export function receivableStatusLabel(status: ReceivableStatus | undefined) {
-  return ({
-    Draft: "Draft",
-    WaitingForApproval: "Price approval needed",
-    ReadyToCollect: "Ready to collect",
-    PartiallyPaid: "Partially paid",
-    Paid: "Paid",
-    AttentionNeeded: "Needs attention"
-  } satisfies Record<ReceivableStatus, string>)[status ?? "Draft"];
+  return ({ Draft: "Draft", WaitingForApproval: "Price approval needed", ReadyToCollect: "Ready to collect", PartiallyPaid: "Partially paid", Paid: "Paid", AttentionNeeded: "Needs attention" } satisfies Record<ReceivableStatus, string>)[status ?? "Draft"];
 }
 
 export function receivableStatusColor(status: ReceivableStatus | undefined) {
-  return ({
-    Draft: "default",
-    WaitingForApproval: "gold",
-    ReadyToCollect: "blue",
-    PartiallyPaid: "orange",
-    Paid: "green",
-    AttentionNeeded: "red"
-  } satisfies Record<ReceivableStatus, string>)[status ?? "Draft"];
+  return ({ Draft: "default", WaitingForApproval: "gold", ReadyToCollect: "blue", PartiallyPaid: "orange", Paid: "green", AttentionNeeded: "red" } satisfies Record<ReceivableStatus, string>)[status ?? "Draft"];
 }
 
 export function canReconcilePayment(payment: PaymentRecord, existing: PaymentRecord[] = []) {

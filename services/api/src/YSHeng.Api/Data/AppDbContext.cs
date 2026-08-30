@@ -23,6 +23,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<SupplierInvoice> SupplierInvoices => Set<SupplierInvoice>();
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
+    public DbSet<DeliveryActivity> DeliveryActivities => Set<DeliveryActivity>();
     public DbSet<DeliveryAccountingCharge> DeliveryAccountingCharges => Set<DeliveryAccountingCharge>();
     public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
     public DbSet<FinanceInvoice> FinanceInvoices => Set<FinanceInvoice>();
@@ -35,6 +36,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<CashHandover> CashHandovers => Set<CashHandover>();
     public DbSet<OfficialReceipt> OfficialReceipts => Set<OfficialReceipt>();
     public DbSet<HrAttendanceRecord> HrAttendanceRecords => Set<HrAttendanceRecord>();
+    public DbSet<HrAttendanceQrChallenge> HrAttendanceQrChallenges => Set<HrAttendanceQrChallenge>();
+    public DbSet<HrAttendanceQrRedemption> HrAttendanceQrRedemptions => Set<HrAttendanceQrRedemption>();
+    public DbSet<HrBusinessTrip> HrBusinessTrips => Set<HrBusinessTrip>();
+    public DbSet<HrAttendanceReminderPolicy> HrAttendanceReminderPolicies => Set<HrAttendanceReminderPolicy>();
     public DbSet<HrAttendanceNetwork> HrAttendanceNetworks => Set<HrAttendanceNetwork>();
     public DbSet<HrLeaveRequest> HrLeaveRequests => Set<HrLeaveRequest>();
     public DbSet<HrLeaveBalance> HrLeaveBalances => Set<HrLeaveBalance>();
@@ -68,7 +73,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<DocumentBlob>().HasIndex(document => document.PaymentRecordId);
         builder.Entity<DocumentBlob>().HasIndex(document => document.CollectionTransactionId);
         builder.Entity<DocumentBlob>().HasIndex(document => document.DeliveryScheduleId);
+        builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.VehicleId);
         builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.CustomerId);
+        builder.Entity<DeliveryActivity>().HasIndex(activity => new { activity.DeliveryScheduleId, activity.CreatedAt });
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.RepairJobId);
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.DocumentId).IsUnique();
         builder.Entity<RepairReceiptItem>().HasIndex(item => new { item.RepairReceiptId, item.SortOrder });
@@ -98,6 +105,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.CashHandoverId).IsUnique();
         builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.ReceiptNumber).IsUnique();
         builder.Entity<HrAttendanceRecord>().HasIndex(record => new { record.StaffUserId, record.AttendanceDate });
+        builder.Entity<HrAttendanceQrChallenge>().HasIndex(challenge => challenge.ExpiresAt);
+        builder.Entity<HrAttendanceQrRedemption>().HasIndex(redemption => new { redemption.ChallengeId, redemption.StaffUserId, redemption.Action }).IsUnique();
+        builder.Entity<HrBusinessTrip>().HasIndex(trip => new { trip.StaffUserId, trip.StartDate, trip.EndDate });
+        builder.Entity<HrAttendanceReminderPolicy>().HasIndex(policy => policy.Type).IsUnique();
         builder.Entity<HrAttendanceNetwork>().HasIndex(network => network.Cidr).IsUnique();
         builder.Entity<HrLeaveBalance>().HasIndex(balance => balance.StaffUserId).IsUnique();
         builder.Entity<HrLeavePolicy>().HasIndex(policy => policy.Role).IsUnique();

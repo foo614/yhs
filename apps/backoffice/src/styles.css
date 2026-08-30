@@ -2781,18 +2781,6 @@ body {
   white-space: nowrap;
 }
 
-.deliveryWorkflowTable .ant-table-cell {
-  vertical-align: middle;
-}
-
-.deliveryTableText {
-  max-width: 100%;
-}
-
-.deliveryReadinessCell {
-  min-width: 0;
-}
-
 .tableActionGroup {
   min-width: 0;
   display: flex;
@@ -2813,12 +2801,10 @@ body {
   line-height: 1.2;
 }
 
-.deliveryActionCell,
 .loanActionCell {
   min-width: 0;
 }
 
-.deliveryWorkflowTable .ant-btn-sm,
 .loanWorkflowTable .ant-btn-sm {
   line-height: 1.2;
 }
@@ -3283,102 +3269,6 @@ body {
   background: #0b705c;
   color: #fff;
   font-weight: 700;
-}
-
-.checklistGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.deliveryChecklistForm {
-  display: grid;
-  gap: 14px;
-}
-
-.deliveryChecklistSection {
-  display: grid;
-  gap: 18px;
-}
-
-.deliveryChecklistEditGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px 14px;
-}
-
-.deliveryChecklistEditGrid.compact {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.deliveryChecklistEditGrid .ant-form-item,
-.deliveryChecklistForm .formActions {
-  margin-bottom: 0;
-}
-
-.deliveryChecklistEditGrid .ant-form-item {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid rgba(20, 72, 61, .1);
-  border-radius: 8px;
-  background: #fbfdfc;
-}
-
-.deliveryChecklistEditGrid .ant-form-item:has(.ant-checkbox-checked) {
-  border-color: rgba(11, 112, 92, .34);
-  background: #f1faf6;
-}
-
-.deliveryChecklistEditGrid .ant-checkbox-wrapper {
-  width: 100%;
-  min-height: 38px;
-  align-items: flex-start;
-  color: #152822;
-  font-size: 14px;
-  font-weight: 720;
-  line-height: 1.35;
-}
-
-.deliveryChecklistEditGrid .ant-checkbox {
-  margin-top: 2px;
-}
-
-.deliveryChecklistEditGrid .ant-form-item-label {
-  padding-bottom: 6px;
-}
-
-.deliveryChecklistEditGrid .ant-form-item-label > label {
-  height: auto;
-  color: #152822;
-  font-size: 12px;
-  font-weight: 760;
-  white-space: normal;
-}
-
-.checklistReferenceGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
-  padding-top: 4px;
-}
-
-.deliveryChecklistForm .formActions .ant-form-item-control-input-content {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.deliveryChecklistForm .formActions .ant-btn {
-  min-width: 156px;
-}
-
-.checkItem {
-  min-height: 56px;
-  border: 1px solid rgba(20, 72, 61, .1);
-  background: #fff;
-  border-radius: 8px;
-  padding: 14px;
-  display: flex;
-  align-items: center;
 }
 
 .extensionGrid {
@@ -4818,15 +4708,6 @@ body {
     -webkit-overflow-scrolling: touch;
   }
 
-  .deliveryActionCell {
-    min-width: 0;
-    justify-content: flex-start;
-  }
-
-  .deliveryChecklistEditGrid,
-  .checklistReferenceGrid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (min-width: 721px) and (max-width: 1024px) {
@@ -5003,18 +4884,6 @@ body {
     padding: 32px;
   }
 }
-.financeToolbarForm {
-  display: flex !important;
-}
-
-.financeKeywordFilter {
-  min-width: min(360px, 100%);
-}
-
-.financeStatusFilter {
-  min-width: 190px;
-}
-
 @media (max-width: 720px) {
   .moduleCommandAside {
     display: grid;
@@ -5132,6 +5001,602 @@ body {
   .leadFilterControl .ant-input-affix-wrapper,
   .leadFilterControl .ant-input-search-button,
   .leadFilterControl .ant-select-selector {
+    min-height: 44px;
+  }
+}
+
+.deliveryWorkboardPage .ant-pro-card-body,
+.salesMyCarsPanel .ant-pro-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.deliveryWorkboardIntro {
+  margin-bottom: 0 !important;
+}
+
+.deliveryWorkboardStats,
+.salesMyCarsStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  border: 1px solid #dfe8e3;
+  border-radius: 10px;
+  background: #f8fbf9;
+  overflow: hidden;
+}
+
+.deliveryWorkboardStats button,
+.salesMyCarsStats span {
+  display: flex;
+  min-width: 0;
+  padding: 12px 14px;
+  flex-direction: column;
+  gap: 2px;
+  color: #5d6c64;
+  border-inline-end: 1px solid #dfe8e3;
+}
+
+.deliveryWorkboardStats button {
+  appearance: none;
+  border-block: 0;
+  border-inline-start: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+}
+
+.deliveryWorkboardStats button:hover,
+.deliveryWorkboardStats button:focus-visible {
+  background: #edf6f1;
+}
+
+.deliveryWorkboardStats button.isActive {
+  background: #e4f2eb;
+  box-shadow: inset 0 -3px #2d8a61;
+}
+
+.deliveryWorkboardStats button:last-child,
+.salesMyCarsStats span:last-child {
+  border-inline-end: 0;
+}
+
+.deliveryWorkboardStats strong,
+.salesMyCarsStats strong {
+  color: #163d2e;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.deliveryWorkboardToolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 180px 180px;
+  gap: 8px;
+  align-items: center;
+}
+
+.deliveryWorkboardAction {
+  max-width: 230px;
+}
+
+.deliveryWorkboardAction .ant-typography {
+  white-space: normal;
+}
+
+.deliveryWorkboardMobileList,
+.salesMyCarsMobileList {
+  display: none;
+}
+
+.deliveryCurrentStage {
+  padding: 16px;
+  border: 1px solid #dfe8e3;
+  border-radius: 12px;
+  background: #fbfdfc;
+}
+
+.deliveryCurrentStageHeader,
+.salesMyCarsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.deliveryCurrentStageHeader .ant-typography,
+.salesMyCarsHeader .ant-typography {
+  margin-bottom: 0;
+}
+
+.deliveryStageCompleteIcon {
+  color: #2d8a61;
+}
+
+.deliveryCreateGrid,
+.deliveryStageFormGrid,
+.deliveryActionDateGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.deliveryStageFormGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.deliveryCheckGrid,
+.deliveryEvidenceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.deliveryCheckGrid .ant-form-item {
+  margin-bottom: 0;
+  padding: 10px 12px;
+  border: 1px solid #e3ebe7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.deliveryEvidenceItem {
+  display: flex;
+  min-width: 0;
+  min-height: 86px;
+  padding: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #dfe8e3;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.deliveryEvidenceItem > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.deliveryEvidenceItem > div:first-child .ant-typography {
+  overflow-wrap: anywhere;
+}
+
+.deliveryFinanceGate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.deliveryEvidenceReviewIntro .ant-typography {
+  margin-bottom: 4px;
+}
+
+.deliveryNoticeCheck {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid #e3ebe7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.deliveryNoticeCheck.ant-form-item {
+  margin-bottom: 16px;
+}
+
+.financeInvoiceRequestList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.financeInvoiceRequestItem {
+  display: flex;
+  padding: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #e3ebe7;
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.financeInvoiceRequestItem > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.financeInvoiceRequestReason {
+  overflow-wrap: anywhere;
+}
+
+.deliveryActivityPanel {
+  padding-top: 4px;
+  border-top: 1px solid #edf1ef;
+}
+
+.deliveryActionDateGrid label,
+.deliveryActionReason {
+  display: flex;
+  margin-top: 14px;
+  flex-direction: column;
+  gap: 6px;
+  color: #43574e;
+  font-weight: 600;
+}
+
+.salesLeadViewSwitch {
+  align-self: flex-start;
+}
+
+.salesMyCarsFilterBar .ant-select {
+  width: 220px;
+  flex: 0 0 auto;
+}
+
+.salesMyCarsFilterBar .ant-input-search {
+  width: min(320px, 100%);
+}
+
+.salesMyCarsStats {
+  grid-template-columns: repeat(2, minmax(140px, 220px));
+  align-self: flex-start;
+}
+
+@media (max-width: 900px) {
+  .deliveryWorkboardToolbar {
+    grid-template-columns: minmax(220px, 1fr) repeat(2, 160px);
+  }
+
+  .deliveryStageFormGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .deliveryWorkboardDrawer .ant-drawer-content-wrapper {
+    width: min(760px, 94vw) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .deliveryWorkboardStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .deliveryWorkboardStats button:nth-child(2) {
+    border-inline-end: 0;
+  }
+
+  .deliveryWorkboardStats button:nth-child(-n + 2) {
+    border-bottom: 1px solid #dfe8e3;
+  }
+
+  .deliveryWorkboardToolbar,
+  .deliveryCreateGrid,
+  .deliveryStageFormGrid,
+  .deliveryActionDateGrid,
+  .deliveryCheckGrid,
+  .deliveryEvidenceGrid,
+  .deliveryFinanceGate {
+    grid-template-columns: 1fr;
+  }
+
+  .deliveryWorkboardToolbar .ant-input-search,
+  .deliveryWorkboardToolbar .ant-select,
+  .deliveryFinanceGate .ant-btn,
+  .salesMyCarsFilterBar .ant-select {
+    width: 100%;
+  }
+
+  .deliveryWorkboardTable,
+  .salesMyCarsTable {
+    display: none;
+  }
+
+  .deliveryWorkboardMobileList,
+  .salesMyCarsMobileList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .deliveryWorkboardMobileList > .ant-pagination,
+  .salesMyCarsMobileList > .ant-pagination {
+    justify-content: center;
+  }
+
+  .deliveryWorkboardMobileCard,
+  .salesMyCarsMobileCard {
+    display: flex;
+    padding: 14px;
+    flex-direction: column;
+    gap: 12px;
+    border: 1px solid #dfe8e3;
+    border-radius: 10px;
+    background: #fff;
+  }
+
+  .deliveryWorkboardMobileHeader,
+  .deliveryWorkboardMobileNext {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .deliveryWorkboardMobileHeader .ant-typography,
+  .salesMyCarsMobileCard .ant-typography {
+    margin-bottom: 0;
+  }
+
+  .deliveryWorkboardMobileCard dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0;
+  }
+
+  .deliveryWorkboardMobileCard dl div {
+    min-width: 0;
+  }
+
+  .deliveryWorkboardMobileCard dt {
+    color: #687a71;
+    font-size: 12px;
+  }
+
+  .deliveryWorkboardMobileCard dd {
+    margin: 2px 0 0;
+    overflow-wrap: anywhere;
+    color: #173d2f;
+    font-weight: 600;
+  }
+
+  .deliveryWorkboardMobileNext {
+    align-items: center;
+    padding-top: 10px;
+    border-top: 1px solid #edf1ef;
+  }
+
+  .deliveryWorkboardDrawer .ant-drawer-content-wrapper {
+    width: 100vw !important;
+  }
+
+  .deliveryWorkboardPage .ant-btn,
+  .deliveryWorkboardDrawer .ant-btn,
+  .deliveryWorkboardStats button {
+    min-height: 44px;
+  }
+
+  .deliveryWorkboardToolbar .ant-input,
+  .deliveryWorkboardToolbar .ant-input-search-button {
+    height: 44px;
+  }
+
+  .deliveryWorkboardToolbar .ant-select-selector {
+    min-height: 44px !important;
+    align-items: center;
+  }
+
+  .financeInvoiceRequestItem {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .financeInvoiceRequestItem .ant-btn {
+    min-height: 44px;
+  }
+
+  .deliveryCurrentStage {
+    padding: 12px;
+  }
+
+  .deliveryCurrentStageHeader,
+  .salesMyCarsHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .deliveryCurrentStageHeader .ant-tag {
+    align-self: flex-start;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .deliveryEvidenceItem {
+    flex-direction: column;
+  }
+
+  .salesLeadViewSwitch {
+    display: flex;
+    width: 100%;
+  }
+
+  .salesLeadViewSwitch .ant-radio-button-wrapper {
+    flex: 1 1 50%;
+    text-align: center;
+  }
+
+  .salesMyCarsStats {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.financeV2AmountGrid,
+.financeV2BalanceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.financeV2CalculatedTotal,
+.financeV2BalanceSummary {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid rgba(11, 112, 92, .18);
+  border-radius: 8px;
+  background: #f5faf8;
+}
+
+.financeV2CalculatedTotal span,
+.financeV2CalculatedTotal small,
+.financeV2BalanceGrid small {
+  color: #60746e;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.financeV2CalculatedTotal strong {
+  color: #0b705c;
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.financeV2BalanceHeader,
+.financeCollectionHistoryHeader,
+.financeCollectionItem > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.financeV2BalanceHeader h4.ant-typography,
+.financeCollectionHistoryHeader h5.ant-typography {
+  margin: 2px 0 0;
+}
+
+.financeV2BalanceGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.financeV2BalanceGrid span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.financeV2BalanceGrid strong {
+  color: #14251f;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.financeCollectionHistory,
+.financeCollectionItem {
+  display: grid;
+  gap: 10px;
+}
+
+.financeCollectionItem {
+  padding: 12px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.financeCollectionItem > div:first-child strong {
+  color: #14251f;
+  font-size: 18px;
+}
+
+.financeCollectionItem dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.financeCollectionItem dl div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.financeCollectionItem dt {
+  color: #60746e;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.financeCollectionItem dd {
+  margin: 0;
+  color: #243831;
+  overflow-wrap: anywhere;
+}
+
+.financeCollectionItem .ant-typography {
+  margin-bottom: 0;
+}
+
+.financeV2ReverseReason {
+  margin-top: 14px;
+}
+
+.financeV2PrimaryAction .ant-btn {
+  min-width: 132px;
+}
+
+.financeToolbarForm {
+  display: flex !important;
+}
+
+.financeKeywordFilter {
+  min-width: min(360px, 100%);
+}
+
+.financeStatusFilter {
+  min-width: 190px;
+}
+
+@media (max-width: 720px) {
+  .financeV2AmountGrid,
+  .financeV2BalanceGrid,
+  .financeCollectionItem dl {
+    grid-template-columns: 1fr;
+  }
+
+  .financeV2PrimaryAction,
+  .financeV2PrimaryAction .ant-btn {
+    width: 100%;
+  }
+
+  .financeV2PrimaryAction .ant-btn,
+  .financeCollectionActions .ant-btn,
+  .financeV2Drawer .ant-btn,
+  .financeV2Modal .formActions .ant-btn,
+  .financeToolbarForm .ant-btn {
+    min-height: 44px;
+  }
+
+  .financeCollectionActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .financeCollectionActions .ant-space-item,
+  .financeCollectionActions .ant-btn,
+  .financeCollectionActions .ant-space-item > span {
+    width: 100%;
+  }
+
+  .financeToolbarForm,
+  .financeToolbarForm .ant-space-item,
+  .financeToolbarForm .financeStatusFilter,
+  .financeToolbarForm .ant-select,
+  .financeToolbarForm .ant-btn {
+    width: 100%;
+  }
+
+  .financeToolbarForm .ant-select-selector {
     min-height: 44px;
   }
 }

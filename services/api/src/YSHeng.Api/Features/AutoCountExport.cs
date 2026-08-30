@@ -41,7 +41,6 @@ public static class AutoCountExcel
         var sourcePayments = input.Payments.ToDictionary(payment => payment.Id);
         var financeInvoices = input.FinanceInvoices ?? [];
         var collections = input.Collections ?? [];
-        var deliveryAccountingCharges = input.DeliveryAccountingCharges ?? [];
         var selectedPurchaseInvoices = input.PurchaseInvoices
             .Where(invoice => InPeriod(EffectiveDate(Present(invoice.InvoiceDate), sourceVehicles, invoice.VehicleId), input.From, input.To)).ToList();
         var selectedSupplierInvoices = input.SupplierInvoices
@@ -64,8 +63,6 @@ public static class AutoCountExcel
             .Where(invoice => InPeriod(invoice.InvoiceDate, input.From, input.To)).ToList();
         var selectedCollections = collections
             .Where(collection => InPeriod(collection.ReceivedDate, input.From, input.To)).ToList();
-        var selectedDeliveryAccountingCharges = deliveryAccountingCharges
-            .Where(charge => InPeriod(charge.InvoiceDate, input.From, input.To)).ToList();
 
         var referencedVehicleIds = input.Vehicles
             .Where(vehicle => InPeriod(vehicle.IntakeDate, input.From, input.To))
@@ -80,7 +77,6 @@ public static class AutoCountExcel
                      .Concat(selectedPaymentVouchers.Select(voucher => voucher.VehicleId))
                      .Concat(selectedSettlements.Select(settlement => settlement.VehicleId))
                      .Concat(selectedFinanceInvoices.Select(invoice => invoice.VehicleId))
-                     .Concat(selectedDeliveryAccountingCharges.Select(charge => charge.VehicleId))
                      .Concat(selectedCollections.Select(collection => sourcePayments.GetValueOrDefault(collection.PaymentRecordId)?.VehicleId ?? Guid.Empty)))
         {
             referencedVehicleIds.Add(vehicleId);
@@ -112,8 +108,7 @@ public static class AutoCountExcel
             PaymentVouchers = selectedPaymentVouchers,
             Settlements = selectedSettlements,
             FinanceInvoices = selectedFinanceInvoices,
-            Collections = selectedCollections,
-            DeliveryAccountingCharges = selectedDeliveryAccountingCharges
+            Collections = selectedCollections
         };
         var vehicleLookup = selectedInput.Vehicles.ToDictionary(vehicle => vehicle.Id);
 

@@ -139,31 +139,20 @@ export function dashboardPriorityEntries(reminders: DashboardReminder[], priorit
     amount: reminder.amount,
     target: dashboardReminderTarget(reminder)
   }));
-  const supplementalEntries = priorityActions
-    .filter((action) => action.type === "LeadFollowUp" || action.type === "RepairWorkInProgress" || action.type === "LeaveApproval")
-    .map((action): DashboardPriorityEntry => ({
-      source: "action",
-      key: `action:${action.type}:${action.target}:${action.subject ?? ""}:${action.dueDate}`,
-      type: action.type,
-      title: action.title,
-      subject: action.subject,
-      dueDate: action.dueDate,
-      amount: action.amount,
-      target: supplementalPriorityActionTarget(action.target)
-    }));
+  const actionEntries = priorityActions.map((action): DashboardPriorityEntry => ({
+    source: "action",
+    key: `action:${action.type}:${action.subject ?? ""}:${action.dueDate}`,
+    type: action.type,
+    title: action.title,
+    subject: action.subject,
+    dueDate: action.dueDate,
+    amount: action.amount,
+    target: priorityActionTarget(action.target)
+  }));
 
-  return [...reminderEntries, ...supplementalEntries].sort((left, right) => {
-    const urgencyOrder = priorityEntryUrgency(left.dueDate, today) - priorityEntryUrgency(right.dueDate, today);
-    if (urgencyOrder !== 0) return urgencyOrder;
-
-    const dueDateOrder = left.dueDate.localeCompare(right.dueDate);
-    if (dueDateOrder !== 0) return dueDateOrder;
-
-    const titleOrder = left.title.localeCompare(right.title);
-    if (titleOrder !== 0) return titleOrder;
-
-    return left.key.localeCompare(right.key);
-  });
+  return [...reminderEntries, ...actionEntries]
+    .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.key === entry.key) === index)
+    .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || (right.amount ?? 0) - (left.amount ?? 0));
 }
 
 export function dashboardReminderTarget(reminder: Pick<DashboardReminder, "type" | "vehicleId">) {
@@ -194,13 +183,7 @@ export function financeRiskTarget(label: string) {
   return "/finance?tab=payments&attention=open";
 }
 
-function priorityEntryUrgency(dueDate: string, today: string) {
-  if (dueDate < today) return 0;
-  if (dueDate === today) return 1;
-  return 2;
-}
-
-function supplementalPriorityActionTarget(target: PriorityActionItem["target"]) {
+function priorityActionTarget(target: PriorityActionItem["target"]) {
   return {
     Loans: "/loans?status=Pending",
     Delivery: "/delivery",

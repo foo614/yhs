@@ -10,6 +10,7 @@ public enum LeadClosureOutcome { Sold, Lost, Invalid }
 public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
 public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released, Cancelled }
 public enum DeliveryType { Standard, Outstation }
+public enum DeliveryStage { PlanDelivery, PrepareCar, ClearDocuments, Handover, Completed, Cancelled }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
 public enum CollectionStatus { Pending, Reconciled, Reversed }
 public enum CollectionMethod { BookingDeposit, DownPayment, BankTransfer, BankDisbursement, Cheque, Card, TradeInCredit, Other, Cash }
@@ -26,11 +27,14 @@ public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
 public enum RepairApprovalStatus { Pending, Approved, Rejected }
 public enum SupplierInvoiceAgingStatus { Unmatched, DueSoon, Overdue, Paid }
 public enum HrAttendanceStatus { Present, Late, HalfDay, Absent }
+public enum HrAttendanceVerificationMethod { Manual, OfficeQr, Outstation, ManualException, OfficeIp }
+public enum HrAttendanceAction { CheckIn, CheckOut }
 public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave }
 public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
+public enum HrBusinessTripStatus { Pending, Approved, Rejected, Cancelled }
+public enum HrAttendanceReminderType { PendingApproval, UpcomingOutstation, MissingCheckOut }
 public enum HrPayslipStatus { Draft, Generated }
 public enum HrEmploymentType { Monthly, Hourly }
-public enum HrAttendanceVerificationMethod { Manual = 0, OfficeQr = 1, Outstation = 2, ManualException = 3, OfficeIp = 4 }
 public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate, InspectionReport, WindscreenPolicy }
 public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed, Reviewed }
@@ -71,6 +75,8 @@ public sealed record Vehicle
     public string? OutstationPickupBookingSlip { get; init; }
     public DateOnly IntakeDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
     public DateTime? SoldAt { get; init; }
+    public string? SalesAgentUserId { get; init; }
+    public string? SalesAgentName { get; init; }
 }
 
 public sealed record VehicleCatalogModel
@@ -284,6 +290,7 @@ public sealed record DeliverySchedule
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
     public Guid? CustomerId { get; init; }
+    public string? PicUserId { get; init; }
     public string Pic { get; init; } = "";
     public DeliveryStatus Status { get; init; } = DeliveryStatus.BookingInspection;
     public DeliveryType DeliveryType { get; init; } = DeliveryType.Standard;
@@ -317,6 +324,22 @@ public sealed record DeliverySchedule
     public bool FinalChecklistConfirmed { get; init; }
     public DateTime? ReleasedAt { get; init; }
     public string? ReleasedByUserId { get; init; }
+    public DateTime? InvoiceUpdateRequestedAt { get; init; }
+    public string? InvoiceUpdateRequestedByUserId { get; init; }
+    public string? InvoiceUpdateRequestReason { get; init; }
+    public DateTime? InvoiceUpdateResolvedAt { get; init; }
+    public string? InvoiceUpdateResolvedByUserId { get; init; }
+}
+
+public sealed record DeliveryActivity
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid DeliveryScheduleId { get; init; }
+    public string Action { get; init; } = "";
+    public string ActorUserId { get; init; } = "";
+    public string ActorName { get; init; } = "";
+    public string Summary { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record DeliveryAccountingCharge
@@ -548,6 +571,50 @@ public sealed record HrAttendanceRecord
     public HrAttendanceVerificationMethod VerificationMethod { get; init; } = HrAttendanceVerificationMethod.Manual;
     public string? OfficeNetworkLabel { get; init; }
     public string? Notes { get; init; }
+}
+
+public sealed record HrAttendanceQrChallenge
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string TokenHash { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public DateTime ExpiresAt { get; init; }
+    public string CreatedBy { get; init; } = "";
+}
+
+public sealed record HrAttendanceQrRedemption
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid ChallengeId { get; init; }
+    public string StaffUserId { get; init; } = "";
+    public HrAttendanceAction Action { get; init; }
+    public DateTime RedeemedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrBusinessTrip
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public HrBusinessTripStatus Status { get; init; } = HrBusinessTripStatus.Pending;
+    public DateOnly StartDate { get; init; }
+    public DateOnly EndDate { get; init; }
+    public string Location { get; init; } = "";
+    public string Purpose { get; init; } = "";
+    public bool IsUrgentException { get; init; }
+    public DateTime RequestedAt { get; init; } = DateTime.UtcNow;
+    public string? ApprovedBy { get; init; }
+    public DateTime? ApprovedAt { get; init; }
+    public string? DecisionNotes { get; init; }
+}
+
+public sealed record HrAttendanceReminderPolicy
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public HrAttendanceReminderType Type { get; init; }
+    public bool IsEnabled { get; init; } = true;
+    public int LeadHours { get; init; } = 24;
+    public string UpdatedBy { get; init; } = "";
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record HrAttendanceNetwork

@@ -93,7 +93,7 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
-    public void Dashboard_ai_document_processing_remains_aggregate_and_boss_admin_only()
+    public void Dashboard_ai_document_processing_remains_aggregate_and_dashboard_only()
     {
         var root = FindRepositoryRoot();
         var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
@@ -101,7 +101,7 @@ public sealed class ApiDocumentationTests
 
         Assert.Contains("AiDocumentProcessingMetrics.Create", dashboardRoute);
         Assert.Contains("AiDocumentProcessing = aiDocumentProcessing", dashboardRoute);
-        Assert.Contains("RequireAuthorization(\"Dashboard\")", dashboardRoute);
+        Assert.Contains("}).RequireAuthorization(\"Dashboard\");", dashboardRoute);
         Assert.DoesNotContain("ResultJson", dashboardRoute);
         Assert.DoesNotContain("DocumentBlob", dashboardRoute);
     }
@@ -139,6 +139,10 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<LoanStatus>(apiDocs);
         AssertDocumentedEnum<DeliveryStatus>(apiDocs);
         AssertDocumentedEnum<PaymentStatus>(apiDocs);
+        AssertDocumentedEnum<CollectionStatus>(apiDocs);
+        AssertDocumentedEnum<CollectionMethod>(apiDocs);
+        AssertDocumentedEnum<FinancingStatus>(apiDocs);
+        AssertDocumentedEnum<ReceivableStatus>(apiDocs);
         AssertDocumentedEnum<PaymentVoucherStatus>(apiDocs);
         AssertDocumentedEnum<CashHandoverStatus>(apiDocs);
         AssertDocumentedEnum<DebtRecoveryStatus>(apiDocs);
@@ -149,6 +153,122 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<AiUsageStatus>(apiDocs);
         AssertDocumentedEnum<HrEmploymentType>(apiDocs);
         AssertDocumentedEnum<HrAttendanceVerificationMethod>(apiDocs);
+    }
+
+    [Fact]
+    public void Finance_v2_routes_evidence_and_delivery_ownership_are_documented_and_server_enforced()
+    {
+        var root = FindRepositoryRoot();
+        var apiDocs = File.ReadAllText(Path.Combine(root, "docs", "API.md"));
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var businessRules = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "BusinessRules.cs"));
+
+        Assert.Contains("backOffice.MapPost(\"/payments/finance-sale\"", program);
+        Assert.Contains("backOffice.MapPost(\"/payments/{id:guid}/collections\"", program);
+        Assert.Contains("backOffice.MapPost(\"/collection-transactions/{id:guid}/reconcile\"", program);
+        Assert.Contains("Guid? collectionTransactionId", program);
+        Assert.Contains("ValidateCollectionEvidenceContent", program);
+        Assert.Contains("PdfDocument.Open", businessRules);
+        Assert.Contains("ParsingOptions.LenientParsingOff", businessRules);
+        Assert.Contains("var deliveries = await db.DeliverySchedules.AsNoTracking()", program);
+        Assert.Contains("WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, allPayments, deliveries)", program);
+        Assert.Contains("Finance V2 uses one receivable per vehicle", apiDocs);
+        Assert.Contains("Creating the receivable locks the buyer identity", apiDocs);
+        Assert.Contains("First-deploy assumption", apiDocs);
+        Assert.Contains("A vehicle becomes `Sold` only when that Finance clearance and a released delivery are both present.", apiDocs);
+    }
+
+    [Fact]
+    public void Finance_v2_download_receivable_buyer_and_delivery_invoice_boundaries_are_server_enforced()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+
+        var vehicleUpdateRoute = program[
+            program.IndexOf("backOffice.MapPut(\"/vehicles/{id:guid}\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/stock-movements\"", StringComparison.Ordinal)];
+        Assert.Contains("DeliveryConcurrencyLock.BeginVehiclesAsync(db, [id])", vehicleUpdateRoute);
+        Assert.Contains("FinanceV2Rules.ValidateReceivableBuyer", vehicleUpdateRoute);
+
+        var correctBuyerRoute = program[
+            program.IndexOf("backOffice.MapPost(\"/deliveries/{id:guid}/correct-buyer\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/deliveries/{id:guid}/request-invoice-update\"", StringComparison.Ordinal)];
+        Assert.Contains("DeliveryConcurrencyLock.BeginDeliveryAsync", correctBuyerRoute);
+        Assert.Contains("FinanceV2Rules.ValidateReceivableBuyer", correctBuyerRoute);
+
+        var requestInvoiceUpdateRoute = program[
+            program.IndexOf("backOffice.MapPost(\"/deliveries/{id:guid}/request-invoice-update\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/deliveries/{id:guid}/resolve-invoice-update\"", StringComparison.Ordinal)];
+        Assert.Contains("DeliveryConcurrencyLock.BeginDeliveryAsync", requestInvoiceUpdateRoute);
+        Assert.Contains("FinanceV2Rules.ValidateDeliveryInvoiceUpdateBoundary", requestInvoiceUpdateRoute);
+
+        var resolveInvoiceUpdateRoute = program[
+            program.IndexOf("backOffice.MapPost(\"/deliveries/{id:guid}/resolve-invoice-update\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/repairs\"", StringComparison.Ordinal)];
+        Assert.Contains("DeliveryConcurrencyLock.BeginDeliveryAsync", resolveInvoiceUpdateRoute);
+        Assert.Contains("DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest(delivery)", resolveInvoiceUpdateRoute);
+        Assert.Contains("FinanceV2Rules.ValidateDeliveryInvoiceUpdateBoundary", resolveInvoiceUpdateRoute);
+
+        var legacyPaymentUpdateRoute = program[
+            program.IndexOf("backOffice.MapPut(\"/payments/{id:guid}\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/payments/{id:guid}/management-review\"", StringComparison.Ordinal)];
+        Assert.Contains("FinanceV2Rules.PreserveServerOwnedFields(existingPayment, payment)", legacyPaymentUpdateRoute);
+
+        var invoiceDownloadRoute = program[
+            program.IndexOf("backOffice.MapGet(\"/finance-invoices/{invoiceId:guid}/content\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/settlement-reminders\"", StringComparison.Ordinal)];
+        var auditIndex = invoiceDownloadRoute.IndexOf("finance.invoiceDownloaded", StringComparison.Ordinal);
+        var saveIndex = invoiceDownloadRoute.IndexOf("await db.SaveChangesAsync();", StringComparison.Ordinal);
+        var fileIndex = invoiceDownloadRoute.IndexOf("return Results.File", StringComparison.Ordinal);
+        Assert.True(auditIndex >= 0 && auditIndex < saveIndex && saveIndex < fileIndex);
+        Assert.Contains("}).RequireAuthorization(\"Finance\");", invoiceDownloadRoute);
+
+        var invoiceIssueMethod = program[
+            program.IndexOf("public static async Task<FinanceInvoiceIssueResult> IssueInvoiceAsync", StringComparison.Ordinal)..
+            program.IndexOf("public static async Task<object> ApplyCollectionMutationAsync", StringComparison.Ordinal)];
+        var deliveryGuardIndex = invoiceIssueMethod.IndexOf("ValidateInvoiceIssuanceDeliveryState", StringComparison.Ordinal);
+        var existingInvoiceReturnIndex = invoiceIssueMethod.IndexOf("if (existingInvoice is not null)", StringComparison.Ordinal);
+        Assert.True(deliveryGuardIndex >= 0 && deliveryGuardIndex < existingInvoiceReturnIndex);
+    }
+
+    [Fact]
+    public void Finance_vehicle_options_are_minimal_and_finance_authorized()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var financeV2 = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "FinanceV2.cs"));
+
+        var route = program[
+            program.IndexOf("backOffice.MapGet(\"/finance/vehicle-options\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/vehicles\"", StringComparison.Ordinal)];
+        Assert.Contains("FinanceVehicleOptions.ToResponse", route);
+        Assert.Contains("RequireAuthorization(\"Finance\")", route);
+
+        var responseContract = financeV2[
+            financeV2.IndexOf("public sealed record FinanceVehicleOptionResponse", StringComparison.Ordinal)..
+            financeV2.IndexOf("public static class FinanceVehicleOptions", StringComparison.Ordinal)];
+        Assert.Contains("decimal SellingPrice", responseContract);
+        Assert.Contains("decimal AdditionalCharges", responseContract);
+        Assert.DoesNotContain("PurchasePrice", responseContract);
+        Assert.DoesNotContain("RefurbishmentTotal", responseContract);
+        Assert.DoesNotContain("StockOwner", responseContract);
+    }
+
+    [Fact]
+    public void Production_startup_ensures_finance_v2_schema_when_seed_data_is_disabled()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var seedData = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Data", "SeedData.cs"));
+        var startup = program[
+            program.IndexOf("var seedDataEnabled", StringComparison.Ordinal)..
+            program.IndexOf("app.Run();", StringComparison.Ordinal)];
+
+        Assert.Contains("else", startup);
+        Assert.Contains("await SeedData.EnsureFinanceV2SchemaAsync(app);", startup);
+        Assert.Contains("await SeedData.EnsureDeliveryWorkboardSchemaAsync(app);", startup);
+        Assert.Contains("public static async Task EnsureFinanceV2SchemaAsync(WebApplication app)", seedData);
+        Assert.Contains("await EnsureFinanceV2SchemaAsync(db);", seedData);
     }
 
     [Fact]
