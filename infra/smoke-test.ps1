@@ -852,58 +852,6 @@ if ($updatedWorkflowVehicleContent.model -ne "Workflow Updated" -or $updatedWork
   throw "Workflow vehicle update did not preserve corrected intake details"
 }
 Write-Host "Vehicle intake update OK"
-
-$workflowSalesLeadBody = @{
-  vehicleId = $workflowVehicleId
-  customerName = "Tan Workflow Buyer"
-  phone = "019-$workflowSuffix"
-  message = "Workflow sale attribution smoke"
-} | ConvertTo-Json
-$workflowSalesLead = Invoke-WebRequest -Uri "$ApiBaseUrl/api/public/leads" -Method Post -Body $workflowSalesLeadBody -ContentType "application/json" -UseBasicParsing
-if ($workflowSalesLead.StatusCode -lt 200 -or $workflowSalesLead.StatusCode -ge 300) {
-  throw "Workflow Sales lead creation returned HTTP $($workflowSalesLead.StatusCode)"
-}
-$createdWorkflowSalesLead = $workflowSalesLead.Content | ConvertFrom-Json
-$contactedWorkflowSalesLeadBody = @{
-  id = $createdWorkflowSalesLead.id
-  vehicleId = $workflowVehicleId
-  customerId = $workflowCustomerId
-  customerName = "Tan Workflow Buyer"
-  phone = "019-$workflowSuffix"
-  message = "Workflow sale attribution smoke"
-  status = "Contacted"
-  createdAt = $createdWorkflowSalesLead.createdAt
-} | ConvertTo-Json
-$contactedWorkflowSalesLead = Invoke-WebRequest -Uri "$ApiBaseUrl/api/leads/$($createdWorkflowSalesLead.id)" -Method Put -Body $contactedWorkflowSalesLeadBody -ContentType "application/json" -WebSession $salesSession -UseBasicParsing
-if ($contactedWorkflowSalesLead.StatusCode -lt 200 -or $contactedWorkflowSalesLead.StatusCode -ge 300) {
-  throw "Workflow Sales lead claim returned HTTP $($contactedWorkflowSalesLead.StatusCode)"
-}
-$contactedWorkflowSalesLeadContent = $contactedWorkflowSalesLead.Content | ConvertFrom-Json
-$closedWorkflowSalesLeadBody = @{
-  id = $contactedWorkflowSalesLeadContent.id
-  vehicleId = $workflowVehicleId
-  customerId = $workflowCustomerId
-  customerName = $contactedWorkflowSalesLeadContent.customerName
-  phone = $contactedWorkflowSalesLeadContent.phone
-  message = $contactedWorkflowSalesLeadContent.message
-  status = "Closed"
-  closureOutcome = "Sold"
-  createdAt = $contactedWorkflowSalesLeadContent.createdAt
-  takenByUserId = $contactedWorkflowSalesLeadContent.takenByUserId
-  takenByName = $contactedWorkflowSalesLeadContent.takenByName
-  takenAt = $contactedWorkflowSalesLeadContent.takenAt
-} | ConvertTo-Json
-$closedWorkflowSalesLead = Invoke-WebRequest -Uri "$ApiBaseUrl/api/leads/$($createdWorkflowSalesLead.id)" -Method Put -Body $closedWorkflowSalesLeadBody -ContentType "application/json" -WebSession $salesSession -UseBasicParsing
-if ($closedWorkflowSalesLead.StatusCode -lt 200 -or $closedWorkflowSalesLead.StatusCode -ge 300) {
-  throw "Workflow Sales lead close returned HTTP $($closedWorkflowSalesLead.StatusCode)"
-}
-$attributedVehiclesResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/vehicles" -WebSession $session -UseBasicParsing
-$attributedVehicle = @($attributedVehiclesResponse.Content | ConvertFrom-Json) | Where-Object { $_.id -eq $workflowVehicleId } | Select-Object -First 1
-if ($null -eq $attributedVehicle -or $attributedVehicle.salesAgentUserId -ne $createdSalesUser.id -or $attributedVehicle.salesAgentName -ne "Ah Wei Sales") {
-  throw "Closed Sold lead did not attribute the workflow vehicle to its Sales agent"
-}
-Write-Host "Sales vehicle attribution OK"
-
 $auditLog = Invoke-WebRequest -Uri "$ApiBaseUrl/api/audit-log" -WebSession $session -UseBasicParsing
 $auditItems = $auditLog.Content | ConvertFrom-Json
 $vehicleAudit = @($auditItems | Where-Object { $_.action -eq "vehicle.created" -and $_.entityId -eq $workflowVehicleId -and $_.actor -eq $AdminEmail })
@@ -1349,23 +1297,13 @@ if ($wrongPlateSupplierInvoiceStatus -ne 400 -or $wrongPlateSupplierInvoiceConte
 }
 Write-Host "Supplier invoice wrong plate validation OK"
 
-$deliveryPicOptionsResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/pic-options" -WebSession $session -UseBasicParsing
-$deliveryPicOptions = @($deliveryPicOptionsResponse.Content | ConvertFrom-Json)
-$adminUserId = ($me.Content | ConvertFrom-Json).id
-$deliveryPic = $deliveryPicOptions | Where-Object { $_.id -eq $adminUserId } | Select-Object -First 1
-if ($null -eq $deliveryPic -or [string]::IsNullOrWhiteSpace($deliveryPic.displayName)) {
-  throw "Delivery PIC options did not include the active Boss/Admin user"
-}
-Write-Host "Delivery staff PIC options OK"
-
-$deliveryId = [guid]::NewGuid().ToString()
-$noticeReminderDeliveryId = $deliveryId
+$noticeReminderDeliveryId = [guid]::NewGuid().ToString()
 $noticeReminderDeliveryBody = @{
   id = $noticeReminderDeliveryId
   vehicleId = $workflowVehicleId
-  picUserId = $deliveryPic.id
+  pic = "Ah Ming Delivery Reminder"
+  status = "Scheduled"
   scheduledDate = "2026-06-01"
-  scheduledTime = "09:00:00"
   polishDone = $false
   tintedDone = $false
   washDone = $false
@@ -1379,12 +1317,6 @@ $noticeReminderDelivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries" -M
 if ($noticeReminderDelivery.StatusCode -lt 200 -or $noticeReminderDelivery.StatusCode -ge 300) {
   throw "Delivery reminder smoke creation returned HTTP $($noticeReminderDelivery.StatusCode)"
 }
-$createdDelivery = $noticeReminderDelivery.Content | ConvertFrom-Json
-if ($createdDelivery.customerId -ne $workflowCustomerId -or $createdDelivery.picUserId -ne $deliveryPic.id -or $createdDelivery.pic -ne $deliveryPic.displayName -or $createdDelivery.status -ne "BookingInspection") {
-  throw "Delivery creation did not lock the canonical buyer, active staff PIC, and server-owned starting status"
-}
-$deliveryId = $createdDelivery.id
-$noticeReminderDeliveryId = $deliveryId
 $deliveryReminderInbox = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/reminders" -WebSession $session -UseBasicParsing
 if ($deliveryReminderInbox.Content -notmatch "DeliveryPreparation" -or $deliveryReminderInbox.Content -notmatch $workflowPlate) {
   throw "Dashboard reminders did not include due delivery preparation before 2-day notice was sent"
@@ -1393,10 +1325,9 @@ if ($deliveryReminderInbox.Content -notmatch "DeliveryPreparation" -or $delivery
 $sentNoticeDeliveryBody = @{
   id = $noticeReminderDeliveryId
   vehicleId = $workflowVehicleId
-  customerId = $workflowCustomerId
-  picUserId = $deliveryPic.id
+  pic = "Ah Ming Delivery Reminder"
+  status = "Scheduled"
   scheduledDate = "2026-06-01"
-  scheduledTime = "09:00:00"
   polishDone = $false
   tintedDone = $false
   washDone = $false
@@ -1418,166 +1349,153 @@ if ($null -ne $remainingDeliveryNotice) {
 }
 Write-Host "Delivery 2-day notice reminder OK"
 
-$duplicateDeliveryBody = @{
-  id = [guid]::NewGuid().ToString()
+$deliveryId = [guid]::NewGuid().ToString()
+$deliveryBody = @{
+  id = $deliveryId
   vehicleId = $workflowVehicleId
-  picUserId = $deliveryPic.id
+  pic = "Ah Ming Delivery"
+  status = "Scheduled"
   scheduledDate = "2026-06-03"
-  polishDone = $false
-  tintedDone = $false
+  polishDone = $true
+  tintedDone = $true
   washDone = $false
-  documentsPrepared = $false
-  inspectionDone = $false
+  documentsPrepared = $true
+  inspectionDone = $true
+  inspectionBookingReference = "BOOK-$workflowSuffix"
+  inspectionReportReference = "INSPECT-$workflowSuffix"
+  insurancePolicyReference = "POL-$workflowSuffix"
+  roadTaxReceiptReference = "RT-$workflowSuffix"
+  windscreenPolicyReference = "WS-$workflowSuffix"
   notificationSent = $false
-  twoDayNoticeSent = $false
+  twoDayNoticeSent = $true
 } | ConvertTo-Json
-try {
-  $duplicateDelivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries" -Method Post -Body $duplicateDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
-  $duplicateDeliveryStatus = [int]$duplicateDelivery.StatusCode
-  $duplicateDeliveryContent = $duplicateDelivery.Content
+$delivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries" -Method Post -Body $deliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+if ($delivery.StatusCode -lt 200 -or $delivery.StatusCode -ge 300) {
+  throw "Workflow delivery creation returned HTTP $($delivery.StatusCode)"
 }
-catch {
-  if ($_.Exception.Response) {
-    $duplicateDeliveryStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
-    try {
-      $duplicateDeliveryContent = $reader.ReadToEnd()
-    }
-    finally {
-      $reader.Dispose()
-    }
-  }
-  else {
-    throw
-  }
+$createdDelivery = $delivery.Content | ConvertFrom-Json
+if ($createdDelivery.notificationSent -ne $false -or $createdDelivery.customerId -ne $workflowCustomerId) {
+  throw "Workflow delivery did not retain the server-locked buyer and pending notification state"
 }
-if ($duplicateDeliveryStatus -ne 409 -or $duplicateDeliveryContent -notmatch "delivery_active_exists") {
-  throw "Second active delivery returned HTTP $duplicateDeliveryStatus instead of delivery_active_exists conflict"
+
+$inspectionDeliveryBody = @{
+  id = $createdDelivery.id
+  vehicleId = $createdDelivery.vehicleId
+  pic = $createdDelivery.pic
+  status = "Inspection"
+  scheduledDate = $createdDelivery.scheduledDate
+  polishDone = $createdDelivery.polishDone
+  tintedDone = $createdDelivery.tintedDone
+  washDone = $createdDelivery.washDone
+  documentsPrepared = $createdDelivery.documentsPrepared
+  inspectionDone = $createdDelivery.inspectionDone
+  inspectionBookingReference = $createdDelivery.inspectionBookingReference
+  inspectionReportReference = $createdDelivery.inspectionReportReference
+  insurancePolicyReference = $createdDelivery.insurancePolicyReference
+  roadTaxReceiptReference = $createdDelivery.roadTaxReceiptReference
+  windscreenPolicyReference = $createdDelivery.windscreenPolicyReference
+  notificationSent = $createdDelivery.notificationSent
+  twoDayNoticeSent = $createdDelivery.twoDayNoticeSent
+  insuranceHandled = $createdDelivery.insuranceHandled
+  roadTaxHandled = $createdDelivery.roadTaxHandled
+  windscreenInsuranceHandled = $createdDelivery.windscreenInsuranceHandled
+} | ConvertTo-Json
+$inspectionDelivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $inspectionDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+if ($inspectionDelivery.StatusCode -lt 200 -or $inspectionDelivery.StatusCode -ge 300) {
+  throw "Workflow delivery inspection transition returned HTTP $($inspectionDelivery.StatusCode)"
 }
-Write-Host "Single active delivery validation OK"
+$createdDelivery = $inspectionDelivery.Content | ConvertFrom-Json
 
 $correctedDeliveryBody = @{
   id = $createdDelivery.id
   vehicleId = $createdDelivery.vehicleId
-  customerId = $workflowCustomerId
-  picUserId = $deliveryPic.id
-  deliveryType = "Outstation"
+  pic = "Ah Ming Delivery Corrected"
+  status = "PreparingDocuments"
   scheduledDate = "2026-06-04"
-  scheduledTime = "10:30:00"
-  deliveryAddress = "123 Jalan Kluang"
-  transportMethod = "Company driver"
-  rescheduleReason = "Customer requested outstation delivery"
-  polishDone = $true
-  tintedDone = $true
-  washDone = $true
-  documentsPrepared = $true
-  inspectionDone = $true
+  polishDone = $createdDelivery.polishDone
+  tintedDone = $createdDelivery.tintedDone
+  washDone = $createdDelivery.washDone
+  documentsPrepared = $createdDelivery.documentsPrepared
+  inspectionDone = $createdDelivery.inspectionDone
   inspectionBookingReference = "BOOK-EDIT-$workflowSuffix"
-  inspectionReportReference = "INSPECT-$workflowSuffix"
+  inspectionReportReference = $createdDelivery.inspectionReportReference
   insurancePolicyReference = "POL-EDIT-$workflowSuffix"
-  insuranceExpiryDate = "2026-12-31"
   roadTaxReceiptReference = "RT-EDIT-$workflowSuffix"
-  roadTaxExpiryDate = "2026-12-31"
   windscreenPolicyReference = "WS-EDIT-$workflowSuffix"
-  windscreenInsuranceExpiryDate = "2026-12-31"
-  notificationSent = $true
-  twoDayNoticeSent = $true
-  insuranceHandled = $true
-  roadTaxHandled = $true
-  windscreenInsuranceHandled = $true
-  handoverPhotoCaptured = $true
-  signedHandoverReceived = $true
-  customerAcknowledged = $true
-  finalChecklistConfirmed = $true
+  notificationSent = $createdDelivery.notificationSent
+  twoDayNoticeSent = $createdDelivery.twoDayNoticeSent
+  insuranceHandled = $createdDelivery.insuranceHandled
+  roadTaxHandled = $createdDelivery.roadTaxHandled
+  windscreenInsuranceHandled = $createdDelivery.windscreenInsuranceHandled
 } | ConvertTo-Json
 $correctedDelivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $correctedDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
 if ($correctedDelivery.StatusCode -lt 200 -or $correctedDelivery.StatusCode -ge 300) {
   throw "Workflow delivery correction update returned HTTP $($correctedDelivery.StatusCode)"
 }
 $correctedDeliveryContent = $correctedDelivery.Content | ConvertFrom-Json
-if ($correctedDeliveryContent.picUserId -ne $deliveryPic.id -or $correctedDeliveryContent.pic -ne $deliveryPic.displayName -or $correctedDeliveryContent.status -ne "BookingInspection" -or $correctedDeliveryContent.scheduledDate -ne "2026-06-04" -or $correctedDeliveryContent.scheduledTime -ne "10:30:00" -or $correctedDeliveryContent.deliveryType -ne "Outstation" -or $correctedDeliveryContent.deliveryAddress -ne "123 Jalan Kluang" -or $correctedDeliveryContent.transportMethod -ne "Company driver") {
-  throw "Delivery update did not preserve the locked PIC, server status, and outstation schedule"
+if ($correctedDeliveryContent.pic -ne "Ah Ming Delivery Corrected" -or $correctedDeliveryContent.status -ne "PreparingDocuments" -or $correctedDeliveryContent.scheduledDate -ne "2026-06-04") {
+  throw "Workflow delivery correction fields did not round trip"
 }
 
-$deliveryWorkboardResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/workboard" -WebSession $session -UseBasicParsing
-$deliveryWorkboardItem = @($deliveryWorkboardResponse.Content | ConvertFrom-Json) | Where-Object { $_.id -eq $deliveryId } | Select-Object -First 1
-if ($null -eq $deliveryWorkboardItem -or $deliveryWorkboardItem.customerId -ne $workflowCustomerId -or $deliveryWorkboardItem.picUserId -ne $deliveryPic.id -or $deliveryWorkboardItem.stage -ne "PrepareCar" -or $deliveryWorkboardItem.nextAction -ne "Upload inspection report" -or $deliveryWorkboardItem.financeCleared -ne $false) {
-  throw "Delivery workboard did not return the locked buyer/PIC and server-derived Prepare car action"
+$notifiedDeliveryBody = @{
+  id = $correctedDeliveryContent.id
+  vehicleId = $correctedDeliveryContent.vehicleId
+  pic = $correctedDeliveryContent.pic
+  status = "CarPreparation"
+  scheduledDate = $correctedDeliveryContent.scheduledDate
+  polishDone = $correctedDeliveryContent.polishDone
+  tintedDone = $correctedDeliveryContent.tintedDone
+  washDone = $correctedDeliveryContent.washDone
+  documentsPrepared = $correctedDeliveryContent.documentsPrepared
+  inspectionDone = $correctedDeliveryContent.inspectionDone
+  inspectionBookingReference = $correctedDeliveryContent.inspectionBookingReference
+  inspectionReportReference = $correctedDeliveryContent.inspectionReportReference
+  insurancePolicyReference = $correctedDeliveryContent.insurancePolicyReference
+  roadTaxReceiptReference = $correctedDeliveryContent.roadTaxReceiptReference
+  windscreenPolicyReference = $correctedDeliveryContent.windscreenPolicyReference
+  notificationSent = $true
+  twoDayNoticeSent = $correctedDeliveryContent.twoDayNoticeSent
+  insuranceHandled = $correctedDeliveryContent.insuranceHandled
+  roadTaxHandled = $correctedDeliveryContent.roadTaxHandled
+  windscreenInsuranceHandled = $correctedDeliveryContent.windscreenInsuranceHandled
+} | ConvertTo-Json
+$notifiedDelivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $notifiedDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+if ($notifiedDelivery.StatusCode -lt 200 -or $notifiedDelivery.StatusCode -ge 300) {
+  throw "Workflow delivery notification update returned HTTP $($notifiedDelivery.StatusCode)"
 }
-Write-Host "Delivery workboard stage and ownership OK"
+$notifiedDeliveryContent = $notifiedDelivery.Content | ConvertFrom-Json
+if ($notifiedDeliveryContent.notificationSent -ne $true -or $notifiedDeliveryContent.twoDayNoticeSent -ne $true) {
+  throw "Workflow delivery notification did not round trip separately from 2-day notice"
+}
+if ($notifiedDeliveryContent.inspectionBookingReference -ne "BOOK-EDIT-$workflowSuffix") {
+  throw "Workflow delivery inspection booking reference did not round trip"
+}
+if ($notifiedDeliveryContent.insurancePolicyReference -ne "POL-EDIT-$workflowSuffix" -or $notifiedDeliveryContent.roadTaxReceiptReference -ne "RT-EDIT-$workflowSuffix" -or $notifiedDeliveryContent.windscreenPolicyReference -ne "WS-EDIT-$workflowSuffix") {
+  throw "Workflow delivery handover references did not round trip"
+}
+Write-Host "Delivery correction tracking OK"
+Write-Host "Delivery notification tracking OK"
+Write-Host "Delivery inspection booking tracking OK"
+Write-Host "Delivery handover reference tracking OK"
 
-$invoiceUpdateRequestBody = @{ reason = "Correct windscreen charge before release" } | ConvertTo-Json
-$invoiceUpdateRequest = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/request-invoice-update" -Method Post -Body $invoiceUpdateRequestBody -ContentType "application/json" -WebSession $session -UseBasicParsing
-if ($invoiceUpdateRequest.StatusCode -lt 200 -or $invoiceUpdateRequest.StatusCode -ge 300 -or $invoiceUpdateRequest.Content -notmatch "Correct windscreen charge before release") {
-  throw "Delivery invoice update request did not preserve the reason for Finance"
-}
-$invoiceUpdateQueueResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/invoice-update-requests" -WebSession $financeSession -UseBasicParsing
-$invoiceUpdateQueueItem = @($invoiceUpdateQueueResponse.Content | ConvertFrom-Json) | Where-Object { $_.id -eq $deliveryId } | Select-Object -First 1
-if ($null -eq $invoiceUpdateQueueItem -or $invoiceUpdateQueueItem.vehicleId -ne $workflowVehicleId -or $invoiceUpdateQueueItem.requestReason -ne "Correct windscreen charge before release") {
-  throw "Finance invoice update queue did not return the open Delivery request"
-}
-$resolvedInvoiceUpdate = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/resolve-invoice-update" -Method Post -WebSession $financeSession -UseBasicParsing
-if ($resolvedInvoiceUpdate.StatusCode -lt 200 -or $resolvedInvoiceUpdate.StatusCode -ge 300) {
-  throw "Finance invoice update resolution returned HTTP $($resolvedInvoiceUpdate.StatusCode)"
-}
-$deliveryActivities = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/activity" -WebSession $session -UseBasicParsing
-if ($deliveryActivities.Content -notmatch "Created" -or $deliveryActivities.Content -notmatch "Updated" -or $deliveryActivities.Content -notmatch "InvoiceUpdateRequested" -or $deliveryActivities.Content -notmatch "InvoiceUpdateResolved") {
-  throw "Delivery activity did not include create, update, invoice-request, and Finance-resolution events"
-}
-Write-Host "Delivery activity and invoice update request OK"
-
-$deliveryEvidenceBytes = New-LocalTestPngBytes
-$wrongDeliveryScheduleId = [guid]::NewGuid().ToString()
-$wrongDeliveryOwnerUpload = Invoke-MultipartUpload `
-  -Url "$ApiBaseUrl/api/vehicles/$workflowVehicleId/documents?category=DeliveryDocument&deliveryScheduleId=$wrongDeliveryScheduleId" `
-  -FileName "wrong-delivery-owner-$workflowSuffix.png" `
-  -ContentType "image/png" `
-  -Content $deliveryEvidenceBytes `
-  -Session $session
-if ($wrongDeliveryOwnerUpload.StatusCode -ne 400 -or $wrongDeliveryOwnerUpload.Content -notmatch "delivery_document_owner_invalid") {
-  throw "Mismatched delivery evidence owner returned HTTP $($wrongDeliveryOwnerUpload.StatusCode) instead of delivery_document_owner_invalid"
-}
-
-$requiredDeliveryCategories = @("DeliveryDocument", "InspectionReport", "Policy", "RoadTaxReceipt", "WindscreenPolicy", "HandoverPhoto", "SignedHandover")
-foreach ($deliveryCategory in $requiredDeliveryCategories) {
-  $deliveryEvidenceUpload = Invoke-MultipartUpload `
-    -Url "$ApiBaseUrl/api/vehicles/$workflowVehicleId/documents?category=$deliveryCategory&deliveryScheduleId=$deliveryId&customerId=$workflowCustomerId" `
-    -FileName "delivery-$($deliveryCategory.ToLowerInvariant())-$workflowSuffix.png" `
-    -ContentType "application/octet-stream" `
-    -Content $deliveryEvidenceBytes `
-    -Session $session
-  if ($deliveryEvidenceUpload.StatusCode -lt 200 -or $deliveryEvidenceUpload.StatusCode -ge 300) {
-    throw "$deliveryCategory evidence upload returned HTTP $($deliveryEvidenceUpload.StatusCode)"
-  }
-  $deliveryEvidenceMetadata = $deliveryEvidenceUpload.Content | ConvertFrom-Json
-  if ($deliveryEvidenceMetadata.deliveryScheduleId -ne $deliveryId -or $deliveryEvidenceMetadata.customerId -ne $workflowCustomerId -or $deliveryEvidenceMetadata.mimeType -ne "image/png") {
-    throw "$deliveryCategory evidence did not retain exact delivery/buyer ownership and detected MIME type"
-  }
-}
-
-$deliveryDocumentsResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/vehicles/$workflowVehicleId/documents" -WebSession $session -UseBasicParsing
-$deliveryDocuments = @($deliveryDocumentsResponse.Content | ConvertFrom-Json) | Where-Object { $_.deliveryScheduleId -eq $deliveryId }
-foreach ($deliveryCategory in $requiredDeliveryCategories) {
-  if (-not ($deliveryDocuments | Where-Object { $_.category -eq $deliveryCategory -and $_.customerId -eq $workflowCustomerId })) {
-    throw "Delivery document list did not return exact $deliveryCategory ownership"
-  }
-}
-Write-Host "Delivery-bound evidence ownership and content validation OK"
-
-$releaseReadinessResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/release-readiness" -WebSession $session -UseBasicParsing
-$releaseReadiness = $releaseReadinessResponse.Content | ConvertFrom-Json
-if ($releaseReadiness.isReady -ne $false -or $releaseReadiness.financeCleared -ne $false -or @($releaseReadiness.missingCategories).Count -ne 0) {
-  throw "Delivery release readiness did not keep Finance as the final gate after checklist and evidence completion"
-}
-
-$clearingWorkboardResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/workboard" -WebSession $session -UseBasicParsing
-$clearingWorkboardItem = @($clearingWorkboardResponse.Content | ConvertFrom-Json) | Where-Object { $_.id -eq $deliveryId } | Select-Object -First 1
-if ($null -eq $clearingWorkboardItem -or $clearingWorkboardItem.stage -ne "ClearDocuments" -or $clearingWorkboardItem.nextAction -ne "Wait for Finance clearance" -or $clearingWorkboardItem.financeCleared -ne $false -or $clearingWorkboardItem.canRelease -ne $false) {
-  throw "Delivery workboard did not expose Finance as the final Clear documents blocker"
-}
-
+$blockedReleaseBody = @{
+  id = $deliveryId
+  vehicleId = $workflowVehicleId
+  pic = "Ah Ming Delivery"
+  status = "Released"
+  scheduledDate = "2026-06-03"
+  polishDone = $true
+  tintedDone = $true
+  washDone = $false
+  documentsPrepared = $true
+  inspectionDone = $true
+  inspectionBookingReference = "BOOK-$workflowSuffix"
+  inspectionReportReference = "INSPECT-$workflowSuffix"
+  notificationSent = $true
+  twoDayNoticeSent = $true
+} | ConvertTo-Json
 try {
-  $blockedRelease = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/release" -Method Post -WebSession $session -UseBasicParsing
+  $blockedRelease = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $blockedReleaseBody -ContentType "application/json" -WebSession $session -UseBasicParsing
   $blockedReleaseStatus = [int]$blockedRelease.StatusCode
   $blockedReleaseContent = $blockedRelease.Content
 }
@@ -1596,10 +1514,131 @@ catch {
     throw
   }
 }
-if ($blockedReleaseStatus -ne 400 -or $blockedReleaseContent -notmatch "delivery_finance_not_cleared") {
-  throw "Delivery release before reconciliation returned HTTP $blockedReleaseStatus instead of delivery_finance_not_cleared"
+if ($blockedReleaseStatus -ne 400 -or $blockedReleaseContent -notmatch "delivery_transition_invalid") {
+  throw "Skipped delivery release stage returned HTTP $blockedReleaseStatus instead of delivery_transition_invalid validation"
 }
-Write-Host "Delivery Finance release gate OK"
+Write-Host "Delivery release transition validation OK"
+
+$blockedReadyBody = @{
+  id = $deliveryId
+  vehicleId = $workflowVehicleId
+  pic = "Ah Ming Delivery"
+  status = "ReadyForRelease"
+  scheduledDate = "2026-06-03"
+  polishDone = $true
+  tintedDone = $true
+  washDone = $false
+  documentsPrepared = $true
+  inspectionDone = $true
+  inspectionBookingReference = "BOOK-$workflowSuffix"
+  inspectionReportReference = "INSPECT-$workflowSuffix"
+  notificationSent = $true
+  twoDayNoticeSent = $true
+} | ConvertTo-Json
+try {
+  $blockedReady = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $blockedReadyBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+  $blockedReadyStatus = [int]$blockedReady.StatusCode
+  $blockedReadyContent = $blockedReady.Content
+}
+catch {
+  if ($_.Exception.Response) {
+    $blockedReadyStatus = [int]$_.Exception.Response.StatusCode
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
+    try {
+      $blockedReadyContent = $reader.ReadToEnd()
+    }
+    finally {
+      $reader.Dispose()
+    }
+  }
+  else {
+    throw
+  }
+}
+if ($blockedReadyStatus -ne 400 -or $blockedReadyContent -notmatch "delivery_not_ready") {
+  throw "Incomplete ready delivery returned HTTP $blockedReadyStatus instead of delivery_not_ready validation"
+}
+Write-Host "Delivery ready validation OK"
+
+$invalidDeliveryBody = @{
+  id = [guid]::NewGuid().ToString()
+  vehicleId = $workflowVehicleId
+  pic = " "
+  status = "Scheduled"
+  scheduledDate = "0001-01-01"
+  polishDone = $false
+  tintedDone = $false
+  washDone = $false
+  documentsPrepared = $false
+  inspectionDone = $false
+  notificationSent = $false
+  twoDayNoticeSent = $false
+} | ConvertTo-Json
+try {
+  $invalidDelivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries" -Method Post -Body $invalidDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+  $invalidDeliveryStatus = [int]$invalidDelivery.StatusCode
+  $invalidDeliveryContent = $invalidDelivery.Content
+}
+catch {
+  if ($_.Exception.Response) {
+    $invalidDeliveryStatus = [int]$_.Exception.Response.StatusCode
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
+    try {
+      $invalidDeliveryContent = $reader.ReadToEnd()
+    }
+    finally {
+      $reader.Dispose()
+    }
+  }
+  else {
+    throw
+  }
+}
+if ($invalidDeliveryStatus -ne 400 -or $invalidDeliveryContent -notmatch "delivery_pic_required" -or $invalidDeliveryContent -notmatch "delivery_schedule_required") {
+  throw "Invalid delivery returned HTTP $invalidDeliveryStatus instead of PIC and schedule validation"
+}
+Write-Host "Delivery schedule validation OK"
+
+$invalidInspectionDeliveryBody = @{
+  id = [guid]::NewGuid().ToString()
+  vehicleId = $workflowVehicleId
+  pic = "Ah Ming Delivery"
+  status = "Inspection"
+  scheduledDate = "2026-06-03"
+  polishDone = $false
+  tintedDone = $false
+  washDone = $false
+  documentsPrepared = $false
+  inspectionDone = $true
+  inspectionBookingReference = "BOOK-$workflowSuffix"
+  inspectionReportReference = " "
+  notificationSent = $false
+  twoDayNoticeSent = $false
+} | ConvertTo-Json
+try {
+  $invalidInspectionDelivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries" -Method Post -Body $invalidInspectionDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+  $invalidInspectionDeliveryStatus = [int]$invalidInspectionDelivery.StatusCode
+  $invalidInspectionDeliveryContent = $invalidInspectionDelivery.Content
+}
+catch {
+  if ($_.Exception.Response) {
+    $invalidInspectionDeliveryStatus = [int]$_.Exception.Response.StatusCode
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
+    try {
+      $invalidInspectionDeliveryContent = $reader.ReadToEnd()
+    }
+    finally {
+      $reader.Dispose()
+    }
+  }
+  else {
+    throw
+  }
+}
+if ($invalidInspectionDeliveryStatus -ne 400 -or $invalidInspectionDeliveryContent -notmatch "inspection_report_required") {
+  throw "Inspected delivery without report returned HTTP $invalidInspectionDeliveryStatus instead of inspection_report_required validation"
+}
+Write-Host "Delivery inspection report validation OK"
 
 $photoFileName = "smoke-photo-$workflowSuffix.png"
 $photoBytes = New-LocalTestPngBytes
@@ -2113,8 +2152,8 @@ if ($workflowPayment.StatusCode -lt 200 -or $workflowPayment.StatusCode -ge 300)
   throw "Workflow payment creation returned HTTP $($workflowPayment.StatusCode)"
 }
 $createdWorkflowPayment = $workflowPayment.Content | ConvertFrom-Json
-if ($createdWorkflowPayment.receiptNumber -ne "RCPT-$workflowSuffix" -or $createdWorkflowPayment.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdWorkflowPayment.bossChecked -ne $false -or $createdWorkflowPayment.documentsPrepared -ne $true -or $createdWorkflowPayment.checklistValidated -ne $true -or $createdWorkflowPayment.bankName -ne "Maybank" -or $createdWorkflowPayment.bankFollowUpDate -ne "2026-05-31" -or $createdWorkflowPayment.salesPrice -ne 58000 -or $createdWorkflowPayment.interestAdditionalCharges -ne 600 -or $createdWorkflowPayment.ncdAmount -ne 1200 -or $createdWorkflowPayment.windscreenCharges -ne 450 -or $createdWorkflowPayment.outstationDeliveryDate -ne "2026-06-04") {
-  throw "Workflow payment did not preserve Finance metadata or derive the outstation date from Delivery"
+if ($createdWorkflowPayment.receiptNumber -ne "RCPT-$workflowSuffix" -or $createdWorkflowPayment.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdWorkflowPayment.bossChecked -ne $false -or $createdWorkflowPayment.documentsPrepared -ne $true -or $createdWorkflowPayment.checklistValidated -ne $true -or $createdWorkflowPayment.bankName -ne "Maybank" -or $createdWorkflowPayment.bankFollowUpDate -ne "2026-05-31" -or $createdWorkflowPayment.salesPrice -ne 58000 -or $createdWorkflowPayment.interestAdditionalCharges -ne 600 -or $createdWorkflowPayment.ncdAmount -ne 1200 -or $createdWorkflowPayment.windscreenCharges -ne 450 -or $createdWorkflowPayment.outstationDeliveryDate -ne "2026-06-05") {
+  throw "Workflow payment did not preserve Finance metadata"
 }
 
 $updatedWorkflowPaymentBody = @{
@@ -2141,8 +2180,8 @@ if ($updatedWorkflowPayment.StatusCode -lt 200 -or $updatedWorkflowPayment.Statu
   throw "Workflow payment correction update returned HTTP $($updatedWorkflowPayment.StatusCode)"
 }
 $updatedWorkflowPaymentContent = $updatedWorkflowPayment.Content | ConvertFrom-Json
-if ($updatedWorkflowPaymentContent.nettPrice -ne 52500 -or $updatedWorkflowPaymentContent.salesPrice -ne 58500 -or $updatedWorkflowPaymentContent.interestAdditionalCharges -ne 650 -or $updatedWorkflowPaymentContent.ncdAmount -ne 1300 -or $updatedWorkflowPaymentContent.windscreenCharges -ne 500 -or $updatedWorkflowPaymentContent.outstationDeliveryDate -ne "2026-06-04" -or $updatedWorkflowPaymentContent.bankName -ne "Public Bank" -or $updatedWorkflowPaymentContent.bankFollowUpDate -ne "2026-06-02" -or $updatedWorkflowPaymentContent.bossChecked -ne $false) {
-  throw "Workflow payment correction did not preserve Finance metadata and Delivery-owned outstation date"
+if ($updatedWorkflowPaymentContent.nettPrice -ne 52500 -or $updatedWorkflowPaymentContent.salesPrice -ne 58500 -or $updatedWorkflowPaymentContent.interestAdditionalCharges -ne 650 -or $updatedWorkflowPaymentContent.ncdAmount -ne 1300 -or $updatedWorkflowPaymentContent.windscreenCharges -ne 500 -or $updatedWorkflowPaymentContent.outstationDeliveryDate -ne "2026-06-06" -or $updatedWorkflowPaymentContent.bankName -ne "Public Bank" -or $updatedWorkflowPaymentContent.bankFollowUpDate -ne "2026-06-02" -or $updatedWorkflowPaymentContent.bossChecked -ne $false) {
+  throw "Workflow payment correction did not preserve Finance metadata"
 }
 Write-Host "Payment update tracking OK"
 
@@ -2152,6 +2191,113 @@ if ($workflowPaymentReview.StatusCode -lt 200 -or $workflowPaymentReview.StatusC
   throw "Workflow payment management review did not confirm the corrected Finance record"
 }
 Write-Host "Payment management review OK"
+
+$deliveryPdfText = @"
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog >>
+endobj
+xref
+trailer
+<< /Root 1 0 R >>
+%%EOF
+"@
+$deliveryPdfBytes = [System.Text.Encoding]::ASCII.GetBytes($deliveryPdfText)
+
+$unscopedDeliveryEvidence = Invoke-MultipartUpload `
+  -Url "$ApiBaseUrl/api/vehicles/$workflowVehicleId/documents?category=Policy" `
+  -FileName "unscoped-policy-$workflowSuffix.pdf" `
+  -ContentType "application/pdf" `
+  -Content $deliveryPdfBytes `
+  -Session $session
+if ($unscopedDeliveryEvidence.StatusCode -ne 400 -or $unscopedDeliveryEvidence.Content -notmatch "delivery_document_owner_required") {
+  throw "Unscoped delivery evidence returned HTTP $($unscopedDeliveryEvidence.StatusCode) instead of delivery_document_owner_required"
+}
+
+$fakeDeliveryEvidence = Invoke-MultipartUpload `
+  -Url "$ApiBaseUrl/api/vehicles/$workflowVehicleId/documents?category=Policy&deliveryScheduleId=$deliveryId" `
+  -FileName "fake-policy-$workflowSuffix.pdf" `
+  -ContentType "application/pdf" `
+  -Content ([System.Text.Encoding]::UTF8.GetBytes("not a real document")) `
+  -Session $session
+if ($fakeDeliveryEvidence.StatusCode -ne 400 -or $fakeDeliveryEvidence.Content -notmatch "delivery_evidence_content_invalid") {
+  throw "Fake delivery evidence returned HTTP $($fakeDeliveryEvidence.StatusCode) instead of delivery_evidence_content_invalid"
+}
+
+$deliveryEvidenceCategories = @("InspectionReport", "DeliveryDocument", "HandoverPhoto", "SignedHandover", "Policy", "RoadTaxReceipt", "WindscreenPolicy")
+foreach ($deliveryEvidenceCategory in $deliveryEvidenceCategories) {
+  $isHandoverPhoto = $deliveryEvidenceCategory -eq "HandoverPhoto"
+  $evidenceUpload = Invoke-MultipartUpload `
+    -Url "$ApiBaseUrl/api/vehicles/$workflowVehicleId/documents?category=$deliveryEvidenceCategory&deliveryScheduleId=$deliveryId" `
+    -FileName $(if ($isHandoverPhoto) { "$deliveryEvidenceCategory-$workflowSuffix.png" } else { "$deliveryEvidenceCategory-$workflowSuffix.pdf" }) `
+    -ContentType $(if ($isHandoverPhoto) { "image/png" } else { "application/pdf" }) `
+    -Content $(if ($isHandoverPhoto) { $photoBytes } else { $deliveryPdfBytes }) `
+    -Session $session
+  if ($evidenceUpload.StatusCode -lt 200 -or $evidenceUpload.StatusCode -ge 300 -or $evidenceUpload.Content -notmatch $deliveryId) {
+    throw "Delivery evidence upload for $deliveryEvidenceCategory did not retain its exact delivery owner"
+  }
+}
+Write-Host "Delivery evidence ownership and content validation OK"
+
+$readyDeliveryBody = @{
+  id = $deliveryId
+  vehicleId = $workflowVehicleId
+  pic = "Ah Ming Delivery Corrected"
+  status = "ReadyForRelease"
+  scheduledDate = "2026-06-04"
+  polishDone = $true
+  tintedDone = $true
+  washDone = $true
+  documentsPrepared = $true
+  inspectionDone = $true
+  inspectionBookingReference = "BOOK-EDIT-$workflowSuffix"
+  inspectionReportReference = "INSPECT-$workflowSuffix"
+  notificationSent = $true
+  twoDayNoticeSent = $true
+  insuranceHandled = $true
+  insurancePolicyReference = "POL-EDIT-$workflowSuffix"
+  insuranceExpiryDate = "2026-12-31"
+  roadTaxHandled = $true
+  roadTaxReceiptReference = "RT-EDIT-$workflowSuffix"
+  roadTaxExpiryDate = "2026-12-31"
+  windscreenInsuranceHandled = $true
+  windscreenPolicyReference = "WS-EDIT-$workflowSuffix"
+  windscreenInsuranceExpiryDate = "2026-12-31"
+  handoverPhotoCaptured = $true
+  signedHandoverReceived = $true
+  customerAcknowledged = $true
+  finalChecklistConfirmed = $true
+} | ConvertTo-Json
+$readyDeliveryResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $readyDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+if ($readyDeliveryResponse.StatusCode -lt 200 -or $readyDeliveryResponse.StatusCode -ge 300) {
+  throw "Complete delivery could not move to ReadyForRelease"
+}
+
+$preFinanceReadiness = (Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/release-readiness" -WebSession $session -UseBasicParsing).Content | ConvertFrom-Json
+if ($preFinanceReadiness.isReady -ne $false -or $preFinanceReadiness.financeCleared -ne $false -or @($preFinanceReadiness.missingCategories).Count -ne 0) {
+  throw "Delivery readiness did not remain blocked only by Finance reconciliation"
+}
+
+$releaseDeliveryBody = $readyDeliveryBody | ConvertFrom-Json
+$releaseDeliveryBody.status = "Released"
+$releaseDeliveryBody = $releaseDeliveryBody | ConvertTo-Json
+try {
+  $preFinanceRelease = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $releaseDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+  $preFinanceReleaseStatus = [int]$preFinanceRelease.StatusCode
+  $preFinanceReleaseContent = $preFinanceRelease.Content
+}
+catch {
+  if ($_.Exception.Response) {
+    $preFinanceReleaseStatus = [int]$_.Exception.Response.StatusCode
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
+    try { $preFinanceReleaseContent = $reader.ReadToEnd() } finally { $reader.Dispose() }
+  }
+  else { throw }
+}
+if ($preFinanceReleaseStatus -ne 400 -or $preFinanceReleaseContent -notmatch "delivery_finance_not_cleared") {
+  throw "Delivery release before reconciliation returned HTTP $preFinanceReleaseStatus instead of delivery_finance_not_cleared"
+}
+Write-Host "Delivery Finance release gate OK"
 
 $workflowPaymentReadyBody = @{
   id = $createdWorkflowPayment.id
@@ -2167,7 +2313,7 @@ $workflowPaymentReadyBody = @{
   interestAdditionalCharges = 650
   ncdAmount = 1300
   windscreenCharges = 500
-  outstationDeliveryDate = "2026-06-04"
+  outstationDeliveryDate = "2026-06-06"
   bankName = "Public Bank"
   bankFollowUpDate = "2026-06-02"
   createdAt = "2026-05-30T00:00:00Z"
@@ -2178,73 +2324,23 @@ if ($workflowPaymentReady.StatusCode -lt 200 -or $workflowPaymentReady.StatusCod
 }
 Write-Host "Manual accounting export workflow reconciliation OK"
 
-$openInvoiceGateBody = @{ reason = "Confirm corrected invoice before handover" } | ConvertTo-Json
-$openInvoiceGateRequest = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/request-invoice-update" -Method Post -Body $openInvoiceGateBody -ContentType "application/json" -WebSession $session -UseBasicParsing
-if ($openInvoiceGateRequest.StatusCode -lt 200 -or $openInvoiceGateRequest.StatusCode -ge 300) {
-  throw "Delivery invoice gate request returned HTTP $($openInvoiceGateRequest.StatusCode)"
+$clearedReadiness = (Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/release-readiness" -WebSession $session -UseBasicParsing).Content | ConvertFrom-Json
+if ($clearedReadiness.isReady -ne $true -or $clearedReadiness.financeCleared -ne $true -or @($clearedReadiness.missingCategories).Count -ne 0) {
+  throw "Delivery readiness did not become ready after Finance reconciliation"
 }
-$invoiceBlockedReadinessResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/release-readiness" -WebSession $session -UseBasicParsing
-$invoiceBlockedReadiness = $invoiceBlockedReadinessResponse.Content | ConvertFrom-Json
-if ($invoiceBlockedReadiness.isReady -ne $false -or $invoiceBlockedReadiness.financeCleared -ne $true -or @($invoiceBlockedReadiness.missingCategories).Count -ne 0) {
-  throw "Open invoice update request did not remain a release blocker after Finance clearance"
-}
-$invoiceBlockedWorkboardResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/workboard" -WebSession $session -UseBasicParsing
-$invoiceBlockedWorkboardItem = @($invoiceBlockedWorkboardResponse.Content | ConvertFrom-Json) | Where-Object { $_.id -eq $deliveryId } | Select-Object -First 1
-if ($null -eq $invoiceBlockedWorkboardItem -or $invoiceBlockedWorkboardItem.stage -ne "ClearDocuments" -or $invoiceBlockedWorkboardItem.nextAction -ne "Wait for Finance invoice update" -or $invoiceBlockedWorkboardItem.invoiceUpdateRequested -ne $true -or $invoiceBlockedWorkboardItem.canRelease -ne $false) {
-  throw "Delivery workboard did not expose the unresolved Finance invoice request"
-}
-try {
-  $invoiceBlockedRelease = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/release" -Method Post -WebSession $session -UseBasicParsing
-  $invoiceBlockedReleaseStatus = [int]$invoiceBlockedRelease.StatusCode
-  $invoiceBlockedReleaseContent = $invoiceBlockedRelease.Content
-}
-catch {
-  if ($_.Exception.Response) {
-    $invoiceBlockedReleaseStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
-    try {
-      $invoiceBlockedReleaseContent = $reader.ReadToEnd()
-    }
-    finally {
-      $reader.Dispose()
-    }
-  }
-  else {
-    throw
-  }
-}
-if ($invoiceBlockedReleaseStatus -ne 400 -or $invoiceBlockedReleaseContent -notmatch "delivery_release_blocked") {
-  throw "Open invoice update release attempt returned HTTP $invoiceBlockedReleaseStatus instead of delivery_release_blocked"
-}
-$clearedInvoiceGate = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/resolve-invoice-update" -Method Post -WebSession $financeSession -UseBasicParsing
-if ($clearedInvoiceGate.StatusCode -lt 200 -or $clearedInvoiceGate.StatusCode -ge 300) {
-  throw "Finance invoice gate resolution returned HTTP $($clearedInvoiceGate.StatusCode)"
-}
-Write-Host "Open invoice update release gate OK"
-
-$clearedReleaseReadinessResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/release-readiness" -WebSession $session -UseBasicParsing
-$clearedReleaseReadiness = $clearedReleaseReadinessResponse.Content | ConvertFrom-Json
-if ($clearedReleaseReadiness.isReady -ne $true -or $clearedReleaseReadiness.financeCleared -ne $true -or @($clearedReleaseReadiness.missingCategories).Count -ne 0) {
-  throw "Delivery release readiness did not become ready after Finance reconciliation"
-}
-
-$releasedDeliveryResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId/release" -Method Post -WebSession $session -UseBasicParsing
-if ($releasedDeliveryResponse.StatusCode -lt 200 -or $releasedDeliveryResponse.StatusCode -ge 300) {
-  throw "Delivery release after Finance clearance returned HTTP $($releasedDeliveryResponse.StatusCode)"
-}
+$releasedDeliveryResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $releaseDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
 $releasedDelivery = $releasedDeliveryResponse.Content | ConvertFrom-Json
-if ($releasedDelivery.status -ne "Released" -or [string]::IsNullOrWhiteSpace($releasedDelivery.releasedAt) -or [string]::IsNullOrWhiteSpace($releasedDelivery.releasedByUserId)) {
-  throw "Released delivery did not retain server-owned release identity and time"
+if ($releasedDeliveryResponse.StatusCode -lt 200 -or $releasedDeliveryResponse.StatusCode -ge 300 -or $releasedDelivery.status -ne "Released" -or [string]::IsNullOrWhiteSpace($releasedDelivery.releasedAt) -or [string]::IsNullOrWhiteSpace($releasedDelivery.releasedByUserId)) {
+  throw "Finance-cleared release did not retain server-owned release identity and time"
 }
-
-$completedWorkboardResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/workboard" -WebSession $session -UseBasicParsing
-$completedWorkboardItem = @($completedWorkboardResponse.Content | ConvertFrom-Json) | Where-Object { $_.id -eq $deliveryId } | Select-Object -First 1
-if ($null -eq $completedWorkboardItem -or $completedWorkboardItem.stage -ne "Completed" -or $completedWorkboardItem.terminal -ne $true -or $completedWorkboardItem.nextAction -ne "Released") {
-  throw "Released delivery did not appear as terminal Completed workboard history"
+Write-Host "Finance-cleared server-owned delivery release OK"
+$persistedReleaseBefore = ((Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries" -WebSession $session -UseBasicParsing).Content | ConvertFrom-Json) | Where-Object { $_.id -eq $deliveryId } | Select-Object -First 1
+if ($null -eq $persistedReleaseBefore -or [string]::IsNullOrWhiteSpace($persistedReleaseBefore.releasedAt) -or [string]::IsNullOrWhiteSpace($persistedReleaseBefore.releasedByUserId)) {
+  throw "Released delivery audit identity was not persisted"
 }
 
 try {
-  $terminalDeliveryUpdate = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $correctedDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+  $terminalDeliveryUpdate = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries/$deliveryId" -Method Put -Body $releaseDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
   $terminalDeliveryUpdateStatus = [int]$terminalDeliveryUpdate.StatusCode
   $terminalDeliveryUpdateContent = $terminalDeliveryUpdate.Content
 }
@@ -2252,72 +2348,18 @@ catch {
   if ($_.Exception.Response) {
     $terminalDeliveryUpdateStatus = [int]$_.Exception.Response.StatusCode
     $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
-    try {
-      $terminalDeliveryUpdateContent = $reader.ReadToEnd()
-    }
-    finally {
-      $reader.Dispose()
-    }
+    try { $terminalDeliveryUpdateContent = $reader.ReadToEnd() } finally { $reader.Dispose() }
   }
-  else {
-    throw
-  }
+  else { throw }
 }
 if ($terminalDeliveryUpdateStatus -ne 400 -or $terminalDeliveryUpdateContent -notmatch "delivery_terminal_status") {
-  throw "Released delivery update returned HTTP $terminalDeliveryUpdateStatus instead of delivery_terminal_status"
+  throw "Released delivery re-update returned HTTP $terminalDeliveryUpdateStatus instead of delivery_terminal_status"
 }
-
-$releasedVehicleResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/vehicles" -WebSession $session -UseBasicParsing
-$releasedVehicle = @($releasedVehicleResponse.Content | ConvertFrom-Json) | Where-Object { $_.id -eq $workflowVehicleId } | Select-Object -First 1
-if ($null -eq $releasedVehicle -or $releasedVehicle.status -ne "Sold" -or $releasedVehicle.isPublic -ne $false) {
-  throw "Vehicle was not marked Sold and private after Finance clearance and delivery release"
+$persistedReleaseAfter = ((Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries" -WebSession $session -UseBasicParsing).Content | ConvertFrom-Json) | Where-Object { $_.id -eq $deliveryId } | Select-Object -First 1
+if ($persistedReleaseAfter.releasedAt -ne $persistedReleaseBefore.releasedAt -or $persistedReleaseAfter.releasedByUserId -ne $persistedReleaseBefore.releasedByUserId) {
+  throw "Released delivery audit identity changed after terminal re-update rejection"
 }
-
-try {
-  $repeatDelivery = Invoke-WebRequest -Uri "$ApiBaseUrl/api/deliveries" -Method Post -Body $duplicateDeliveryBody -ContentType "application/json" -WebSession $session -UseBasicParsing
-  $repeatDeliveryStatus = [int]$repeatDelivery.StatusCode
-  $repeatDeliveryContent = $repeatDelivery.Content
-}
-catch {
-  if ($_.Exception.Response) {
-    $repeatDeliveryStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
-    try {
-      $repeatDeliveryContent = $reader.ReadToEnd()
-    }
-    finally {
-      $reader.Dispose()
-    }
-  }
-  else {
-    throw
-  }
-}
-if ($repeatDeliveryStatus -ne 400 -or ($repeatDeliveryContent -notmatch "delivery_vehicle_sold" -and $repeatDeliveryContent -notmatch "delivery_already_released")) {
-  throw "Released vehicle accepted another delivery plan"
-}
-
-$salesWorkboardResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/sales/workboard" -WebSession $salesSession -UseBasicParsing
-$salesWorkboard = $salesWorkboardResponse.Content | ConvertFrom-Json
-$salesWorkboardItem = @($salesWorkboard.items) | Where-Object { $_.vehicleId -eq $workflowVehicleId } | Select-Object -First 1
-if ($salesWorkboard.soldThisMonth -lt 1 -or $null -eq $salesWorkboardItem -or $salesWorkboardItem.salesAgentUserId -ne $createdSalesUser.id -or $salesWorkboardItem.process -ne "Completed" -or $salesWorkboardItem.responsibleDepartment -ne "Sales") {
-  throw "Sales My Cars did not return the assigned sold vehicle and current process"
-}
-if ($salesWorkboardResponse.Content -match "nettPrice" -or $salesWorkboardResponse.Content -match "salesPrice" -or $salesWorkboardResponse.Content -match "receiptNumber" -or $salesWorkboardResponse.Content -match "invoiceNumber") {
-  throw "Sales My Cars exposed Finance details"
-}
-
-$bossAllSalesWorkboardResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/sales/workboard" -WebSession $session -UseBasicParsing
-$bossAllSalesWorkboard = $bossAllSalesWorkboardResponse.Content | ConvertFrom-Json
-if (-not (@($bossAllSalesWorkboard.availableAgents) | Where-Object { $_.id -eq $createdSalesUser.id }) -or -not (@($bossAllSalesWorkboard.items) | Where-Object { $_.vehicleId -eq $workflowVehicleId -and $_.salesAgentUserId -eq $createdSalesUser.id })) {
-  throw "Boss Sales My Cars overview did not return the agent list and assigned vehicle"
-}
-$bossFilteredSalesWorkboardResponse = Invoke-WebRequest -Uri "$ApiBaseUrl/api/sales/workboard?agentUserId=$($createdSalesUser.id)" -WebSession $session -UseBasicParsing
-$bossFilteredSalesWorkboard = $bossFilteredSalesWorkboardResponse.Content | ConvertFrom-Json
-if (-not (@($bossFilteredSalesWorkboard.items) | Where-Object { $_.vehicleId -eq $workflowVehicleId }) -or @($bossFilteredSalesWorkboard.items | Where-Object { $_.salesAgentUserId -ne $createdSalesUser.id }).Count -ne 0) {
-  throw "Boss Sales My Cars agent filter returned rows outside the selected agent"
-}
-Write-Host "Delivery release, terminal immutability, and Sales My Cars OK"
+Write-Host "Released delivery terminal immutability OK"
 
 $missingPaymentId = [guid]::NewGuid().ToString()
 $missingPaymentUpdateBody = @{
@@ -3167,7 +3209,7 @@ if ($paymentReconciliationSmokeReady) {
     interestAdditionalCharges = 600
     ncdAmount = 1200
     windscreenCharges = 450
-    outstationDeliveryDate = "2026-06-04"
+    outstationDeliveryDate = "2026-06-05"
     bankName = "Maybank"
     bankFollowUpDate = "2026-05-31"
     createdAt = "2026-05-30T00:00:00Z"
@@ -3196,7 +3238,7 @@ if ($paymentReconciliationSmokeReady) {
     interestAdditionalCharges = 600
     ncdAmount = 1200
     windscreenCharges = 450
-    outstationDeliveryDate = "2026-06-04"
+    outstationDeliveryDate = "2026-06-05"
     bankName = "Maybank"
     bankFollowUpDate = "2026-05-31"
     createdAt = "2026-05-30T00:00:00Z"

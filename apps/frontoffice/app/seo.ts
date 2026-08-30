@@ -14,7 +14,7 @@ import type { Language } from "./i18n";
 import { formatThousands } from "./formatters";
 import type { PublicVehicle } from "./vehicles/service";
 
-const siteName = "YS Heng Automotive";
+const siteName = "YS Heng Cars";
 const baseUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000");
 if (!baseUrl.pathname.endsWith("/")) baseUrl.pathname = `${baseUrl.pathname}/`;
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
@@ -86,11 +86,11 @@ export function pageMetadata({
 export function vehicleMetadata(vehicle: PublicVehicle, language: Language = "en"): Metadata {
   const vehicleName = `${vehicle.year} ${vehicle.make} ${vehicle.model}`.trim();
   const title = language === "zh"
-    ? `${vehicleName} 二手车 | ${siteName}`
-    : `${vehicleName} used car for sale | ${siteName}`;
+    ? `${vehicleName} 二手车出售 | ${siteName}`
+    : `${vehicleName} for sale | ${siteName}`;
   const description = language === "zh"
-    ? `查看 ${legalBusinessName} 刊登的 ${vehicleName}，售价 RM ${formatThousands(vehicle.sellingPrice)}。请联络居銮展厅确认车源与看车详情。`
-    : `View this ${vehicleName}, listed at RM ${formatThousands(vehicle.sellingPrice)} through ${legalBusinessName}. Contact the Kluang showroom to confirm availability and viewing details.`;
+    ? `查看 YS Heng 的 ${vehicleName}，售价 RM ${formatThousands(vehicle.sellingPrice)}，可咨询看车与贷款流程。`
+    : `View this ${vehicleName} at YS Heng. Selling price RM ${formatThousands(vehicle.sellingPrice)} with sales enquiry and viewing support.`;
   const image = vehicle.isRepresentativePhoto ? undefined : vehicle.photoUrl;
 
   return pageMetadata({ title, description, path: `/vehicles/${vehicle.id}`, image, language });
@@ -101,8 +101,8 @@ export function organizationStructuredData() {
     "@context": "https://schema.org",
     "@type": "AutoDealer",
     "@id": dealerId,
-    name: legalBusinessName,
-    alternateName: [businessName, "YS Heng Cars", "YS Heng Auto"],
+    name: businessName,
+    alternateName: ["YS Heng Cars", "YS Heng Auto"],
     legalName: legalBusinessName,
     url: canonicalUrl("/"),
     logo: canonicalUrl("/ys-heng-logo.png"),
@@ -143,36 +143,33 @@ export function organizationStructuredData() {
   };
 }
 
-export function vehicleListStructuredData(vehicles: PublicVehicle[], language: Language = "en") {
+export function vehicleListStructuredData(vehicles: PublicVehicle[]) {
   return {
     "@context": "https://schema.org",
     "@type": "ItemList",
-    name: language === "zh" ? "YS Heng 目前可询问车源" : "YS Heng vehicles currently available for enquiry",
+    name: "YS Heng available vehicles",
     itemListElement: vehicles.map((vehicle, index) => ({
       "@type": "ListItem",
       position: index + 1,
-      url: localizedUrl(`/vehicles/${vehicle.id}`, language),
+      url: canonicalUrl(`/vehicles/${vehicle.id}`),
       name: `${vehicle.year} ${vehicle.make} ${vehicle.model}`.trim()
     }))
   };
 }
 
-export function vehicleStructuredData(vehicle: PublicVehicle, language: Language = "en") {
+export function vehicleStructuredData(vehicle: PublicVehicle) {
   const vehicleName = `${vehicle.year} ${vehicle.make} ${vehicle.model}`.trim();
-  const vehicleUrl = localizedUrl(`/vehicles/${vehicle.id}`, language);
+  const vehicleUrl = canonicalUrl(`/vehicles/${vehicle.id}`);
   const actualImages = vehicle.isRepresentativePhoto || !vehicle.photoUrl
     ? []
     : [vehicle.photoUrl];
-  const description = language === "zh"
-    ? `${vehicleName} 二手车，刊登售价 RM ${formatThousands(vehicle.sellingPrice)}，可通过 ${legalBusinessName} 查询。请联络居銮展厅确认看车详情。`
-    : `Used ${vehicleName} listed at RM ${formatThousands(vehicle.sellingPrice)} and available for enquiry through ${legalBusinessName}. Contact the Kluang showroom to confirm viewing details.`;
 
   return {
     "@context": "https://schema.org",
     "@type": ["Product", "Car"],
     "@id": `${vehicleUrl}#vehicle`,
     name: vehicleName,
-    description,
+    description: `Used ${vehicleName} available for sales enquiry and viewing at YS Heng.`,
     url: vehicleUrl,
     brand: { "@type": "Brand", name: vehicle.make },
     model: vehicle.model,

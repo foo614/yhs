@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleLoanHandoffStep, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -133,13 +133,6 @@ describe("vehicleLoanHandoffStep", () => {
   it("routes available stock through buyer selection and confirmation", () => {
     expect(vehicleLoanHandoffStep({ status: "Available", customerId: undefined })).toBe("select-buyer");
     expect(vehicleLoanHandoffStep({ status: "Available", customerId: "customer-1" })).toBe("confirm-start");
-  });
-  it("locks a retained canonical buyer before starting a new loan after rejection", () => {
-    expect(vehicleLoanHandoffBuyerPolicy({ customerId: "former-buyer" })).toEqual({
-      locked: true,
-      allowedCustomerIds: ["former-buyer"]
-    });
-    expect(vehicleLoanHandoffBuyerPolicy({ customerId: undefined })).toEqual({ locked: false, allowedCustomerIds: [] });
   });
 });
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, Tag } from "lucide-react";
+import { CalendarDays, Gauge, Tag } from "lucide-react";
 import { frontofficeCopy, hrefWithLanguage, type Language } from "../i18n";
 import { formatThousands } from "../formatters";
 import type { PublicVehicle } from "./service";
@@ -38,6 +38,7 @@ export function VehicleCard({ vehicle, featured = false, language = "en" }: { ve
         </div>
         <div className="specPills" aria-label="Vehicle highlights">
           <span><CalendarDays size={16} /> {vehicle.year}</span>
+          <span><Gauge size={16} /> {t.readyStock}</span>
           <span><Tag size={16} /> {statusLabel}</span>
         </div>
         <div className="vehicleFooter">

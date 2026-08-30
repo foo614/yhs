@@ -26,7 +26,8 @@ public static class SeedData
         await EnsureFinanceV2SchemaAsync(db);
         await EnsureRepairReceiptSchemaAsync(db);
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
-        await EnsureDeliveryWorkboardSchemaAsync(db);
+        await EnsureAutoCountAccountingSchemaAsync(db);
+        await EnsureDeliverySafetySchemaAsync(db);
 
         if (!await db.AiServiceLimits.AnyAsync(limit => limit.Service == AiService.Ocr))
         {
@@ -199,58 +200,6 @@ public static class SeedData
         await db.SaveChangesAsync();
     }
 
-    public static async Task EnsureDeliveryWorkboardSchemaAsync(WebApplication app)
-    {
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.EnsureCreatedAsync();
-        await EnsureDeliveryWorkboardSchemaAsync(db);
-    }
-
-    public static async Task EnsureFinanceV2SchemaAsync(WebApplication app)
-    {
-        using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.EnsureCreatedAsync();
-        await EnsureFinanceV2SchemaAsync(db);
-    }
-
-    private static async Task EnsureDeliveryWorkboardSchemaAsync(AppDbContext db)
-    {
-        await db.Database.ExecuteSqlRawAsync("""
-            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "SalesAgentUserId" text NULL;
-            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "SalesAgentName" text NULL;
-
-            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "DeliveryScheduleId" uuid NULL;
-            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_DeliveryScheduleId" ON "DocumentBlobs" ("DeliveryScheduleId");
-
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CustomerId" uuid NULL;
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "PicUserId" text NULL;
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "ReleasedAt" timestamp with time zone NULL;
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "ReleasedByUserId" text NULL;
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateRequestedAt" timestamp with time zone NULL;
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateRequestedByUserId" text NULL;
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateRequestReason" text NULL;
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateResolvedAt" timestamp with time zone NULL;
-            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InvoiceUpdateResolvedByUserId" text NULL;
-            CREATE INDEX IF NOT EXISTS "IX_DeliverySchedules_VehicleId" ON "DeliverySchedules" ("VehicleId");
-            CREATE INDEX IF NOT EXISTS "IX_DeliverySchedules_CustomerId" ON "DeliverySchedules" ("CustomerId");
-
-            CREATE TABLE IF NOT EXISTS "DeliveryActivities" (
-                "Id" uuid NOT NULL,
-                "DeliveryScheduleId" uuid NOT NULL,
-                "Action" text NOT NULL,
-                "ActorUserId" text NOT NULL,
-                "ActorName" text NOT NULL,
-                "Summary" text NOT NULL,
-                "CreatedAt" timestamp with time zone NOT NULL,
-                CONSTRAINT "PK_DeliveryActivities" PRIMARY KEY ("Id")
-            );
-            CREATE INDEX IF NOT EXISTS "IX_DeliveryActivities_DeliveryScheduleId_CreatedAt"
-                ON "DeliveryActivities" ("DeliveryScheduleId", "CreatedAt");
-        """);
-    }
-
     private static async Task EnsureLeadSchemaAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("""
@@ -279,63 +228,6 @@ public static class SeedData
                 "Notes" text NULL,
                 CONSTRAINT "PK_HrAttendanceRecords" PRIMARY KEY ("Id")
             );
-            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "VerificationMethod" integer NOT NULL DEFAULT 0;
-
-            CREATE TABLE IF NOT EXISTS "HrAttendanceQrChallenges" (
-                "Id" uuid NOT NULL,
-                "TokenHash" text NOT NULL,
-                "CreatedAt" timestamp with time zone NOT NULL,
-                "ExpiresAt" timestamp with time zone NOT NULL,
-                "CreatedBy" text NOT NULL,
-                CONSTRAINT "PK_HrAttendanceQrChallenges" PRIMARY KEY ("Id")
-            );
-
-            CREATE TABLE IF NOT EXISTS "HrAttendanceQrRedemptions" (
-                "Id" uuid NOT NULL,
-                "ChallengeId" uuid NOT NULL,
-                "StaffUserId" text NOT NULL,
-                "Action" integer NOT NULL,
-                "RedeemedAt" timestamp with time zone NOT NULL,
-                CONSTRAINT "PK_HrAttendanceQrRedemptions" PRIMARY KEY ("Id")
-            );
-
-            CREATE TABLE IF NOT EXISTS "HrBusinessTrips" (
-                "Id" uuid NOT NULL,
-                "StaffUserId" text NOT NULL,
-                "Status" integer NOT NULL,
-                "StartDate" date NOT NULL,
-                "EndDate" date NOT NULL,
-                "Location" text NOT NULL,
-                "Purpose" text NOT NULL,
-                "IsUrgentException" boolean NOT NULL,
-                "RequestedAt" timestamp with time zone NOT NULL,
-                "ApprovedBy" text NULL,
-                "ApprovedAt" timestamp with time zone NULL,
-                "DecisionNotes" text NULL,
-                CONSTRAINT "PK_HrBusinessTrips" PRIMARY KEY ("Id")
-            );
-
-            CREATE TABLE IF NOT EXISTS "HrAttendanceReminderPolicies" (
-                "Id" uuid NOT NULL,
-                "Type" integer NOT NULL,
-                "IsEnabled" boolean NOT NULL,
-                "LeadHours" integer NOT NULL,
-                "UpdatedBy" text NOT NULL,
-                "UpdatedAt" timestamp with time zone NOT NULL,
-                CONSTRAINT "PK_HrAttendanceReminderPolicies" PRIMARY KEY ("Id")
-            );
-
-            CREATE TABLE IF NOT EXISTS "HrAttendanceNetworks" (
-                "Id" uuid NOT NULL,
-                "Label" text NOT NULL,
-                "Cidr" text NOT NULL,
-                "IsActive" boolean NOT NULL,
-                "CreatedAt" timestamp with time zone NOT NULL,
-                CONSTRAINT "PK_HrAttendanceNetworks" PRIMARY KEY ("Id")
-            );
-
-            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "VerificationMethod" integer NOT NULL DEFAULT 0;
-            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "OfficeNetworkLabel" text NULL;
 
             CREATE TABLE IF NOT EXISTS "HrAttendanceNetworks" (
                 "Id" uuid NOT NULL,
@@ -457,10 +349,6 @@ public static class SeedData
 
             DROP INDEX IF EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate";
             CREATE INDEX IF NOT EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate" ON "HrAttendanceRecords" ("StaffUserId", "AttendanceDate");
-            CREATE INDEX IF NOT EXISTS "IX_HrAttendanceQrChallenges_ExpiresAt" ON "HrAttendanceQrChallenges" ("ExpiresAt");
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceQrRedemptions_ChallengeId_StaffUserId_Action" ON "HrAttendanceQrRedemptions" ("ChallengeId", "StaffUserId", "Action");
-            CREATE INDEX IF NOT EXISTS "IX_HrBusinessTrips_StaffUserId_StartDate_EndDate" ON "HrBusinessTrips" ("StaffUserId", "StartDate", "EndDate");
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceReminderPolicies_Type" ON "HrAttendanceReminderPolicies" ("Type");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceNetworks_Cidr" ON "HrAttendanceNetworks" ("Cidr");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeaveBalances_StaffUserId" ON "HrLeaveBalances" ("StaffUserId");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeavePolicies_Role" ON "HrLeavePolicies" ("Role");
@@ -609,6 +497,26 @@ public static class SeedData
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_PaymentRecordId" ON "DocumentBlobs" ("PaymentRecordId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_CollectionTransactionId" ON "DocumentBlobs" ("CollectionTransactionId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_OwnershipType" ON "DocumentBlobs" ("OwnershipType");
+        """);
+    }
+
+    public static async Task EnsureDeliverySafetySchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureDeliverySafetySchemaAsync(db);
+    }
+
+    private static async Task EnsureDeliverySafetySchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "DeliveryScheduleId" uuid NULL;
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_DeliveryScheduleId" ON "DocumentBlobs" ("DeliveryScheduleId");
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "ReleasedAt" timestamp with time zone NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "ReleasedByUserId" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CustomerId" uuid NULL;
+            CREATE INDEX IF NOT EXISTS "IX_DeliverySchedules_CustomerId" ON "DeliverySchedules" ("CustomerId");
         """);
     }
 
@@ -767,9 +675,6 @@ public static class SeedData
     private static async Task EnsureFinanceV2SchemaAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("""
-            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "CollectionTransactionId" uuid NULL;
-            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_CollectionTransactionId" ON "DocumentBlobs" ("CollectionTransactionId");
-
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "CustomerId" uuid NULL;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "CalculatedNettPrice" numeric NOT NULL DEFAULT 0;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NettPriceVariance" numeric NOT NULL DEFAULT 0;
@@ -843,9 +748,15 @@ public static class SeedData
             ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "IdempotencyKey" uuid NULL;
             ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "IdempotencyFingerprint" text NULL;
             ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "NormalizedReference" text NULL;
-            UPDATE "CollectionTransactions" SET "IdempotencyKey" = "Id" WHERE "IdempotencyKey" IS NULL;
-            UPDATE "CollectionTransactions" SET "IdempotencyFingerprint" = 'legacy:' || "Id"::text WHERE "IdempotencyFingerprint" IS NULL OR "IdempotencyFingerprint" = '';
-            UPDATE "CollectionTransactions" SET "NormalizedReference" = NULLIF(UPPER(BTRIM("Reference")), '') WHERE "Reference" IS NOT NULL AND "NormalizedReference" IS NULL;
+            UPDATE "CollectionTransactions"
+            SET "IdempotencyKey" = "Id"
+            WHERE "IdempotencyKey" IS NULL;
+            UPDATE "CollectionTransactions"
+            SET "IdempotencyFingerprint" = 'legacy:' || "Id"::text
+            WHERE "IdempotencyFingerprint" IS NULL OR "IdempotencyFingerprint" = '';
+            UPDATE "CollectionTransactions"
+            SET "NormalizedReference" = NULLIF(UPPER(BTRIM("Reference")), '')
+            WHERE "Reference" IS NOT NULL AND "NormalizedReference" IS NULL;
             ALTER TABLE "CollectionTransactions" ALTER COLUMN "IdempotencyKey" SET NOT NULL;
             ALTER TABLE "CollectionTransactions" ALTER COLUMN "IdempotencyFingerprint" SET NOT NULL;
             CREATE INDEX IF NOT EXISTS "IX_CollectionTransactions_PaymentRecordId_CreatedAt" ON "CollectionTransactions" ("PaymentRecordId", "CreatedAt");

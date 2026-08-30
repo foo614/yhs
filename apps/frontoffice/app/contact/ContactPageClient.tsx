@@ -27,16 +27,17 @@ export default function ContactPageClient() {
   const mapHref = googleMapsUrl;
   const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(showroomAddress)}&output=embed`;
   const salesIntro = t.salesIntro ?? "Nak jual atau beli kereta? Hubungi Ah Boon 010-828 1218.";
-  const serviceTiles = Array.isArray(t.tiles) && t.tiles.length >= 4 ? t.tiles : ["Available vehicle enquiry", "Confirm viewing details", "Loan and trade-in questions", "Purchase and handover questions"];
+  const serviceTiles = Array.isArray(t.tiles) && t.tiles.length >= 4 ? t.tiles : ["Vehicle viewing", "Financing guidance", "Preparation tracking", "Release readiness"];
   const callNow = t.callNow ?? "Call now";
   const whatsapp = t.whatsapp ?? "WhatsApp";
   const openMap = t.openMap ?? "Open map";
   const facebook = t.facebook ?? "Facebook";
+  const reviewSnippet = t.reviewSnippet ?? "Not yet rated";
   const helpTitle = t.helpTitle ?? "How we help";
   const helpText = t.helpText ?? "Our team supports your used-car process from shortlist to handover.";
-  const workshopKicker = t.workshopKicker ?? "Kluang Location";
-  const workshopTitle = t.workshopTitle ?? "Confirm showroom details";
-  const workshopText = t.workshopText ?? "Contact the team to confirm a specific vehicle, viewing request, or handover question before travelling.";
+  const workshopKicker = t.workshopKicker ?? "Panel Workshop";
+  const workshopTitle = t.workshopTitle ?? "Inspection, preparation and handover follow-up";
+  const workshopText = t.workshopText ?? "We coordinate workshop support for inspections and preparation.";
 
   return (
     <main className="atelierSubPage" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
@@ -115,6 +116,7 @@ export default function ContactPageClient() {
           <h2>{businessName}</h2>
           <p>{showroomAddress}</p>
           <p>{registrationText}</p>
+          <p>{reviewSnippet}</p>
         </a>
         <a className="contactCard" href={phoneHref}>
           <Phone size={28} />

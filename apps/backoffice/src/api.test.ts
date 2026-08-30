@@ -3,8 +3,6 @@ import {
   approveNettPriceOverride,
   approvePaymentManagementReview,
   approveRepair,
-  cancelDelivery,
-  correctDeliveryBuyer,
   createDelivery,
   createCustomer,
   createBrokerCommission,
@@ -38,7 +36,6 @@ import {
   generateHrPayslips,
   getAuditLog,
   getCurrentUser,
-  getFinanceVehicleOptions,
   getCustomers,
   getCustomerProfile,
   getCustomerProfileOptions,
@@ -51,12 +48,8 @@ import {
   getPriorityActions,
   getDebtRecoveries,
   getDeliveries,
-  getDeliveryActivity,
-  getDeliveryInvoiceUpdateRequests,
-  getDeliveryPicOptions,
   getLeads,
   getDeliveryReleaseReadiness,
-  getDeliveryWorkboard,
   getHrAttendance,
   getHrAttendanceNetworks,
   getHrBossCalendar,
@@ -85,7 +78,6 @@ import {
   getVehicleDocuments,
   getVehicleOcrJobs,
   getVehiclePhotos,
-  getSalesWorkboard,
   humanizeApiError,
   issueFinanceInvoice,
   vehicleDocumentContentUrl,
@@ -93,17 +85,13 @@ import {
   vehiclePhotoContentUrl,
   login,
   logout,
-  mergeFinanceVehicleOptions,
   hrMedicalCertificateContentUrl,
   acceptCashHandover,
   recordCashHandover,
   reconcileCollection,
   rejectCashHandover,
-  reverseCollection,
-  releaseDelivery,
   requestCashHandover,
-  requestDeliveryInvoiceUpdate,
-  resolveDeliveryInvoiceUpdate,
+  reverseCollection,
   updateHrLeaveBalance,
   updateHrAttendanceNetwork,
   updateHrLeavePolicy,
@@ -137,7 +125,6 @@ import {
   type DailySpend,
   type DashboardReminder,
   type DebtRecoveryCase,
-  type FinanceVehicleOption,
   type Lead,
   type HrAttendanceRecord,
   type HrAttendanceNetwork,
@@ -246,41 +233,6 @@ describe("backoffice api client", () => {
     await expect(getVehicleLookup()).resolves.toEqual([lookup]);
 
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicle-lookup", { credentials: "include" });
-  });
-
-  it("loads Finance-only vehicle defaults separately and merges them into invoice options", async () => {
-    const lookup: VehicleLookup = {
-      id: "vehicle-1",
-      plateNumber: "VPK1234",
-      make: "Toyota",
-      model: "Vios",
-      stockOwner: "YSHeng",
-      status: "Available",
-      customerId: "customer-1"
-    };
-    const financeOption: FinanceVehicleOption = {
-      id: lookup.id,
-      plateNumber: lookup.plateNumber,
-      make: lookup.make,
-      model: lookup.model,
-      status: lookup.status,
-      customerId: lookup.customerId,
-      sellingPrice: 58_000,
-      additionalCharges: 750
-    };
-    const fetchMock = mockFetch([financeOption]);
-
-    await expect(getFinanceVehicleOptions()).resolves.toEqual([financeOption]);
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/finance/vehicle-options", { credentials: "include" });
-    expect(mergeFinanceVehicleOptions([lookup], [financeOption])).toEqual([
-      { ...lookup, sellingPrice: 58_000, additionalCharges: 750 }
-    ]);
-  });
-
-  it("fails closed when Finance vehicle defaults cannot be loaded", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
-
-    await expect(getFinanceVehicleOptions()).rejects.toThrow("Failed to fetch");
   });
 
   it("surfaces backend validation result messages for failed JSON requests", async () => {
@@ -402,7 +354,13 @@ describe("backoffice api client", () => {
   it("uses authenticated Finance V2 invoice and partial-collection endpoints", async () => {
     const aggregate = { id: "payment-v2", vehicleId: "vehicle-1", financeWorkflowVersion: 2 };
     const fetchMock = mockFetch(aggregate);
-    const sale = { vehicleId: "vehicle-1", salesPrice: 60000, interestAdditionalCharges: 500, ncdAmount: 100, windscreenCharges: 200 };
+    const sale = {
+      vehicleId: "vehicle-1",
+      salesPrice: 60000,
+      interestAdditionalCharges: 500,
+      ncdAmount: 100,
+      windscreenCharges: 200
+    };
     const collection = {
       idempotencyKey: "00000000-0000-0000-0000-000000000123",
       amount: 10000,
@@ -754,12 +712,13 @@ describe("backoffice api client", () => {
     expect(officialReceiptContentUrl("handover-1")).toBe("http://localhost:5000/api/cash-handovers/handover-1/official-receipt/content");
   });
 
-  it("links repair and payment documents to their selected workflow record", async () => {
+  it("links repair, payment, and delivery documents to their selected workflow record", async () => {
     const fetchMock = mockFetch({ id: "uploaded" });
     const document = new File(["document-bytes"], "evidence.pdf", { type: "application/pdf" });
 
     await uploadVehicleDocument("vehicle-1", document, "RepairInvoice", { repairJobId: "repair-1" });
     await uploadVehicleDocument("vehicle-1", document, "PaymentReceipt", { paymentRecordId: "payment-1", collectionTransactionId: "collection-1" });
+    await uploadVehicleDocument("vehicle-1", document, "Policy", { deliveryScheduleId: "delivery-1" });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -771,46 +730,9 @@ describe("backoffice api client", () => {
       "http://localhost:5000/api/vehicles/vehicle-1/documents?category=PaymentReceipt&paymentRecordId=payment-1&collectionTransactionId=collection-1",
       expect.objectContaining({ method: "POST", credentials: "include", body: expect.any(FormData) })
     );
-  });
-
-  it("uses the server-owned delivery workboard actions and the sales-safe workboard", async () => {
-    const fetchMock = mockFetch([]);
-
-    await getDeliveryWorkboard();
-    await getDeliveryPicOptions();
-    await getDeliveryActivity("delivery-1");
-    await releaseDelivery("delivery-1");
-    await cancelDelivery("delivery-1", "Customer postponed the purchase");
-    await requestDeliveryInvoiceUpdate("delivery-1", "Correct customer address");
-    await correctDeliveryBuyer("delivery-1", "customer-1", "Repair legacy buyer lock");
-    await getDeliveryInvoiceUpdateRequests();
-    await resolveDeliveryInvoiceUpdate("delivery-1");
-    await getSalesWorkboard("agent-1");
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/deliveries/workboard", expect.objectContaining({ credentials: "include" }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/deliveries/pic-options", expect.objectContaining({ credentials: "include" }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/deliveries/delivery-1/activity", expect.objectContaining({ credentials: "include" }));
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/deliveries/delivery-1/release", expect.objectContaining({ method: "POST", credentials: "include" }));
-    expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:5000/api/deliveries/delivery-1/cancel", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ reason: "Customer postponed the purchase" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:5000/api/deliveries/delivery-1/request-invoice-update", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ reason: "Correct customer address" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:5000/api/deliveries/delivery-1/correct-buyer", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ customerId: "customer-1", reason: "Repair legacy buyer lock" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(8, "http://localhost:5000/api/deliveries/invoice-update-requests", expect.objectContaining({ credentials: "include" }));
-    expect(fetchMock).toHaveBeenNthCalledWith(9, "http://localhost:5000/api/deliveries/delivery-1/resolve-invoice-update", expect.objectContaining({ method: "POST", credentials: "include" }));
-    expect(fetchMock).toHaveBeenNthCalledWith(10, "http://localhost:5000/api/sales/workboard?agentUserId=agent-1", expect.objectContaining({ credentials: "include" }));
-  });
-
-  it("binds delivery evidence to the selected delivery and locked buyer", async () => {
-    const fetchMock = mockFetch({ id: "uploaded" });
-    const document = new File(["document-bytes"], "inspection.pdf", { type: "application/pdf" });
-
-    await uploadVehicleDocument("vehicle-1", document, "InspectionReport", {
-      ownershipType: "Buyer",
-      customerId: "customer-1",
-      deliveryScheduleId: "delivery-1"
-    });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=InspectionReport&ownershipType=Buyer&customerId=customer-1&deliveryScheduleId=delivery-1",
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=Policy&deliveryScheduleId=delivery-1",
       expect.objectContaining({ method: "POST", credentials: "include", body: expect.any(FormData) })
     );
   });
@@ -1001,9 +923,10 @@ describe("backoffice api client", () => {
   });
 
   it("loads the signed-in staff member's priority actions", async () => {
-    const fetchMock = mockFetch([{ type: "LeaveApproval", title: "Leave request awaiting decision", target: "HrSalary", dueDate: "2026-06-01", subject: "AnnualLeave" }]);
+    const actions = [{ type: "LeaveApproval", title: "Leave request awaiting decision", target: "HrSalary", dueDate: "2026-06-01", subject: "AnnualLeave" }] as const;
+    const fetchMock = mockFetch(actions);
 
-    await expect(getPriorityActions()).resolves.toMatchObject({ actions: [{ type: "LeaveApproval" }] });
+    await expect(getPriorityActions()).resolves.toEqual({ actions });
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/priority-actions", { credentials: "include" });
   });
 
@@ -1510,6 +1433,38 @@ describe("backoffice api client", () => {
       expect.objectContaining({ staffName: "Jason Tan", date: "2026-08-04", status: "Unavailable" }),
       expect.objectContaining({ staffName: "Mei Ling", date: "2026-08-05", status: "Unavailable" }),
       expect.objectContaining({ staffName: "Ah Ming", date: "2026-08-05", status: "Unavailable" })
+    ]));
+
+    vi.unstubAllGlobals();
+  });
+
+  it("shows fictional calendar availability for an empty local preview month", async () => {
+    vi.stubGlobal("fetch", mockFetch([]));
+    vi.stubGlobal("window", { location: { hostname: "localhost" } });
+
+    const availability = await getHrBossCalendar("2026-08-01", "2026-08-31");
+
+    expect(availability).toHaveLength(8);
+    expect(availability).toEqual(expect.arrayContaining([
+      expect.objectContaining({ staffName: "Jason Tan", date: "2026-08-12" }),
+      expect.objectContaining({ staffName: "Mei Ling", date: "2026-08-27" })
+    ]));
+
+    vi.unstubAllGlobals();
+  });
+
+  it("adds fictional entries beside API data only in local preview", async () => {
+    vi.stubGlobal("fetch", mockFetch([
+      { staffUserId: "staff-real", staffName: "Actual Staff", date: "2026-08-18", status: "Unavailable" }
+    ]));
+    vi.stubGlobal("window", { location: { hostname: "localhost" } });
+
+    const availability = await getHrBossCalendar("2026-08-01", "2026-08-31");
+
+    expect(availability).toHaveLength(9);
+    expect(availability[0]).toEqual(expect.objectContaining({ staffName: "Actual Staff", date: "2026-08-18" }));
+    expect(availability).toEqual(expect.arrayContaining([
+      expect.objectContaining({ staffName: "Jason Tan", date: "2026-08-04" })
     ]));
 
     vi.unstubAllGlobals();

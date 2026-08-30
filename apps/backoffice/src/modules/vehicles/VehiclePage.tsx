@@ -298,13 +298,6 @@ export function vehicleLoanHandoffStep(vehicle: Pick<Vehicle, "status" | "custom
   return vehicle.customerId ? "confirm-start" : "select-buyer";
 }
 
-export function vehicleLoanHandoffBuyerPolicy(vehicle: Pick<Vehicle, "customerId">) {
-  return {
-    locked: Boolean(vehicle.customerId),
-    allowedCustomerIds: vehicle.customerId ? [vehicle.customerId] : []
-  };
-}
-
 export function vehicleCustomerEditPolicy(vehicle: Pick<Vehicle, "id" | "customerId">, loans: LoanApplication[]) {
   const activeCustomerIds = Array.from(new Set(loans
     .filter((loan) => loan.vehicleId === vehicle.id && ["Pending", "Approved", "Done"].includes(loan.status))
@@ -588,10 +581,6 @@ export function VehiclePage({
   }, [documentCategory, documentOwnershipTab, selectedVehicle?.id, selectedVehicle?.customerId, selectedVehicle?.ownerId]);
   const loanHandoffVehicle = vehicles.find((vehicle) => vehicle.id === loanHandoffVehicleId);
   const loanHandoffStep = loanHandoffVehicle ? vehicleLoanHandoffStep(loanHandoffVehicle) : undefined;
-  const loanHandoffBuyerPolicy = loanHandoffVehicle ? vehicleLoanHandoffBuyerPolicy(loanHandoffVehicle) : { locked: false, allowedCustomerIds: [] };
-  const loanHandoffCustomerOptions = loanHandoffBuyerPolicy.allowedCustomerIds.length > 0
-    ? customers.filter((customer) => loanHandoffBuyerPolicy.allowedCustomerIds.includes(customer.id))
-    : customers;
   const availableVehicles = vehicles.filter((vehicle) => vehicle.status === "Available").length;
   const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
@@ -1648,15 +1637,13 @@ export function VehiclePage({
               <Form.Item
                 name="customerId"
                 label="Confirmed Buyer / 确认买家"
-                extra={loanHandoffBuyerPolicy.locked ? "This is the vehicle's linked buyer. To use a different buyer after a rejected loan, close this dialog and update Customer in Vehicle Record first." : undefined}
                 rules={[{ required: true, message: "Select the confirmed buyer before starting the loan." }]}
               >
                 <Select
-                  disabled={loanHandoffBuyerPolicy.locked}
                   showSearch
                   optionFilterProp="label"
                   placeholder="Select customer"
-                  options={loanHandoffCustomerOptions.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
+                  options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
                   notFoundContent="No customers available"
                 />
               </Form.Item>
@@ -3054,11 +3041,21 @@ export function filterVehiclesForDashboardFocus(
   dashboardAnalyticsPeriod?: DashboardAnalyticsPeriod,
   todayIsoDate = singaporeTodayIsoDate()
 ) {
-  if (dashboardFocus === "stock" || dashboardFocus === "profit") return vehicles.filter((vehicle) => vehicle.status !== "Sold");
-  if (dashboardFocus === "sold") return vehicles.filter((vehicle) => vehicle.status === "Sold" && vehicleSoldInAnalyticsPeriod(vehicle, dashboardAnalyticsPeriod));
-  if (dashboardFocus === "fresh") return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) <= 30);
-  if (dashboardFocus === "watch") return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) > 30 && vehicleAgeInDays(vehicle, todayIsoDate) <= 60);
-  if (dashboardFocus === "aging") return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) > 60);
+  if (dashboardFocus === "stock" || dashboardFocus === "profit") {
+    return vehicles.filter((vehicle) => vehicle.status !== "Sold");
+  }
+  if (dashboardFocus === "sold") {
+    return vehicles.filter((vehicle) => vehicle.status === "Sold" && vehicleSoldInAnalyticsPeriod(vehicle, dashboardAnalyticsPeriod));
+  }
+  if (dashboardFocus === "fresh") {
+    return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) <= 30);
+  }
+  if (dashboardFocus === "watch") {
+    return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) > 30 && vehicleAgeInDays(vehicle, todayIsoDate) <= 60);
+  }
+  if (dashboardFocus === "aging") {
+    return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) > 60);
+  }
   return vehicles;
 }
 

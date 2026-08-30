@@ -11,8 +11,17 @@ public static class PaymentVoucherPdfFactory
     public static PaymentVoucherPdf Create(PaymentVoucher voucher, Vehicle vehicle)
     {
         var voucherNumber = $"YSV-{voucher.IssuedDate:yyyyMMdd}-{voucher.Id.ToString("N")[..6].ToUpperInvariant()}";
-        var statusLine = voucher.Status == PaymentVoucherStatus.Pending ? "DRAFT" : $"Status: {voucher.Status}";
-        return new PaymentVoucherPdf(voucherNumber, CreateVoucherPage(voucher, vehicle, voucherNumber, statusLine));
+        var statusLine = voucher.Status == PaymentVoucherStatus.Pending
+            ? "DRAFT"
+            : $"Status: {voucher.Status}";
+
+        return new PaymentVoucherPdf(
+            voucherNumber,
+            CreateVoucherPage(
+                voucher,
+                vehicle,
+                voucherNumber,
+                statusLine));
     }
 
     private static byte[] CreateVoucherPage(PaymentVoucher voucher, Vehicle vehicle, string voucherNumber, string statusLine)
@@ -30,6 +39,7 @@ public static class PaymentVoucherPdfFactory
         Text(page, 57, 761, 9, "FINANCE OPERATIONS", color: "0.79 0.88 0.96");
         Text(page, 363, 778, 18, "PAYMENT VOUCHER", bold: true, color: "1 1 1");
         Text(page, 364, 761, 9, "INTERNAL FINANCE DOCUMENT", color: "0.79 0.88 0.96");
+
         Text(page, 36, 704, 19, "Payment Voucher", bold: true, color: dark);
         Text(page, 36, 687, 10, "A controlled record of an approved or pending payment.", color: muted);
         Fill(page, 414, 677, 145, 30, voucher.Status == PaymentVoucherStatus.Pending ? "0.99 0.92 0.79" : paleBlue);
@@ -40,8 +50,9 @@ public static class PaymentVoucherPdfFactory
         Field(page, 315, 632, "ISSUED DATE", voucher.IssuedDate.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture), dark);
         Field(page, 56, 596, "VEHICLE", TextValue($"{vehicle.PlateNumber} {vehicle.Make} {vehicle.Model} {vehicle.Year}".Trim()), dark);
         Field(page, 315, 596, "PAYEE", TextValue(voucher.PayeeName), dark);
+
         Text(page, 36, 550, 9, "PAYMENT PURPOSE", bold: true, color: muted);
-        TextBlock(page, 36, 532, 11, TextValue(voucher.Purpose), 78, 15, color: dark);
+        TextBlock(page, 36, 532, 11, TextValue($"{voucher.Purpose} | {voucher.PaymentMethod} | Source {voucher.SourceAccountCode} | Account {voucher.AccountingAccountCode}"), 78, 15, color: dark, maximumLines: 3);
         Line(page, 36, 494, 559, 494, "0.84 0.87 0.90");
 
         Fill(page, 36, 390, 523, 78, paleBlue);
@@ -49,15 +60,19 @@ public static class PaymentVoucherPdfFactory
         Text(page, 56, 414, 25, $"RM {voucher.Amount:N2}", bold: true, color: navy);
         Text(page, 315, 443, 9, "AMOUNT IN WORDS", bold: true, color: blue);
         TextBlock(page, 315, 423, 11, AmountInWords(voucher.Amount), 42, 15, color: dark);
+
         Text(page, 36, 358, 9, "NOTES / SUPPORTING REFERENCE", bold: true, color: muted);
         Fill(page, 36, 266, 523, 76, "0.99 0.99 0.99");
-        TextBlock(page, 56, 318, 11, TextValue(voucher.Notes, "No additional notes."), 82, 15, color: dark, maximumLines: 3);
+        var reference = voucher.ChequeNumber ?? voucher.PaymentReference ?? voucher.PaymentEvidenceReference ?? "-";
+        var support = $"Reference: {reference}. Bank charge: RM {voucher.BankChargeAmount:N2} ({voucher.BankChargeAccountCode ?? "-"}). {voucher.Notes}";
+        TextBlock(page, 56, 318, 11, TextValue(support), 82, 15, color: dark, maximumLines: 3);
 
         Text(page, 36, 226, 10, "AUTHORISATION", bold: true, color: navy);
         Text(page, 36, 210, 9, "Sign only after checking the voucher details and supporting documents.", color: muted);
         Signature(page, 56, 150, "PREPARED BY");
         Signature(page, 231, 150, "APPROVED BY");
         Signature(page, 406, 150, "RECEIVED BY");
+
         Line(page, 36, 83, 559, 83, "0.84 0.87 0.90");
         Text(page, 36, 62, 8, $"Reference: {voucherNumber}  |  Vehicle: {TextValue(vehicle.PlateNumber)}", color: muted);
         Text(page, 423, 62, 8, "YS Heng - Finance copy", color: muted);
@@ -80,7 +95,9 @@ public static class PaymentVoucherPdfFactory
     private static void TextBlock(StringBuilder page, double x, double y, double size, string value, int charactersPerLine, double lineHeight, string color, int maximumLines = 2)
     {
         foreach (var (line, index) in Wrap(value, charactersPerLine).Take(maximumLines).Select((line, index) => (line, index)))
+        {
             Text(page, x, y - index * lineHeight, size, line, color: color);
+        }
     }
 
     private static IEnumerable<string> Wrap(string value, int charactersPerLine)
@@ -119,7 +136,9 @@ public static class PaymentVoucherPdfFactory
     }
 
     private static string TextValue(string? value, string fallback = "") =>
-        string.IsNullOrWhiteSpace(value) ? fallback : value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        string.IsNullOrWhiteSpace(value)
+            ? fallback
+            : value.Replace('\r', ' ').Replace('\n', ' ').Trim();
 
     private static string AmountInWords(decimal amount)
     {
@@ -132,7 +151,14 @@ public static class PaymentVoucherPdfFactory
     private static string WholeNumberInWords(long number)
     {
         if (number == 0) return "Zero";
-        var scales = new[] { (1_000_000_000_000L, "Trillion"), (1_000_000_000L, "Billion"), (1_000_000L, "Million"), (1_000L, "Thousand") };
+
+        var scales = new[]
+        {
+            (1_000_000_000_000L, "Trillion"),
+            (1_000_000_000L, "Billion"),
+            (1_000_000L, "Million"),
+            (1_000L, "Thousand")
+        };
         var words = new StringBuilder();
         foreach (var (value, name) in scales)
         {
@@ -141,23 +167,27 @@ public static class PaymentVoucherPdfFactory
             Append(words, name);
             number %= value;
         }
+
         if (number >= 100)
         {
             Append(words, WholeNumberInWords(number / 100));
             Append(words, "Hundred");
             number %= 100;
         }
+
         if (number >= 20)
         {
             var tens = new[] { "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety" };
             Append(words, tens[number / 10]);
             number %= 10;
         }
+
         if (number > 0)
         {
             var belowTwenty = new[] { "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen" };
             Append(words, belowTwenty[number]);
         }
+
         return words.ToString();
     }
 

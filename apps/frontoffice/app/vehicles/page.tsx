@@ -13,10 +13,10 @@ const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 export async function generateMetadata({ searchParams }: { searchParams?: Promise<SearchParams> }): Promise<Metadata> {
   const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
   return pageMetadata({
-    title: language === "zh" ? "居銮二手车源 | YS Heng Automotive" : "Used cars for sale in Kluang, Johor | YS Heng Automotive",
+    title: language === "zh" ? "居銮二手车源 | YS Heng Cars" : "Used cars for sale in Johor | YS Heng Cars",
     description: language === "zh"
-      ? "浏览 YS HENG AUTOMOTIVE SDN BHD 目前公开的二手车售价与照片，并联络居銮展厅确认车源和看车详情。"
-      : "Browse current public used-car listings from YS HENG AUTOMOTIVE SDN BHD, with published prices and photos. Contact the Kluang showroom to confirm availability and viewing details.",
+      ? "浏览 YS Heng 在售二手车的价格、照片与看车咨询服务。"
+      : "Browse YS Heng available used-car inventory with prices, photos, and enquiry support in Johor.",
     path: "/vehicles",
     language
   });
@@ -51,7 +51,7 @@ export default async function VehiclesPage({ searchParams }: { searchParams?: Pr
         initialFilters={listingFiltersFromSearchParams(resolvedSearchParams ?? {})}
         language={language}
       />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataJson(vehicleListStructuredData(vehicles, language)) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataJson(vehicleListStructuredData(vehicles)) }} />
       <PublicFooter language={language} />
 
       <PublicMobileNav language={language} active="vehicles" />

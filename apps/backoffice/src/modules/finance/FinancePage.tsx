@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
 import { Alert, Badge, Button, Checkbox, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
-import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
+import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
@@ -32,19 +32,17 @@ import {
 } from "../../finance";
 import {
   customerSelectLabel,
-  approveSupplier,
-  confirmDeliveryAccountingCharge,
-  confirmPurchaseInvoiceAccounting,
   financeInvoiceContentUrl,
-  getDeliveryAccountingCharges,
-  getDeliveryInvoiceUpdateRequests,
-  getPurchaseInvoices,
-  getSalesAgents,
-  getSupplierMaster,
   getVehicleDocumentsStrict,
+  getSalesAgents,
+  getDeliveryAccountingCharges,
+  confirmDeliveryAccountingCharge,
+  getPurchaseInvoices,
+  confirmPurchaseInvoiceAccounting,
+  getSupplierMaster,
+  approveSupplier,
   humanizeApiError,
   paymentVoucherPdfUrl,
-  resolveDeliveryInvoiceUpdate,
   vehicleDocumentContentUrl,
   type BrokerCommission,
   type CashHandover,
@@ -56,10 +54,9 @@ import {
   type Customer,
   type DailySpend,
   type DebtRecoveryCase,
-  type DeliveryAccountingCharge,
-  type DeliveryInvoiceUpdateRequestItem,
   type DocumentCategory,
   type DocumentUploadOwner,
+  type DeliveryAccountingCharge,
   type FinanceSaleInput,
   type FinancingStatus,
   type Owner,
@@ -86,21 +83,6 @@ export function settlementMatchesDashboardAttention(settlement: Pick<SettlementR
   return true;
 }
 
-export function financeInvoiceVehicleDefaults(vehicle: Pick<VehicleLookup, "sellingPrice" | "additionalCharges">) {
-  return {
-    salesPrice: vehicle.sellingPrice ?? 0,
-    interestAdditionalCharges: vehicle.additionalCharges ?? 0,
-    ncdAmount: 0,
-    windscreenCharges: 0,
-    nettPrice: undefined,
-    nettPriceOverrideReason: undefined
-  };
-}
-
-export function canPrepareFinanceInvoice(paymentLoadError: string | null, vehiclePriceLoadError: string | null, eligibleVehicleCount: number) {
-  return !paymentLoadError && !vehiclePriceLoadError && eligibleVehicleCount > 0;
-}
-
 export function createUnpaidDailySpend(id: string, description: string, amount: number, dueDate: string): DailySpend {
   return { id, description, amount, dueDate, isPaid: false };
 }
@@ -110,7 +92,8 @@ export function payDailySpend(spend: DailySpend): DailySpend {
 }
 
 export function financeInvoiceSubmitLabel(calculatedTotal: number, agreedTotal: number | null | undefined, adjusting: boolean) {
-  const hasVariance = adjusting && agreedTotal !== null && agreedTotal !== undefined && Math.round(Number(agreedTotal) * 100) !== Math.round(calculatedTotal * 100);
+  const hasVariance = adjusting && agreedTotal !== null && agreedTotal !== undefined &&
+    Math.round(Number(agreedTotal) * 100) !== Math.round(calculatedTotal * 100);
   return hasVariance ? "Review & send for approval" : "Review & generate invoice";
 }
 
@@ -138,55 +121,6 @@ export function financeSearchCopy(tab: string) {
 
 type CollectionFormValues = Omit<CollectionCreateInput, "receivedDate" | "idempotencyKey"> & { receivedDate?: Dayjs };
 
-export function InvoiceUpdateRequestQueue({
-  requests,
-  loading,
-  error,
-  resolvingId,
-  onRetry,
-  onResolve
-}: {
-  requests: DeliveryInvoiceUpdateRequestItem[];
-  loading: boolean;
-  error?: string;
-  resolvingId?: string;
-  onRetry: () => void;
-  onResolve: (requestItem: DeliveryInvoiceUpdateRequestItem) => void;
-}) {
-  return (
-    <ProCard
-      title="Delivery invoice update requests / 交车发票更新"
-      extra={<Tag color={requests.length > 0 ? "orange" : "green"}>{requests.length} open</Tag>}
-      loading={loading}
-      className="financeInvoiceRequestQueue"
-    >
-      {error ? <Alert type="error" showIcon message={error} action={<Button onClick={onRetry}>Try again</Button>} />
-        : requests.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No open delivery invoice requests." />
-          : <div className="financeInvoiceRequestList">
-            {requests.map((requestItem) => (
-              <article key={requestItem.id} className="financeInvoiceRequestItem">
-                <div>
-                  <Space size={6} wrap>
-                    <Typography.Text strong>{requestItem.plateNumber}</Typography.Text>
-                    <Typography.Text type="secondary">{requestItem.vehicleLabel}</Typography.Text>
-                  </Space>
-                  <Typography.Text>{requestItem.customerName}</Typography.Text>
-                  <Typography.Text className="financeInvoiceRequestReason">Requested: {requestItem.requestReason}</Typography.Text>
-                  <Typography.Text type="secondary">{String(requestItem.requestedAt).replace("T", " ").slice(0, 16)}</Typography.Text>
-                </div>
-                <Button
-                  type="primary"
-                  loading={resolvingId === requestItem.id}
-                  disabled={Boolean(resolvingId && resolvingId !== requestItem.id)}
-                  onClick={() => onResolve(requestItem)}
-                >Mark resolved</Button>
-              </article>
-            ))}
-          </div>}
-    </ProCard>
-  );
-}
-
 export function FinancePage({
   vehicles,
   customers,
@@ -194,8 +128,6 @@ export function FinancePage({
   payments,
   paymentLoadError,
   paymentRefreshing,
-  financeVehicleOptionLoadError,
-  financeVehicleOptionRefreshing,
   settlements,
   dailySpends,
   brokerCommissions,
@@ -205,7 +137,6 @@ export function FinancePage({
   dashboardFocus,
   onClearDashboardFocus,
   onRetryPayments,
-  onRetryFinanceVehicleOptions,
   cashHandovers,
   cashHandoverPaymentLookup,
   onCreate,
@@ -246,8 +177,6 @@ export function FinancePage({
   payments: PaymentRecord[];
   paymentLoadError: string | null;
   paymentRefreshing: boolean;
-  financeVehicleOptionLoadError: string | null;
-  financeVehicleOptionRefreshing: boolean;
   settlements: SettlementReminder[];
   dailySpends: DailySpend[];
   brokerCommissions: BrokerCommission[];
@@ -257,7 +186,6 @@ export function FinancePage({
   dashboardFocus: DashboardDrilldown;
   onClearDashboardFocus: (tab: string) => void;
   onRetryPayments: () => Promise<void>;
-  onRetryFinanceVehicleOptions: () => Promise<void>;
   cashHandovers: CashHandover[];
   cashHandoverPaymentLookup: CashHandoverPaymentLookup[];
   onCreate: (payment: PaymentRecord) => void;
@@ -296,7 +224,6 @@ export function FinancePage({
   const canApproveManagementReview = Boolean(currentUser?.roles.includes("BossAdmin"));
   const eligiblePaymentVehicles = vehicles.filter((vehicle) => Boolean(vehicle.customerId));
   const eligibleInvoiceVehicles = eligiblePaymentVehicles.filter((vehicle) => !payments.some((payment) => payment.vehicleId === vehicle.id));
-  const canPrepareInvoice = canPrepareFinanceInvoice(paymentLoadError, financeVehicleOptionLoadError, eligibleInvoiceVehicles.length);
   const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
   const [editPaymentId, setEditPaymentId] = useState(payments[0]?.id ?? "");
   const [editSettlementId, setEditSettlementId] = useState(settlements[0]?.id ?? "");
@@ -317,10 +244,6 @@ export function FinancePage({
   const [paymentDocumentsLoadError, setPaymentDocumentsLoadError] = useState<string>();
   const [paymentDocumentsLoading, setPaymentDocumentsLoading] = useState(false);
   const [paymentOcrDraft, setPaymentOcrDraft] = useState<OcrReviewValues | null>(null);
-  const [invoiceUpdateRequests, setInvoiceUpdateRequests] = useState<DeliveryInvoiceUpdateRequestItem[]>([]);
-  const [invoiceRequestLoading, setInvoiceRequestLoading] = useState(canManageFinance);
-  const [invoiceRequestError, setInvoiceRequestError] = useState<string>();
-  const [resolvingInvoiceRequestId, setResolvingInvoiceRequestId] = useState<string>();
   const [prepareInvoiceOpen, setPrepareInvoiceOpen] = useState(false);
   const [salesAgents, setSalesAgents] = useState<StaffUser[]>([]);
   const [deliveryAccountingCharges, setDeliveryAccountingCharges] = useState<DeliveryAccountingCharge[]>([]);
@@ -365,24 +288,6 @@ export function FinancePage({
     roadTaxPaidOnBehalfAmount: Number(invoiceRoadTaxPaidOnBehalf),
     advancePaidOnBehalfAmount: Number(invoiceAdvancePaidOnBehalf)
   });
-  const invoiceSubmitLabel = financeInvoiceSubmitLabel(invoiceCalculatedTotal, invoiceAgreedTotal, adjustInvoicePrice);
-
-  const loadInvoiceUpdateRequests = useCallback(async () => {
-    if (!canManageFinance) return;
-    setInvoiceRequestLoading(true);
-    try {
-      setInvoiceUpdateRequests(await getDeliveryInvoiceUpdateRequests());
-      setInvoiceRequestError(undefined);
-    } catch (error) {
-      setInvoiceRequestError(humanizeApiError(error, "Delivery invoice update requests could not be loaded."));
-    } finally {
-      setInvoiceRequestLoading(false);
-    }
-  }, [canManageFinance]);
-
-  useEffect(() => {
-    void loadInvoiceUpdateRequests();
-  }, [loadInvoiceUpdateRequests]);
 
   useEffect(() => {
     void getSalesAgents()
@@ -395,40 +300,17 @@ export function FinancePage({
     catch (error) { message.error(humanizeApiError(error, "Unable to load delivery accounting drafts.")); }
   };
   useEffect(() => { void reloadDeliveryAccountingCharges(); }, []);
-
   const reloadPurchaseInvoices = async () => {
     try { setPurchaseInvoices(await getPurchaseInvoices()); }
     catch (error) { message.error(humanizeApiError(error, "Unable to load purchase invoices for accounting review.")); }
   };
   useEffect(() => { void reloadPurchaseInvoices(); }, []);
-
   const reloadSupplierMaster = async () => {
     try { setSupplierMaster(await getSupplierMaster()); }
     catch (error) { message.error(humanizeApiError(error, "Unable to load supplier drafts.")); }
   };
   useEffect(() => { void reloadSupplierMaster(); }, []);
-
-  const confirmInvoiceRequestResolved = (requestItem: DeliveryInvoiceUpdateRequestItem) => {
-    Modal.confirm({
-      title: `Mark ${requestItem.plateNumber} invoice request resolved?`,
-      content: "Confirm only after the requested invoice correction is complete. Delivery will then be able to continue its release checks.",
-      okText: "Mark resolved",
-      cancelText: "Keep open",
-      onOk: async () => {
-        setResolvingInvoiceRequestId(requestItem.id);
-        try {
-          await resolveDeliveryInvoiceUpdate(requestItem.id);
-          message.success("Delivery invoice request marked resolved");
-          await loadInvoiceUpdateRequests();
-        } catch (error) {
-          message.error(humanizeApiError(error, "Invoice update request could not be resolved."));
-          throw error;
-        } finally {
-          setResolvingInvoiceRequestId(undefined);
-        }
-      }
-    });
-  };
+  const invoiceSubmitLabel = financeInvoiceSubmitLabel(invoiceCalculatedTotal, invoiceAgreedTotal, adjustInvoicePrice);
 
   useEffect(() => {
     const syncFinanceTabFromLocation = () => setFinanceTab(financeTabFromLocation(canManageFinance));
@@ -577,18 +459,22 @@ export function FinancePage({
   };
 
   const openPrepareInvoice = () => {
-    if (!canPrepareInvoice) return;
     const vehicle = eligibleInvoiceVehicles[0];
     if (!vehicle) return;
     setAdjustInvoicePrice(false);
     prepareInvoiceForm.setFieldsValue({
       vehicleId: vehicle.id,
-      ...financeInvoiceVehicleDefaults(vehicle),
+      salesPrice: vehicle.sellingPrice ?? 0,
+      interestAdditionalCharges: vehicle.additionalCharges ?? 0,
+      ncdAmount: 0,
+      windscreenCharges: 0,
       salesAgentUserId: salesAgents[0]?.id,
       loanBankReference: undefined,
       insurancePaidOnBehalfAmount: 0,
       roadTaxPaidOnBehalfAmount: 0,
-      advancePaidOnBehalfAmount: 0
+      advancePaidOnBehalfAmount: 0,
+      nettPrice: undefined,
+      nettPriceOverrideReason: undefined
     });
     setPrepareInvoiceOpen(true);
   };
@@ -596,19 +482,26 @@ export function FinancePage({
   const updateInvoiceVehicleDefaults = (vehicleId: string) => {
     const vehicle = eligibleInvoiceVehicles.find((item) => item.id === vehicleId);
     if (!vehicle) return;
-    prepareInvoiceForm.setFieldsValue(financeInvoiceVehicleDefaults(vehicle));
+    prepareInvoiceForm.setFieldsValue({
+      salesPrice: vehicle.sellingPrice ?? 0,
+      interestAdditionalCharges: vehicle.additionalCharges ?? 0,
+      ncdAmount: 0,
+      windscreenCharges: 0,
+      nettPrice: undefined,
+      nettPriceOverrideReason: undefined
+    });
     setAdjustInvoicePrice(false);
   };
 
   const prepareFinanceSale = (values: FinanceSaleInput) => {
     const input: FinanceSaleInput = {
       vehicleId: values.vehicleId,
-      salesAgentUserId: values.salesAgentUserId,
-      loanBankReference: values.loanBankReference?.trim() || undefined,
       salesPrice: Number(values.salesPrice ?? 0),
       interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
       ncdAmount: Number(values.ncdAmount ?? 0),
       windscreenCharges: Number(values.windscreenCharges ?? 0),
+      salesAgentUserId: values.salesAgentUserId,
+      loanBankReference: values.loanBankReference?.trim() || undefined,
       insurancePaidOnBehalfAmount: Number(values.insurancePaidOnBehalfAmount ?? 0),
       roadTaxPaidOnBehalfAmount: Number(values.roadTaxPaidOnBehalfAmount ?? 0),
       advancePaidOnBehalfAmount: Number(values.advancePaidOnBehalfAmount ?? 0),
@@ -759,16 +652,25 @@ export function FinancePage({
   };
 
   const v2PrimaryAction = (payment: PaymentRecord) => {
+    const waitingForApproval = payment.receivableStatus === "WaitingForApproval";
     const available = payment.availableToAllocate ?? payment.balanceAmount ?? payment.nettPrice;
-    if (payment.receivableStatus === "WaitingForApproval") {
+    if (waitingForApproval) {
       return canApproveManagementReview
-        ? <Button size="small" type="primary" loading={v2MutationKey === `approve-${payment.id}`} onClick={() => approveAndIssueInvoice(payment)}>Approve & issue</Button>
+        ? <Button size="small" type="primary" loading={v2MutationKey === `approve-${payment.id}` || v2MutationKey === `invoice-${payment.id}`} onClick={() => approveAndIssueInvoice(payment)}>Approve & issue</Button>
         : <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View approval request</Button>;
     }
-    if (!payment.invoice) return <Button size="small" type="primary" loading={v2MutationKey === `invoice-${payment.id}`} onClick={() => void runV2Mutation(`invoice-${payment.id}`, () => onIssueInvoice(payment.id)).catch(() => undefined)}>Issue invoice</Button>;
-    if (payment.collections?.some((collection) => collection.status === "Pending")) return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>Review payment</Button>;
-    if (payment.receivableStatus === "Paid") return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View</Button>;
-    if (available > 0 && payment.receivableStatus !== "AttentionNeeded") return <Button size="small" type="primary" onClick={() => openAddPayment(payment)}>Add payment</Button>;
+    if (!payment.invoice) {
+      return <Button size="small" type="primary" loading={v2MutationKey === `invoice-${payment.id}`} onClick={() => void runV2Mutation(`invoice-${payment.id}`, () => onIssueInvoice(payment.id)).catch(() => undefined)}>Issue invoice</Button>;
+    }
+    if (payment.collections?.some((collection) => collection.status === "Pending")) {
+      return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>Review payment</Button>;
+    }
+    if (payment.receivableStatus === "Paid") {
+      return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View</Button>;
+    }
+    if (available > 0 && payment.receivableStatus !== "AttentionNeeded") {
+      return <Button size="small" type="primary" onClick={() => openAddPayment(payment)}>Add payment</Button>;
+    }
     return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View</Button>;
   };
 
@@ -783,54 +685,136 @@ export function FinancePage({
         <Typography.Title level={5}>Payment history / 收款记录</Typography.Title>
         <Tag>{payment.collections?.length ?? 0} record{payment.collections?.length === 1 ? "" : "s"}</Tag>
       </div>
-      {selectedPayment?.id === payment.id && paymentDocumentsLoadError && <Alert type="error" showIcon message="Payment evidence is unavailable" description={paymentDocumentsLoadError} action={<Button size="small" onClick={() => setDocumentReloadKey((value) => value + 1)}>Retry</Button>} />}
-      {(payment.collections?.length ?? 0) === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No payments added yet." /> : payment.collections?.map((collection) => {
+      {selectedPayment?.id === payment.id && paymentDocumentsLoadError && <Alert
+        type="error"
+        showIcon
+        message="Payment evidence is unavailable"
+        description={paymentDocumentsLoadError}
+        action={<Button size="small" onClick={() => setDocumentReloadKey((value) => value + 1)}>Retry</Button>}
+      />}
+      {(payment.collections?.length ?? 0) === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No payments added yet." />
+      ) : payment.collections?.map((collection) => {
         const bankDisbursement = collection.method === "BankDisbursement";
         const evidence = paymentDocuments.filter((document) => document.collectionTransactionId === collection.id);
         const hasEvidence = evidence.length > 0;
         const evidenceUnavailable = selectedPayment?.id !== payment.id || paymentDocumentsLoading || Boolean(paymentDocumentsLoadError);
         const createdByCurrentUser = Boolean(currentUser?.id && collection.createdBy === currentUser.id);
         const canReconcile = collection.status === "Pending" && !evidenceUnavailable && hasEvidence && !createdByCurrentUser && (!bankDisbursement || collection.financingStatus === "Disbursed");
-        return <article className="financeCollectionItem" key={collection.id}>
-          <div><strong>{formatMoney(collection.amount)}</strong><Tag color={collection.status === "Reconciled" ? "green" : collection.status === "Reversed" ? "red" : "gold"}>{collectionStatusLabel(collection.status)}</Tag></div>
-          <dl>
-            <div><dt>Method</dt><dd>{collectionMethodLabel(collection.method)}</dd></div>
-            <div><dt>Received</dt><dd>{collection.receivedDate}</dd></div>
-            <div><dt>Reference</dt><dd>{collection.reference || "-"}</dd></div>
-            {bankDisbursement && <div><dt>Financing</dt><dd>{financingStatusLabel(collection.financingStatus)}</dd></div>}
-          </dl>
-          {collection.notes && <Typography.Paragraph type="secondary">{collection.notes}</Typography.Paragraph>}
-          {collection.reversalReason && <Alert type="warning" showIcon message={`Reversed: ${collection.reversalReason}`} />}
-          <Space wrap size={6}>
-            <Tag color={evidenceUnavailable ? "red" : hasEvidence ? "green" : "gold"}>{evidenceUnavailable ? paymentDocumentsLoading ? "Loading evidence" : "Evidence unavailable" : hasEvidence ? `${evidence.length} evidence file${evidence.length === 1 ? "" : "s"}` : "Evidence needed"}</Tag>
-            {collection.status === "Pending" && <Upload accept="image/*,.pdf" maxCount={1} showUploadList={false} customRequest={async (option) => {
-              try {
-                await onUploadDocument(payment.vehicleId, option.file as File, "PaymentReceipt", { paymentRecordId: payment.id, collectionTransactionId: collection.id });
-                setDocumentReloadKey((value) => value + 1);
-                option.onSuccess?.({ ok: true });
-              } catch (error) {
-                option.onError?.(error instanceof Error ? error : new Error("Evidence upload failed."));
-              }
-            }}><Button size="small">{hasEvidence ? "Add evidence" : "Attach evidence"}</Button></Upload>}
-          </Space>
-          {evidence.length > 0 && <div className="financeCollectionEvidenceList">{evidence.map((document) => <div key={document.id}><Typography.Link href={vehicleDocumentContentUrl(payment.vehicleId, document.id)} target="_blank">{document.fileName}</Typography.Link><Typography.Text type="secondary">Uploaded {document.uploadedAt.slice(0, 10)} by {financeRequesterLabel(document.uploadedBy, currentUser?.id)}</Typography.Text></div>)}</div>}
-          {collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
-            {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
-            {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => Modal.confirm({ title: "Record funds disbursed?", content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.", okText: "Record funds disbursed", cancelText: "Cancel", onOk: () => updateFinancing(collection, "Disbursed") })}>Record funds disbursed</Button>}
-            {collection.status === "Pending" && <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : createdByCurrentUser ? "Another Finance user must reconcile a payment you recorded." : "Bank financing must be disbursed before reconciliation."}><span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({ title: "Reconcile this payment?", content: "Only reconcile after the amount is visible in the company account.", okText: "Reconcile", cancelText: "Cancel", onOk: () => reconcileV2Collection(collection) })}>Reconcile</Button></span></Tooltip>}
-            {collection.status === "Reconciled" && canApproveManagementReview && <Button size="small" danger onClick={() => { setReverseCollectionId(collection.id); setReverseReason(""); }}>Reverse</Button>}
-          </Space>}
-        </article>;
+        return (
+          <article className="financeCollectionItem" key={collection.id}>
+            <div>
+              <strong>{formatMoney(collection.amount)}</strong>
+              <Tag color={collection.status === "Reconciled" ? "green" : collection.status === "Reversed" ? "red" : "gold"}>{collectionStatusLabel(collection.status)}</Tag>
+            </div>
+            <dl>
+              <div><dt>Method</dt><dd>{collectionMethodLabel(collection.method)}</dd></div>
+              <div><dt>Received</dt><dd>{collection.receivedDate}</dd></div>
+              <div><dt>Reference</dt><dd>{collection.reference || "-"}</dd></div>
+              {bankDisbursement && <div><dt>Financing</dt><dd>{financingStatusLabel(collection.financingStatus)}</dd></div>}
+            </dl>
+            {collection.notes && <Typography.Paragraph type="secondary">{collection.notes}</Typography.Paragraph>}
+            {collection.reversalReason && <Alert type="warning" showIcon message={`Reversed: ${collection.reversalReason}`} />}
+            <Space wrap size={6}>
+              <Tag color={evidenceUnavailable ? "red" : hasEvidence ? "green" : "gold"}>{evidenceUnavailable ? paymentDocumentsLoading ? "Loading evidence" : "Evidence unavailable" : hasEvidence ? `${evidence.length} evidence file${evidence.length === 1 ? "" : "s"}` : "Evidence needed"}</Tag>
+              {collection.status === "Pending" && <Upload
+                accept="image/*,.pdf"
+                maxCount={1}
+                showUploadList={false}
+                customRequest={async (option) => {
+                  try {
+                    await onUploadDocument(payment.vehicleId, option.file as File, "PaymentReceipt", {
+                      paymentRecordId: payment.id,
+                      collectionTransactionId: collection.id
+                    });
+                    setDocumentReloadKey((value) => value + 1);
+                    option.onSuccess?.({ ok: true });
+                  } catch (error) {
+                    option.onError?.(error instanceof Error ? error : new Error("Evidence upload failed."));
+                  }
+                }}
+              ><Button size="small">{hasEvidence ? "Add evidence" : "Attach evidence"}</Button></Upload>}
+            </Space>
+            {evidence.length > 0 && <div className="financeCollectionEvidenceList">
+              {evidence.map((document) => <div key={document.id}>
+                <Typography.Link href={vehicleDocumentContentUrl(payment.vehicleId, document.id)} target="_blank">{document.fileName}</Typography.Link>
+                <Typography.Text type="secondary">Uploaded {document.uploadedAt.slice(0, 10)} by {financeRequesterLabel(document.uploadedBy, currentUser?.id)}</Typography.Text>
+              </div>)}
+            </div>}
+            {collection.status !== "Reversed" && (
+              <Space wrap className="financeCollectionActions">
+                {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && (
+                  <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>
+                )}
+                {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && (
+                  <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => Modal.confirm({
+                    title: "Record funds disbursed?",
+                    content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.",
+                    okText: "Record funds disbursed",
+                    cancelText: "Cancel",
+                    onOk: () => updateFinancing(collection, "Disbursed")
+                  })}>Record funds disbursed</Button>
+                )}
+                {collection.status === "Pending" && (
+                  <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : createdByCurrentUser ? "Another Finance user must reconcile a payment you recorded." : "Bank financing must be disbursed before reconciliation."}>
+                    <span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({
+                      title: "Reconcile this payment?",
+                      content: "Only reconcile after the amount is visible in the company account.",
+                      okText: "Reconcile",
+                      cancelText: "Cancel",
+                      onOk: () => reconcileV2Collection(collection)
+                    })}>Reconcile</Button></span>
+                  </Tooltip>
+                )}
+                {collection.status === "Reconciled" && canApproveManagementReview && <Button size="small" danger onClick={() => { setReverseCollectionId(collection.id); setReverseReason(""); }}>Reverse</Button>}
+              </Space>
+            )}
+          </article>
+        );
       })}
     </section>
   );
 
   const columns: ColumnsType<PaymentRecord> = [
-    { title: "Vehicle & Customer / 车辆与客户", dataIndex: "vehicleId", render: (vehicleId, row) => isFinanceV2(row) ? <Space direction="vertical" size={0}><Typography.Text strong>{plateFor(vehicles, vehicleId)}</Typography.Text><Typography.Text type="secondary">{customerLabel(customers, row.customerId ?? vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId)}</Typography.Text></Space> : plateFor(vehicles, vehicleId) },
+    {
+      title: "Vehicle & Customer / 车辆与客户",
+      dataIndex: "vehicleId",
+      render: (vehicleId, row) => isFinanceV2(row) ? (
+        <Space direction="vertical" size={0}>
+          <Typography.Text strong>{plateFor(vehicles, vehicleId)}</Typography.Text>
+          <Typography.Text type="secondary">{customerLabel(customers, row.customerId ?? vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId)}</Typography.Text>
+        </Space>
+      ) : plateFor(vehicles, vehicleId)
+    },
     { title: "Invoice Total / 发票总额", dataIndex: "nettPrice", render: (value, row) => formatMoney(isFinanceV2(row) ? row.invoice?.amount ?? value : value) },
-    { title: "Collected / 已收", render: (_, row) => isFinanceV2(row) ? formatMoney(row.collectedAmount ?? 0) : <Tag color={row.status === "Reconciled" ? "green" : "orange"}>{row.status}</Tag> },
-    { title: "Balance Due / 未收", render: (_, row) => isFinanceV2(row) ? formatMoney(row.balanceAmount ?? row.nettPrice) : <Space direction="vertical" size={0}><Typography.Text>{row.receiptNumber || "No receipt"}</Typography.Text><Typography.Text type="secondary">{row.invoiceNumber || "No invoice"}</Typography.Text></Space> },
-    { title: "Status & Invoice / 状态与发票", render: (_, row) => isFinanceV2(row) ? <Space direction="vertical" size={2}><Tag color={receivableStatusColor(row.receivableStatus)}>{receivableStatusLabel(row.receivableStatus)}</Tag>{row.invoice ? <Typography.Link href={financeInvoiceContentUrl(row.invoice.id)} target="_blank">{row.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Invoice not issued</Typography.Text>}</Space> : <Space wrap size={4}><Tag>Legacy</Tag><Tag color={row.bossChecked ? "green" : "orange"}>{row.bossChecked ? "Reviewed" : "Review pending"}</Tag>{paymentChecklistReady(row) ? <Tag color="green">Checklist done</Tag> : <Tag color="gold">Checklist pending</Tag>}</Space> },
+    {
+      title: "Collected / 已收",
+      render: (_, row) => isFinanceV2(row) ? formatMoney(row.collectedAmount ?? 0) : <Tag color={row.status === "Reconciled" ? "green" : "orange"}>{row.status}</Tag>
+    },
+    {
+      title: "Balance Due / 未收",
+      render: (_, row) => isFinanceV2(row) ? formatMoney(row.balanceAmount ?? row.nettPrice) : (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>{row.receiptNumber || "No receipt"}</Typography.Text>
+          <Typography.Text type="secondary">{row.invoiceNumber || "No invoice"}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Status & Invoice / 状态与发票",
+      render: (_, row) => isFinanceV2(row) ? (
+        <Space direction="vertical" size={2}>
+          <Tag color={receivableStatusColor(row.receivableStatus)}>{receivableStatusLabel(row.receivableStatus)}</Tag>
+          {row.invoice ? <Typography.Link href={financeInvoiceContentUrl(row.invoice.id)} target="_blank">{row.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Invoice not issued</Typography.Text>}
+        </Space>
+      ) : (
+        <Space wrap size={4}>
+          <Tag>Legacy</Tag>
+          <Tag color={row.bossChecked ? "green" : "orange"}>{row.bossChecked ? "Reviewed" : "Review pending"}</Tag>
+          {paymentChecklistReady(row) ? <Tag color="green">Checklist done</Tag> : <Tag color="gold">Checklist pending</Tag>}
+        </Space>
+      )
+    },
     {
       title: "Next Action / 操作",
       fixed: "right",
@@ -950,11 +934,8 @@ export function FinancePage({
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectPaymentVoucher(row.id)}>Details</Button>
           <Button size="small" href={paymentVoucherPdfUrl(row.id)} target="_blank">PDF</Button>
-          {row.status === "Pending" ? (
-            <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Approved" })}>Approve</Button>
-          ) : (
-            <Button size="small" onClick={() => onUpdatePaymentVoucher({ ...row, status: "Paid" })} disabled={row.status === "Paid"}>Paid</Button>
-          )}
+          {row.status === "Pending" && <Button size="small" onClick={() => onApprovePaymentVoucher(row.id)}>Approve</Button>}
+          {row.status === "Approved" && <Button size="small" onClick={() => confirmMarkVoucherPaid(row)}>Mark paid</Button>}
         </Space>
       )
     }
@@ -962,11 +943,22 @@ export function FinancePage({
   const filteredPayments = filterFinanceRows(payments, financeKeyword, financeStatus, (payment) => [
     plateFor(vehicles, payment.vehicleId),
     customerLabel(customers, payment.customerId ?? vehicles.find((vehicle) => vehicle.id === payment.vehicleId)?.customerId),
-    payment.receiptNumber, payment.invoiceNumber, payment.invoice?.invoiceNumber, payment.bankName, payment.bankFollowUpDate,
+    payment.receiptNumber,
+    payment.invoiceNumber,
+    payment.invoice?.invoiceNumber,
+    payment.bankName,
+    payment.bankFollowUpDate,
     ...(payment.collections ?? []).flatMap((collection) => [collection.reference, collection.method, collection.status, collection.financingStatus])
   ], (payment) => isFinanceV2(payment)
-    ? [payment.receivableStatus ?? "Draft", ...(payment.collections ?? []).flatMap((collection) => [collection.status, collection.financingStatus])]
-    : payment.status).filter((payment) => matchesDashboardFinanceFocus(dashboardFocus, payment.vehicleId, dashboardFocus.attention === "open" ? isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled" : true));
+    ? [
+        payment.receivableStatus ?? "Draft",
+        ...(payment.collections ?? []).flatMap((collection) => [collection.status, collection.financingStatus])
+      ]
+    : payment.status).filter((payment) => matchesDashboardFinanceFocus(
+    dashboardFocus,
+    payment.vehicleId,
+    dashboardFocus.attention === "open" ? isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled" : true
+  ));
   const filteredSettlements = filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
     plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
   ], (settlement) => settlement.isPaid ? "Paid" : "Due").filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, settlementMatchesDashboardAttention(settlement, dashboardFocus.attention, dashboardToday)));
@@ -995,13 +987,13 @@ export function FinancePage({
             : { filtered: filteredPayments.length, total: payments.length };
   const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus || dashboardFocusActive);
   const financeFilters = (
-    <Space wrap className="toolbarForm">
+    <Space wrap className="toolbarForm financeToolbarForm">
       <Input.Search
+        allowClear
         aria-label={searchCopy.ariaLabel}
         className="financeKeywordFilter"
-        allowClear
-        value={financeKeyword}
         placeholder={searchCopy.placeholder}
+        value={financeKeyword}
         onChange={(event) => {
           setFinanceKeyword(event.target.value);
           setFinancePage(1);
@@ -1144,14 +1136,6 @@ export function FinancePage({
         message={dashboardFocus.vehicleId ? "Dashboard focus: records for the selected vehicle" : dashboardFocus.attention === "dueSoon" ? "Dashboard focus: Daily Spend due soon" : dashboardFocus.attention === "due" ? "Dashboard focus: due follow-up items" : "Dashboard focus: open follow-up items"}
         action={<Button size="small" onClick={() => onClearDashboardFocus(financeTab)}>Clear focus</Button>}
       />}
-      {canManageFinance && <InvoiceUpdateRequestQueue
-        requests={invoiceUpdateRequests}
-        loading={invoiceRequestLoading}
-        error={invoiceRequestError}
-        resolvingId={resolvingInvoiceRequestId}
-        onRetry={() => void loadInvoiceUpdateRequests()}
-        onResolve={confirmInvoiceRequestResolved}
-      />}
       {financeTab === "cash-custody" && (
         <CashCustodyPage
           currentUser={currentUser}
@@ -1174,16 +1158,21 @@ export function FinancePage({
           />
           <Button disabled={Boolean(paymentLoadError)} onClick={handleExportAutoCount}>Export for AutoCount (.xlsx)</Button>
           <Button disabled={Boolean(paymentLoadError)} onClick={handleExportPayments}>Legacy export (.csv)</Button>
-          <Button type="primary" disabled={!canPrepareInvoice} onClick={openPrepareInvoice}>Prepare invoice</Button>
+          <Button type="primary" disabled={Boolean(paymentLoadError) || eligibleInvoiceVehicles.length === 0} onClick={openPrepareInvoice}>Prepare invoice</Button>
         </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           <Alert type="info" showIcon message="YS Heng issues the invoice here. The AutoCount Excel export is reviewed and submitted manually; it is not a direct integration." />
-          {paymentLoadError && <Alert type="error" showIcon message="Finance records are unavailable" description={`${paymentLoadError} No demo or cached balances are shown.`} action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>} />}
-          {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
+          {paymentLoadError && <Alert
+            type="error"
+            showIcon
+            message="Finance records are unavailable"
+            description={`${paymentLoadError} No demo or cached balances are shown.`}
+            action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>}
+          />}
           {financeFilters}
-          {!financeVehicleOptionLoadError && eligiblePaymentVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before preparing an invoice." />}
-          {!financeVehicleOptionLoadError && eligiblePaymentVehicles.length > 0 && eligibleInvoiceVehicles.length === 0 && <Alert type="info" showIcon message="All buyer-linked vehicles already have a finance record. Search the records below to continue collection work." />}
+          {eligiblePaymentVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before preparing an invoice." />}
+          {eligiblePaymentVehicles.length > 0 && eligibleInvoiceVehicles.length === 0 && <Alert type="info" showIcon message="All buyer-linked vehicles already have a finance record. Search the records below to continue collection work." />}
           <div className="mobileRecordList">
           {filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
           {visiblePayments.map((payment) => {
@@ -1267,17 +1256,33 @@ export function FinancePage({
         <Form form={prepareInvoiceForm} layout="vertical" className="modalForm" onFinish={prepareFinanceSale}>
           <Alert type="info" showIcon message="Check the buyer and amounts below. YS Heng generates the invoice; AutoCount only receives the reviewed Excel export." />
           <Form.Item name="vehicleId" label="Vehicle & Buyer / 车辆与买家" rules={[{ required: true, message: "Select a vehicle." }]}>
-            <Select showSearch optionFilterProp="label" onChange={updateInvoiceVehicleDefaults} options={eligibleInvoiceVehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model} · ${customerLabel(customers, vehicle.customerId)}` }))} />
+            <Select
+              showSearch
+              optionFilterProp="label"
+              onChange={updateInvoiceVehicleDefaults}
+              options={eligibleInvoiceVehicles.map((vehicle) => ({
+                value: vehicle.id,
+                label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model} · ${customerLabel(customers, vehicle.customerId)}`
+              }))}
+            />
           </Form.Item>
           <Form.Item name="salesAgentUserId" label="Sales agent / 销售员" rules={[{ required: true, message: "Select the responsible sales agent." }]}>
             <Select showSearch optionFilterProp="label" options={salesAgents.map((agent) => ({ value: agent.id, label: `${agent.displayName} · ${agent.email}` }))} />
           </Form.Item>
           <Form.Item name="loanBankReference" label="Loan bank reference"><Input placeholder="Bank / loan approval reference" /></Form.Item>
           <div className="financeV2AmountGrid">
-            <Form.Item name="salesPrice" label="Selling price / 售价" rules={[{ required: true, message: "Selling price is required." }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="interestAdditionalCharges" label="Additional charges / 附加费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="windscreenCharges" label="Windscreen charges / 挡风玻璃费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="salesPrice" label="Selling price / 售价" rules={[{ required: true, message: "Selling price is required." }]}>
+              <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+            </Form.Item>
+            <Form.Item name="interestAdditionalCharges" label="Additional charges / 附加费用" rules={[{ required: true }]}>
+              <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+            </Form.Item>
+            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]}>
+              <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+            </Form.Item>
+            <Form.Item name="windscreenCharges" label="Windscreen charges / 挡风玻璃费用" rules={[{ required: true }]}>
+              <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+            </Form.Item>
           </div>
           <ProCard size="small" title="Paid on behalf of customer / 代客户支付" bordered>
             <div className="financeV2AmountGrid">
@@ -1286,15 +1291,26 @@ export function FinancePage({
               <Form.Item name="advancePaidOnBehalfAmount" label="Other advance (Finance mapping required)"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             </div>
           </ProCard>
-          <div className="financeV2CalculatedTotal"><span>Calculated invoice total / 系统计算总额</span><strong>{formatMoney(invoiceCalculatedTotal)}</strong><small>Selling price + additional charges + windscreen + paid-on-behalf lines − NCD</small></div>
+          <div className="financeV2CalculatedTotal">
+            <span>Calculated invoice total / 系统计算总额</span>
+            <strong>{formatMoney(invoiceCalculatedTotal)}</strong>
+            <small>Selling price + additional charges + windscreen + paid-on-behalf lines − NCD</small>
+          </div>
           <Checkbox checked={adjustInvoicePrice} onChange={(event) => {
             const checked = event.target.checked;
             setAdjustInvoicePrice(checked);
-            prepareInvoiceForm.setFieldsValue({ nettPrice: checked ? invoiceCalculatedTotal : undefined, nettPriceOverrideReason: undefined });
+            prepareInvoiceForm.setFieldsValue({
+              nettPrice: checked ? invoiceCalculatedTotal : undefined,
+              nettPriceOverrideReason: undefined
+            });
           }}>Adjust price / 手动调整</Checkbox>
           {adjustInvoicePrice && <>
-            <Form.Item name="nettPrice" label="Agreed invoice total / 协议总额" rules={[{ required: true, message: "Enter the agreed total." }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="nettPriceOverrideReason" label="Reason for adjustment / 调整原因" rules={[{ required: true, whitespace: true, message: "Explain why the total is different." }]}><Input.TextArea rows={3} maxLength={500} showCount placeholder="Example: agreed discount approved during final negotiation" /></Form.Item>
+            <Form.Item name="nettPrice" label="Agreed invoice total / 协议总额" rules={[{ required: true, message: "Enter the agreed total." }]}>
+              <InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+            </Form.Item>
+            <Form.Item name="nettPriceOverrideReason" label="Reason for adjustment / 调整原因" rules={[{ required: true, whitespace: true, message: "Explain why the total is different." }]}>
+              <Input.TextArea rows={3} maxLength={500} showCount placeholder="Example: agreed discount approved during final negotiation" />
+            </Form.Item>
             <Alert type="warning" showIcon message="A different agreed total waits for Boss/Admin approval before the invoice is issued." />
           </>}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === "prepare-invoice"}>{invoiceSubmitLabel}</Button></Form.Item>
@@ -1315,9 +1331,15 @@ export function FinancePage({
         {selectedCollectionPayment && <Space direction="vertical" size={16} className="fullWidth">
           <FinanceV2BalanceSummary payment={selectedCollectionPayment} vehicles={vehicles} customers={customers} />
           <Form form={collectionForm} layout="vertical" className="drawerForm" onFinish={(values) => void submitCollection(values)}>
-            <Form.Item name="amount" label="Amount received / 已收金额" rules={[{ required: true, message: "Enter the payment amount." }]}><InputNumber className="fullWidth" min={0.01} max={selectedCollectionPayment.availableToAllocate ?? selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="method" label="Payment method / 收款方式" rules={[{ required: true, message: "Choose a payment method." }]}><Select onChange={(method) => collectionForm.setFieldValue("financingStatus", method === "BankDisbursement" ? "Pending" : "NotApplicable")} options={collectionMethodOptions} /></Form.Item>
-            {selectedCollectionMethod === "BankDisbursement" && <Form.Item name="financingStatus" label="Bank financing status / 银行放款状态" rules={[{ required: true }]}><Select disabled options={[{ value: "Pending", label: financingStatusLabel("Pending") }]} /></Form.Item>}
+            <Form.Item name="amount" label="Amount received / 已收金额" rules={[{ required: true, message: "Enter the payment amount." }]}>
+              <InputNumber className="fullWidth" min={0.01} max={selectedCollectionPayment.availableToAllocate ?? selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+            </Form.Item>
+            <Form.Item name="method" label="Payment method / 收款方式" rules={[{ required: true, message: "Choose a payment method." }]}>
+              <Select onChange={(method) => collectionForm.setFieldValue("financingStatus", method === "BankDisbursement" ? "Pending" : "NotApplicable")} options={collectionMethodOptions} />
+            </Form.Item>
+            {selectedCollectionMethod === "BankDisbursement" && <Form.Item name="financingStatus" label="Bank financing status / 银行放款状态" rules={[{ required: true }]}>
+              <Select disabled options={[{ value: "Pending", label: financingStatusLabel("Pending") }]} />
+            </Form.Item>}
             <Form.Item name="receivedDate" label="Received date / 收款日期" rules={[{ required: true, message: "Choose the received date." }]}><DatePicker className="fullWidth" /></Form.Item>
             <Form.Item name="reference" label="Payment reference / 收款编号" rules={[{ required: true, whitespace: true, message: "Enter a bank, cheque, card, or agreement reference." }]}><Input maxLength={100} placeholder="Example: bank transaction or cheque number" /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
@@ -1327,28 +1349,43 @@ export function FinancePage({
           {collectionHistory(selectedCollectionPayment)}
         </Space>}
       </Drawer>
-      <Drawer title="Invoice & payment details / 发票与收款详情" width={600} open={Boolean(v2DetailsPaymentId)} onClose={() => setV2DetailsPaymentId(undefined)} className="recordEditDrawer financeV2Drawer">
+      <Drawer
+        title="Invoice & payment details / 发票与收款详情"
+        width={600}
+        open={Boolean(v2DetailsPaymentId)}
+        onClose={() => setV2DetailsPaymentId(undefined)}
+        className="recordEditDrawer financeV2Drawer"
+      >
         {selectedV2DetailsPayment && <Space direction="vertical" size={16} className="fullWidth">
           <FinanceV2BalanceSummary payment={selectedV2DetailsPayment} vehicles={vehicles} customers={customers} />
-          {(selectedV2DetailsPayment.nettPriceVariance ?? 0) !== 0 && <ProCard size="small" title="Price adjustment / 价格调整"><Descriptions size="small" column={1}>
-            <Descriptions.Item label="Calculated total">{formatMoney(selectedV2DetailsPayment.calculatedNettPrice ?? selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
-            <Descriptions.Item label="Agreed invoice total">{formatMoney(selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
-            <Descriptions.Item label="Variance">{formatMoney(selectedV2DetailsPayment.nettPriceVariance ?? 0)}</Descriptions.Item>
-            <Descriptions.Item label="Reason">{selectedV2DetailsPayment.nettPriceOverrideReason ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="Requested by">{financeRequesterLabel(selectedV2DetailsPayment.nettPriceOverrideRequestedBy, currentUser?.id)}</Descriptions.Item>
-            <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for Boss/Admin"}</Descriptions.Item>
-          </Descriptions></ProCard>}
+          {(selectedV2DetailsPayment.nettPriceVariance ?? 0) !== 0 && <ProCard size="small" title="Price adjustment / 价格调整">
+            <Descriptions size="small" column={1}>
+              <Descriptions.Item label="Calculated total">{formatMoney(selectedV2DetailsPayment.calculatedNettPrice ?? selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
+              <Descriptions.Item label="Agreed invoice total">{formatMoney(selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
+              <Descriptions.Item label="Variance">{formatMoney(selectedV2DetailsPayment.nettPriceVariance ?? 0)}</Descriptions.Item>
+              <Descriptions.Item label="Reason">{selectedV2DetailsPayment.nettPriceOverrideReason ?? "-"}</Descriptions.Item>
+              <Descriptions.Item label="Requested by">{financeRequesterLabel(selectedV2DetailsPayment.nettPriceOverrideRequestedBy, currentUser?.id)}</Descriptions.Item>
+              <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for Boss/Admin"}</Descriptions.Item>
+            </Descriptions>
+          </ProCard>}
           {selectedV2DetailsPayment.invoice && <Button block href={financeInvoiceContentUrl(selectedV2DetailsPayment.invoice.id)} target="_blank">Open invoice PDF · {selectedV2DetailsPayment.invoice.invoiceNumber}</Button>}
           {selectedV2DetailsPayment.receivableStatus !== "Paid" && (selectedV2DetailsPayment.availableToAllocate ?? 0) > 0 && <Button block type="primary" onClick={() => { setV2DetailsPaymentId(undefined); openAddPayment(selectedV2DetailsPayment); }}>Add payment</Button>}
           {collectionHistory(selectedV2DetailsPayment)}
         </Space>}
       </Drawer>
-      <Modal title="Reverse reconciled payment" open={Boolean(reverseCollectionId)} okText="Reverse payment" okButtonProps={{ danger: true, disabled: !reverseReason.trim(), loading: v2MutationKey === `reverse-${reverseCollectionId}` }} onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }} onOk={async () => {
-        if (!reverseCollectionId || !reverseReason.trim()) return;
-        await runV2Mutation(`reverse-${reverseCollectionId}`, () => onReverseCollection(reverseCollectionId, reverseReason.trim()));
-        setReverseCollectionId(undefined);
-        setReverseReason("");
-      }}>
+      <Modal
+        title="Reverse reconciled payment"
+        open={Boolean(reverseCollectionId)}
+        okText="Reverse payment"
+        okButtonProps={{ danger: true, disabled: !reverseReason.trim(), loading: v2MutationKey === `reverse-${reverseCollectionId}` }}
+        onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }}
+        onOk={async () => {
+          if (!reverseCollectionId || !reverseReason.trim()) return;
+          await runV2Mutation(`reverse-${reverseCollectionId}`, () => onReverseCollection(reverseCollectionId, reverseReason.trim()));
+          setReverseCollectionId(undefined);
+          setReverseReason("");
+        }}
+      >
         <Alert type="warning" showIcon message="Reversal restores the outstanding balance and stays in the audit history." />
         <Typography.Text strong>Reason for reversal</Typography.Text>
         <Input.TextArea aria-label="Reason for reversal" className="financeV2ReverseReason" rows={3} maxLength={500} showCount value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="Explain why this reconciled payment must be reversed" />
@@ -1415,6 +1452,7 @@ export function FinancePage({
             interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
             ncdAmount: Number(values.ncdAmount ?? 0),
             windscreenCharges: Number(values.windscreenCharges ?? 0),
+            outstationDeliveryDate: values.outstationDeliveryDate,
             bankName: values.bankName,
             bankFollowUpDate: values.bankFollowUpDate,
             createdAt: new Date().toISOString()
@@ -1437,6 +1475,7 @@ export function FinancePage({
           <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Payment</Button></Form.Item>
@@ -1473,6 +1512,7 @@ export function FinancePage({
               interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
               ncdAmount: Number(values.ncdAmount ?? 0),
               windscreenCharges: Number(values.windscreenCharges ?? 0),
+              outstationDeliveryDate: values.outstationDeliveryDate?.trim() || undefined,
               bankName: values.bankName?.trim() || undefined,
               bankFollowUpDate: values.bankFollowUpDate?.trim() || undefined
             };
@@ -1502,11 +1542,7 @@ export function FinancePage({
           <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-          <Descriptions size="small" column={1} className="fullWidth">
-            <Descriptions.Item label="Outstation Delivery Date / 外地送车日期">
-              {selectedEditPayment?.outstationDeliveryDate || "Set in Delivery Workboard"}
-            </Descriptions.Item>
-          </Descriptions>
+          <Form.Item name="outstationDeliveryDate" label="Outstation Delivery Date / 外地送车日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPayment}>Update Payment</Button></Form.Item>
@@ -1523,7 +1559,12 @@ export function FinancePage({
             }))}
             onAction={() => setDocumentCategory(financeDocumentCategories.find((category) => !paymentDocuments.some((document) => document.category === category)) ?? "PaymentReceipt")}
           />}
-          {selectedPayment && isFinanceV2(selectedPayment) && <Alert type="info" showIcon message="Attach evidence to the matching partial payment before reconciliation." action={<Button size="small" onClick={() => openV2Details(selectedPayment.id)}>Open payment history</Button>} />}
+          {selectedPayment && isFinanceV2(selectedPayment) && <Alert
+            type="info"
+            showIcon
+            message="Attach evidence to the matching partial payment before reconciliation."
+            action={<Button size="small" onClick={() => openV2Details(selectedPayment.id)}>Open payment history</Button>}
+          />}
           <Form layout="vertical" className="formGrid">
             <Form.Item label="Payment Record / 收款记录">
               <Select
@@ -1539,37 +1580,37 @@ export function FinancePage({
               />
             </Form.Item>
             {selectedPayment && !isFinanceV2(selectedPayment) && <>
-            <Form.Item label="Document Type / 文件类型">
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                options={financeDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
-              />
-            </Form.Item>
-            <Form.Item label="Receipt / Invoice Upload / 收据与发票上传">
-              <OcrUploadReview
-                vehicleId={selectedPayment.vehicleId}
-                category={documentCategory}
-                uploadOwner={{ paymentRecordId: selectedPayment.id }}
-                buttonLabel="Add receipt or invoice photo"
-                applyLabel="Use details in payment"
-                fields={[
-                  { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
-                  { name: "receiptNumber", label: "Receipt No." },
-                  { name: "invoiceNumber", label: "Invoice No." },
-                  { name: "nettPrice", label: "Nett Price", type: "number" },
-                  { name: "salesPrice", label: "Sales Price", type: "number" },
-                  { name: "bankName", label: "Bank" },
-                  { name: "bankFollowUpDate", label: "Bank Follow-up" }
-                ]}
-                onApply={(values) => {
-                  setEditPaymentId(selectedPayment.id);
-                  setPaymentOcrDraft(values);
-                  setFinanceEditorOpen("payment");
-                }}
-                onUploaded={() => setDocumentReloadKey((value) => value + 1)}
-              />
-            </Form.Item>
+              <Form.Item label="Document Type / 文件类型">
+                <Select<DocumentCategory>
+                  value={documentCategory}
+                  onChange={setDocumentCategory}
+                  options={financeDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+                />
+              </Form.Item>
+              <Form.Item label="Receipt / Invoice Upload / 收据与发票上传">
+                <OcrUploadReview
+                  vehicleId={selectedPayment.vehicleId}
+                  category={documentCategory}
+                  uploadOwner={{ paymentRecordId: selectedPayment.id }}
+                  buttonLabel="Add receipt or invoice photo"
+                  applyLabel="Use details in payment"
+                  fields={[
+                    { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
+                    { name: "receiptNumber", label: "Receipt No." },
+                    { name: "invoiceNumber", label: "Invoice No." },
+                    { name: "nettPrice", label: "Nett Price", type: "number" },
+                    { name: "salesPrice", label: "Sales Price", type: "number" },
+                    { name: "bankName", label: "Bank" },
+                    { name: "bankFollowUpDate", label: "Bank Follow-up" }
+                  ]}
+                  onApply={(values) => {
+                    setEditPaymentId(selectedPayment.id);
+                    setPaymentOcrDraft(values);
+                    setFinanceEditorOpen("payment");
+                  }}
+                  onUploaded={() => setDocumentReloadKey((value) => value + 1)}
+                />
+              </Form.Item>
             </>}
           </Form>
           <Alert
@@ -2282,7 +2323,17 @@ const collectionMethodOptions: Array<{ value: Exclude<CollectionMethod, "Cash">;
 ];
 
 function collectionMethodLabel(method: CollectionMethod) {
-  return ({ BookingDeposit: "Booking deposit", DownPayment: "Down payment", BankTransfer: "Bank transfer", BankDisbursement: "Bank financing disbursement", Cheque: "Cheque", Card: "Card", TradeInCredit: "Trade-in credit", Other: "Other", Cash: "Cash custody" } satisfies Record<CollectionMethod, string>)[method];
+  return ({
+    BookingDeposit: "Booking deposit",
+    DownPayment: "Down payment",
+    BankTransfer: "Bank transfer",
+    BankDisbursement: "Bank financing disbursement",
+    Cheque: "Cheque",
+    Card: "Card",
+    TradeInCredit: "Trade-in credit",
+    Other: "Other",
+    Cash: "Cash custody"
+  } satisfies Record<CollectionMethod, string>)[method];
 }
 
 function collectionStatusLabel(status: CollectionTransaction["status"]) {
@@ -2381,6 +2432,14 @@ function tablePagination(total: number, current: number, onChange: (page: number
     onChange,
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`
   };
+}
+
+function financeEmptyText(totalRows: number, filteredRows: number, itemName: string) {
+  return totalRows === 0
+    ? `No ${itemName} yet.`
+    : filteredRows === 0
+      ? `No ${itemName} match the current filters.`
+      : `No ${itemName} yet.`;
 }
 
 function statusOptionsForFinanceTab(tab: string) {

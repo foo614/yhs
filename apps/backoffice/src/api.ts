@@ -21,13 +21,11 @@ export type DebtRecoveryStatus = "Open" | "FollowedUp" | "Closed";
 export type RepairApprovalStatus = "Pending" | "Approved" | "Rejected";
 export type SupplierInvoiceAgingStatus = "Unmatched" | "DueSoon" | "Overdue" | "Paid";
 export type HrAttendanceStatus = "Present" | "Late" | "HalfDay" | "Absent";
-export type HrAttendanceVerificationMethod = "Manual" | "OfficeQr" | "Outstation" | "ManualException" | "OfficeIp";
-export type HrAttendanceAction = "CheckIn" | "CheckOut";
-export type HrBusinessTripStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "UnpaidLeave";
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated";
 export type HrEmploymentType = "Monthly" | "Hourly";
+export type HrAttendanceVerificationMethod = "Manual" | "OfficeQr" | "Outstation" | "ManualException" | "OfficeIp";
 export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate" | "InspectionReport" | "WindscreenPolicy";
 export type DocumentOwnershipType = "Seller" | "Buyer" | "Vehicle";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed" | "Reviewed";
@@ -144,8 +142,6 @@ export type Vehicle = {
 
 export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status" | "customerId"> &
   Partial<Pick<Vehicle, "sellingPrice" | "additionalCharges">>;
-
-export type FinanceVehicleOption = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "status" | "customerId" | "sellingPrice" | "additionalCharges">;
 
 export type StockMovement = {
   id: string;
@@ -295,6 +291,7 @@ export type DashboardAnalyticsPeriod = {
   from?: string;
   to?: string;
 };
+
 export type DashboardReminderLoadResult = {
   reminders: DashboardReminder[];
   error?: string;
@@ -381,25 +378,6 @@ export type Supplier = {
   approvedAt?: string;
 };
 
-export type DeliveryAccountingCharge = {
-  id: string;
-  deliveryScheduleId: string;
-  vehicleId: string;
-  chargeType: DeliveryAccountingChargeType;
-  supplierId?: string;
-  providerName: string;
-  referenceNumber?: string;
-  invoiceDate: string;
-  amount: number;
-  paidOnBehalf: boolean;
-  documentId?: string;
-  accountingStatus: AccountingConfirmationStatus;
-  updatedBy?: string;
-  updatedAt?: string;
-  accountingConfirmedBy?: string;
-  accountingConfirmedAt?: string;
-};
-
 export type Customer = {
   id: string;
   name: string;
@@ -451,7 +429,6 @@ export type DeliverySchedule = {
   id: string;
   vehicleId: string;
   customerId?: string;
-  picUserId?: string;
   pic: string;
   status: DeliveryStatus;
   deliveryType?: DeliveryType;
@@ -485,102 +462,23 @@ export type DeliverySchedule = {
   finalChecklistConfirmed?: boolean;
 };
 
-export type DeliveryWorkboardStage = "PlanDelivery" | "PrepareCar" | "ClearDocuments" | "Handover" | "Completed" | "Cancelled";
-
-export type DeliveryWorkboardItem = {
-  id: string;
-  vehicleId: string;
-  plateNumber: string;
-  vehicleLabel: string;
-  customerId?: string;
-  customerName: string;
-  picUserId?: string;
-  picName: string;
-  deliveryType?: DeliveryType;
-  scheduledDate: string;
-  scheduledTime?: string;
-  deliveryAddress?: string;
-  transportMethod?: string;
-  rescheduleReason?: string;
-  cancellationReason?: string;
-  status: DeliveryStatus;
-  stage: DeliveryWorkboardStage;
-  stageLabel: string;
-  nextAction: string;
-  blocker?: string | null;
-  financeCleared: boolean;
-  canRelease: boolean;
-  terminal: boolean;
-  invoiceUpdateRequested?: boolean;
-  invoiceUpdateRequestReason?: string | null;
-  polishDone: boolean;
-  tintedDone: boolean;
-  washDone: boolean;
-  documentsPrepared: boolean;
-  inspectionDone: boolean;
-  inspectionBookingReference?: string;
-  inspectionReportReference?: string;
-  notificationSent: boolean;
-  twoDayNoticeSent: boolean;
-  insuranceHandled: boolean;
-  insurancePolicyReference?: string;
-  insuranceExpiryDate?: string;
-  roadTaxHandled: boolean;
-  roadTaxReceiptReference?: string;
-  roadTaxExpiryDate?: string;
-  windscreenInsuranceHandled: boolean;
-  windscreenPolicyReference?: string;
-  windscreenInsuranceExpiryDate?: string;
-  handoverPhotoCaptured?: boolean;
-  signedHandoverReceived?: boolean;
-  customerAcknowledged?: boolean;
-  finalChecklistConfirmed?: boolean;
-  missingCategories: DocumentCategory[];
-  evidence: DeliveryEvidenceItem[];
-};
-
-export type DeliveryInvoiceUpdateRequestItem = {
-  id: string;
-  vehicleId: string;
-  plateNumber: string;
-  vehicleLabel: string;
-  customerName: string;
-  requestReason: string;
-  requestedAt: string;
-};
-
-export type DeliveryPicOption = {
-  id: string;
-  displayName: string;
-};
-
-export type DeliveryActivity = {
+export type DeliveryAccountingCharge = {
   id: string;
   deliveryScheduleId: string;
-  action: string;
-  actorUserId?: string | null;
-  actorName: string;
-  summary: string;
-  createdAt: string;
-};
-
-export type SalesWorkboardItem = {
   vehicleId: string;
-  plateNumber: string;
-  vehicleLabel: string;
-  salesAgentUserId?: string | null;
-  salesAgentName?: string | null;
-  process: string;
-  responsibleDepartment: string;
-  nextAction: string;
-  soldAt?: string | null;
-};
-
-export type SalesWorkboard = {
-  soldThisMonth: number;
-  inProgressCount: number;
-  availableAgents: DeliveryPicOption[];
-  items: SalesWorkboardItem[];
+  chargeType: DeliveryAccountingChargeType;
+  supplierId?: string;
+  providerName: string;
+  referenceNumber?: string;
+  invoiceDate: string;
+  amount: number;
+  paidOnBehalf: boolean;
+  documentId?: string;
+  accountingStatus: AccountingConfirmationStatus;
+  updatedBy?: string;
+  updatedAt?: string;
+  accountingConfirmedBy?: string;
+  accountingConfirmedAt?: string;
 };
 
 export type PaymentRecord = {
@@ -633,6 +531,10 @@ export type FinanceInvoice = {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  customerTinNumber?: string;
+  salesAgentUserId?: string;
+  salesAgentName?: string;
+  loanBankReference?: string;
   vehiclePlateNumber?: string;
   vehicleDescription?: string;
   invoiceNumber: string;
@@ -768,8 +670,6 @@ export type CollectionTransaction = {
 
 export type FinanceSaleInput = {
   vehicleId: string;
-  salesAgentUserId?: string;
-  loanBankReference?: string;
   salesPrice: number;
   interestAdditionalCharges: number;
   ncdAmount: number;
@@ -779,6 +679,8 @@ export type FinanceSaleInput = {
   advancePaidOnBehalfAmount?: number;
   nettPrice?: number;
   nettPriceOverrideReason?: string;
+  salesAgentUserId?: string;
+  loanBankReference?: string;
 };
 
 export type CollectionCreateInput = {
@@ -933,61 +835,6 @@ export type HrAttendanceRecord = {
   officeNetworkLabel?: string;
   notes?: string;
 };
-
-export type HrAttendanceQrChallenge = {
-  id: string;
-  token: string;
-  expiresAt: string;
-};
-
-export type HrAttendanceQrRedemptionRequest = {
-  token: string;
-  action: HrAttendanceAction;
-};
-
-export type HrBusinessTrip = {
-  id: string;
-  staffUserId: string;
-  status: HrBusinessTripStatus;
-  startDate: string;
-  endDate: string;
-  location: string;
-  purpose: string;
-  isUrgentException: boolean;
-  requestedAt: string;
-  approvedBy?: string;
-  approvedAt?: string;
-  decisionNotes?: string;
-};
-
-export type HrOutstationAttendanceRequest = { businessTripId: string };
-
-export type HrAttendanceDashboardSummary = {
-  checkedInToday: number;
-  checkedOutToday: number;
-  openSessionsToday: number;
-  officeQrSessionsToday: number;
-  manualSessionsToday: number;
-  outstationSessionsToday: number;
-  pendingBusinessTripRequests: number;
-  activeOutstationToday: number;
-  upcomingApprovedTrips: number;
-};
-
-export type HrAvailabilityCalendarItem = {
-  staffUserId: string;
-  staffDisplayName: string;
-  startDate: string;
-  endDate: string;
-  kind: "Leave" | "Outstation";
-  status: "Busy";
-  location?: string;
-  purpose?: string;
-};
-
-export type HrAttendanceReminderType = "PendingApproval" | "UpcomingOutstation" | "MissingCheckOut";
-export type HrAttendanceReminderPolicy = { id: string; type: HrAttendanceReminderType; isEnabled: boolean; leadHours: number; updatedBy: string; updatedAt: string };
-export type HrAttendanceReminderItem = { type: HrAttendanceReminderType; staffUserId: string; message: string; dueDate: string };
 
 export type HrAttendanceNetwork = {
   id: string;
@@ -1402,29 +1249,6 @@ export async function getVehicleLookup(): Promise<VehicleLookup[]> {
   return getWithNetworkFallback("/api/vehicle-lookup", [vehicleLookupFromVehicle(sampleVehicle)]);
 }
 
-export async function getFinanceVehicleOptions(): Promise<FinanceVehicleOption[]> {
-  return request<FinanceVehicleOption[]>("/api/finance/vehicle-options");
-}
-
-export function mergeFinanceVehicleOptions(vehicles: VehicleLookup[], financeOptions: FinanceVehicleOption[]): VehicleLookup[] {
-  const financeOptionById = new Map(financeOptions.map((option) => [option.id, option]));
-  return vehicles.map((vehicle) => {
-    const financeOption = financeOptionById.get(vehicle.id);
-    return financeOption
-      ? {
-          ...vehicle,
-          plateNumber: financeOption.plateNumber,
-          make: financeOption.make,
-          model: financeOption.model,
-          status: financeOption.status,
-          customerId: financeOption.customerId,
-          sellingPrice: financeOption.sellingPrice,
-          additionalCharges: financeOption.additionalCharges
-        }
-      : vehicle;
-  });
-}
-
 export async function getCustomers(): Promise<Customer[]> {
   return getWithNetworkFallback("/api/customers", []);
 }
@@ -1473,16 +1297,8 @@ export async function getDeliveries(): Promise<DeliverySchedule[]> {
   return getWithNetworkFallback("/api/deliveries", fallbackDeliveries());
 }
 
-export async function getDeliveryWorkboard(): Promise<DeliveryWorkboardItem[]> {
-  return request<DeliveryWorkboardItem[]>("/api/deliveries/workboard");
-}
-
-export async function getDeliveryPicOptions(): Promise<DeliveryPicOption[]> {
-  return request<DeliveryPicOption[]>("/api/deliveries/pic-options");
-}
-
-export async function getDeliveryActivity(deliveryId: string): Promise<DeliveryActivity[]> {
-  return request<DeliveryActivity[]>(`/api/deliveries/${deliveryId}/activity`);
+export async function getDeliveryAccountingCharges(): Promise<DeliveryAccountingCharge[]> {
+  return getWithNetworkFallback("/api/delivery-accounting-charges", []);
 }
 
 export async function getPayments(): Promise<PaymentRecord[]> {
@@ -1537,22 +1353,8 @@ export async function getPaymentVouchers(): Promise<PaymentVoucher[]> {
   return getWithNetworkFallback("/api/payment-vouchers", []);
 }
 
-export async function getDeliveryAccountingCharges(): Promise<DeliveryAccountingCharge[]> {
-  return getWithNetworkFallback("/api/delivery-accounting-charges", []);
-}
-
-export async function confirmDeliveryAccountingCharge(chargeId: string): Promise<DeliveryAccountingCharge> {
-  return request<DeliveryAccountingCharge>(`/api/delivery-accounting-charges/${chargeId}/confirm`, { method: "POST" });
-}
-
 export async function getLeads(): Promise<Lead[]> {
   return getWithNetworkFallback("/api/leads", fallbackLeads());
-}
-
-export async function getSalesWorkboard(agentUserId?: string): Promise<SalesWorkboard> {
-  const query = agentUserId ? `?agentUserId=${encodeURIComponent(agentUserId)}` : "";
-  const path = "/api/sales/workboard";
-  return request<SalesWorkboard>(`${path}${query}`);
 }
 
 export async function getAuditLog(filters: AuditLogFilters = {}, options: AuditLogRequestOptions = {}): Promise<AuditLog[]> {
@@ -1587,10 +1389,14 @@ export async function getHrAttendance(): Promise<HrAttendanceRecord[]> {
 }
 
 export async function getHrBossCalendar(from: string, to: string): Promise<HrCalendarAvailability[]> {
-  return getWithNetworkFallback(
+  const previewAvailability = isLocalPreviewHost() ? fallbackHrBossCalendar(from, to) : [];
+  const availability = await getWithNetworkFallback(
     `/api/hr/boss-calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-    isLocalPreviewHost() ? fallbackHrBossCalendar(from, to) : []
+    previewAvailability
   );
+  const apiAvailability = Array.isArray(availability) ? availability : [];
+  const actualAvailability = new Set(apiAvailability.map((item) => `${item.staffUserId}:${item.date}`));
+  return [...apiAvailability, ...previewAvailability.filter((item) => !actualAvailability.has(`${item.staffUserId}:${item.date}`))];
 }
 
 export async function getHrAttendanceNetworks(): Promise<HrAttendanceNetwork[]> {
@@ -1617,71 +1423,6 @@ export async function checkInHrAttendance(): Promise<HrAttendanceRecord> {
 
 export async function checkOutHrAttendance(): Promise<HrAttendanceRecord> {
   return requestWithNetworkFallback("/api/hr/attendance/check-out", { method: "POST" }, fallbackHrCheckOutAttendance());
-}
-
-export async function getHrAttendanceDashboard(): Promise<HrAttendanceDashboardSummary> {
-  return getWithNetworkFallback("/api/hr/dashboard", {
-    checkedInToday: 0,
-    checkedOutToday: 0,
-    openSessionsToday: 0,
-    officeQrSessionsToday: 0,
-    manualSessionsToday: 0,
-    outstationSessionsToday: 0,
-    pendingBusinessTripRequests: 0,
-    activeOutstationToday: 0,
-    upcomingApprovedTrips: 0
-  });
-}
-
-export async function getHrAvailabilityCalendar(): Promise<HrAvailabilityCalendarItem[]> {
-  return getWithNetworkFallback("/api/hr/availability-calendar", []);
-}
-
-export async function getHrAttendanceReminderPolicies(): Promise<HrAttendanceReminderPolicy[]> {
-  return getWithNetworkFallback("/api/hr/reminder-policies", []);
-}
-
-export async function updateHrAttendanceReminderPolicy(type: HrAttendanceReminderType, policy: Pick<HrAttendanceReminderPolicy, "isEnabled" | "leadHours">): Promise<HrAttendanceReminderPolicy> {
-  return request<HrAttendanceReminderPolicy>(`/api/hr/reminder-policies/${type}`, { method: "PUT", body: JSON.stringify(policy) });
-}
-
-export async function getHrAttendanceReminders(): Promise<HrAttendanceReminderItem[]> {
-  return getWithNetworkFallback("/api/hr/reminders", []);
-}
-
-export async function createHrAttendanceQrChallenge(): Promise<HrAttendanceQrChallenge> {
-  return request<HrAttendanceQrChallenge>("/api/hr/attendance/qr/challenges", { method: "POST" });
-}
-
-export async function redeemHrAttendanceQr(requestBody: HrAttendanceQrRedemptionRequest): Promise<HrAttendanceRecord> {
-  return request<HrAttendanceRecord>("/api/hr/attendance/qr/redeem", {
-    method: "POST",
-    body: JSON.stringify(requestBody)
-  });
-}
-
-export async function getHrBusinessTrips(): Promise<HrBusinessTrip[]> {
-  return getWithNetworkFallback("/api/hr/business-trips", []);
-}
-
-export async function createHrBusinessTrip(trip: HrBusinessTrip): Promise<HrBusinessTrip> {
-  return request<HrBusinessTrip>("/api/hr/business-trips", { method: "POST", body: JSON.stringify(trip) });
-}
-
-export async function decideHrBusinessTrip(tripId: string, status: Exclude<HrBusinessTripStatus, "Pending" | "Cancelled">, decisionNotes?: string): Promise<HrBusinessTrip> {
-  return request<HrBusinessTrip>(`/api/hr/business-trips/${tripId}/decision`, { method: "PUT", body: JSON.stringify({ status, decisionNotes }) });
-}
-
-export async function cancelHrBusinessTrip(tripId: string): Promise<HrBusinessTrip> {
-  return request<HrBusinessTrip>(`/api/hr/business-trips/${tripId}/cancel`, { method: "POST" });
-}
-
-export async function startHrOutstation(requestBody: HrOutstationAttendanceRequest): Promise<HrAttendanceRecord> {
-  return request<HrAttendanceRecord>("/api/hr/attendance/outstation/start", { method: "POST", body: JSON.stringify(requestBody) });
-}
-
-export async function endHrOutstation(requestBody: HrOutstationAttendanceRequest): Promise<HrAttendanceRecord> {
-  return request<HrAttendanceRecord>("/api/hr/attendance/outstation/end", { method: "POST", body: JSON.stringify(requestBody) });
 }
 
 export async function updateHrAttendance(attendance: HrAttendanceRecord): Promise<HrAttendanceRecord> {
@@ -2038,41 +1779,16 @@ export async function updateDelivery(delivery: DeliverySchedule): Promise<Delive
   });
 }
 
-export async function releaseDelivery(deliveryId: string): Promise<DeliverySchedule> {
-  return request<DeliverySchedule>(`/api/deliveries/${deliveryId}/release`, {
-    method: "POST"
-  });
+export async function createDeliveryAccountingCharge(charge: DeliveryAccountingCharge): Promise<DeliveryAccountingCharge> {
+  return request<DeliveryAccountingCharge>("/api/delivery-accounting-charges", { method: "POST", body: JSON.stringify(charge) });
 }
 
-export async function cancelDelivery(deliveryId: string, reason: string): Promise<DeliverySchedule> {
-  return request<DeliverySchedule>(`/api/deliveries/${deliveryId}/cancel`, {
-    method: "POST",
-    body: JSON.stringify({ reason })
-  });
+export async function updateDeliveryAccountingCharge(charge: DeliveryAccountingCharge): Promise<DeliveryAccountingCharge> {
+  return request<DeliveryAccountingCharge>(`/api/delivery-accounting-charges/${charge.id}`, { method: "PUT", body: JSON.stringify(charge) });
 }
 
-export async function requestDeliveryInvoiceUpdate(deliveryId: string, reason: string): Promise<DeliverySchedule> {
-  return request<DeliverySchedule>(`/api/deliveries/${deliveryId}/request-invoice-update`, {
-    method: "POST",
-    body: JSON.stringify({ reason })
-  });
-}
-
-export async function correctDeliveryBuyer(deliveryId: string, customerId: string, reason: string): Promise<DeliverySchedule> {
-  return request<DeliverySchedule>(`/api/deliveries/${deliveryId}/correct-buyer`, {
-    method: "POST",
-    body: JSON.stringify({ customerId, reason })
-  });
-}
-
-export async function getDeliveryInvoiceUpdateRequests(): Promise<DeliveryInvoiceUpdateRequestItem[]> {
-  return request<DeliveryInvoiceUpdateRequestItem[]>("/api/deliveries/invoice-update-requests");
-}
-
-export async function resolveDeliveryInvoiceUpdate(deliveryId: string): Promise<{ id: string; resolvedAt: string }> {
-  return request<{ id: string; resolvedAt: string }>(`/api/deliveries/${deliveryId}/resolve-invoice-update`, {
-    method: "POST"
-  });
+export async function confirmDeliveryAccountingCharge(chargeId: string): Promise<DeliveryAccountingCharge> {
+  return request<DeliveryAccountingCharge>(`/api/delivery-accounting-charges/${chargeId}/confirm`, { method: "POST" });
 }
 
 export async function updatePayment(payment: PaymentRecord): Promise<PaymentRecord> {
@@ -2089,11 +1805,15 @@ export async function approvePaymentManagementReview(paymentId: string): Promise
 }
 
 export async function approveNettPriceOverride(paymentId: string): Promise<PaymentRecord> {
-  return request<PaymentRecord>(`/api/payments/${paymentId}/nett-price-override/approve`, { method: "POST" });
+  return request<PaymentRecord>(`/api/payments/${paymentId}/nett-price-override/approve`, {
+    method: "POST"
+  });
 }
 
 export async function issueFinanceInvoice(paymentId: string): Promise<PaymentRecord> {
-  return request<PaymentRecord>(`/api/payments/${paymentId}/invoice`, { method: "POST" });
+  return request<PaymentRecord>(`/api/payments/${paymentId}/invoice`, {
+    method: "POST"
+  });
 }
 
 export async function createCollection(paymentId: string, input: CollectionCreateInput): Promise<PaymentRecord> {
@@ -2111,7 +1831,9 @@ export async function updateCollectionFinancingStatus(collectionId: string, stat
 }
 
 export async function reconcileCollection(collectionId: string): Promise<PaymentRecord> {
-  return request<PaymentRecord>(`/api/collection-transactions/${collectionId}/reconcile`, { method: "POST" });
+  return request<PaymentRecord>(`/api/collection-transactions/${collectionId}/reconcile`, {
+    method: "POST"
+  });
 }
 
 export async function reverseCollection(collectionId: string, reason: string): Promise<PaymentRecord> {
@@ -2246,6 +1968,16 @@ export async function updatePaymentVoucher(voucher: PaymentVoucher): Promise<Pay
   });
 }
 
+export async function getVehicleDocuments(vehicleId: string): Promise<VehicleDocument[]> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/documents`, { credentials: "include" });
+    if (response.ok) return response.json();
+  } catch {
+    return [];
+  }
+  return [];
+}
+
 export async function approvePaymentVoucher(voucherId: string): Promise<PaymentVoucher> {
   return request<PaymentVoucher>(`/api/payment-vouchers/${voucherId}/approve`, { method: "POST" });
 }
@@ -2255,16 +1987,6 @@ export async function markPaymentVoucherPaid(voucherId: string, paymentEvidenceR
     method: "POST",
     body: JSON.stringify({ paymentEvidenceReference })
   });
-}
-
-export async function getVehicleDocuments(vehicleId: string): Promise<VehicleDocument[]> {
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/documents`, { credentials: "include" });
-    if (response.ok) return response.json();
-  } catch {
-    return [];
-  }
-  return [];
 }
 
 export async function getVehicleDocumentsStrict(vehicleId: string): Promise<VehicleDocument[]> {
@@ -2739,8 +2461,11 @@ function fallbackHrBossCalendar(from: string, to: string): HrCalendarAvailabilit
     { staffUserId: "staff-demo-sales", staffName: "Jason Tan", date: `${month}-04`, status: "Unavailable" as const },
     { staffUserId: "staff-demo-delivery", staffName: "Ah Ming", date: `${month}-05`, status: "Unavailable" as const },
     { staffUserId: "staff-demo-hr", staffName: "Mei Ling", date: `${month}-05`, status: "Unavailable" as const },
+    { staffUserId: "staff-demo-sales", staffName: "Jason Tan", date: `${month}-12`, status: "Unavailable" as const },
+    { staffUserId: "staff-demo-sales", staffName: "Jason Tan", date: `${month}-13`, status: "Unavailable" as const },
     { staffUserId: "staff-demo-sales", staffName: "Jason Tan", date: `${month}-14`, status: "Unavailable" as const },
-    { staffUserId: "staff-demo-delivery", staffName: "Ah Ming", date: `${month}-20`, status: "Unavailable" as const }
+    { staffUserId: "staff-demo-delivery", staffName: "Ah Ming", date: `${month}-20`, status: "Unavailable" as const },
+    { staffUserId: "staff-demo-hr", staffName: "Mei Ling", date: `${month}-27`, status: "Unavailable" as const }
   ].filter((item) => item.date >= from && item.date <= to);
 }
 
@@ -2987,6 +2712,8 @@ function vehicleLookupFromVehicle(vehicle: Vehicle): VehicleLookup {
     model: vehicle.model,
     stockOwner: vehicle.stockOwner,
     status: vehicle.status,
-    customerId: vehicle.customerId
+    customerId: vehicle.customerId,
+    sellingPrice: vehicle.sellingPrice,
+    additionalCharges: vehicle.additionalCharges
   };
 }

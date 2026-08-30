@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, customerIdFromRouteUrl, DashboardPage, DeliveryPage, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
-import type { Customer, DashboardSummary, DeliveryAccountingCharge, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
+import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
   it("retains Customer 360 query changes for Back and Forward navigation", () => {
@@ -76,22 +76,22 @@ describe("management dashboard", () => {
       refurbishment: { finalRepairSpend: 1500, vehicleCount: 1, averageSpendPerVehicle: 1500, workInProgressCount: 1, overdueWorkCount: 0, highestCostVehicles: [] },
       aiDocumentProcessing: {
         scanCount: 8,
-        reviewedCount: 5,
-        comparedFieldCount: 12,
-        correctFieldCount: 9,
-        correctedFieldCount: 3,
-        accuracyPercent: 75,
+        reviewedCount: 6,
+        comparedFieldCount: 20,
+        correctFieldCount: 16,
+        correctedFieldCount: 4,
+        accuracyPercent: 80,
         lowConfidenceCount: 2,
         failedCount: 1,
         pendingReviewCount: 3,
-        usedThisMonth: 32,
+        usedThisMonth: 12,
         monthlyRequestLimit: 100,
-        remainingThisMonth: 68,
+        remainingThisMonth: 88,
         categories: [
-          { category: "IdentityCard", label: "IC", scanCount: 2, reviewedCount: 1, comparedFieldCount: 3, correctFieldCount: 2, correctedFieldCount: 1, accuracyPercent: 66.67, lowConfidenceCount: 1, failedCount: 0 },
-          { category: "Voc", label: "VOC", scanCount: 2, reviewedCount: 1, comparedFieldCount: 3, correctFieldCount: 2, correctedFieldCount: 1, accuracyPercent: 66.67, lowConfidenceCount: 0, failedCount: 0 },
-          { category: "InvoicesAndReceipts", label: "Invoices & receipts", scanCount: 3, reviewedCount: 2, comparedFieldCount: 6, correctFieldCount: 5, correctedFieldCount: 1, accuracyPercent: 83.33, lowConfidenceCount: 1, failedCount: 0 },
-          { category: "SupportingDocuments", label: "Supporting documents", scanCount: 1, reviewedCount: 1, comparedFieldCount: 0, correctFieldCount: 0, correctedFieldCount: 0, accuracyPercent: null, lowConfidenceCount: 0, failedCount: 1 }
+          { category: "IdentityCard", label: "IC", scanCount: 2, reviewedCount: 2, comparedFieldCount: 7, correctFieldCount: 6, correctedFieldCount: 1, accuracyPercent: 85.7, lowConfidenceCount: 0, failedCount: 0 },
+          { category: "Voc", label: "VOC", scanCount: 2, reviewedCount: 1, comparedFieldCount: 4, correctFieldCount: 3, correctedFieldCount: 1, accuracyPercent: 75, lowConfidenceCount: 1, failedCount: 0 },
+          { category: "InvoicesAndReceipts", label: "Invoices & receipts", scanCount: 3, reviewedCount: 3, comparedFieldCount: 9, correctFieldCount: 7, correctedFieldCount: 2, accuracyPercent: 77.8, lowConfidenceCount: 1, failedCount: 1 },
+          { category: "SupportingDocuments", label: "Supporting documents", scanCount: 1, reviewedCount: 0, comparedFieldCount: 0, correctFieldCount: 0, correctedFieldCount: 0, accuracyPercent: null, lowConfidenceCount: 0, failedCount: 0 }
         ]
       }
     } satisfies DashboardSummary;
@@ -100,7 +100,7 @@ describe("management dashboard", () => {
       dashboard,
       dashboardLoadError: null,
       reminders: [],
-      priorityActions: [{ type: "LeadFollowUp", title: "New enquiry needs first contact", target: "Leads", dueDate: "2026-06-01", subject: "Web lead" }],
+      priorityActions: [{ type: "LeadFollowUp", title: "New enquiry needs first contact", target: "Leads", dueDate: "2026-05-30", subject: "Smoke Test Lead" }],
       reminderLoadError: null,
       lastCheckedAt: null,
       refreshing: false,
@@ -122,28 +122,19 @@ describe("management dashboard", () => {
     expect(markup).toContain("Current unsold stock");
     expect(markup).toContain("New enquiry needs first contact");
     expect(markup).not.toContain("All clear");
+    expect(markup.indexOf("Priority actions / 老板待办")).toBeLessThan(markup.indexOf("Operations dashboard / 运营看板"));
     expect(markup).toContain("AI document processing / AI 文件处理");
     expect(markup).toContain("OCR field accuracy / OCR 字段准确率");
     expect(markup).toContain("Invoices &amp; receipts");
     expect(markup).not.toContain("sensitive extracted text");
     expect(markup).not.toContain("Estimated Profit / 预估利润");
-    expect(markup).toContain("AI document processing / AI 文件处理");
-    expect(markup).toContain("Invoices &amp; receipts");
-    expect(markup).not.toContain("identity text");
 
-    const reminderMarkup = renderToStaticMarkup(createElement(DashboardPage, {
+    const incompleteMarkup = renderToStaticMarkup(createElement(DashboardPage, {
       dashboard,
       dashboardLoadError: null,
-      reminders: [{
-        type: "SettlementDue",
-        title: "Settlement deadline due",
-        vehiclePlate: "VPK1234",
-        vehicleId: "vehicle-1",
-        dueDate: "2099-06-01",
-        amount: 25000
-      }],
+      reminders: [],
       priorityActions: [],
-      reminderLoadError: null,
+      reminderLoadError: "Priority action queue could not be loaded.",
       lastCheckedAt: null,
       refreshing: false,
       analyticsPeriod: { from: "2026-06-01", to: "2026-06-30" },
@@ -152,42 +143,8 @@ describe("management dashboard", () => {
       onAnalyticsPeriodChange: async () => {},
       onNavigate: () => {}
     }));
-    expect(reminderMarkup).toContain("dashboardReminderMobileList");
-    expect(reminderMarkup).toContain("Settlement deadline due");
-    expect(reminderMarkup).toContain("Open follow-up");
-
-    const emptyMarkup = renderToStaticMarkup(createElement(DashboardPage, {
-      dashboard: { ...dashboard, aiDocumentProcessing: { ...dashboard.aiDocumentProcessing!, categories: [] } },
-      dashboardLoadError: null,
-      reminders: [],
-      priorityActions: [],
-      reminderLoadError: null,
-      lastCheckedAt: null,
-      refreshing: false,
-      analyticsPeriod: { from: "2026-06-01", to: "2026-06-30" },
-      analyticsRangePreset: "ThisMonth",
-      onRefresh: async () => {},
-      onAnalyticsPeriodChange: async () => {},
-      onNavigate: () => {}
-    }));
-    expect(emptyMarkup).toContain("No OCR activity in this period.");
-
-    const errorMarkup = renderToStaticMarkup(createElement(DashboardPage, {
-      dashboard: null,
-      dashboardLoadError: "Dashboard request failed",
-      reminders: [],
-      priorityActions: [],
-      reminderLoadError: null,
-      lastCheckedAt: null,
-      refreshing: false,
-      analyticsPeriod: {},
-      analyticsRangePreset: "ThisMonth",
-      onRefresh: async () => {},
-      onAnalyticsPeriodChange: async () => {},
-      onNavigate: () => {}
-    }));
-    expect(errorMarkup).toContain("Dashboard data could not be loaded");
-    expect(errorMarkup).not.toContain("identity text");
+    expect(incompleteMarkup).toContain("Check incomplete");
+    expect(incompleteMarkup).not.toContain("All clear");
   });
 });
 
@@ -228,27 +185,6 @@ describe("repair receipt OCR drafts", () => {
     ]);
     expect(draft).not.toHaveProperty("repairPart");
     expect(draft).not.toHaveProperty("whatToDo");
-  });
-});
-
-describe("supplier and refurbishment records", () => {
-  it("keeps repair tasks and supplier invoices in the shared operational list", () => {
-    const vehicles: VehicleLookup[] = [{
-      id: "vehicle-1", plateNumber: "VPK 1234", make: "Toyota", model: "Vios", stockOwner: "YSHeng", status: "Available"
-    }];
-    const repairs: RepairJob[] = [{
-      id: "repair-1", vehicleId: "vehicle-1", repairPart: "Bumper", whatToDo: "Polish bumper", cost: 800, checklistDone: false, createdAt: "2026-08-20T08:00:00Z"
-    }];
-    const supplierInvoices: SupplierInvoice[] = [{
-      id: "invoice-1", vehicleId: "vehicle-1", supplierName: "ABC Spray", invoiceNumber: "INV-1001", amount: 800, createdAt: "2026-08-21T08:00:00Z"
-    }];
-
-    const records = buildRefurbishmentTableRecords(repairs, supplierInvoices, vehicles, {});
-
-    expect(records.map((record) => ({ key: record.key, kind: record.kind, plateNumber: record.plateNumber }))).toEqual([
-      { key: "repair-repair-1", kind: "repair", plateNumber: "VPK 1234" },
-      { key: "supplier-invoice-1", kind: "supplierInvoice", plateNumber: "VPK 1234" }
-    ]);
   });
 });
 
@@ -335,20 +271,27 @@ describe("workflow list query controls", () => {
   const loans: LoanApplication[] = [{
     id: "loan-1", vehicleId: "vehicle-1", customerId: "customer-1", status: "Pending", louApproved: false, louDone: false, submittedAt: "2026-08-25"
   }];
-  it("renders explicit local Query and Reset controls instead of an inert ProTable query form", () => {
+  const deliveries: DeliverySchedule[] = [{
+    id: "delivery-1", vehicleId: "vehicle-1", pic: "Ah Ming", status: "Scheduled", scheduledDate: "2026-08-26",
+    polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false,
+    notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false
+  }];
+
+  it("renders visible live filters and Reset instead of an inert ProTable query form", () => {
     const loanMarkup = renderToStaticMarkup(createElement(LoanPage, {
       vehicles, customers, loans, roles: ["Loan"], dashboardFocus: {}, onClearDashboardFocus: () => {}, onBackToList: () => {}, onCreate: () => {}, onUpdate: () => {}, onUploadDocument: async () => {}
     }));
     const deliveryMarkup = renderToStaticMarkup(createElement(DeliveryPage, {
-      vehicles, dashboardFocus: {}, onClearDashboardFocus: () => {}, onOpenCustomer: () => {}
+      vehicles, deliveries, dashboardFocus: {}, onClearDashboardFocus: () => {}, onCreate: () => {}, onUpdate: () => {}, onOpenCustomer: () => {}, onUploadDocument: async () => {}
     }));
 
-    expect(loanMarkup).toContain("Query");
-    expect(loanMarkup).toContain("Reset");
-    expect(loanMarkup).not.toContain("ant-pro-query-filter");
-    expect(deliveryMarkup).toContain("Delivery Workboard / 交车工作台");
-    expect(deliveryMarkup).toContain("See every car, customer, PIC, stage, and next action in one place.");
-    expect(deliveryMarkup).not.toContain("ReadyForRelease");
+    expect(loanMarkup).toContain("Search plate, customer, phone, status");
+    expect(deliveryMarkup).toContain("Search plate, PIC, schedule, status");
+    for (const markup of [loanMarkup, deliveryMarkup]) {
+      expect(markup).toContain("Reset");
+      expect(markup).not.toContain("Query");
+      expect(markup).not.toContain("ant-pro-query-filter");
+    }
   });
 });
 

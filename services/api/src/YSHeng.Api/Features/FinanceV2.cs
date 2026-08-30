@@ -32,42 +32,11 @@ public sealed record CreateCollectionRequest(
 public sealed record UpdateFinancingStatusRequest(FinancingStatus Status);
 public sealed record ReverseCollectionRequest(string Reason);
 
-public sealed record FinanceVehicleOptionResponse(
-    Guid Id,
-    string PlateNumber,
-    string Make,
-    string Model,
-    VehicleStatus Status,
-    Guid? CustomerId,
-    decimal SellingPrice,
-    decimal AdditionalCharges);
-
-public static class FinanceVehicleOptions
-{
-    public static FinanceVehicleOptionResponse ToResponse(Vehicle vehicle) =>
-        new(
-            vehicle.Id,
-            vehicle.PlateNumber,
-            vehicle.Make,
-            vehicle.Model,
-            vehicle.Status,
-            vehicle.CustomerId,
-            vehicle.SellingPrice,
-            vehicle.AdditionalCharges);
-}
-
 public static class FinanceV2Rules
 {
     public const string FormulaVersion = "v2:sales+additional+windscreen+paid-on-behalf-ncd";
 
-    public static decimal CalculateNettPrice(
-        decimal salesPrice,
-        decimal interestAdditionalCharges,
-        decimal ncdAmount,
-        decimal windscreenCharges,
-        decimal insurancePaidOnBehalfAmount = 0,
-        decimal roadTaxPaidOnBehalfAmount = 0,
-        decimal advancePaidOnBehalfAmount = 0) =>
+    public static decimal CalculateNettPrice(decimal salesPrice, decimal interestAdditionalCharges, decimal ncdAmount, decimal windscreenCharges, decimal insurancePaidOnBehalfAmount = 0, decimal roadTaxPaidOnBehalfAmount = 0, decimal advancePaidOnBehalfAmount = 0) =>
         decimal.Round(salesPrice + interestAdditionalCharges + windscreenCharges + insurancePaidOnBehalfAmount + roadTaxPaidOnBehalfAmount + advancePaidOnBehalfAmount - ncdAmount, 2, MidpointRounding.AwayFromZero);
 
     public static PaymentRecord CreatePayment(FinanceSaleRequest request, Guid customerId, string actorUserId, DateTime now)
@@ -99,21 +68,6 @@ public static class FinanceV2Rules
             CreatedAt = now
         };
     }
-
-    public static PaymentRecord PreserveServerOwnedFields(PaymentRecord existing, PaymentRecord update) =>
-        update with
-        {
-            CustomerId = existing.CustomerId,
-            CalculatedNettPrice = existing.CalculatedNettPrice,
-            NettPriceVariance = existing.NettPriceVariance,
-            NettPriceOverrideReason = existing.NettPriceOverrideReason,
-            NettPriceOverrideRequestedBy = existing.NettPriceOverrideRequestedBy,
-            NettPriceOverrideRequestedAt = existing.NettPriceOverrideRequestedAt,
-            NettPriceOverrideApprovedBy = existing.NettPriceOverrideApprovedBy,
-            NettPriceOverrideApprovedAt = existing.NettPriceOverrideApprovedAt,
-            FormulaVersion = existing.FormulaVersion,
-            FinanceWorkflowVersion = existing.FinanceWorkflowVersion
-        };
 
     public static ValidationResult ValidateSale(FinanceSaleRequest request, PaymentRecord payment)
     {
@@ -170,42 +124,6 @@ public static class FinanceV2Rules
             : [];
         return new ValidationResult(errors);
     }
-
-    public static ValidationResult ValidateReceivableBuyer(Guid? proposedCustomerId, IEnumerable<PaymentRecord> payments)
-    {
-        var receivableCustomerIds = payments
-            .Where(payment => payment.FinanceWorkflowVersion == 2)
-            .Select(payment => payment.CustomerId)
-            .Distinct()
-            .Take(2)
-            .ToArray();
-        var valid = receivableCustomerIds.Length == 0 ||
-            receivableCustomerIds.Length == 1 &&
-            receivableCustomerIds[0].HasValue &&
-            proposedCustomerId == receivableCustomerIds[0];
-        return valid
-            ? new ValidationResult([])
-            : new ValidationResult([new ValidationError(
-                "finance_receivable_buyer_immutable",
-                "The confirmed buyer must match the customer stored on the Finance V2 receivable.")]);
-    }
-
-    public static ValidationResult ValidateDeliveryInvoiceUpdateBoundary(FinanceInvoice? invoice) =>
-        invoice is null
-            ? new ValidationResult([])
-            : new ValidationResult([new ValidationError(
-                "finance_invoice_immutable",
-                "This vehicle already has an immutable Finance V2 invoice. Delivery invoice-update requests cannot be opened or closed after issuance.")]);
-
-    public static ValidationResult ValidateInvoiceIssuanceDeliveryState(Guid vehicleId, IEnumerable<DeliverySchedule> deliveries) =>
-        deliveries.Any(delivery =>
-            delivery.VehicleId == vehicleId &&
-            DeliveryWorkboardRules.IsActive(delivery) &&
-            DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest(delivery))
-            ? new ValidationResult([new ValidationError(
-                "finance_invoice_update_open",
-                "Resolve or cancel the active Delivery invoice-update request before issuing the immutable Finance V2 invoice.")])
-            : new ValidationResult([]);
 
     public static ValidationResult ValidateCanonicalBuyer(PaymentRecord payment, FinanceInvoice? invoice, Vehicle? vehicle)
     {
@@ -398,7 +316,7 @@ public static class FinanceV2Rules
         return ReceivableStatus.ReadyToCollect;
     }
 
-    public static bool IsReceivableSettled(PaymentRecord payment, FinanceInvoice? invoice, IEnumerable<CollectionTransaction> collections) =>
+    public static bool CanMarkSold(PaymentRecord payment, FinanceInvoice? invoice, IEnumerable<CollectionTransaction> collections) =>
         payment.FinanceWorkflowVersion == 2 &&
         invoice is not null &&
         HasApprovedVariance(payment) &&

@@ -10,6 +10,7 @@ public sealed class FinanceV2RulesTests
     public void Nett_price_formula_is_server_owned_and_rounded_to_two_decimals()
     {
         Assert.Equal(50_600.13m, FinanceV2Rules.CalculateNettPrice(50_000.125m, 1_000.004m, 500m, 100m));
+        Assert.Equal(51_750m, FinanceV2Rules.CalculateNettPrice(50_000m, 1_000m, 500m, 100m, 1_000m, 100m, 50m));
     }
 
     [Fact]
@@ -150,125 +151,6 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
-    public void Finance_v2_receivable_customer_allows_safe_repair_but_rejects_another_buyer()
-    {
-        var receivableCustomerId = Guid.NewGuid();
-        var receivable = new PaymentRecord { CustomerId = receivableCustomerId, FinanceWorkflowVersion = 2 };
-        var legacyPayment = new PaymentRecord { CustomerId = Guid.NewGuid(), FinanceWorkflowVersion = 1 };
-
-        Assert.True(FinanceV2Rules.ValidateReceivableBuyer(Guid.NewGuid(), []).IsValid);
-        Assert.True(FinanceV2Rules.ValidateReceivableBuyer(Guid.NewGuid(), [legacyPayment]).IsValid);
-        Assert.True(FinanceV2Rules.ValidateReceivableBuyer(receivableCustomerId, [receivable]).IsValid);
-        Assert.Contains(
-            FinanceV2Rules.ValidateReceivableBuyer(Guid.NewGuid(), [receivable]).Errors,
-            error => error.Code == "finance_receivable_buyer_immutable");
-        Assert.Contains(
-            FinanceV2Rules.ValidateReceivableBuyer(null, [receivable]).Errors,
-            error => error.Code == "finance_receivable_buyer_immutable");
-    }
-
-    [Fact]
-    public void Immutable_invoice_blocks_delivery_update_requests_and_open_requests_block_issuance()
-    {
-        var vehicleId = Guid.NewGuid();
-        var requestedAt = DateTime.UtcNow;
-        var activeOpenRequest = new DeliverySchedule
-        {
-            VehicleId = vehicleId,
-            Status = DeliveryStatus.BookingInspection,
-            InvoiceUpdateRequestedAt = requestedAt
-        };
-        var resolvedRequest = activeOpenRequest with { InvoiceUpdateResolvedAt = requestedAt.AddMinutes(1) };
-        var releasedOpenRequest = activeOpenRequest with { Status = DeliveryStatus.Released };
-        var otherVehicleOpenRequest = activeOpenRequest with { VehicleId = Guid.NewGuid() };
-
-        Assert.True(FinanceV2Rules.ValidateDeliveryInvoiceUpdateBoundary(null).IsValid);
-        Assert.Contains(
-            FinanceV2Rules.ValidateDeliveryInvoiceUpdateBoundary(new FinanceInvoice { VehicleId = vehicleId }).Errors,
-            error => error.Code == "finance_invoice_immutable");
-        Assert.Contains(
-            FinanceV2Rules.ValidateInvoiceIssuanceDeliveryState(vehicleId, [activeOpenRequest]).Errors,
-            error => error.Code == "finance_invoice_update_open");
-        Assert.True(FinanceV2Rules.ValidateInvoiceIssuanceDeliveryState(vehicleId, [resolvedRequest]).IsValid);
-        Assert.True(FinanceV2Rules.ValidateInvoiceIssuanceDeliveryState(vehicleId, [releasedOpenRequest]).IsValid);
-        Assert.True(FinanceV2Rules.ValidateInvoiceIssuanceDeliveryState(vehicleId, [otherVehicleOpenRequest]).IsValid);
-    }
-
-    [Fact]
-    public void Legacy_update_cannot_forge_server_owned_finance_v2_fields()
-    {
-        var createdAt = DateTime.UtcNow.AddDays(-2);
-        var approvedAt = DateTime.UtcNow.AddDays(-1);
-        var existing = new PaymentRecord
-        {
-            CustomerId = Guid.NewGuid(),
-            NettPrice = 100m,
-            CalculatedNettPrice = 90m,
-            NettPriceVariance = 10m,
-            NettPriceOverrideReason = "Stored reason",
-            NettPriceOverrideRequestedBy = "finance-1",
-            NettPriceOverrideRequestedAt = createdAt,
-            NettPriceOverrideApprovedBy = "boss-1",
-            NettPriceOverrideApprovedAt = approvedAt,
-            FormulaVersion = "legacy-stored",
-            FinanceWorkflowVersion = 1
-        };
-        var forged = existing with
-        {
-            CustomerId = Guid.NewGuid(),
-            NettPrice = 125m,
-            CalculatedNettPrice = 125m,
-            NettPriceVariance = 0,
-            NettPriceOverrideReason = "Forged",
-            NettPriceOverrideRequestedBy = "attacker",
-            NettPriceOverrideRequestedAt = DateTime.UtcNow,
-            NettPriceOverrideApprovedBy = "attacker",
-            NettPriceOverrideApprovedAt = DateTime.UtcNow,
-            FormulaVersion = FinanceV2Rules.FormulaVersion,
-            FinanceWorkflowVersion = 2
-        };
-
-        var preserved = FinanceV2Rules.PreserveServerOwnedFields(existing, forged);
-
-        Assert.Equal(existing.CustomerId, preserved.CustomerId);
-        Assert.Equal(existing.CalculatedNettPrice, preserved.CalculatedNettPrice);
-        Assert.Equal(existing.NettPriceVariance, preserved.NettPriceVariance);
-        Assert.Equal(existing.NettPriceOverrideReason, preserved.NettPriceOverrideReason);
-        Assert.Equal(existing.NettPriceOverrideRequestedBy, preserved.NettPriceOverrideRequestedBy);
-        Assert.Equal(existing.NettPriceOverrideRequestedAt, preserved.NettPriceOverrideRequestedAt);
-        Assert.Equal(existing.NettPriceOverrideApprovedBy, preserved.NettPriceOverrideApprovedBy);
-        Assert.Equal(existing.NettPriceOverrideApprovedAt, preserved.NettPriceOverrideApprovedAt);
-        Assert.Equal(existing.FormulaVersion, preserved.FormulaVersion);
-        Assert.Equal(existing.FinanceWorkflowVersion, preserved.FinanceWorkflowVersion);
-        Assert.Equal(forged.NettPrice, preserved.NettPrice);
-    }
-
-    [Fact]
-    public void Finance_vehicle_options_expose_invoice_defaults_without_purchase_values()
-    {
-        var vehicle = new Vehicle
-        {
-            Id = Guid.NewGuid(),
-            PlateNumber = "VPK1234",
-            Make = "Toyota",
-            Model = "Vios",
-            Status = VehicleStatus.Available,
-            CustomerId = Guid.NewGuid(),
-            SellingPrice = 58_000m,
-            AdditionalCharges = 750m,
-            PurchasePrice = 40_000m
-        };
-
-        var option = FinanceVehicleOptions.ToResponse(vehicle);
-
-        Assert.Equal(vehicle.Id, option.Id);
-        Assert.Equal(vehicle.PlateNumber, option.PlateNumber);
-        Assert.Equal(vehicle.CustomerId, option.CustomerId);
-        Assert.Equal(vehicle.SellingPrice, option.SellingPrice);
-        Assert.Equal(vehicle.AdditionalCharges, option.AdditionalCharges);
-    }
-
-    [Fact]
     public void A_vehicle_can_have_only_one_receivable_across_legacy_and_v2()
     {
         var vehicleId = Guid.NewGuid();
@@ -281,7 +163,7 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
-    public void Full_reconciled_balance_settles_v2_receivable_and_reversal_reopens_it()
+    public void Full_reconciled_balance_marks_v2_paid_and_reversal_reopens_it()
     {
         var payment = V2Payment(100m);
         var invoice = InvoiceFor(payment);
@@ -289,17 +171,17 @@ public sealed class FinanceV2RulesTests
 
         Assert.Equal(PaymentStatus.Reconciled, FinanceV2Rules.DerivePaymentStatus(payment, [paid]));
         Assert.Equal(ReceivableStatus.Paid, FinanceV2Rules.DeriveReceivableStatus(payment, invoice, [paid]));
-        Assert.True(FinanceV2Rules.IsReceivableSettled(payment, invoice, [paid]));
+        Assert.True(FinanceV2Rules.CanMarkSold(payment, invoice, [paid]));
 
         var reversed = paid with { Status = CollectionStatus.Reversed, ReversalReason = "Bank reversal" };
         Assert.Equal(100m, FinanceV2Rules.Balance(payment, [reversed]));
         var reopenedPayment = payment with { Status = FinanceV2Rules.DerivePaymentStatus(payment, [reversed]) };
         Assert.Equal(PaymentStatus.Pending, reopenedPayment.Status);
-        Assert.False(FinanceV2Rules.IsReceivableSettled(payment, invoice, [reversed]));
+        Assert.False(FinanceV2Rules.CanMarkSold(payment, invoice, [reversed]));
         var soldVehicle = new Vehicle { Id = payment.VehicleId, Status = VehicleStatus.Sold, SoldAt = DateTime.UtcNow };
         var reopenedVehicle = WorkflowStatusRules.ApplyWorkflowStatus(soldVehicle, [], [reopenedPayment]);
         Assert.Equal(VehicleStatus.Available, reopenedVehicle.Status);
-        Assert.Equal(soldVehicle.SoldAt, reopenedVehicle.SoldAt);
+        Assert.Null(reopenedVehicle.SoldAt);
     }
 
     [Fact]
@@ -321,7 +203,7 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
-    public void V2_receivable_settlement_requires_invoice_and_approved_adjustment()
+    public void V2_sold_gate_requires_invoice_and_approved_adjustment_while_legacy_rule_remains_compatible()
     {
         var adjusted = V2Payment(100m) with
         {
@@ -331,14 +213,12 @@ public sealed class FinanceV2RulesTests
             NettPriceOverrideRequestedBy = "finance-1"
         };
         var paid = CollectionFor(adjusted, 100m, CollectionStatus.Reconciled, "PAID");
-        Assert.False(FinanceV2Rules.IsReceivableSettled(adjusted, InvoiceFor(adjusted), [paid]));
-        Assert.True(FinanceV2Rules.IsReceivableSettled(adjusted with { NettPriceOverrideApprovedBy = "boss-2", NettPriceOverrideApprovedAt = DateTime.UtcNow }, InvoiceFor(adjusted), [paid]));
+        Assert.False(FinanceV2Rules.CanMarkSold(adjusted, InvoiceFor(adjusted), [paid]));
+        Assert.True(FinanceV2Rules.CanMarkSold(adjusted with { NettPriceOverrideApprovedBy = "boss-2", NettPriceOverrideApprovedAt = DateTime.UtcNow }, InvoiceFor(adjusted), [paid]));
 
         var vehicle = new Vehicle { Id = adjusted.VehicleId, Status = VehicleStatus.Available };
         var legacy = new PaymentRecord { VehicleId = vehicle.Id, NettPrice = 100m, Status = PaymentStatus.Reconciled };
-        Assert.Equal(VehicleStatus.Available, WorkflowStatusRules.ApplyWorkflowStatus(vehicle, [], [legacy]).Status);
-        var releasedDelivery = new DeliverySchedule { VehicleId = vehicle.Id, Status = DeliveryStatus.Released };
-        Assert.Equal(VehicleStatus.Sold, WorkflowStatusRules.ApplyWorkflowStatus(vehicle, [], [legacy], [releasedDelivery]).Status);
+        Assert.Equal(VehicleStatus.Sold, WorkflowStatusRules.ApplyWorkflowStatus(vehicle, [], [legacy]).Status);
     }
 
     [Fact]

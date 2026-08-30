@@ -2,13 +2,12 @@ using System.Globalization;
 using System.ComponentModel.DataAnnotations;
 using System.Net;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using YSHeng.Api.Domain;
 using SkiaSharp;
 using UglyToad.PdfPig;
+using YSHeng.Api.Domain;
 
 namespace YSHeng.Api.Features;
 
@@ -16,31 +15,6 @@ public sealed record LeadRequest(Guid VehicleId, string CustomerName, string Pho
 public sealed record ContactEnquiryRequest(string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
 public sealed record ShowroomEnquiryRequest(string VehicleType, string? PreferredBrand, string? PreferredModel, string BudgetRange, string CustomerName, string Phone, string? Email);
 public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
-public sealed record HrAttendanceQrChallengeResponse(Guid Id, string Token, DateTime ExpiresAt);
-public sealed record HrAttendanceQrRedemptionRequest(string Token, HrAttendanceAction Action);
-public sealed record HrBusinessTripDecisionRequest(HrBusinessTripStatus Status, string? DecisionNotes = null);
-public sealed record HrOutstationAttendanceRequest(Guid BusinessTripId);
-public sealed record HrAttendanceDashboardSummary(
-    int CheckedInToday,
-    int CheckedOutToday,
-    int OpenSessionsToday,
-    int OfficeQrSessionsToday,
-    int ManualSessionsToday,
-    int OutstationSessionsToday,
-    int PendingBusinessTripRequests,
-    int ActiveOutstationToday,
-    int UpcomingApprovedTrips);
-public sealed record HrAvailabilityCalendarItem(
-    string StaffUserId,
-    string StaffDisplayName,
-    DateOnly StartDate,
-    DateOnly EndDate,
-    string Kind,
-    string Status,
-    string? Location,
-    string? Purpose);
-public sealed record HrAttendanceReminderPolicyRequest(bool IsEnabled, int LeadHours);
-public sealed record HrAttendanceReminderItem(HrAttendanceReminderType Type, string StaffUserId, string Message, DateOnly DueDate);
 public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice);
 public sealed record PublicVehicleDetailResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice, string? DescriptionMarkdown);
 public sealed record PublicVehicleCatalogModelResponse(string Make, string Model);
@@ -102,8 +76,6 @@ public sealed record DashboardAiDocumentCategory(
     string Category,
     string Label,
     int ScanCount,
-    int AcceptedCount,
-    int RejectedCount,
     int ReviewedCount,
     int ComparedFieldCount,
     int CorrectFieldCount,
@@ -113,8 +85,6 @@ public sealed record DashboardAiDocumentCategory(
     int FailedCount);
 public sealed record DashboardAiDocumentProcessing(
     int ScanCount,
-    int AcceptedCount,
-    int RejectedCount,
     int ReviewedCount,
     int ComparedFieldCount,
     int CorrectFieldCount,
@@ -128,7 +98,7 @@ public sealed record DashboardAiDocumentProcessing(
     int RemainingThisMonth,
     DashboardAiDocumentCategory[] Categories)
 {
-    public static readonly DashboardAiDocumentProcessing Empty = new(0, 0, 0, 0, 0, 0, 0, null, 0, 0, 0, 0, 0, 0, []);
+    public static readonly DashboardAiDocumentProcessing Empty = new(0, 0, 0, 0, 0, null, 0, 0, 0, 0, 0, 0, []);
 }
 public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
 public sealed record SupplierInvoiceAgingView(Guid InvoiceId, string SupplierName, string InvoiceNumber, Guid VehicleId, SupplierInvoiceAgingStatus Status, DateOnly? DueDate, DateOnly? PaidAt, decimal Amount);
@@ -151,6 +121,7 @@ public sealed record DeliveryEvidenceItem(
     string? UploadedBy,
     DateTime? UploadedAt);
 public sealed record DeliveryDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories, IReadOnlyList<DeliveryEvidenceItem> Evidence);
+public sealed record DeliveryContentValidation(bool IsValid, string? MimeType, ValidationError? Error);
 public sealed record HealthPayload(string Service, string Status, DateTimeOffset CheckedAt);
 public sealed record PublicPhotoPayload(Guid Id, string MimeType, byte[] Bytes);
 public sealed record PublicPhotoSummary(Guid Id, string FileName, string MimeType, DateTime UploadedAt, bool IsRepresentativeImage, string? SourceName, string? SourceUrl, string? CreatorAttribution, string? LicenseName, string? LicenseUrl);
@@ -740,18 +711,22 @@ public static class LeadRules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateStatusOwner(Lead existing, Lead incoming, string currentUserId, bool canManageAll = false)
+    public static ValidationResult ValidateStatusOwner(Lead existing, Lead incoming, string currentUserId)
     {
+        if (existing.Status == incoming.Status)
+        {
+            return new ValidationResult([]);
+        }
+
         if (string.IsNullOrWhiteSpace(currentUserId))
         {
-            return new ValidationResult([new ValidationError("lead_user_required", "A signed-in staff user is required to update a lead.")]);
+            return new ValidationResult([new ValidationError("lead_user_required", "A signed-in staff user is required to change lead status.")]);
         }
 
         if (!string.IsNullOrWhiteSpace(existing.TakenByUserId) &&
-            !string.Equals(existing.TakenByUserId, currentUserId, StringComparison.Ordinal) &&
-            !canManageAll)
+            !string.Equals(existing.TakenByUserId, currentUserId, StringComparison.Ordinal))
         {
-            return new ValidationResult([new ValidationError("lead_assignee_required", "Only the assigned sales agent or Admin can update this lead.")]);
+            return new ValidationResult([new ValidationError("lead_assignee_required", "Only the staff member who took this lead can change its status.")]);
         }
 
         return new ValidationResult([]);
@@ -777,7 +752,6 @@ public static class LeadRules
 
         return incoming with
         {
-            VehicleId = existing.VehicleId,
             CreatedAt = existing.CreatedAt,
             SourcePage = existing.SourcePage,
             SourceReferrer = existing.SourceReferrer,
@@ -924,48 +898,6 @@ public static class StaffUserRules
 
 public static class HrRules
 {
-    public static ValidationResult ValidateAttendanceReminderPolicy(HrAttendanceReminderPolicyRequest request)
-    {
-        var errors = new List<ValidationError>();
-        if (request.LeadHours < 0 || request.LeadHours > 720) errors.Add(new ValidationError("attendance_reminder_lead_hours_invalid", "Reminder lead hours must be between 0 and 720."));
-        return new ValidationResult(errors);
-    }
-    public static ValidationResult ValidateBusinessTrip(HrBusinessTrip trip)
-    {
-        var errors = new List<ValidationError>();
-        if (string.IsNullOrWhiteSpace(trip.StaffUserId)) errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
-        if (trip.EndDate < trip.StartDate) errors.Add(new ValidationError("business_trip_date_range_invalid", "Business trip end date cannot be before start date."));
-        if (string.IsNullOrWhiteSpace(trip.Location)) errors.Add(new ValidationError("business_trip_location_required", "Business trip location is required."));
-        if (string.IsNullOrWhiteSpace(trip.Purpose)) errors.Add(new ValidationError("business_trip_purpose_required", "Business trip purpose is required."));
-        return new ValidationResult(errors);
-    }
-
-    public static bool BusinessTripCoversDate(HrBusinessTrip trip, DateOnly date) => trip.Status == HrBusinessTripStatus.Approved && trip.StartDate <= date && trip.EndDate >= date;
-
-    public static bool DatesOverlap(DateOnly firstStart, DateOnly firstEnd, DateOnly secondStart, DateOnly secondEnd) => firstStart <= secondEnd && secondStart <= firstEnd;
-
-    public static string CreateAttendanceQrToken() => Base64Url(RandomNumberGenerator.GetBytes(32));
-
-    public static string HashAttendanceQrToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
-
-    private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    public static ValidationResult ValidateAttendanceQrRedemption(HrAttendanceQrRedemptionRequest request)
-    {
-        var errors = new List<ValidationError>();
-        if (string.IsNullOrWhiteSpace(request.Token))
-        {
-            errors.Add(new ValidationError("attendance_qr_token_required", "Attendance QR token is required."));
-        }
-
-        if (!Enum.IsDefined(request.Action))
-        {
-            errors.Add(new ValidationError("attendance_qr_action_invalid", "Attendance QR action is invalid."));
-        }
-
-        return new ValidationResult(errors);
-    }
-
     public static ValidationResult ValidateCheckIn(HrAttendanceRecord? openSession)
     {
         var errors = new List<ValidationError>();
@@ -1434,13 +1366,6 @@ public static class WorkflowReferenceRules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateVehicleLink(Guid vehicleId, IEnumerable<Vehicle> vehicles)
-    {
-        return vehicles.Any(vehicle => vehicle.Id == vehicleId)
-            ? new ValidationResult([])
-            : new ValidationResult([new ValidationError("vehicle_not_found", "Record must be linked to an existing car plate.")]);
-    }
-
     public static ValidationResult ValidateCanonicalBuyer(Guid vehicleId, IEnumerable<Vehicle> vehicles, IEnumerable<Customer> customers, string workflow)
     {
         var vehicle = vehicles.FirstOrDefault(item => item.Id == vehicleId);
@@ -1458,16 +1383,13 @@ public static class WorkflowReferenceRules
             ? new ValidationResult([])
             : new ValidationResult([new ValidationError("customer_not_found", $"{workflow} buyer must be an existing customer.")]);
     }
-}
 
-public static class LoanMutationRules
-{
-    public static ValidationResult ValidateIdentity(LoanApplication existing, LoanApplication update) =>
-        existing.VehicleId == update.VehicleId
+    public static ValidationResult ValidateVehicleLink(Guid vehicleId, IEnumerable<Vehicle> vehicles)
+    {
+        return vehicles.Any(vehicle => vehicle.Id == vehicleId)
             ? new ValidationResult([])
-            : new ValidationResult([new ValidationError(
-                "loan_vehicle_locked",
-                "Loan vehicle identity cannot be changed after the loan is created.")]);
+            : new ValidationResult([new ValidationError("vehicle_not_found", "Record must be linked to an existing car plate.")]);
+    }
 }
 
 public static class WorkflowStatusRules
@@ -1485,24 +1407,11 @@ public static class WorkflowStatusRules
         return vehicle;
     }
 
-    public static Vehicle ApplyWorkflowStatus(
-        Vehicle vehicle,
-        IEnumerable<LoanApplication> loans,
-        IEnumerable<PaymentRecord> payments,
-        IEnumerable<DeliverySchedule>? deliveries = null)
+    public static Vehicle ApplyWorkflowStatus(Vehicle vehicle, IEnumerable<LoanApplication> loans, IEnumerable<PaymentRecord> payments)
     {
-        var deliveryList = (deliveries ?? []).ToList();
-        var financeCleared = payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled);
-        var releasedAt = deliveryList
-            .Where(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released)
-            .Select(delivery => delivery.ReleasedAt)
-            .Where(timestamp => timestamp.HasValue)
-            .OrderBy(timestamp => timestamp)
-            .FirstOrDefault();
-        var released = deliveryList.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released);
-        if (financeCleared && released)
+        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
         {
-            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? releasedAt ?? DateTime.UtcNow };
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? DateTime.UtcNow };
         }
 
         var activeLoan = loans.FirstOrDefault(loan => loan.VehicleId == vehicle.Id && IsActiveLoan(loan));
@@ -1512,32 +1421,24 @@ public static class WorkflowStatusRules
         }
 
         return vehicle.Status is VehicleStatus.LoanProcessing or VehicleStatus.Sold
-            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false }
+            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false, SoldAt = null }
             : vehicle;
     }
 
-    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, PaymentRecord payment, IEnumerable<DeliverySchedule>? deliveries = null)
+    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, PaymentRecord payment)
     {
-        return ApplyPaymentStatus(vehicle, [payment], deliveries);
+        return ApplyPaymentStatus(vehicle, [payment]);
     }
 
-    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, IEnumerable<PaymentRecord> payments, IEnumerable<DeliverySchedule>? deliveries = null)
+    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, IEnumerable<PaymentRecord> payments)
     {
-        var deliveryList = (deliveries ?? []).ToList();
-        var releasedAt = deliveryList
-            .Where(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released)
-            .Select(delivery => delivery.ReleasedAt)
-            .Where(timestamp => timestamp.HasValue)
-            .OrderBy(timestamp => timestamp)
-            .FirstOrDefault();
-        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled) &&
-            deliveryList.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released))
+        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
         {
-            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? releasedAt ?? DateTime.UtcNow };
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? DateTime.UtcNow };
         }
 
         return vehicle.Status == VehicleStatus.Sold
-            ? vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false }
+            ? vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false, SoldAt = null }
             : vehicle;
     }
 }
@@ -1573,7 +1474,7 @@ public static class ReminderRules
         !spend.IsPaid && spend.DueDate <= today;
 
     public static bool IsDeliveryPreparationDue(DeliverySchedule delivery, DateOnly today) =>
-        DeliveryWorkboardRules.IsActive(delivery) &&
+        delivery.Status != DeliveryStatus.Released &&
         !delivery.TwoDayNoticeSent &&
         delivery.ScheduledDate.AddDays(-2) <= today;
 
@@ -2064,21 +1965,6 @@ public static class PriorityActionQueue
         if (isBoss || roleSet.Contains("Loan")) AddReminders(reminders.Where(item => item.Type == "LoanFollowUp"), "Loans");
         if (isBoss || roleSet.Contains("Delivery")) AddReminders(reminders.Where(item => item.Type == "DeliveryPreparation"), "Delivery");
         if (isBoss || roleSet.Contains("Finance")) AddReminders(reminders.Where(item => item.Type is "SettlementDue" or "PaymentBankFollowUp" or "PaymentStatusFollowUp" or "DailySpendDue" or "DebtRecoveryFollowUp" or "PaymentVoucherFollowUp"), "Finance");
-        if (isBoss || roleSet.Contains("Finance"))
-        {
-            items.AddRange(deliveries
-                .Where(DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest)
-                .Select(delivery => new PriorityActionItem(
-                    "DeliveryInvoiceUpdate",
-                    "Delivery requested an invoice update",
-                    "Finance",
-                    delivery.InvoiceUpdateRequestedAt.HasValue
-                        ? BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(delivery.InvoiceUpdateRequestedAt.Value, DateTimeKind.Utc)))
-                        : today,
-                    vehicleById.TryGetValue(delivery.VehicleId, out var vehicle)
-                        ? $"{vehicle.PlateNumber}: {delivery.InvoiceUpdateRequestReason}"
-                        : delivery.InvoiceUpdateRequestReason)));
-        }
 
         if (isBoss || roleSet.Contains("Sales"))
         {
@@ -2112,15 +1998,8 @@ public static class PaymentManagementReviewRules
     public static PaymentRecord PrepareForCreate(PaymentRecord payment) =>
         payment with { BossChecked = false };
 
-    public static PaymentRecord ApplyManagementReview(PaymentRecord payment) =>
-        payment with { BossChecked = true };
-
     public static PaymentRecord PrepareForUpdate(PaymentRecord existing, PaymentRecord update) =>
-        update with
-        {
-            BossChecked = HasMaterialChanges(existing, update) ? false : existing.BossChecked,
-            CreatedAt = existing.CreatedAt
-        };
+        update with { BossChecked = HasMaterialChanges(existing, update) ? false : existing.BossChecked };
 
     public static bool HasMaterialChanges(PaymentRecord existing, PaymentRecord update) =>
         existing.VehicleId != update.VehicleId ||
@@ -2136,21 +2015,6 @@ public static class PaymentManagementReviewRules
         existing.BankFollowUpDate != update.BankFollowUpDate ||
         existing.DocumentsPrepared != update.DocumentsPrepared ||
         existing.ChecklistValidated != update.ChecklistValidated;
-
-    public static bool HasInvoiceRelatedChanges(PaymentRecord existing, PaymentRecord update) =>
-        existing.NettPrice != update.NettPrice ||
-        !string.Equals(existing.InvoiceNumber?.Trim(), update.InvoiceNumber?.Trim(), StringComparison.Ordinal) ||
-        existing.SalesPrice != update.SalesPrice ||
-        existing.InterestAdditionalCharges != update.InterestAdditionalCharges ||
-        existing.NcdAmount != update.NcdAmount ||
-        existing.WindscreenCharges != update.WindscreenCharges;
-
-    public static ValidationResult ValidateIdentity(PaymentRecord existing, PaymentRecord update) =>
-        existing.VehicleId == update.VehicleId
-            ? new ValidationResult([])
-            : new ValidationResult([new ValidationError(
-                "payment_vehicle_locked",
-                "Payment vehicle identity cannot be changed after the payment is created.")]);
 }
 
 public static class UploadPolicy
@@ -2684,8 +2548,10 @@ public static class LoanDocumentRules
 
 public static class DeliveryRules
 {
-    public static bool IsReadyForRelease(DeliverySchedule delivery, DateOnly? releaseDate = null) =>
+    public static bool IsReadyForRelease(DeliverySchedule delivery) =>
+        delivery.Status == DeliveryStatus.ReadyForRelease &&
         delivery.InspectionDone &&
+        !string.IsNullOrWhiteSpace(delivery.InspectionReportReference) &&
         delivery.DocumentsPrepared &&
         delivery.PolishDone &&
         delivery.TintedDone &&
@@ -2694,17 +2560,14 @@ public static class DeliveryRules
         delivery.RoadTaxHandled &&
         delivery.WindscreenInsuranceHandled &&
         delivery.TwoDayNoticeSent &&
-        delivery.CustomerAcknowledged &&
-        delivery.FinalChecklistConfirmed &&
-        ExpiredDeliveryDocuments(delivery, releaseDate).Count == 0;
+        ExpiredDeliveryDocuments(delivery).Count == 0;
 
-    public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery, DateOnly? releaseDate = null)
+    public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery)
     {
         var issues = new List<string>();
-        var comparisonDate = releaseDate.HasValue && releaseDate.Value > delivery.ScheduledDate ? releaseDate.Value : delivery.ScheduledDate;
-        AddExpiryIssue(issues, delivery.InsuranceExpiryDate, comparisonDate, "Insurance policy");
-        AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, comparisonDate, "Road tax");
-        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, comparisonDate, "Windscreen insurance");
+        AddExpiryIssue(issues, delivery.InsuranceExpiryDate, delivery.ScheduledDate, "Insurance policy");
+        AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, delivery.ScheduledDate, "Road tax");
+        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, delivery.ScheduledDate, "Windscreen insurance");
         return issues;
     }
 
@@ -2739,18 +2602,24 @@ public static class DeliveryRules
             }
         }
 
+        if (delivery.InspectionDone && string.IsNullOrWhiteSpace(delivery.InspectionReportReference))
+        {
+            errors.Add(new ValidationError("inspection_report_required", "Inspection report reference is required after inspection is complete."));
+        }
+
+        if (delivery.Status == DeliveryStatus.ReadyForRelease && !IsReadyForRelease(delivery))
+        {
+            errors.Add(new ValidationError("delivery_not_ready", DeliveryNotReadyMessage));
+        }
+
         return new ValidationResult(errors);
     }
 
     public static ValidationResult ValidateTransition(DeliverySchedule existing, DeliverySchedule update)
     {
-        if (existing.Status == DeliveryStatus.Released)
+        if (existing.Status is DeliveryStatus.Released or DeliveryStatus.Cancelled)
         {
-            return new ValidationResult([new ValidationError("delivery_terminal_status", "Released delivery is read-only and cannot be changed.")]);
-        }
-        if (existing.Status == DeliveryStatus.Cancelled)
-        {
-            return new ValidationResult([new ValidationError("delivery_terminal_status", "Cancelled delivery cannot be changed. Create a new delivery schedule instead.")]);
+            return new ValidationResult([new ValidationError("delivery_terminal_status", "Released or cancelled delivery cannot be changed. Create a new delivery schedule instead.")]);
         }
         if (existing.Status == update.Status) return new ValidationResult([]);
 
@@ -2816,13 +2685,13 @@ public static class DeliveryDocumentRules
         FileCategory.WindscreenPolicy
     ];
 
-    public static DeliveryDocumentCheck CheckCompleteness(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
+    public static DeliveryDocumentCheck CheckCompleteness(DeliverySchedule delivery, Guid customerId, IEnumerable<DocumentBlob> documents)
     {
         var deliveryDocuments = documents
             .Where(document =>
                 document.VehicleId == delivery.VehicleId &&
                 document.DeliveryScheduleId == delivery.Id &&
-                document.CustomerId == delivery.CustomerId)
+                document.CustomerId == customerId)
             .ToList();
         var evidence = RequiredCategories
             .Select(category =>
@@ -2846,17 +2715,115 @@ public static class DeliveryDocumentRules
         return new DeliveryDocumentCheck(missing.Count == 0, missing, evidence);
     }
 
-    public static ValidationResult ValidateReadyDocuments(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
+    public static ValidationResult ValidateReadyDocuments(DeliverySchedule delivery, Guid customerId, IEnumerable<DocumentBlob> documents)
     {
         if (delivery.Status is not (DeliveryStatus.ReadyForRelease or DeliveryStatus.Released))
         {
             return new ValidationResult([]);
         }
 
-        var check = CheckCompleteness(delivery, documents);
+        var check = CheckCompleteness(delivery, customerId, documents);
         return check.IsComplete
             ? new ValidationResult([])
-            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires delivery documents, inspection report, handover evidence, insurance policy, road tax, and windscreen policy uploaded for this delivery and buyer before release.")]);
+            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires inspection report, delivery, handover photo, signed handover, policy, road tax, and windscreen policy evidence for this delivery and buyer before release.")]);
+    }
+}
+
+public static class DeliveryReleaseRules
+{
+    public static ValidationResult Validate(
+        DeliverySchedule delivery,
+        Guid? customerId,
+        bool financeCleared,
+        IEnumerable<DocumentBlob> documents)
+    {
+        if (delivery.Status != DeliveryStatus.Released) return new ValidationResult([]);
+        if (!customerId.HasValue)
+        {
+            return new ValidationResult([new ValidationError("delivery_customer_required", "Delivery requires a confirmed buyer before release.")]);
+        }
+        if (!financeCleared)
+        {
+            return new ValidationResult([new ValidationError("delivery_finance_not_cleared", "Finance must reconcile payment before delivery release.")]);
+        }
+
+        var releaseValidation = DeliveryRules.ValidateRelease(delivery);
+        if (!releaseValidation.IsValid) return releaseValidation;
+        return DeliveryDocumentRules.ValidateReadyDocuments(delivery, customerId.Value, documents);
+    }
+}
+
+public static class DeliveryEvidenceUploadRules
+{
+    public static bool IsDeliveryCategory(FileCategory category) => category is
+        FileCategory.DeliveryDocument or
+        FileCategory.InspectionReport or
+        FileCategory.HandoverPhoto or
+        FileCategory.SignedHandover or
+        FileCategory.Policy or
+        FileCategory.RoadTaxReceipt or
+        FileCategory.WindscreenPolicy;
+
+    public static DeliveryContentValidation ValidateAndDetect(FileCategory category, byte[] bytes)
+    {
+        if (!IsDeliveryCategory(category)) return new DeliveryContentValidation(true, null, null);
+
+        var mimeType = DetectAndValidateMimeType(bytes);
+        var allowed = category == FileCategory.HandoverPhoto
+            ? mimeType is "image/jpeg" or "image/png" or "image/webp"
+            : mimeType is "application/pdf" or "image/jpeg" or "image/png";
+        return allowed
+            ? new DeliveryContentValidation(true, mimeType, null)
+            : new DeliveryContentValidation(false, null, new ValidationError(
+                "delivery_evidence_content_invalid",
+                category == FileCategory.HandoverPhoto
+                    ? "Handover photo must be a JPEG, PNG, or WebP image."
+                    : "Delivery evidence must be a PDF, JPEG, or PNG file."));
+    }
+
+    private static string? DetectAndValidateMimeType(byte[] bytes)
+    {
+        if (IsStructurallyValidPdf(bytes)) return "application/pdf";
+        try
+        {
+            using var data = SKData.CreateCopy(bytes);
+            using var codec = SKCodec.Create(data);
+            if (codec is null || codec.Info.Width <= 0 || codec.Info.Height <= 0) return null;
+            if ((long)codec.Info.Width * codec.Info.Height > 50_000_000) return null;
+            var mimeType = codec.EncodedFormat switch
+            {
+                SKEncodedImageFormat.Jpeg => "image/jpeg",
+                SKEncodedImageFormat.Png => "image/png",
+                SKEncodedImageFormat.Webp => "image/webp",
+                _ => null
+            };
+            if (mimeType is null) return null;
+            using var bitmap = SKBitmap.Decode(bytes);
+            return bitmap is { Width: > 0, Height: > 0 } ? mimeType : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsStructurallyValidPdf(byte[] bytes)
+    {
+        if (bytes.Length < 64 || !bytes.AsSpan(0, 5).SequenceEqual("%PDF-"u8)) return false;
+        var span = bytes.AsSpan();
+        var eofIndex = span.LastIndexOf("%%EOF"u8);
+        if (eofIndex < 0 || eofIndex < bytes.Length - 1024) return false;
+        foreach (var value in span[(eofIndex + 5)..])
+        {
+            if (value != (byte)' ' && value != (byte)'\t' && value != (byte)'\r' && value != (byte)'\n' && value != 0) return false;
+        }
+
+        var text = Encoding.ASCII.GetString(bytes);
+        var hasObject = text.Contains(" obj", StringComparison.Ordinal) && text.Contains("endobj", StringComparison.Ordinal);
+        var hasRoot = text.Contains("/Root", StringComparison.Ordinal) || text.Contains("/Type /Catalog", StringComparison.Ordinal);
+        var hasClassicXref = text.Contains("xref", StringComparison.Ordinal) && text.Contains("trailer", StringComparison.Ordinal);
+        var hasXrefStream = text.Contains("/Type /XRef", StringComparison.Ordinal) || text.Contains("/Type/XRef", StringComparison.Ordinal);
+        return hasObject && hasRoot && (hasClassicXref || hasXrefStream);
     }
 }
 
@@ -2946,17 +2913,14 @@ public static class OcrReviewAccuracy
     private static bool ValuesMatch(string? left, string? right) =>
         string.Equals(Normalize(left), Normalize(right), StringComparison.OrdinalIgnoreCase);
 
-    private static string Normalize(string? value) =>
-        string.Join(" ", (value ?? "").Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    private static string Normalize(string? value) => string.Join(" ", (value ?? "").Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
-    private static string? NullIfWhiteSpace(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static string? NullIfWhiteSpace(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
 public static class AiDocumentProcessingMetrics
 {
-    private const decimal CheckCarefullyConfidenceThreshold = 0.75m;
-
+    private const decimal LowConfidenceThreshold = 0.75m;
     private static readonly (string Category, string Label)[] Categories =
     [
         ("IdentityCard", "IC"),
@@ -2973,7 +2937,7 @@ public static class AiDocumentProcessingMetrics
     {
         var jobList = jobs.ToList();
         var periodJobs = jobList
-            .Where(job => IsInAnalyticsRange(BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(job.CreatedAt, DateTimeKind.Utc))), analyticsFrom, analyticsTo))
+            .Where(job => IsInAnalyticsRange(SingaporeDate(job.CreatedAt), analyticsFrom, analyticsTo))
             .ToList();
         var categories = Categories
             .Select(category => CreateCategory(category.Category, category.Label, periodJobs))
@@ -2984,8 +2948,6 @@ public static class AiDocumentProcessingMetrics
 
         return new DashboardAiDocumentProcessing(
             ScanCount: periodJobs.Count,
-            AcceptedCount: periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
-            RejectedCount: periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
             ReviewedCount: reviewedJobs.Count,
             ComparedFieldCount: comparedFieldCount,
             CorrectFieldCount: correctFieldCount,
@@ -3010,8 +2972,6 @@ public static class AiDocumentProcessingMetrics
             Category: category,
             Label: label,
             ScanCount: categoryJobs.Count,
-            AcceptedCount: categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
-            RejectedCount: categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
             ReviewedCount: reviewedJobs.Count,
             ComparedFieldCount: comparedFieldCount,
             CorrectFieldCount: correctFieldCount,
@@ -3021,6 +2981,11 @@ public static class AiDocumentProcessingMetrics
             FailedCount: categoryJobs.Count(job => job.Status == OcrJobStatus.Failed));
     }
 
+    private static bool IsReviewed(OcrJob job) => job.ReviewDecision != OcrReviewDecision.Pending;
+
+    private static decimal? AccuracyPercent(int comparedFieldCount, int correctFieldCount) =>
+        comparedFieldCount == 0 ? null : Math.Round(correctFieldCount * 100m / comparedFieldCount, 1, MidpointRounding.AwayFromZero);
+
     private static string CategoryFor(FileCategory category) => category switch
     {
         FileCategory.IdentityCard => "IdentityCard",
@@ -3029,12 +2994,22 @@ public static class AiDocumentProcessingMetrics
         _ => "SupportingDocuments"
     };
 
-    private static bool IsLowConfidence(OcrJob job)
+    private static bool IsLowConfidence(OcrJob job) =>
+        job.Status != OcrJobStatus.Failed
+        && TryReadConfidence(job.ResultJson, out var confidence)
+        && confidence < LowConfidenceThreshold;
+
+    private static bool TryReadConfidence(string resultJson, out decimal confidence)
     {
-        if (string.IsNullOrWhiteSpace(job.ResultJson)) return false;
+        confidence = 0m;
+        if (string.IsNullOrWhiteSpace(resultJson)) return false;
+
         try
         {
-            return JsonSerializer.Deserialize<OcrExtractionResult>(job.ResultJson)?.Confidence < CheckCarefullyConfidenceThreshold;
+            var result = JsonSerializer.Deserialize<OcrExtractionResult>(resultJson);
+            if (result is null) return false;
+            confidence = result.Confidence;
+            return true;
         }
         catch (JsonException)
         {
@@ -3042,16 +3017,19 @@ public static class AiDocumentProcessingMetrics
         }
     }
 
-    private static bool IsReviewed(OcrJob job) =>
-        job.ReviewDecision == OcrReviewDecision.Reviewed ||
-        job.Status == OcrJobStatus.Reviewed ||
-        job.ReviewedAt is not null;
-
-    private static decimal? AccuracyPercent(int comparedFieldCount, int correctFieldCount) =>
-        comparedFieldCount == 0 ? null : Math.Round(correctFieldCount * 100m / comparedFieldCount, 1);
-
     private static bool IsInAnalyticsRange(DateOnly value, DateOnly? from, DateOnly? to) =>
-        (from is null || value >= from) && (to is null || value <= to);
+        (!from.HasValue || value >= from.Value) && (!to.HasValue || value <= to.Value);
+
+    private static DateOnly SingaporeDate(DateTime value)
+    {
+        var utcValue = value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+        return BusinessClock.SingaporeDate(new DateTimeOffset(utcValue));
+    }
 }
 
 public static class DashboardMetrics
