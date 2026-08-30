@@ -1978,6 +1978,10 @@ export function financeInvoiceContentUrl(invoiceId: string) {
   return `${apiBaseUrl}/api/finance-invoices/${invoiceId}/content`;
 }
 
+export function paymentVoucherPdfUrl(voucherId: string) {
+  return `${apiBaseUrl}/api/payment-vouchers/${voucherId}/pdf`;
+}
+
 export async function updateOcrUsageLimit(requestBody: UpdateAiServiceLimitRequest): Promise<AiUsageLimitSnapshot> {
   return request<AiUsageLimitSnapshot>("/api/admin/ai-limits/ocr", {
     method: "PUT",

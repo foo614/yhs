@@ -276,6 +276,7 @@ First-deploy assumption: no pre-existing Finance V2 invoice can already have an 
 | `PUT` | `/api/debt-recoveries/{id}` | Update debt recovery case. |
 | `GET` / `POST` | `/api/payment-vouchers` | List/create payment vouchers. |
 | `PUT` | `/api/payment-vouchers/{id}` | Update payment voucher. |
+| `GET` | `/api/payment-vouchers/{id}/pdf` | Download the finance-controlled standard Payment Voucher PDF. Pending vouchers are marked draft; every download is audited. |
 
 Finance V2 nett price is calculated to two decimal places:
 
