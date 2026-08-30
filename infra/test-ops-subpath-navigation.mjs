@@ -6,6 +6,7 @@ const adapterSource = fs.readFileSync(new URL("./nginx/ops-subpath-navigation.js
 const historyCalls = [];
 const listeners = new Map();
 const mutationObservers = [];
+const assignedLocations = [];
 const history = {
   pushState(...args) {
     historyCalls.push(["pushState", ...args]);
@@ -16,7 +17,10 @@ const history = {
 };
 const location = {
   href: "https://yshenghub.com.my/traces/detail/initial-trace?spanId=initial-span",
-  origin: "https://yshenghub.com.my"
+  origin: "https://yshenghub.com.my",
+  assign(value) {
+    assignedLocations.push(value);
+  }
 };
 const dispatchedEvents = [];
 const document = {
@@ -133,17 +137,20 @@ mutationObservers[0].callback([{
   type: "childList"
 }]);
 assert.equal(traceAnchor.href, "/ops/traces/detail/trace-id");
-traceAnchor.href = "/traces/detail/trace-id";
+traceAnchor.href = "/metrics";
 
 const clickRegistration = listeners.get("click");
 assert.equal(clickRegistration.capture, true);
 let clickPrevented = false;
 let clickStopped = false;
+const clickNavigationCallCount = blazorNavigationCalls.length;
+const clickHistoryCallCount = historyCalls.length;
+const clickEventCount = dispatchedEvents.length;
 clickRegistration.listener({
   altKey: false,
   button: 0,
   ctrlKey: false,
-  defaultPrevented: true,
+  defaultPrevented: false,
   metaKey: false,
   preventDefault() {
     clickPrevented = true;
@@ -154,17 +161,20 @@ clickRegistration.listener({
   },
   target: { closest: () => traceAnchor }
 });
-assert.equal(traceAnchor.href, "/ops/traces/detail/trace-id");
+assert.equal(traceAnchor.href, "/ops/metrics");
 assert.equal(clickPrevented, true);
 assert.equal(clickStopped, true);
-assert.equal(historyCalls.at(-1)[3], "/ops/traces/detail/trace-id");
-assert.equal(dispatchedEvents.at(-1).type, "popstate");
-assert.equal(dispatchedEvents.at(-1).state, null);
+assert.deepEqual(blazorNavigationCalls.slice(clickNavigationCallCount), [
+  ["public", "/ops/metrics"]
+]);
+assert.equal(historyCalls.length, clickHistoryCallCount);
+assert.equal(dispatchedEvents.length, clickEventCount);
 
+const modifiedClickNavigationCallCount = blazorNavigationCalls.length;
 clickRegistration.listener({
   altKey: false,
   button: 0,
-  ctrlKey: false,
+  ctrlKey: true,
   defaultPrevented: false,
   metaKey: false,
   preventDefault() {},
@@ -172,7 +182,33 @@ clickRegistration.listener({
   stopImmediatePropagation() {},
   target: { closest: () => traceAnchor }
 });
-assert.equal(historyCalls.at(-1)[3], "/ops/traces/detail/trace-id");
-assert.equal(dispatchedEvents.at(-1).type, "popstate");
+assert.equal(blazorNavigationCalls.length, modifiedClickNavigationCallCount);
+assert.equal(historyCalls.length, clickHistoryCallCount);
+assert.equal(dispatchedEvents.length, clickEventCount);
+
+window.Blazor = undefined;
+traceAnchor.href = "/structuredlogs";
+clickPrevented = false;
+clickStopped = false;
+clickRegistration.listener({
+  altKey: false,
+  button: 0,
+  ctrlKey: false,
+  defaultPrevented: false,
+  metaKey: false,
+  preventDefault() {
+    clickPrevented = true;
+  },
+  shiftKey: false,
+  stopImmediatePropagation() {
+    clickStopped = true;
+  },
+  target: { closest: () => traceAnchor }
+});
+assert.equal(clickPrevented, true);
+assert.equal(clickStopped, true);
+assert.deepEqual(assignedLocations, ["/ops/structuredlogs"]);
+assert.equal(historyCalls.length, clickHistoryCallCount);
+assert.equal(dispatchedEvents.length, clickEventCount);
 
 console.log("Aspire /ops subpath navigation adapter tests passed.");
