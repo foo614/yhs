@@ -931,8 +931,151 @@ body {
   gap: 8px;
 }
 
+.moduleCommandAside {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+
 .moduleStats {
   justify-content: flex-end;
+}
+
+.moduleGuideButtonWrap {
+  flex: 0 0 auto;
+}
+
+.moduleGuideButton {
+  min-height: 40px;
+  border-color: rgba(11, 112, 92, .28);
+  color: #0b705c;
+  font-weight: 760;
+}
+
+.moduleGuideButton:hover,
+.moduleGuideButton:focus-visible {
+  border-color: #0b705c !important;
+  color: #085e4e !important;
+}
+
+.moduleContentGuideTarget {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.moduleContentTourAnchor {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 128px;
+  pointer-events: none;
+}
+
+.moduleGuideDrawer .ant-drawer-footer .ant-space,
+.moduleGuideDrawer .ant-drawer-footer .ant-space-item {
+  max-width: 100%;
+}
+
+.moduleGuideDrawer .ant-drawer-body {
+  padding: 20px 24px 28px;
+}
+
+.moduleGuideMeta {
+  margin-top: 8px;
+}
+
+.moduleGuideDivider {
+  margin-block: 0;
+}
+
+.moduleGuideSections {
+  border-color: rgba(20, 72, 61, .14);
+  background: #f7faf9;
+}
+
+.moduleGuideSections .ant-collapse-header {
+  align-items: center !important;
+}
+
+.moduleGuideSectionLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.moduleGuideSectionLabel strong {
+  min-width: 0;
+  color: #173c34;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.moduleGuideSectionLabel .ant-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+
+.moduleGuideSectionTags {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.moduleGuideSectionBody {
+  width: 100%;
+}
+
+.moduleGuideSectionBlock .ant-typography,
+.moduleGuideHandoff .ant-typography {
+  margin-bottom: 0;
+}
+
+.moduleGuideSectionBlock ul,
+.moduleGuideSectionBlock ol,
+.moduleGuideWarningList,
+.moduleGuideTourSectionList {
+  margin: 6px 0 0;
+  padding-inline-start: 20px;
+  line-height: 1.55;
+}
+
+.moduleGuideSectionBlock li + li,
+.moduleGuideWarningList li + li,
+.moduleGuideTourSectionList li + li {
+  margin-top: 5px;
+}
+
+.moduleGuideReadyAlert {
+  border-color: rgba(11, 112, 92, .2);
+  background: #f2faf7;
+}
+
+.moduleGuideHandoff {
+  padding: 10px 12px;
+  border-inline-start: 3px solid #0b705c;
+  background: #f5f9f8;
+}
+
+.moduleGuideHandoff .ant-typography:last-child {
+  margin-top: 4px;
+}
+
+.moduleGuideTourSectionList {
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.moduleGuideTour .ant-tour-description {
+  line-height: 1.55;
 }
 
 .moduleStats span {
@@ -966,6 +1109,20 @@ body {
 
 .dashboardMetricGrid {
   margin-top: 2px;
+}
+
+.operationalInfoAlert.ant-alert,
+.sectionIntroAlert.ant-alert {
+  padding: 8px 12px;
+}
+
+.operationalInfoAlert .ant-alert-message,
+.sectionIntroAlert .ant-alert-message {
+  line-height: 1.45;
+}
+
+.sectionIntroAlert.ant-alert {
+  margin-bottom: 12px;
 }
 
 .dashboardAnalyticsControls {
@@ -2107,6 +2264,77 @@ body {
   gap: 8px;
 }
 
+.hrAvailabilityCalendarViewport {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.hrAvailabilityCalendar {
+  min-width: 760px;
+}
+
+.hrAvailabilityCalendar.ant-picker-calendar-full .ant-picker-panel .ant-picker-calendar-date-content {
+  height: 74px !important;
+  overflow: hidden !important;
+}
+
+.hrAvailabilityCalendar.ant-picker-calendar .ant-picker-cell-selected .ant-picker-calendar-date {
+  border-top-color: #0d6b57 !important;
+  background: #f1f7f4 !important;
+}
+
+.hrAvailabilityCalendar.ant-picker-calendar .ant-picker-cell-selected .ant-picker-calendar-date-value {
+  color: #0d6b57 !important;
+  font-weight: 750;
+}
+
+.hrAvailabilityEvents {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  list-style: none;
+}
+
+.hrAvailabilityEvents li,
+.hrAvailabilityEvents .ant-badge {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.hrAvailabilityEvents .ant-badge {
+  display: flex !important;
+  align-items: center;
+  width: 100%;
+}
+
+.hrAvailabilityEvents .ant-badge-status-text {
+  display: block !important;
+  width: 0;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: #3f4f49;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.hrAvailabilityMore {
+  color: #6a7772;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .leaveRequestCard .ant-pro-card-body {
   padding-top: 12px;
 }
@@ -2280,7 +2508,13 @@ body {
 }
 
 .repairReceiptFlow {
+  display: grid;
   grid-column: 1 / -1;
+  gap: 10px;
+}
+
+.repairReceiptFlow .ocrReviewInline {
+  margin-top: 0;
 }
 
 .vehicleMarkdownField,
@@ -3205,6 +3439,11 @@ body {
     justify-content: flex-start;
   }
 
+  .moduleCommandAside {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .rbacOverview,
   .settingsOverview {
     grid-template-columns: 1fr;
@@ -3263,6 +3502,123 @@ body {
   .vehicleSelectedFacts {
     justify-content: flex-start;
   }
+}
+
+.financeV2AmountGrid,
+.financeV2BalanceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.financeV2CalculatedTotal,
+.financeV2BalanceSummary {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid rgba(11, 112, 92, .18);
+  border-radius: 8px;
+  background: #f5faf8;
+}
+
+.financeV2CalculatedTotal span,
+.financeV2CalculatedTotal small,
+.financeV2BalanceGrid small {
+  color: #60746e;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.financeV2CalculatedTotal strong {
+  color: #0b705c;
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.financeV2BalanceHeader,
+.financeCollectionHistoryHeader,
+.financeCollectionItem > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.financeV2BalanceHeader h4.ant-typography,
+.financeCollectionHistoryHeader h5.ant-typography {
+  margin: 2px 0 0;
+}
+
+.financeV2BalanceGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.financeV2BalanceGrid span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.financeV2BalanceGrid strong {
+  color: #14251f;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.financeCollectionHistory {
+  display: grid;
+  gap: 10px;
+}
+
+.financeCollectionItem {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.financeCollectionItem > div:first-child strong {
+  color: #14251f;
+  font-size: 18px;
+}
+
+.financeCollectionItem dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.financeCollectionItem dl div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.financeCollectionItem dt {
+  color: #60746e;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.financeCollectionItem dd {
+  margin: 0;
+  color: #243831;
+  overflow-wrap: anywhere;
+}
+
+.financeCollectionItem .ant-typography {
+  margin-bottom: 0;
+}
+
+.financeV2ReverseReason {
+  margin-top: 14px;
+}
+
+.financeV2PrimaryAction .ant-btn {
+  min-width: 132px;
 }
 
 @media (max-width: 1024px) {
@@ -4529,14 +4885,123 @@ body {
   }
 }
 @media (max-width: 720px) {
+  .moduleCommandAside {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .moduleGuideButtonWrap,
+  .moduleGuideButton,
+  .moduleStats {
+    width: 100%;
+  }
+
+  .moduleGuideButton {
+    min-height: 44px;
+  }
+
+  .moduleContentTourAnchor {
+    height: 96px;
+  }
+
+  .moduleGuideDrawer .ant-drawer-footer .ant-space,
+  .moduleGuideDrawer .ant-drawer-footer .ant-space-item,
+  .moduleGuideDrawer .ant-drawer-footer .ant-btn {
+    width: 100%;
+  }
+
+  .moduleGuideDrawer .ant-drawer-footer .ant-btn {
+    min-height: 44px;
+  }
+
+  .moduleGuideDrawer .ant-drawer-body {
+    padding: 16px;
+  }
+
+  .moduleGuideSections .ant-collapse-header,
+  .moduleGuideSections .ant-collapse-content-box {
+    padding-inline: 12px !important;
+  }
+
+  .moduleGuideSectionLabel {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .moduleGuideSectionTags {
+    justify-content: flex-start;
+  }
+
+  .moduleGuideTourSectionList {
+    max-height: 160px;
+  }
+
+  .financeV2AmountGrid,
+  .financeV2BalanceGrid,
+  .financeCollectionItem dl {
+    grid-template-columns: 1fr;
+  }
+
+  .financeV2PrimaryAction,
+  .financeV2PrimaryAction .ant-btn {
+    width: 100%;
+  }
+
+  .financeV2PrimaryAction .ant-btn {
+    min-height: 44px;
+  }
+
+  .financeCollectionActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .financeCollectionActions .ant-space-item,
+  .financeCollectionActions .ant-btn,
+  .financeCollectionActions .ant-space-item > span {
+    width: 100%;
+  }
+
+  .financeCollectionActions .ant-btn {
+    min-height: 44px;
+  }
+
+  .financeV2Drawer .ant-btn,
+  .financeV2Modal .formActions .ant-btn {
+    min-height: 44px;
+  }
+
+  .financeToolbarForm,
+  .financeToolbarForm .ant-space-item,
+  .financeToolbarForm .financeStatusFilter,
+  .financeToolbarForm .ant-input-search,
+  .financeToolbarForm .ant-select,
+  .financeToolbarForm .ant-btn {
+    width: 100%;
+  }
+
+  .financeToolbarForm .ant-select-selector,
+  .financeToolbarForm .ant-btn {
+    min-height: 44px;
+  }
+
   .leadFilterControls {
     align-items: stretch;
     flex-direction: column;
   }
 
   .leadFilterControl,
+  .leadFilterControl .ant-input-search,
   .leadFilterControl .ant-select {
-    width: 100%;
+    width: 100% !important;
+  }
+
+  .leadFilterControl .ant-input-affix-wrapper,
+  .leadFilterControl .ant-input-search-button,
+  .leadFilterControl .ant-select-selector {
+    min-height: 44px;
   }
 }
 

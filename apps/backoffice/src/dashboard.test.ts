@@ -36,6 +36,7 @@ describe("dashboard reminder helpers", () => {
     expect(dashboardMetricTarget("payments")).toBe("/finance?tab=payments&attention=open");
     expect(dashboardMetricTarget("sold")).toBe("/vehicles?dashboard=sold");
     expect(dashboardMetricTarget("sold", { from: "2026-06-01", to: "2026-06-30" })).toBe("/vehicles?dashboard=sold&from=2026-06-01&to=2026-06-30");
+    expect(dashboardMetricTarget("profit", { from: "2026-06-01", to: "2026-06-30" })).toBe("/vehicles?dashboard=profit");
     expect(dashboardMetricTarget("watch")).toBe("/vehicles?dashboard=watch");
     expect(financeRiskTarget("Unpaid Settlement")).toBe("/finance?tab=settlements&attention=open");
     expect(dashboardReminderTarget({

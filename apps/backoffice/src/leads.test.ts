@@ -87,6 +87,31 @@ describe("lead customer link display", () => {
     expect(filterLeadsForTriage(leads, { status: "Contacted", link: "All" }).map((lead) => lead.id)).toEqual(["lead-2"]);
   });
 
+  it("searches lead customer, compact phone, vehicle label, message, and source details", () => {
+    const searchableLead: Lead = {
+      ...baseLead,
+      phone: "012-345 6789",
+      message: "Interested in a weekend test drive",
+      sourcePage: "/vehicles/vehicle-1",
+      sourceCampaign: "facebook-launch"
+    };
+
+    expect(filterLeadsForTriage([searchableLead], { keyword: "ali tan" }, vehicles)).toEqual([searchableLead]);
+    expect(filterLeadsForTriage([searchableLead], { keyword: "0123456789" }, vehicles)).toEqual([searchableLead]);
+    expect(filterLeadsForTriage([searchableLead], { keyword: "VAA 1001" }, vehicles)).toEqual([searchableLead]);
+    expect(filterLeadsForTriage([searchableLead], { keyword: "weekend test drive" }, vehicles)).toEqual([searchableLead]);
+    expect(filterLeadsForTriage([searchableLead], { keyword: "facebook-launch" }, vehicles)).toEqual([searchableLead]);
+    expect(filterLeadsForTriage([searchableLead], { keyword: "not present" }, vehicles)).toEqual([]);
+  });
+
+  it("searches the current linked customer values shown in the lead table", () => {
+    const linkedLead = { ...baseLead, customerId: "customer-1" };
+    const customers: Customer[] = [{ id: "customer-1", name: "Updated Customer", phone: "011-222 3344" }];
+
+    expect(filterLeadsForTriage([linkedLead], { keyword: "updated customer" }, vehicles, customers)).toEqual([linkedLead]);
+    expect(filterLeadsForTriage([linkedLead], { keyword: "0112223344" }, vehicles, customers)).toEqual([linkedLead]);
+  });
+
   it("keeps the Leads filter labels and status choices English-only", () => {
     expect(leadFilterControlOptions.status).toEqual([
       { value: "All", label: "All Statuses" },

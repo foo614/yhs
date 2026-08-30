@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Switch, Tag, Typography, message } from "antd";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import {
   createVehicleCatalogModel,
   getVehicleCatalogModels,
@@ -144,12 +145,12 @@ export function VehicleCatalogSettings() {
         </div>
       </div>
       <Alert
+        className="operationalInfoAlert"
         type="info"
         showIcon
-        message="Seeded from recent Malaysian JPJ registrations"
-        description={(
+        message={(
           <span>
-            The default list uses make/model pairs with at least 100 registrations from January 2025 through July 2026. {" "}
+            Catalogue defaults use models with at least 100 Malaysian JPJ registrations from January 2025 through July 2026. {" "}
             <Typography.Link href={malaysiaCatalogSourceUrl} target="_blank" rel="noreferrer">View source on data.gov.my</Typography.Link>
           </span>
         )}

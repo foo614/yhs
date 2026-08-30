@@ -7,7 +7,7 @@ import type { ProColumns } from "@ant-design/pro-components";
 import { enUSIntl } from "@ant-design/pro-provider";
 import MDEditor from "@uiw/react-md-editor";
 import "@uiw/react-md-editor/markdown-editor.css";
-import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import type { FormInstance } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -16,6 +16,7 @@ import { singaporeTodayIsoDate, type DashboardVehicleFocus } from "../../dashboa
 import { isRepairCostFinal } from "../../repairs";
 import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import {
@@ -25,10 +26,12 @@ import {
   getVehicleCatalogModels,
   getVehicleOcrJobs,
   getVehiclePhotos,
+  getSupplierMaster,
   humanizeApiError,
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
+  type BrokerCommission,
   type Customer,
   type BrokerCommission,
   type DashboardAnalyticsPeriod,
@@ -41,6 +44,7 @@ import {
   type PaymentVoucher,
   type PurchaseInvoice,
   type RepairJob,
+  type Supplier,
   type Vehicle,
   type VehicleCatalogModel,
   type VehicleIntakeValues,
@@ -52,7 +56,7 @@ import {
 const maxWebsitePhotoBytes = 5 * 1024 * 1024;
 const vehicleIntakeDocumentCategories: DocumentCategory[] = ["Voc", "IdentityCard", "ApDocument"];
 const receiptInvoiceDocumentCategories: DocumentCategory[] = ["PurchaseInvoice", "RepairInvoice", "PaymentReceipt", "PaymentInvoice"];
-const mobileVehiclePageSize = 12;
+const mobileVehiclePageSize = 8;
 const earliestVehicleYear = 1990;
 const latestVehicleYear = new Date().getFullYear() + 1;
 export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id">>;
@@ -93,6 +97,39 @@ export function vehicleDocumentCategoriesForOwnership(ownershipType: DocumentOwn
 
 export function vehicleDocumentsForOwnership(documents: VehicleDocument[], ownershipType: DocumentOwnershipType, category: DocumentCategory) {
   return documents.filter((document) => document.ownershipType === ownershipType && document.category === category);
+}
+
+function PurchaseInvoiceLineFields() {
+  const lineTypeOptions = [
+    { value: "VehiclePurchase", label: "Vehicle purchase (6P00-0000)" },
+    { value: "PurchaseProcessing", label: "Purchase processing (6P00-1000)" },
+    { value: "LatePaymentCharge", label: "Late payment charge (Finance mapping required)" },
+    { value: "Parking", label: "Parking (6T00-1000)" },
+    { value: "Transport", label: "Transport (Finance mapping required)" },
+    { value: "Refurbishment", label: "Refurbishment (6R00-0000)" },
+    { value: "Other", label: "Other (Finance mapping required)" }
+  ];
+  return (
+    <Form.List name="lines" rules={[{ validator: async (_, lines) => { if (!lines?.length) throw new Error("Add at least one classified line."); } }]}>
+      {(fields, { add, remove }, { errors }) => (
+        <Space direction="vertical" className="fullWidth">
+          <Typography.Text strong>Classified invoice lines</Typography.Text>
+          {fields.map((field) => (
+            <ProCard key={field.key} size="small" bordered>
+              <Form.Item {...field} name={[field.name, "lineType"]} label="Fee classification" rules={[{ required: true }]}><Select options={lineTypeOptions} /></Form.Item>
+              <Form.Item {...field} name={[field.name, "description"]} label="Description" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item {...field} name={[field.name, "amount"]} label="Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item {...field} name={[field.name, "capitaliseIntoVehicleCost"]} label="Capitalise into vehicle cost" valuePropName="checked"><Switch /></Form.Item>
+              {fields.length > 1 && <Button danger onClick={() => remove(field.name)}>Remove line</Button>}
+            </ProCard>
+          ))}
+          <Button onClick={() => add({ lineType: "Other", capitaliseIntoVehicleCost: false })}>Add fee line</Button>
+          <Form.ErrorList errors={errors} />
+          <Typography.Text type="secondary">The total is calculated from these lines. Tax code remains a separate Finance mapping.</Typography.Text>
+        </Space>
+      )}
+    </Form.List>
+  );
 }
 
 function VehicleMakeModelFields({
@@ -358,7 +395,7 @@ export function filterOperationIntakeVehicles(
   leads: Lead[],
   filters: OperationIntakeVehicleFilters
 ) {
-  const keyword = filters.keyword?.trim().toLowerCase();
+  const keywordTokens = filters.keyword?.trim().toLowerCase().split(/\s+/).filter(Boolean) ?? [];
   const activeLeadVehicleIds = new Set(leads.filter((lead) => lead.status !== "Closed").map((lead) => lead.vehicleId));
   const invoiceVehicleIds = new Set(purchaseInvoices.map((invoice) => invoice.vehicleId));
 
@@ -371,11 +408,15 @@ export function filterOperationIntakeVehicles(
       vehicle.stockOwner,
       vehicle.ucdStatus
     ].filter(Boolean).join(" ").toLowerCase();
+    const compactSearchable = searchable.replace(/[^a-z0-9]/gi, "");
     const hasOutstationPickup = Boolean(vehicle.outstationPickupScheduledAt || vehicle.outstationPickupAllowance || vehicle.outstationPickupBookingSlip);
     const hasInvoice = invoiceVehicleIds.has(vehicle.id);
     const hasActiveLead = activeLeadVehicleIds.has(vehicle.id);
 
-    if (keyword && !searchable.includes(keyword)) return false;
+    if (keywordTokens.some((token) => {
+      const compactToken = token.replace(/[^a-z0-9]/gi, "");
+      return !searchable.includes(token) && (!compactToken || !compactSearchable.includes(compactToken));
+    })) return false;
     if (filters.status && vehicle.status !== filters.status) return false;
     if (filters.stockOwner && vehicle.stockOwner !== filters.stockOwner) return false;
     if (filters.publicState === "visible" && !vehicle.isPublic) return false;
@@ -472,6 +513,12 @@ export function VehiclePage({
   const [vehicleIntakeDraft, setVehicleIntakeDraft] = useState<VehicleIntakeDraft>({});
   const [purchaseInvoiceCreateOpen, setPurchaseInvoiceCreateOpen] = useState(false);
   const [purchaseInvoiceOcrDraft, setPurchaseInvoiceOcrDraft] = useState<OcrReviewValues | null>(null);
+  const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
+  useEffect(() => {
+    void getSupplierMaster()
+      .then(setSupplierMaster)
+      .catch((error) => message.error(humanizeApiError(error, "Unable to load approved suppliers.")));
+  }, []);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const [customerCreateForLoanVehicleId, setCustomerCreateForLoanVehicleId] = useState("");
   const [customerCreateForVehicleIntake, setCustomerCreateForVehicleIntake] = useState(false);
@@ -1049,9 +1096,6 @@ export function VehiclePage({
       fixed: "left",
       width: 220,
       sorter: (a, b) => a.plateNumber.localeCompare(b.plateNumber),
-      filters: textFilters(vehicles.map((vehicle) => vehicle.plateNumber)),
-      filterSearch: true,
-      onFilter: (value, row) => row.plateNumber === value,
       render: (_, row) => (
         <Space direction="vertical" size={0}>
           <Typography.Text type="secondary">{row.plateNumber}</Typography.Text>
@@ -1113,8 +1157,6 @@ export function VehiclePage({
       width: 150,
       valueType: "select",
       valueEnum: { Available: "Available", LoanProcessing: "Loan processing", Sold: "Sold" },
-      filters: ["Available", "LoanProcessing", "Sold"].map((value) => ({ text: value, value })),
-      onFilter: (value, row) => row.status === value,
       render: (_, row) => <Tag color={vehicleStatusColor[row.status]}>{vehicleStatusLabel[row.status]}</Tag>
     },
     {
@@ -1329,6 +1371,7 @@ export function VehiclePage({
     { title: "Name / 姓名", dataIndex: "name" },
     { title: "Phone / 电话", dataIndex: "phone" },
     { title: shortformLabel("IC", "Identity card number"), dataIndex: "icNumber", render: (value) => value || "-" },
+    { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
     { title: "Email", dataIndex: "email", render: (value) => value || "-" },
     { title: "Address / 地址", dataIndex: "address", render: (value) => value || "-" },
     { title: "Notes / 备注", dataIndex: "notes", render: (value) => value || "-" },
@@ -1337,11 +1380,14 @@ export function VehiclePage({
   const ownerColumns: ColumnsType<Owner> = [
     { title: "Owner / 原车主", dataIndex: "name" },
     { title: "Phone / 电话", dataIndex: "phone" },
+    { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectOwner(row.id)}>Details</Button></Space> }
   ];
   const purchaseInvoiceColumns: ColumnsType<PurchaseInvoice> = [
     { title: "Car Plate", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Invoice", dataIndex: "invoiceNumber" },
+    { title: "Invoice Date", dataIndex: "invoiceDate", render: (value) => value || "-" },
+    { title: "Accounting", dataIndex: "accountingStatus", render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Confirmed" : "Draft"}</Tag> },
     { title: "Amount", dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectPurchaseInvoice(row.id)}>Details</Button></Space> }
   ];
@@ -1360,6 +1406,7 @@ export function VehiclePage({
         extra={<Space><Tag color="green">{vehicles.length} vehicles</Tag><Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
       >
         {dashboardFocus && <Alert
+          className="sectionIntroAlert"
           type="info"
           showIcon
           message={dashboardFocus === "stock" ? "Dashboard focus: current stock" : dashboardFocus === "sold" ? `Dashboard focus: sold vehicles${dashboardAnalyticsPeriod?.from && dashboardAnalyticsPeriod.to ? ` from ${dashboardAnalyticsPeriod.from} to ${dashboardAnalyticsPeriod.to}` : ""}` : dashboardFocus === "fresh" ? "Dashboard focus: stock aged 0-30 days" : dashboardFocus === "watch" ? "Dashboard focus: stock aged 31-60 days" : dashboardFocus === "aging" ? "Dashboard focus: stock aged more than 60 days" : "Dashboard focus: vehicles ordered by estimated profit"}
@@ -1440,6 +1487,29 @@ export function VehiclePage({
           ) : (
             <Alert type="info" showIcon message="Select a vehicle row to view its workflow summary." />
           )}
+        </div>
+        <div className="vehicleOperationFilters">
+          <Input.Search
+            allowClear
+            aria-label="Search vehicles"
+            placeholder="Search plate, make, model, or year"
+            value={operationFilters.keyword}
+            onChange={(event) => updateOperationFilter("keyword", event.target.value)}
+          />
+          <Select
+            allowClear
+            aria-label="Filter vehicles by status"
+            placeholder="All statuses"
+            value={operationFilters.status}
+            options={operationFilterOptions.status}
+            onChange={(value) => updateOperationFilter("status", value as Vehicle["status"] | undefined)}
+          />
+          <div className="vehicleFilterMeta">
+            <Tag color={filterActive ? "blue" : undefined}>
+              {filterActive ? `${filteredVehicles.length} of ${dashboardFocusedVehicles.length} matching` : `${dashboardFocusedVehicles.length} vehicle${dashboardFocusedVehicles.length === 1 ? "" : "s"}`}
+            </Tag>
+            {filterActive && <Button size="small" onClick={() => { setOperationFilters({}); setMobileVehiclePage(1); }}>Clear filters</Button>}
+          </div>
         </div>
         <div className="mobileRecordList">
           {filteredVehicles.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No vehicles match the current filters." />}
@@ -1531,19 +1601,9 @@ export function VehiclePage({
           rowKey="id"
           columns={compactOperationIntakeColumns}
           dataSource={filteredVehicles}
-          search={{ labelWidth: 120, defaultCollapsed: false, span: 6 }}
+          search={false}
           options={{ reload: false, density: false, setting: false, fullScreen: false }}
           cardBordered={false}
-          onSubmit={(params) => {
-            const searchTerms = [params.plateNumber, params.model, params.year].filter((value) => value !== undefined && value !== "").map(String);
-            updateOperationFilter("keyword", searchTerms.length > 0 ? searchTerms.join(" ") : undefined);
-            updateOperationFilter("status", typeof params.status === "string" ? params.status as Vehicle["status"] : undefined);
-            return Promise.resolve();
-          }}
-          onReset={() => {
-            updateOperationFilter("keyword", undefined);
-            updateOperationFilter("status", undefined);
-          }}
           pagination={{ ...tablePagination(8), current: clampedMobileVehiclePage, onChange: setMobileVehiclePage }}
           scroll={{ x: 1650 }}
           rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}
@@ -1879,7 +1939,7 @@ export function VehiclePage({
             <Typography.Text type="secondary">
               Multiple customers can enquire about the same car. The linked customer above remains the confirmed buyer once sales closes the deal.
             </Typography.Text>
-            <Table
+            <OperationsProTable
               rowKey="id"
               size="small"
               columns={[
@@ -2055,7 +2115,7 @@ export function VehiclePage({
                     void loadUploads();
                   }}
                 />
-                <Table rowKey="id" columns={purchaseInvoiceColumns} dataSource={selectedVehicleInvoices} pagination={tablePagination(5)} scroll={{ x: 560 }} locale={{ emptyText: "No purchase invoice linked to this vehicle yet." }} />
+                <OperationsProTable rowKey="id" columns={purchaseInvoiceColumns} dataSource={selectedVehicleInvoices} pagination={tablePagination(5)} scroll={{ x: 560 }} locale={{ emptyText: "No purchase invoice linked to this vehicle yet." }} />
               </section>
               </div>
               <div hidden={documentCategory === "PurchaseInvoice"}>
@@ -2169,7 +2229,7 @@ export function VehiclePage({
             <div hidden={vehicleAssetTab !== "documents"}>
             <Typography.Text className="moduleEyebrow">{shortformLabel(documentCategory, "Upload history")}</Typography.Text>
             {documentMobileCards}
-            <Table className="vehicleDocumentTable desktopDataTable" rowKey="id" columns={documentColumns} dataSource={selectedDocumentHistory} pagination={tablePagination(5)} scroll={{ x: 760 }} locale={{ emptyText: "No documents of this type uploaded yet." }} />
+            <OperationsProTable className="vehicleDocumentTable desktopDataTable" rowKey="id" columns={documentColumns} dataSource={selectedDocumentHistory} pagination={tablePagination(5)} scroll={{ x: 760 }} locale={{ emptyText: "No documents of this type uploaded yet." }} />
             </div>
           </ProCard>
           </div>
@@ -2333,7 +2393,7 @@ export function VehiclePage({
         title="Purchase Invoice / 收车发票"
         extra={<Button type="primary" onClick={() => setPurchaseInvoiceCreateOpen(true)}>New Purchase Invoice</Button>}
       >
-        <Table rowKey="id" columns={purchaseInvoiceColumns} dataSource={purchaseInvoices} pagination={tablePagination(5)} scroll={{ x: 560 }} />
+        <OperationsProTable rowKey="id" columns={purchaseInvoiceColumns} dataSource={purchaseInvoices} pagination={tablePagination(5)} scroll={{ x: 560 }} />
       </ProCard>}
       <Modal
         title="New Purchase Invoice / 新增收车发票"
@@ -2351,8 +2411,21 @@ export function VehiclePage({
           const invoice: PurchaseInvoice = {
             id: newId(),
             vehicleId: values.vehicleId,
+            supplierId: values.supplierId,
             invoiceNumber: values.invoiceNumber,
-            amount: Number(values.amount ?? 0)
+            invoiceDate: values.invoiceDate.format("YYYY-MM-DD"),
+            purchaseDate: values.purchaseDate?.format("YYYY-MM-DD"),
+            paymentReference: values.paymentReference,
+            amount: (values.lines ?? []).reduce((total: number, line: { amount?: number }) => total + Number(line.amount ?? 0), 0),
+            accountingStatus: "Draft",
+            lines: (values.lines ?? []).map((line: { lineType: string; description: string; amount: number; capitaliseIntoVehicleCost?: boolean }) => ({
+              id: newId(),
+              purchaseInvoiceId: "",
+              lineType: line.lineType,
+              description: line.description,
+              amount: Number(line.amount ?? 0),
+              capitaliseIntoVehicleCost: Boolean(line.capitaliseIntoVehicleCost)
+            })) as NonNullable<PurchaseInvoice["lines"]>
           };
           const blockReason = purchaseInvoiceCreateBlockReason(invoice, purchaseInvoices);
           if (blockReason) {
@@ -2363,10 +2436,14 @@ export function VehiclePage({
           await onCreatePurchaseInvoice(invoice);
           setPurchaseInvoiceOcrDraft(null);
           setPurchaseInvoiceCreateOpen(false);
-        }} initialValues={{ vehicleId: selectedVehicleId || vehicles[0]?.id, ...purchaseInvoiceOcrDraft }}>
+        }} initialValues={{ vehicleId: selectedVehicleId || vehicles[0]?.id, supplierId: supplierMaster.find((supplier) => supplier.approvalStatus === "Approved")?.id, invoiceDate: dayjs(), lines: [{ lineType: "VehiclePurchase", description: "Vehicle purchase", capitaliseIntoVehicleCost: true }], ...purchaseInvoiceOcrDraft }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="supplierId" label="Approved supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => supplier.approvalStatus === "Approved").map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="invoiceDate" label="Invoice Date" rules={[{ required: true }]}><DatePicker className="fullWidth" /></Form.Item>
+          <Form.Item name="purchaseDate" label="Purchase Date"><DatePicker className="fullWidth" /></Form.Item>
+          <Form.Item name="paymentReference" label="Payment Reference"><Input /></Form.Item>
+          <PurchaseInvoiceLineFields />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Purchase Invoice</Button></Form.Item>
         </Form>
       </Modal>
@@ -2382,14 +2459,19 @@ export function VehiclePage({
           key={selectedPurchaseInvoice?.id ?? "purchase-invoice-edit"}
           layout="vertical"
           className="drawerForm"
-          initialValues={selectedPurchaseInvoice}
+          initialValues={{ ...selectedPurchaseInvoice, invoiceDate: selectedPurchaseInvoice?.invoiceDate ? dayjs(selectedPurchaseInvoice.invoiceDate) : dayjs(), purchaseDate: selectedPurchaseInvoice?.purchaseDate ? dayjs(selectedPurchaseInvoice.purchaseDate) : undefined, lines: selectedPurchaseInvoice?.lines ?? [] }}
           onFinish={async (values) => {
             if (!selectedPurchaseInvoice) return;
             const invoice: PurchaseInvoice = {
               ...selectedPurchaseInvoice,
               vehicleId: values.vehicleId,
+              supplierId: values.supplierId,
               invoiceNumber: values.invoiceNumber,
-              amount: Number(values.amount ?? 0)
+              invoiceDate: values.invoiceDate.format("YYYY-MM-DD"),
+              purchaseDate: values.purchaseDate?.format("YYYY-MM-DD"),
+              paymentReference: values.paymentReference,
+              amount: (values.lines ?? []).reduce((total: number, line: { amount?: number }) => total + Number(line.amount ?? 0), 0),
+              lines: (values.lines ?? []).map((line: { id?: string; lineType: string; description: string; amount: number; capitaliseIntoVehicleCost?: boolean }) => ({ ...line, id: line.id ?? newId(), purchaseInvoiceId: selectedPurchaseInvoice.id, amount: Number(line.amount ?? 0), capitaliseIntoVehicleCost: Boolean(line.capitaliseIntoVehicleCost) })) as PurchaseInvoice["lines"]
             };
             const blockReason = purchaseInvoiceCreateBlockReason(invoice, purchaseInvoices);
             if (blockReason) {
@@ -2403,8 +2485,12 @@ export function VehiclePage({
         >
           <Form.Item name="id" label="Selected Purchase Invoice"><Select options={purchaseInvoices.map((invoice) => ({ value: invoice.id, label: `${plateFor(vehicles, invoice.vehicleId)} / ${invoice.invoiceNumber}` }))} onChange={selectPurchaseInvoice} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="supplierId" label="Approved supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => supplier.approvalStatus === "Approved").map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="amount" label="Purchase Amount"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="invoiceDate" label="Invoice Date" rules={[{ required: true }]}><DatePicker className="fullWidth" /></Form.Item>
+          <Form.Item name="purchaseDate" label="Purchase Date"><DatePicker className="fullWidth" /></Form.Item>
+          <Form.Item name="paymentReference" label="Payment Reference"><Input /></Form.Item>
+          <PurchaseInvoiceLineFields />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedPurchaseInvoice}>Update Purchase Invoice</Button></Form.Item>
         </Form>
       </Drawer>
@@ -2420,7 +2506,7 @@ export function VehiclePage({
                     <Typography.Text type="secondary">Customer records used by leads, loans, delivery and finance.</Typography.Text>
                     <Button type="primary" onClick={() => setCustomerCreateOpen(true)}>New Customer</Button>
                   </div>
-                  <Table rowKey="id" columns={customerColumns} dataSource={customers} pagination={tablePagination(5)} scroll={{ x: 720 }} locale={{ emptyText: "No customer records yet." }} />
+                  <OperationsProTable rowKey="id" columns={customerColumns} dataSource={customers} pagination={tablePagination(5)} scroll={{ x: 720 }} locale={{ emptyText: "No customer records yet." }} />
                   <Modal
                     title="New Customer / 新增客户"
                     width={620}
@@ -2436,6 +2522,7 @@ export function VehiclePage({
                       name: values.name,
                       phone: values.phone,
                       icNumber: values.icNumber,
+                      tinNumber: values.tinNumber,
                       email: values.email,
                       address: values.address,
                       notes: values.notes
@@ -2452,6 +2539,7 @@ export function VehiclePage({
                     <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
+                    <Form.Item name="tinNumber" label="TIN / Tax identification number"><Input /></Form.Item>
                     <Form.Item name="email" label="Email"><Input /></Form.Item>
                     <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
                     <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
@@ -2470,6 +2558,7 @@ export function VehiclePage({
                         name: values.name,
                         phone: values.phone,
                         icNumber: values.icNumber,
+                        tinNumber: values.tinNumber,
                         email: values.email,
                         address: values.address,
                         notes: values.notes
@@ -2487,6 +2576,7 @@ export function VehiclePage({
                     <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
+                    <Form.Item name="tinNumber" label="TIN / Tax identification number"><Input /></Form.Item>
                     <Form.Item name="email" label="Email"><Input /></Form.Item>
                     <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
                     <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
@@ -2504,7 +2594,7 @@ export function VehiclePage({
                     <Typography.Text type="secondary">Previous owner records for vehicle intake and settlement.</Typography.Text>
                     <Button type="primary" onClick={() => setOwnerCreateOpen(true)}>New Owner</Button>
                   </div>
-                  <Table rowKey="id" columns={ownerColumns} dataSource={owners} pagination={tablePagination(5)} scroll={{ x: 520 }} locale={{ emptyText: "No previous owner records yet." }} />
+                  <OperationsProTable rowKey="id" columns={ownerColumns} dataSource={owners} pagination={tablePagination(5)} scroll={{ x: 520 }} locale={{ emptyText: "No previous owner records yet." }} />
                   <Modal
                     title="New Owner / 新增原车主"
                     width={560}
@@ -2589,6 +2679,7 @@ export function VehiclePage({
             name: values.name,
             phone: values.phone,
             icNumber: values.icNumber,
+            tinNumber: values.tinNumber,
             email: values.email,
             address: values.address,
             notes: values.notes
@@ -2629,6 +2720,7 @@ export function VehiclePage({
           <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
+          <Form.Item name="tinNumber" label="TIN / Tax identification number"><Input /></Form.Item>
           <Form.Item name="email" label="Email"><Input /></Form.Item>
           <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
           <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
@@ -2654,6 +2746,7 @@ export function VehiclePage({
             name: values.name,
             phone: values.phone,
             icNumber: values.icNumber,
+            tinNumber: values.tinNumber,
             address: values.address
           };
           const blockReason = ownerCreateBlockReason(owner, owners);
@@ -2678,6 +2771,7 @@ export function VehiclePage({
           <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
+          <Form.Item name="tinNumber" label="TIN / Tax identification number"><Input /></Form.Item>
           <Form.Item name="address" label="Address / 地址"><Input placeholder="Original owner address" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Owner</Button></Form.Item>
         </Form>
@@ -2702,6 +2796,7 @@ export function VehiclePage({
               name: values.name,
               phone: values.phone,
               icNumber: values.icNumber,
+              tinNumber: values.tinNumber,
               email: values.email,
               address: values.address,
               notes: values.notes
@@ -2720,6 +2815,7 @@ export function VehiclePage({
           <Form.Item name="name" label="Customer Name / 客户姓名" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
+          <Form.Item name="tinNumber" label="TIN / Tax identification number"><Input /></Form.Item>
           <Form.Item name="email" label="Email"><Input /></Form.Item>
           <Form.Item name="address" label="Address / 地址"><Input placeholder="Customer address for invoice/delivery" /></Form.Item>
           <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
@@ -2746,6 +2842,7 @@ export function VehiclePage({
               name: values.name,
               phone: values.phone,
               icNumber: values.icNumber,
+              tinNumber: values.tinNumber,
               address: values.address
             };
             const blockReason = ownerCreateBlockReason(owner, owners);
@@ -2762,6 +2859,7 @@ export function VehiclePage({
           <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
+          <Form.Item name="tinNumber" label="TIN / Tax identification number"><Input /></Form.Item>
           <Form.Item name="address" label="Address / 地址"><Input placeholder="Original owner address" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
         </Form>
@@ -2833,14 +2931,14 @@ export function VehiclePage({
             </Upload>
           </Form.Item>
         </Form>
-        <Table
+        <OperationsProTable
           rowKey="id"
           columns={photoColumns}
           dataSource={photos}
           pagination={tablePagination(5)}
           scroll={{ x: 820 }}
         />
-        <Table
+        <OperationsProTable
           rowKey="id"
           columns={documentColumns}
           dataSource={documents}

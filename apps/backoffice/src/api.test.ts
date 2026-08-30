@@ -87,6 +87,7 @@ import {
   getVehiclePhotos,
   getSalesWorkboard,
   humanizeApiError,
+  issueFinanceInvoice,
   vehicleDocumentContentUrl,
   officialReceiptContentUrl,
   vehiclePhotoContentUrl,
@@ -127,6 +128,7 @@ import {
   issueFinanceInvoice,
   updateVehicle,
   startOcrJob,
+  reviewOcrJob,
   uploadVehicleDocument,
   uploadVehiclePhoto,
   type DeliverySchedule,
@@ -852,6 +854,29 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/ocr-jobs/ocr-1", expect.objectContaining({ credentials: "include" }));
   });
 
+  it("sends staff-reviewed OCR values for server-side accuracy comparison", async () => {
+    const fetchMock = mockFetch({ id: "ocr-1", status: "Reviewed", reviewDecision: "Reviewed" });
+
+    await reviewOcrJob("ocr-1", {
+      fields: { receiptNumber: "RCPT-1002", amount: "320.00" },
+      lineItems: [{ description: "Repair", quantity: "1", amount: "320.00" }]
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/ocr-jobs/ocr-1/review",
+      expect.objectContaining({
+        method: "PUT",
+        credentials: "include",
+        body: JSON.stringify({
+          result: {
+            fields: { receiptNumber: "RCPT-1002", amount: "320.00" },
+            lineItems: [{ description: "Repair", quantity: "1", amount: "320.00" }]
+          }
+        })
+      })
+    );
+  });
+
   it("loads public website enquiries for the back office leads module", async () => {
     const leads: Lead[] = [
       {
@@ -989,6 +1014,15 @@ describe("backoffice api client", () => {
     await expect(getDashboardReminders()).resolves.toEqual({
       reminders: [],
       error: "Reminder service unavailable"
+    });
+  });
+
+  it("reports a priority-action failure instead of presenting an empty queue as success", async () => {
+    mockFetch({ message: "Priority action service unavailable" }, false, 503);
+
+    await expect(getPriorityActions()).resolves.toEqual({
+      actions: [],
+      error: "Priority action service unavailable"
     });
   });
 
@@ -1248,12 +1282,30 @@ describe("backoffice api client", () => {
   it("loads filtered audit history with encoded query params", async () => {
     const fetchMock = mockFetch([]);
 
-    await getAuditLog({ actor: " admin@ysheng.local ", action: "vehicle.updated", entityName: "Vehicle" });
+    await getAuditLog({ keyword: "  vehicle  ", actor: " admin@ysheng.local ", action: "vehicle.updated", entityName: "Vehicle" });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:5000/api/audit-log?actor=admin%40ysheng.local&action=vehicle.updated&entityName=Vehicle",
+      "http://localhost:5000/api/audit-log?q=vehicle&actor=admin%40ysheng.local&action=vehicle.updated&entityName=Vehicle",
       { credentials: "include" }
     );
+  });
+
+  it("does not replace failed filtered audit searches with demo records", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
+
+    await expect(getAuditLog({ keyword: "definitely-no-match" })).rejects.toThrow("Failed to fetch");
+  });
+
+  it("rejects a failed unfiltered audit reset when strict loading is requested", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
+
+    await expect(getAuditLog({}, { strict: true })).rejects.toThrow("Failed to fetch");
+  });
+
+  it("preserves the empty fallback for ordinary unfiltered audit loading", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
+
+    await expect(getAuditLog()).resolves.toEqual([]);
   });
 
   it("loads and creates staff users for role management", async () => {

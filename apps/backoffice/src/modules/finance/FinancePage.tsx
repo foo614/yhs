@@ -57,7 +57,10 @@ import {
   type Owner,
   type PaymentRecord,
   type PaymentVoucher,
+  type PurchaseInvoice,
   type SettlementReminder,
+  type StaffUser,
+  type Supplier,
   type VehicleDocument,
   type VehicleLookup
 } from "../../api";
@@ -218,6 +221,8 @@ export function FinancePage({
   onUpdateDebtRecovery,
   onCreatePaymentVoucher,
   onUpdatePaymentVoucher,
+  onApprovePaymentVoucher,
+  onMarkPaymentVoucherPaid,
   onExportPayments,
   onExportAutoCount,
   onUploadDocument,
@@ -268,6 +273,8 @@ export function FinancePage({
   onUpdateDebtRecovery: (debt: DebtRecoveryCase) => void;
   onCreatePaymentVoucher: (voucher: PaymentVoucher) => void;
   onUpdatePaymentVoucher: (voucher: PaymentVoucher) => void;
+  onApprovePaymentVoucher: (voucherId: string) => Promise<void>;
+  onMarkPaymentVoucherPaid: (voucherId: string, evidenceReference: string) => Promise<void>;
   onExportPayments: () => Promise<string>;
   onExportAutoCount: (from?: string, to?: string) => Promise<Blob>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, owner?: DocumentUploadOwner) => Promise<void>;
@@ -760,7 +767,7 @@ export function FinancePage({
     { title: "Balance Due / 未收", render: (_, row) => isFinanceV2(row) ? formatMoney(row.balanceAmount ?? row.nettPrice) : <Space direction="vertical" size={0}><Typography.Text>{row.receiptNumber || "No receipt"}</Typography.Text><Typography.Text type="secondary">{row.invoiceNumber || "No invoice"}</Typography.Text></Space> },
     { title: "Status & Invoice / 状态与发票", render: (_, row) => isFinanceV2(row) ? <Space direction="vertical" size={2}><Tag color={receivableStatusColor(row.receivableStatus)}>{receivableStatusLabel(row.receivableStatus)}</Tag>{row.invoice ? <Typography.Link href={financeInvoiceContentUrl(row.invoice.id)} target="_blank">{row.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Invoice not issued</Typography.Text>}</Space> : <Space wrap size={4}><Tag>Legacy</Tag><Tag color={row.bossChecked ? "green" : "orange"}>{row.bossChecked ? "Reviewed" : "Review pending"}</Tag>{paymentChecklistReady(row) ? <Tag color="green">Checklist done</Tag> : <Tag color="gold">Checklist pending</Tag>}</Space> },
     {
-      title: "Action / 操作",
+      title: "Next Action / 操作",
       fixed: "right",
       width: 210,
       render: (_, row) => {
@@ -1145,7 +1152,7 @@ export function FinancePage({
                   <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
                   <Typography.Title level={5}>{plateFor(vehicles, payment.vehicleId)}</Typography.Title>
                 </div>
-                <Tag color={payment.status === "Reconciled" ? "green" : "orange"}>{payment.status}</Tag>
+                <Space wrap size={4}><Tag>Legacy</Tag><Tag color={payment.status === "Reconciled" ? "green" : "orange"}>{payment.status}</Tag></Space>
               </div>
               <div className="mobileRecordMeta">
                 <span><small>Nett Price / 净价</small><strong>{formatMoney(payment.nettPrice)}</strong></span>
@@ -1859,6 +1866,57 @@ export function FinancePage({
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditDebtRecovery}>Update Debt Case</Button></Form.Item>
           </Form>
       </Drawer>
+      {financeTab === "vouchers" && <ProCard title="Supplier master approval / 供应商审核">
+        <Alert className="sectionIntroAlert" type="info" showIcon message="Approve complete supplier records before they are used for purchase accounting." />
+        <OperationsProTable<Supplier>
+          rowKey="id"
+          dataSource={supplierMaster}
+          pagination={false}
+          columns={[
+            { title: "Company", dataIndex: "companyName" },
+            { title: "Phone", dataIndex: "phone" },
+            { title: "Address", dataIndex: "address" },
+            { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
+            { title: "Creditor code", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
+            { title: "Status", dataIndex: "approvalStatus", render: (value) => <Tag color={value === "Approved" ? "green" : "gold"}>{value}</Tag> },
+            { title: "Action", render: (_, supplier) => supplier.approvalStatus === "Draft" ? <Button size="small" onClick={async () => { try { await approveSupplier(supplier.id); message.success("Supplier approved."); await reloadSupplierMaster(); } catch (error) { message.error(humanizeApiError(error, "Unable to approve supplier.")); } }}>Approve</Button> : null }
+          ]}
+        />
+      </ProCard>}
+      {financeTab === "vouchers" && <ProCard title="Purchase invoice accounting review / 收车发票审核">
+        <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm the invoice date and classified fee lines before AutoCount export." />
+        <OperationsProTable<PurchaseInvoice>
+          rowKey="id"
+          dataSource={purchaseInvoices}
+          pagination={false}
+          columns={[
+            { title: "Car Plate", render: (_, invoice) => plateFor(vehicles, invoice.vehicleId) },
+            { title: "Invoice", dataIndex: "invoiceNumber" },
+            { title: "Invoice date", dataIndex: "invoiceDate" },
+            { title: "Lines", render: (_, invoice) => (invoice.lines ?? []).map((line) => line.lineType).join(", ") || "-" },
+            { title: "Amount", dataIndex: "amount", render: (value) => formatMoney(Number(value)) },
+            { title: "Status", dataIndex: "accountingStatus", render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Confirmed" : "Draft"}</Tag> },
+            { title: "Action", render: (_, invoice) => invoice.accountingStatus !== "FinanceConfirmed" ? <Button size="small" onClick={async () => { try { await confirmPurchaseInvoiceAccounting(invoice.id); message.success("Purchase invoice accounting confirmed."); await reloadPurchaseInvoices(); } catch (error) { message.error(humanizeApiError(error, "Unable to confirm purchase invoice.")); } }}>Confirm</Button> : null }
+          ]}
+        />
+      </ProCard>}
+      {financeTab === "vouchers" && <ProCard title="Delivery accounting review / 出车会计审核">
+        <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm delivery-entered insurance and road-tax drafts before they are eligible for AutoCount review." />
+        <OperationsProTable<DeliveryAccountingCharge>
+          rowKey="id"
+          dataSource={deliveryAccountingCharges}
+          pagination={false}
+          columns={[
+            { title: "Car Plate", render: (_, charge) => plateFor(vehicles, charge.vehicleId) },
+            { title: "Type", dataIndex: "chargeType" },
+            { title: "Provider", dataIndex: "providerName" },
+            { title: "Invoice date", dataIndex: "invoiceDate" },
+            { title: "Amount", dataIndex: "amount", render: (value) => formatMoney(Number(value)) },
+            { title: "Status", dataIndex: "accountingStatus", render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Confirmed" : "Draft"}</Tag> },
+            { title: "Action", render: (_, charge) => charge.accountingStatus === "Draft" ? <Button size="small" onClick={async () => { try { await confirmDeliveryAccountingCharge(charge.id); message.success("Delivery accounting detail confirmed."); await reloadDeliveryAccountingCharges(); } catch (error) { message.error(humanizeApiError(error, "Unable to confirm delivery accounting detail.")); } }}>Confirm</Button> : null }
+          ]}
+        />
+      </ProCard>}
       {financeTab === "vouchers" && <ProCard
         id="payment-voucher-list-card"
         title="Payment Voucher / 付款凭证"
@@ -1887,7 +1945,11 @@ export function FinancePage({
                 </div>
                 <div className="mobileRecordFooter">
                   <Tag>Issued: {voucher.issuedDate}</Tag>
-                  <Button size="small" type="primary" onClick={() => selectPaymentVoucher(voucher.id)}>Details</Button>
+                  <Space wrap>
+                    <Button size="small" type="primary" onClick={() => selectPaymentVoucher(voucher.id)}>Details</Button>
+                    {voucher.status === "Pending" && <Button size="small" onClick={() => onApprovePaymentVoucher(voucher.id)}>Approve</Button>}
+                    {voucher.status === "Approved" && <Button size="small" onClick={() => confirmMarkVoucherPaid(voucher)}>Mark paid</Button>}
+                  </Space>
                 </div>
               </article>
             ))}
@@ -1910,8 +1972,15 @@ export function FinancePage({
               payeeName: values.payeeName,
               amount: Number(values.amount ?? 0),
               purpose: values.purpose,
-              status: values.status,
+              status: "Pending",
               issuedDate: values.issuedDate,
+              paymentMethod: values.paymentMethod,
+              sourceAccountCode: values.sourceAccountCode,
+              chequeNumber: values.chequeNumber?.trim() || undefined,
+              paymentReference: values.paymentReference?.trim() || undefined,
+              bankChargeAmount: Number(values.bankChargeAmount ?? 0),
+              bankChargeAccountCode: values.bankChargeAccountCode?.trim() || undefined,
+              accountingAccountCode: values.accountingAccountCode,
               notes: values.notes
             };
             const blockReason = paymentVoucherCreateBlockReason(voucher, vehicles);
@@ -1921,13 +1990,18 @@ export function FinancePage({
             }
             onCreatePaymentVoucher(voucher);
             setFinanceCreateOpen(null);
-          }} initialValues={{ vehicleId: vehicles[0]?.id, purpose: "Outstation Pickup Allowance", status: "Pending", issuedDate: today() }}>
+          }} initialValues={{ vehicleId: vehicles[0]?.id, purpose: "Outstation Pickup Allowance", status: "Pending", issuedDate: today(), paymentMethod: "BankTransfer", bankChargeAmount: 0 }}>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="payeeName" label="Payee / 收款人" rules={[{ required: true }]}><Input placeholder="Driver / staff name" /></Form.Item>
             <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="purpose" label="Purpose / 用途" rules={[{ required: true }]}><Input placeholder="Outstation Pickup Allowance" /></Form.Item>
             <Form.Item name="issuedDate" label="Issued Date / 日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="status" label="Status / 状态"><Select options={["Pending", "Approved", "Paid"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="paymentMethod" label="Payment method" rules={[{ required: true }]}><Select options={["BankTransfer", "Cheque", "Cash", "Other"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="sourceAccountCode" label="Bank / cash source account" rules={[{ required: true }]}><Input placeholder="AutoCount bank or cash account" /></Form.Item>
+            <Form.Item noStyle shouldUpdate={(previous, current) => previous.paymentMethod !== current.paymentMethod}>{({ getFieldValue }) => getFieldValue("paymentMethod") === "Cheque" ? <Form.Item name="chequeNumber" label="Cheque number" rules={[{ required: true }]}><Input /></Form.Item> : <Form.Item name="paymentReference" label="Transfer / payment reference"><Input /></Form.Item>}</Form.Item>
+            <Form.Item name="accountingAccountCode" label="Accounting account" rules={[{ required: true }]} extra="Loan application fee follows the approved mapping 8000-L002."><Input /></Form.Item>
+            <Form.Item name="bankChargeAmount" label="Bank charge"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item noStyle shouldUpdate={(previous, current) => previous.bankChargeAmount !== current.bankChargeAmount}>{({ getFieldValue }) => Number(getFieldValue("bankChargeAmount") ?? 0) > 0 ? <Form.Item name="bankChargeAccountCode" label="Bank charge account" rules={[{ required: true }]}><Input /></Form.Item> : null}</Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Voucher</Button></Form.Item>
           </Form>
@@ -1955,8 +2029,14 @@ export function FinancePage({
                 payeeName: values.payeeName,
                 amount: Number(values.amount ?? 0),
                 purpose: values.purpose,
-                status: values.status,
                 issuedDate: values.issuedDate,
+                paymentMethod: values.paymentMethod,
+                sourceAccountCode: values.sourceAccountCode,
+                chequeNumber: values.chequeNumber?.trim() || undefined,
+                paymentReference: values.paymentReference?.trim() || undefined,
+                bankChargeAmount: Number(values.bankChargeAmount ?? 0),
+                bankChargeAccountCode: values.bankChargeAccountCode?.trim() || undefined,
+                accountingAccountCode: values.accountingAccountCode,
                 notes: values.notes?.trim() || undefined
               };
               const blockReason = paymentVoucherCreateBlockReason(voucher, vehicles);
@@ -1974,9 +2054,16 @@ export function FinancePage({
             <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="purpose" label="Purpose / 用途" rules={[{ required: true }]}><Input placeholder="Outstation Pickup Allowance" /></Form.Item>
             <Form.Item name="issuedDate" label="Issued Date / 日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="status" label="Status / 状态"><Select options={["Pending", "Approved", "Paid"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item label="Workflow status"><Tag>{selectedEditPaymentVoucher?.status}</Tag></Form.Item>
+            <Form.Item name="paymentMethod" label="Payment method" rules={[{ required: true }]}><Select options={["BankTransfer", "Cheque", "Cash", "Other"].map((value) => ({ value }))} /></Form.Item>
+            <Form.Item name="sourceAccountCode" label="Bank / cash source account" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="chequeNumber" label="Cheque number"><Input /></Form.Item>
+            <Form.Item name="paymentReference" label="Transfer / payment reference"><Input /></Form.Item>
+            <Form.Item name="accountingAccountCode" label="Accounting account" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="bankChargeAmount" label="Bank charge"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="bankChargeAccountCode" label="Bank charge account"><Input /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPaymentVoucher}>Update Voucher</Button></Form.Item>
+            <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedEditPaymentVoucher || selectedEditPaymentVoucher.status !== "Pending"}>Update pending voucher</Button></Form.Item>
           </Form>
       </Drawer>
       {financeTab === "daily" && <ProCard

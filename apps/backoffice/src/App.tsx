@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   AuditOutlined,
   BankOutlined,
@@ -10,6 +10,7 @@ import {
   LockOutlined,
   LogoutOutlined,
   MenuOutlined,
+  QuestionCircleOutlined,
   SettingOutlined,
   ToolOutlined,
   UploadOutlined,
@@ -39,7 +40,6 @@ import {
   Skeleton,
   Spin,
   Steps,
-  Table as AntTable,
   Tabs,
   Tag,
   Tooltip,
@@ -89,6 +89,7 @@ import {
   acceptCashHandover,
   approveNettPriceOverride,
   approvePaymentManagementReview,
+  approvePaymentVoucher,
   approveRepair,
   createCashHandover,
   createCollection,
@@ -111,6 +112,7 @@ import {
   confirmRepairReceipt,
   createSettlementReminder,
   createStaffUser,
+  createSupplier,
   createSupplierInvoice,
   createVehicle,
   customerFromLead,
@@ -132,6 +134,7 @@ import {
   getDashboardReminders,
   getPriorityActions,
   getDeliveries,
+  getDeliveryAccountingCharges,
   getHrAttendance,
   getHrAttendanceDashboard,
   getHrAvailabilityCalendar,
@@ -161,6 +164,7 @@ import {
   getRepairReceipts,
   getSettlementReminders,
   getStaffUsers,
+  getSupplierMaster,
   getSupplierInvoices,
   getVehicleDocuments,
   getVehicleLookup,
@@ -182,6 +186,7 @@ import {
   rejectCashHandover,
   reverseCollection,
   requestCashHandover,
+  reverseCollection,
   hrMedicalCertificateContentUrl,
   updateHrLeaveBalance,
   updateHrAttendance,
@@ -206,6 +211,7 @@ import {
   updateStaffUserRoles,
   updateStaffUserStatus,
   updateSupplierInvoice,
+  approveSupplier,
   updateVehicle,
   uploadHrMedicalCertificate,
   uploadVehicleDocument,
@@ -226,6 +232,7 @@ import {
   type DailySpend,
   type DashboardAiDocumentProcessing,
   type DashboardAnalyticsPeriod,
+  type DashboardAiDocumentProcessing,
   type DashboardReminder,
   type DashboardSummary,
   type DebtRecoveryCase,
@@ -349,8 +356,7 @@ export function activeLoanForVehicle(loans: LoanApplication[], vehicleId: string
 function tablePagination(pageSize = 8): TablePaginationConfig {
   return {
     pageSize,
-    showSizeChanger: true,
-    pageSizeOptions: ["5", "8", "10", "20", "50"],
+    showSizeChanger: false,
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} / 共 ${total} 条`
   };
 }
@@ -435,6 +441,11 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [moduleGuideOpen, setModuleGuideOpen] = useState(false);
+  const [moduleTourOpen, setModuleTourOpen] = useState(false);
+  const moduleCommandBarRef = useRef<HTMLElement>(null);
+  const moduleContentRef = useRef<HTMLDivElement>(null);
+  const moduleGuideButtonRef = useRef<HTMLSpanElement>(null);
   const currentRoles = useMemo(() => currentUser?.roles ?? [], [currentUser?.roles]);
   const financeVehicles = useMemo(
     () => mergeFinanceVehicleOptions(vehicleLookup, financeVehicleOptions),
@@ -644,6 +655,19 @@ export default function App() {
       .map((item) => ({ ...item, name: routeDisplayName(item.path, currentRoles) }))
   }), [currentUser?.isAuthenticated, currentRoles]);
   const pageTitle = routeDisplayName(pathname, currentRoles);
+  const activeModuleGuide = useMemo(() => moduleGuideForPath(pathname, currentRoles), [currentRoles, pathname]);
+  const activeModuleGuideSectionKey = useMemo(() => {
+    if (pathname !== "/finance") return undefined;
+
+    const searchIndex = routeUrl.indexOf("?");
+    const search = searchIndex >= 0 ? routeUrl.slice(searchIndex) : "";
+    const canManageFinance = currentRoles.some((role) => role === "BossAdmin" || role === "Finance");
+    return financeTabForUrl(pathname, search, canManageFinance);
+  }, [currentRoles, pathname, routeUrl]);
+  const moduleGuideAudienceKey = useMemo(
+    () => `${currentUser?.id ?? "staff"}:${[...currentRoles].sort().join(",") || "guest"}`,
+    [currentRoles, currentUser?.id]
+  );
   const dashboardDrilldown = useMemo(() => dashboardDrilldownFromRouteUrl(routeUrl), [routeUrl]);
   const navigateTo = (path: string) => {
     const nextPath = normalizeRoutePath(path);
@@ -669,6 +693,21 @@ export default function App() {
       placement: "topRight"
     });
   }, [notificationApi]);
+
+  const finishModuleTour = useCallback(() => {
+    markModuleGuideTourSeen(browserModuleGuideStorage(), pathname, moduleGuideAudienceKey);
+    setModuleTourOpen(false);
+  }, [moduleGuideAudienceKey, pathname]);
+
+  useEffect(() => {
+    setModuleGuideOpen(false);
+    if (!currentUser?.isAuthenticated) {
+      setModuleTourOpen(false);
+      return;
+    }
+
+    setModuleTourOpen(shouldShowModuleGuideTour(browserModuleGuideStorage(), pathname, moduleGuideAudienceKey));
+  }, [currentUser?.isAuthenticated, moduleGuideAudienceKey, pathname]);
 
   useEffect(() => {
     if (logoutSucceeded && !currentUser?.isAuthenticated) {
@@ -701,10 +740,15 @@ export default function App() {
   }
 
   async function handleAuditLogSearch(filters: AuditLogFilters) {
-    setAuditLogFilters(filters);
-    const records = await getAuditLog(filters);
-    setAuditLog(records);
-    notifySuccess("Audit log filtered", `${records.length} records loaded`);
+    try {
+      const records = await getAuditLog(filters, { strict: true });
+      setAuditLogFilters(filters);
+      setAuditLog(records);
+      notifySuccess("Audit log filtered", `${records.length} records loaded`);
+    } catch (error) {
+      notifyError("Audit search failed", humanizeApiError(error, "Audit records could not be loaded."));
+      throw error;
+    }
   }
 
   const refreshDashboard = useCallback(async () => {
@@ -761,6 +805,20 @@ export default function App() {
       setDashboardLastCheckedAt(new Date());
     } finally {
       setDashboardRefreshing(false);
+    }
+  }, []);
+
+  const refreshPayments = useCallback(async () => {
+    setPaymentRefreshing(true);
+    try {
+      const records = await getPayments();
+      setPayments(records);
+      setPaymentLoadError(null);
+    } catch (error) {
+      setPayments([]);
+      setPaymentLoadError(humanizeApiError(error, "Finance records could not be loaded."));
+    } finally {
+      setPaymentRefreshing(false);
     }
   }, []);
 
@@ -968,6 +1026,12 @@ export default function App() {
             hrAttendance={hrAttendance}
             hrLeaveRequests={hrLeaveRequests}
             hrPayslips={hrPayslips}
+            commandBarRef={moduleCommandBarRef}
+            guideButtonRef={moduleGuideButtonRef}
+            onOpenGuide={() => {
+              finishModuleTour();
+              setModuleGuideOpen(true);
+            }}
           />
           {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={refreshDashboard} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} />}
           {pathname === "/vehicles" && (
@@ -1089,6 +1153,8 @@ export default function App() {
               onUpdateDebtRecovery={(debt) => runUpdate(() => updateDebtRecovery(debt), (record) => setDebtRecoveries((items) => replaceById(items, record)), "Debt recovery updated")}
               onCreatePaymentVoucher={(voucher) => runCreate(() => createPaymentVoucher(voucher), (record) => setPaymentVouchers((items) => [record, ...items]), "Payment voucher created")}
               onUpdatePaymentVoucher={(voucher) => runUpdate(() => updatePaymentVoucher(voucher), (record) => setPaymentVouchers((items) => replaceById(items, record)), "Payment voucher updated")}
+              onApprovePaymentVoucher={(voucherId) => runUpdate(() => approvePaymentVoucher(voucherId), (record) => setPaymentVouchers((items) => replaceById(items, record)), "Payment voucher approved")}
+              onMarkPaymentVoucherPaid={(voucherId, evidence) => runUpdate(() => markPaymentVoucherPaid(voucherId, evidence), (record) => setPaymentVouchers((items) => replaceById(items, record)), "Payment voucher marked paid")}
               onExportPayments={() => exportPaymentsCsv()}
               onExportAutoCount={(from, to) => exportAutoCountWorkbook(from, to)}
               onUploadDocument={(vehicleId, file, category, owner?: DocumentUploadOwner) => runUpload(() => uploadVehicleDocument(vehicleId, file, category, owner), "Finance document uploaded")}
@@ -1210,6 +1276,22 @@ export default function App() {
               onSearchAuditLog={handleAuditLogSearch}
             />
           )}
+          </div>
+          <ModuleGuideExperience
+            guide={activeModuleGuide}
+            activeSectionKey={activeModuleGuideSectionKey}
+            drawerOpen={moduleGuideOpen}
+            tourOpen={moduleTourOpen}
+            headerTarget={() => moduleCommandBarRef.current}
+            contentTarget={() => moduleContentRef.current}
+            buttonTarget={() => moduleGuideButtonRef.current}
+            onCloseDrawer={() => setModuleGuideOpen(false)}
+            onReplayTour={() => {
+              setModuleGuideOpen(false);
+              setModuleTourOpen(true);
+            }}
+            onCloseTour={finishModuleTour}
+          />
         </Space>
       </PageContainer>
       </ProLayout>
@@ -1375,7 +1457,10 @@ function ModuleCommandBar({
   staffUsers,
   hrAttendance,
   hrLeaveRequests,
-  hrPayslips
+  hrPayslips,
+  commandBarRef,
+  guideButtonRef,
+  onOpenGuide
 }: {
   pathname: string;
   title: string;
@@ -1396,6 +1481,9 @@ function ModuleCommandBar({
   hrAttendance: HrAttendanceRecord[];
   hrLeaveRequests: HrLeaveRequest[];
   hrPayslips: HrPayslip[];
+  commandBarRef: RefObject<HTMLElement | null>;
+  guideButtonRef: RefObject<HTMLSpanElement | null>;
+  onOpenGuide: () => void;
 }) {
   const stats = moduleStats(pathname, {
     dashboard,
@@ -1418,7 +1506,7 @@ function ModuleCommandBar({
   const roles = currentUser?.roles ?? [];
 
   return (
-    <section className="moduleCommandBar">
+    <section className="moduleCommandBar" ref={commandBarRef}>
       <div>
         <span className="moduleEyebrow">YS Heng Operations</span>
         <h1>{title}</h1>
@@ -1426,13 +1514,20 @@ function ModuleCommandBar({
           {(roles.length > 0 ? roles : ["Guest"]).map((role) => <Tag key={role}>{displayRoleLabel(role)}</Tag>)}
         </div>
       </div>
-      <div className="moduleStats">
-        {stats.map((stat) => (
-          <span key={stat.label}>
-            <strong>{stat.value}</strong>
-            {stat.label}
-          </span>
-        ))}
+      <div className="moduleCommandAside">
+        <div className="moduleStats">
+          {stats.map((stat) => (
+            <span key={stat.label}>
+              <strong>{stat.value}</strong>
+              {stat.label}
+            </span>
+          ))}
+        </div>
+        <span className="moduleGuideButtonWrap" ref={guideButtonRef}>
+          <Button className="moduleGuideButton" icon={<QuestionCircleOutlined />} onClick={onOpenGuide}>
+            How to use / 使用指南
+          </Button>
+        </span>
       </div>
     </section>
   );
@@ -1659,8 +1754,8 @@ export function ModuleDocumentList({
     },
     {
       title: "Status / 状态",
-      width: 120,
-      render: (_, row) => <Tag color={row.status === "NeedsReview" ? "green" : "orange"}>{row.status}</Tag>
+      width: 190,
+      render: (_, row) => <Tag color={row.status === "Reviewed" ? "green" : row.status === "NeedsReview" ? "orange" : row.status === "Failed" ? "red" : "blue"}>{row.status === "NeedsReview" ? "Pending staff check / 待员工核对" : row.status}</Tag>
     }
   ];
 
@@ -1752,6 +1847,7 @@ export function DashboardPage({
   const refurbishment = dashboard?.refurbishment;
   const aiDocumentProcessing = dashboard?.aiDocumentProcessing;
   const refurbishmentHighestCosts = refurbishment?.highestCostVehicles ?? [];
+  const aiDocumentProcessing = dashboard?.aiDocumentProcessing;
   const analyticsPeriodLabel = dashboardAnalyticsPeriodLabel(analyticsPeriod);
   const receivableLabels = new Set(["Outstanding Payment", "Open Debt Recovery"]);
   const moneyToCollect = moneyRiskBreakdown
@@ -1960,7 +2056,7 @@ export function DashboardPage({
                       <Tag className="dashboardStatusBadge" color={collect ? "blue" : "red"}>{collect ? "Collect / 待收" : "Pay / 待付"}</Tag>
                       <strong>{dashboardLabel(item.label)}</strong>
                       <span>{formatMoney(item.amount)}</span>
-                      <Button size="small" onClick={() => onNavigate(financeRiskTarget(item.label))}>Open cash item</Button>
+                      <Button size="small" aria-label={`Open ${dashboardLabel(item.label)}`} onClick={() => onNavigate(financeRiskTarget(item.label))}>Open cash item</Button>
                     </article>
                   );
                 })}
@@ -2299,6 +2395,8 @@ const dashboardLabelMap: Record<string, string> = {
   "Open Payment Voucher": "Open Payment Voucher / 未付付款凭证",
   Overdue: "Overdue / 已逾期",
   "Due today": "Due today / 今日到期",
+  "Due soon": "Due soon / 即将到期",
+  Action: "Action / 待办",
   DueToday: "Due Today / 今日到期",
   Upcoming: "Upcoming / 即将到期",
   LoanFollowUp: "Loan Follow-up / 贷款跟进",
@@ -2309,6 +2407,9 @@ const dashboardLabelMap: Record<string, string> = {
   DailySpendDue: "Daily Spend Due / 日常支出到期",
   DebtRecoveryFollowUp: "Debt Recovery Follow-up / 债务追收跟进",
   PaymentVoucherFollowUp: "Payment Voucher Follow-up / 付款凭证跟进",
+  LeadFollowUp: "Lead Follow-up / 询问跟进",
+  RepairWorkInProgress: "Repair Work in Progress / 整备处理中",
+  LeaveApproval: "Leave Approval / 请假审批",
   New: "New / 新询问",
   Contacted: "Contacted / 已联系",
   Closed: "Closed / 已关闭",
@@ -2683,6 +2784,10 @@ function RepairPage({
   const [supplierInvoiceEditorOpen, setSupplierInvoiceEditorOpen] = useState(false);
   const [repairEditorOpen, setRepairEditorOpen] = useState(false);
   const [repairCreateOpen, setRepairCreateOpen] = useState(false);
+  const [supplierCreateOpen, setSupplierCreateOpen] = useState(false);
+  const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
+  const [supplierKeyword, setSupplierKeyword] = useState("");
+  const [supplierStatus, setSupplierStatus] = useState<Supplier["approvalStatus"] | "All">("All");
   const [repairCreateMode, setRepairCreateMode] = useState<"receipt" | "manual">("receipt");
   const [receiptDraft, setReceiptDraft] = useState<ConfirmRepairReceiptRequest | null>(null);
   const [repairCreateForm] = Form.useForm();
@@ -2696,6 +2801,16 @@ function RepairPage({
   const selectedSupplierInvoice = supplierInvoices.find((invoice) => invoice.id === editSupplierInvoiceId) ?? supplierInvoices[0];
   const selectedEditRepair = repairs.find((repair) => repair.id === editRepairId) ?? repairs[0];
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
+
+  const reloadSupplierMaster = useCallback(async () => {
+    try {
+      setSupplierMaster(await getSupplierMaster());
+    } catch (error) {
+      message.error(humanizeApiError(error, "Unable to load supplier master."));
+    }
+  }, []);
+
+  useEffect(() => { void reloadSupplierMaster(); }, [reloadSupplierMaster]);
 
   useEffect(() => {
     let active = true;
@@ -2751,6 +2866,8 @@ function RepairPage({
 
   const pendingRepairs = repairs.filter((repair) => !repair.checklistDone).length;
   const repairTotal = repairs.filter(isRepairCostFinal).reduce((sum, repair) => sum + repair.cost, 0);
+  const filteredSupplierMaster = filterSupplierMaster(supplierMaster, supplierKeyword, supplierStatus);
+  const supplierFiltersActive = Boolean(supplierKeyword.trim()) || supplierStatus !== "All";
   const showRepairCompletionConfirmation = (repair: RepairJob, onConfirm: () => Promise<void> | void) => {
     Modal.confirm({
       title: "Mark repair done? / 确认完成整备？",
@@ -3040,6 +3157,51 @@ function RepairPage({
         <Metric label="Repair Cost / 整备费用" value={formatMoney(repairTotal)} />
       </div>
       <ProCard
+        title="Supplier Master / 供应商资料"
+        extra={<Button type="primary" onClick={() => setSupplierCreateOpen(true)}>New Supplier</Button>}
+      >
+        <Alert className="sectionIntroAlert" type="info" showIcon message="Repair creates the supplier draft. Finance/Admin must approve it before purchase accounting can use it." />
+        <Space className="toolbarForm workflowFilterBar" wrap>
+          <Input.Search
+            allowClear
+            aria-label="Search supplier master"
+            placeholder="Company, phone, TIN, or creditor code"
+            value={supplierKeyword}
+            onChange={(event) => setSupplierKeyword(event.target.value)}
+            onSearch={setSupplierKeyword}
+            style={{ width: 300 }}
+          />
+          <Select
+            aria-label="Filter supplier approval status"
+            value={supplierStatus}
+            onChange={setSupplierStatus}
+            style={{ width: 170 }}
+            options={[
+              { value: "All", label: "All statuses" },
+              { value: "Draft", label: "Draft" },
+              { value: "Approved", label: "Approved" },
+              { value: "Inactive", label: "Inactive" }
+            ]}
+          />
+          <Tag color={supplierFiltersActive ? "blue" : "default"}>{supplierFiltersActive ? `${filteredSupplierMaster.length} of ${supplierMaster.length} matching` : `${supplierMaster.length} suppliers`}</Tag>
+          {supplierFiltersActive && <Button onClick={() => { setSupplierKeyword(""); setSupplierStatus("All"); }}>Clear filters</Button>}
+        </Space>
+        <Table<Supplier>
+          rowKey="id"
+          dataSource={filteredSupplierMaster}
+          pagination={tablePagination(5)}
+          locale={{ emptyText: supplierMaster.length === 0 ? "No suppliers yet." : "No suppliers match the current filters." }}
+          columns={[
+            { title: "Company", dataIndex: "companyName" },
+            { title: "Phone", dataIndex: "phone" },
+            { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
+            { title: "AutoCount creditor", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
+            { title: "Status", dataIndex: "approvalStatus", render: (value) => <Tag color={value === "Approved" ? "green" : "gold"}>{value}</Tag> },
+            { title: "Action", render: (_, supplier) => canApproveRepairs && supplier.approvalStatus === "Draft" ? <Button size="small" onClick={async () => { try { await approveSupplier(supplier.id); message.success("Supplier approved."); await reloadSupplierMaster(); } catch (error) { message.error(humanizeApiError(error, "Unable to approve supplier.")); } }}>Approve</Button> : null }
+          ]}
+        />
+      </ProCard>
+      <ProCard
         id="repair-supplier-card"
         title="Supplier & Refurbishment / 供应商与整备"
         extra={<Space wrap><Tag color="blue">{refurbishmentRecordCount} records</Tag><Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button></Space>}
@@ -3156,6 +3318,38 @@ function RepairPage({
           locale={{ emptyText: refurbishmentEmptyText }}
         />
       </ProCard>
+      <Modal title="New Supplier / 新增供应商" open={supplierCreateOpen} onCancel={() => setSupplierCreateOpen(false)} footer={null} destroyOnClose>
+        <Form layout="vertical" onFinish={async (values) => {
+          const supplier: Supplier = {
+            id: newId(),
+            companyName: String(values.companyName ?? "").trim(),
+            registrationNumber: String(values.registrationNumber ?? "").trim() || undefined,
+            tinNumber: String(values.tinNumber ?? "").trim() || undefined,
+            address: String(values.address ?? "").trim(),
+            phone: String(values.phone ?? "").trim(),
+            contactPerson: String(values.contactPerson ?? "").trim() || undefined,
+            autoCountCreditorCode: String(values.autoCountCreditorCode ?? "").trim() || undefined,
+            approvalStatus: "Draft"
+          };
+          try {
+            await createSupplier(supplier);
+            message.success("Supplier draft created for Finance approval.");
+            setSupplierCreateOpen(false);
+            await reloadSupplierMaster();
+          } catch (error) {
+            message.error(humanizeApiError(error, "Unable to create supplier."));
+          }
+        }}>
+          <Form.Item name="companyName" label="Company name" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="registrationNumber" label="Registration number"><Input /></Form.Item>
+          <Form.Item name="tinNumber" label="TIN"><Input /></Form.Item>
+          <Form.Item name="address" label="Address" rules={[{ required: true }]}><Input.TextArea rows={3} /></Form.Item>
+          <Form.Item name="phone" label="Phone" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="contactPerson" label="Contact person"><Input /></Form.Item>
+          <Form.Item name="autoCountCreditorCode" label="AutoCount creditor code" extra="Leave blank if AutoCount should auto-create the code."><Input /></Form.Item>
+          <Button type="primary" htmlType="submit">Create supplier draft</Button>
+        </Form>
+      </Modal>
       <Drawer
         title="Supplier Invoice Details / 供应商发票详情"
         width={560}
@@ -3174,9 +3368,11 @@ function RepairPage({
             const invoice: SupplierInvoice = {
               ...selectedSupplierInvoice,
               vehicleId: values.vehicleId,
-              supplierName: values.supplierName,
+              supplierId: values.supplierId,
+              supplierName: supplierMaster.find((supplier) => supplier.id === values.supplierId)?.companyName ?? values.supplierName,
               invoiceNumber: values.invoiceNumber,
               plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined,
+              invoiceDate: values.invoiceDate?.trim() || undefined,
               amount: Number(values.amount ?? 0),
               dueDate: values.dueDate?.trim() || undefined,
               paidAt: values.paidAt?.trim() || undefined
@@ -3193,8 +3389,9 @@ function RepairPage({
         >
           <Form.Item name="id" label="Selected Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="supplierId" label="Approved supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => supplier.approvalStatus === "Approved").map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="invoiceDate" label="Invoice date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
           <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="dueDate" label="Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
@@ -3226,9 +3423,11 @@ function RepairPage({
             const invoice: SupplierInvoice = {
               id: newId(),
               vehicleId: values.vehicleId,
-              supplierName: String(values.supplierName ?? "").trim(),
+              supplierId: values.supplierId,
+              supplierName: supplierMaster.find((supplier) => supplier.id === values.supplierId)?.companyName ?? String(values.supplierName ?? "").trim(),
               invoiceNumber: String(values.invoiceNumber ?? "").trim(),
               plateNumberOnInvoice: String(values.plateNumberOnInvoice ?? "").trim() || undefined,
+              invoiceDate: dayjs().format("YYYY-MM-DD"),
               amount: Number(values.amount ?? 0),
               dueDate: String(values.dueDate ?? "").trim() || undefined,
               paidAt: String(values.paidAt ?? "").trim() || undefined
@@ -3275,9 +3474,11 @@ function RepairPage({
           const invoice: SupplierInvoice = {
             id: newId(),
             vehicleId: values.vehicleId,
-            supplierName: values.supplierName,
+            supplierId: values.supplierId,
+            supplierName: supplierMaster.find((supplier) => supplier.id === values.supplierId)?.companyName ?? values.supplierName,
             invoiceNumber: values.invoiceNumber,
             plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined,
+            invoiceDate: values.invoiceDate?.trim() || dayjs().format("YYYY-MM-DD"),
             amount: Number(values.amount ?? 0),
             dueDate: values.dueDate?.trim() || undefined,
             paidAt: values.paidAt?.trim() || undefined
@@ -3317,8 +3518,9 @@ function RepairPage({
           }
 
           await saveRepair();
-        }} initialValues={{ vehicleId: vehicles[0]?.id, checklistDone: "pending" }}>
+        }} initialValues={{ vehicleId: vehicles[0]?.id, supplierId: supplierMaster.find((supplier) => supplier.approvalStatus === "Approved")?.id, checklistDone: "pending" }}>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="supplierId" label="Approved supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => supplier.approvalStatus === "Approved").map((supplier) => ({ value: supplier.id, label: `${supplier.companyName} · ${supplier.phone}` }))} /></Form.Item>
           <Radio.Group
             className="repairCreateMode fullWidth"
             value={repairCreateMode}
@@ -3363,22 +3565,23 @@ function RepairPage({
                   });
                 }}
               />
-              <Alert type="info" showIcon message="Receipt OCR stays separate from the repair instructions." description="Enter the operational Repair Part and What To Do yourself, then create the repair from the reviewed receipt." />
+              <Alert className="operationalInfoAlert" type="info" showIcon message="Receipt scanning fills supplier and amount details only. Enter the repair instructions below." />
               <Form.Item name="repairPart" label="Repair Part / 配件" rules={[{ required: true }]}><Input placeholder="Short part or repair category" /></Form.Item>
               <Form.Item name="whatToDo" label="What To Do" rules={[{ required: true }]}><Input placeholder="Describe the work to perform" /></Form.Item>
               <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!receiptDraft}>Create repair from reviewed receipt</Button></Form.Item>
             </div>
           ) : (
             <Alert
+              className="operationalInfoAlert"
               type="info"
               showIcon
-              message="Manual entry / 手动建立"
-              description="Enter the supplier invoice and repair details below, then save the task."
+              message="Manual entry / 手动建立 — Enter the supplier invoice and repair details below."
             />
           )}
           {repairCreateMode === "manual" ? <>
-            <Form.Item name="supplierName" label="Supplier" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="supplierName" label="Supplier name on invoice"><Input disabled /></Form.Item>
             <Form.Item name="invoiceNumber" label="Receipt / Invoice reference" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="invoiceDate" label="Invoice date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="plateNumberOnInvoice" label="Plate on receipt / invoice / 发票车牌"><Input placeholder="Plate number printed on the receipt or invoice" /></Form.Item>
             <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="dueDate" label="Invoice Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
@@ -3386,7 +3589,7 @@ function RepairPage({
             <Form.Item name="repairPart" label="Repair Part / 配件"><Input placeholder="Spare part / bumper / tyre" /></Form.Item>
             <Form.Item name="whatToDo" label="What To Do"><Input placeholder="Polish, wash, spare part..." /></Form.Item>
           </> : null}
-          {repairCreateMode === "manual" ? <Alert type="info" showIcon message="Repair approval is recorded separately by a Boss/Admin after the task and cost are checked." /> : null}
+          {repairCreateMode === "manual" ? <Alert className="operationalInfoAlert" type="info" showIcon message="Repair approval is recorded separately by a Boss/Admin after the task and cost are checked." /> : null}
           {repairCreateMode === "manual" ? <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Repair</Button></Form.Item> : null}
         </Form>
       </Modal>
@@ -3592,18 +3795,12 @@ export function LoanPage({
       title: "Car Plate / 车牌",
       dataIndex: "vehicleId",
       width: 150,
-      filters: tableTextFilters(loans.map((loan) => plateFor(vehicles, loan.vehicleId))),
-      filterSearch: true,
-      onFilter: (value, row) => plateFor(vehicles, row.vehicleId) === String(value),
       render: (vehicleId) => plateFor(vehicles, vehicleId)
     },
     {
       title: "Customer / 客户",
       dataIndex: "customerId",
       width: 240,
-      filters: tableTextFilters(loans.map((loan) => contactFor(customers, loan.customerId))),
-      filterSearch: true,
-      onFilter: (value, row) => contactFor(customers, row.customerId) === String(value),
       render: (customerId) => contactFor(customers, customerId)
     },
     { title: "Status / 状态", dataIndex: "status", width: 130, render: (status: LoanApplication["status"]) => <Tag color={loanStatusColor[status]}>{status}</Tag> },
@@ -3721,6 +3918,7 @@ export function LoanPage({
         extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending").length} pending</Tag>{canCreateManually ? <Button onClick={() => setLoanCreateOpen(true)}>Manual loan record</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
       >
         {(dashboardFocus.loanStatus || dashboardFocus.vehicleId) && <Alert
+          className="sectionIntroAlert"
           type="info"
           showIcon
           message={dashboardFocus.vehicleId ? "Dashboard focus: loan follow-up for the selected vehicle" : "Dashboard focus: pending loan follow-up"}
@@ -3774,10 +3972,10 @@ export function LoanPage({
           form={loanFilterForm}
           layout="inline"
           className="toolbarForm workflowFilterBar"
-          onFinish={(values: LoanFilters) => updateLoanFilters(values)}
+          onValuesChange={(_, values: LoanFilters) => updateLoanFilters(values)}
         >
           <Form.Item name="keyword">
-            <Input allowClear placeholder="Search plate, customer, phone, status" style={{ width: 280 }} />
+            <Input allowClear aria-label="Search loans by plate, customer, phone, or status" placeholder="Search plate, customer, phone, status" style={{ width: 280 }} />
           </Form.Item>
           <Form.Item name="status" initialValue="All">
             <Select
@@ -3798,12 +3996,10 @@ export function LoanPage({
               style={{ width: 190 }}
             />
           </Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit">Query</Button></Form.Item>
           <Form.Item><Button htmlType="button" onClick={() => {
             loanFilterForm.resetFields();
             if (dashboardFocus.loanStatus || dashboardFocus.vehicleId) {
               onClearDashboardFocus();
-              return;
             }
             setLoanFilters({});
             setMobileLoanPage(1);
@@ -3945,7 +4141,8 @@ export function DeliveryPage({
   );
 }
 
-function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate }: { currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => void }) {
+export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate }: { currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => void }) {
+  const [leadKeyword, setLeadKeyword] = useState("");
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
   const [leadSortMode, setLeadSortMode] = useState<"CloseAsap" | "Received">("CloseAsap");
@@ -3961,8 +4158,9 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
   const openLeadCount = leads.filter((lead) => lead.status !== "Closed").length;
   const multiLeadVehicleCount = Object.values(activeCounts).filter((count) => count > 1).length;
   const hotVehicleCount = vehicles.filter((vehicle) => vehicle.status === "Available" && vehicle.isPublic && (activeCounts[vehicle.id] ?? 0) > 1).length;
-  const leadFiltersActive = leadStatusFilter !== "All" || leadLinkFilter !== "All" || leadSortMode !== "CloseAsap";
+  const leadFiltersActive = Boolean(leadKeyword.trim()) || leadStatusFilter !== "All" || leadLinkFilter !== "All" || leadSortMode !== "CloseAsap";
   const clearLeadFilters = () => {
+    setLeadKeyword("");
     setLeadStatusFilter("All");
     setLeadLinkFilter("All");
     setLeadSortMode("CloseAsap");
@@ -4155,6 +4353,18 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
         </div>
         <Space className="leadFilterControls" wrap>
           <label className="leadFilterControl">
+            <span>Search</span>
+            <Input.Search
+              allowClear
+              aria-label="Search leads by customer, phone, plate, or message"
+              placeholder="Customer, phone, plate, or message"
+              value={leadKeyword}
+              onChange={(event) => setLeadKeyword(event.target.value)}
+              onSearch={setLeadKeyword}
+              style={{ width: 280 }}
+            />
+          </label>
+          <label className="leadFilterControl">
             <span>Status</span>
             <Select value={leadStatusFilter} options={leadFilterControlOptions.status} onChange={setLeadStatusFilter} style={{ width: 160 }} />
           </label>
@@ -4272,6 +4482,7 @@ function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, 
 function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]; filters: AuditLogFilters; onSearch: (filters: AuditLogFilters) => Promise<void> }) {
   const [form] = Form.useForm<AuditLogFilters>();
   const [mobileAuditPage, setMobileAuditPage] = useState(1);
+  const [searching, setSearching] = useState(false);
   const mobileAuditPageCount = Math.max(1, Math.ceil(auditLog.length / mobileWorkflowPageSize));
   const clampedMobileAuditPage = Math.min(mobileAuditPage, mobileAuditPageCount);
   const mobileAuditRecords = auditLog.slice(
@@ -4285,6 +4496,19 @@ function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]
     setMobileAuditPage(1);
   }, [filters, form]);
 
+  const runSearch = async (nextFilters: AuditLogFilters) => {
+    setSearching(true);
+    setMobileAuditPage(1);
+    try {
+      await onSearch(nextFilters);
+    } catch {
+      form.resetFields();
+      form.setFieldsValue(filters);
+    } finally {
+      setSearching(false);
+    }
+  };
+
   return (
     <Space direction="vertical" size={12} className="fullWidth">
       <Form
@@ -4292,14 +4516,17 @@ function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]
         layout="inline"
         className="toolbarForm"
         onFinish={(values) => {
-          setMobileAuditPage(1);
-          void onSearch({
+          void runSearch({
+            keyword: values.keyword,
             actor: values.actor,
             action: values.action,
             entityName: values.entityName
           });
         }}
       >
+        <Form.Item name="keyword" label="Search">
+          <Input placeholder="Actor, action, or entity" allowClear />
+        </Form.Item>
         <Form.Item name="actor" label="Actor">
           <Input placeholder="admin@ysheng.local" allowClear />
         </Form.Item>
@@ -4310,13 +4537,12 @@ function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]
           <Input placeholder="Vehicle" allowClear />
         </Form.Item>
         <Form.Item>
-          <Button type="primary" htmlType="submit">Filter</Button>
+          <Button type="primary" htmlType="submit" loading={searching}>Search</Button>
         </Form.Item>
         <Form.Item>
-          <Button htmlType="button" onClick={() => {
+          <Button htmlType="button" disabled={searching} onClick={() => {
             form.resetFields();
-            setMobileAuditPage(1);
-            void onSearch({});
+            void runSearch({});
           }}>Reset</Button>
         </Form.Item>
         <Tag color="blue">{auditLog.length} records</Tag>
@@ -4352,7 +4578,7 @@ function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]
           />
         )}
       </div>
-      <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={{ ...tablePagination(12), current: clampedMobileAuditPage, onChange: setMobileAuditPage }} scroll={{ x: 900 }} locale={{ emptyText: "No audit records match the current filters." }} />
+      <Table className="desktopDataTable" rowKey="id" columns={auditLogColumns()} dataSource={auditLog} pagination={{ ...tablePagination(mobileWorkflowPageSize), current: clampedMobileAuditPage, onChange: setMobileAuditPage }} scroll={{ x: 900 }} locale={{ emptyText: "No audit records match the current filters." }} />
     </Space>
   );
 }
@@ -4364,10 +4590,10 @@ function AuditLogPage({ auditLog, filters, onSearch }: { auditLog: AuditLog[]; f
         <AuditLogRecords auditLog={auditLog} filters={filters} onSearch={onSearch} />
       </ProCard>
       <Alert
+        className="operationalInfoAlert"
         type="info"
         showIcon
-        message="Audit trail is captured automatically for authenticated back-office mutations."
-        description="Use this screen to confirm who created or updated vehicle, workflow, finance, upload, and staff records."
+        message="Use the automatic audit trail to confirm who changed vehicle, workflow, finance, upload, and staff records."
       />
     </Space>
   );
@@ -4626,7 +4852,7 @@ function AdminPage({
                     />
                   )}
                 </div>
-                <Table className="desktopDataTable" rowKey="id" size="small" columns={staffColumns} dataSource={filteredStaffUsers} pagination={{ ...tablePagination(6), current: clampedMobileStaffPage, onChange: setMobileStaffPage }} scroll={{ x: 1200 }} locale={{ emptyText: "No staff users match the current filters." }} />
+                <Table className="desktopDataTable" rowKey="id" size="small" columns={staffColumns} dataSource={filteredStaffUsers} pagination={{ ...tablePagination(mobileWorkflowPageSize), current: clampedMobileStaffPage, onChange: setMobileStaffPage }} scroll={{ x: 1200 }} locale={{ emptyText: "No staff users match the current filters." }} />
                 <Drawer
                   title="Staff Details / 员工详情"
                   width={520}
@@ -4786,10 +5012,10 @@ function AdminPage({
             children: (
               <Space direction="vertical" size={16} className="fullWidth">
                 <Alert
+                  className="operationalInfoAlert"
                   type="info"
                   showIcon
-                  message="OCR limits are enforced by the server"
-                  description="Each OCR request reserves one unit before the external provider is called. Limits reset on the UTC calendar month and day."
+                  message="OCR limits are enforced by the server and reset on the UTC calendar day and month."
                 />
                 <ProCard title="OCR Limit / OCR 限额">
                   {ocrLimitSnapshot ? (
@@ -4983,15 +5209,15 @@ function SystemFlowReference() {
           { title: "Handoff / 交接", dataIndex: "handoff" }
         ]}
         dataSource={ownershipRows}
-        pagination={tablePagination(8)}
+        pagination={false}
         scroll={{ x: 900 }}
         locale={{ emptyText: "No ownership rows configured." }}
       />
       <Alert
+        className="operationalInfoAlert"
         type="info"
         showIcon
-        message="CP58 ownership"
-        description="CP58 should be prepared by HR Payroll or Finance from approved commission/payment records, checked by Admin, and approved through management review. It remains a planned extension, not an MVP blocker."
+        message="CP58 is a planned extension owned by HR Payroll or Finance, with Admin checks and management approval."
       />
     </Space>
   );
@@ -5093,10 +5319,10 @@ function RbacListing() {
       </div>
       <AntTable className="rbacTable desktopDataTable" rowKey="role" columns={columns} dataSource={rows} pagination={tablePagination(8)} scroll={{ x: 980 }} locale={{ emptyText: "No role access rows configured." }} />
       <Alert
+        className="operationalInfoAlert"
         type="info"
         showIcon
-        message="RBAC is enforced twice: the portal hides unavailable modules, and the API rejects unauthorized module requests."
-        description="Admin can assign roles. Department users only load the datasets listed here, so restricted pages do not fetch unrelated records."
+        message="The portal hides unavailable modules and the API rejects unauthorized requests; restricted pages do not load unrelated data."
       />
     </Space>
   );

@@ -53,6 +53,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - The public front office now supports English and Chinese UI copy through a language switch on home, inventory, vehicle detail, contact, vehicle cards, footer, mobile navigation, and lead capture.
 - Repair, loan, delivery, and finance screens now expose operational tables/forms instead of static workflow cards; repair jobs now load from the API, track Repair Part/Spare Part separately from What To Do, and can be marked checklist-done from the Repair screen.
 - The back-office portal now shows a module command header with live workflow counters and current role tags above each operations module, improving scanability before staff enter dense tables and forms.
+- Every back-office module now provides a reusable `How to use / 使用指南` drawer with role-aware plain-language steps, a replayable first-visit tour, and browser-local per-user/role completion memory. The comprehensive drawer follows every visible tab or major page section and explains its purpose, required information, ordered actions, completion check, handoff, and known enforcement limits without changing workflow permissions or records.
 - Back-office row actions are standardized into one right-side action column; separate left-side Open/Details columns are avoided so tables scan consistently.
 - Back-office create forms now submit vehicles, supplier invoices, repair jobs, loans, delivery schedules, and payment records to the .NET API when staff are logged in.
 - Back-office API failures now surface the first structured backend validation error message from `errors[]`, including upload failures, instead of a generic HTTP status message.
@@ -118,7 +119,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Vehicle intake now includes structured purchase invoice tracking linked to the car plate, alongside purchase invoice document upload.
 
 - Vehicle master profiles now include stock location and an auditable stock movement history for stock owner, status, and physical location changes.
-- OCR review now records accepted/rejected decisions, reviewer context, and review timestamps before extracted invoice fields are applied to vehicle workflows.
+- OCR review now lets staff correct and save one final value set, preserving the original extraction, every changed field or line item, reviewer context, timestamps, and field-accuracy counts before values are applied to vehicle workflows.
 - Purchase invoices can now be edited from the Vehicles screen so staff can correct purchase amount, invoice number, or car-plate linkage without duplicate invoice records.
 - Purchase invoices reject duplicate invoice numbers with normalized spacing/case before purchase costs are recorded twice.
 - The Vehicles purchase invoice form warns before submitting duplicate invoice numbers, blank invoice numbers, or non-positive purchase amounts.
@@ -164,7 +165,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Dashboard repair cost and estimated profit now use detailed repair job costs when repair rows exist for a vehicle, falling back to the vehicle refurbishment total for older intake records.
 - Dashboard `TotalProfit` and the backward-compatible `EstimatedProfit` field both represent projected margin on current unsold stock. Selected-period realised sold profit remains separate in `ActualProfit`.
 - Dashboard summary now includes Top Supplier from supplier invoice totals and Sales Performance from closed public enquiries, matching the management dashboard suggestions.
-- Dashboard summary now exposes Total Profit alongside the earlier estimated-profit field, so the Boss/Admin dashboard matches the original Total Profit wording while keeping the API backward-compatible.
+- Dashboard `TotalProfit` and the backward-compatible `EstimatedProfit` field both represent projected margin on current unsold stock. Selected-period realised sold profit remains separate in `ActualProfit`.
 - Public leads now require a visible available vehicle, and back-office workflow records reject unknown vehicle/customer links before saving.
 - Front-office enquiry submission now trims public lead payloads and surfaces backend validation messages instead of a generic failure only.
 - Front-office enquiry submission now blocks blank vehicle, name, or phone fields before calling the API and maps known validation codes to English/Chinese form messages.
@@ -185,7 +186,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Back-office route/body id mismatches now return a structured `message` response across update endpoints so the portal can display specific validation text.
 - Authenticated back-office mutations write audit entries with the logged-in staff email instead of a generic system actor.
 - Boss/Admin users now have a dedicated Audit Log module in the back office, in addition to the Admin tab, for reviewing authenticated workflow mutations.
-- Boss/Admin users can filter the Audit Log by actor, action, and entity name when investigating staff or workflow changes.
+- Boss/Admin users can search the Audit Log across actor, action, and entity name, then use field-specific filters when investigating staff or workflow changes.
 - The reminder worker is enabled only when `Worker__Enabled=true`, and worker-mode startup skips development seed data so the API and worker do not race while creating Identity roles.
 - The reminder worker retries when it starts before the API has created the PostgreSQL schema, so the worker container stays alive during fresh Docker deployments.
 

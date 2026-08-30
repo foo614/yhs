@@ -9,6 +9,7 @@ describe("finance list helpers", () => {
 
   it("filters the shared list by a user-facing keyword and status", () => {
     expect(filterFinanceRows(rows, "wbb", undefined, (row) => [row.plate], (row) => row.status)).toEqual([rows[1]]);
+    expect(filterFinanceRows(rows, "VAA1234", undefined, (row) => [row.plate], (row) => row.status)).toEqual([rows[0]]);
     expect(filterFinanceRows(rows, "", "Pending", (row) => [row.plate], (row) => row.status)).toEqual([rows[0]]);
   });
 

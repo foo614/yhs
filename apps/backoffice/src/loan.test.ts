@@ -104,4 +104,13 @@ describe("loan workflow helpers", () => {
   it("keeps every loan when no filters are active", () => {
     expect(filterLoanApplications([baseLoan], filterVehicles, filterCustomers, {}, {})).toEqual([baseLoan]);
   });
+
+  it("matches compact plate and phone searches against formatted values", () => {
+    expect(filterLoanApplications([baseLoan], filterVehicles, filterCustomers, {}, {
+      keyword: "VPK1234"
+    })).toEqual([baseLoan]);
+    expect(filterLoanApplications([baseLoan], filterVehicles, filterCustomers, {}, {
+      keyword: "0121234567"
+    })).toEqual([baseLoan]);
+  });
 });

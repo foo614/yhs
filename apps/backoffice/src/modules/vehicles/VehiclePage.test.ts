@@ -65,6 +65,8 @@ const leads: Lead[] = [
 describe("filterOperationIntakeVehicles", () => {
   it("filters by keyword, workflow state, linked records, invoices, outstation pickup, and active leads", () => {
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { keyword: "vios", status: "Available" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
+    expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { keyword: "VAA1001 Vios 2022" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
+    expect(filterOperationIntakeVehicles([{ ...baseVehicle, plateNumber: "VAA 1001" }], purchaseInvoices, leads, { keyword: "VAA1001 Vios 2022" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { stockOwner: "KS", approval: "pending", outstationPickup: "scheduled" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-2"]);
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { ownerLink: "missing", customerLink: "missing", invoiceLink: "missing" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-2"]);
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { leadActivity: "active" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
@@ -82,6 +84,12 @@ describe("vehicleSoldInAnalyticsPeriod", () => {
   });
 });
 
+describe("dashboard vehicle focus", () => {
+  it("keeps the projected-profit drill-down scoped to unsold stock", () => {
+    expect(filterVehiclesForDashboardFocus(vehicles, "profit").map((vehicle) => vehicle.id)).toEqual(["vehicle-1", "vehicle-2"]);
+  });
+});
+
 describe("vehicle repair cost display", () => {
   it("uses the server final-repair value first, then final repairs, then the intake fallback for the same profit calculation", () => {
     const repairs: RepairJob[] = [
@@ -93,6 +101,27 @@ describe("vehicle repair cost display", () => {
     expect(effectiveRepairCost({ ...baseVehicle, repairCost: 900 }, repairs)).toBe(900);
     expect(effectiveRepairCost({ ...baseVehicle, id: "vehicle-no-repairs" }, repairs)).toBe(1200);
     expect(estimatedVehicleProfit(baseVehicle, effectiveRepairCost({ ...baseVehicle, repairCost: 900 }, repairs))).toBe(4800);
+  });
+});
+
+describe("vehicle projected profit", () => {
+  it("uses linked commission and payment-voucher records instead of vehicle snapshot fields", () => {
+    const vehicle = { ...baseVehicle, commissionTotal: 900, outstationPickupAllowance: 600 };
+    const brokerCommissions: BrokerCommission[] = [
+      { id: "commission-1", vehicleId: vehicle.id, brokerName: "Broker A", amount: 100, isPaid: false, cp58Required: false, cp58Prepared: false },
+      { id: "commission-2", vehicleId: vehicle.id, brokerName: "Broker B", amount: 150, isPaid: true, cp58Required: false, cp58Prepared: false }
+    ];
+    const paymentVouchers: PaymentVoucher[] = [
+      { id: "voucher-1", vehicleId: vehicle.id, payeeName: "Driver A", amount: 80, purpose: "Pickup", status: "Approved", issuedDate: "2026-06-01" },
+      { id: "voucher-2", vehicleId: vehicle.id, payeeName: "Driver B", amount: 120, purpose: "Pickup", status: "Paid", issuedDate: "2026-06-02" }
+    ];
+
+    const commissionCost = effectiveCommissionCost(vehicle, brokerCommissions);
+    const pickupAllowanceCost = effectivePickupAllowanceCost(vehicle, paymentVouchers);
+
+    expect(commissionCost).toBe(250);
+    expect(pickupAllowanceCost).toBe(200);
+    expect(estimatedVehicleProfit(vehicle, vehicle.refurbishmentTotal, commissionCost, pickupAllowanceCost)).toBe(4850);
   });
 });
 

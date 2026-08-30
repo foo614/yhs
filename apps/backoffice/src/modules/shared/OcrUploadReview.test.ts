@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOcrImageMimeType, ocrFieldConflicts, resolveOcrReviewValues, type OcrReviewValues } from "./OcrUploadReview";
+import { isOcrImageMimeType, ocrFieldConflicts, type OcrReviewValues } from "./OcrUploadReview";
 
 describe("OCR review conflicts", () => {
   it("accepts only OCR-supported image MIME types", () => {
@@ -16,14 +16,12 @@ describe("OCR review conflicts", () => {
     { name: "address", label: "Address" }
   ];
 
-  it("requires an explicit choice before replacing a current record value", () => {
+  it("surfaces current-record differences for staff to correct in the review form", () => {
     const current: OcrReviewValues = { customerName: "Ali Tan", icNumber: "900101-01-1234", address: "1 Jalan Lama" };
     const extracted: OcrReviewValues = { customerName: "Ali Tan", icNumber: "900101-01-1234", address: "2 Jalan Baru" };
 
     const conflicts = ocrFieldConflicts(fields, current, extracted);
 
     expect(conflicts).toEqual([expect.objectContaining({ name: "address", existingValue: "1 Jalan Lama", extractedValue: "2 Jalan Baru" })]);
-    expect(resolveOcrReviewValues(extracted, conflicts, {})).toEqual({ ...extracted, address: "1 Jalan Lama" });
-    expect(resolveOcrReviewValues(extracted, conflicts, { address: "ocr" })).toEqual(extracted);
   });
 });

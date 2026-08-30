@@ -3,7 +3,7 @@ using YSHeng.Api.Domain;
 namespace YSHeng.Api.Features;
 
 public sealed record CustomerProfileOption(Guid Id, string Name);
-public sealed record CustomerProfileContact(Guid Id, string Name, string? Phone, string? IcNumber, string? Email, string? Address, string? Notes);
+public sealed record CustomerProfileContact(Guid Id, string Name, string? Phone, string? IcNumber, string? TinNumber, string? Email, string? Address, string? Notes);
 public sealed record CustomerProfileVehicle(Guid Id, string PlateNumber, string Make, string Model, int Year, VehicleStatus Status);
 public sealed record CustomerProfileLoan(Guid Id, Guid VehicleId, LoanStatus Status, bool LouApproved, bool LouDone, DateOnly? SubmittedAt);
 public sealed record CustomerProfileDelivery(
@@ -166,6 +166,7 @@ public static class CustomerProfileFactory
                 customer.Name,
                 canViewIdentity || canViewDelivery ? customer.Phone : null,
                 canViewIdentity ? customer.IcNumber : null,
+                canViewIdentity ? customer.TinNumber : null,
                 canViewIdentity ? customer.Email : null,
                 canViewIdentity ? customer.Address : null,
                 canViewIdentity ? customer.Notes : null),

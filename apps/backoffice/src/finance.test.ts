@@ -67,7 +67,11 @@ const basePaymentVoucher: PaymentVoucher = {
   amount: 180,
   purpose: "Outstation Pickup Allowance",
   status: "Pending",
-  issuedDate: "2026-06-03"
+  issuedDate: "2026-06-03",
+  paymentMethod: "BankTransfer",
+  sourceAccountCode: "1100-0000",
+  bankChargeAmount: 0,
+  accountingAccountCode: "8000-L002"
 };
 
 describe("finance workflow helpers", () => {

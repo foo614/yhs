@@ -167,6 +167,49 @@ public sealed class AutoCountExportTests
         Assert.Equal("all", AutoCountDateRules.PeriodLabel(null, null));
     }
 
+    [Fact]
+    public void Export_keeps_classification_separate_from_tax_code_and_uses_approved_accounts()
+    {
+        var vehicle = new Vehicle { PlateNumber = "MAP025", IntakeDate = new DateOnly(2026, 8, 1), CustomerId = Guid.NewGuid() };
+        var customer = new Customer { Id = vehicle.CustomerId!.Value, Name = "Mapped Buyer", TinNumber = "IG123" };
+        var payment = new PaymentRecord { VehicleId = vehicle.Id, CustomerId = customer.Id, SalesAgentName = "Agent One", SalesPrice = 50_000m, InsurancePaidOnBehalfAmount = 1_000m, RoadTaxPaidOnBehalfAmount = 100m };
+        var invoice = new FinanceInvoice
+        {
+            PaymentRecordId = payment.Id, VehicleId = vehicle.Id, CustomerId = customer.Id, CustomerName = customer.Name,
+            CustomerTinNumber = customer.TinNumber, VehiclePlateNumber = vehicle.PlateNumber, InvoiceNumber = "INV-MAP-1",
+            InvoiceDate = new DateOnly(2026, 8, 2), SalesPrice = 50_000m, InsurancePaidOnBehalfAmount = 1_000m, RoadTaxPaidOnBehalfAmount = 100m
+        };
+        var purchase = new PurchaseInvoice
+        {
+            VehicleId = vehicle.Id, InvoiceNumber = "PI-MAP-1", InvoiceDate = new DateOnly(2026, 8, 1), Amount = 4m,
+            Lines =
+            [
+                new PurchaseInvoiceLine { LineType = PurchaseInvoiceLineType.VehiclePurchase, Description = "Vehicle", Amount = 1m },
+                new PurchaseInvoiceLine { LineType = PurchaseInvoiceLineType.PurchaseProcessing, Description = "Processing", Amount = 1m },
+                new PurchaseInvoiceLine { LineType = PurchaseInvoiceLineType.Parking, Description = "Parking", Amount = 1m },
+                new PurchaseInvoiceLine { LineType = PurchaseInvoiceLineType.Refurbishment, Description = "Refurbishment", Amount = 1m }
+            ]
+        };
+
+        var input = Input([vehicle], [customer], [payment]) with { FinanceInvoices = [invoice], PurchaseInvoices = [purchase] };
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(input)), ZipArchiveMode.Read);
+        var salesLines = Read(archive, "xl/worksheets/sheet11.xml");
+        var purchaseLines = Read(archive, "xl/worksheets/sheet4.xml");
+
+        Assert.Contains("ClassificationCode", salesLines);
+        Assert.Contains("TaxCode", salesLines);
+        Assert.Contains("5500-0000", salesLines);
+        Assert.Contains(">025<", salesLines);
+        Assert.Contains("4001-I001", salesLines);
+        Assert.Contains("4001-R001", salesLines);
+        Assert.Contains(">006<", salesLines);
+        Assert.Contains("IG123", salesLines);
+        Assert.Contains("6P00-0000", purchaseLines);
+        Assert.Contains("6P00-1000", purchaseLines);
+        Assert.Contains("6T00-1000", purchaseLines);
+        Assert.Contains("6R00-0000", purchaseLines);
+    }
+
     private static AutoCountExportInput Input(IReadOnlyList<Vehicle>? vehicles = null, IReadOnlyList<Customer>? customers = null, IReadOnlyList<PaymentRecord>? payments = null) =>
         new(vehicles ?? [], customers ?? [], [], [], payments ?? [], [], [], [], [], [], [], null, null, new DateTime(2026, 8, 22, 0, 0, 0, DateTimeKind.Utc));
 

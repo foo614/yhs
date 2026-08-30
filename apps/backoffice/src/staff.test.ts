@@ -66,6 +66,7 @@ describe("staff creation helpers", () => {
 
   it("filters staff by keyword, status, and role", () => {
     expect(filterStaffUsers(staffDirectory, { keyword: "finance" }).map((staff) => staff.id)).toEqual(["staff-2"]);
+    expect(filterStaffUsers(staffDirectory, { keyword: "payroll" }).map((staff) => staff.id)).toEqual(["staff-2"]);
     expect(filterStaffUsers(staffDirectory, { status: "Disabled" }).map((staff) => staff.id)).toEqual(["staff-3"]);
     expect(filterStaffUsers(staffDirectory, { role: "HrSalary" }).map((staff) => staff.id)).toEqual(["staff-2"]);
     expect(filterStaffUsers(staffDirectory, { keyword: "admin", status: "Disabled", role: "BossAdmin" }).map((staff) => staff.id)).toEqual(["staff-3"]);

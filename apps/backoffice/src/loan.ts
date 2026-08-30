@@ -96,5 +96,15 @@ function normalizeFilterValue(value?: string) {
 }
 
 function matchesFilterValue(keyword: string, values: Array<string | undefined>) {
-  return values.some((value) => value?.toLowerCase().includes(keyword));
+  const compactKeyword = normalizeCompactFilterValue(keyword);
+
+  return values.some((value) => {
+    const normalizedValue = normalizeFilterValue(value);
+    return normalizedValue.includes(keyword) ||
+      (Boolean(compactKeyword) && normalizeCompactFilterValue(normalizedValue).includes(compactKeyword));
+  });
+}
+
+function normalizeCompactFilterValue(value: string) {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }

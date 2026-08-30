@@ -131,9 +131,10 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `GET` | `/api/owners` | `OwnerRead` | Previous-owner lookup/list. |
 | `POST` | `/api/owners` | `Vehicles` | Create previous owner. |
 | `PUT` | `/api/owners/{id}` | `Vehicles` | Update previous owner. |
-| `GET` | `/api/purchase-invoices` | `Vehicles` | List purchase invoices. |
-| `POST` | `/api/purchase-invoices` | `Vehicles` | Create purchase invoice. |
-| `PUT` | `/api/purchase-invoices/{id}` | `Vehicles` | Update purchase invoice. |
+| `GET` | `/api/purchase-invoices` | `PurchaseAccountingRead` | List purchase invoices with invoice/purchase dates and classified fee lines. |
+| `POST` | `/api/purchase-invoices` | `Vehicles` | Create a purchase invoice against an approved supplier. Classified lines must equal the invoice total. |
+| `PUT` | `/api/purchase-invoices/{id}` | `Vehicles` | Update a draft purchase invoice and replace its classified lines. Finance-confirmed invoices are immutable. |
+| `POST` | `/api/purchase-invoices/{id}/confirm-accounting` | `Finance` | Confirm the purchase invoice and classified lines for accounting export. |
 
 ## Uploads
 
@@ -148,14 +149,14 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `GET` | `/api/vehicles/{id}/documents` | Category-specific role | List document metadata visible to the signed-in department. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | Category-specific role | Download document content visible to the signed-in department. |
 | `POST` | `/api/documents/{documentId}/ocr-jobs` | Category-specific role | Start Google Document AI analysis for the authorized uploaded document category, including IC, VOC, invoice, and receipt review. |
-| `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, warnings, extracted draft fields, and review decision. |
-| `PUT` | `/api/ocr-jobs/{jobId}/review` | Category-specific role | Accept or reject OCR-extracted draft fields with reviewer identity, timestamp, and review notes before applying them to operational records. |
+| `GET` | `/api/ocr-jobs/{jobId}` | Category-specific role | Read OCR job status, progress, original extracted draft fields, saved reviewed values, field-level changes, and reviewer audit data. |
+| `PUT` | `/api/ocr-jobs/{jobId}/review` | Category-specific role | Save staff-reviewed OCR fields and line items. The server preserves every original-versus-reviewed difference, reviewer identity, timestamp, and field-accuracy counts before values are applied to operational records. |
 | `GET` | `/api/vehicles/{id}/ocr-jobs` | Category-specific role | List captured OCR data for uploaded vehicle documents visible to the signed-in department. |
 
 OCR runtime:
 
 - IC extraction returns customer name, IC number, and address. VOC extraction returns registration, chassis, engine, make, model, year, and registered-owner suggestions. Invoice and receipt extraction retains the existing finance and supplier fields. Repair-invoice extraction also proposes repair-part and repair-detail values from recognized line items so the reviewer can populate the Repair task form.
-- The back-office review drawer shows field confidence. When a suggestion differs from the current customer or vehicle master value, `Keep current value` is the default and the reviewer must explicitly select `Use reviewed OCR value` before the accepted values are applied.
+- The back-office review drawer shows field confidence and pre-fills a current master value when it conflicts with AI output. Staff edit the final value directly and save one review; there is no accept/reject choice. The server keeps the original output, reviewed result, and every field/line-item difference. OCR field accuracy is calculated from all non-empty extracted or reviewed values: unchanged values are correct; changed, added, and removed values are corrections.
 
 - The default OCR provider is `GoogleDocumentAi`. Configure `Ocr__GoogleDocumentAi__ProjectId`, `Location`, and `DefaultProcessorId`; the deployment environment uses the equivalent `GOOGLE_DOCUMENT_AI_*` values.
 - Configure `InvoiceProcessorId` for purchase, repair, and payment invoices and `ExpenseProcessorId` for payment receipts. When either specialized processor is absent, OCR falls back to `DefaultProcessorId` and adds a review warning.
@@ -207,6 +208,9 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `GET` | `/api/repairs/{id}/receipts` | `Repairs` | List confirmed repair receipts and their child items. |
 | `POST` | `/api/repairs/{id}/receipts/confirm` | `Repairs` | Confirm one uploaded repair receipt and its reviewed child items for an existing repair job. |
 | `GET` | `/api/suppliers` | `Repairs` | Derived supplier master summary from supplier invoices. |
+| `GET` | `/api/supplier-master` | `SupplierRead` | List supplier master records with address, phone, TIN, AutoCount creditor code, and approval status. |
+| `POST` / `PUT` | `/api/supplier-master` | `Repairs` | Create or update a supplier draft. Approved suppliers are immutable. |
+| `POST` | `/api/supplier-master/{id}/approve` | `Finance` | Approve a supplier draft. The creator cannot approve the same supplier. |
 | `GET` | `/api/supplier-invoices` | `Repairs` | List supplier invoices. |
 | `GET` | `/api/supplier-invoices/aging` | `Repairs` | Supplier invoice aging view for unmatched, due-soon, overdue, and paid states. |
 | `POST` | `/api/supplier-invoices` | `Repairs` | Create supplier invoice. |
@@ -306,7 +310,7 @@ Cash custody has its own `CashCustody` policy. Sales can see and act on only the
 | `POST` | `/api/cash-handovers/{id}/reject` | `Finance` | Reject custody with a required reason. |
 | `GET` | `/api/cash-handovers/{id}/official-receipt/content` | `CashCustody` | Download the official receipt for Finance/BossAdmin or the recorded salesperson. |
 
-Only one handover may exist per payment and only one official receipt may exist per handover. Receipt creation does not reconcile the payment or bypass receipt, invoice-reference, document, or management-review controls; Finance must complete those existing gates separately. Authorized staff download the protected receipt and attach it to a customer email; WhatsApp dispatch is intentionally deferred to the notification engine in FOO-40.
+Only one handover may exist per legacy payment and only one official receipt may exist per handover. Finance V2 rows are excluded from this legacy custody flow because it cannot yet link a handover to one partial collection. Receipt creation does not reconcile a legacy payment or bypass receipt, invoice-reference, document, or management-review controls. Authorized staff download the protected receipt and attach it to a customer email; WhatsApp dispatch is intentionally deferred to the notification engine in FOO-40.
 
 ## HR And Salary
 

@@ -14,7 +14,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<VehiclePhoto> VehiclePhotos => Set<VehiclePhoto>();
     public DbSet<DocumentBlob> DocumentBlobs => Set<DocumentBlob>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<PurchaseInvoice> PurchaseInvoices => Set<PurchaseInvoice>();
+    public DbSet<PurchaseInvoiceLine> PurchaseInvoiceLines => Set<PurchaseInvoiceLine>();
     public DbSet<RepairJob> RepairJobs => Set<RepairJob>();
     public DbSet<RepairReceipt> RepairReceipts => Set<RepairReceipt>();
     public DbSet<RepairReceiptItem> RepairReceiptItems => Set<RepairReceiptItem>();
@@ -56,6 +58,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<Vehicle>().HasIndex(vehicle => vehicle.PlateNumber).IsUnique();
         builder.Entity<VehicleCatalogModel>().HasIndex(item => new { item.Make, item.Model }).IsUnique();
         builder.Entity<StockMovement>().HasIndex(movement => new { movement.VehicleId, movement.CreatedAt });
+        builder.Entity<Supplier>().HasIndex(supplier => supplier.CompanyName).IsUnique();
+        builder.Entity<Supplier>().HasIndex(supplier => supplier.AutoCountCreditorCode).IsUnique();
+        builder.Entity<PurchaseInvoiceLine>().HasIndex(line => new { line.PurchaseInvoiceId, line.LineType });
+        builder.Entity<DeliveryAccountingCharge>().HasIndex(charge => new { charge.DeliveryScheduleId, charge.ChargeType }).IsUnique();
         builder.Entity<Lead>().HasIndex(lead => lead.VehicleId);
         builder.Entity<VehiclePhoto>().Property(photo => photo.Content).HasColumnType("bytea");
         builder.Entity<VehiclePhoto>().Property(photo => photo.Thumbnail).HasColumnType("bytea");

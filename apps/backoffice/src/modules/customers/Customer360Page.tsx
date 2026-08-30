@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Descriptions, Empty, Select, Space, Spin, Table, Tag, Typography } from "antd";
+import { Alert, Button, Descriptions, Empty, Select, Space, Spin, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import {
   financeInvoiceContentUrl,
   getCustomerProfile,
@@ -71,7 +72,7 @@ function ProfileTable<RecordType extends object>({
   dataSource: RecordType[];
 }) {
   return dataSource.length > 0 ? (
-    <Table<RecordType>
+    <OperationsProTable<RecordType>
       columns={columns}
       dataSource={dataSource}
       pagination={false}
@@ -222,6 +223,7 @@ export function Customer360Page({
           options={options.map((option) => ({ value: option.id, label: customerProfileOptionLabel(option) }))}
           placeholder="Choose a customer"
           showSearch
+          optionFilterProp="label"
           value={selectedCustomerId || undefined}
           onChange={(value) => {
             setProfile(null);
@@ -232,10 +234,10 @@ export function Customer360Page({
         />
       )}>
         <Alert
+          className="operationalInfoAlert"
           showIcon
           type="info"
-          message="Live profile from source records"
-          description="This view does not copy or merge customer data. Identity, finance, delivery, enquiry, and document sections are shown only when the signed-in role already has the matching operational access."
+          message="Live source records are shown only where your role already has access; this view does not copy or merge customer data."
         />
       </ProCard>
 
@@ -251,6 +253,7 @@ export function Customer360Page({
               <Descriptions.Item label="Name">{profile.contact.name}</Descriptions.Item>
               <Descriptions.Item label="Phone">{displayValue(profile.contact.phone)}</Descriptions.Item>
               <Descriptions.Item label="IC Number">{displayValue(profile.contact.icNumber)}</Descriptions.Item>
+              <Descriptions.Item label="TIN">{displayValue(profile.contact.tinNumber)}</Descriptions.Item>
               <Descriptions.Item label="Email">{displayValue(profile.contact.email)}</Descriptions.Item>
               <Descriptions.Item label="Address">{displayValue(profile.contact.address)}</Descriptions.Item>
               <Descriptions.Item label="Notes" span={2}>{displayValue(profile.contact.notes)}</Descriptions.Item>

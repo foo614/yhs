@@ -12,6 +12,7 @@ export function filterFinanceRows<T>(
   rowStatus: (row: T) => string | string[]
 ) {
   const normalizedKeyword = keyword.trim().toLocaleLowerCase();
+  const compactKeyword = compactSearchValue(normalizedKeyword);
 
   return rows.filter((row) => {
     const matchesKeyword = !normalizedKeyword || searchValues(row).some((value) => value?.toLocaleLowerCase().includes(normalizedKeyword));
@@ -19,6 +20,10 @@ export function filterFinanceRows<T>(
     const matchesStatus = !status || (Array.isArray(statuses) ? statuses.includes(status) : statuses === status);
     return matchesKeyword && matchesStatus;
   });
+}
+
+function compactSearchValue(value: string) {
+  return value.replace(/[^a-z0-9]/gi, "").toLocaleLowerCase();
 }
 
 export function financePageFor(totalRows: number, page: number, pageSize = FINANCE_LIST_PAGE_SIZE) {

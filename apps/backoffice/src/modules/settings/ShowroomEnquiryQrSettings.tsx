@@ -1,8 +1,7 @@
 import { DownloadOutlined, PrinterOutlined, QrcodeOutlined } from "@ant-design/icons";
-import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Space, Typography } from "antd";
+import { Alert, Button, QRCode, Space, Typography } from "antd";
 import { useRef } from "react";
-import { showroomEnquiryUrl } from "./ShowroomEnquiryQr";
+import { printShowroomEnquiryQr, showroomEnquiryQrBranding, showroomEnquiryUrl } from "./ShowroomEnquiryQr";
 
 export function ShowroomEnquiryQrSettings() {
   const qrPreviewRef = useRef<HTMLDivElement>(null);
@@ -24,19 +23,23 @@ export function ShowroomEnquiryQrSettings() {
   const print = () => {
     const svg = qrSvg();
     if (!svg) return;
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-    printWindow.opener = null;
-    printWindow.document.write(`<!doctype html><html><head><title>YS Heng showroom enquiry QR</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:40px;color:#1b1819}svg{width:360px;height:360px}p{font-size:14px;word-break:break-all}</style></head><body><h1>YS Heng Auto</h1><h2>Showroom enquiry</h2>${new XMLSerializer().serializeToString(svg)}<p>${url}</p></body></html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    printShowroomEnquiryQr(url, new XMLSerializer().serializeToString(svg));
   };
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
-      <Alert type="info" showIcon message="Stable shop QR" description="Place this QR in the showroom. It opens the public no-login enquiry flow and new submissions are labelled In-store QR enquiry for Sales." />
-      <div ref={qrPreviewRef} className="showroomQrPreview"><QRCodeSVG value={url} size={260} includeMargin /></div>
+      <Alert className="operationalInfoAlert" type="info" showIcon message="Stable shop QR — Opens the public no-login enquiry flow and labels new submissions for Sales." />
+      <div ref={qrPreviewRef} className="showroomQrPreview">
+        <QRCode
+          value={url}
+          type="svg"
+          size={260}
+          color="#161616"
+          bgColor="#ffffff"
+          aria-label="YS Heng showroom enquiry QR"
+          {...showroomEnquiryQrBranding}
+        />
+      </div>
       <Typography.Text strong>Public showroom enquiry URL</Typography.Text>
       <Typography.Paragraph copyable={{ text: url }} code>{url}</Typography.Paragraph>
       <Space wrap>

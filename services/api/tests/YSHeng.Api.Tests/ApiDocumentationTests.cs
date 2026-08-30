@@ -38,6 +38,50 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Finance_v2_routes_are_server_owned_authorized_and_serialize_money_transitions()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var seed = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Data", "SeedData.cs"));
+
+        Assert.Contains("backOffice.MapPost(\"/payments/finance-sale\"", program);
+        Assert.Contains("backOffice.MapPost(\"/payments/{id:guid}/nett-price-override/approve\"", program);
+        Assert.Contains("backOffice.MapPost(\"/payments/{id:guid}/collections\"", program);
+        Assert.Contains("backOffice.MapPost(\"/collection-transactions/{id:guid}/reconcile\"", program);
+        Assert.Contains("backOffice.MapPost(\"/collection-transactions/{id:guid}/reverse\"", program);
+        Assert.Contains("FOR UPDATE", program);
+        Assert.Contains("RequireAuthorization(\"BossAdmin\")", program);
+        Assert.Contains("IX_PaymentRecords_VehicleId_FinanceV2", seed);
+        Assert.Contains("WHERE \"FinanceWorkflowVersion\" = 2", seed);
+        Assert.Contains("IX_CollectionTransactions_PaymentRecordId_IdempotencyKey", seed);
+        Assert.Contains("UX_CollectionTransactions_ActiveMethod_NormalizedReference", seed);
+        Assert.Contains("WHERE \"NormalizedReference\" IS NOT NULL AND \"Status\" <> 2", seed);
+        Assert.Contains("LockCollectionReferenceAsync", program);
+        Assert.Contains("collection_reconcile_self_approval_forbidden", File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "FinanceV2.cs")));
+        Assert.Contains("collection_evidence_required", File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "FinanceV2.cs")));
+        Assert.Contains("finance.invoicePdfDownloaded", program);
+    }
+
+    [Fact]
+    public void Finance_receivable_creation_and_buyer_links_are_serialized_and_collection_evidence_is_scoped()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var seed = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Data", "SeedData.cs"));
+        var legacyCreate = program[program.IndexOf("backOffice.MapPost(\"/payments\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapPut(\"/payments/{id:guid}\"", StringComparison.Ordinal)];
+        var v2Create = program[program.IndexOf("backOffice.MapPost(\"/payments/finance-sale\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapPost(\"/payments/{id:guid}/nett-price-override/approve\"", StringComparison.Ordinal)];
+
+        Assert.Contains("FinanceApi.LockVehicleAsync", legacyCreate);
+        Assert.Contains("ValidateReceivableCreate", legacyCreate);
+        Assert.Contains("FinanceApi.LockVehicleAsync", v2Create);
+        Assert.Contains("ValidateReceivableCreate", v2Create);
+        Assert.Contains("finance_v2_buyer_locked", program);
+        Assert.Contains("CollectionTransactionId", program);
+        Assert.Contains("collection_document_link_invalid", program);
+        Assert.Contains("IX_DocumentBlobs_CollectionTransactionId", seed);
+    }
+
+    [Fact]
     public void Ocr_usage_is_reserved_before_the_external_provider_is_called()
     {
         var root = FindRepositoryRoot();

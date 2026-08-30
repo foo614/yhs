@@ -116,6 +116,14 @@ describe("management dashboard", () => {
     expect(markup).toContain("Purchase Cost / 收车成本");
     expect(markup).toContain("Repair Cost / 整备费用");
     expect(markup).toContain("Projected Stock Profit / 库存预计利润");
+    expect(markup).toContain("Current unsold stock");
+    expect(markup).toContain("New enquiry needs first contact");
+    expect(markup).not.toContain("All clear");
+    expect(markup.indexOf("Priority actions / 老板待办")).toBeLessThan(markup.indexOf("Operations dashboard / 运营看板"));
+    expect(markup).toContain("AI document processing / AI 文件处理");
+    expect(markup).toContain("OCR field accuracy / OCR 字段准确率");
+    expect(markup).toContain("Invoices &amp; receipts");
+    expect(markup).not.toContain("sensitive extracted text");
     expect(markup).not.toContain("Estimated Profit / 预估利润");
     expect(markup).toContain("AI document processing / AI 文件处理");
     expect(markup).toContain("Staff-approved AI results");
@@ -260,6 +268,8 @@ describe("module document lists", () => {
     expect(loanMarkup).not.toContain("No OCR results for these documents yet.");
     expect(deliveryMarkup).toContain("No uploaded documents for this selected record.");
     expect(deliveryMarkup).not.toContain("No OCR results for these documents yet.");
+    expect(loanMarkup).not.toContain("ant-pro-query-filter");
+    expect(deliveryMarkup).not.toContain("ant-pro-query-filter");
   });
 
   it("keeps OCR results available to modules that opt in", () => {
@@ -269,6 +279,50 @@ describe("module document lists", () => {
     }));
 
     expect(markup).toContain("No OCR results for these documents yet.");
+  });
+});
+
+describe("supplier and refurbishment search records", () => {
+  it("keeps repair tasks and supplier invoices in the same searchable list", () => {
+    const vehicles: VehicleLookup[] = [{
+      id: "vehicle-1", plateNumber: "VPK 1234", make: "Toyota", model: "Vios", stockOwner: "YSHeng", status: "Available"
+    }];
+    const repairs: RepairJob[] = [{
+      id: "repair-1", vehicleId: "vehicle-1", repairPart: "Bumper", whatToDo: "Polish bumper", cost: 800, checklistDone: false, createdAt: "2026-08-20T08:00:00Z"
+    }];
+    const supplierInvoices: SupplierInvoice[] = [{
+      id: "invoice-1", vehicleId: "vehicle-1", supplierName: "ABC Spray", invoiceNumber: "INV-1001", amount: 800, createdAt: "2026-08-21T08:00:00Z"
+    }];
+
+    expect(buildRefurbishmentTableRecords(repairs, supplierInvoices, vehicles, {}).map((record) => ({
+      key: record.key,
+      kind: record.kind,
+      plateNumber: record.plateNumber
+    }))).toEqual([
+      { key: "repair-repair-1", kind: "repair", plateNumber: "VPK 1234" },
+      { key: "supplier-invoice-1", kind: "supplierInvoice", plateNumber: "VPK 1234" }
+    ]);
+  });
+
+  it("searches supplier master values and approval status", () => {
+    const suppliers: Supplier[] = [{
+      id: "supplier-1", companyName: "ABC Auto Parts", registrationNumber: "REG-1001", tinNumber: "TIN-2002", address: "Johor", phone: "012-3456789", autoCountCreditorCode: "CRED-001", approvalStatus: "Approved"
+    }];
+
+    expect(filterSupplierMaster(suppliers, "0123456789", "All")).toEqual(suppliers);
+    expect(filterSupplierMaster(suppliers, "CRED001", "Approved")).toEqual(suppliers);
+    expect(filterSupplierMaster(suppliers, "ABC", "Draft")).toEqual([]);
+  });
+
+  it("searches delivery accounting values using the displayed plate and status", () => {
+    const vehicles: VehicleLookup[] = [{ id: "vehicle-1", plateNumber: "VPK 1234", make: "Toyota", model: "Vios", stockOwner: "YSHeng", status: "Available" }];
+    const charges: DeliveryAccountingCharge[] = [{
+      id: "charge-1", deliveryScheduleId: "delivery-1", vehicleId: "vehicle-1", chargeType: "Insurance", providerName: "ABC Insurance", referenceNumber: "POL-1001", invoiceDate: "2026-08-25", amount: 800, paidOnBehalf: true, accountingStatus: "FinanceConfirmed"
+    }];
+
+    expect(filterDeliveryAccountingCharges(charges, vehicles, "VPK1234", "All")).toEqual(charges);
+    expect(filterDeliveryAccountingCharges(charges, vehicles, "POL1001", "FinanceConfirmed")).toEqual(charges);
+    expect(filterDeliveryAccountingCharges(charges, vehicles, "ABC", "Draft")).toEqual([]);
   });
 });
 
@@ -294,5 +348,41 @@ describe("workflow list query controls", () => {
     expect(deliveryMarkup).toContain("Delivery Workboard / 交车工作台");
     expect(deliveryMarkup).toContain("See every car, customer, PIC, stage, and next action in one place.");
     expect(deliveryMarkup).not.toContain("ReadyForRelease");
+  });
+});
+
+describe("lead search controls", () => {
+  it("renders a visible search for customer, phone, plate, and message", () => {
+    const vehicles: Vehicle[] = [{
+      id: "vehicle-1",
+      plateNumber: "VPK 1234",
+      make: "Toyota",
+      model: "Vios",
+      year: 2022,
+      stockOwner: "YSHeng",
+      status: "Available",
+      isPublic: true,
+      purchasePrice: 52000,
+      sellingPrice: 58000,
+      additionalCharges: 0,
+      refurbishmentTotal: 0,
+      commissionTotal: 0
+    }];
+    const leads: Lead[] = [{
+      id: "lead-1", vehicleId: "vehicle-1", customerName: "Ah Ming", phone: "012-1234567", message: "Weekend test drive", status: "New", createdAt: "2026-08-25T00:00:00Z"
+    }];
+
+    const markup = renderToStaticMarkup(createElement(LeadsPage, {
+      currentUser: null,
+      vehicles,
+      customers: [],
+      leads,
+      onCreateCustomer: async () => {},
+      onUpdate: () => {}
+    }));
+
+    expect(markup).toContain("Search leads by customer, phone, plate, or message");
+    expect(markup).toContain("Customer, phone, plate, or message");
+    expect(markup).not.toContain("ant-pro-query-filter");
   });
 });

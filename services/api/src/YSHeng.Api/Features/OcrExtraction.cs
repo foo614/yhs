@@ -24,6 +24,9 @@ public sealed record OcrExtractionResult(
     IReadOnlyList<OcrLineItem>? LineItems = null);
 
 public sealed record OcrLineItem(string Description, string? Quantity, string? UnitPrice, string? Amount, decimal? Confidence, string? RawText);
+public sealed record OcrReviewedResult(Dictionary<string, string?> Fields, IReadOnlyList<OcrLineItem>? LineItems = null);
+public sealed record OcrReviewChange(string Field, string? ExtractedValue, string? ReviewedValue);
+public sealed record OcrReviewComparison(IReadOnlyList<OcrReviewChange> Changes, int ComparedFieldCount, int CorrectFieldCount);
 
 public sealed class GoogleDocumentAiOptions
 {

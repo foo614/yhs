@@ -18,6 +18,7 @@ const apiTypeByDomainEnum = {
   HrLeaveType: "HrLeaveType",
   HrLeaveStatus: "HrLeaveStatus",
   HrPayslipStatus: "HrPayslipStatus",
+  OcrJobStatus: "OcrJobStatus",
   OcrReviewDecision: "OcrReviewDecision"
 } as const;
 

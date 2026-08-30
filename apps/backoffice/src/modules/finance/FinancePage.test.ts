@@ -34,6 +34,20 @@ describe("Daily Spend dashboard drill-down", () => {
     expect(dailySpendMatchesDashboardAttention({ isPaid: true, dueDate: "2026-06-06" }, "dueSoon", today)).toBe(false);
     expect(dailySpendMatchesDashboardAttention({ isPaid: false, dueDate: "2026-05-31" }, "due", today)).toBe(true);
     expect(dailySpendMatchesDashboardAttention({ isPaid: false, dueDate: "2026-06-01" }, "due", today)).toBe(true);
+    expect(dailySpendMatchesDashboardAttention({ isPaid: false, dueDate: "2026-06-12" }, "open", today)).toBe(true);
+    expect(dailySpendMatchesDashboardAttention({ isPaid: true, dueDate: "2026-05-31" }, "open", today)).toBe(false);
+  });
+});
+
+describe("Settlement dashboard drill-down", () => {
+  it("reconciles the unpaid total with all unpaid rows while keeping due-now filtering separate", () => {
+    const today = "2026-06-01";
+
+    expect(settlementMatchesDashboardAttention({ isPaid: false, deadline: "2026-06-10" }, "open", today)).toBe(true);
+    expect(settlementMatchesDashboardAttention({ isPaid: false, deadline: "2026-05-31" }, "open", today)).toBe(true);
+    expect(settlementMatchesDashboardAttention({ isPaid: true, deadline: "2026-05-31" }, "open", today)).toBe(false);
+    expect(settlementMatchesDashboardAttention({ isPaid: false, deadline: "2026-06-10" }, "due", today)).toBe(false);
+    expect(settlementMatchesDashboardAttention({ isPaid: false, deadline: "2026-06-01" }, "due", today)).toBe(true);
   });
 });
 

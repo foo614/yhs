@@ -104,7 +104,17 @@ function matchesRefurbishmentKeyword(record: RefurbishmentRecord, plateNumber: s
     ? [plateNumber, record.repair.whatToDo, record.repair.repairPart]
     : [plateNumber, record.invoice.supplierName, record.invoice.invoiceNumber, record.invoice.plateNumberOnInvoice];
 
-  return values.some((value) => normalizeReference(value).includes(keyword));
+  const compactKeyword = normalizeCompactSearchValue(keyword);
+
+  return values.some((value) => {
+    const normalizedValue = normalizeReference(value);
+    return normalizedValue.includes(keyword) ||
+      (Boolean(compactKeyword) && normalizeCompactSearchValue(normalizedValue).includes(compactKeyword));
+  });
+}
+
+function normalizeCompactSearchValue(value: string) {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
 function normalizePlate(value: string) {

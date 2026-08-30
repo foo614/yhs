@@ -18,7 +18,8 @@ export function filterStaffUsers(staffUsers: StaffUser[], filters: StaffUserFilt
     const searchable = [
       staff.displayName,
       staff.email,
-      ...staff.roles
+      ...staff.roles,
+      ...staff.roles.map(staffRoleSearchLabel)
     ].join(" ").toLowerCase();
 
     if (keyword && !searchable.includes(keyword)) return false;
@@ -28,6 +29,12 @@ export function filterStaffUsers(staffUsers: StaffUser[], filters: StaffUserFilt
 
     return true;
   });
+}
+
+function staffRoleSearchLabel(role: StaffRole) {
+  if (role === "BossAdmin") return "Admin";
+  if (role === "HrSalary") return "HR Payroll";
+  return role;
 }
 
 export function staffCreateBlockReason(request: CreateStaffUserRequest, existing: StaffUser[] = []) {

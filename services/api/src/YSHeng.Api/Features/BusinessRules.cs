@@ -6,7 +6,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using YSHeng.Api.Domain;
 using SkiaSharp;
 using UglyToad.PdfPig;
 
@@ -46,7 +45,7 @@ public sealed record PublicVehicleDetailResponse(Guid Id, string PlateNumber, st
 public sealed record PublicVehicleCatalogModelResponse(string Make, string Model);
 public sealed record VehicleCatalogModelRequest(string Make, string Model, bool IsActive = true);
 public sealed record RepairApprovalRequest(string? Notes);
-public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId);
+public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId, decimal SellingPrice, decimal AdditionalCharges);
 public sealed record DashboardSummary(
     int TotalStock,
     decimal PurchaseCost,
@@ -120,6 +119,34 @@ public sealed record DashboardAiDocumentProcessing(
 }
 public sealed record DashboardWorkflowBlockers(DashboardCountSlice[] ByType, DashboardCountSlice[] DueBuckets);
 public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal ConversionRate);
+public sealed record DashboardAiDocumentCategory(
+    string Category,
+    string Label,
+    int ScanCount,
+    int ReviewedCount,
+    int ComparedFieldCount,
+    int CorrectFieldCount,
+    int CorrectedFieldCount,
+    decimal? AccuracyPercent,
+    int LowConfidenceCount,
+    int FailedCount);
+public sealed record DashboardAiDocumentProcessing(
+    int ScanCount,
+    int ReviewedCount,
+    int ComparedFieldCount,
+    int CorrectFieldCount,
+    int CorrectedFieldCount,
+    decimal? AccuracyPercent,
+    int LowConfidenceCount,
+    int FailedCount,
+    int PendingReviewCount,
+    int UsedThisMonth,
+    int MonthlyRequestLimit,
+    int RemainingThisMonth,
+    DashboardAiDocumentCategory[] Categories)
+{
+    public static readonly DashboardAiDocumentProcessing Empty = new(0, 0, 0, 0, 0, null, 0, 0, 0, 0, 0, 0, []);
+}
 public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
 public sealed record SupplierInvoiceAgingView(Guid InvoiceId, string SupplierName, string InvoiceNumber, Guid VehicleId, SupplierInvoiceAgingStatus Status, DateOnly? DueDate, DateOnly? PaidAt, decimal Amount);
 public sealed record ReminderItem(string Type, string Title, string VehiclePlate, Guid VehicleId, DateOnly DueDate, decimal? Amount);
@@ -435,7 +462,9 @@ public static class BackOfficeVehicleLookup
             vehicle.Model,
             vehicle.StockOwner,
             vehicle.Status,
-            vehicle.CustomerId);
+            vehicle.CustomerId,
+            vehicle.SellingPrice,
+            vehicle.AdditionalCharges);
 }
 
 public static class PublicVehiclePhotos
@@ -1959,6 +1988,31 @@ public static class FinanceRules
             errors.Add(new ValidationError("payment_voucher_issued_date_required", "Payment voucher issued date is required."));
         }
 
+        if (string.IsNullOrWhiteSpace(voucher.SourceAccountCode))
+        {
+            errors.Add(new ValidationError("payment_voucher_source_account_required", "Payment voucher source bank or cash account is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(voucher.AccountingAccountCode))
+        {
+            errors.Add(new ValidationError("payment_voucher_account_required", "Payment voucher accounting account is required."));
+        }
+
+        if (voucher.PaymentMethod == DisbursementMethod.Cheque && string.IsNullOrWhiteSpace(voucher.ChequeNumber))
+        {
+            errors.Add(new ValidationError("payment_voucher_cheque_number_required", "Cheque number is required for cheque payments."));
+        }
+
+        if (voucher.BankChargeAmount < 0)
+        {
+            errors.Add(new ValidationError("invalid_payment_voucher_bank_charge", "Bank charge cannot be negative."));
+        }
+
+        if (voucher.BankChargeAmount > 0 && string.IsNullOrWhiteSpace(voucher.BankChargeAccountCode))
+        {
+            errors.Add(new ValidationError("payment_voucher_bank_charge_account_required", "Bank charge account is required when a bank charge is entered."));
+        }
+
         return new ValidationResult(errors);
     }
 }
@@ -2449,6 +2503,40 @@ public static class SupplierInvoiceRules
         new(value.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
 }
 
+public static class SupplierRules
+{
+    public static ValidationResult Validate(Supplier incoming, IEnumerable<Supplier> existing)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(incoming.CompanyName)) errors.Add(new ValidationError("supplier_company_name_required", "Supplier company name is required."));
+        if (string.IsNullOrWhiteSpace(incoming.Address)) errors.Add(new ValidationError("supplier_address_required", "Supplier address is required."));
+        if (string.IsNullOrWhiteSpace(incoming.Phone)) errors.Add(new ValidationError("supplier_phone_required", "Supplier phone is required."));
+        if (existing.Any(item => item.Id != incoming.Id && item.CompanyName.Trim().Equals(incoming.CompanyName.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            errors.Add(new ValidationError("duplicate_supplier", "A supplier with this company name already exists."));
+        }
+        if (!string.IsNullOrWhiteSpace(incoming.AutoCountCreditorCode) && existing.Any(item => item.Id != incoming.Id && string.Equals(item.AutoCountCreditorCode?.Trim(), incoming.AutoCountCreditorCode.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            errors.Add(new ValidationError("duplicate_autocount_creditor_code", "This AutoCount creditor code is already assigned to another supplier."));
+        }
+        return new ValidationResult(errors);
+    }
+}
+
+public static class DeliveryAccountingChargeRules
+{
+    public static ValidationResult Validate(DeliveryAccountingCharge charge, DeliverySchedule? delivery, Supplier? supplier)
+    {
+        var errors = new List<ValidationError>();
+        if (delivery is null || delivery.VehicleId != charge.VehicleId) errors.Add(new ValidationError("delivery_charge_delivery_invalid", "Accounting charge must match an existing delivery and car plate."));
+        if (charge.SupplierId.HasValue && supplier is null) errors.Add(new ValidationError("delivery_charge_supplier_not_found", "Selected supplier was not found."));
+        if (string.IsNullOrWhiteSpace(charge.ProviderName)) errors.Add(new ValidationError("delivery_charge_provider_required", "Insurance or road-tax provider is required."));
+        if (charge.InvoiceDate == default) errors.Add(new ValidationError("delivery_charge_invoice_date_required", "Invoice date is required."));
+        if (charge.Amount <= 0) errors.Add(new ValidationError("delivery_charge_amount_invalid", "Amount must be greater than zero."));
+        return new ValidationResult(errors);
+    }
+}
+
 public static class FinanceCsv
 {
     public static string ExportPayments(IEnumerable<PaymentRecord> payments, IEnumerable<Vehicle> vehicles)
@@ -2518,6 +2606,27 @@ public static class PurchaseInvoiceRules
         if (incoming.Amount <= 0)
         {
             errors.Add(new ValidationError("invalid_purchase_invoice_amount", "Purchase invoice amount must be greater than zero."));
+        }
+
+        if (incoming.InvoiceDate == default)
+        {
+            errors.Add(new ValidationError("purchase_invoice_date_required", "Purchase invoice date is required."));
+        }
+
+        if (incoming.Lines.Count == 0)
+        {
+            errors.Add(new ValidationError("purchase_invoice_lines_required", "Add at least one classified purchase invoice line."));
+        }
+        else
+        {
+            if (incoming.Lines.Any(line => string.IsNullOrWhiteSpace(line.Description) || line.Amount <= 0))
+            {
+                errors.Add(new ValidationError("purchase_invoice_line_invalid", "Every purchase invoice line needs a description and amount greater than zero."));
+            }
+            if (incoming.Lines.Sum(line => line.Amount) != incoming.Amount)
+            {
+                errors.Add(new ValidationError("purchase_invoice_line_total_mismatch", "Purchase invoice line amounts must equal the invoice total."));
+            }
         }
 
         return new ValidationResult(errors);

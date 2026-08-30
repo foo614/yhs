@@ -102,10 +102,15 @@ describe("repair supplier invoice helpers", () => {
   });
 
   it("filters repair records by the selected car plate", () => {
-    const repairVehicle = { ...vehicles[0], id: "vehicle-2", plateNumber: "BKC3003" };
+    const repairVehicle = { ...vehicles[0], id: "vehicle-2", plateNumber: "BKC 3003" };
     const repair = { ...baseRepair, id: "repair-2", vehicleId: repairVehicle.id };
 
     expect(filterRefurbishmentRecords([baseRepair, repair], [], [vehicles[0], repairVehicle], { keyword: "bkc3003" }).map((record) => record.key))
       .toEqual(["repair-repair-2"]);
+  });
+
+  it("matches compact plate searches against the plate printed on supplier invoices", () => {
+    expect(filterRefurbishmentRecords([], [baseInvoice], vehicles, { keyword: "vpk1234" }).map((record) => record.key))
+      .toEqual(["supplier-supplier-1"]);
   });
 });

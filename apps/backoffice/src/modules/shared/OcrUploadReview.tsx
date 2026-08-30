@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { DeleteOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
-import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Radio, Select, Space, Tag, Typography, Upload, message } from "antd";
+import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Select, Space, Tag, Typography, Upload, message } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
 import {
@@ -14,7 +14,8 @@ import {
   type DocumentCategory,
   type DocumentUploadOwner,
   type OcrJob,
-  type OcrLineItem
+  type OcrLineItem,
+  type OcrReviewedResult
 } from "../../api";
 
 export type OcrFieldConfig = {
@@ -48,18 +49,6 @@ export function ocrFieldConflicts(fields: OcrFieldConfig[], existingValues: OcrR
     if (existingValue === undefined || extractedValue === undefined || String(existingValue).trim() === "" || String(extractedValue).trim() === "" || valuesMatch(existingValue, extractedValue)) return [];
     return [{ name: field.name, label: field.label, existingValue, extractedValue }];
   });
-}
-
-export function resolveOcrReviewValues(
-  values: OcrReviewValues,
-  conflicts: OcrFieldConflict[],
-  choices: Record<string, "existing" | "ocr">
-): OcrReviewValues {
-  const resolved = { ...values };
-  for (const conflict of conflicts) {
-    if (choices[conflict.name] !== "ocr") resolved[conflict.name] = conflict.existingValue;
-  }
-  return resolved;
 }
 
 function OcrReviewShell({
@@ -130,7 +119,6 @@ export function OcrUploadReview({
   const [lineItems, setLineItems] = useState<OcrLineItem[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [conflictChoices, setConflictChoices] = useState<Record<string, "existing" | "ocr">>({});
   const declaredAmount = Form.useWatch("amount", form) as string | number | undefined;
   const lineItemColumns = ocrLineItemColumns(updateLineItem, removeLineItem);
   const declaredAmountNumber = parseOcrAmount(declaredAmount);
@@ -165,8 +153,8 @@ export function OcrUploadReview({
         : repairLineItemsFromRawText(loadedJob.result?.rawText);
       setLineItems(extractedLineItems);
       const initialValues = initialValuesFromJob(loadedJob, fields);
+      for (const conflict of ocrFieldConflicts(fields, existingValues, initialValues)) initialValues[conflict.name] = conflict.existingValue;
       form.setFieldsValue(initialValues);
-      setConflictChoices(Object.fromEntries(ocrFieldConflicts(fields, existingValues, initialValues).map((conflict) => [conflict.name, "existing"])));
       setReviewOpen(true);
       option.onSuccess?.({ ok: true });
     } catch (error) {
@@ -181,38 +169,26 @@ export function OcrUploadReview({
     if (!job) return;
     try {
       const values = await form.validateFields();
-      const conflicts = ocrFieldConflicts(fields, existingValues, values);
-      const resolvedValues = resolveOcrReviewValues(values, conflicts, conflictChoices);
+      const reviewedResult = reviewedResultFrom(job, values, lineItems);
       const localJob: OcrJob = job.result
-        ? { ...job, result: { ...job.result, lineItems } }
+        ? { ...job, result: { ...job.result, fields: reviewedResult.fields, lineItems } }
         : job;
-      const reviewNotes = conflicts.length === 0
-        ? "Accepted from OCR review"
-        : `Accepted from OCR review; ${conflicts.map((conflict) => `${conflict.name}: ${conflictChoices[conflict.name] === "ocr" ? "use-ocr" : "keep-existing"}`).join(", ")}`;
       if (commitAfterApply) {
-        await onApply(resolvedValues, localJob);
+        await onApply(values, localJob);
       }
-      const reviewedJob = await reviewOcrJob(job.id, "Accepted", reviewNotes);
+      const reviewedJob = await reviewOcrJob(job.id, reviewedResult, "Reviewed and applied by staff");
       const mergedJob: OcrJob = reviewedJob.result && localJob.result
-        ? { ...reviewedJob, result: { ...reviewedJob.result, lineItems } }
+        ? { ...reviewedJob, result: { ...reviewedJob.result, fields: reviewedResult.fields, lineItems } }
         : reviewedJob;
       setJob(mergedJob);
       if (!commitAfterApply) {
-        await onApply(resolvedValues, mergedJob);
+        await onApply(values, mergedJob);
       }
       setReviewOpen(false);
-      message.success("OCR values accepted. Confirm the target workflow result before continuing.");
+      message.success("Reviewed OCR values saved. Confirm the target workflow result before continuing.");
     } catch (error) {
       message.error(humanizeApiError(error, "Could not use these OCR values. Please correct the details and try again."));
     }
-  }
-
-  async function rejectResult() {
-    if (!job) return;
-    const reviewedJob = await reviewOcrJob(job.id, "Rejected", "Rejected from OCR review");
-    setJob(reviewedJob);
-    setReviewOpen(false);
-    message.warning("OCR values rejected. The uploaded document remains available for audit.");
   }
 
   return (
@@ -261,7 +237,6 @@ export function OcrUploadReview({
         onClose={() => setReviewOpen(false)}
         actions={(
           <div className="ocrReviewActions">
-            <Button danger onClick={() => void rejectResult()} disabled={!job}>Don't use this scan</Button>
             <Button type="primary" disabled={!job?.result} onClick={() => void applyResult()}>{applyLabel}</Button>
           </div>
         )}
@@ -271,7 +246,7 @@ export function OcrUploadReview({
             type="info"
             showIcon
             message="Nothing has been saved yet."
-            description="Check the details below and correct anything that looks wrong. If a detail is already on file, we keep the current value unless you choose the one from this document."
+            description="Check the details below and correct anything that looks wrong. Saving the review records every difference from the original AI result."
           />
           {job?.warnings?.length ? (
             <Alert type="warning" showIcon message={job.warnings.join(" ")} />
@@ -283,7 +258,7 @@ export function OcrUploadReview({
           </Space>
           <Form form={form} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
             {reviewConflicts.length > 0 ? (
-              <Form.Item label="Information already on file" extra="Choose which value to keep for each difference.">
+              <Form.Item label="Information already on file" extra="The current value is shown below. Edit it if this document proves it should change.">
                 <Space direction="vertical" size={8} className="fullWidth">
                   {reviewConflicts.map((conflict) => (
                     <Alert
@@ -291,18 +266,7 @@ export function OcrUploadReview({
                       type="warning"
                       showIcon
                       message={conflict.label}
-                      description={(
-                        <Radio.Group
-                          aria-label={`${conflict.label} conflict choice`}
-                          value={conflictChoices[conflict.name] ?? "existing"}
-                          onChange={(event) => setConflictChoices((current) => ({ ...current, [conflict.name]: event.target.value as "existing" | "ocr" }))}
-                        >
-                          <Space direction="vertical" size={4}>
-                            <Radio value="existing">Keep current: <strong>{String(conflict.existingValue)}</strong></Radio>
-                            <Radio value="ocr">Use from this document: <strong>{String(conflict.extractedValue)}</strong></Radio>
-                          </Space>
-                        </Radio.Group>
-                      )}
+                      description={<>Current record: <strong>{String(conflict.existingValue)}</strong><br />AI read: <strong>{String(conflict.extractedValue)}</strong></>}
                     />
                   ))}
                 </Space>
@@ -367,7 +331,7 @@ export function OcrUploadReview({
               children: <Input.TextArea rows={5} value={job?.result?.rawText ?? ""} readOnly aria-label="Original text read from the document" />
             }]}
           />
-          <Typography.Text type="secondary">Step 3: choose “{applyLabel}” when the details look right.</Typography.Text>
+          <Typography.Text type="secondary">Step 3: save the reviewed values. The system records every change for OCR accuracy reporting.</Typography.Text>
         </Space>
       </OcrReviewShell>
     </>
@@ -457,6 +421,12 @@ function initialValuesFromJob(job: OcrJob, fields: OcrFieldConfig[]) {
     }
   }
   return values;
+}
+
+function reviewedResultFrom(job: OcrJob, values: OcrReviewValues, lineItems: OcrLineItem[]): OcrReviewedResult {
+  const fields: Record<string, string | null | undefined> = { ...(job.result?.fields ?? {}) };
+  for (const [name, value] of Object.entries(values)) fields[name] = value === undefined || value === null || String(value).trim() === "" ? null : String(value).trim();
+  return { fields, lineItems };
 }
 
 function fieldLabel(field: OcrFieldConfig, job: OcrJob | null) {

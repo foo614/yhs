@@ -11,6 +11,11 @@ export type CollectionStatus = "Pending" | "Reconciled" | "Reversed";
 export type FinancingStatus = "NotApplicable" | "Pending" | "Approved" | "Disbursed";
 export type ReceivableStatus = "Draft" | "WaitingForApproval" | "ReadyToCollect" | "PartiallyPaid" | "Paid" | "AttentionNeeded";
 export type PaymentVoucherStatus = "Pending" | "Approved" | "Paid";
+export type DisbursementMethod = "BankTransfer" | "Cheque" | "Cash" | "Other";
+export type SupplierApprovalStatus = "Draft" | "Approved" | "Inactive";
+export type PurchaseInvoiceLineType = "VehiclePurchase" | "PurchaseProcessing" | "LatePaymentCharge" | "Parking" | "Transport" | "Refurbishment" | "Other";
+export type DeliveryAccountingChargeType = "Insurance" | "RoadTax";
+export type AccountingConfirmationStatus = "Draft" | "FinanceConfirmed";
 export type CashHandoverStatus = "ReceivedBySales" | "PendingHandover" | "HandedOver" | "Rejected" | "Receipted";
 export type DebtRecoveryStatus = "Open" | "FollowedUp" | "Closed";
 export type RepairApprovalStatus = "Pending" | "Approved" | "Rejected";
@@ -25,8 +30,8 @@ export type HrPayslipStatus = "Draft" | "Generated";
 export type HrEmploymentType = "Monthly" | "Hourly";
 export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate" | "InspectionReport" | "WindscreenPolicy";
 export type DocumentOwnershipType = "Seller" | "Buyer" | "Vehicle";
-export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed";
-export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected";
+export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed" | "Reviewed";
+export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected" | "Reviewed";
 
 export type OcrLineItem = {
   description: string;
@@ -47,6 +52,17 @@ export type OcrExtractionResult = {
   warnings: string[];
 };
 
+export type OcrReviewedResult = {
+  fields: Record<string, string | null | undefined>;
+  lineItems?: OcrLineItem[];
+};
+
+export type OcrReviewChange = {
+  field: string;
+  extractedValue?: string | null;
+  reviewedValue?: string | null;
+};
+
 export type OcrJob = {
   id: string;
   documentId: string;
@@ -61,6 +77,10 @@ export type OcrJob = {
   reviewNotes?: string;
   reviewedBy?: string;
   reviewedAt?: string;
+  reviewedResult?: OcrReviewedResult | null;
+  reviewChanges?: OcrReviewChange[];
+  comparedFieldCount?: number;
+  correctFieldCount?: number;
 };
 
 export type OcrDocumentSummary = {
@@ -288,9 +308,11 @@ export type SupplierInvoice = {
   id: string;
   createdAt?: string;
   vehicleId: string;
+  supplierId?: string;
   supplierName: string;
   invoiceNumber: string;
   plateNumberOnInvoice?: string;
+  invoiceDate?: string;
   amount: number;
   dueDate?: string;
   paidAt?: string;
@@ -316,8 +338,41 @@ export type SupplierInvoiceAgingView = {
 export type PurchaseInvoice = {
   id: string;
   vehicleId: string;
+  supplierId?: string;
   invoiceNumber: string;
+  invoiceDate?: string;
+  purchaseDate?: string;
+  paymentReference?: string;
   amount: number;
+  accountingStatus?: AccountingConfirmationStatus;
+  accountingConfirmedBy?: string;
+  accountingConfirmedAt?: string;
+  lines?: PurchaseInvoiceLine[];
+};
+
+export type PurchaseInvoiceLine = {
+  id: string;
+  purchaseInvoiceId: string;
+  lineType: PurchaseInvoiceLineType;
+  description: string;
+  amount: number;
+  capitaliseIntoVehicleCost: boolean;
+};
+
+export type Supplier = {
+  id: string;
+  companyName: string;
+  registrationNumber?: string;
+  tinNumber?: string;
+  address: string;
+  phone: string;
+  contactPerson?: string;
+  autoCountCreditorCode?: string;
+  approvalStatus: SupplierApprovalStatus;
+  createdBy?: string;
+  createdAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
 };
 
 export type Customer = {
@@ -325,6 +380,7 @@ export type Customer = {
   name: string;
   phone: string;
   icNumber?: string;
+  tinNumber?: string;
   email?: string;
   address?: string;
   notes?: string;
@@ -335,6 +391,7 @@ export type Owner = {
   name: string;
   phone: string;
   icNumber?: string;
+  tinNumber?: string;
   address?: string;
 };
 
@@ -518,6 +575,12 @@ export type PaymentRecord = {
   outstationDeliveryDate?: string;
   bankName?: string;
   bankFollowUpDate?: string;
+  salesAgentUserId?: string;
+  salesAgentName?: string;
+  loanBankReference?: string;
+  insurancePaidOnBehalfAmount?: number;
+  roadTaxPaidOnBehalfAmount?: number;
+  advancePaidOnBehalfAmount?: number;
   createdAt: string;
   customerId?: string;
   calculatedNettPrice?: number;
@@ -604,6 +667,20 @@ export type PaymentVoucher = {
   purpose: string;
   status: PaymentVoucherStatus;
   issuedDate: string;
+  paymentMethod?: DisbursementMethod;
+  sourceAccountCode?: string;
+  chequeNumber?: string;
+  paymentReference?: string;
+  bankChargeAmount?: number;
+  bankChargeAccountCode?: string;
+  accountingAccountCode?: string;
+  createdBy?: string;
+  createdAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  paidBy?: string;
+  paidAt?: string;
+  paymentEvidenceReference?: string;
   notes?: string;
 };
 
@@ -712,6 +789,7 @@ export type CustomerProfileContact = {
   name: string;
   phone?: string;
   icNumber?: string;
+  tinNumber?: string;
   email?: string;
   address?: string;
   notes?: string;
@@ -1031,9 +1109,14 @@ export type AuditLog = {
 };
 
 export type AuditLogFilters = {
+  keyword?: string;
   actor?: string;
   action?: string;
   entityName?: string;
+};
+
+export type AuditLogRequestOptions = {
+  strict?: boolean;
 };
 
 export type VehicleDocument = {
@@ -1336,6 +1419,10 @@ export async function getSuppliers(): Promise<SupplierSummary[]> {
   return getWithNetworkFallback("/api/suppliers", []);
 }
 
+export async function getSupplierMaster(): Promise<Supplier[]> {
+  return getWithNetworkFallback("/api/supplier-master", []);
+}
+
 export async function getSupplierInvoices(): Promise<SupplierInvoice[]> {
   return getWithNetworkFallback("/api/supplier-invoices", fallbackSupplierInvoices());
 }
@@ -1432,15 +1519,21 @@ export async function getSalesWorkboard(agentUserId?: string): Promise<SalesWork
 
 export async function getAuditLog(filters: AuditLogFilters = {}): Promise<AuditLog[]> {
   const params = new URLSearchParams();
+  if (filters.keyword?.trim()) params.set("q", filters.keyword.trim());
   if (filters.actor?.trim()) params.set("actor", filters.actor.trim());
   if (filters.action?.trim()) params.set("action", filters.action.trim());
   if (filters.entityName?.trim()) params.set("entityName", filters.entityName.trim());
   const query = params.toString();
-  return getWithNetworkFallback(`/api/audit-log${query ? `?${query}` : ""}`, fallbackAuditLog());
+  const path = `/api/audit-log${query ? `?${query}` : ""}`;
+  return query || options.strict ? request<AuditLog[]>(path) : getWithNetworkFallback(path, []);
 }
 
 export async function getStaffUsers(): Promise<StaffUser[]> {
   return getWithNetworkFallback("/api/admin/users", []);
+}
+
+export async function getSalesAgents(): Promise<StaffUser[]> {
+  return getWithNetworkFallback("/api/sales-agents", []);
 }
 
 export async function getOcrUsageLimit(): Promise<AiUsageLimitSnapshot> {
@@ -1741,6 +1834,10 @@ export async function updatePurchaseInvoice(invoice: PurchaseInvoice): Promise<P
   });
 }
 
+export async function confirmPurchaseInvoiceAccounting(invoiceId: string): Promise<PurchaseInvoice> {
+  return request<PurchaseInvoice>(`/api/purchase-invoices/${invoiceId}/confirm-accounting`, { method: "POST" });
+}
+
 export function customerFromLead(lead: Lead, id: string): Customer {
   return {
     id,
@@ -1766,6 +1863,18 @@ export async function updateSupplierInvoice(invoice: SupplierInvoice): Promise<S
     method: "PUT",
     body: JSON.stringify(invoice)
   });
+}
+
+export async function createSupplier(supplier: Supplier): Promise<Supplier> {
+  return request<Supplier>("/api/supplier-master", { method: "POST", body: JSON.stringify(supplier) });
+}
+
+export async function updateSupplier(supplier: Supplier): Promise<Supplier> {
+  return request<Supplier>(`/api/supplier-master/${supplier.id}`, { method: "PUT", body: JSON.stringify(supplier) });
+}
+
+export async function approveSupplier(supplierId: string): Promise<Supplier> {
+  return request<Supplier>(`/api/supplier-master/${supplierId}/approve`, { method: "POST" });
 }
 
 export async function createRepair(repair: RepairJob): Promise<RepairJob> {
@@ -2187,10 +2296,10 @@ export async function getOcrJob(jobId: string): Promise<OcrJob> {
   return request<OcrJob>(`/api/ocr-jobs/${jobId}`);
 }
 
-export async function reviewOcrJob(jobId: string, decision: Exclude<OcrReviewDecision, "Pending">, notes?: string): Promise<OcrJob> {
+export async function reviewOcrJob(jobId: string, result: OcrReviewedResult, notes?: string): Promise<OcrJob> {
   return request<OcrJob>(`/api/ocr-jobs/${jobId}/review`, {
     method: "PUT",
-    body: JSON.stringify({ decision, notes })
+    body: JSON.stringify({ result, notes })
   });
 }
 
@@ -2472,19 +2581,6 @@ function fallbackLeads(): Lead[] {
       message: "Interested for family use; wants road tax and insurance estimate.",
       status: "Closed",
       createdAt: "2026-06-02T01:00:00Z"
-    }
-  ];
-}
-
-function fallbackAuditLog(): AuditLog[] {
-  return [
-    {
-      id: "5d2ad503-6526-4b27-861f-c326f1b55aa1",
-      actor: "system",
-      action: "vehicle.created",
-      entityName: "Vehicle",
-      entityId: sampleVehicle.id,
-      createdAt: "2026-05-30T00:00:00Z"
     }
   ];
 }

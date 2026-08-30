@@ -36,6 +36,7 @@ export type LeadVehicleGroup = {
 };
 
 export type LeadTriageFilters = {
+  keyword?: string;
   status?: Lead["status"] | "All";
   link?: LeadLinkFilter;
 };
@@ -57,15 +58,30 @@ export function findCustomerForLead(lead: Lead, customers: Customer[]) {
   return customers.find((customer) => normalizePhone(customer.phone) === phone);
 }
 
-export function filterLeadsForTriage(leads: Lead[], filters: LeadTriageFilters) {
+export function filterLeadsForTriage(leads: Lead[], filters: LeadTriageFilters, vehicles: LeadVehicleInfo[] = [], customers: Customer[] = []) {
+  const keyword = normalizeSearchValue(filters.keyword);
+
   return leads.filter((lead) => {
+    const linkedCustomer = lead.customerId ? customers.find((customer) => customer.id === lead.customerId) : undefined;
+    const matchesKeyword = !keyword || matchesSearchValue(keyword, [
+      linkedCustomer?.name,
+      linkedCustomer?.phone,
+      lead.customerName,
+      lead.phone,
+      lead.message,
+      lead.sourcePage,
+      lead.sourceCampaign,
+      lead.sourceReferrer,
+      leadSourceSummary(lead),
+      leadVehicleLabel(lead, vehicles)
+    ]);
     const matchesStatus = !filters.status || filters.status === "All" || lead.status === filters.status;
     const matchesLink = !filters.link
       || filters.link === "All"
       || (filters.link === "Linked" && Boolean(lead.customerId))
       || (filters.link === "Unlinked" && !lead.customerId);
 
-    return matchesStatus && matchesLink;
+    return matchesKeyword && matchesStatus && matchesLink;
   });
 }
 
@@ -218,4 +234,18 @@ function leadHotCarScore(lead: Lead, vehicles: LeadVehicleInfo[], activeCounts: 
 
 function normalizePhone(phone: string) {
   return phone.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function normalizeSearchValue(value?: string) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function matchesSearchValue(keyword: string, values: Array<string | undefined>) {
+  const compactKeyword = normalizePhone(keyword);
+
+  return values.some((value) => {
+    const normalizedValue = normalizeSearchValue(value);
+    return normalizedValue.includes(keyword) ||
+      (Boolean(compactKeyword) && normalizePhone(normalizedValue).includes(compactKeyword));
+  });
 }

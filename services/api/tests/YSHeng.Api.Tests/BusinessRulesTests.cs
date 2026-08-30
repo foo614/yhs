@@ -168,7 +168,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Backoffice_vehicle_lookup_excludes_internal_pricing_fields()
+    public void Backoffice_vehicle_lookup_includes_invoice_prefill_but_excludes_cost_and_margin_fields()
     {
         var vehicle = VehicleSeed.Available(publicVisible: true) with
         {
@@ -187,7 +187,9 @@ public sealed class BusinessRulesTests
         Assert.Equal(vehicle.Model, result.Model);
         Assert.Equal(vehicle.Status, result.Status);
         Assert.Equal(vehicle.CustomerId, result.CustomerId);
-        Assert.DoesNotContain(result.GetType().GetProperties(), property => property.Name is "PurchasePrice" or "SellingPrice" or "AdditionalCharges" or "RefurbishmentTotal" or "CommissionTotal" or "IsPublic");
+        Assert.Equal(vehicle.SellingPrice, result.SellingPrice);
+        Assert.Equal(vehicle.AdditionalCharges, result.AdditionalCharges);
+        Assert.DoesNotContain(result.GetType().GetProperties(), property => property.Name is "PurchasePrice" or "RefurbishmentTotal" or "CommissionTotal" or "IsPublic");
     }
 
     [Fact]
@@ -2031,6 +2033,44 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Payment_voucher_pdf_is_stable_marks_pending_vouchers_as_draft_and_lists_standard_fields()
+    {
+        var voucher = new PaymentVoucher
+        {
+            Id = Guid.Parse("fedcba98-7654-4321-9876-abcdef123456"),
+            VehicleId = Guid.NewGuid(),
+            PayeeName = "Ah Ming",
+            Amount = 180.50m,
+            Purpose = "Outstation Pickup Allowance",
+            Status = PaymentVoucherStatus.Pending,
+            IssuedDate = new DateOnly(2026, 8, 27),
+            Notes = "Booking slip BOOK-1001"
+        };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "VPK1234" };
+
+        var first = PaymentVoucherPdfFactory.Create(voucher, vehicle);
+        var second = PaymentVoucherPdfFactory.Create(voucher, vehicle);
+        var content = System.Text.Encoding.ASCII.GetString(first.Content);
+
+        Assert.Equal(first.VoucherNumber, second.VoucherNumber);
+        Assert.Equal("YSV-20260827-FEDCBA", first.VoucherNumber);
+        Assert.StartsWith("%PDF-", content);
+        Assert.Contains("PAYMENT VOUCHER", content);
+        Assert.Contains("DRAFT", content);
+        Assert.Contains("PAYEE", content);
+        Assert.Contains("Ah Ming", content);
+        Assert.Contains("VPK1234", content);
+        Assert.Contains("RM 180.50", content);
+        Assert.Contains("Ringgit Malaysia", content);
+        Assert.Contains("Fifty Only", content);
+        Assert.Contains("PREPARED BY", content);
+
+        var approvedContent = System.Text.Encoding.ASCII.GetString(PaymentVoucherPdfFactory.Create(voucher with { Status = PaymentVoucherStatus.Approved }, vehicle).Content);
+        Assert.Contains("STATUS: APPROVED", approvedContent);
+        Assert.DoesNotContain("DRAFT", approvedContent);
+    }
+
+    [Fact]
     public void Photo_upload_validation_rejects_unsupported_image_bytes()
     {
         var result = PhotoUploadRules.CreateThumbnail([1, 2, 3, 4]);
@@ -2285,6 +2325,44 @@ public sealed class BusinessRulesTests
         Assert.Contains(summary.AgingBuckets, bucket => bucket.Label == "0-30" && bucket.Count == 1);
         Assert.Contains(summary.AgingBuckets, bucket => bucket.Label == "31-60" && bucket.Count == 1);
         Assert.Contains(summary.AgingBuckets, bucket => bucket.Label == "61+" && bucket.Count == 1);
+    }
+
+    [Fact]
+    public void Dashboard_current_stock_financials_exclude_sold_vehicles()
+    {
+        var today = new DateOnly(2026, 6, 1);
+        var available = VehicleSeed.Available(publicVisible: true) with
+        {
+            Id = Guid.NewGuid(),
+            PurchasePrice = 42000m,
+            SellingPrice = 58000m,
+            AdditionalCharges = 600m,
+            RefurbishmentTotal = 1000m,
+            CommissionTotal = 1200m,
+            OutstationPickupAllowance = 100m
+        };
+        var sold = VehicleSeed.Sold(publicVisible: false) with
+        {
+            Id = Guid.NewGuid(),
+            PurchasePrice = 20000m,
+            SellingPrice = 30000m,
+            RefurbishmentTotal = 9000m,
+            CommissionTotal = 500m
+        };
+
+        var summary = DashboardMetrics.Create(
+            [available, sold],
+            [], [], [], [], [], [], [], [], [], [], [],
+            today);
+
+        Assert.Equal(1, summary.TotalStock);
+        Assert.Equal(42000m, summary.PurchaseCost);
+        Assert.Equal(1000m, summary.RepairCost);
+        Assert.Equal(14300m, summary.TotalProfit);
+        Assert.Equal(summary.TotalProfit, summary.EstimatedProfit);
+        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Purchase Cost" && item.Amount == 42000m);
+        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Repair Cost" && item.Amount == 1000m);
+        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Estimated Profit" && item.Amount == 14300m);
     }
 
     [Fact]
@@ -4203,6 +4281,36 @@ public sealed class BusinessRulesTests
         Assert.True(ReminderRules.IsPaymentStatusFollowUpDue(payment, new DateOnly(2026, 6, 1)));
         Assert.False(ReminderRules.IsPaymentStatusFollowUpDue(payment, new DateOnly(2026, 5, 31)));
         Assert.False(ReminderRules.IsPaymentStatusFollowUpDue(payment with { Status = PaymentStatus.Reconciled }, new DateOnly(2026, 6, 1)));
+    }
+
+    [Fact]
+    public void Payment_voucher_requires_separate_creator_approver_and_payer_with_evidence()
+    {
+        var pending = new PaymentVoucher { CreatedBy = "finance-1", Status = PaymentVoucherStatus.Pending };
+        Assert.Contains(PaymentVoucherWorkflowRules.ValidateApproval(pending, "finance-1").Errors, error => error.Code == "payment_voucher_self_approval");
+        Assert.True(PaymentVoucherWorkflowRules.ValidateApproval(pending, "finance-2").IsValid);
+
+        var approved = pending with { Status = PaymentVoucherStatus.Approved, ApprovedBy = "finance-2" };
+        Assert.Contains(PaymentVoucherWorkflowRules.ValidatePaid(approved, "finance-2", "BANK-1").Errors, error => error.Code == "payment_voucher_approver_cannot_pay");
+        Assert.Contains(PaymentVoucherWorkflowRules.ValidatePaid(approved, "finance-3", " ").Errors, error => error.Code == "payment_voucher_evidence_required");
+        Assert.True(PaymentVoucherWorkflowRules.ValidatePaid(approved, "finance-3", "BANK-1").IsValid);
+    }
+
+    [Fact]
+    public void Purchase_invoice_lines_must_be_classified_and_equal_the_invoice_total()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false);
+        var invoice = new PurchaseInvoice
+        {
+            VehicleId = vehicle.Id,
+            InvoiceNumber = "PI-1",
+            InvoiceDate = new DateOnly(2026, 8, 28),
+            Amount = 100m,
+            Lines = [new PurchaseInvoiceLine { LineType = PurchaseInvoiceLineType.VehiclePurchase, Description = "Vehicle", Amount = 90m }]
+        };
+
+        Assert.Contains(PurchaseInvoiceRules.Validate(invoice, [], [vehicle]).Errors, error => error.Code == "purchase_invoice_line_total_mismatch");
+        Assert.True(PurchaseInvoiceRules.Validate(invoice with { Lines = [invoice.Lines[0] with { Amount = 100m }] }, [], [vehicle]).IsValid);
     }
 
 }

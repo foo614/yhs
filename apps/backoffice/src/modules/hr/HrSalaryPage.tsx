@@ -12,6 +12,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
+import { OperationsProTable } from "../shared/OperationsProTable";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
 import type {
   CurrentUser,
@@ -181,6 +182,17 @@ export const leavePolicyTableConfig = {
   pagination: false,
   recordCreatorProps: false
 } as const;
+
+export function groupCalendarAvailabilityByDate(availability: HrCalendarAvailability[]) {
+  const events = new Map<string, HrCalendarAvailability[]>();
+  availability.forEach((item) => events.set(item.date, [...(events.get(item.date) ?? []), item]));
+  return events;
+}
+
+export function calendarAvailabilityCellItems(events: HrCalendarAvailability[], limit = 2) {
+  const visibleEvents = events.slice(0, limit);
+  return { visibleEvents, remainingCount: Math.max(0, events.length - visibleEvents.length) };
+}
 
 export function HrSalaryPage({
   currentUser,
@@ -658,6 +670,7 @@ export function HrSalaryPage({
   return (
     <Space direction="vertical" size={16} className="fullWidth">
       <Alert
+        className="operationalInfoAlert"
         type="info"
         showIcon
         message="HR Records / 人事记录"

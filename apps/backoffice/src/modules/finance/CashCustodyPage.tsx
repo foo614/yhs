@@ -13,6 +13,38 @@ import {
   type Customer
 } from "../../api";
 
+export type CashCustodyStatusFilter = CashHandover["status"] | "All" | "Overdue" | "AmountMismatch";
+
+export function filterCashHandovers(
+  handovers: CashHandover[],
+  paymentLookup: CashHandoverPaymentLookup[],
+  keyword: string,
+  status: CashCustodyStatusFilter
+) {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  const compactKeyword = compactSearchValue(normalizedKeyword);
+
+  return handovers.filter((handover) => {
+    const payment = paymentLookup.find((item) => item.paymentRecordId === handover.paymentRecordId);
+    const matchesKeyword = !normalizedKeyword || [
+      payment?.plateNumber,
+      payment?.customerName,
+      payment?.invoiceNumber,
+      handover.officialReceiptNumber,
+      handover.collectedByUserId,
+      statusLabel(handover.status)
+    ].some((value) => {
+      const normalizedValue = value?.toLowerCase() ?? "";
+      return normalizedValue.includes(normalizedKeyword)
+        || (Boolean(compactKeyword) && compactSearchValue(normalizedValue).includes(compactKeyword));
+    });
+    const matchesStatus = status === "All"
+      || (status === "Overdue" ? isOverdue(handover) : status === "AmountMismatch" ? isAmountMismatch(handover, paymentLookup) : handover.status === status);
+
+    return matchesKeyword && matchesStatus;
+  });
+}
+
 export function CashCustodyPage({
   currentUser,
   customers,
@@ -272,6 +304,8 @@ export function CashCustodyPage({
         >
           <Form.Item name="paymentRecordId" label="Payment / Vehicle / Customer" rules={[{ required: true }]}> 
             <Select
+              showSearch
+              optionFilterProp="label"
               placeholder="Select payment"
               options={availablePayments.map((payment) => ({
                 value: payment.paymentRecordId,
@@ -372,6 +406,10 @@ function statusColor(status: CashHandover["status"]) {
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString();
+}
+
+function compactSearchValue(value: string) {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
 function composeReceiptEmail(handover: CashHandover, customers: Customer[]) {

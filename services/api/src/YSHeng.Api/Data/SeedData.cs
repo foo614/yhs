@@ -337,6 +337,18 @@ public static class SeedData
             ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "VerificationMethod" integer NOT NULL DEFAULT 0;
             ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "OfficeNetworkLabel" text NULL;
 
+            CREATE TABLE IF NOT EXISTS "HrAttendanceNetworks" (
+                "Id" uuid NOT NULL,
+                "Label" text NOT NULL,
+                "Cidr" text NOT NULL,
+                "IsActive" boolean NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrAttendanceNetworks" PRIMARY KEY ("Id")
+            );
+
+            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "VerificationMethod" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "OfficeNetworkLabel" text NULL;
+
             CREATE TABLE IF NOT EXISTS "HrLeaveRequests" (
                 "Id" uuid NOT NULL,
                 "StaffUserId" text NOT NULL,
@@ -479,6 +491,10 @@ public static class SeedData
             ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewNotes" text NULL;
             ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewedBy" text NULL;
             ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewedAt" timestamp with time zone NULL;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewedResultJson" text NULL;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ReviewChangesJson" text NULL;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "ComparedFieldCount" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "OcrJobs" ADD COLUMN IF NOT EXISTS "CorrectFieldCount" integer NOT NULL DEFAULT 0;
 
             CREATE INDEX IF NOT EXISTS "IX_OcrJobs_DocumentId" ON "OcrJobs" ("DocumentId");
         """);
@@ -571,6 +587,7 @@ public static class SeedData
         await db.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "RepairJobId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "PaymentRecordId" uuid NULL;
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "CollectionTransactionId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnershipType" integer NOT NULL DEFAULT 2;
             ALTER TABLE "Owners" ADD COLUMN IF NOT EXISTS "IcNumber" text NULL;
@@ -590,6 +607,7 @@ public static class SeedData
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_OwnerId" ON "DocumentBlobs" ("OwnerId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_RepairJobId" ON "DocumentBlobs" ("RepairJobId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_PaymentRecordId" ON "DocumentBlobs" ("PaymentRecordId");
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_CollectionTransactionId" ON "DocumentBlobs" ("CollectionTransactionId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_OwnershipType" ON "DocumentBlobs" ("OwnershipType");
         """);
     }
@@ -871,6 +889,105 @@ public static class SeedData
                 "SortOrder" integer NOT NULL
             );
             CREATE INDEX IF NOT EXISTS "IX_RepairReceiptItems_RepairReceiptId_SortOrder" ON "RepairReceiptItems" ("RepairReceiptId", "SortOrder");
+        """);
+    }
+
+    private static async Task EnsureAutoCountAccountingSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS "TinNumber" text NULL;
+            ALTER TABLE "Owners" ADD COLUMN IF NOT EXISTS "TinNumber" text NULL;
+
+            CREATE TABLE IF NOT EXISTS "Suppliers" (
+                "Id" uuid NOT NULL,
+                "CompanyName" text NOT NULL,
+                "RegistrationNumber" text NULL,
+                "TinNumber" text NULL,
+                "Address" text NOT NULL,
+                "Phone" text NOT NULL,
+                "ContactPerson" text NULL,
+                "AutoCountCreditorCode" text NULL,
+                "ApprovalStatus" integer NOT NULL DEFAULT 0,
+                "CreatedBy" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "ApprovedBy" text NULL,
+                "ApprovedAt" timestamp with time zone NULL,
+                CONSTRAINT "PK_Suppliers" PRIMARY KEY ("Id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_Suppliers_CompanyName" ON "Suppliers" ("CompanyName");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_Suppliers_AutoCountCreditorCode" ON "Suppliers" ("AutoCountCreditorCode");
+
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "SupplierId" uuid NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "InvoiceDate" date NOT NULL DEFAULT CURRENT_DATE;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "PurchaseDate" date NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "PaymentReference" text NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AccountingStatus" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AccountingConfirmedBy" text NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AccountingConfirmedAt" timestamp with time zone NULL;
+            CREATE TABLE IF NOT EXISTS "PurchaseInvoiceLines" (
+                "Id" uuid NOT NULL,
+                "PurchaseInvoiceId" uuid NOT NULL,
+                "LineType" integer NOT NULL,
+                "Description" text NOT NULL,
+                "Amount" numeric NOT NULL,
+                "CapitaliseIntoVehicleCost" boolean NOT NULL,
+                CONSTRAINT "PK_PurchaseInvoiceLines" PRIMARY KEY ("Id")
+            );
+            CREATE INDEX IF NOT EXISTS "IX_PurchaseInvoiceLines_PurchaseInvoiceId_LineType" ON "PurchaseInvoiceLines" ("PurchaseInvoiceId", "LineType");
+
+            ALTER TABLE "SupplierInvoices" ADD COLUMN IF NOT EXISTS "SupplierId" uuid NULL;
+            ALTER TABLE "SupplierInvoices" ADD COLUMN IF NOT EXISTS "InvoiceDate" date NULL;
+
+            CREATE TABLE IF NOT EXISTS "DeliveryAccountingCharges" (
+                "Id" uuid NOT NULL,
+                "DeliveryScheduleId" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "ChargeType" integer NOT NULL,
+                "SupplierId" uuid NULL,
+                "ProviderName" text NOT NULL,
+                "ReferenceNumber" text NULL,
+                "InvoiceDate" date NOT NULL,
+                "Amount" numeric NOT NULL,
+                "PaidOnBehalf" boolean NOT NULL,
+                "DocumentId" uuid NULL,
+                "AccountingStatus" integer NOT NULL DEFAULT 0,
+                "UpdatedBy" text NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                "AccountingConfirmedBy" text NULL,
+                "AccountingConfirmedAt" timestamp with time zone NULL,
+                CONSTRAINT "PK_DeliveryAccountingCharges" PRIMARY KEY ("Id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DeliveryAccountingCharges_DeliveryScheduleId_ChargeType" ON "DeliveryAccountingCharges" ("DeliveryScheduleId", "ChargeType");
+
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "SalesAgentUserId" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "SalesAgentName" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "LoanBankReference" text NULL;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "InsurancePaidOnBehalfAmount" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "RoadTaxPaidOnBehalfAmount" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "AdvancePaidOnBehalfAmount" numeric NOT NULL DEFAULT 0;
+
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "CustomerTinNumber" text NULL;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "SalesAgentUserId" text NULL;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "SalesAgentName" text NULL;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "LoanBankReference" text NULL;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "InsurancePaidOnBehalfAmount" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "RoadTaxPaidOnBehalfAmount" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "FinanceInvoices" ADD COLUMN IF NOT EXISTS "AdvancePaidOnBehalfAmount" numeric NOT NULL DEFAULT 0;
+
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaymentMethod" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "SourceAccountCode" text NOT NULL DEFAULT '';
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "ChequeNumber" text NULL;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaymentReference" text NULL;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "BankChargeAmount" numeric NOT NULL DEFAULT 0;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "BankChargeAccountCode" text NULL;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "AccountingAccountCode" text NOT NULL DEFAULT '';
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "CreatedBy" text NOT NULL DEFAULT '';
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "CreatedAt" timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "ApprovedBy" text NULL;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "ApprovedAt" timestamp with time zone NULL;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaidBy" text NULL;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaidAt" timestamp with time zone NULL;
+            ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaymentEvidenceReference" text NULL;
         """);
     }
 }

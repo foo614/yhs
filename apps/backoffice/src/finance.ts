@@ -229,6 +229,12 @@ export function paymentVoucherCreateBlockReason(voucher: PaymentVoucher, vehicle
   if (!voucher.issuedDate?.trim()) {
     return "Payment voucher issued date is required.";
   }
+  if (!voucher.paymentMethod) return "Select a payment method.";
+  if (!voucher.sourceAccountCode?.trim()) return "Bank or cash source account is required.";
+  if (!voucher.accountingAccountCode?.trim()) return "Accounting account is required.";
+  if (voucher.paymentMethod === "Cheque" && !voucher.chequeNumber?.trim()) return "Cheque number is required for cheque payment.";
+  if ((voucher.bankChargeAmount ?? 0) < 0) return "Bank charge cannot be negative.";
+  if ((voucher.bankChargeAmount ?? 0) > 0 && !voucher.bankChargeAccountCode?.trim()) return "Bank charge account is required.";
 
   return undefined;
 }

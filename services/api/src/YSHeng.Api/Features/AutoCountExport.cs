@@ -39,9 +39,9 @@ public static class AutoCountExcel
         var financeInvoices = input.FinanceInvoices ?? [];
         var collections = input.Collections ?? [];
         var selectedPurchaseInvoices = input.PurchaseInvoices
-            .Where(invoice => InPeriod(EffectiveDate(null, sourceVehicles, invoice.VehicleId), input.From, input.To)).ToList();
+            .Where(invoice => InPeriod(EffectiveDate(Present(invoice.InvoiceDate), sourceVehicles, invoice.VehicleId), input.From, input.To)).ToList();
         var selectedSupplierInvoices = input.SupplierInvoices
-            .Where(invoice => InPeriod(EffectiveDate(Present(invoice.PaidAt) ?? Present(invoice.DueDate), sourceVehicles, invoice.VehicleId), input.From, input.To)).ToList();
+            .Where(invoice => InPeriod(EffectiveDate(Present(invoice.InvoiceDate) ?? Present(invoice.PaidAt) ?? Present(invoice.DueDate), sourceVehicles, invoice.VehicleId), input.From, input.To)).ToList();
         var selectedPayments = input.Payments
             .Where(payment => InPeriod(AutoCountDateRules.SingaporeAccountingDate(payment.CreatedAt), input.From, input.To)).ToList();
         var selectedRepairs = input.Repairs
@@ -87,11 +87,14 @@ public static class AutoCountExcel
             .Where(customer => includedCustomerIds.Contains(customer.Id))
             .OrderBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var includedOwnerIds = includedVehicles.Where(vehicle => vehicle.OwnerId.HasValue).Select(vehicle => vehicle.OwnerId!.Value).ToHashSet();
+        var includedOwners = (input.Owners ?? []).Where(owner => includedOwnerIds.Contains(owner.Id)).OrderBy(owner => owner.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
         var selectedInput = input with
         {
             Vehicles = includedVehicles,
             Customers = includedCustomers,
+            Owners = includedOwners,
             PurchaseInvoices = selectedPurchaseInvoices,
             SupplierInvoices = selectedSupplierInvoices,
             Payments = selectedPayments,
@@ -150,8 +153,10 @@ public static class AutoCountExcel
             ["Category sheets", "Customers, Vehicles, Purchases, Payments, Expenses, SalesInvoices, Collections"],
             ["Vehicles included", vehicles.Count.ToString(CultureInfo.InvariantCulture)],
             ["Customers included", customers.Count.ToString(CultureInfo.InvariantCulture)],
-            ["Data boundary", "Only values currently persisted in YS Heng are included; no new database fields are inferred."],
-            ["Mapping limitation", "AutoCount account codes, tax codes, TIN, supplier address, insurance amount and loan fees are not verified or persisted here."],
+            ["Data boundary", "Only values currently persisted in YS Heng are included; no tax code is inferred."],
+            ["Approved classification mapping", "Vehicle/car = 025; insurance = 006; road tax = 006. Classification is separate from TaxCode."],
+            ["Approved account mapping", "Vehicle sale 5500-0000; insurance sale 4001-I001; road-tax sale 4001-R001; vehicle purchase 6P00-0000; purchase processing 6P00-1000; parking 6T00-1000; refurbishment 6R00-0000; insurance paid on behalf 4001-I002; loan application fee 8000-L002."],
+            ["Mapping limitation", "TaxCode remains blank until Finance confirms the approved AutoCount tax-code mapping."],
             ["Period note", "Records without their own date use the linked vehicle intake date where available; PaymentRecord.CreatedAt is converted to Asia/Singapore accounting date; referenced vehicle/customer masters are retained."],
             ["Cell typing", "Money and whole-number fields are emitted as numeric XLSX cells where practical; identifiers, dates, statuses and Remarks remain text."],
             ["Review instruction", "Check every Remark field and confirm the AutoCount 2.2 template/account mapping before any manual import."]
@@ -160,10 +165,20 @@ public static class AutoCountExcel
 
     private static IReadOnlyList<IReadOnlyList<string>> CustomerRows(IReadOnlyList<Customer> customers)
     {
-        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "CustomerName", "Phone", "IcNumber", "Email", "Address", RemarkHeader } };
+        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "CustomerName", "Phone", "IcNumber", "TinNumber", "Email", "Address", RemarkHeader } };
         rows.AddRange(customers.Select(customer => new[] {
-            customer.Id.ToString(), customer.Name, customer.Phone, customer.IcNumber ?? "", customer.Email ?? "", customer.Address ?? "",
+            customer.Id.ToString(), customer.Name, customer.Phone, customer.IcNumber ?? "", customer.TinNumber ?? "", customer.Email ?? "", customer.Address ?? "",
             string.IsNullOrWhiteSpace(customer.Address) ? "Address is not persisted; confirm AutoCount customer master mapping." : "Customer/account code mapping not verified."
+        }));
+        return rows;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> OwnerRows(IReadOnlyList<Owner> owners)
+    {
+        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "OwnerName", "Phone", "IcNumber", "TinNumber", "Address", RemarkHeader } };
+        rows.AddRange(owners.Select(owner => new[] {
+            owner.Id.ToString(), owner.Name, owner.Phone, owner.IcNumber ?? "", owner.TinNumber ?? "", owner.Address ?? "",
+            "Previous-owner master details for settlement review; confirm the AutoCount creditor/account mapping before import."
         }));
         return rows;
     }
@@ -178,28 +193,44 @@ public static class AutoCountExcel
             vehicle.Id.ToString(), vehicle.PlateNumber, vehicle.ChassisNumber ?? "", vehicle.EngineNumber ?? "", vehicle.Make, vehicle.Model, vehicle.Year.ToString(CultureInfo.InvariantCulture), vehicle.StockOwner.ToString(), vehicle.StockLocation, vehicle.Status.ToString(),
             Money(vehicle.PurchasePrice), Money(vehicle.SellingPrice), Money(vehicle.AdditionalCharges), Money(vehicle.RefurbishmentTotal), Money(vehicle.CommissionTotal),
             vehicle.CustomerId?.ToString() ?? "", vehicle.OwnerId?.ToString() ?? "", vehicle.IntakeDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            "Item/account/tax mapping is not verified; TIN, supplier address, insurance amount and loan fees are not persisted."
+            "Vehicle classification 025. TaxCode remains blank until Finance confirms it."
+        }));
+        return rows;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> SupplierRows(IReadOnlyList<Supplier> suppliers)
+    {
+        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "CompanyName", "RegistrationNumber", "TinNumber", "Address", "Phone", "ContactPerson", "AutoCountCreditorCode", "ApprovalStatus", RemarkHeader } };
+        rows.AddRange(suppliers.OrderBy(supplier => supplier.CompanyName).Select(supplier => new[] {
+            supplier.Id.ToString(), supplier.CompanyName, supplier.RegistrationNumber ?? "", supplier.TinNumber ?? "", supplier.Address, supplier.Phone,
+            supplier.ContactPerson ?? "", supplier.AutoCountCreditorCode ?? "", supplier.ApprovalStatus.ToString(),
+            supplier.ApprovalStatus == SupplierApprovalStatus.Approved ? "Approved supplier master." : "Draft supplier; do not import until Finance approval."
         }));
         return rows;
     }
 
     private static IReadOnlyList<IReadOnlyList<string>> PurchaseRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)
     {
-        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "Category", "CarPlate", "InvoiceNumber", "SupplierName", "PlateNumberOnInvoice", "Amount", "EffectiveDate", "DueDate", "PaidAt", RemarkHeader } };
-        rows.AddRange(input.PurchaseInvoices.Select(invoice => new[] {
-            invoice.Id.ToString(), "PurchaseInvoice", PlateFor(vehicles, invoice.VehicleId), invoice.InvoiceNumber, "", "", Money(invoice.Amount), VehicleDate(vehicles, invoice.VehicleId), "", "", "Supplier/account/tax mapping is not verified; source has no invoice date."
-        }));
+        var suppliers = (input.Suppliers ?? []).ToDictionary(supplier => supplier.Id);
+        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "Category", "CarPlate", "InvoiceNumber", "SupplierName", "InvoiceDate", "PurchaseDate", "PaymentReference", "LineType", "Description", "AccountCode", "UOM", "Amount", "CapitaliseIntoVehicleCost", "AccountingStatus", "TaxCode", RemarkHeader } };
+        rows.AddRange(input.PurchaseInvoices.SelectMany(invoice => (invoice.Lines.Count > 0 ? invoice.Lines : [new PurchaseInvoiceLine { Id = invoice.Id, PurchaseInvoiceId = invoice.Id, LineType = PurchaseInvoiceLineType.Other, Description = "Legacy purchase invoice - classify before import", Amount = invoice.Amount }]).Select(line => new[] {
+            line.Id.ToString(), "PurchaseInvoice", PlateFor(vehicles, invoice.VehicleId), invoice.InvoiceNumber,
+            invoice.SupplierId.HasValue && suppliers.TryGetValue(invoice.SupplierId.Value, out var supplier) ? supplier.CompanyName : "",
+            Date(invoice.InvoiceDate), Date(invoice.PurchaseDate), invoice.PaymentReference ?? "", line.LineType.ToString(), line.Description,
+            PurchaseAccountCode(line.LineType), "UNIT", Money(line.Amount), line.CapitaliseIntoVehicleCost ? "Yes" : "No", invoice.AccountingStatus.ToString(), "",
+            "Account follows the approved workbook mapping where available; TaxCode is intentionally blank pending Finance confirmation."
+        })));
         rows.AddRange(input.SupplierInvoices.Select(invoice => new[] {
-            invoice.Id.ToString(), "SupplierInvoice", PlateFor(vehicles, invoice.VehicleId), invoice.InvoiceNumber, invoice.SupplierName, invoice.PlateNumberOnInvoice ?? "", Money(invoice.Amount), EffectiveDateText(Present(invoice.PaidAt) ?? Present(invoice.DueDate), vehicles, invoice.VehicleId), Date(Present(invoice.DueDate)), Date(Present(invoice.PaidAt)), "Supplier address, account code and tax mapping are not verified."
+            invoice.Id.ToString(), "SupplierInvoice", PlateFor(vehicles, invoice.VehicleId), invoice.InvoiceNumber, invoice.SupplierName, Date(invoice.InvoiceDate), "", "", "Other", invoice.PlateNumberOnInvoice ?? "", "", "UNIT", Money(invoice.Amount), "No", "", "", "Supplier invoice needs Finance account and TaxCode review."
         }));
         return rows;
     }
 
     private static IReadOnlyList<IReadOnlyList<string>> PaymentRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)
     {
-        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "CarPlate", "Status", "NettPrice", "ReceiptNumber", "InvoiceNumber", "SalesPrice", "InterestAdditionalCharges", "NcdAmount", "WindscreenCharges", "OutstationDeliveryDate", "BankName", "BankFollowUpDate", "CreatedAt", RemarkHeader } };
+        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "CarPlate", "Status", "NettPrice", "ReceiptNumber", "InvoiceNumber", "SalesPrice", "InterestAdditionalCharges", "NcdAmount", "WindscreenCharges", "SalesAgent", "LoanBankReference", "InsurancePaidOnBehalfAmount", "RoadTaxPaidOnBehalfAmount", "AdvancePaidOnBehalfAmount", "OutstationDeliveryDate", "BankName", "BankFollowUpDate", "CreatedAt", RemarkHeader } };
         rows.AddRange(input.Payments.OrderByDescending(payment => payment.CreatedAt).Select(payment => new[] {
-            payment.Id.ToString(), PlateFor(vehicles, payment.VehicleId), payment.Status.ToString(), Money(payment.NettPrice), payment.ReceiptNumber ?? "", payment.InvoiceNumber ?? "", Money(payment.SalesPrice), Money(payment.InterestAdditionalCharges), Money(payment.NcdAmount), Money(payment.WindscreenCharges), Date(payment.OutstationDeliveryDate), payment.BankName ?? "", Date(payment.BankFollowUpDate), AutoCountDateRules.SingaporeAccountingDate(payment.CreatedAt).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            payment.Id.ToString(), PlateFor(vehicles, payment.VehicleId), payment.Status.ToString(), Money(payment.NettPrice), payment.ReceiptNumber ?? "", payment.InvoiceNumber ?? "", Money(payment.SalesPrice), Money(payment.InterestAdditionalCharges), Money(payment.NcdAmount), Money(payment.WindscreenCharges), payment.SalesAgentName ?? "", payment.LoanBankReference ?? "", Money(payment.InsurancePaidOnBehalfAmount), Money(payment.RoadTaxPaidOnBehalfAmount), Money(payment.AdvancePaidOnBehalfAmount), Date(payment.OutstationDeliveryDate), payment.BankName ?? "", Date(payment.BankFollowUpDate), AutoCountDateRules.SingaporeAccountingDate(payment.CreatedAt).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             "Manual review required; this workbook is a mapping aid and not a verified direct AutoCount import."
         }));
         return rows;
@@ -221,7 +252,7 @@ public static class AutoCountExcel
             debt.Id.ToString(), "DebtRecovery", PlateFor(vehicles, debt.VehicleId), debt.Notes ?? "Balance recovery", Money(debt.BalanceAmount), EffectiveDateText(Present(debt.FollowUpDate), vehicles, debt.VehicleId), debt.Status.ToString(), "Debt recovery is operational data; accounting treatment is not verified."
         }));
         rows.AddRange(input.PaymentVouchers.Select(voucher => new[] {
-            voucher.Id.ToString(), "PaymentVoucher", PlateFor(vehicles, voucher.VehicleId), $"{voucher.PayeeName}: {voucher.Purpose}", Money(voucher.Amount), EffectiveDateText(Present(voucher.IssuedDate), vehicles, voucher.VehicleId), voucher.Status.ToString(), "Payment voucher account/tax mapping is not verified."
+            voucher.Id.ToString(), "PaymentVoucher", PlateFor(vehicles, voucher.VehicleId), $"{voucher.PayeeName}: {voucher.Purpose} | {voucher.PaymentMethod} | Source {voucher.SourceAccountCode} | Account {voucher.AccountingAccountCode} | Ref {voucher.ChequeNumber ?? voucher.PaymentReference ?? "-"} | Bank charge {Money(voucher.BankChargeAmount)} ({voucher.BankChargeAccountCode ?? "-"})", Money(voucher.Amount), EffectiveDateText(Present(voucher.IssuedDate), vehicles, voucher.VehicleId), voucher.Status.ToString(), voucher.Status == PaymentVoucherStatus.Paid ? "Paid with maker-checker evidence captured; TaxCode still needs Finance mapping." : "Do not post until the voucher is paid."
         }));
         rows.AddRange(input.Settlements.Select(settlement => new[] {
             settlement.Id.ToString(), "Settlement", PlateFor(vehicles, settlement.VehicleId), "Previous owner settlement", Money(settlement.Amount), EffectiveDateText(Present(settlement.Deadline), vehicles, settlement.VehicleId), settlement.IsPaid ? "Paid" : "Due", "Settlement account mapping is not verified."
@@ -280,6 +311,14 @@ public static class AutoCountExcel
     private static DateOnly? EffectiveDate(DateOnly? ownDate, IReadOnlyDictionary<Guid, Vehicle> vehicles, Guid vehicleId) => ownDate ?? (vehicles.TryGetValue(vehicleId, out var vehicle) ? vehicle.IntakeDate : null);
     private static string EffectiveDateText(DateOnly? ownDate, IReadOnlyDictionary<Guid, Vehicle> vehicles, Guid vehicleId) => Date(EffectiveDate(ownDate, vehicles, vehicleId));
     private static string Money(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+    private static string PurchaseAccountCode(PurchaseInvoiceLineType lineType) => lineType switch
+    {
+        PurchaseInvoiceLineType.VehiclePurchase => "6P00-0000",
+        PurchaseInvoiceLineType.PurchaseProcessing => "6P00-1000",
+        PurchaseInvoiceLineType.Parking => "6T00-1000",
+        PurchaseInvoiceLineType.Refurbishment => "6R00-0000",
+        _ => ""
+    };
     private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
     private static DateOnly? Present(DateOnly value) => value == default ? null : value;
     private static DateOnly? Present(DateOnly? value) => value is { } date && date != default ? date : null;
