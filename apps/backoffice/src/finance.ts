@@ -6,13 +6,16 @@ export function isFinanceV2(payment: PaymentRecord) {
   return (payment.financeWorkflowVersion ?? 1) >= 2;
 }
 
-export function calculateFinanceNettPrice(values: Pick<FinanceSaleInput, "salesPrice" | "interestAdditionalCharges" | "ncdAmount" | "windscreenCharges">) {
-  return roundMoney(values.salesPrice + values.interestAdditionalCharges + values.windscreenCharges - values.ncdAmount);
+export function calculateFinanceNettPrice(values: Pick<FinanceSaleInput, "salesPrice" | "interestAdditionalCharges" | "ncdAmount" | "windscreenCharges" | "insurancePaidOnBehalfAmount" | "roadTaxPaidOnBehalfAmount" | "advancePaidOnBehalfAmount">) {
+  return roundMoney(values.salesPrice + values.interestAdditionalCharges + values.windscreenCharges
+    + (values.insurancePaidOnBehalfAmount ?? 0) + (values.roadTaxPaidOnBehalfAmount ?? 0) + (values.advancePaidOnBehalfAmount ?? 0) - values.ncdAmount);
 }
 
 export function financeSaleBlockReason(input: FinanceSaleInput, vehicles: VehicleLookup[] = []) {
   if (!vehicles.some((vehicle) => vehicle.id === input.vehicleId && Boolean(vehicle.customerId))) return "Select a vehicle with a confirmed buyer.";
-  if (input.salesPrice < 0 || input.interestAdditionalCharges < 0 || input.ncdAmount < 0 || input.windscreenCharges < 0) return "Invoice amounts cannot be negative.";
+  if (!input.salesAgentUserId?.trim()) return "Select the responsible sales agent.";
+  if ([input.salesPrice, input.interestAdditionalCharges, input.ncdAmount, input.windscreenCharges].some((amount) => amount < 0)) return "Invoice amounts cannot be negative.";
+  if ([input.insurancePaidOnBehalfAmount ?? 0, input.roadTaxPaidOnBehalfAmount ?? 0, input.advancePaidOnBehalfAmount ?? 0].some((amount) => amount < 0)) return "Paid-on-behalf amounts cannot be negative.";
 
   const calculated = calculateFinanceNettPrice(input);
   const agreed = input.nettPrice ?? calculated;

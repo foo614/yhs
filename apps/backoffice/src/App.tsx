@@ -40,6 +40,7 @@ import {
   Skeleton,
   Spin,
   Steps,
+  Table as AntTable,
   Tabs,
   Tag,
   Tooltip,
@@ -68,7 +69,7 @@ import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
 import { filterRefurbishmentRecords, isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
 import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
-import { FinancePage } from "./modules/finance/FinancePage";
+import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
 import { AiUsageSnapshotDescriptions, OcrOperationalGuidance } from "./modules/settings/AiUsagePanel";
@@ -76,10 +77,12 @@ import { ShowroomEnquiryQrSettings } from "./modules/settings/ShowroomEnquiryQrS
 import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSettings";
 import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { OcrUploadReview, type OcrReviewValues } from "./modules/shared/OcrUploadReview";
+import { ModuleGuideExperience } from "./modules/shared/ModuleGuideExperience";
 import { OperationsProTable as Table } from "./modules/shared/OperationsProTable";
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import { DeliveryWorkboardPage } from "./modules/delivery/DeliveryWorkboardPage";
 import { SalesMyCarsPanel } from "./modules/leads/SalesMyCarsPanel";
+import { markModuleGuideTourSeen, moduleGuideForPath, shouldShowModuleGuideTour } from "./moduleGuides";
 import { formatMoney as formatRinggit, formatMoneyInput, parseMoneyInput } from "./money";
 import {
   checkInHrAttendance,
@@ -186,7 +189,7 @@ import {
   rejectCashHandover,
   reverseCollection,
   requestCashHandover,
-  reverseCollection,
+  markPaymentVoucherPaid,
   hrMedicalCertificateContentUrl,
   updateHrLeaveBalance,
   updateHrAttendance,
@@ -232,11 +235,11 @@ import {
   type DailySpend,
   type DashboardAiDocumentProcessing,
   type DashboardAnalyticsPeriod,
-  type DashboardAiDocumentProcessing,
   type DashboardReminder,
   type DashboardSummary,
   type DebtRecoveryCase,
   type DeliverySchedule,
+  type DeliveryAccountingCharge,
   type DocumentCategory,
   type DocumentUploadOwner,
   type HrAttendanceRecord,
@@ -274,6 +277,7 @@ import {
   type StaffRole,
   type StaffUser,
   type SupplierInvoice,
+  type Supplier,
   type UpdateStaffUserRequest,
   type UpdateStaffUserStatusRequest,
   type UpdateAiServiceLimitRequest,
@@ -282,6 +286,14 @@ import {
   type VehicleDocument,
   type VehicleOcrJob
 } from "./api";
+
+function browserModuleGuideStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 const staffRoles: StaffRole[] = assignableStaffRoles;
 
@@ -808,20 +820,6 @@ export default function App() {
     }
   }, []);
 
-  const refreshPayments = useCallback(async () => {
-    setPaymentRefreshing(true);
-    try {
-      const records = await getPayments();
-      setPayments(records);
-      setPaymentLoadError(null);
-    } catch (error) {
-      setPayments([]);
-      setPaymentLoadError(humanizeApiError(error, "Finance records could not be loaded."));
-    } finally {
-      setPaymentRefreshing(false);
-    }
-  }, []);
-
   async function handleLogout() {
     await logout();
     setCurrentUser(null);
@@ -1033,6 +1031,7 @@ export default function App() {
               setModuleGuideOpen(true);
             }}
           />
+          <div ref={moduleContentRef}>
           {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={refreshDashboard} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} />}
           {pathname === "/vehicles" && (
             <VehiclePage
@@ -1847,7 +1846,6 @@ export function DashboardPage({
   const refurbishment = dashboard?.refurbishment;
   const aiDocumentProcessing = dashboard?.aiDocumentProcessing;
   const refurbishmentHighestCosts = refurbishment?.highestCostVehicles ?? [];
-  const aiDocumentProcessing = dashboard?.aiDocumentProcessing;
   const analyticsPeriodLabel = dashboardAnalyticsPeriodLabel(analyticsPeriod);
   const receivableLabels = new Set(["Outstanding Payment", "Open Debt Recovery"]);
   const moneyToCollect = moneyRiskBreakdown
@@ -2274,39 +2272,38 @@ function DashboardAiDocumentProcessingPanel({
   analyticsPeriodLabel: string;
 }) {
   return (
-    <ProCard title="AI document processing / AI 文件处理" className="dashboardOverviewCard">
-      <Space direction="vertical" size={12} className="fullWidth">
-        <Alert
-          type="info"
-          showIcon
-          message="AI assistance only — staff must check extracted values before saving."
-          description="This management overview shows counts only. It never shows document images, identity details, file names, raw OCR text, or extracted values."
-        />
-        <div className="metricGrid dashboardMetricGrid">
-          <Metric label="Scans processed" value={processing.scanCount} meta={analyticsPeriodLabel} />
-          <Metric label="Staff-approved AI results" value={processing.acceptedCount} meta="Reviewed before saving" tone="profit" />
-          <Metric label="Need checking" value={processing.lowConfidenceCount} meta="Below 75% confidence" tone={processing.lowConfidenceCount > 0 ? "work" : "neutral"} />
-          <Metric label="Failed scans" value={processing.failedCount} tone={processing.failedCount > 0 ? "risk" : "neutral"} />
-          <Metric label="Waiting for review" value={processing.pendingReviewCount} meta="Live backlog" tone={processing.pendingReviewCount > 0 ? "work" : "neutral"} />
-          <Metric label="OCR capacity" value={`${processing.remainingThisMonth} remaining`} meta={`${processing.usedThisMonth} of ${processing.monthlyRequestLimit} used this month`} />
-        </div>
-        <AntTable
-          rowKey="category"
-          size="small"
-          pagination={false}
-          scroll={{ x: 760 }}
-          columns={[
-            { title: "Document type", dataIndex: "label" },
-            { title: "Scans", dataIndex: "scanCount", align: "right" },
-            { title: "Approved", dataIndex: "acceptedCount", align: "right" },
-            { title: "Rejected", dataIndex: "rejectedCount", align: "right" },
-            { title: "Need checking", dataIndex: "lowConfidenceCount", align: "right", render: (value) => value > 0 ? <Tag color="gold">{value}</Tag> : value },
-            { title: "Failed", dataIndex: "failedCount", align: "right", render: (value) => value > 0 ? <Tag color="red">{value}</Tag> : value }
-          ]}
-          dataSource={processing.categories}
-          locale={{ emptyText: "No OCR activity in this period." }}
-        />
-      </Space>
+    <ProCard
+      title="AI document processing / AI 文件处理"
+      className="dashboardPriorityCard"
+      extra={<Tag color={processing.pendingReviewCount > 0 ? "orange" : "green"}>{processing.pendingReviewCount > 0 ? `${processing.pendingReviewCount} pending staff check${processing.pendingReviewCount === 1 ? "" : "s"}` : "Staff check queue clear"}</Tag>}
+    >
+      <Alert className="operationalInfoAlert sectionIntroAlert" type="info" showIcon message="Staff must review AI-extracted values before saving. This dashboard excludes document images, identity details, filenames, and extracted text." />
+      <div className="metricGrid dashboardMetricGrid">
+        <Metric label="Scans / 扫描" value={processing.scanCount} meta={analyticsPeriodLabel} />
+        <Metric label="Reviewed AI documents / 已复核 AI 文件" value={processing.reviewedCount} meta="Staff-corrected values are retained" tone="profit" />
+        <Metric label="OCR field accuracy / OCR 字段准确率" value={processing.accuracyPercent === null || processing.accuracyPercent === undefined ? "Pending" : `${processing.accuracyPercent}%`} meta={processing.comparedFieldCount > 0 ? `${processing.correctFieldCount} unchanged · ${processing.correctedFieldCount} corrected` : "Appears after the first saved review"} tone={processing.correctedFieldCount > 0 ? "work" : "neutral"} />
+        <Metric label="Need checking / 需仔细检查" value={processing.lowConfidenceCount} meta="Below 75% reading confidence" tone={processing.lowConfidenceCount > 0 ? "work" : "neutral"} />
+        <Metric label="Failed scans / 失败扫描" value={processing.failedCount} meta={analyticsPeriodLabel} tone={processing.failedCount > 0 ? "risk" : "neutral"} />
+        <Metric label="Pending staff check / 待员工核对" value={processing.pendingReviewCount} meta="Live backlog" tone={processing.pendingReviewCount > 0 ? "work" : "neutral"} />
+        <Metric label="OCR capacity / OCR 容量" value={`${processing.remainingThisMonth} left`} meta={`${processing.usedThisMonth} of ${processing.monthlyRequestLimit} used this month`} tone={processing.remainingThisMonth === 0 ? "risk" : "neutral"} />
+      </div>
+      <Table
+        rowKey="category"
+        size="small"
+        pagination={false}
+        scroll={{ x: 760 }}
+        dataSource={processing.categories}
+        locale={{ emptyText: "No OCR activity in this period." }}
+        columns={[
+          { title: "Document type / 文件类型", dataIndex: "label" },
+          { title: "Scans", dataIndex: "scanCount", align: "right" },
+          { title: "Reviewed", dataIndex: "reviewedCount", align: "right" },
+          { title: "Accuracy", dataIndex: "accuracyPercent", align: "right", render: (value: number | null | undefined) => value === null || value === undefined ? "—" : `${value}%` },
+          { title: "Corrected", dataIndex: "correctedFieldCount", align: "right", render: (value: number) => <Tag color={value > 0 ? "orange" : "default"}>{value}</Tag> },
+          { title: "Need checking", dataIndex: "lowConfidenceCount", align: "right", render: (value: number) => <Tag color={value > 0 ? "orange" : "default"}>{value}</Tag> },
+          { title: "Failed", dataIndex: "failedCount", align: "right", render: (value: number) => <Tag color={value > 0 ? "red" : "default"}>{value}</Tag> }
+        ]}
+      />
     </ProCard>
   );
 }
@@ -2750,6 +2747,44 @@ export function buildRefurbishmentTableRecords(
   });
 }
 
+
+export function filterSupplierMaster(suppliers: Supplier[], keyword: string, status: Supplier["approvalStatus"] | "All") {
+  return suppliers.filter((supplier) => matchesOperationalSearch(keyword, [
+    supplier.companyName,
+    supplier.registrationNumber,
+    supplier.tinNumber,
+    supplier.address,
+    supplier.phone,
+    supplier.contactPerson,
+    supplier.autoCountCreditorCode
+  ]) && (status === "All" || supplier.approvalStatus === status));
+}
+
+export function filterDeliveryAccountingCharges(
+  charges: DeliveryAccountingCharge[],
+  vehicles: VehicleLookup[],
+  keyword: string,
+  status: DeliveryAccountingCharge["accountingStatus"] | "All"
+) {
+  return charges.filter((charge) => matchesOperationalSearch(keyword, [
+    plateFor(vehicles, charge.vehicleId),
+    charge.chargeType,
+    charge.providerName,
+    charge.referenceNumber,
+    charge.invoiceDate
+  ]) && (status === "All" || charge.accountingStatus === status));
+}
+
+function matchesOperationalSearch(keyword: string, values: Array<string | undefined>) {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  if (!normalizedKeyword) return true;
+  const compactKeyword = normalizedKeyword.replace(/[^a-z0-9]/gi, "");
+  return values.some((value) => {
+    const normalizedValue = value?.toLowerCase() ?? "";
+    return normalizedValue.includes(normalizedKeyword)
+      || (Boolean(compactKeyword) && normalizedValue.replace(/[^a-z0-9]/gi, "").includes(compactKeyword));
+  });
+}
 
 function RepairPage({
   vehicles,
@@ -3972,7 +4007,7 @@ export function LoanPage({
           form={loanFilterForm}
           layout="inline"
           className="toolbarForm workflowFilterBar"
-          onValuesChange={(_, values: LoanFilters) => updateLoanFilters(values)}
+          onFinish={(values: LoanFilters) => updateLoanFilters(values)}
         >
           <Form.Item name="keyword">
             <Input allowClear aria-label="Search loans by plate, customer, phone, or status" placeholder="Search plate, customer, phone, status" style={{ width: 280 }} />
@@ -3995,7 +4030,8 @@ export function LoanPage({
               ]}
               style={{ width: 190 }}
             />
-          </Form.Item>
+            </Form.Item>
+          <Form.Item><Button type="primary" htmlType="submit">Query</Button></Form.Item>
           <Form.Item><Button htmlType="button" onClick={() => {
             loanFilterForm.resetFields();
             if (dashboardFocus.loanStatus || dashboardFocus.vehicleId) {

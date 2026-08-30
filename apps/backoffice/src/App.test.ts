@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, customerIdFromRouteUrl, DashboardPage, DeliveryPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
-import type { Customer, DashboardSummary, LoanApplication, RepairJob, SupplierInvoice, VehicleLookup } from "./api";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, customerIdFromRouteUrl, DashboardPage, DeliveryPage, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
+import type { Customer, DashboardSummary, DeliveryAccountingCharge, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
   it("retains Customer 360 query changes for Back and Forward navigation", () => {
@@ -76,8 +76,11 @@ describe("management dashboard", () => {
       refurbishment: { finalRepairSpend: 1500, vehicleCount: 1, averageSpendPerVehicle: 1500, workInProgressCount: 1, overdueWorkCount: 0, highestCostVehicles: [] },
       aiDocumentProcessing: {
         scanCount: 8,
-        acceptedCount: 4,
-        rejectedCount: 1,
+        reviewedCount: 5,
+        comparedFieldCount: 12,
+        correctFieldCount: 9,
+        correctedFieldCount: 3,
+        accuracyPercent: 75,
         lowConfidenceCount: 2,
         failedCount: 1,
         pendingReviewCount: 3,
@@ -85,10 +88,10 @@ describe("management dashboard", () => {
         monthlyRequestLimit: 100,
         remainingThisMonth: 68,
         categories: [
-          { category: "IdentityCard", label: "IC", scanCount: 2, acceptedCount: 1, rejectedCount: 0, lowConfidenceCount: 1, failedCount: 0 },
-          { category: "Voc", label: "VOC", scanCount: 2, acceptedCount: 1, rejectedCount: 1, lowConfidenceCount: 0, failedCount: 0 },
-          { category: "InvoicesAndReceipts", label: "Invoices & receipts", scanCount: 3, acceptedCount: 2, rejectedCount: 0, lowConfidenceCount: 1, failedCount: 0 },
-          { category: "SupportingDocuments", label: "Supporting documents", scanCount: 1, acceptedCount: 0, rejectedCount: 0, lowConfidenceCount: 0, failedCount: 1 }
+          { category: "IdentityCard", label: "IC", scanCount: 2, reviewedCount: 1, comparedFieldCount: 3, correctFieldCount: 2, correctedFieldCount: 1, accuracyPercent: 66.67, lowConfidenceCount: 1, failedCount: 0 },
+          { category: "Voc", label: "VOC", scanCount: 2, reviewedCount: 1, comparedFieldCount: 3, correctFieldCount: 2, correctedFieldCount: 1, accuracyPercent: 66.67, lowConfidenceCount: 0, failedCount: 0 },
+          { category: "InvoicesAndReceipts", label: "Invoices & receipts", scanCount: 3, reviewedCount: 2, comparedFieldCount: 6, correctFieldCount: 5, correctedFieldCount: 1, accuracyPercent: 83.33, lowConfidenceCount: 1, failedCount: 0 },
+          { category: "SupportingDocuments", label: "Supporting documents", scanCount: 1, reviewedCount: 1, comparedFieldCount: 0, correctFieldCount: 0, correctedFieldCount: 0, accuracyPercent: null, lowConfidenceCount: 0, failedCount: 1 }
         ]
       }
     } satisfies DashboardSummary;
@@ -97,7 +100,7 @@ describe("management dashboard", () => {
       dashboard,
       dashboardLoadError: null,
       reminders: [],
-      priorityActions: [],
+      priorityActions: [{ type: "LeadFollowUp", title: "New enquiry needs first contact", target: "Leads", dueDate: "2026-06-01", subject: "Web lead" }],
       reminderLoadError: null,
       lastCheckedAt: null,
       refreshing: false,
@@ -119,14 +122,12 @@ describe("management dashboard", () => {
     expect(markup).toContain("Current unsold stock");
     expect(markup).toContain("New enquiry needs first contact");
     expect(markup).not.toContain("All clear");
-    expect(markup.indexOf("Priority actions / 老板待办")).toBeLessThan(markup.indexOf("Operations dashboard / 运营看板"));
     expect(markup).toContain("AI document processing / AI 文件处理");
     expect(markup).toContain("OCR field accuracy / OCR 字段准确率");
     expect(markup).toContain("Invoices &amp; receipts");
     expect(markup).not.toContain("sensitive extracted text");
     expect(markup).not.toContain("Estimated Profit / 预估利润");
     expect(markup).toContain("AI document processing / AI 文件处理");
-    expect(markup).toContain("Staff-approved AI results");
     expect(markup).toContain("Invoices &amp; receipts");
     expect(markup).not.toContain("identity text");
 

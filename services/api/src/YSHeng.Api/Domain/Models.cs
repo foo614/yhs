@@ -408,6 +408,10 @@ public sealed record FinanceInvoice
     public string CustomerName { get; init; } = "";
     public string? CustomerPhone { get; init; }
     public string? CustomerAddress { get; init; }
+    public string? CustomerTinNumber { get; init; }
+    public string? SalesAgentUserId { get; init; }
+    public string? SalesAgentName { get; init; }
+    public string? LoanBankReference { get; init; }
     public string VehiclePlateNumber { get; init; } = "";
     public string VehicleDescription { get; init; } = "";
     public string InvoiceNumber { get; init; } = "";

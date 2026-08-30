@@ -24,6 +24,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
     public DbSet<DeliveryActivity> DeliveryActivities => Set<DeliveryActivity>();
+    public DbSet<DeliveryAccountingCharge> DeliveryAccountingCharges => Set<DeliveryAccountingCharge>();
     public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
     public DbSet<FinanceInvoice> FinanceInvoices => Set<FinanceInvoice>();
     public DbSet<CollectionTransaction> CollectionTransactions => Set<CollectionTransaction>();

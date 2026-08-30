@@ -420,8 +420,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `HrEmploymentType`: `Monthly`, `Hourly`
 - `HrAttendanceVerificationMethod`: `Manual`, `OfficeQr`, `Outstation`, `ManualException`, `OfficeIp`
 - `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`, `InspectionReport`, `WindscreenPolicy`
-- `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`
-- `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`
+- `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`, `Reviewed`
+- `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`, `Reviewed`
 - `AiService`: `Ocr`
 - `AiUsageStatus`: `Reserved`, `Succeeded`, `Failed`
 

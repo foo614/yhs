@@ -33,7 +33,6 @@ import {
   vehiclePhotoContentUrl,
   type BrokerCommission,
   type Customer,
-  type BrokerCommission,
   type DashboardAnalyticsPeriod,
   type DocumentCategory,
   type DocumentOwnershipType,

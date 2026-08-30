@@ -32,8 +32,15 @@ import {
 } from "../../finance";
 import {
   customerSelectLabel,
+  approveSupplier,
+  confirmDeliveryAccountingCharge,
+  confirmPurchaseInvoiceAccounting,
   financeInvoiceContentUrl,
+  getDeliveryAccountingCharges,
   getDeliveryInvoiceUpdateRequests,
+  getPurchaseInvoices,
+  getSalesAgents,
+  getSupplierMaster,
   getVehicleDocumentsStrict,
   humanizeApiError,
   paymentVoucherPdfUrl,
@@ -49,6 +56,7 @@ import {
   type Customer,
   type DailySpend,
   type DebtRecoveryCase,
+  type DeliveryAccountingCharge,
   type DeliveryInvoiceUpdateRequestItem,
   type DocumentCategory,
   type DocumentUploadOwner,
@@ -314,6 +322,10 @@ export function FinancePage({
   const [invoiceRequestError, setInvoiceRequestError] = useState<string>();
   const [resolvingInvoiceRequestId, setResolvingInvoiceRequestId] = useState<string>();
   const [prepareInvoiceOpen, setPrepareInvoiceOpen] = useState(false);
+  const [salesAgents, setSalesAgents] = useState<StaffUser[]>([]);
+  const [deliveryAccountingCharges, setDeliveryAccountingCharges] = useState<DeliveryAccountingCharge[]>([]);
+  const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
+  const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
   const [adjustInvoicePrice, setAdjustInvoicePrice] = useState(false);
   const [collectionPaymentId, setCollectionPaymentId] = useState<string>();
   const [collectionIdempotencyKey, setCollectionIdempotencyKey] = useState<string>();
@@ -339,13 +351,19 @@ export function FinancePage({
   const invoiceAdditionalCharges = Form.useWatch("interestAdditionalCharges", prepareInvoiceForm) ?? 0;
   const invoiceNcdAmount = Form.useWatch("ncdAmount", prepareInvoiceForm) ?? 0;
   const invoiceWindscreenCharges = Form.useWatch("windscreenCharges", prepareInvoiceForm) ?? 0;
+  const invoiceInsurancePaidOnBehalf = Form.useWatch("insurancePaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
+  const invoiceRoadTaxPaidOnBehalf = Form.useWatch("roadTaxPaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
+  const invoiceAdvancePaidOnBehalf = Form.useWatch("advancePaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
   const invoiceAgreedTotal = Form.useWatch("nettPrice", prepareInvoiceForm);
   const selectedCollectionMethod = Form.useWatch("method", collectionForm);
   const invoiceCalculatedTotal = calculateFinanceNettPrice({
     salesPrice: Number(invoiceSalesPrice),
     interestAdditionalCharges: Number(invoiceAdditionalCharges),
     ncdAmount: Number(invoiceNcdAmount),
-    windscreenCharges: Number(invoiceWindscreenCharges)
+    windscreenCharges: Number(invoiceWindscreenCharges),
+    insurancePaidOnBehalfAmount: Number(invoiceInsurancePaidOnBehalf),
+    roadTaxPaidOnBehalfAmount: Number(invoiceRoadTaxPaidOnBehalf),
+    advancePaidOnBehalfAmount: Number(invoiceAdvancePaidOnBehalf)
   });
   const invoiceSubmitLabel = financeInvoiceSubmitLabel(invoiceCalculatedTotal, invoiceAgreedTotal, adjustInvoicePrice);
 
@@ -365,6 +383,30 @@ export function FinancePage({
   useEffect(() => {
     void loadInvoiceUpdateRequests();
   }, [loadInvoiceUpdateRequests]);
+
+  useEffect(() => {
+    void getSalesAgents()
+      .then(setSalesAgents)
+      .catch((error) => message.error(humanizeApiError(error, "Unable to load sales agents.")));
+  }, []);
+
+  const reloadDeliveryAccountingCharges = async () => {
+    try { setDeliveryAccountingCharges(await getDeliveryAccountingCharges()); }
+    catch (error) { message.error(humanizeApiError(error, "Unable to load delivery accounting drafts.")); }
+  };
+  useEffect(() => { void reloadDeliveryAccountingCharges(); }, []);
+
+  const reloadPurchaseInvoices = async () => {
+    try { setPurchaseInvoices(await getPurchaseInvoices()); }
+    catch (error) { message.error(humanizeApiError(error, "Unable to load purchase invoices for accounting review.")); }
+  };
+  useEffect(() => { void reloadPurchaseInvoices(); }, []);
+
+  const reloadSupplierMaster = async () => {
+    try { setSupplierMaster(await getSupplierMaster()); }
+    catch (error) { message.error(humanizeApiError(error, "Unable to load supplier drafts.")); }
+  };
+  useEffect(() => { void reloadSupplierMaster(); }, []);
 
   const confirmInvoiceRequestResolved = (requestItem: DeliveryInvoiceUpdateRequestItem) => {
     Modal.confirm({
@@ -512,6 +554,19 @@ export function FinancePage({
     setFinanceEditorOpen("paymentVoucher");
   };
 
+  const confirmMarkVoucherPaid = (voucher: PaymentVoucher) => {
+    let evidenceReference = "";
+    Modal.confirm({
+      title: "Mark voucher paid?",
+      content: <Input autoFocus placeholder="Bank transaction, cheque-clearance or receipt reference" onChange={(event) => { evidenceReference = event.target.value; }} />,
+      okText: "Mark paid",
+      onOk: async () => {
+        if (!evidenceReference.trim()) throw new Error("Enter the payment evidence reference.");
+        await onMarkPaymentVoucherPaid(voucher.id, evidenceReference.trim());
+      }
+    });
+  };
+
   const runV2Mutation = async <T,>(key: string, action: () => Promise<T>) => {
     setV2MutationKey(key);
     try {
@@ -528,7 +583,12 @@ export function FinancePage({
     setAdjustInvoicePrice(false);
     prepareInvoiceForm.setFieldsValue({
       vehicleId: vehicle.id,
-      ...financeInvoiceVehicleDefaults(vehicle)
+      ...financeInvoiceVehicleDefaults(vehicle),
+      salesAgentUserId: salesAgents[0]?.id,
+      loanBankReference: undefined,
+      insurancePaidOnBehalfAmount: 0,
+      roadTaxPaidOnBehalfAmount: 0,
+      advancePaidOnBehalfAmount: 0
     });
     setPrepareInvoiceOpen(true);
   };
@@ -543,10 +603,15 @@ export function FinancePage({
   const prepareFinanceSale = (values: FinanceSaleInput) => {
     const input: FinanceSaleInput = {
       vehicleId: values.vehicleId,
+      salesAgentUserId: values.salesAgentUserId,
+      loanBankReference: values.loanBankReference?.trim() || undefined,
       salesPrice: Number(values.salesPrice ?? 0),
       interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
       ncdAmount: Number(values.ncdAmount ?? 0),
       windscreenCharges: Number(values.windscreenCharges ?? 0),
+      insurancePaidOnBehalfAmount: Number(values.insurancePaidOnBehalfAmount ?? 0),
+      roadTaxPaidOnBehalfAmount: Number(values.roadTaxPaidOnBehalfAmount ?? 0),
+      advancePaidOnBehalfAmount: Number(values.advancePaidOnBehalfAmount ?? 0),
       ...(adjustInvoicePrice ? {
         nettPrice: Number(values.nettPrice ?? 0),
         nettPriceOverrideReason: values.nettPriceOverrideReason?.trim() || undefined
@@ -1204,13 +1269,24 @@ export function FinancePage({
           <Form.Item name="vehicleId" label="Vehicle & Buyer / 车辆与买家" rules={[{ required: true, message: "Select a vehicle." }]}>
             <Select showSearch optionFilterProp="label" onChange={updateInvoiceVehicleDefaults} options={eligibleInvoiceVehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model} · ${customerLabel(customers, vehicle.customerId)}` }))} />
           </Form.Item>
+          <Form.Item name="salesAgentUserId" label="Sales agent / 销售员" rules={[{ required: true, message: "Select the responsible sales agent." }]}>
+            <Select showSearch optionFilterProp="label" options={salesAgents.map((agent) => ({ value: agent.id, label: `${agent.displayName} · ${agent.email}` }))} />
+          </Form.Item>
+          <Form.Item name="loanBankReference" label="Loan bank reference"><Input placeholder="Bank / loan approval reference" /></Form.Item>
           <div className="financeV2AmountGrid">
             <Form.Item name="salesPrice" label="Selling price / 售价" rules={[{ required: true, message: "Selling price is required." }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="interestAdditionalCharges" label="Additional charges / 附加费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="windscreenCharges" label="Windscreen charges / 挡风玻璃费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           </div>
-          <div className="financeV2CalculatedTotal"><span>Calculated invoice total / 系统计算总额</span><strong>{formatMoney(invoiceCalculatedTotal)}</strong><small>Selling price + additional charges + windscreen charges − NCD</small></div>
+          <ProCard size="small" title="Paid on behalf of customer / 代客户支付" bordered>
+            <div className="financeV2AmountGrid">
+              <Form.Item name="insurancePaidOnBehalfAmount" label="Insurance (4001-I001 · class 006)"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item name="roadTaxPaidOnBehalfAmount" label="Road tax (4001-R001 · class 006)"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item name="advancePaidOnBehalfAmount" label="Other advance (Finance mapping required)"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            </div>
+          </ProCard>
+          <div className="financeV2CalculatedTotal"><span>Calculated invoice total / 系统计算总额</span><strong>{formatMoney(invoiceCalculatedTotal)}</strong><small>Selling price + additional charges + windscreen + paid-on-behalf lines − NCD</small></div>
           <Checkbox checked={adjustInvoicePrice} onChange={(event) => {
             const checked = event.target.checked;
             setAdjustInvoicePrice(checked);

@@ -83,7 +83,7 @@ describe("finance workflow helpers", () => {
   });
 
   it("requires a confirmed buyer and a reason only when staff adjust the calculated total", () => {
-    const input = { vehicleId: "vehicle-1", salesPrice: 60000, interestAdditionalCharges: 500, ncdAmount: 100, windscreenCharges: 200 };
+    const input = { vehicleId: "vehicle-1", salesPrice: 60000, interestAdditionalCharges: 500, ncdAmount: 100, windscreenCharges: 200, salesAgentUserId: "sales-1" };
     expect(financeSaleBlockReason(input, vehicleLookup)).toBe("Select a vehicle with a confirmed buyer.");
     const confirmedVehicles = [{ ...vehicleLookup[0], customerId: "customer-1" }];
     expect(financeSaleBlockReason(input, confirmedVehicles)).toBeUndefined();

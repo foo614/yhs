@@ -15,7 +15,11 @@ export function filterFinanceRows<T>(
   const compactKeyword = compactSearchValue(normalizedKeyword);
 
   return rows.filter((row) => {
-    const matchesKeyword = !normalizedKeyword || searchValues(row).some((value) => value?.toLocaleLowerCase().includes(normalizedKeyword));
+    const matchesKeyword = !normalizedKeyword || searchValues(row).some((value) => {
+      const normalizedValue = value?.toLocaleLowerCase() ?? "";
+      return normalizedValue.includes(normalizedKeyword)
+        || (Boolean(compactKeyword) && compactSearchValue(normalizedValue).includes(compactKeyword));
+    });
     const statuses = rowStatus(row);
     const matchesStatus = !status || (Array.isArray(statuses) ? statuses.includes(status) : statuses === status);
     return matchesKeyword && matchesStatus;

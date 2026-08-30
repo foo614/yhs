@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using YSHeng.Api.Domain;
 using SkiaSharp;
 using UglyToad.PdfPig;
 
@@ -95,34 +96,14 @@ public sealed record DashboardRefurbishmentSummary(
     int WorkInProgressCount,
     int OverdueWorkCount,
     DashboardAmountSlice[] HighestCostVehicles);
-public sealed record DashboardAiDocumentCategory(
-    string Category,
-    string Label,
-    int ScanCount,
-    int AcceptedCount,
-    int RejectedCount,
-    int LowConfidenceCount,
-    int FailedCount);
-public sealed record DashboardAiDocumentProcessing(
-    int ScanCount,
-    int AcceptedCount,
-    int RejectedCount,
-    int LowConfidenceCount,
-    int FailedCount,
-    int PendingReviewCount,
-    int UsedThisMonth,
-    int MonthlyRequestLimit,
-    int RemainingThisMonth,
-    DashboardAiDocumentCategory[] Categories)
-{
-    public static readonly DashboardAiDocumentProcessing Empty = new(0, 0, 0, 0, 0, 0, 0, 0, 0, []);
-}
 public sealed record DashboardWorkflowBlockers(DashboardCountSlice[] ByType, DashboardCountSlice[] DueBuckets);
 public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal ConversionRate);
 public sealed record DashboardAiDocumentCategory(
     string Category,
     string Label,
     int ScanCount,
+    int AcceptedCount,
+    int RejectedCount,
     int ReviewedCount,
     int ComparedFieldCount,
     int CorrectFieldCount,
@@ -132,6 +113,8 @@ public sealed record DashboardAiDocumentCategory(
     int FailedCount);
 public sealed record DashboardAiDocumentProcessing(
     int ScanCount,
+    int AcceptedCount,
+    int RejectedCount,
     int ReviewedCount,
     int ComparedFieldCount,
     int CorrectFieldCount,
@@ -145,7 +128,7 @@ public sealed record DashboardAiDocumentProcessing(
     int RemainingThisMonth,
     DashboardAiDocumentCategory[] Categories)
 {
-    public static readonly DashboardAiDocumentProcessing Empty = new(0, 0, 0, 0, 0, null, 0, 0, 0, 0, 0, 0, []);
+    public static readonly DashboardAiDocumentProcessing Empty = new(0, 0, 0, 0, 0, 0, 0, null, 0, 0, 0, 0, 0, 0, []);
 }
 public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
 public sealed record SupplierInvoiceAgingView(Guid InvoiceId, string SupplierName, string InvoiceNumber, Guid VehicleId, SupplierInvoiceAgingStatus Status, DateOnly? DueDate, DateOnly? PaidAt, decimal Amount);
@@ -2017,6 +2000,41 @@ public static class FinanceRules
     }
 }
 
+public static class PaymentVoucherWorkflowRules
+{
+    public static ValidationResult ValidateApproval(PaymentVoucher voucher, string actor)
+    {
+        var errors = new List<ValidationError>();
+        if (voucher.Status != PaymentVoucherStatus.Pending)
+        {
+            errors.Add(new ValidationError("payment_voucher_not_pending", "Only a pending payment voucher can be approved."));
+        }
+        if (string.Equals(voucher.CreatedBy, actor, StringComparison.Ordinal))
+        {
+            errors.Add(new ValidationError("payment_voucher_self_approval", "The voucher creator cannot approve the same voucher."));
+        }
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidatePaid(PaymentVoucher voucher, string actor, string? evidenceReference)
+    {
+        var errors = new List<ValidationError>();
+        if (voucher.Status != PaymentVoucherStatus.Approved)
+        {
+            errors.Add(new ValidationError("payment_voucher_not_approved", "Only an approved payment voucher can be marked paid."));
+        }
+        if (string.Equals(voucher.ApprovedBy, actor, StringComparison.Ordinal))
+        {
+            errors.Add(new ValidationError("payment_voucher_approver_cannot_pay", "The voucher approver cannot mark the same voucher as paid."));
+        }
+        if (string.IsNullOrWhiteSpace(evidenceReference))
+        {
+            errors.Add(new ValidationError("payment_voucher_evidence_required", "Payment evidence reference is required before marking a voucher paid."));
+        }
+        return new ValidationResult(errors);
+    }
+}
+
 public static class PriorityActionQueue
 {
     public static IReadOnlyList<PriorityActionItem> Create(
@@ -2864,6 +2882,77 @@ public static class BusinessClock
     }
 }
 
+public static class OcrReviewAccuracy
+{
+    private static readonly (string Name, Func<OcrLineItem?, string?> Value)[] LineItemFields =
+    [
+        ("description", item => item?.Description),
+        ("quantity", item => item?.Quantity),
+        ("unitPrice", item => item?.UnitPrice),
+        ("amount", item => item?.Amount)
+    ];
+
+    public static OcrReviewComparison Compare(OcrExtractionResult extracted, OcrReviewedResult reviewed)
+    {
+        var changes = new List<OcrReviewChange>();
+        var comparedFieldCount = 0;
+        var correctFieldCount = 0;
+        var extractedFields = new Dictionary<string, string?>(extracted.Fields, StringComparer.OrdinalIgnoreCase);
+        var reviewedFields = new Dictionary<string, string?>(reviewed.Fields ?? [], StringComparer.OrdinalIgnoreCase);
+
+        foreach (var field in extractedFields.Keys.Union(reviewedFields.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(field => field, StringComparer.OrdinalIgnoreCase))
+        {
+            extractedFields.TryGetValue(field, out var extractedValue);
+            reviewedFields.TryGetValue(field, out var reviewedValue);
+            CompareValue(field, extractedValue, reviewedValue, changes, ref comparedFieldCount, ref correctFieldCount);
+        }
+
+        var extractedLines = extracted.LineItems ?? [];
+        var reviewedLines = reviewed.LineItems ?? [];
+        var lineCount = Math.Max(extractedLines.Count, reviewedLines.Count);
+        for (var index = 0; index < lineCount; index++)
+        {
+            var extractedLine = index < extractedLines.Count ? extractedLines[index] : null;
+            var reviewedLine = index < reviewedLines.Count ? reviewedLines[index] : null;
+            foreach (var lineField in LineItemFields)
+            {
+                CompareValue($"lineItems[{index}].{lineField.Name}", lineField.Value(extractedLine), lineField.Value(reviewedLine), changes, ref comparedFieldCount, ref correctFieldCount);
+            }
+        }
+
+        return new OcrReviewComparison(changes, comparedFieldCount, correctFieldCount);
+    }
+
+    private static void CompareValue(
+        string field,
+        string? extractedValue,
+        string? reviewedValue,
+        ICollection<OcrReviewChange> changes,
+        ref int comparedFieldCount,
+        ref int correctFieldCount)
+    {
+        if (string.IsNullOrWhiteSpace(extractedValue) && string.IsNullOrWhiteSpace(reviewedValue)) return;
+
+        comparedFieldCount++;
+        if (ValuesMatch(extractedValue, reviewedValue))
+        {
+            correctFieldCount++;
+            return;
+        }
+
+        changes.Add(new OcrReviewChange(field, NullIfWhiteSpace(extractedValue), NullIfWhiteSpace(reviewedValue)));
+    }
+
+    private static bool ValuesMatch(string? left, string? right) =>
+        string.Equals(Normalize(left), Normalize(right), StringComparison.OrdinalIgnoreCase);
+
+    private static string Normalize(string? value) =>
+        string.Join(" ", (value ?? "").Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
 public static class AiDocumentProcessingMetrics
 {
     private const decimal CheckCarefullyConfidenceThreshold = 0.75m;
@@ -2885,35 +2974,51 @@ public static class AiDocumentProcessingMetrics
         var jobList = jobs.ToList();
         var periodJobs = jobList
             .Where(job => IsInAnalyticsRange(BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(job.CreatedAt, DateTimeKind.Utc))), analyticsFrom, analyticsTo))
-            .ToArray();
+            .ToList();
         var categories = Categories
             .Select(category => CreateCategory(category.Category, category.Label, periodJobs))
             .ToArray();
+        var reviewedJobs = periodJobs.Where(IsReviewed).ToList();
+        var comparedFieldCount = reviewedJobs.Sum(job => job.ComparedFieldCount);
+        var correctFieldCount = reviewedJobs.Sum(job => job.CorrectFieldCount);
 
         return new DashboardAiDocumentProcessing(
-            periodJobs.Length,
-            periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
-            periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
-            periodJobs.Count(IsLowConfidence),
-            periodJobs.Count(job => job.Status == OcrJobStatus.Failed),
-            jobList.Count(job => job.Status == OcrJobStatus.NeedsReview && job.ReviewDecision == OcrReviewDecision.Pending),
-            usage.UsedThisMonth,
-            usage.Limit.MonthlyRequestLimit,
-            usage.RemainingThisMonth,
-            categories);
+            ScanCount: periodJobs.Count,
+            AcceptedCount: periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
+            RejectedCount: periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
+            ReviewedCount: reviewedJobs.Count,
+            ComparedFieldCount: comparedFieldCount,
+            CorrectFieldCount: correctFieldCount,
+            CorrectedFieldCount: comparedFieldCount - correctFieldCount,
+            AccuracyPercent: AccuracyPercent(comparedFieldCount, correctFieldCount),
+            LowConfidenceCount: periodJobs.Count(IsLowConfidence),
+            FailedCount: periodJobs.Count(job => job.Status == OcrJobStatus.Failed),
+            PendingReviewCount: jobList.Count(job => job.Status == OcrJobStatus.NeedsReview && job.ReviewDecision == OcrReviewDecision.Pending),
+            UsedThisMonth: usage.UsedThisMonth,
+            MonthlyRequestLimit: usage.Limit.MonthlyRequestLimit,
+            RemainingThisMonth: usage.RemainingThisMonth,
+            Categories: categories);
     }
 
     private static DashboardAiDocumentCategory CreateCategory(string category, string label, IEnumerable<OcrJob> jobs)
     {
-        var categoryJobs = jobs.Where(job => CategoryFor(job.Category) == category).ToArray();
+        var categoryJobs = jobs.Where(job => CategoryFor(job.Category) == category).ToList();
+        var reviewedJobs = categoryJobs.Where(IsReviewed).ToList();
+        var comparedFieldCount = reviewedJobs.Sum(job => job.ComparedFieldCount);
+        var correctFieldCount = reviewedJobs.Sum(job => job.CorrectFieldCount);
         return new DashboardAiDocumentCategory(
-            category,
-            label,
-            categoryJobs.Length,
-            categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
-            categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
-            categoryJobs.Count(IsLowConfidence),
-            categoryJobs.Count(job => job.Status == OcrJobStatus.Failed));
+            Category: category,
+            Label: label,
+            ScanCount: categoryJobs.Count,
+            AcceptedCount: categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
+            RejectedCount: categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
+            ReviewedCount: reviewedJobs.Count,
+            ComparedFieldCount: comparedFieldCount,
+            CorrectFieldCount: correctFieldCount,
+            CorrectedFieldCount: comparedFieldCount - correctFieldCount,
+            AccuracyPercent: AccuracyPercent(comparedFieldCount, correctFieldCount),
+            LowConfidenceCount: categoryJobs.Count(IsLowConfidence),
+            FailedCount: categoryJobs.Count(job => job.Status == OcrJobStatus.Failed));
     }
 
     private static string CategoryFor(FileCategory category) => category switch
@@ -2936,6 +3041,14 @@ public static class AiDocumentProcessingMetrics
             return false;
         }
     }
+
+    private static bool IsReviewed(OcrJob job) =>
+        job.ReviewDecision == OcrReviewDecision.Reviewed ||
+        job.Status == OcrJobStatus.Reviewed ||
+        job.ReviewedAt is not null;
+
+    private static decimal? AccuracyPercent(int comparedFieldCount, int correctFieldCount) =>
+        comparedFieldCount == 0 ? null : Math.Round(correctFieldCount * 100m / comparedFieldCount, 1);
 
     private static bool IsInAnalyticsRange(DateOnly value, DateOnly? from, DateOnly? to) =>
         (from is null || value >= from) && (to is null || value <= to);

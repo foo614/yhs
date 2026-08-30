@@ -22,7 +22,10 @@ public sealed record AutoCountExportInput(
     DateOnly? To,
     DateTime GeneratedAtUtc,
     IReadOnlyList<FinanceInvoice>? FinanceInvoices = null,
-    IReadOnlyList<CollectionTransaction>? Collections = null);
+    IReadOnlyList<CollectionTransaction>? Collections = null,
+    IReadOnlyList<Supplier>? Suppliers = null,
+    IReadOnlyList<DeliveryAccountingCharge>? DeliveryAccountingCharges = null,
+    IReadOnlyList<Owner>? Owners = null);
 
 /// <summary>
 /// Builds a small, dependency-free Open XML workbook for manual AutoCount mapping.
@@ -119,7 +122,11 @@ public static class AutoCountExcel
             new("Expenses", ExpenseRows(selectedInput, vehicleLookup)),
             new("SalesInvoices", SalesInvoiceRows(selectedInput, vehicleLookup)),
             // Collections are period-scoped, but their invoice reference may belong to an earlier period.
-            new("Collections", CollectionRows(selectedInput, vehicleLookup, sourcePayments, financeInvoices))
+            new("Collections", CollectionRows(selectedInput, vehicleLookup, sourcePayments, financeInvoices)),
+            new("Suppliers", SupplierRows(selectedInput.Suppliers ?? [])),
+            new("Owners", OwnerRows(selectedInput.Owners ?? [])),
+            new("SalesLines", SalesLineRows(selectedInput, vehicleLookup)),
+            new("DeliveryCharges", DeliveryAccountingChargeRows(selectedInput, vehicleLookup))
         };
 
         using var output = new MemoryStream();
@@ -150,7 +157,7 @@ public static class AutoCountExcel
             ["Generated at (UTC)", input.GeneratedAtUtc.ToString("O", CultureInfo.InvariantCulture)],
             ["Period from (inclusive)", from],
             ["Period to (inclusive)", to],
-            ["Category sheets", "Customers, Vehicles, Purchases, Payments, Expenses, SalesInvoices, Collections"],
+            ["Category sheets", "Customers, Owners, Suppliers, Vehicles, Purchases, Payments, Expenses, SalesInvoices, SalesLines, DeliveryCharges, Collections"],
             ["Vehicles included", vehicles.Count.ToString(CultureInfo.InvariantCulture)],
             ["Customers included", customers.Count.ToString(CultureInfo.InvariantCulture)],
             ["Data boundary", "Only values currently persisted in YS Heng are included; no tax code is inferred."],
@@ -271,6 +278,61 @@ public static class AutoCountExcel
             string.IsNullOrWhiteSpace(invoice.VehiclePlateNumber) ? PlateFor(vehicles, invoice.VehicleId) : invoice.VehiclePlateNumber,
             Money(invoice.Amount), Money(invoice.SalesPrice), Money(invoice.InterestAdditionalCharges), Money(invoice.NcdAmount), Money(invoice.WindscreenCharges), invoice.CreatedBy,
             "YS Heng-issued invoice. Confirm AutoCount customer, account and tax mapping before manual entry or import."
+        }));
+        return rows;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> SalesLineRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)
+    {
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "SourceId", "InvoiceNumber", "InvoiceDate", "CustomerTinNumber", "SalesAgent", "LoanBankReference", "CarPlate", "ItemCode", "Description", "AccountCode", "ClassificationCode", "TaxCode", "Amount", RemarkHeader }
+        };
+        foreach (var invoice in (input.FinanceInvoices ?? []).OrderBy(item => item.InvoiceDate))
+        {
+            var plate = string.IsNullOrWhiteSpace(invoice.VehiclePlateNumber) ? PlateFor(vehicles, invoice.VehicleId) : invoice.VehiclePlateNumber;
+            rows.Add(new[] { invoice.Id.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.CustomerTinNumber ?? "", invoice.SalesAgentName ?? "", invoice.LoanBankReference ?? "", plate, plate, $"Vehicle sale - {plate}", "5500-0000", "025", "", Money(invoice.SalesPrice), "Vehicle account/classification follows the approved workbook. TaxCode is intentionally blank." });
+            if (invoice.InterestAdditionalCharges != 0)
+            {
+                rows.Add(new[] { invoice.Id.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.CustomerTinNumber ?? "", invoice.SalesAgentName ?? "", invoice.LoanBankReference ?? "", plate, "ADDITIONAL CHARGES", "Interest / additional charges", "", "", "", Money(invoice.InterestAdditionalCharges), "Finance must select the approved AutoCount item, account, classification and TaxCode before import." });
+            }
+            if (invoice.WindscreenCharges != 0)
+            {
+                rows.Add(new[] { invoice.Id.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.CustomerTinNumber ?? "", invoice.SalesAgentName ?? "", invoice.LoanBankReference ?? "", plate, "WINDSCREEN", "Windscreen charges", "", "", "", Money(invoice.WindscreenCharges), "Finance must select the approved AutoCount item, account, classification and TaxCode before import." });
+            }
+            if (invoice.NcdAmount != 0)
+            {
+                rows.Add(new[] { invoice.Id.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.CustomerTinNumber ?? "", invoice.SalesAgentName ?? "", invoice.LoanBankReference ?? "", plate, "NCD", "NCD deduction", "", "", "", Money(-invoice.NcdAmount), "Finance must select the approved AutoCount item, account, classification and TaxCode before import." });
+            }
+            if (invoice.InsurancePaidOnBehalfAmount > 0)
+            {
+                rows.Add(new[] { invoice.Id.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.CustomerTinNumber ?? "", invoice.SalesAgentName ?? "", invoice.LoanBankReference ?? "", plate, "INSURANCE (MV)", "Insurance paid on behalf", "4001-I001", "006", "", Money(invoice.InsurancePaidOnBehalfAmount), "Insurance account/classification follows the approved workbook. TaxCode is intentionally blank." });
+            }
+            if (invoice.RoadTaxPaidOnBehalfAmount > 0)
+            {
+                rows.Add(new[] { invoice.Id.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.CustomerTinNumber ?? "", invoice.SalesAgentName ?? "", invoice.LoanBankReference ?? "", plate, "ROAD TAX", "Road tax paid on behalf", "4001-R001", "006", "", Money(invoice.RoadTaxPaidOnBehalfAmount), "Road-tax account/classification follows the approved workbook. TaxCode is intentionally blank." });
+            }
+            if (invoice.AdvancePaidOnBehalfAmount > 0)
+            {
+                rows.Add(new[] { invoice.Id.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.CustomerTinNumber ?? "", invoice.SalesAgentName ?? "", invoice.LoanBankReference ?? "", plate, "ADVANCE", "Other advance paid on behalf", "", "", "", Money(invoice.AdvancePaidOnBehalfAmount), "Finance must select the approved AutoCount item, account, classification and TaxCode before import." });
+            }
+        }
+        return rows;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> DeliveryAccountingChargeRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)
+    {
+        var suppliers = (input.Suppliers ?? []).ToDictionary(supplier => supplier.Id);
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "SourceId", "CarPlate", "ChargeType", "Provider", "SupplierCreditorCode", "InvoiceDate", "ReferenceNumber", "Amount", "PaidOnBehalf", "PurchaseAccountCode", "ClassificationCode", "TaxCode", "AccountingStatus", RemarkHeader }
+        };
+        rows.AddRange((input.DeliveryAccountingCharges ?? []).OrderBy(charge => charge.InvoiceDate).Select(charge => new[] {
+            charge.Id.ToString(), PlateFor(vehicles, charge.VehicleId), charge.ChargeType.ToString(), charge.ProviderName,
+            charge.SupplierId.HasValue && suppliers.TryGetValue(charge.SupplierId.Value, out var supplier) ? supplier.AutoCountCreditorCode ?? "" : "",
+            Date(charge.InvoiceDate), charge.ReferenceNumber ?? "", Money(charge.Amount), charge.PaidOnBehalf ? "Yes" : "No",
+            charge.ChargeType == DeliveryAccountingChargeType.Insurance ? "4001-I002" : "", "006", "", charge.AccountingStatus.ToString(),
+            charge.AccountingStatus == AccountingConfirmationStatus.FinanceConfirmed ? "Finance confirmed; TaxCode remains a separate unresolved field." : "Draft only; do not import."
         }));
         return rows;
     }

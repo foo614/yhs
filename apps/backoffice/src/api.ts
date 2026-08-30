@@ -266,16 +266,22 @@ export type DashboardAiDocumentCategory = {
   category: "IdentityCard" | "Voc" | "InvoicesAndReceipts" | "SupportingDocuments";
   label: string;
   scanCount: number;
-  acceptedCount: number;
-  rejectedCount: number;
+  reviewedCount: number;
+  comparedFieldCount: number;
+  correctFieldCount: number;
+  correctedFieldCount: number;
+  accuracyPercent?: number | null;
   lowConfidenceCount: number;
   failedCount: number;
 };
 
 export type DashboardAiDocumentProcessing = {
   scanCount: number;
-  acceptedCount: number;
-  rejectedCount: number;
+  reviewedCount: number;
+  comparedFieldCount: number;
+  correctFieldCount: number;
+  correctedFieldCount: number;
+  accuracyPercent?: number | null;
   lowConfidenceCount: number;
   failedCount: number;
   pendingReviewCount: number;
@@ -373,6 +379,25 @@ export type Supplier = {
   createdAt?: string;
   approvedBy?: string;
   approvedAt?: string;
+};
+
+export type DeliveryAccountingCharge = {
+  id: string;
+  deliveryScheduleId: string;
+  vehicleId: string;
+  chargeType: DeliveryAccountingChargeType;
+  supplierId?: string;
+  providerName: string;
+  referenceNumber?: string;
+  invoiceDate: string;
+  amount: number;
+  paidOnBehalf: boolean;
+  documentId?: string;
+  accountingStatus: AccountingConfirmationStatus;
+  updatedBy?: string;
+  updatedAt?: string;
+  accountingConfirmedBy?: string;
+  accountingConfirmedAt?: string;
 };
 
 export type Customer = {
@@ -743,10 +768,15 @@ export type CollectionTransaction = {
 
 export type FinanceSaleInput = {
   vehicleId: string;
+  salesAgentUserId?: string;
+  loanBankReference?: string;
   salesPrice: number;
   interestAdditionalCharges: number;
   ncdAmount: number;
   windscreenCharges: number;
+  insurancePaidOnBehalfAmount?: number;
+  roadTaxPaidOnBehalfAmount?: number;
+  advancePaidOnBehalfAmount?: number;
   nettPrice?: number;
   nettPriceOverrideReason?: string;
 };
@@ -1507,6 +1537,14 @@ export async function getPaymentVouchers(): Promise<PaymentVoucher[]> {
   return getWithNetworkFallback("/api/payment-vouchers", []);
 }
 
+export async function getDeliveryAccountingCharges(): Promise<DeliveryAccountingCharge[]> {
+  return getWithNetworkFallback("/api/delivery-accounting-charges", []);
+}
+
+export async function confirmDeliveryAccountingCharge(chargeId: string): Promise<DeliveryAccountingCharge> {
+  return request<DeliveryAccountingCharge>(`/api/delivery-accounting-charges/${chargeId}/confirm`, { method: "POST" });
+}
+
 export async function getLeads(): Promise<Lead[]> {
   return getWithNetworkFallback("/api/leads", fallbackLeads());
 }
@@ -1517,7 +1555,7 @@ export async function getSalesWorkboard(agentUserId?: string): Promise<SalesWork
   return request<SalesWorkboard>(`${path}${query}`);
 }
 
-export async function getAuditLog(filters: AuditLogFilters = {}): Promise<AuditLog[]> {
+export async function getAuditLog(filters: AuditLogFilters = {}, options: AuditLogRequestOptions = {}): Promise<AuditLog[]> {
   const params = new URLSearchParams();
   if (filters.keyword?.trim()) params.set("q", filters.keyword.trim());
   if (filters.actor?.trim()) params.set("actor", filters.actor.trim());
@@ -2205,6 +2243,17 @@ export async function updatePaymentVoucher(voucher: PaymentVoucher): Promise<Pay
   return request<PaymentVoucher>(`/api/payment-vouchers/${voucher.id}`, {
     method: "PUT",
     body: JSON.stringify(voucher)
+  });
+}
+
+export async function approvePaymentVoucher(voucherId: string): Promise<PaymentVoucher> {
+  return request<PaymentVoucher>(`/api/payment-vouchers/${voucherId}/approve`, { method: "POST" });
+}
+
+export async function markPaymentVoucherPaid(voucherId: string, paymentEvidenceReference: string): Promise<PaymentVoucher> {
+  return request<PaymentVoucher>(`/api/payment-vouchers/${voucherId}/mark-paid`, {
+    method: "POST",
+    body: JSON.stringify({ paymentEvidenceReference })
   });
 }
 

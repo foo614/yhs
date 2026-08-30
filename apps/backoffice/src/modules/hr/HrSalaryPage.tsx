@@ -12,7 +12,6 @@ import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
-import { OperationsProTable } from "../shared/OperationsProTable";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
 import type {
   CurrentUser,

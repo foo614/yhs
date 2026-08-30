@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Switch, Tag, Typography, message } from "antd";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
-import { OperationsProTable } from "../shared/OperationsProTable";
 import {
   createVehicleCatalogModel,
   getVehicleCatalogModels,

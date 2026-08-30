@@ -13,7 +13,12 @@ public sealed record FinanceSaleRequest(
     decimal NcdAmount,
     decimal WindscreenCharges,
     decimal? NettPrice,
-    string? NettPriceOverrideReason);
+    string? NettPriceOverrideReason,
+    string? SalesAgentUserId = null,
+    string? LoanBankReference = null,
+    decimal InsurancePaidOnBehalfAmount = 0,
+    decimal RoadTaxPaidOnBehalfAmount = 0,
+    decimal AdvancePaidOnBehalfAmount = 0);
 
 public sealed record CreateCollectionRequest(
     decimal Amount,
@@ -53,14 +58,21 @@ public static class FinanceVehicleOptions
 
 public static class FinanceV2Rules
 {
-    public const string FormulaVersion = "v1:sales+additional+windscreen-ncd";
+    public const string FormulaVersion = "v2:sales+additional+windscreen+paid-on-behalf-ncd";
 
-    public static decimal CalculateNettPrice(decimal salesPrice, decimal interestAdditionalCharges, decimal ncdAmount, decimal windscreenCharges) =>
-        decimal.Round(salesPrice + interestAdditionalCharges + windscreenCharges - ncdAmount, 2, MidpointRounding.AwayFromZero);
+    public static decimal CalculateNettPrice(
+        decimal salesPrice,
+        decimal interestAdditionalCharges,
+        decimal ncdAmount,
+        decimal windscreenCharges,
+        decimal insurancePaidOnBehalfAmount = 0,
+        decimal roadTaxPaidOnBehalfAmount = 0,
+        decimal advancePaidOnBehalfAmount = 0) =>
+        decimal.Round(salesPrice + interestAdditionalCharges + windscreenCharges + insurancePaidOnBehalfAmount + roadTaxPaidOnBehalfAmount + advancePaidOnBehalfAmount - ncdAmount, 2, MidpointRounding.AwayFromZero);
 
     public static PaymentRecord CreatePayment(FinanceSaleRequest request, Guid customerId, string actorUserId, DateTime now)
     {
-        var calculated = CalculateNettPrice(request.SalesPrice, request.InterestAdditionalCharges, request.NcdAmount, request.WindscreenCharges);
+        var calculated = CalculateNettPrice(request.SalesPrice, request.InterestAdditionalCharges, request.NcdAmount, request.WindscreenCharges, request.InsurancePaidOnBehalfAmount, request.RoadTaxPaidOnBehalfAmount, request.AdvancePaidOnBehalfAmount);
         var agreed = decimal.Round(request.NettPrice ?? calculated, 2, MidpointRounding.AwayFromZero);
         var variance = decimal.Round(agreed - calculated, 2, MidpointRounding.AwayFromZero);
         return new PaymentRecord
@@ -79,6 +91,11 @@ public static class FinanceV2Rules
             InterestAdditionalCharges = request.InterestAdditionalCharges,
             NcdAmount = request.NcdAmount,
             WindscreenCharges = request.WindscreenCharges,
+            SalesAgentUserId = request.SalesAgentUserId?.Trim(),
+            LoanBankReference = request.LoanBankReference?.Trim(),
+            InsurancePaidOnBehalfAmount = request.InsurancePaidOnBehalfAmount,
+            RoadTaxPaidOnBehalfAmount = request.RoadTaxPaidOnBehalfAmount,
+            AdvancePaidOnBehalfAmount = request.AdvancePaidOnBehalfAmount,
             CreatedAt = now
         };
     }
@@ -105,6 +122,11 @@ public static class FinanceV2Rules
         if (request.InterestAdditionalCharges < 0) errors.Add(new("finance_additional_charges_invalid", "Interest and additional charges cannot be negative."));
         if (request.NcdAmount < 0) errors.Add(new("finance_ncd_invalid", "NCD amount cannot be negative."));
         if (request.WindscreenCharges < 0) errors.Add(new("finance_windscreen_invalid", "Windscreen charges cannot be negative."));
+        if (string.IsNullOrWhiteSpace(request.SalesAgentUserId)) errors.Add(new("finance_sales_agent_required", "Select the responsible sales agent."));
+        if (request.InsurancePaidOnBehalfAmount < 0 || request.RoadTaxPaidOnBehalfAmount < 0 || request.AdvancePaidOnBehalfAmount < 0)
+        {
+            errors.Add(new("finance_paid_on_behalf_invalid", "Paid-on-behalf amounts cannot be negative."));
+        }
         if (payment.CalculatedNettPrice <= 0 || payment.NettPrice <= 0) errors.Add(new("finance_nett_price_invalid", "Calculated and agreed nett prices must be greater than zero."));
         if (payment.NettPriceVariance != 0 && string.IsNullOrWhiteSpace(payment.NettPriceOverrideReason))
         {

@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { canPrepareFinanceInvoice, createUnpaidDailySpend, dailySpendMatchesDashboardAttention, FinanceV2BalanceSummary, financeInvoiceSubmitLabel, financeInvoiceVehicleDefaults, financeRequesterLabel, financeSearchCopy, financeTabForUrl, InvoiceUpdateRequestQueue, payDailySpend } from "./FinancePage";
+import { canPrepareFinanceInvoice, createUnpaidDailySpend, dailySpendMatchesDashboardAttention, FinanceV2BalanceSummary, financeInvoiceSubmitLabel, financeInvoiceVehicleDefaults, financeRequesterLabel, financeSearchCopy, financeTabForUrl, InvoiceUpdateRequestQueue, payDailySpend, settlementMatchesDashboardAttention } from "./FinancePage";
 
 describe("finance module navigation", () => {
   it("keeps legacy cash custody links on the consolidated cash handover tab", () => {

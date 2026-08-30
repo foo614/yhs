@@ -11,6 +11,17 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Net.Http
 Add-Type -AssemblyName System.Drawing
 
+function Get-ErrorResponseStream {
+  param([System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+  if (-not [string]::IsNullOrWhiteSpace($ErrorRecord.ErrorDetails.Message)) {
+    $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($ErrorRecord.ErrorDetails.Message)
+    return [System.IO.MemoryStream]::new($bodyBytes)
+  }
+
+  return $ErrorRecord.Exception.Response.GetResponseStream()
+}
+
 function Assert-HttpOk {
   param([string]$Url, [string]$Name)
   $response = Invoke-WebRequest -Uri $Url -UseBasicParsing
@@ -417,7 +428,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidStaffStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidStaffContent = $reader.ReadToEnd()
     }
@@ -445,7 +456,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidStaffUpdateStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidStaffUpdateContent = $reader.ReadToEnd()
     }
@@ -473,7 +484,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidStaffPasswordResetStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidStaffPasswordResetContent = $reader.ReadToEnd()
     }
@@ -501,7 +512,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidStaffRoleUpdateStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidStaffRoleUpdateContent = $reader.ReadToEnd()
     }
@@ -589,7 +600,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidLeadStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidLeadContent = $reader.ReadToEnd()
     }
@@ -623,7 +634,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidLeadUpdateStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidLeadUpdateContent = $reader.ReadToEnd()
     }
@@ -706,6 +717,7 @@ $closedLeadBody = @{
   phone = $correctedLeadPhone
   message = "Updated viewing and bank loan follow-up note."
   status = "Closed"
+  closureOutcome = "Lost"
   createdAt = $createdLead.createdAt
 } | ConvertTo-Json
 $closedLead = Invoke-WebRequest -Uri "$ApiBaseUrl/api/leads/$($createdLead.id)" -Method Put -Body $closedLeadBody -ContentType "application/json" -WebSession $session -UseBasicParsing
@@ -907,12 +919,40 @@ if ($filteredVehicleAudit.Count -eq 0) {
 Write-Host "Authenticated audit actor OK"
 Write-Host "Audit log filter OK"
 
+$purchaseSupplierId = [guid]::NewGuid().ToString()
+$purchaseSupplierBody = @{
+  id = $purchaseSupplierId
+  companyName = "Kluang Vehicle Supply"
+  registrationNumber = "SMOKE-$workflowSuffix"
+  address = "88 Jalan Industri, Kluang"
+  phone = "07-777 8899"
+  contactPerson = "Smoke Supplier"
+} | ConvertTo-Json
+$purchaseSupplier = Invoke-WebRequest -Uri "$ApiBaseUrl/api/supplier-master" -Method Post -Body $purchaseSupplierBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+if ($purchaseSupplier.StatusCode -lt 200 -or $purchaseSupplier.StatusCode -ge 300) {
+  throw "Purchase supplier creation returned HTTP $($purchaseSupplier.StatusCode)"
+}
+$approvedPurchaseSupplier = Invoke-WebRequest -Uri "$ApiBaseUrl/api/supplier-master/$purchaseSupplierId/approve" -Method Post -WebSession $financeSession -UseBasicParsing
+if ($approvedPurchaseSupplier.StatusCode -lt 200 -or $approvedPurchaseSupplier.StatusCode -ge 300) {
+  throw "Purchase supplier approval returned HTTP $($approvedPurchaseSupplier.StatusCode)"
+}
+Write-Host "Purchase supplier maker-checker approval OK"
+
 $purchaseInvoiceBody = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
+  supplierId = $purchaseSupplierId
   invoiceNumber = "PI-$workflowSuffix"
   amount = 40000
-} | ConvertTo-Json
+  lines = @(
+    @{
+      lineType = "VehiclePurchase"
+      description = "Vehicle purchase"
+      amount = 40000
+      capitaliseIntoVehicleCost = $true
+    }
+  )
+} | ConvertTo-Json -Depth 4
 $purchaseInvoice = Invoke-WebRequest -Uri "$ApiBaseUrl/api/purchase-invoices" -Method Post -Body $purchaseInvoiceBody -ContentType "application/json" -WebSession $session -UseBasicParsing
 if ($purchaseInvoice.StatusCode -lt 200 -or $purchaseInvoice.StatusCode -ge 300) {
   throw "Purchase invoice creation returned HTTP $($purchaseInvoice.StatusCode)"
@@ -927,9 +967,18 @@ Write-Host "Purchase invoice intake OK"
 $updatedPurchaseInvoiceBody = @{
   id = $createdPurchaseInvoice.id
   vehicleId = $createdPurchaseInvoice.vehicleId
+  supplierId = $createdPurchaseInvoice.supplierId
   invoiceNumber = $createdPurchaseInvoice.invoiceNumber
   amount = 41000
-} | ConvertTo-Json
+  lines = @(
+    @{
+      lineType = "VehiclePurchase"
+      description = "Vehicle purchase"
+      amount = 41000
+      capitaliseIntoVehicleCost = $true
+    }
+  )
+} | ConvertTo-Json -Depth 4
 $updatedPurchaseInvoice = Invoke-WebRequest -Uri "$ApiBaseUrl/api/purchase-invoices/$($createdPurchaseInvoice.id)" -Method Put -Body $updatedPurchaseInvoiceBody -ContentType "application/json" -WebSession $session -UseBasicParsing
 if ($updatedPurchaseInvoice.StatusCode -lt 200 -or $updatedPurchaseInvoice.StatusCode -ge 300) {
   throw "Purchase invoice update returned HTTP $($updatedPurchaseInvoice.StatusCode)"
@@ -954,7 +1003,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidPurchaseInvoiceStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidPurchaseInvoiceContent = $reader.ReadToEnd()
     }
@@ -985,7 +1034,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $duplicatePurchaseInvoiceStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $duplicatePurchaseInvoiceContent = $reader.ReadToEnd()
     }
@@ -1027,7 +1076,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidVehicleStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidVehicleContent = $reader.ReadToEnd()
     }
@@ -1058,6 +1107,7 @@ $duplicateVehicleBody = @{
   additionalCharges = 0
   refurbishmentTotal = 0
   commissionTotal = 0
+  ownerId = $workflowOwnerId
   intakeDate = "2026-05-30"
 } | ConvertTo-Json
 try {
@@ -1068,7 +1118,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $duplicateVehicleStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $duplicateVehicleContent = $reader.ReadToEnd()
     }
@@ -1100,7 +1150,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidRepairStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidRepairContent = $reader.ReadToEnd()
     }
@@ -1157,6 +1207,7 @@ Write-Host "Repair part tracking OK"
 $invalidSupplierInvoiceBody = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
+  supplierId = $purchaseSupplierId
   supplierName = " "
   invoiceNumber = ""
   plateNumberOnInvoice = $workflowPlate
@@ -1170,7 +1221,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidSupplierInvoiceStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidSupplierInvoiceContent = $reader.ReadToEnd()
     }
@@ -1182,7 +1233,7 @@ catch {
     throw
   }
 }
-if ($invalidSupplierInvoiceStatus -ne 400 -or $invalidSupplierInvoiceContent -notmatch "supplier_name_required" -or $invalidSupplierInvoiceContent -notmatch "invoice_number_required") {
+if ($invalidSupplierInvoiceStatus -ne 400 -or $invalidSupplierInvoiceContent -notmatch "invoice_number_required") {
   throw "Invalid supplier invoice returned HTTP $invalidSupplierInvoiceStatus instead of structured validation errors"
 }
 Write-Host "Supplier invoice validation OK"
@@ -1190,6 +1241,7 @@ Write-Host "Supplier invoice validation OK"
 $supplierInvoiceBody = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
+  supplierId = $purchaseSupplierId
   supplierName = "Kluang Workshop"
   invoiceNumber = "SW-$workflowSuffix"
   plateNumberOnInvoice = $workflowPlate
@@ -1206,6 +1258,7 @@ if ($createdSupplierInvoice.plateNumberOnInvoice -ne $workflowPlate) {
 $updatedSupplierInvoiceBody = @{
   id = $createdSupplierInvoice.id
   vehicleId = $createdSupplierInvoice.vehicleId
+  supplierId = $createdSupplierInvoice.supplierId
   supplierName = $createdSupplierInvoice.supplierName
   invoiceNumber = $createdSupplierInvoice.invoiceNumber
   plateNumberOnInvoice = $createdSupplierInvoice.plateNumberOnInvoice
@@ -1223,7 +1276,7 @@ Write-Host "Supplier invoice update OK"
 
 $dashboardAfterSupplier = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
 $dashboardAfterSupplierSummary = $dashboardAfterSupplier.Content | ConvertFrom-Json
-if ($dashboardAfterSupplierSummary.topSupplier -ne "Kluang Workshop" -or $dashboardAfterSupplierSummary.salesPerformance -lt 1) {
+if ($dashboardAfterSupplierSummary.topSupplier -ne "Kluang Vehicle Supply" -or $dashboardAfterSupplierSummary.salesPerformance -lt 1) {
   throw "Dashboard summary did not include top supplier and sales performance metrics from live workflow data"
 }
 Write-Host "Dashboard top supplier and sales performance OK"
@@ -1231,6 +1284,7 @@ Write-Host "Dashboard top supplier and sales performance OK"
 $duplicateSupplierInvoiceBody = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
+  supplierId = $purchaseSupplierId
   supplierName = " kluang workshop "
   invoiceNumber = " sw-$workflowSuffix "
   plateNumberOnInvoice = $workflowPlate
@@ -1244,7 +1298,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $duplicateSupplierInvoiceStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $duplicateSupplierInvoiceContent = $reader.ReadToEnd()
     }
@@ -1264,6 +1318,7 @@ Write-Host "Supplier invoice duplicate validation OK"
 $wrongPlateSupplierInvoiceBody = @{
   id = [guid]::NewGuid().ToString()
   vehicleId = $workflowVehicleId
+  supplierId = $purchaseSupplierId
   supplierName = "Wrong Plate Workshop"
   invoiceNumber = "WP-$workflowSuffix"
   plateNumberOnInvoice = "WRONG999"
@@ -1277,7 +1332,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $wrongPlateSupplierInvoiceStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $wrongPlateSupplierInvoiceContent = $reader.ReadToEnd()
     }
@@ -1384,7 +1439,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $duplicateDeliveryStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $duplicateDeliveryContent = $reader.ReadToEnd()
     }
@@ -1529,7 +1584,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $blockedReleaseStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $blockedReleaseContent = $reader.ReadToEnd()
     }
@@ -1699,7 +1754,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidCustomerStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidCustomerContent = $reader.ReadToEnd()
     }
@@ -1731,7 +1786,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $duplicateCustomerStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $duplicateCustomerContent = $reader.ReadToEnd()
     }
@@ -1761,7 +1816,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidOwnerStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidOwnerContent = $reader.ReadToEnd()
     }
@@ -1791,7 +1846,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $duplicateOwnerStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $duplicateOwnerContent = $reader.ReadToEnd()
     }
@@ -1857,7 +1912,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidLoanStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidLoanContent = $reader.ReadToEnd()
     }
@@ -1891,7 +1946,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidLouLoanStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidLouLoanContent = $reader.ReadToEnd()
     }
@@ -1925,7 +1980,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $unapprovedApprovedLoanStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $unapprovedApprovedLoanContent = $reader.ReadToEnd()
     }
@@ -1959,7 +2014,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $incompleteLouLoanStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $incompleteLouLoanContent = $reader.ReadToEnd()
     }
@@ -2001,6 +2056,7 @@ $bankFollowUpPayment = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments" -Method
 if ($bankFollowUpPayment.StatusCode -lt 200 -or $bankFollowUpPayment.StatusCode -ge 300) {
   throw "Bank follow-up payment creation returned HTTP $($bankFollowUpPayment.StatusCode)"
 }
+$createdBankFollowUpPayment = $bankFollowUpPayment.Content | ConvertFrom-Json
 $dashboardReminders = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/reminders" -WebSession $session -UseBasicParsing
 if ($dashboardReminders.Content -notmatch "PaymentBankFollowUp" -or $dashboardReminders.Content -notmatch $workflowPlate -or $dashboardReminders.Content -notmatch "52000") {
   throw "Dashboard reminders did not include due bank payment follow-up"
@@ -2016,14 +2072,14 @@ if ($filteredDashboardReminderItems | Where-Object { $_.type -ne "PaymentBankFol
 Write-Host "Payment bank follow-up reminder OK"
 
 $statusFollowUpPaymentBody = @{
-  id = [guid]::NewGuid().ToString()
+  id = $createdBankFollowUpPayment.id
   vehicleId = $workflowVehicleId
   nettPrice = 52000
   status = "Approved"
   bossChecked = $false
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
-$statusFollowUpPayment = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments" -Method Post -Body $statusFollowUpPaymentBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+$statusFollowUpPayment = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments/$($createdBankFollowUpPayment.id)" -Method Put -Body $statusFollowUpPaymentBody -ContentType "application/json" -WebSession $session -UseBasicParsing
 if ($statusFollowUpPayment.StatusCode -lt 200 -or $statusFollowUpPayment.StatusCode -ge 300) {
   throw "Payment status follow-up payment creation returned HTTP $($statusFollowUpPayment.StatusCode)"
 }
@@ -2034,7 +2090,7 @@ if ($paymentStatusReminders.Content -notmatch "PaymentStatusFollowUp" -or $payme
 Write-Host "Payment status follow-up reminder OK"
 
 $workflowPaymentBody = @{
-  id = [guid]::NewGuid().ToString()
+  id = $createdBankFollowUpPayment.id
   vehicleId = $workflowVehicleId
   nettPrice = 52000
   status = "Disbursed"
@@ -2052,12 +2108,12 @@ $workflowPaymentBody = @{
   bankFollowUpDate = "2026-05-31"
   createdAt = "2026-05-30T00:00:00Z"
 } | ConvertTo-Json
-$workflowPayment = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments" -Method Post -Body $workflowPaymentBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+$workflowPayment = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments/$($createdBankFollowUpPayment.id)" -Method Put -Body $workflowPaymentBody -ContentType "application/json" -WebSession $session -UseBasicParsing
 if ($workflowPayment.StatusCode -lt 200 -or $workflowPayment.StatusCode -ge 300) {
   throw "Workflow payment creation returned HTTP $($workflowPayment.StatusCode)"
 }
 $createdWorkflowPayment = $workflowPayment.Content | ConvertFrom-Json
-if ($createdWorkflowPayment.receiptNumber -ne "RCPT-$workflowSuffix" -or $createdWorkflowPayment.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdWorkflowPayment.bossChecked -ne $true -or $createdWorkflowPayment.documentsPrepared -ne $true -or $createdWorkflowPayment.checklistValidated -ne $true -or $createdWorkflowPayment.bankName -ne "Maybank" -or $createdWorkflowPayment.bankFollowUpDate -ne "2026-05-31" -or $createdWorkflowPayment.salesPrice -ne 58000 -or $createdWorkflowPayment.interestAdditionalCharges -ne 600 -or $createdWorkflowPayment.ncdAmount -ne 1200 -or $createdWorkflowPayment.windscreenCharges -ne 450 -or $createdWorkflowPayment.outstationDeliveryDate -ne "2026-06-04") {
+if ($createdWorkflowPayment.receiptNumber -ne "RCPT-$workflowSuffix" -or $createdWorkflowPayment.invoiceNumber -ne "PAYINV-$workflowSuffix" -or $createdWorkflowPayment.bossChecked -ne $false -or $createdWorkflowPayment.documentsPrepared -ne $true -or $createdWorkflowPayment.checklistValidated -ne $true -or $createdWorkflowPayment.bankName -ne "Maybank" -or $createdWorkflowPayment.bankFollowUpDate -ne "2026-05-31" -or $createdWorkflowPayment.salesPrice -ne 58000 -or $createdWorkflowPayment.interestAdditionalCharges -ne 600 -or $createdWorkflowPayment.ncdAmount -ne 1200 -or $createdWorkflowPayment.windscreenCharges -ne 450 -or $createdWorkflowPayment.outstationDeliveryDate -ne "2026-06-04") {
   throw "Workflow payment did not preserve Finance metadata or derive the outstation date from Delivery"
 }
 
@@ -2085,10 +2141,17 @@ if ($updatedWorkflowPayment.StatusCode -lt 200 -or $updatedWorkflowPayment.Statu
   throw "Workflow payment correction update returned HTTP $($updatedWorkflowPayment.StatusCode)"
 }
 $updatedWorkflowPaymentContent = $updatedWorkflowPayment.Content | ConvertFrom-Json
-if ($updatedWorkflowPaymentContent.nettPrice -ne 52500 -or $updatedWorkflowPaymentContent.salesPrice -ne 58500 -or $updatedWorkflowPaymentContent.interestAdditionalCharges -ne 650 -or $updatedWorkflowPaymentContent.ncdAmount -ne 1300 -or $updatedWorkflowPaymentContent.windscreenCharges -ne 500 -or $updatedWorkflowPaymentContent.outstationDeliveryDate -ne "2026-06-04" -or $updatedWorkflowPaymentContent.bankName -ne "Public Bank" -or $updatedWorkflowPaymentContent.bankFollowUpDate -ne "2026-06-02") {
+if ($updatedWorkflowPaymentContent.nettPrice -ne 52500 -or $updatedWorkflowPaymentContent.salesPrice -ne 58500 -or $updatedWorkflowPaymentContent.interestAdditionalCharges -ne 650 -or $updatedWorkflowPaymentContent.ncdAmount -ne 1300 -or $updatedWorkflowPaymentContent.windscreenCharges -ne 500 -or $updatedWorkflowPaymentContent.outstationDeliveryDate -ne "2026-06-04" -or $updatedWorkflowPaymentContent.bankName -ne "Public Bank" -or $updatedWorkflowPaymentContent.bankFollowUpDate -ne "2026-06-02" -or $updatedWorkflowPaymentContent.bossChecked -ne $false) {
   throw "Workflow payment correction did not preserve Finance metadata and Delivery-owned outstation date"
 }
 Write-Host "Payment update tracking OK"
+
+$workflowPaymentReview = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payments/$($createdWorkflowPayment.id)/management-review" -Method Post -WebSession $session -UseBasicParsing
+$reviewedWorkflowPayment = $workflowPaymentReview.Content | ConvertFrom-Json
+if ($workflowPaymentReview.StatusCode -lt 200 -or $workflowPaymentReview.StatusCode -ge 300 -or $reviewedWorkflowPayment.bossChecked -ne $true) {
+  throw "Workflow payment management review did not confirm the corrected Finance record"
+}
+Write-Host "Payment management review OK"
 
 $workflowPaymentReadyBody = @{
   id = $createdWorkflowPayment.id
@@ -2138,7 +2201,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invoiceBlockedReleaseStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invoiceBlockedReleaseContent = $reader.ReadToEnd()
     }
@@ -2188,7 +2251,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $terminalDeliveryUpdateStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $terminalDeliveryUpdateContent = $reader.ReadToEnd()
     }
@@ -2218,7 +2281,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $repeatDeliveryStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $repeatDeliveryContent = $reader.ReadToEnd()
     }
@@ -2282,9 +2345,33 @@ if ($missingPaymentUpdateStatus -ne 404) {
 }
 Write-Host "Missing payment update validation OK"
 
+$paymentValidationVehicleId = [guid]::NewGuid().ToString()
+$paymentValidationVehicleBody = @{
+  id = $paymentValidationVehicleId
+  plateNumber = "PVT$($workflowSuffix.ToString().Substring($workflowSuffix.ToString().Length - 6))"
+  make = "Perodua"
+  model = "Finance Validation"
+  year = 2026
+  stockOwner = "YSHeng"
+  status = "Available"
+  isPublic = $false
+  purchasePrice = 30000
+  sellingPrice = 42000
+  additionalCharges = 0
+  refurbishmentTotal = 0
+  commissionTotal = 0
+  customerId = $workflowCustomerId
+  ownerId = $workflowOwnerId
+  intakeDate = "2026-05-30"
+} | ConvertTo-Json
+$paymentValidationVehicle = Invoke-WebRequest -Uri "$ApiBaseUrl/api/vehicles" -Method Post -Body $paymentValidationVehicleBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+if ($paymentValidationVehicle.StatusCode -lt 200 -or $paymentValidationVehicle.StatusCode -ge 300) {
+  throw "Payment validation vehicle creation returned HTTP $($paymentValidationVehicle.StatusCode)"
+}
+
 $invalidReconciledPaymentBody = @{
   id = [guid]::NewGuid().ToString()
-  vehicleId = $workflowVehicleId
+  vehicleId = $paymentValidationVehicleId
   nettPrice = 52000
   status = "Reconciled"
   receiptNumber = " "
@@ -2302,7 +2389,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidReconciledPaymentStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidReconciledPaymentContent = $reader.ReadToEnd()
     }
@@ -2321,7 +2408,7 @@ Write-Host "Payment receipt/invoice validation OK"
 
 $uncheckedReconciledPaymentBody = @{
   id = [guid]::NewGuid().ToString()
-  vehicleId = $workflowVehicleId
+  vehicleId = $paymentValidationVehicleId
   nettPrice = 52000
   status = "Reconciled"
   receiptNumber = "BOSSR-$workflowSuffix"
@@ -2337,7 +2424,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $uncheckedReconciledPaymentStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $uncheckedReconciledPaymentContent = $reader.ReadToEnd()
     }
@@ -2356,7 +2443,7 @@ Write-Host "Payment boss check validation OK"
 
 $uncheckedPaymentChecklistBody = @{
   id = [guid]::NewGuid().ToString()
-  vehicleId = $workflowVehicleId
+  vehicleId = $paymentValidationVehicleId
   nettPrice = 52000
   status = "Reconciled"
   receiptNumber = "CHECKR-$workflowSuffix"
@@ -2374,7 +2461,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $uncheckedPaymentChecklistStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $uncheckedPaymentChecklistContent = $reader.ReadToEnd()
     }
@@ -2386,14 +2473,14 @@ catch {
     throw
   }
 }
-if ($uncheckedPaymentChecklistStatus -ne 400 -or $uncheckedPaymentChecklistContent -notmatch "payment_documents_prepared_required" -or $uncheckedPaymentChecklistContent -notmatch "payment_checklist_validated_required" -or $uncheckedPaymentChecklistContent -notmatch "payment_invoice_generated_required") {
+if ($uncheckedPaymentChecklistStatus -ne 400 -or $uncheckedPaymentChecklistContent -notmatch "payment_documents_prepared_required" -or $uncheckedPaymentChecklistContent -notmatch "payment_checklist_validated_required") {
   throw "Unchecked payment checklist returned HTTP $uncheckedPaymentChecklistStatus instead of finance checklist validation"
 }
 Write-Host "Payment finance checklist validation OK"
 
 $duplicatePaymentReferenceBody = @{
   id = [guid]::NewGuid().ToString()
-  vehicleId = $workflowVehicleId
+  vehicleId = $paymentValidationVehicleId
   nettPrice = 52000
   status = "Reconciled"
   receiptNumber = " rcpt-$workflowSuffix "
@@ -2411,7 +2498,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $duplicatePaymentReferenceStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $duplicatePaymentReferenceContent = $reader.ReadToEnd()
     }
@@ -2430,7 +2517,7 @@ Write-Host "Payment duplicate reference validation OK"
 
 $invalidPaymentBody = @{
   id = [guid]::NewGuid().ToString()
-  vehicleId = $workflowVehicleId
+  vehicleId = $paymentValidationVehicleId
   nettPrice = 0
   status = "Pending"
   bossChecked = $false
@@ -2444,7 +2531,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidPaymentStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidPaymentContent = $reader.ReadToEnd()
     }
@@ -2463,7 +2550,7 @@ Write-Host "Payment amount validation OK"
 
 $invalidPaymentInvoiceDetailBody = @{
   id = [guid]::NewGuid().ToString()
-  vehicleId = $workflowVehicleId
+  vehicleId = $paymentValidationVehicleId
   nettPrice = 52000
   status = "Pending"
   bossChecked = $false
@@ -2481,7 +2568,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidPaymentInvoiceDetailStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidPaymentInvoiceDetailContent = $reader.ReadToEnd()
     }
@@ -2550,7 +2637,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidSettlementStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidSettlementContent = $reader.ReadToEnd()
     }
@@ -2582,7 +2669,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidSettlementDeadlineStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidSettlementDeadlineContent = $reader.ReadToEnd()
     }
@@ -2615,7 +2702,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidSettlementOwnerStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidSettlementOwnerContent = $reader.ReadToEnd()
     }
@@ -2647,7 +2734,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidDailySpendStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidDailySpendContent = $reader.ReadToEnd()
     }
@@ -2732,7 +2819,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidBrokerCommissionStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidBrokerCommissionContent = $reader.ReadToEnd()
     }
@@ -2766,7 +2853,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidBrokerCp58Status = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidBrokerCp58Content = $reader.ReadToEnd()
     }
@@ -2784,7 +2871,7 @@ if ($invalidBrokerCp58Status -ne 400 -or $invalidBrokerCp58Content -notmatch "cp
 Write-Host "Broker commission CP58 validation OK"
 
 $dashboardBeforeCommission = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
-$profitBeforeCommission = Get-DashboardTotalProfit $dashboardBeforeCommission.Content
+$profitBeforeCommission = [decimal](($dashboardBeforeCommission.Content | ConvertFrom-Json).realisedProfit)
 $brokerCommissionId = [guid]::NewGuid().ToString()
 $brokerCommissionBody = @{
   id = $brokerCommissionId
@@ -2804,9 +2891,9 @@ if ($brokerCommissions.Content -notmatch "Ah Chong Broker" -or $brokerCommission
   throw "Broker commission list did not include the local broker commission"
 }
 $dashboardAfterCommission = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
-$profitAfterCommission = Get-DashboardTotalProfit $dashboardAfterCommission.Content
+$profitAfterCommission = [decimal](($dashboardAfterCommission.Content | ConvertFrom-Json).realisedProfit)
 if (($profitBeforeCommission - $profitAfterCommission) -ne 1200) {
-  throw "Broker commission did not reduce total profit by RM 1200"
+  throw "Broker commission did not reduce realised profit by RM 1200"
 }
 $updatedBrokerCommissionBody = @{
   id = $brokerCommissionId
@@ -2826,9 +2913,9 @@ if ($updatedBrokerCommissionContent.brokerName -ne "Ah Chong Broker Corrected" -
   throw "Broker commission update did not round trip corrected broker, amount, paid, and CP58 state"
 }
 $dashboardAfterCommissionUpdate = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
-$profitAfterCommissionUpdate = Get-DashboardTotalProfit $dashboardAfterCommissionUpdate.Content
+$profitAfterCommissionUpdate = [decimal](($dashboardAfterCommissionUpdate.Content | ConvertFrom-Json).realisedProfit)
 if (($profitBeforeCommission - $profitAfterCommissionUpdate) -ne 1300) {
-  throw "Updated broker commission did not reduce total profit by RM 1300"
+  throw "Updated broker commission did not reduce realised profit by RM 1300"
 }
 Write-Host "Broker commission update tracking OK"
 $paidBrokerCommissionBody = @{
@@ -2868,7 +2955,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidDebtRecoveryStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidDebtRecoveryContent = $reader.ReadToEnd()
     }
@@ -2960,7 +3047,7 @@ try {
 catch {
   if ($_.Exception.Response) {
     $invalidPaymentVoucherStatus = [int]$_.Exception.Response.StatusCode
-    $reader = [System.IO.StreamReader]::new($_.Exception.Response.GetResponseStream())
+    $reader = [System.IO.StreamReader]::new((Get-ErrorResponseStream $_))
     try {
       $invalidPaymentVoucherContent = $reader.ReadToEnd()
     }
@@ -2978,7 +3065,7 @@ if ($invalidPaymentVoucherStatus -ne 400 -or $invalidPaymentVoucherContent -notm
 Write-Host "Payment voucher validation OK"
 
 $dashboardBeforePaymentVoucher = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
-$profitBeforePaymentVoucher = Get-DashboardTotalProfit $dashboardBeforePaymentVoucher.Content
+$profitBeforePaymentVoucher = [decimal](($dashboardBeforePaymentVoucher.Content | ConvertFrom-Json).realisedProfit)
 $paymentVoucherId = [guid]::NewGuid().ToString()
 $paymentVoucherBody = @{
   id = $paymentVoucherId
@@ -2988,6 +3075,10 @@ $paymentVoucherBody = @{
   purpose = "Outstation Pickup Allowance"
   status = "Pending"
   issuedDate = "2026-05-31"
+  paymentMethod = "BankTransfer"
+  sourceAccountCode = "BANK-MBB"
+  paymentReference = "PV-$workflowSuffix"
+  accountingAccountCode = "6T00-1000"
   notes = "Booking slip $workflowSuffix"
 } | ConvertTo-Json
 $createdPaymentVoucher = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payment-vouchers" -Method Post -Body $paymentVoucherBody -ContentType "application/json" -WebSession $session -UseBasicParsing
@@ -2999,9 +3090,9 @@ if ($paymentVouchers.Content -notmatch "Ah Ming Driver" -or $paymentVouchers.Con
   throw "Payment voucher list did not include the local pickup allowance"
 }
 $dashboardAfterPaymentVoucher = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
-$profitAfterPaymentVoucher = Get-DashboardTotalProfit $dashboardAfterPaymentVoucher.Content
+$profitAfterPaymentVoucher = [decimal](($dashboardAfterPaymentVoucher.Content | ConvertFrom-Json).realisedProfit)
 if (($profitBeforePaymentVoucher - $profitAfterPaymentVoucher) -ne 180) {
-  throw "Payment voucher did not reduce total profit by RM 180"
+  throw "Payment voucher did not reduce realised profit by RM 180"
 }
 $paymentVoucherReminderInbox = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/reminders" -WebSession $session -UseBasicParsing
 $paymentVoucherReminders = $paymentVoucherReminderInbox.Content | ConvertFrom-Json
@@ -3014,8 +3105,12 @@ $updatedPaymentVoucherBody = @{
   payeeName = "Ah Ming Driver Corrected"
   amount = 220
   purpose = "Outstation Pickup Allowance Corrected"
-  status = "Approved"
+  status = "Pending"
   issuedDate = "2026-06-01"
+  paymentMethod = "BankTransfer"
+  sourceAccountCode = "BANK-MBB"
+  paymentReference = "PV-CORRECTED-$workflowSuffix"
+  accountingAccountCode = "6T00-1000"
   notes = "Corrected booking slip $workflowSuffix"
 } | ConvertTo-Json
 $updatedPaymentVoucher = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payment-vouchers/$paymentVoucherId" -Method Put -Body $updatedPaymentVoucherBody -ContentType "application/json" -WebSession $session -UseBasicParsing
@@ -3023,28 +3118,25 @@ if ($updatedPaymentVoucher.StatusCode -lt 200 -or $updatedPaymentVoucher.StatusC
   throw "Payment voucher update returned HTTP $($updatedPaymentVoucher.StatusCode)"
 }
 $updatedPaymentVoucherContent = $updatedPaymentVoucher.Content | ConvertFrom-Json
-if ($updatedPaymentVoucherContent.payeeName -ne "Ah Ming Driver Corrected" -or $updatedPaymentVoucherContent.amount -ne 220 -or $updatedPaymentVoucherContent.purpose -ne "Outstation Pickup Allowance Corrected" -or $updatedPaymentVoucherContent.status -ne "Approved" -or $updatedPaymentVoucherContent.issuedDate -ne "2026-06-01" -or $updatedPaymentVoucherContent.notes -ne "Corrected booking slip $workflowSuffix") {
+if ($updatedPaymentVoucherContent.payeeName -ne "Ah Ming Driver Corrected" -or $updatedPaymentVoucherContent.amount -ne 220 -or $updatedPaymentVoucherContent.purpose -ne "Outstation Pickup Allowance Corrected" -or $updatedPaymentVoucherContent.status -ne "Pending" -or $updatedPaymentVoucherContent.issuedDate -ne "2026-06-01" -or $updatedPaymentVoucherContent.notes -ne "Corrected booking slip $workflowSuffix") {
   throw "Payment voucher update did not round trip corrected payee, amount, purpose, status, issue date, and notes"
 }
 $dashboardAfterPaymentVoucherUpdate = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/summary" -WebSession $session -UseBasicParsing
-$profitAfterPaymentVoucherUpdate = Get-DashboardTotalProfit $dashboardAfterPaymentVoucherUpdate.Content
+$profitAfterPaymentVoucherUpdate = [decimal](($dashboardAfterPaymentVoucherUpdate.Content | ConvertFrom-Json).realisedProfit)
 if (($profitBeforePaymentVoucher - $profitAfterPaymentVoucherUpdate) -ne 220) {
-  throw "Updated payment voucher did not reduce total profit by RM 220"
+  throw "Updated payment voucher did not reduce realised profit by RM 220"
 }
 Write-Host "Payment voucher update tracking OK"
-$paidPaymentVoucherBody = @{
-  id = $paymentVoucherId
-  vehicleId = $workflowVehicleId
-  payeeName = "Ah Ming Driver Corrected"
-  amount = 220
-  purpose = "Outstation Pickup Allowance Corrected"
-  status = "Paid"
-  issuedDate = "2026-06-01"
-  notes = "Corrected booking slip $workflowSuffix"
-} | ConvertTo-Json
-$paidPaymentVoucher = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payment-vouchers/$paymentVoucherId" -Method Put -Body $paidPaymentVoucherBody -ContentType "application/json" -WebSession $session -UseBasicParsing
-if ($paidPaymentVoucher.StatusCode -lt 200 -or $paidPaymentVoucher.StatusCode -ge 300) {
-  throw "Payment voucher paid update returned HTTP $($paidPaymentVoucher.StatusCode)"
+$approvedPaymentVoucher = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payment-vouchers/$paymentVoucherId/approve" -Method Post -WebSession $financeSession -UseBasicParsing
+$approvedPaymentVoucherContent = $approvedPaymentVoucher.Content | ConvertFrom-Json
+if ($approvedPaymentVoucher.StatusCode -lt 200 -or $approvedPaymentVoucher.StatusCode -ge 300 -or $approvedPaymentVoucherContent.status -ne "Approved" -or [string]::IsNullOrWhiteSpace($approvedPaymentVoucherContent.approvedBy)) {
+  throw "Payment voucher maker-checker approval failed"
+}
+$paidPaymentVoucherBody = @{ paymentEvidenceReference = "BANK-PROOF-$workflowSuffix" } | ConvertTo-Json
+$paidPaymentVoucher = Invoke-WebRequest -Uri "$ApiBaseUrl/api/payment-vouchers/$paymentVoucherId/mark-paid" -Method Post -Body $paidPaymentVoucherBody -ContentType "application/json" -WebSession $session -UseBasicParsing
+$paidPaymentVoucherContent = $paidPaymentVoucher.Content | ConvertFrom-Json
+if ($paidPaymentVoucher.StatusCode -lt 200 -or $paidPaymentVoucher.StatusCode -ge 300 -or $paidPaymentVoucherContent.status -ne "Paid" -or $paidPaymentVoucherContent.paymentEvidenceReference -ne "BANK-PROOF-$workflowSuffix") {
+  throw "Payment voucher paid action did not preserve evidence"
 }
 $paymentVoucherReminderAfterPaid = Invoke-WebRequest -Uri "$ApiBaseUrl/api/dashboard/reminders" -WebSession $session -UseBasicParsing
 $paymentVoucherRemindersAfterPaid = $paymentVoucherReminderAfterPaid.Content | ConvertFrom-Json
