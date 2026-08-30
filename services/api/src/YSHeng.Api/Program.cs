@@ -1,11 +1,15 @@
 using System.Security.Cryptography;
 using System.Security.Claims;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
 using YSHeng.Api.Features;
@@ -16,6 +20,14 @@ var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("172.16.0.0"), 12));
+});
 builder.Services.Configure<GoogleDocumentAiOptions>(builder.Configuration.GetSection("Ocr:GoogleDocumentAi"));
 builder.Services.AddSingleton<IGoogleAccessTokenProvider, GoogleApplicationDefaultAccessTokenProvider>();
 builder.Services.AddHttpClient<GoogleDocumentAiClient>();
@@ -79,6 +91,7 @@ if (workerEnabled)
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.Use(async (context, next) =>
 {
     SecurityHeaders.Apply(context.Response.Headers);
@@ -249,9 +262,12 @@ backOffice.MapPut("/vehicle-catalog/models/{id:guid}", async (Guid id, VehicleCa
 backOffice.MapGet("/vehicle-lookup", async (AppDbContext db) =>
     (await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync())
         .Select(BackOfficeVehicleLookup.ToResponse)).RequireAuthorization("VehicleRead");
+backOffice.MapGet("/finance/vehicle-options", async (AppDbContext db) =>
+    (await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync())
+        .Select(FinanceVehicleOptions.ToResponse)).RequireAuthorization("Finance");
 backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpContext context) =>
 {
-    vehicle = vehicle with { RepairCost = null };
+    vehicle = vehicle with { RepairCost = null, SalesAgentUserId = null, SalesAgentName = null };
     vehicle = VehicleRules.NormalizeDateTimes(vehicle);
     var workflowStatusValidation = VehicleWorkflowRules.ValidateCreate(vehicle);
     if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
@@ -284,9 +300,19 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     update = update with { RepairCost = null };
     update = VehicleRules.NormalizeDateTimes(update);
     if (id != update.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("vehicle"));
+    await using var vehicleTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [id]);
     var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
     if (existingVehicle is null) return Results.NotFound();
     var existingSnapshot = existingVehicle with { };
+    var receivableBuyerValidation = FinanceV2Rules.ValidateReceivableBuyer(
+        update.CustomerId,
+        await db.PaymentRecords.AsNoTracking().Where(payment => payment.VehicleId == id).ToListAsync());
+    if (!receivableBuyerValidation.IsValid) return Results.Conflict(receivableBuyerValidation);
+    var customerLockValidation = DeliveryMutationRules.ValidateVehicleCustomerChange(
+        existingSnapshot,
+        update,
+        await db.DeliverySchedules.AsNoTracking().Where(delivery => delivery.VehicleId == id).ToListAsync());
+    if (!customerLockValidation.IsValid) return Results.BadRequest(customerLockValidation);
     var workflowStatusValidation = VehicleWorkflowRules.ValidateUpdate(existingSnapshot, update);
     if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
     var canApprove = context.User.IsInRole("BossAdmin");
@@ -304,6 +330,8 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var uniquePlateValidation = VehicleRules.ValidateUniquePlate(update, await db.Vehicles.AsNoTracking().ToListAsync());
     if (!uniquePlateValidation.IsValid) return Results.BadRequest(uniquePlateValidation);
     db.Entry(existingVehicle).CurrentValues.SetValues(update);
+    db.Entry(existingVehicle).Property(vehicle => vehicle.SalesAgentUserId).IsModified = false;
+    db.Entry(existingVehicle).Property(vehicle => vehicle.SalesAgentName).IsModified = false;
     if (!canApprove)
     {
         db.Entry(existingVehicle).Property(vehicle => vehicle.BossConfirmed).IsModified = false;
@@ -319,6 +347,7 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
         .Where(vehicle => vehicle.Id == id && !vehicle.BossConfirmed && vehicle.IsPublic)
         .ExecuteUpdateAsync(setters => setters.SetProperty(vehicle => vehicle.IsPublic, false));
     await db.Entry(existingVehicle).ReloadAsync();
+    await vehicleTransaction.CommitAsync();
     return Results.Ok(existingVehicle);
 }).RequireAuthorization("Vehicles");
 
@@ -380,15 +409,23 @@ backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Gu
     return photo is null ? Results.NotFound() : Results.File(photo.Content, photo.MimeType);
 });
 
-backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, Guid? collectionTransactionId, Guid? deliveryScheduleId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
 {
+    var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
+    if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
+    var isDeliveryEvidence = DeliveryEvidenceUploadRules.IsDeliveryCategory(category);
+    if (isDeliveryEvidence && !deliveryScheduleId.HasValue)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_document_owner_required", "Select the active delivery for this evidence.")]));
+    }
+    await using var deliveryTransaction = isDeliveryEvidence
+        ? await DeliveryConcurrencyLock.BeginDeliveryAsync(db, id, deliveryScheduleId!.Value)
+        : null;
     var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (vehicle is null)
     {
         return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Record must be linked to an existing car plate.")]));
     }
-    var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
-    if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
     var resolvedOwnership = ownershipType ?? (ownerId.HasValue
         ? DocumentOwnershipType.Seller
         : customerId.HasValue
@@ -400,6 +437,45 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     {
         selectedCustomerId ??= resolvedOwnership == DocumentOwnershipType.Buyer ? vehicle.CustomerId : null;
         selectedOwnerId ??= resolvedOwnership == DocumentOwnershipType.Seller ? vehicle.OwnerId : null;
+    }
+
+    DeliverySchedule? linkedDelivery = null;
+    if (isDeliveryEvidence)
+    {
+        linkedDelivery = await db.DeliverySchedules.FirstOrDefaultAsync(item => item.Id == deliveryScheduleId!.Value);
+        if (linkedDelivery is null || linkedDelivery.VehicleId != id)
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("delivery_document_owner_invalid", "Selected delivery is not linked to this vehicle.")]));
+        }
+        if (!DeliveryWorkboardRules.IsActive(linkedDelivery))
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("delivery_terminal_status", "Released or cancelled delivery evidence cannot be changed.")]));
+        }
+        if (!linkedDelivery.CustomerId.HasValue)
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("delivery_customer_required", "Delivery evidence requires the locked delivery buyer.")]));
+        }
+        if (vehicle.CustomerId != linkedDelivery.CustomerId)
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("delivery_buyer_not_canonical", "Vehicle buyer and locked delivery buyer must match before uploading evidence.")]));
+        }
+        if (customerId.HasValue && customerId != linkedDelivery.CustomerId)
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("delivery_document_customer_mismatch", "Delivery evidence must use the delivery's locked buyer.")]));
+        }
+        if (repairJobId.HasValue || paymentRecordId.HasValue || collectionTransactionId.HasValue || ownerId.HasValue)
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("delivery_document_owner_conflict", "Delivery evidence can only be linked to its delivery and buyer.")]));
+        }
+
+        selectedCustomerId = linkedDelivery.CustomerId;
+        selectedOwnerId = null;
+        resolvedOwnership = DocumentOwnershipType.Buyer;
+        ownershipType = DocumentOwnershipType.Buyer;
+    }
+    else if (deliveryScheduleId.HasValue)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_document_category_invalid", "Only delivery evidence categories can link to a delivery.")]));
     }
 
     var ownershipValidation = DocumentOwnershipRules.Validate(category, repairJobId, paymentRecordId, ownershipType, selectedCustomerId, selectedOwnerId);
@@ -422,6 +498,29 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         if (payment.VehicleId != id) return Results.BadRequest(new { message = "Selected payment record is not linked to this vehicle." });
     }
 
+    if (collectionTransactionId.HasValue)
+    {
+        if (!paymentRecordId.HasValue)
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError(
+                "collection_document_payment_required",
+                "A collection-linked document must also identify its payment record.")]));
+        }
+        if (category is not (FileCategory.PaymentReceipt or FileCategory.PaymentInvoice))
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError(
+                "collection_document_category_invalid",
+                "Collection evidence must use the PaymentReceipt or PaymentInvoice category.")]));
+        }
+        var collection = await db.CollectionTransactions.AsNoTracking().FirstOrDefaultAsync(item => item.Id == collectionTransactionId.Value);
+        if (collection is null || collection.PaymentRecordId != paymentRecordId.Value)
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError(
+                "collection_document_link_invalid",
+                "The selected collection must belong to the supplied payment and vehicle.")]));
+        }
+    }
+
     if (selectedOwnerId.HasValue)
     {
         if (vehicle.OwnerId != selectedOwnerId.Value) return Results.BadRequest(new { message = "Selected original owner is not linked to this vehicle." });
@@ -430,7 +529,8 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
 
     if (selectedCustomerId.HasValue)
     {
-        if (vehicle.CustomerId != selectedCustomerId.Value) return Results.BadRequest(new { message = "Selected customer is not linked to this vehicle." });
+        var expectedCustomerId = linkedDelivery?.CustomerId ?? vehicle.CustomerId;
+        if (expectedCustomerId != selectedCustomerId.Value) return Results.BadRequest(new { message = "Selected customer is not linked to this workflow." });
         if (!await db.Customers.AsNoTracking().AnyAsync(item => item.Id == selectedCustomerId.Value)) return Results.BadRequest(new { message = "Selected customer does not exist." });
     }
 
@@ -438,6 +538,23 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     using var memory = new MemoryStream();
     await stream.CopyToAsync(memory);
     var bytes = memory.ToArray();
+    ValidationResult contentValidation;
+    string? detectedMimeType;
+    if (collectionTransactionId.HasValue)
+    {
+        var collectionEvidenceValidation = UploadPolicy.ValidateCollectionEvidenceContent(file.FileName, file.ContentType, bytes);
+        contentValidation = collectionEvidenceValidation.Result;
+        detectedMimeType = collectionEvidenceValidation.MimeType;
+    }
+    else
+    {
+        var deliveryEvidenceValidation = DeliveryEvidenceUploadRules.ValidateAndDetect(category, bytes);
+        contentValidation = deliveryEvidenceValidation.IsValid
+            ? new ValidationResult([])
+            : new ValidationResult([deliveryEvidenceValidation.Error!]);
+        detectedMimeType = deliveryEvidenceValidation.MimeType;
+    }
+    if (!contentValidation.IsValid) return Results.BadRequest(contentValidation);
     var document = new DocumentBlob
     {
         VehicleId = id,
@@ -445,18 +562,35 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         OwnerId = selectedOwnerId,
         RepairJobId = repairJobId,
         PaymentRecordId = paymentRecordId,
+        CollectionTransactionId = collectionTransactionId,
+        DeliveryScheduleId = deliveryScheduleId,
         OwnershipType = resolvedOwnership,
         Category = category,
         FileName = file.FileName,
-        MimeType = file.ContentType,
+        MimeType = detectedMimeType ?? file.ContentType,
         Content = bytes,
         Checksum = Convert.ToHexString(SHA256.HashData(bytes)),
         UploadedBy = UploadMetadata.UploaderFrom(context.User)
     };
     db.DocumentBlobs.Add(document);
+    if (linkedDelivery is not null)
+    {
+        var evidenceUpdatedDelivery = category switch
+        {
+            FileCategory.HandoverPhoto => linkedDelivery with { HandoverPhotoCaptured = true },
+            FileCategory.SignedHandover => linkedDelivery with { SignedHandoverReceived = true },
+            _ => linkedDelivery
+        };
+        if (!ReferenceEquals(evidenceUpdatedDelivery, linkedDelivery))
+        {
+            db.Entry(linkedDelivery).CurrentValues.SetValues(evidenceUpdatedDelivery);
+        }
+        db.DeliveryActivities.Add(DeliveryActivityAudit.Create(linkedDelivery.Id, context, $"Uploaded {category} evidence", "EvidenceUploaded"));
+    }
     ApiAudit.Add(db, context.User, "vehicle.document.uploaded", nameof(DocumentBlob), document.Id);
     await db.SaveChangesAsync();
-    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt });
+    if (deliveryTransaction is not null) await deliveryTransaction.CommitAsync();
+    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.CollectionTransactionId, document.DeliveryScheduleId, document.Checksum, document.UploadedBy, document.UploadedAt });
 }).DisableAntiforgery();
 
 backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext db, HttpContext context) =>
@@ -468,7 +602,7 @@ backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext 
         .ToListAsync();
     return Results.Ok(documents
         .Where(document => DepartmentAccess.CanUploadDocument(roles, document.Category))
-        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.Checksum, document.UploadedBy, document.UploadedAt }));
+        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.CollectionTransactionId, document.DeliveryScheduleId, document.Checksum, document.UploadedBy, document.UploadedAt }));
 });
 
 backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", async (Guid id, Guid documentId, AppDbContext db, HttpContext context) =>
@@ -596,9 +730,10 @@ backOffice.MapGet("/customers/profile-options", async (AppDbContext db, HttpCont
     if (!roles.Intersect(DepartmentAccess.CustomerReaders).Any())
     {
         query = query.Where(customer =>
+            db.DeliverySchedules.Any(delivery => delivery.CustomerId == customer.Id) ||
             db.Vehicles.Any(vehicle =>
                 vehicle.CustomerId == customer.Id &&
-                db.DeliverySchedules.Any(delivery => delivery.VehicleId == vehicle.Id)) ||
+                db.DeliverySchedules.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.CustomerId == null)) ||
             db.LoanApplications.Any(loan =>
                 loan.CustomerId == customer.Id &&
                 db.Vehicles.Any(vehicle =>
@@ -616,6 +751,15 @@ backOffice.MapGet("/customers/{id:guid}/profile", async (Guid id, AppDbContext d
     if (customer is null) return Results.NotFound();
 
     var roles = SeedData.Roles.Where(context.User.IsInRole).ToArray();
+    var deliveries = await db.DeliverySchedules.AsNoTracking().Where(delivery => delivery.CustomerId == id).ToListAsync();
+    var legacyDeliveries = await db.DeliverySchedules.AsNoTracking()
+        .Where(delivery =>
+            delivery.CustomerId == null &&
+            db.Vehicles.Any(vehicle => vehicle.Id == delivery.VehicleId && vehicle.CustomerId == id) &&
+            !db.LoanApplications.Any(loan => loan.VehicleId == delivery.VehicleId && loan.CustomerId != id))
+        .ToListAsync();
+    deliveries.AddRange(legacyDeliveries);
+    var deliveryVehicleIds = deliveries.Select(delivery => delivery.VehicleId).ToList();
     var customerLoans = await db.LoanApplications.AsNoTracking().Where(loan => loan.CustomerId == id).ToListAsync();
     var customerLoanVehicleIds = customerLoans.Select(loan => loan.VehicleId).ToList();
     var loans = customerLoanVehicleIds.Count == 0
@@ -628,20 +772,27 @@ backOffice.MapGet("/customers/{id:guid}/profile", async (Guid id, AppDbContext d
         .Select(group => group.Key)
         .ToList();
     var vehicles = await db.Vehicles.AsNoTracking()
-        .Where(vehicle => vehicle.CustomerId == id || (vehicle.CustomerId == null && unambiguousLegacyVehicleIds.Contains(vehicle.Id)))
+        .Where(vehicle => vehicle.CustomerId == id || deliveryVehicleIds.Contains(vehicle.Id) || (vehicle.CustomerId == null && unambiguousLegacyVehicleIds.Contains(vehicle.Id)))
         .ToListAsync();
     var vehicleIds = vehicles.Select(vehicle => vehicle.Id).ToList();
-    var deliveries = await db.DeliverySchedules.AsNoTracking().Where(delivery => vehicleIds.Contains(delivery.VehicleId)).ToListAsync();
     if (!roles.Intersect(DepartmentAccess.CustomerReaders).Any() && deliveries.Count == 0) return Results.NotFound();
     var payments = await db.PaymentRecords.AsNoTracking().Where(payment => vehicleIds.Contains(payment.VehicleId)).ToListAsync();
-    var paymentIds = payments.Select(payment => payment.Id).ToList();
     var invoices = await db.FinanceInvoices.AsNoTracking()
-        .Where(invoice => invoice.CustomerId == id || paymentIds.Contains(invoice.PaymentRecordId))
+        .Where(invoice => invoice.CustomerId == id || vehicleIds.Contains(invoice.VehicleId))
         .ToListAsync();
     var handovers = await db.CashHandovers.AsNoTracking().Where(handover => handover.CustomerId == id).ToListAsync();
     var handoverIds = handovers.Select(handover => handover.Id).ToList();
     var receipts = await db.OfficialReceipts.AsNoTracking().Where(receipt => handoverIds.Contains(receipt.CashHandoverId)).ToListAsync();
-    var documents = await db.DocumentBlobs.AsNoTracking().Where(document => document.VehicleId.HasValue && vehicleIds.Contains(document.VehicleId.Value)).ToListAsync();
+    var deliveryIds = deliveries.Select(delivery => delivery.Id).ToHashSet();
+    var profileDocuments = await db.DocumentBlobs.AsNoTracking()
+        .Where(document => document.VehicleId.HasValue && vehicleIds.Contains(document.VehicleId.Value))
+        .ToListAsync();
+    var documents = profileDocuments.Where(document =>
+        DeliveryEvidenceUploadRules.IsDeliveryCategory(document.Category)
+            ? document.CustomerId == id && document.DeliveryScheduleId.HasValue && deliveryIds.Contains(document.DeliveryScheduleId.Value)
+            : document.OwnershipType == DocumentOwnershipType.Buyer
+                ? document.CustomerId == id
+                : !document.CustomerId.HasValue).ToList();
     var leads = roles.Any(role => role is "BossAdmin" or "Sales")
         ? await db.Leads.AsNoTracking().Where(lead => lead.CustomerId == id).ToListAsync()
         : [];
@@ -731,6 +882,7 @@ backOffice.MapPut("/purchase-invoices/{id:guid}", async (Guid id, PurchaseInvoic
 backOffice.MapGet("/loans", async (AppDbContext db) => await db.LoanApplications.AsNoTracking().ToListAsync()).RequireAuthorization("Loans");
 backOffice.MapPost("/loans", async (LoanApplication loan, AppDbContext db, HttpContext context) =>
 {
+    await using var loanTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [loan.VehicleId]);
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
     var customers = await db.Customers.AsNoTracking().ToListAsync();
     var existingLoans = await db.LoanApplications.AsNoTracking().ToListAsync();
@@ -748,17 +900,26 @@ backOffice.MapPost("/loans", async (LoanApplication loan, AppDbContext db, HttpC
 
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == loan.VehicleId);
     var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, existingLoans.Append(loan), payments));
+    var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, existingLoans.Append(loan), payments, deliveries));
     db.LoanApplications.Add(loan);
     ApiAudit.Add(db, context.User, "loan.created", nameof(LoanApplication), loan.Id);
     await db.SaveChangesAsync();
+    await loanTransaction.CommitAsync();
     return Results.Created($"/api/loans/{loan.Id}", loan);
 }).RequireAuthorization("Loans");
 backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppDbContext db, HttpContext context) =>
 {
     if (id != loan.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("loan"));
+    var initialLoan = await db.LoanApplications.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (initialLoan is null) return Results.NotFound();
+    var initialIdentityValidation = LoanMutationRules.ValidateIdentity(initialLoan, loan);
+    if (!initialIdentityValidation.IsValid) return Results.BadRequest(initialIdentityValidation);
+    await using var loanTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialLoan.VehicleId]);
     var existingLoan = await db.LoanApplications.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (existingLoan is null) return Results.NotFound();
+    var identityValidation = LoanMutationRules.ValidateIdentity(existingLoan, loan);
+    if (!identityValidation.IsValid) return Results.BadRequest(identityValidation);
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
     var customers = await db.Customers.AsNoTracking().ToListAsync();
     var existingLoans = await db.LoanApplications.AsNoTracking().ToListAsync();
@@ -775,60 +936,337 @@ backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppD
     }
 
     var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
     var updatedLoans = existingLoans.Where(item => item.Id != loan.Id).Append(loan).ToList();
-    foreach (var vehicleId in new[] { existingLoan.VehicleId, loan.VehicleId }.Distinct())
-    {
-        var vehicle = await db.Vehicles.FirstAsync(item => item.Id == vehicleId);
-        db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments));
-    }
+    var vehicle = await db.Vehicles.FirstAsync(item => item.Id == existingLoan.VehicleId);
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments, deliveries));
 
     db.LoanApplications.Update(loan);
     ApiAudit.Add(db, context.User, "loan.updated", nameof(LoanApplication), loan.Id);
     await db.SaveChangesAsync();
+    await loanTransaction.CommitAsync();
     return Results.Ok(loan);
 }).RequireAuthorization("Loans");
 
 backOffice.MapGet("/deliveries", async (AppDbContext db) => await db.DeliverySchedules.AsNoTracking().ToListAsync()).RequireAuthorization("Deliveries");
-backOffice.MapPost("/deliveries", async (DeliverySchedule delivery, AppDbContext db, HttpContext context) =>
-{
-    var validation = WorkflowReferenceRules.ValidateCanonicalBuyer(
-        delivery.VehicleId,
+backOffice.MapGet("/deliveries/pic-options", async (UserManager<AppUser> userManager) =>
+    Results.Ok(await DeliveryStaffDirectory.GetPicOptionsAsync(userManager))).RequireAuthorization("Deliveries");
+backOffice.MapGet("/deliveries/invoice-update-requests", async (AppDbContext db) =>
+    Results.Ok(DeliveryInvoiceUpdateQueueRules.Create(
+        await db.DeliverySchedules.AsNoTracking().ToListAsync(),
         await db.Vehicles.AsNoTracking().ToListAsync(),
-        await db.Customers.AsNoTracking().ToListAsync(),
-        "Delivery");
-    if (!validation.IsValid) return Results.BadRequest(validation);
+        await db.Customers.AsNoTracking().ToListAsync()))).RequireAuthorization("Finance");
+backOffice.MapGet("/deliveries/workboard", async (AppDbContext db, UserManager<AppUser> userManager) =>
+{
+    var deliveries = await db.DeliverySchedules.AsNoTracking().OrderBy(delivery => delivery.ScheduledDate).ToListAsync();
+    var vehicles = (await db.Vehicles.AsNoTracking().ToListAsync()).ToDictionary(vehicle => vehicle.Id);
+    var customers = (await db.Customers.AsNoTracking().ToListAsync()).ToDictionary(customer => customer.Id);
+    var documents = await db.DocumentBlobs.AsNoTracking().Where(document => document.DeliveryScheduleId.HasValue).ToListAsync();
+    var financeClearedVehicleIds = (await db.PaymentRecords.AsNoTracking()
+        .Where(payment => payment.Status == PaymentStatus.Reconciled)
+        .Select(payment => payment.VehicleId)
+        .Distinct()
+        .ToListAsync()).ToHashSet();
+    var validPicUserIds = (await DeliveryStaffDirectory.GetPicOptionsAsync(userManager)).Select(option => option.Id).ToHashSet(StringComparer.Ordinal);
+    var result = new List<DeliveryWorkboardItem>();
+    foreach (var delivery in deliveries)
+    {
+        if (!vehicles.TryGetValue(delivery.VehicleId, out var vehicle)) continue;
+        Customer? lockedCustomer = null;
+        var hasCanonicalBuyer = delivery.CustomerId.HasValue
+            && vehicle.CustomerId == delivery.CustomerId
+            && customers.TryGetValue(delivery.CustomerId.Value, out lockedCustomer);
+        var customer = hasCanonicalBuyer
+            ? lockedCustomer!
+            : new Customer { Id = Guid.Empty, Name = "Buyer not locked" };
+        var effectiveDelivery = hasCanonicalBuyer ? delivery : delivery with { CustomerId = null };
+        if (string.IsNullOrWhiteSpace(effectiveDelivery.PicUserId) || !validPicUserIds.Contains(effectiveDelivery.PicUserId))
+        {
+            effectiveDelivery = effectiveDelivery with { PicUserId = null, Pic = string.IsNullOrWhiteSpace(effectiveDelivery.Pic) ? "" : $"{effectiveDelivery.Pic} (inactive)" };
+        }
+        result.Add(DeliveryWorkboardRules.CreateItem(effectiveDelivery, vehicle, customer, financeClearedVehicleIds.Contains(vehicle.Id), documents, BusinessClock.Today()));
+    }
+    return Results.Ok(result);
+}).RequireAuthorization("Deliveries");
+backOffice.MapGet("/deliveries/{id:guid}/activity", async (Guid id, AppDbContext db) =>
+{
+    if (!await db.DeliverySchedules.AsNoTracking().AnyAsync(delivery => delivery.Id == id)) return Results.NotFound();
+    return Results.Ok(await db.DeliveryActivities.AsNoTracking()
+        .Where(activity => activity.DeliveryScheduleId == id)
+        .OrderByDescending(activity => activity.CreatedAt)
+        .ToListAsync());
+}).RequireAuthorization("Deliveries");
+backOffice.MapPost("/deliveries", async (DeliverySchedule incoming, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
+{
+    var picResolution = await DeliveryStaffDirectory.ResolvePicAsync(incoming.PicUserId, userManager);
+    if (!picResolution.Validation.IsValid) return Results.BadRequest(picResolution.Validation);
+    await using var createTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [incoming.VehicleId]);
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == incoming.VehicleId);
+    if (vehicle?.CustomerId is not { } customerId || !await db.Customers.AsNoTracking().AnyAsync(customer => customer.Id == customerId))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_customer_required", "Delivery requires a confirmed buyer on the vehicle.")]));
+    }
+    var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
+    var eligibilityValidation = DeliveryMutationRules.ValidateCreateEligibility(vehicle, deliveries);
+    if (!eligibilityValidation.IsValid) return Results.BadRequest(eligibilityValidation);
+    var activeValidation = DeliveryWorkboardRules.ValidateSingleActive(incoming.VehicleId, null, deliveries);
+    if (!activeValidation.IsValid) return Results.Conflict(activeValidation);
+    var delivery = DeliveryMutationRules.PrepareCreate(incoming, customerId, picResolution.User!.Id, picResolution.DisplayName!);
     var deliveryValidation = DeliveryRules.Validate(delivery);
     if (!deliveryValidation.IsValid) return Results.BadRequest(deliveryValidation);
-    var releaseValidation = DeliveryRules.ValidateRelease(delivery);
-    if (!releaseValidation.IsValid) return Results.BadRequest(releaseValidation);
-    var documentValidation = DeliveryDocumentRules.ValidateReadyDocuments(delivery, await db.DocumentBlobs.AsNoTracking().ToListAsync());
-    if (!documentValidation.IsValid) return Results.BadRequest(documentValidation);
+    var scheduleValidation = DeliveryMutationRules.ValidateActiveSchedule(delivery);
+    if (!scheduleValidation.IsValid) return Results.BadRequest(scheduleValidation);
     db.DeliverySchedules.Add(delivery);
+    await DeliveryPaymentScheduleSync.ApplyAsync(db, delivery);
+    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(delivery.Id, context, "Delivery plan created", "Created"));
     ApiAudit.Add(db, context.User, "delivery.created", nameof(DeliverySchedule), delivery.Id);
     await db.SaveChangesAsync();
+    await createTransaction.CommitAsync();
     return Results.Created($"/api/deliveries/{delivery.Id}", delivery);
 }).RequireAuthorization("Deliveries");
-backOffice.MapPut("/deliveries/{id:guid}", async (Guid id, DeliverySchedule delivery, AppDbContext db, HttpContext context) =>
+backOffice.MapPut("/deliveries/{id:guid}", async (Guid id, DeliverySchedule incoming, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
-    if (id != delivery.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("delivery"));
-    if (!await db.DeliverySchedules.AnyAsync(item => item.Id == id)) return Results.NotFound();
-    var validation = WorkflowReferenceRules.ValidateCanonicalBuyer(
-        delivery.VehicleId,
-        await db.Vehicles.AsNoTracking().ToListAsync(),
-        await db.Customers.AsNoTracking().ToListAsync(),
-        "Delivery");
-    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (id != incoming.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("delivery"));
+    var initialVehicleId = await DeliveryConcurrencyLock.FindVehicleIdAsync(db, id);
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var updateTransaction = await DeliveryConcurrencyLock.BeginDeliveryAsync(db, initialVehicleId.Value, id);
+    var existingDelivery = await db.DeliverySchedules.FirstOrDefaultAsync(item => item.Id == id);
+    if (existingDelivery is null) return Results.NotFound();
+    var terminalValidation = DeliveryRules.ValidateTransition(existingDelivery, existingDelivery);
+    if (!terminalValidation.IsValid) return Results.BadRequest(terminalValidation);
+    if (incoming.VehicleId != existingDelivery.VehicleId)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_identity_locked", "Vehicle and buyer are locked when a delivery plan is created.")]));
+    }
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == existingDelivery.VehicleId);
+    if (vehicle is null) return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Delivery vehicle no longer exists.")]));
+    var lockedCustomerId = existingDelivery.CustomerId;
+    if (!lockedCustomerId.HasValue || !await db.Customers.AsNoTracking().AnyAsync(customer => customer.Id == lockedCustomerId.Value))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_customer_required", "Delivery buyer is not locked. Ask Admin to confirm the correct buyer before continuing.")]));
+    }
+    if (vehicle.CustomerId != lockedCustomerId)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_buyer_not_canonical", "Vehicle buyer changed. Ask Admin to confirm the same canonical buyer on delivery before continuing.")]));
+    }
+    if (incoming.CustomerId.HasValue && incoming.CustomerId != lockedCustomerId)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_identity_locked", "Vehicle and buyer are locked when a delivery plan is created.")]));
+    }
+    var requestedPicUserId = string.IsNullOrWhiteSpace(incoming.PicUserId) ? existingDelivery.PicUserId : incoming.PicUserId;
+    var picResolution = await DeliveryStaffDirectory.ResolvePicAsync(requestedPicUserId, userManager);
+    if (!picResolution.Validation.IsValid) return Results.BadRequest(picResolution.Validation);
+    var delivery = DeliveryMutationRules.PrepareUpdate(existingDelivery, incoming, picResolution.User!.Id, picResolution.DisplayName!);
+    var rescheduleValidation = DeliveryMutationRules.ValidateReschedule(existingDelivery, delivery);
+    if (!rescheduleValidation.IsValid) return Results.BadRequest(rescheduleValidation);
     var deliveryValidation = DeliveryRules.Validate(delivery);
     if (!deliveryValidation.IsValid) return Results.BadRequest(deliveryValidation);
-    var releaseValidation = DeliveryRules.ValidateRelease(delivery);
-    if (!releaseValidation.IsValid) return Results.BadRequest(releaseValidation);
-    var documentValidation = DeliveryDocumentRules.ValidateReadyDocuments(delivery, await db.DocumentBlobs.AsNoTracking().ToListAsync());
-    if (!documentValidation.IsValid) return Results.BadRequest(documentValidation);
-    db.DeliverySchedules.Update(delivery);
+    var scheduleValidation = DeliveryMutationRules.ValidateActiveSchedule(delivery);
+    if (!scheduleValidation.IsValid) return Results.BadRequest(scheduleValidation);
+    var summary = DeliveryMutationRules.ActivitySummary(existingDelivery, delivery);
+    db.Entry(existingDelivery).CurrentValues.SetValues(delivery);
+    await DeliveryPaymentScheduleSync.ApplyAsync(db, delivery);
+    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(delivery.Id, context, summary, "Updated"));
     ApiAudit.Add(db, context.User, "delivery.updated", nameof(DeliverySchedule), delivery.Id);
     await db.SaveChangesAsync();
+    await updateTransaction.CommitAsync();
     return Results.Ok(delivery);
 }).RequireAuthorization("Deliveries");
+backOffice.MapPost("/deliveries/{id:guid}/release", async (Guid id, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
+{
+    var initialVehicleId = await DeliveryConcurrencyLock.FindVehicleIdAsync(db, id);
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var releaseTransaction = await DeliveryConcurrencyLock.BeginDeliveryAsync(db, initialVehicleId.Value, id);
+    var delivery = await db.DeliverySchedules.FirstOrDefaultAsync(item => item.Id == id);
+    if (delivery is null) return Results.NotFound();
+    var terminalValidation = DeliveryRules.ValidateTransition(delivery, delivery);
+    if (!terminalValidation.IsValid) return Results.BadRequest(terminalValidation);
+    var activeValidation = DeliveryWorkboardRules.ValidateSingleActive(delivery.VehicleId, delivery.Id, await db.DeliverySchedules.AsNoTracking().ToListAsync());
+    if (!activeValidation.IsValid) return Results.Conflict(activeValidation);
+    if (!delivery.CustomerId.HasValue || string.IsNullOrWhiteSpace(delivery.PicUserId))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_identity_incomplete", "Delivery requires a locked buyer and staff PIC before release.")]));
+    }
+    var picResolution = await DeliveryStaffDirectory.ResolvePicAsync(delivery.PicUserId, userManager);
+    if (!picResolution.Validation.IsValid) return Results.BadRequest(picResolution.Validation);
+    var vehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == delivery.VehicleId);
+    var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == delivery.CustomerId);
+    if (vehicle is null || customer is null) return Results.BadRequest(new ValidationResult([new ValidationError("delivery_identity_incomplete", "Delivery vehicle or buyer no longer exists.")]));
+    if (vehicle.CustomerId != delivery.CustomerId) return Results.BadRequest(new ValidationResult([new ValidationError("delivery_buyer_not_canonical", "Vehicle buyer and locked delivery buyer must match before release.")]));
+    var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    var financeCleared = payments.Any(payment => payment.VehicleId == delivery.VehicleId && payment.Status == PaymentStatus.Reconciled);
+    var documents = await db.DocumentBlobs.AsNoTracking().Where(document => document.DeliveryScheduleId == delivery.Id).ToListAsync();
+    var workboardItem = DeliveryWorkboardRules.CreateItem(delivery, vehicle, customer, financeCleared, documents, BusinessClock.Today());
+    if (!workboardItem.CanRelease)
+    {
+        var code = financeCleared ? "delivery_release_blocked" : "delivery_finance_not_cleared";
+        return Results.BadRequest(new ValidationResult([new ValidationError(code, workboardItem.Blocker ?? workboardItem.NextAction)]));
+    }
+    var releasedAt = DateTime.UtcNow;
+    var released = delivery with
+    {
+        Status = DeliveryStatus.Released,
+        ReleasedAt = releasedAt,
+        ReleasedByUserId = StaffIdentity.CurrentUserId(context)
+    };
+    db.Entry(delivery).CurrentValues.SetValues(released);
+    await DeliveryPaymentScheduleSync.ApplyAsync(db, released);
+    var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
+    var deliveries = (await db.DeliverySchedules.AsNoTracking().ToListAsync()).Where(item => item.Id != id).Append(released);
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, payments, deliveries));
+    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, "Vehicle released to customer", "Released"));
+    ApiAudit.Add(db, context.User, "delivery.released", nameof(DeliverySchedule), id);
+    await db.SaveChangesAsync();
+    await releaseTransaction.CommitAsync();
+    return Results.Ok(released);
+}).RequireAuthorization("Deliveries");
+backOffice.MapPost("/deliveries/{id:guid}/cancel", async (Guid id, DeliveryCancelRequest request, AppDbContext db, HttpContext context) =>
+{
+    var reasonValidation = DeliveryMutationRules.ValidateReason(request.Reason, "delivery_cancellation_reason_required", "Give a cancellation reason before cancelling delivery.");
+    if (!reasonValidation.IsValid) return Results.BadRequest(reasonValidation);
+    var initialVehicleId = await DeliveryConcurrencyLock.FindVehicleIdAsync(db, id);
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var cancelTransaction = await DeliveryConcurrencyLock.BeginDeliveryAsync(db, initialVehicleId.Value, id);
+    var delivery = await db.DeliverySchedules.FirstOrDefaultAsync(item => item.Id == id);
+    if (delivery is null) return Results.NotFound();
+    var terminalValidation = DeliveryRules.ValidateTransition(delivery, delivery);
+    if (!terminalValidation.IsValid) return Results.BadRequest(terminalValidation);
+    var cancelledAt = DateTime.UtcNow;
+    var cancelled = delivery with
+    {
+        Status = DeliveryStatus.Cancelled,
+        CancellationReason = request.Reason.Trim(),
+        InvoiceUpdateResolvedAt = DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest(delivery) ? cancelledAt : delivery.InvoiceUpdateResolvedAt,
+        InvoiceUpdateResolvedByUserId = DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest(delivery) ? StaffIdentity.CurrentUserId(context) : delivery.InvoiceUpdateResolvedByUserId
+    };
+    db.Entry(delivery).CurrentValues.SetValues(cancelled);
+    await DeliveryPaymentScheduleSync.ApplyAsync(db, cancelled);
+    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, $"Delivery cancelled: {request.Reason.Trim()}", "Cancelled"));
+    ApiAudit.Add(db, context.User, "delivery.cancelled", nameof(DeliverySchedule), id);
+    await db.SaveChangesAsync();
+    await cancelTransaction.CommitAsync();
+    return Results.Ok(cancelled);
+}).RequireAuthorization("Deliveries");
+backOffice.MapPost("/deliveries/{id:guid}/correct-buyer", async (Guid id, DeliveryBuyerCorrectionRequest request, AppDbContext db, HttpContext context) =>
+{
+    var reasonValidation = DeliveryMutationRules.ValidateReason(request.Reason, "delivery_buyer_correction_reason_required", "Explain why the locked delivery buyer must be corrected.");
+    if (!reasonValidation.IsValid) return Results.BadRequest(reasonValidation);
+    if (request.CustomerId == Guid.Empty) return Results.BadRequest(new ValidationResult([new ValidationError("delivery_customer_required", "Select the confirmed buyer.")]));
+    var initialVehicleId = await DeliveryConcurrencyLock.FindVehicleIdAsync(db, id);
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var correctionTransaction = await DeliveryConcurrencyLock.BeginDeliveryAsync(db, initialVehicleId.Value, id);
+    var delivery = await db.DeliverySchedules.FirstOrDefaultAsync(item => item.Id == id);
+    if (delivery is null) return Results.NotFound();
+    var terminalValidation = DeliveryRules.ValidateTransition(delivery, delivery);
+    if (!terminalValidation.IsValid) return Results.BadRequest(terminalValidation);
+    var vehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == delivery.VehicleId);
+    if (vehicle is null) return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Delivery vehicle no longer exists.")]));
+    if (!await db.Customers.AsNoTracking().AnyAsync(customer => customer.Id == request.CustomerId))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("customer_not_found", "Selected buyer does not exist.")]));
+    }
+    var receivableBuyerValidation = FinanceV2Rules.ValidateReceivableBuyer(
+        request.CustomerId,
+        await db.PaymentRecords.AsNoTracking().Where(payment => payment.VehicleId == delivery.VehicleId).ToListAsync());
+    if (!receivableBuyerValidation.IsValid) return Results.Conflict(receivableBuyerValidation);
+    if (await db.DeliverySchedules.AsNoTracking().AnyAsync(other =>
+            other.Id != id &&
+            other.VehicleId == delivery.VehicleId &&
+            other.Status != DeliveryStatus.Cancelled &&
+            other.CustomerId != request.CustomerId))
+    {
+        return Results.Conflict(new ValidationResult([new ValidationError("delivery_buyer_history_conflict", "Another delivery record for this vehicle is locked to a different buyer.")]));
+    }
+    if (await db.DocumentBlobs.AsNoTracking().AnyAsync(document => document.DeliveryScheduleId == id && document.CustomerId != request.CustomerId))
+    {
+        return Results.Conflict(new ValidationResult([new ValidationError("delivery_buyer_evidence_exists", "Buyer cannot be corrected after evidence has been uploaded for another customer.")]));
+    }
+    var updated = delivery with { CustomerId = request.CustomerId };
+    db.Entry(delivery).CurrentValues.SetValues(updated);
+    if (vehicle.CustomerId != request.CustomerId)
+    {
+        db.Entry(vehicle).Property(item => item.CustomerId).CurrentValue = request.CustomerId;
+        ApiAudit.Add(db, context.User, "vehicle.customerCorrected", nameof(Vehicle), vehicle.Id);
+    }
+    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, $"Admin corrected the locked buyer: {request.Reason.Trim()}", "BuyerCorrected"));
+    ApiAudit.Add(db, context.User, "delivery.buyerCorrected", nameof(DeliverySchedule), id);
+    await db.SaveChangesAsync();
+    await correctionTransaction.CommitAsync();
+    return Results.Ok(updated);
+}).RequireAuthorization("BossAdmin");
+backOffice.MapPost("/deliveries/{id:guid}/request-invoice-update", async (Guid id, DeliveryInvoiceUpdateRequest request, AppDbContext db, HttpContext context) =>
+{
+    var reasonValidation = DeliveryMutationRules.ValidateReason(request.Reason, "delivery_invoice_update_reason_required", "Explain what Finance needs to update on the invoice.");
+    if (!reasonValidation.IsValid) return Results.BadRequest(reasonValidation);
+    var initialVehicleId = await DeliveryConcurrencyLock.FindVehicleIdAsync(db, id);
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var requestTransaction = await DeliveryConcurrencyLock.BeginDeliveryAsync(db, initialVehicleId.Value, id);
+    var delivery = await db.DeliverySchedules.FirstOrDefaultAsync(item => item.Id == id);
+    if (delivery is null) return Results.NotFound();
+    var terminalValidation = DeliveryRules.ValidateTransition(delivery, delivery);
+    if (!terminalValidation.IsValid) return Results.BadRequest(terminalValidation);
+    var invoiceUpdateValidation = FinanceV2Rules.ValidateDeliveryInvoiceUpdateBoundary(
+        await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(invoice => invoice.VehicleId == delivery.VehicleId));
+    if (!invoiceUpdateValidation.IsValid) return Results.Conflict(invoiceUpdateValidation);
+    var canonicalCustomerId = await db.Vehicles.AsNoTracking()
+        .Where(vehicle => vehicle.Id == delivery.VehicleId)
+        .Select(vehicle => vehicle.CustomerId)
+        .FirstOrDefaultAsync();
+    if (!delivery.CustomerId.HasValue || canonicalCustomerId != delivery.CustomerId)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_buyer_not_canonical", "Confirm the canonical buyer before requesting an invoice update.")]));
+    }
+    if (DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest(delivery))
+    {
+        return Results.Conflict(new ValidationResult([new ValidationError("delivery_invoice_update_open", "Finance already has an open invoice update request for this delivery.")]));
+    }
+    var updated = delivery with
+    {
+        InvoiceUpdateRequestedAt = DateTime.UtcNow,
+        InvoiceUpdateRequestedByUserId = StaffIdentity.CurrentUserId(context),
+        InvoiceUpdateRequestReason = request.Reason.Trim()
+    };
+    db.Entry(delivery).CurrentValues.SetValues(updated);
+    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, $"Invoice update requested: {request.Reason.Trim()}", "InvoiceUpdateRequested"));
+    ApiAudit.Add(db, context.User, "delivery.invoiceUpdateRequested", nameof(DeliverySchedule), id);
+    await db.SaveChangesAsync();
+    await requestTransaction.CommitAsync();
+    return Results.Ok(updated);
+}).RequireAuthorization("Deliveries");
+backOffice.MapPost("/deliveries/{id:guid}/resolve-invoice-update", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var initialVehicleId = await DeliveryConcurrencyLock.FindVehicleIdAsync(db, id);
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var resolveTransaction = await DeliveryConcurrencyLock.BeginDeliveryAsync(db, initialVehicleId.Value, id);
+    var delivery = await db.DeliverySchedules.FirstOrDefaultAsync(item => item.Id == id);
+    if (delivery is null) return Results.NotFound();
+    var terminalValidation = DeliveryRules.ValidateTransition(delivery, delivery);
+    if (!terminalValidation.IsValid) return Results.BadRequest(terminalValidation);
+    var canonicalCustomerId = await db.Vehicles.AsNoTracking()
+        .Where(vehicle => vehicle.Id == delivery.VehicleId)
+        .Select(vehicle => vehicle.CustomerId)
+        .FirstOrDefaultAsync();
+    if (!delivery.CustomerId.HasValue ||
+        canonicalCustomerId != delivery.CustomerId ||
+        !await db.Customers.AsNoTracking().AnyAsync(customer => customer.Id == delivery.CustomerId.Value))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_buyer_not_canonical", "Confirm the canonical buyer before resolving the invoice update request.")]));
+    }
+    if (!DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest(delivery))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("delivery_invoice_update_not_open", "This delivery has no open invoice update request.")]));
+    }
+    var invoiceUpdateValidation = FinanceV2Rules.ValidateDeliveryInvoiceUpdateBoundary(
+        await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(invoice => invoice.VehicleId == delivery.VehicleId));
+    if (!invoiceUpdateValidation.IsValid) return Results.Conflict(invoiceUpdateValidation);
+    var updated = delivery with { InvoiceUpdateResolvedAt = DateTime.UtcNow, InvoiceUpdateResolvedByUserId = StaffIdentity.CurrentUserId(context) };
+    db.Entry(delivery).CurrentValues.SetValues(updated);
+    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, "Finance resolved the invoice update request", "InvoiceUpdateResolved"));
+    ApiAudit.Add(db, context.User, "delivery.invoiceUpdateResolved", nameof(DeliverySchedule), id);
+    await db.SaveChangesAsync();
+    await resolveTransaction.CommitAsync();
+    return Results.Ok(new { id = updated.Id, resolvedAt = updated.InvoiceUpdateResolvedAt });
+}).RequireAuthorization("Finance");
 
 backOffice.MapGet("/repairs", async (AppDbContext db) => await db.RepairJobs.AsNoTracking().ToListAsync()).RequireAuthorization("Repairs");
 backOffice.MapPost("/repairs", async (RepairJob repair, AppDbContext db, HttpContext context) =>
@@ -1014,18 +1452,47 @@ backOffice.MapGet("/payments/export-autocount", async (DateOnly? from, DateOnly?
         await db.SettlementReminders.AsNoTracking().ToListAsync(),
         from,
         to,
-        generatedAtUtc));
+        generatedAtUtc,
+        await db.FinanceInvoices.AsNoTracking().ToListAsync(),
+        await db.CollectionTransactions.AsNoTracking().ToListAsync()));
 
     var periodLabel = AutoCountDateRules.PeriodLabel(from, to);
     ApiAudit.Add(db, context.User, "finance.autoCountExported", $"AutoCountExport[{periodLabel}]", Guid.Empty);
     await db.SaveChangesAsync();
-    return Results.File(workbook, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"autocount-v1-{periodLabel}.xlsx");
+    return Results.File(workbook, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"autocount-v2-{periodLabel}.xlsx");
 }).RequireAuthorization("BackOffice");
 
-backOffice.MapGet("/payments", async (AppDbContext db) => await db.PaymentRecords.AsNoTracking().ToListAsync()).RequireAuthorization("Finance");
+backOffice.MapGet("/payments", async (AppDbContext db) =>
+{
+    var payments = await db.PaymentRecords.AsNoTracking().OrderByDescending(item => item.CreatedAt).ToListAsync();
+    var paymentIds = payments.Select(item => item.Id).ToList();
+    var invoices = await db.FinanceInvoices.AsNoTracking().Where(item => paymentIds.Contains(item.PaymentRecordId)).ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().Where(item => paymentIds.Contains(item.PaymentRecordId)).ToListAsync();
+    var invoiceByPayment = invoices.ToDictionary(item => item.PaymentRecordId);
+    var collectionsByPayment = collections.GroupBy(item => item.PaymentRecordId).ToDictionary(group => group.Key, group => (IReadOnlyList<CollectionTransaction>)group.OrderByDescending(item => item.CreatedAt).ToList());
+    return Results.Ok(payments.Select(payment => FinanceApi.ToResponse(
+        payment,
+        invoiceByPayment.GetValueOrDefault(payment.Id),
+        collectionsByPayment.GetValueOrDefault(payment.Id) ?? [])).ToList());
+}).RequireAuthorization("Finance");
 backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, HttpContext context) =>
 {
-    payment = PaymentManagementReviewRules.PrepareForCreate(payment);
+    payment = PaymentManagementReviewRules.PrepareForCreate(payment) with
+    {
+        CustomerId = null,
+        CalculatedNettPrice = 0,
+        NettPriceVariance = 0,
+        NettPriceOverrideReason = null,
+        NettPriceOverrideRequestedBy = null,
+        NettPriceOverrideRequestedAt = null,
+        NettPriceOverrideApprovedBy = null,
+        NettPriceOverrideApprovedAt = null,
+        FormulaVersion = "legacy",
+        FinanceWorkflowVersion = 1
+    };
+    await using var paymentTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [payment.VehicleId]);
+    var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
+    payment = payment with { OutstationDeliveryDate = DeliveryMutationRules.AuthoritativeOutstationDate(payment.VehicleId, deliveries) };
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
     var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, vehicles);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -1040,22 +1507,39 @@ backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, H
     }
 
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    var receivableValidation = FinanceV2Rules.ValidateReceivableCreate(payment.VehicleId, existingPayments);
+    if (!receivableValidation.IsValid) return Results.Conflict(receivableValidation);
     var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
     if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
     var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, existingPayments.Append(payment)));
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, existingPayments.Append(payment), deliveries));
     db.PaymentRecords.Add(payment);
     ApiAudit.Add(db, context.User, "payment.created", nameof(PaymentRecord), payment.Id);
     await db.SaveChangesAsync();
+    await paymentTransaction.CommitAsync();
     return Results.Created($"/api/payments/{payment.Id}", payment);
 }).RequireAuthorization("Finance");
 backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, AppDbContext db, HttpContext context) =>
 {
     if (id != payment.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("payment"));
+    var initialPayment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (initialPayment is null) return Results.NotFound();
+    var initialIdentityValidation = PaymentManagementReviewRules.ValidateIdentity(initialPayment, payment);
+    if (!initialIdentityValidation.IsValid) return Results.BadRequest(initialIdentityValidation);
+    await using var paymentTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialPayment.VehicleId]);
     var existingPayment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (existingPayment is null) return Results.NotFound();
+    if (existingPayment.FinanceWorkflowVersion == 2)
+    {
+        return Results.BadRequest(new ApiError("Finance V2 sales are updated through their dedicated invoice and collection actions."));
+    }
+    var identityValidation = PaymentManagementReviewRules.ValidateIdentity(existingPayment, payment);
+    if (!identityValidation.IsValid) return Results.BadRequest(identityValidation);
+    var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
+    payment = payment with { OutstationDeliveryDate = DeliveryMutationRules.AuthoritativeOutstationDate(payment.VehicleId, deliveries) };
     payment = PaymentManagementReviewRules.PrepareForUpdate(existingPayment, payment);
+    payment = FinanceV2Rules.PreserveServerOwnedFields(existingPayment, payment);
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
     var validation = WorkflowReferenceRules.ValidateVehicleLink(payment.VehicleId, vehicles);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -1070,6 +1554,8 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     }
 
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    var receivableValidation = FinanceV2Rules.ValidateReceivableCreate(payment.VehicleId, existingPayments, id);
+    if (!receivableValidation.IsValid) return Results.Conflict(receivableValidation);
     var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
     if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
@@ -1077,24 +1563,345 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     foreach (var vehicleId in new[] { existingPayment.VehicleId, payment.VehicleId }.Distinct())
     {
         var vehicle = await db.Vehicles.FirstAsync(item => item.Id == vehicleId);
-        db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, updatedPayments));
+        db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, updatedPayments, deliveries));
     }
 
     db.PaymentRecords.Update(payment);
+    if (PaymentManagementReviewRules.HasInvoiceRelatedChanges(existingPayment, payment))
+    {
+        await DeliveryInvoiceRequestResolution.ResolveForVehicleAsync(db, payment.VehicleId, context);
+    }
     ApiAudit.Add(db, context.User, "payment.updated", nameof(PaymentRecord), payment.Id);
     await db.SaveChangesAsync();
+    await paymentTransaction.CommitAsync();
     return Results.Ok(payment);
 }).RequireAuthorization("Finance");
 backOffice.MapPost("/payments/{id:guid}/management-review", async (Guid id, AppDbContext db, HttpContext context) =>
 {
-    var payment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    var initialVehicleId = await db.PaymentRecords.AsNoTracking()
+        .Where(payment => payment.Id == id)
+        .Select(payment => (Guid?)payment.VehicleId)
+        .FirstOrDefaultAsync();
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var reviewTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialVehicleId.Value]);
+    var payment = await db.PaymentRecords.FirstOrDefaultAsync(item => item.Id == id);
     if (payment is null) return Results.NotFound();
+    if (payment.VehicleId != initialVehicleId.Value)
+    {
+        return Results.Conflict(new ValidationResult([new ValidationError("payment_vehicle_changed", "Payment vehicle identity changed while the review was starting. Try again.")]));
+    }
+    if (payment.FinanceWorkflowVersion == 2)
+    {
+        return Results.BadRequest(new ApiError("Use the nett price approval action for Finance V2 sales."));
+    }
 
-    payment = payment with { BossChecked = true };
-    db.PaymentRecords.Update(payment);
+    var reviewed = PaymentManagementReviewRules.ApplyManagementReview(payment);
+    db.Entry(payment).Property(item => item.BossChecked).CurrentValue = true;
     ApiAudit.Add(db, context.User, "payment.managementReviewed", nameof(PaymentRecord), payment.Id);
     await db.SaveChangesAsync();
-    return Results.Ok(payment);
+    await reviewTransaction.CommitAsync();
+    return Results.Ok(reviewed);
+}).RequireAuthorization("BossAdmin");
+
+backOffice.MapPost("/payments/finance-sale", async (FinanceSaleRequest request, AppDbContext db, HttpContext context) =>
+{
+    if (!await db.Vehicles.AsNoTracking().AnyAsync(item => item.Id == request.VehicleId)) return Results.BadRequest(new ApiError("Select an existing car plate."));
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [request.VehicleId]);
+    var vehicle = await FinanceApi.LockVehicleAsync(db, request.VehicleId);
+    if (vehicle is null) return Results.BadRequest(new ApiError("Select an existing car plate."));
+    if (vehicle.CustomerId is not { } customerId) return Results.BadRequest(new ApiError("Confirm the buyer on the vehicle before preparing the invoice."));
+    var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == customerId);
+    if (customer is null) return Results.BadRequest(new ApiError("The confirmed buyer is unavailable. Review the vehicle buyer before continuing."));
+    var receivableValidation = FinanceV2Rules.ValidateReceivableCreate(
+        request.VehicleId,
+        await db.PaymentRecords.AsNoTracking().Where(item => item.VehicleId == request.VehicleId).ToListAsync());
+    if (!receivableValidation.IsValid) return Results.Conflict(receivableValidation);
+
+    var now = DateTime.UtcNow;
+    var actorUserId = StaffIdentity.CurrentUserId(context);
+    var payment = FinanceV2Rules.CreatePayment(request, customerId, actorUserId, now);
+    var validation = FinanceV2Rules.ValidateSale(request, payment);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    db.PaymentRecords.Add(payment);
+    FinanceInvoice? invoice = null;
+    if (payment.NettPriceVariance == 0)
+    {
+        var issue = await FinanceApi.IssueInvoiceAsync(db, payment, actorUserId, now);
+        if (!issue.Validation.IsValid) return Results.BadRequest(issue.Validation);
+        payment = issue.Payment;
+        invoice = issue.Invoice;
+    }
+
+    ApiAudit.Add(db, context.User, "finance.saleCreated", nameof(PaymentRecord), payment.Id);
+    if (invoice is not null) ApiAudit.Add(db, context.User, "finance.invoiceIssued", nameof(FinanceInvoice), invoice.Id);
+    try
+    {
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception))
+    {
+        await transaction.RollbackAsync();
+        return Results.Conflict(new ApiError("A finance sale or invoice was created for this vehicle by another request. Refresh and continue from that record."));
+    }
+    return Results.Created($"/api/payments/{payment.Id}", FinanceApi.ToResponse(payment, invoice, []));
+}).RequireAuthorization("Finance");
+
+backOffice.MapPost("/payments/{id:guid}/nett-price-override/approve", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var initialVehicleId = await db.PaymentRecords.AsNoTracking().Where(item => item.Id == id).Select(item => (Guid?)item.VehicleId).FirstOrDefaultAsync();
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialVehicleId.Value]);
+    var payment = await FinanceApi.LockPaymentAsync(db, id);
+    if (payment is null) return Results.NotFound();
+    if (payment.VehicleId != initialVehicleId.Value) return Results.Conflict(new ApiError("The payment vehicle changed while the approval was starting. Try again."));
+    var existingInvoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == id);
+    if (existingInvoice is not null)
+    {
+        var existingCollections = await db.CollectionTransactions.AsNoTracking().Where(item => item.PaymentRecordId == id).OrderByDescending(item => item.CreatedAt).ToListAsync();
+        await transaction.CommitAsync();
+        return Results.Ok(FinanceApi.ToResponse(payment, existingInvoice, existingCollections));
+    }
+    if (payment.NettPriceVariance == 0)
+    {
+        return Results.BadRequest(new ApiError("This sale has no nett price adjustment to approve. Use the invoice action if a retry is needed."));
+    }
+
+    var actorUserId = StaffIdentity.CurrentUserId(context);
+    if (!FinanceV2Rules.HasApprovedVariance(payment))
+    {
+        var approvalValidation = FinanceV2Rules.ValidateVarianceApproval(payment, actorUserId);
+        if (!approvalValidation.IsValid) return Results.BadRequest(approvalValidation);
+        var approved = payment with
+        {
+            NettPriceOverrideApprovedBy = actorUserId,
+            NettPriceOverrideApprovedAt = DateTime.UtcNow,
+            BossChecked = true
+        };
+        db.Entry(payment).CurrentValues.SetValues(approved);
+        payment = approved;
+        ApiAudit.Add(db, context.User, "finance.nettPriceOverrideApproved", nameof(PaymentRecord), id);
+    }
+
+    var issue = await FinanceApi.IssueInvoiceAsync(db, payment, actorUserId, DateTime.UtcNow);
+    if (!issue.Validation.IsValid) return Results.BadRequest(issue.Validation);
+    ApiAudit.Add(db, context.User, "finance.invoiceIssued", nameof(FinanceInvoice), issue.Invoice!.Id);
+    try
+    {
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception))
+    {
+        await transaction.RollbackAsync();
+        db.ChangeTracker.Clear();
+        var recovered = await FinanceApi.ReloadResponseAsync(db, id);
+        return recovered is null
+            ? Results.Conflict(new ApiError("Invoice creation conflicted with another request. Refresh and retry safely."))
+            : Results.Ok(recovered);
+    }
+    return Results.Ok(FinanceApi.ToResponse(issue.Payment, issue.Invoice, []));
+}).RequireAuthorization("BossAdmin");
+
+backOffice.MapPost("/payments/{id:guid}/invoice", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var initialVehicleId = await db.PaymentRecords.AsNoTracking().Where(item => item.Id == id).Select(item => (Guid?)item.VehicleId).FirstOrDefaultAsync();
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialVehicleId.Value]);
+    var payment = await FinanceApi.LockPaymentAsync(db, id);
+    if (payment is null) return Results.NotFound();
+    if (payment.VehicleId != initialVehicleId.Value) return Results.Conflict(new ApiError("The payment vehicle changed while the invoice was starting. Try again."));
+    var issue = await FinanceApi.IssueInvoiceAsync(db, payment, StaffIdentity.CurrentUserId(context), DateTime.UtcNow);
+    if (!issue.Validation.IsValid) return Results.BadRequest(issue.Validation);
+    var issuedInvoice = issue.Invoice!;
+    if (db.Entry(issuedInvoice).State == EntityState.Added)
+    {
+        ApiAudit.Add(db, context.User, "finance.invoiceIssued", nameof(FinanceInvoice), issuedInvoice.Id);
+    }
+    try
+    {
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception))
+    {
+        await transaction.RollbackAsync();
+        db.ChangeTracker.Clear();
+        var recovered = await FinanceApi.ReloadResponseAsync(db, id);
+        return recovered is null
+            ? Results.Conflict(new ApiError("Invoice creation conflicted with another request. Refresh and retry safely."))
+            : Results.Ok(recovered);
+    }
+    var collections = await db.CollectionTransactions.AsNoTracking().Where(item => item.PaymentRecordId == id).OrderByDescending(item => item.CreatedAt).ToListAsync();
+    return Results.Ok(FinanceApi.ToResponse(issue.Payment, issuedInvoice, collections));
+}).RequireAuthorization("Finance");
+
+backOffice.MapPost("/payments/{id:guid}/collections", async (Guid id, CreateCollectionRequest request, AppDbContext db, HttpContext context) =>
+{
+    var initialVehicleId = await db.PaymentRecords.AsNoTracking().Where(item => item.Id == id).Select(item => (Guid?)item.VehicleId).FirstOrDefaultAsync();
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialVehicleId.Value]);
+    // The payment row lock serializes allocations so two requests cannot both consume the same available balance.
+    var payment = await FinanceApi.LockPaymentAsync(db, id);
+    if (payment is null) return Results.NotFound();
+    if (payment.VehicleId != initialVehicleId.Value) return Results.Conflict(new ApiError("The payment vehicle changed while the collection was starting. Try again."));
+    var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == id);
+    var vehicle = await FinanceApi.LockVehicleAsync(db, payment.VehicleId);
+    var buyerValidation = FinanceV2Rules.ValidateCanonicalBuyer(payment, invoice, vehicle);
+    if (!buyerValidation.IsValid) return Results.BadRequest(buyerValidation);
+    var collections = await db.CollectionTransactions.Where(item => item.PaymentRecordId == id).OrderByDescending(item => item.CreatedAt).ToListAsync();
+    var idempotencyKey = request.IdempotencyKey ?? Guid.NewGuid();
+    var keyedRequest = request with { IdempotencyKey = idempotencyKey };
+    var existingRetry = collections.SingleOrDefault(item => item.IdempotencyKey == idempotencyKey);
+    if (existingRetry is not null)
+    {
+        if (!FinanceV2Rules.IsExactCollectionRetry(existingRetry, keyedRequest))
+        {
+            return Results.Conflict(new ValidationResult([new ValidationError(
+                "collection_idempotency_key_reused",
+                "This collection retry key was already used with different payment details.")]));
+        }
+
+        await transaction.CommitAsync();
+        return Results.Ok(FinanceApi.ToResponse(payment, invoice, collections));
+    }
+
+    IReadOnlyList<CollectionTransaction> referenceCollections = [];
+    var normalizedReference = FinanceV2Rules.NormalizeReference(request.Reference);
+    if (normalizedReference is not null && Enum.IsDefined(typeof(CollectionMethod), request.Method))
+    {
+        await FinanceApi.LockCollectionReferenceAsync(db, request.Method, normalizedReference);
+        referenceCollections = await db.CollectionTransactions.AsNoTracking()
+            .Where(item => item.Status != CollectionStatus.Reversed && item.Method == request.Method && item.NormalizedReference == normalizedReference)
+            .ToListAsync();
+    }
+
+    var validation = FinanceV2Rules.ValidateCollectionCreate(payment, invoice, keyedRequest, collections, referenceCollections);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var collection = FinanceV2Rules.CreateCollection(id, keyedRequest, StaffIdentity.CurrentUserId(context), DateTime.UtcNow);
+    db.CollectionTransactions.Add(collection);
+    var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
+    ApiAudit.Add(db, context.User, "finance.collectionRecorded", nameof(CollectionTransaction), collection.Id);
+    try
+    {
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception))
+    {
+        await transaction.RollbackAsync();
+        db.ChangeTracker.Clear();
+        if (FinanceApi.IsUniqueViolation(exception, FinanceApi.ActiveCollectionReferenceIndex))
+        {
+            return Results.Conflict(new ValidationResult([new ValidationError(
+                "collection_reference_duplicate",
+                "This collection method and reference are already used by an active collection.")]));
+        }
+        var raced = await db.CollectionTransactions.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == id && item.IdempotencyKey == idempotencyKey);
+        if (raced is not null && FinanceV2Rules.IsExactCollectionRetry(raced, keyedRequest))
+        {
+            var recovered = await FinanceApi.ReloadResponseAsync(db, id);
+            if (recovered is not null) return Results.Ok(recovered);
+        }
+        return Results.Conflict(new ValidationResult([new ValidationError(
+            "collection_idempotency_key_reused",
+            "This collection retry key was already used by another request. Refresh the receivable before continuing.")]));
+    }
+    return Results.Created($"/api/collection-transactions/{collection.Id}", aggregate);
+}).RequireAuthorization("Finance");
+
+backOffice.MapPost("/collection-transactions/{id:guid}/financing-status", async (Guid id, UpdateFinancingStatusRequest request, AppDbContext db, HttpContext context) =>
+{
+    var initialVehicleId = await db.CollectionTransactions.AsNoTracking().Where(collection => collection.Id == id)
+        .Join(db.PaymentRecords.AsNoTracking(), collection => collection.PaymentRecordId, payment => payment.Id, (_, payment) => (Guid?)payment.VehicleId)
+        .FirstOrDefaultAsync();
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialVehicleId.Value]);
+    var collection = await FinanceApi.LockCollectionAsync(db, id);
+    if (collection is null) return Results.NotFound();
+    var payment = await FinanceApi.LockPaymentAsync(db, collection.PaymentRecordId);
+    if (payment is null || payment.VehicleId != initialVehicleId.Value) return Results.Conflict(new ApiError("The collection receivable changed while the update was starting. Try again."));
+    var validation = FinanceV2Rules.ValidateFinancingTransition(collection, request.Status);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (collection.FinancingStatus != request.Status)
+    {
+        var updated = collection with { FinancingStatus = request.Status };
+        db.Entry(collection).CurrentValues.SetValues(updated);
+        collection = updated;
+        ApiAudit.Add(db, context.User, "finance.collectionFinancingStatusUpdated", nameof(CollectionTransaction), id);
+    }
+    var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+    return Results.Ok(aggregate);
+}).RequireAuthorization("Finance");
+
+backOffice.MapPost("/collection-transactions/{id:guid}/reconcile", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var initialVehicleId = await db.CollectionTransactions.AsNoTracking().Where(collection => collection.Id == id)
+        .Join(db.PaymentRecords.AsNoTracking(), collection => collection.PaymentRecordId, payment => payment.Id, (_, payment) => (Guid?)payment.VehicleId)
+        .FirstOrDefaultAsync();
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialVehicleId.Value]);
+    var collection = await FinanceApi.LockCollectionAsync(db, id);
+    if (collection is null) return Results.NotFound();
+    var payment = await FinanceApi.LockPaymentAsync(db, collection.PaymentRecordId);
+    if (payment is null || payment.VehicleId != initialVehicleId.Value) return Results.Conflict(new ApiError("The collection receivable changed while reconciliation was starting. Try again."));
+    var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == payment.Id);
+    var vehicle = await FinanceApi.LockVehicleAsync(db, payment.VehicleId);
+    var buyerValidation = FinanceV2Rules.ValidateCanonicalBuyer(payment, invoice, vehicle);
+    if (!buyerValidation.IsValid) return Results.BadRequest(buyerValidation);
+    if (collection.Status != CollectionStatus.Reconciled)
+    {
+        var actorUserId = StaffIdentity.CurrentUserId(context);
+        var hasLinkedEvidence = await db.DocumentBlobs.AsNoTracking().AnyAsync(document =>
+            document.CollectionTransactionId == collection.Id &&
+            document.PaymentRecordId == payment.Id &&
+            document.VehicleId == payment.VehicleId &&
+            (document.Category == FileCategory.PaymentReceipt || document.Category == FileCategory.PaymentInvoice));
+        var validation = FinanceV2Rules.ValidateReconcile(collection, actorUserId, hasLinkedEvidence);
+        if (!validation.IsValid) return Results.BadRequest(validation);
+        var updated = collection with { Status = CollectionStatus.Reconciled, ReconciledBy = actorUserId, ReconciledAt = DateTime.UtcNow };
+        db.Entry(collection).CurrentValues.SetValues(updated);
+        collection = updated;
+        ApiAudit.Add(db, context.User, "finance.collectionReconciled", nameof(CollectionTransaction), id);
+    }
+    var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+    return Results.Ok(aggregate);
+}).RequireAuthorization("Finance");
+
+backOffice.MapPost("/collection-transactions/{id:guid}/reverse", async (Guid id, ReverseCollectionRequest request, AppDbContext db, HttpContext context) =>
+{
+    var initialVehicleId = await db.CollectionTransactions.AsNoTracking().Where(collection => collection.Id == id)
+        .Join(db.PaymentRecords.AsNoTracking(), collection => collection.PaymentRecordId, payment => payment.Id, (_, payment) => (Guid?)payment.VehicleId)
+        .FirstOrDefaultAsync();
+    if (!initialVehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialVehicleId.Value]);
+    // Locking the collection and its payment makes reconcile/reverse/financing transitions mutually exclusive.
+    var collection = await FinanceApi.LockCollectionAsync(db, id);
+    if (collection is null) return Results.NotFound();
+    var payment = await FinanceApi.LockPaymentAsync(db, collection.PaymentRecordId);
+    if (payment is null || payment.VehicleId != initialVehicleId.Value) return Results.Conflict(new ApiError("The collection receivable changed while reversal was starting. Try again."));
+    var validation = FinanceV2Rules.ValidateReverse(collection, request.Reason);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    var updated = collection with
+    {
+        Status = CollectionStatus.Reversed,
+        ReversedBy = StaffIdentity.CurrentUserId(context),
+        ReversedAt = DateTime.UtcNow,
+        ReversalReason = request.Reason.Trim()
+    };
+    db.Entry(collection).CurrentValues.SetValues(updated);
+    collection = updated;
+    ApiAudit.Add(db, context.User, "finance.collectionReversed", nameof(CollectionTransaction), id);
+    var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+    return Results.Ok(aggregate);
 }).RequireAuthorization("BossAdmin");
 
 backOffice.MapGet("/cash-handovers", async (AppDbContext db, HttpContext context) =>
@@ -1274,12 +2081,13 @@ backOffice.MapGet("/cash-handovers/{id:guid}/official-receipt/content", async (G
     return receipt is null ? Results.NotFound() : Results.File(receipt.Content, receipt.ContentMimeType, $"{receipt.ReceiptNumber}.pdf");
 }).RequireAuthorization("CashCustody");
 
-backOffice.MapGet("/finance-invoices/{invoiceId:guid}/content", async (Guid invoiceId, AppDbContext db) =>
+backOffice.MapGet("/finance-invoices/{invoiceId:guid}/content", async (Guid invoiceId, AppDbContext db, HttpContext context) =>
 {
     var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoiceId);
-    return invoice is null
-        ? Results.NotFound()
-        : Results.File(invoice.Content, invoice.ContentMimeType, $"{invoice.InvoiceNumber}.pdf");
+    if (invoice is null) return Results.NotFound();
+    ApiAudit.Add(db, context.User, "finance.invoiceDownloaded", nameof(FinanceInvoice), invoice.Id);
+    await db.SaveChangesAsync();
+    return Results.File(invoice.Content, invoice.ContentMimeType, $"{invoice.InvoiceNumber}.pdf");
 }).RequireAuthorization("Finance");
 
 backOffice.MapGet("/settlement-reminders", async (AppDbContext db) => await db.SettlementReminders.AsNoTracking().OrderBy(reminder => reminder.Deadline).ToListAsync()).RequireAuthorization("Finance");
@@ -1414,7 +2222,6 @@ backOffice.MapGet("/payment-vouchers/{id:guid}/pdf", async (Guid id, AppDbContex
     await db.SaveChangesAsync();
     return Results.File(pdf.Content, "application/pdf", $"{pdf.VoucherNumber}.pdf");
 }).RequireAuthorization("Finance");
-
 backOffice.MapGet("/leads", async (AppDbContext db) => await db.Leads.AsNoTracking().OrderByDescending(lead => lead.CreatedAt).ToListAsync()).RequireAuthorization("Sales");
 backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
@@ -1422,7 +2229,7 @@ backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db
     var existingLead = await db.Leads.FirstOrDefaultAsync(item => item.Id == id);
     if (existingLead is null) return Results.NotFound();
     var currentUserId = StaffIdentity.CurrentUserId(context);
-    var ownershipValidation = LeadRules.ValidateStatusOwner(existingLead, lead, currentUserId);
+    var ownershipValidation = LeadRules.ValidateStatusOwner(existingLead, lead, currentUserId, context.User.IsInRole("BossAdmin"));
     if (!ownershipValidation.IsValid) return Results.BadRequest(ownershipValidation);
     var currentUser = string.IsNullOrWhiteSpace(currentUserId) ? null : await userManager.FindByIdAsync(currentUserId);
     var currentUserName = string.IsNullOrWhiteSpace(currentUser?.DisplayName) ? AuditTrail.ActorFrom(context.User) : currentUser.DisplayName;
@@ -1432,10 +2239,77 @@ backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.Customers.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
+    if (updatedLead.Status == LeadStatus.Closed && updatedLead.ClosureOutcome == LeadClosureOutcome.Sold)
+    {
+        if (string.IsNullOrWhiteSpace(updatedLead.TakenByUserId))
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("lead_sales_agent_required", "Assign the lead to a sales agent before recording a sale.")]));
+        }
+        var vehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == updatedLead.VehicleId);
+        if (vehicle is null) return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Sold lead must be linked to an existing vehicle.")]));
+        if (!string.IsNullOrWhiteSpace(vehicle.SalesAgentUserId) && !string.Equals(vehicle.SalesAgentUserId, updatedLead.TakenByUserId, StringComparison.Ordinal))
+        {
+            return Results.Conflict(new ValidationResult([new ValidationError("vehicle_sales_agent_conflict", "This vehicle is already attributed to another sales agent.")]));
+        }
+        var attributed = vehicle with
+        {
+            SalesAgentUserId = vehicle.SalesAgentUserId ?? updatedLead.TakenByUserId,
+            SalesAgentName = vehicle.SalesAgentName ?? updatedLead.TakenByName ?? currentUserName
+        };
+        db.Entry(vehicle).CurrentValues.SetValues(attributed);
+        ApiAudit.Add(db, context.User, "vehicle.salesAgentAttributed", nameof(Vehicle), vehicle.Id);
+    }
     db.Entry(existingLead).CurrentValues.SetValues(updatedLead);
     ApiAudit.Add(db, context.User, "lead.updated", nameof(Lead), updatedLead.Id);
     await db.SaveChangesAsync();
     return Results.Ok(updatedLead);
+}).RequireAuthorization("Sales");
+backOffice.MapGet("/sales/workboard", async (string? agentUserId, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
+{
+    var currentUserId = StaffIdentity.CurrentUserId(context);
+    var isBoss = context.User.IsInRole("BossAdmin");
+    var salesUsers = await userManager.GetUsersInRoleAsync("Sales");
+    var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var leads = await db.Leads.AsNoTracking().ToListAsync();
+    var agentOptions = salesUsers
+        .Select(user => new SalesAgentOption(user.Id, string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email ?? user.Id : user.DisplayName.Trim()))
+        .ToList();
+    agentOptions.AddRange(vehicles
+        .Where(vehicle => !string.IsNullOrWhiteSpace(vehicle.SalesAgentUserId))
+        .Select(vehicle => new SalesAgentOption(vehicle.SalesAgentUserId!, vehicle.SalesAgentName ?? vehicle.SalesAgentUserId!)));
+    agentOptions.AddRange(leads
+        .Where(lead => !string.IsNullOrWhiteSpace(lead.TakenByUserId))
+        .Select(lead => new SalesAgentOption(lead.TakenByUserId!, lead.TakenByName ?? lead.TakenByUserId!)));
+    agentOptions = agentOptions.GroupBy(agent => agent.Id).Select(group => group.First()).OrderBy(agent => agent.DisplayName).ToList();
+    IReadOnlyCollection<string> selectedAgentIds;
+    if (!isBoss)
+    {
+        selectedAgentIds = [currentUserId];
+    }
+    else if (!string.IsNullOrWhiteSpace(agentUserId))
+    {
+        if (!agentOptions.Any(agent => agent.Id == agentUserId))
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("sales_agent_invalid", "Selected sales agent does not exist or is inactive.")]));
+        }
+        selectedAgentIds = [agentUserId];
+    }
+    else
+    {
+        selectedAgentIds = agentOptions.Select(agent => agent.Id).ToArray();
+    }
+
+    return Results.Ok(SalesWorkboardRules.Create(
+        selectedAgentIds,
+        BusinessClock.Today(),
+        vehicles,
+        leads,
+        await db.LoanApplications.AsNoTracking().ToListAsync(),
+        await db.RepairJobs.AsNoTracking().ToListAsync(),
+        await db.DeliverySchedules.AsNoTracking().ToListAsync(),
+        await db.PaymentRecords.AsNoTracking().ToListAsync(),
+        isBoss ? agentOptions : [],
+        includeUnassigned: isBoss && string.IsNullOrWhiteSpace(agentUserId)));
 }).RequireAuthorization("Sales");
 backOffice.MapGet("/audit-log", async (string? actor, string? action, string? entityName, AppDbContext db) =>
 {
@@ -1805,18 +2679,77 @@ hr.MapGet("/reminders", async (AppDbContext db, HttpContext context) =>
     return Results.Ok(result.OrderBy(item => item.DueDate).ThenBy(item => item.StaffUserId));
 });
 
+hr.MapGet("/boss-calendar", async (DateOnly from, DateOnly to, AppDbContext db, UserManager<AppUser> userManager, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    if (to < from || to.DayNumber - from.DayNumber > 370) return Results.BadRequest(new { message = "Calendar range must be a valid period of up to 12 months." });
+
+    var approvedLeaves = await db.HrLeaveRequests.AsNoTracking()
+        .Where(leave => leave.Status == HrLeaveStatus.Approved && leave.StartDate <= to && leave.EndDate >= from)
+        .ToListAsync();
+    var names = await userManager.Users.AsNoTracking().ToDictionaryAsync(user => user.Id, user => user.DisplayName);
+    var events = new List<HrCalendarAvailability>();
+    foreach (var leave in approvedLeaves)
+    {
+        var start = leave.StartDate < from ? from : leave.StartDate;
+        var end = leave.EndDate > to ? to : leave.EndDate;
+        for (var day = start; day <= end; day = day.AddDays(1))
+        {
+            events.Add(new HrCalendarAvailability(leave.StaffUserId, names.GetValueOrDefault(leave.StaffUserId, "Staff"), day));
+        }
+    }
+    return Results.Ok(events.OrderBy(item => item.Date).ThenBy(item => item.StaffName));
+});
+
+hr.MapGet("/attendance-networks", async (AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    return Results.Ok(await db.HrAttendanceNetworks.AsNoTracking().OrderBy(network => network.Label).ToListAsync());
+});
+
+hr.MapPost("/attendance-networks", async (HrAttendanceNetwork network, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    var normalized = network with { Label = network.Label.Trim(), Cidr = network.Cidr.Trim(), CreatedAt = DateTime.UtcNow };
+    var validation = HrRules.ValidateAttendanceNetwork(normalized);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (await db.HrAttendanceNetworks.AnyAsync(item => item.Cidr == normalized.Cidr)) return Results.BadRequest(new { message = "Office network CIDR already exists." });
+    db.HrAttendanceNetworks.Add(normalized);
+    ApiAudit.Add(db, context.User, "hr.attendanceNetwork.created", nameof(HrAttendanceNetwork), normalized.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/hr/attendance-networks/{normalized.Id}", normalized);
+});
+
+hr.MapPut("/attendance-networks/{id:guid}", async (Guid id, HrAttendanceNetwork network, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    if (id != network.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("attendance network"));
+    var existing = await db.HrAttendanceNetworks.FirstOrDefaultAsync(item => item.Id == id);
+    if (existing is null) return Results.NotFound();
+    var normalized = network with { Label = network.Label.Trim(), Cidr = network.Cidr.Trim(), CreatedAt = existing.CreatedAt };
+    var validation = HrRules.ValidateAttendanceNetwork(normalized);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (await db.HrAttendanceNetworks.AnyAsync(item => item.Id != id && item.Cidr == normalized.Cidr)) return Results.BadRequest(new { message = "Office network CIDR already exists." });
+    db.Entry(existing).CurrentValues.SetValues(normalized);
+    ApiAudit.Add(db, context.User, "hr.attendanceNetwork.updated", nameof(HrAttendanceNetwork), normalized.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(normalized);
+});
+
 hr.MapPost("/attendance/check-in", async (AppDbContext db, HttpContext context) =>
 {
     var staffUserId = StaffIdentity.CurrentUserId(context);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = HrBusinessClock.Today();
     var now = DateTime.UtcNow;
+    var officeNetwork = HrRules.FindMatchingAttendanceNetwork(context.Connection.RemoteIpAddress, await db.HrAttendanceNetworks.AsNoTracking().Where(network => network.IsActive).ToListAsync());
+    if (officeNetwork is null) return Results.BadRequest(new { message = "Attendance must be checked in from an approved office network." });
     var openSession = await db.HrAttendanceRecords
         .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
         .OrderByDescending(record => record.CheckInAt)
         .FirstOrDefaultAsync();
     var actionValidation = HrRules.ValidateCheckIn(openSession);
     if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present };
+    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present, VerificationMethod = HrAttendanceVerificationMethod.OfficeIp, OfficeNetworkLabel = officeNetwork.Label };
 
     var validation = HrRules.ValidateAttendance(attendance);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -1829,15 +2762,17 @@ hr.MapPost("/attendance/check-in", async (AppDbContext db, HttpContext context) 
 hr.MapPost("/attendance/check-out", async (AppDbContext db, HttpContext context) =>
 {
     var staffUserId = StaffIdentity.CurrentUserId(context);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = HrBusinessClock.Today();
     var now = DateTime.UtcNow;
+    var officeNetwork = HrRules.FindMatchingAttendanceNetwork(context.Connection.RemoteIpAddress, await db.HrAttendanceNetworks.AsNoTracking().Where(network => network.IsActive).ToListAsync());
+    if (officeNetwork is null) return Results.BadRequest(new { message = "Attendance must be checked out from an approved office network." });
     var openSession = await db.HrAttendanceRecords
         .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
         .OrderByDescending(record => record.CheckInAt)
         .FirstOrDefaultAsync();
     var actionValidation = HrRules.ValidateCheckOut(openSession);
     if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-    var attendance = openSession! with { CheckOutAt = now };
+    var attendance = openSession! with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.OfficeIp, OfficeNetworkLabel = officeNetwork.Label };
 
     var validation = HrRules.ValidateAttendance(attendance);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -2018,51 +2953,9 @@ hr.MapPost("/business-trips/{id:guid}/cancel", async (Guid id, AppDbContext db, 
     return Results.Ok(cancelled);
 });
 
-hr.MapPost("/attendance/outstation/start", async (HrOutstationAttendanceRequest request, AppDbContext db, HttpContext context) =>
-{
-    var staffUserId = StaffIdentity.CurrentUserId(context);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
-    var trip = await db.HrBusinessTrips.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.BusinessTripId && item.StaffUserId == staffUserId);
-    if (trip is null || !HrRules.BusinessTripCoversDate(trip, today)) return Results.BadRequest(new ApiError("An approved business trip covering today is required before starting outstation attendance."));
+hr.MapPost("/attendance/outstation/start", () => Results.BadRequest(new ApiError("Outstation attendance is not available yet. HR/Admin can correct attendance with a required note.")));
 
-    var openSession = await db.HrAttendanceRecords
-        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
-        .OrderByDescending(record => record.CheckInAt)
-        .FirstOrDefaultAsync();
-    var actionValidation = HrRules.ValidateCheckIn(openSession);
-    if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-
-    var now = DateTime.UtcNow;
-    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present, VerificationMethod = HrAttendanceVerificationMethod.Outstation, Notes = $"Business trip {trip.Id}" };
-    db.HrAttendanceRecords.Add(attendance);
-    ApiAudit.Add(db, context.User, "hr.attendance.outstationStarted", nameof(HrAttendanceRecord), attendance.Id);
-    await db.SaveChangesAsync();
-    return Results.Ok(attendance);
-});
-
-hr.MapPost("/attendance/outstation/end", async (HrOutstationAttendanceRequest request, AppDbContext db, HttpContext context) =>
-{
-    var staffUserId = StaffIdentity.CurrentUserId(context);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
-    var trip = await db.HrBusinessTrips.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.BusinessTripId && item.StaffUserId == staffUserId);
-    if (trip is null || !HrRules.BusinessTripCoversDate(trip, today)) return Results.BadRequest(new ApiError("An approved business trip covering today is required before ending outstation attendance."));
-
-    var openSession = await db.HrAttendanceRecords
-        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
-        .OrderByDescending(record => record.CheckInAt)
-        .FirstOrDefaultAsync();
-    var actionValidation = HrRules.ValidateCheckOut(openSession);
-    if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-
-    var now = DateTime.UtcNow;
-    var attendance = openSession! with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.Outstation, Notes = $"Business trip {trip.Id}" };
-    var validation = HrRules.ValidateAttendance(attendance);
-    if (!validation.IsValid) return Results.BadRequest(validation);
-    db.Entry(openSession!).CurrentValues.SetValues(attendance);
-    ApiAudit.Add(db, context.User, "hr.attendance.outstationEnded", nameof(HrAttendanceRecord), attendance.Id);
-    await db.SaveChangesAsync();
-    return Results.Ok(attendance);
-});
+hr.MapPost("/attendance/outstation/end", () => Results.BadRequest(new ApiError("Outstation attendance is not available yet. HR/Admin can correct attendance with a required note.")));
 
 hr.MapPut("/attendance/{id:guid}", async (Guid id, HrAttendanceRecord attendance, AppDbContext db, HttpContext context) =>
 {
@@ -2070,12 +2963,14 @@ hr.MapPut("/attendance/{id:guid}", async (Guid id, HrAttendanceRecord attendance
     if (id != attendance.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("attendance"));
     var existing = await db.HrAttendanceRecords.FirstOrDefaultAsync(record => record.Id == id);
     if (existing is null) return Results.NotFound();
-    var validation = HrRules.ValidateAttendance(attendance);
+    if (string.IsNullOrWhiteSpace(attendance.Notes)) return Results.BadRequest(new { message = "HR attendance corrections require a note." });
+    var corrected = attendance with { VerificationMethod = HrAttendanceVerificationMethod.Manual, OfficeNetworkLabel = null };
+    var validation = HrRules.ValidateAttendance(corrected);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    db.Entry(existing).CurrentValues.SetValues(attendance);
-    ApiAudit.Add(db, context.User, "hr.attendance.updated", nameof(HrAttendanceRecord), attendance.Id);
+    db.Entry(existing).CurrentValues.SetValues(corrected);
+    ApiAudit.Add(db, context.User, "hr.attendance.updated", nameof(HrAttendanceRecord), corrected.Id);
     await db.SaveChangesAsync();
-    return Results.Ok(attendance);
+    return Results.Ok(corrected);
 });
 
 hr.MapGet("/leave-requests", async (AppDbContext db, HttpContext context) =>
@@ -2116,7 +3011,8 @@ hr.MapPut("/leave-requests/{id:guid}/decision", async (Guid id, HrLeaveDecisionR
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
     var existing = await db.HrLeaveRequests.FirstOrDefaultAsync(request => request.Id == id);
     if (existing is null) return Results.NotFound();
-    var decisionValidation = HrRules.ValidateLeaveDecision(existing);
+    if (string.Equals(StaffIdentity.CurrentUserId(context), existing.StaffUserId, StringComparison.Ordinal)) return Results.Forbid();
+    var decisionValidation = HrRules.ValidateLeaveDecision(existing, decision.Status);
     if (!decisionValidation.IsValid) return Results.BadRequest(decisionValidation);
     var decided = existing with
     {
@@ -2299,11 +3195,12 @@ hr.MapPut("/payroll-profiles/{staffUserId}", async (string staffUserId, HrPayrol
     var validation = HrRules.ValidatePayrollProfile(profile);
     if (!validation.IsValid) return Results.BadRequest(validation);
     var existing = await db.HrPayrollProfiles.FirstOrDefaultAsync(item => item.StaffUserId == staffUserId);
-    if (existing is null) db.HrPayrollProfiles.Add(profile);
-    else db.Entry(existing).CurrentValues.SetValues(profile);
-    ApiAudit.Add(db, context.User, "hr.payrollProfile.updated", nameof(HrPayrollProfile), profile.Id);
+    var savedProfile = existing is null ? profile : profile with { Id = existing.Id };
+    if (existing is null) db.HrPayrollProfiles.Add(savedProfile);
+    else db.Entry(existing).CurrentValues.SetValues(savedProfile);
+    ApiAudit.Add(db, context.User, "hr.payrollProfile.updated", nameof(HrPayrollProfile), savedProfile.Id);
     await db.SaveChangesAsync();
-    return Results.Ok(profile);
+    return Results.Ok(savedProfile);
 });
 
 hr.MapGet("/pay-periods", async (AppDbContext db) =>
@@ -2338,11 +3235,12 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
     if (period is null) return Results.NotFound();
     var profiles = await db.HrPayrollProfiles.AsNoTracking().ToListAsync();
     var leaves = await db.HrLeaveRequests.AsNoTracking().ToListAsync();
+    var attendance = await db.HrAttendanceRecords.AsNoTracking().ToListAsync();
     var generated = new List<HrPayslip>();
     foreach (var profile in profiles)
     {
         var existing = await db.HrPayslips.FirstOrDefaultAsync(payslip => payslip.PayPeriodId == id && payslip.StaffUserId == profile.StaffUserId);
-        var payslip = HrRules.GeneratePayslip(profile, period, leaves, existing?.Id);
+        var payslip = HrRules.GeneratePayslip(profile, period, leaves, attendance, existing?.Id);
         if (existing is null) db.HrPayslips.Add(payslip);
         else db.Entry(existing).CurrentValues.SetValues(payslip);
         generated.Add(payslip);
@@ -2352,7 +3250,7 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
     return Results.Ok(generated);
 });
 
-backOffice.MapGet("/dashboard/summary", async (AppDbContext db, string? from, string? to) =>
+backOffice.MapGet("/dashboard/summary", async (AppDbContext db, AiUsageQuotaService aiUsageQuota, string? from, string? to, CancellationToken cancellationToken) =>
 {
     if (!DashboardAnalyticsPeriodRules.TryParse(from, to, out var analyticsPeriod, out var error))
     {
@@ -2360,7 +3258,7 @@ backOffice.MapGet("/dashboard/summary", async (AppDbContext db, string? from, st
     }
 
     var today = BusinessClock.Today();
-    return Results.Ok(DashboardMetrics.Create(
+    var summary = DashboardMetrics.Create(
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.LoanApplications.AsNoTracking().ToListAsync(),
         await db.DeliverySchedules.AsNoTracking().ToListAsync(),
@@ -2375,7 +3273,14 @@ backOffice.MapGet("/dashboard/summary", async (AppDbContext db, string? from, st
         await db.Leads.AsNoTracking().ToListAsync(),
         today,
         analyticsPeriod.From,
-        analyticsPeriod.To));
+        analyticsPeriod.To,
+        await db.CollectionTransactions.AsNoTracking().ToListAsync());
+    var aiDocumentProcessing = AiDocumentProcessingMetrics.Create(
+        await db.OcrJobs.AsNoTracking().ToListAsync(cancellationToken),
+        await aiUsageQuota.GetOcrSnapshotAsync(cancellationToken),
+        analyticsPeriod.From,
+        analyticsPeriod.To);
+    return Results.Ok(summary with { AiDocumentProcessing = aiDocumentProcessing });
 }).RequireAuthorization("Dashboard");
 
 backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, string? due) =>
@@ -2399,6 +3304,25 @@ backOffice.MapGet("/dashboard/reminders", async (AppDbContext db, string? type, 
     return Results.Ok(ReminderInbox.Filter(reminders, type, due, today));
 }).RequireAuthorization("Dashboard");
 
+backOffice.MapGet("/priority-actions", async (AppDbContext db, HttpContext context) =>
+{
+    var today = BusinessClock.Today();
+    return Results.Ok(PriorityActionQueue.Create(
+        context.User.FindAll(ClaimTypes.Role).Select(claim => claim.Value),
+        await db.LoanApplications.AsNoTracking().ToListAsync(),
+        await db.DeliverySchedules.AsNoTracking().ToListAsync(),
+        await db.SettlementReminders.AsNoTracking().ToListAsync(),
+        await db.PaymentRecords.AsNoTracking().ToListAsync(),
+        await db.DailySpends.AsNoTracking().ToListAsync(),
+        await db.DebtRecoveryCases.AsNoTracking().ToListAsync(),
+        await db.PaymentVouchers.AsNoTracking().ToListAsync(),
+        await db.RepairJobs.AsNoTracking().ToListAsync(),
+        await db.Leads.AsNoTracking().ToListAsync(),
+        await db.HrLeaveRequests.AsNoTracking().ToListAsync(),
+        await db.Vehicles.AsNoTracking().ToListAsync(),
+        today));
+}).RequireAuthorization("BackOffice");
+
 backOffice.MapGet("/loans/{id:guid}/document-check", async (Guid id, AppDbContext db) =>
 {
     var loan = await db.LoanApplications.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
@@ -2407,18 +3331,34 @@ backOffice.MapGet("/loans/{id:guid}/document-check", async (Guid id, AppDbContex
     return Results.Ok(LoanDocumentRules.CheckCompleteness(loan, documents));
 }).RequireAuthorization("Loans");
 
-backOffice.MapGet("/deliveries/{id:guid}/release-readiness", async (Guid id, AppDbContext db) =>
+backOffice.MapGet("/deliveries/{id:guid}/release-readiness", async (Guid id, AppDbContext db, UserManager<AppUser> userManager) =>
 {
     var delivery = await db.DeliverySchedules.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (delivery is null) return Results.NotFound();
     var documentCheck = DeliveryDocumentRules.CheckCompleteness(delivery, await db.DocumentBlobs.AsNoTracking().ToListAsync());
-    var missingEvidence = DeliveryRules.MissingReleaseEvidence(delivery);
-    var expiredDocuments = DeliveryRules.ExpiredDeliveryDocuments(delivery);
+    var expiredDocuments = DeliveryRules.ExpiredDeliveryDocuments(delivery, BusinessClock.Today());
+    var financeCleared = await db.PaymentRecords.AsNoTracking().AnyAsync(payment => payment.VehicleId == delivery.VehicleId && payment.Status == PaymentStatus.Reconciled);
+    var vehicleCustomerId = await db.Vehicles.AsNoTracking()
+        .Where(vehicle => vehicle.Id == delivery.VehicleId)
+        .Select(vehicle => vehicle.CustomerId)
+        .FirstOrDefaultAsync();
+    var lockedBuyerIsCanonical = delivery.CustomerId.HasValue
+        && vehicleCustomerId == delivery.CustomerId
+        && await db.Customers.AsNoTracking().AnyAsync(customer => customer.Id == delivery.CustomerId.Value);
+    var picResolution = await DeliveryStaffDirectory.ResolvePicAsync(delivery.PicUserId, userManager);
+    var effectiveDelivery = delivery with
+    {
+        CustomerId = lockedBuyerIsCanonical ? delivery.CustomerId : null,
+        PicUserId = picResolution.Validation.IsValid ? delivery.PicUserId : null
+    };
     return Results.Ok(new
     {
-        isReady = DeliveryRules.IsReadyForRelease(delivery) && documentCheck.IsComplete,
+        isReady = DeliveryWorkboardRules.CanRelease(effectiveDelivery, financeCleared, documentCheck, BusinessClock.Today()),
+        financeCleared,
         missingCategories = documentCheck.MissingCategories,
-        missingEvidence,
+        missingEvidence = documentCheck.MissingCategories
+            .Where(category => category is FileCategory.HandoverPhoto or FileCategory.SignedHandover)
+            .Select(category => category == FileCategory.HandoverPhoto ? "Handover photo" : "Signed handover document"),
         expiredDocuments,
         evidence = documentCheck.Evidence
     });
@@ -2428,6 +3368,11 @@ var seedDataEnabled = app.Configuration.GetValue("SeedData:Enabled", app.Environ
 if (RuntimeMode.ShouldSeed(workerEnabled, seedDataEnabled))
 {
     await SeedData.SeedAsync(app);
+}
+else
+{
+    await SeedData.EnsureFinanceV2SchemaAsync(app);
+    await SeedData.EnsureDeliveryWorkboardSchemaAsync(app);
 }
 
 app.Run();
@@ -2449,10 +3394,369 @@ public sealed record UpdateStaffUserRolesRequest(string[] Roles);
 public sealed record HrLeaveDecisionRequest(HrLeaveStatus Status, string? DecisionNotes);
 public sealed record HrLeaveAdjustmentResult(HrLeaveBalance Balance, HrLeaveAdjustment Adjustment);
 
+internal static class HrBusinessClock
+{
+    private static readonly TimeZoneInfo KualaLumpurTimeZone = FindKualaLumpurTimeZone();
+
+    public static DateOnly Today() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, KualaLumpurTimeZone).DateTime);
+
+    private static TimeZoneInfo FindKualaLumpurTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Kuala_Lumpur");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Singapore Standard Time");
+        }
+    }
+}
+
 internal static class StaffIdentity
 {
     public static string CurrentUserId(HttpContext context) =>
         context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+}
+
+internal sealed record FinanceInvoiceIssueResult(PaymentRecord Payment, FinanceInvoice? Invoice, ValidationResult Validation);
+
+internal static class FinanceApi
+{
+    public const string ActiveCollectionReferenceIndex = "UX_CollectionTransactions_ActiveMethod_NormalizedReference";
+
+    public static bool IsUniqueViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
+
+    public static bool IsUniqueViolation(DbUpdateException exception, string constraintName) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: var actualConstraint
+        } && string.Equals(actualConstraint, constraintName, StringComparison.Ordinal);
+
+    public static Task<Vehicle?> LockVehicleAsync(AppDbContext db, Guid vehicleId) =>
+        db.Vehicles.FromSqlInterpolated($"SELECT * FROM \"Vehicles\" WHERE \"Id\" = {vehicleId} FOR UPDATE").SingleOrDefaultAsync();
+
+    public static Task<PaymentRecord?> LockPaymentAsync(AppDbContext db, Guid paymentId) =>
+        db.PaymentRecords.FromSqlInterpolated($"SELECT * FROM \"PaymentRecords\" WHERE \"Id\" = {paymentId} FOR UPDATE").SingleOrDefaultAsync();
+
+    public static Task<CollectionTransaction?> LockCollectionAsync(AppDbContext db, Guid collectionId) =>
+        db.CollectionTransactions.FromSqlInterpolated($"SELECT * FROM \"CollectionTransactions\" WHERE \"Id\" = {collectionId} FOR UPDATE").SingleOrDefaultAsync();
+
+    public static async Task LockCollectionReferenceAsync(AppDbContext db, CollectionMethod method, string normalizedReference)
+    {
+        var lockKey = FinanceV2Rules.CollectionReferenceLockKey(method, normalizedReference);
+        await db.Database.ExecuteSqlRawAsync(
+            "SELECT pg_advisory_xact_lock(@lockKey)",
+            new NpgsqlParameter("lockKey", lockKey));
+    }
+
+    public static async Task<object?> ReloadResponseAsync(AppDbContext db, Guid paymentId)
+    {
+        var payment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == paymentId);
+        if (payment is null) return null;
+        var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == paymentId);
+        if (invoice is null) return null;
+        var collections = await db.CollectionTransactions.AsNoTracking()
+            .Where(item => item.PaymentRecordId == paymentId)
+            .OrderByDescending(item => item.CreatedAt)
+            .ToListAsync();
+        return ToResponse(payment, invoice, collections);
+    }
+
+    public static object ToResponse(PaymentRecord payment, FinanceInvoice? invoice, IReadOnlyList<CollectionTransaction> collections)
+    {
+        var collectedAmount = payment.FinanceWorkflowVersion == 2
+            ? FinanceV2Rules.CollectedAmount(collections)
+            : payment.Status == PaymentStatus.Reconciled ? payment.NettPrice : 0;
+        var balanceAmount = payment.FinanceWorkflowVersion == 2
+            ? FinanceV2Rules.Balance(payment, collections)
+            : Math.Max(0, payment.NettPrice - collectedAmount);
+        var availableToAllocate = payment.FinanceWorkflowVersion == 2
+            ? FinanceV2Rules.AvailableToAllocate(payment, collections)
+            : balanceAmount;
+        object? invoiceSummary = invoice is null ? null : new
+        {
+            invoice.Id,
+            invoice.PaymentRecordId,
+            invoice.VehicleId,
+            invoice.CustomerId,
+            invoice.CustomerName,
+            invoice.CustomerPhone,
+            invoice.CustomerAddress,
+            invoice.VehiclePlateNumber,
+            invoice.VehicleDescription,
+            invoice.InvoiceNumber,
+            invoice.InvoiceDate,
+            invoice.Amount,
+            invoice.SalesPrice,
+            invoice.InterestAdditionalCharges,
+            invoice.NcdAmount,
+            invoice.WindscreenCharges,
+            invoice.CreatedBy,
+            invoice.CreatedAt,
+            ContentUrl = $"/api/finance-invoices/{invoice.Id}/content"
+        };
+
+        return new
+        {
+            payment.Id,
+            payment.VehicleId,
+            payment.CustomerId,
+            payment.NettPrice,
+            payment.CalculatedNettPrice,
+            payment.NettPriceVariance,
+            payment.NettPriceOverrideReason,
+            payment.NettPriceOverrideRequestedBy,
+            payment.NettPriceOverrideRequestedAt,
+            payment.NettPriceOverrideApprovedBy,
+            payment.NettPriceOverrideApprovedAt,
+            payment.FormulaVersion,
+            payment.FinanceWorkflowVersion,
+            payment.Status,
+            payment.ReceiptNumber,
+            payment.InvoiceNumber,
+            payment.BossChecked,
+            payment.DocumentsPrepared,
+            payment.ChecklistValidated,
+            payment.SalesPrice,
+            payment.InterestAdditionalCharges,
+            payment.NcdAmount,
+            payment.WindscreenCharges,
+            payment.OutstationDeliveryDate,
+            payment.BankName,
+            payment.BankFollowUpDate,
+            payment.CreatedAt,
+            Invoice = invoiceSummary,
+            Collections = collections,
+            CollectedAmount = collectedAmount,
+            BalanceAmount = balanceAmount,
+            AvailableToAllocate = availableToAllocate,
+            ReceivableStatus = FinanceV2Rules.DeriveReceivableStatus(payment, invoice, collections)
+        };
+    }
+
+    public static async Task<FinanceInvoiceIssueResult> IssueInvoiceAsync(AppDbContext db, PaymentRecord payment, string actorUserId, DateTime now)
+    {
+        var existingInvoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == payment.Id);
+        var deliveryStateValidation = FinanceV2Rules.ValidateInvoiceIssuanceDeliveryState(
+            payment.VehicleId,
+            await db.DeliverySchedules.AsNoTracking().Where(delivery => delivery.VehicleId == payment.VehicleId).ToListAsync());
+        if (!deliveryStateValidation.IsValid) return new FinanceInvoiceIssueResult(payment, existingInvoice, deliveryStateValidation);
+        var validation = FinanceV2Rules.ValidateInvoiceEligibility(payment, existingInvoice);
+        if (!validation.IsValid) return new FinanceInvoiceIssueResult(payment, existingInvoice, validation);
+        if (existingInvoice is not null)
+        {
+            var existingPayment = payment.InvoiceNumber == existingInvoice.InvoiceNumber
+                ? payment
+                : payment with { InvoiceNumber = existingInvoice.InvoiceNumber, DocumentsPrepared = true };
+            if (!ReferenceEquals(existingPayment, payment)) db.Entry(payment).CurrentValues.SetValues(existingPayment);
+            return new FinanceInvoiceIssueResult(existingPayment, existingInvoice, validation);
+        }
+
+        var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == payment.VehicleId);
+        var customer = payment.CustomerId is { } customerId
+            ? await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == customerId)
+            : null;
+        if (vehicle is null || customer is null || vehicle.CustomerId != customer.Id)
+        {
+            return new FinanceInvoiceIssueResult(payment, null, new ValidationResult([
+                new ValidationError("finance_canonical_buyer_required", "The invoice requires the vehicle's confirmed buyer and vehicle details.")
+            ]));
+        }
+
+        var sequence = await db.Database.SqlQueryRaw<long>("SELECT nextval('\"FinanceInvoiceNumberSequence\"') AS \"Value\"").SingleAsync();
+        var invoiceNumber = FinanceInvoiceFactory.NumberFor(now, sequence);
+        var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, invoiceNumber, actorUserId, now);
+        var updatedPayment = payment with { InvoiceNumber = invoiceNumber, DocumentsPrepared = true };
+        db.Entry(payment).CurrentValues.SetValues(updatedPayment);
+        db.FinanceInvoices.Add(invoice);
+        return new FinanceInvoiceIssueResult(updatedPayment, invoice, validation);
+    }
+
+    public static async Task<object> ApplyCollectionMutationAsync(AppDbContext db, CollectionTransaction changedCollection)
+    {
+        var payment = await db.PaymentRecords.FirstAsync(item => item.Id == changedCollection.PaymentRecordId);
+        var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == payment.Id);
+        var collections = await db.CollectionTransactions
+            .Where(item => item.PaymentRecordId == payment.Id)
+            .OrderByDescending(item => item.CreatedAt)
+            .ToListAsync();
+        // Use the locked mutation value explicitly; this avoids depending on query identity resolution for an unsaved status change.
+        collections = collections.Where(item => item.Id != changedCollection.Id)
+            .Append(changedCollection)
+            .OrderByDescending(item => item.CreatedAt)
+            .ToList();
+        var updatedPayment = payment with { Status = FinanceV2Rules.DerivePaymentStatus(payment, collections) };
+        db.Entry(payment).CurrentValues.SetValues(updatedPayment);
+
+        var allPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+        allPayments = allPayments.Where(item => item.Id != payment.Id).Append(updatedPayment).ToList();
+        var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
+        var deliveries = await db.DeliverySchedules.AsNoTracking().Where(delivery => delivery.VehicleId == payment.VehicleId).ToListAsync();
+        var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
+        var updatedVehicle = WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, allPayments, deliveries);
+        db.Entry(vehicle).CurrentValues.SetValues(updatedVehicle);
+
+        return ToResponse(updatedPayment, invoice, collections);
+    }
+}
+
+internal static class DeliveryConcurrencyLock
+{
+    public static Task<Guid?> FindVehicleIdAsync(AppDbContext db, Guid deliveryId) =>
+        db.DeliverySchedules.AsNoTracking()
+            .Where(delivery => delivery.Id == deliveryId)
+            .Select(delivery => (Guid?)delivery.VehicleId)
+            .FirstOrDefaultAsync();
+
+    public static Task<IDbContextTransaction> BeginVehiclesAsync(AppDbContext db, IEnumerable<Guid> vehicleIds) =>
+        BeginAsync(db, vehicleIds, null);
+
+    public static Task<IDbContextTransaction> BeginDeliveryAsync(AppDbContext db, Guid vehicleId, Guid deliveryId) =>
+        BeginAsync(db, [vehicleId], deliveryId);
+
+    public static Task AcquireDeliveryAsync(AppDbContext db, Guid deliveryId) =>
+        AcquireAsync(db, DeliveryMutationRules.DeliveryAdvisoryLockKey(deliveryId));
+
+    private static async Task<IDbContextTransaction> BeginAsync(AppDbContext db, IEnumerable<Guid> vehicleIds, Guid? deliveryId)
+    {
+        var transaction = await db.Database.BeginTransactionAsync();
+        try
+        {
+            foreach (var vehicleId in DeliveryMutationRules.OrderedVehicleLockIds(vehicleIds))
+            {
+                await AcquireAsync(db, DeliveryMutationRules.VehicleAdvisoryLockKey(vehicleId));
+            }
+            if (deliveryId.HasValue) await AcquireDeliveryAsync(db, deliveryId.Value);
+            return transaction;
+        }
+        catch
+        {
+            await transaction.DisposeAsync();
+            throw;
+        }
+    }
+
+    private static Task AcquireAsync(AppDbContext db, string resourceKey) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({resourceKey}, 0))");
+}
+
+internal sealed record DeliveryPicResolution(AppUser? User, string? DisplayName, ValidationResult Validation);
+
+internal static class DeliveryStaffDirectory
+{
+    public static async Task<IReadOnlyList<DeliveryPicOption>> GetPicOptionsAsync(UserManager<AppUser> userManager)
+    {
+        var users = await userManager.Users.AsNoTracking().OrderBy(user => user.DisplayName).ToListAsync();
+        var options = new List<DeliveryPicOption>();
+        foreach (var user in users)
+        {
+            if (!IsActive(user)) continue;
+            var roles = await userManager.GetRolesAsync(user);
+            if (!roles.Any(role => role is "Delivery" or "BossAdmin")) continue;
+            options.Add(new DeliveryPicOption(user.Id, DisplayName(user)));
+        }
+        return options;
+    }
+
+    public static async Task<DeliveryPicResolution> ResolvePicAsync(string? userId, UserManager<AppUser> userManager)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Invalid("delivery_pic_user_required", "Select an active Delivery staff member as PIC.");
+        }
+        var user = await userManager.FindByIdAsync(userId);
+        if (user is null || !IsActive(user))
+        {
+            return Invalid("delivery_pic_user_invalid", "Selected delivery PIC does not exist or is inactive.");
+        }
+        var roles = await userManager.GetRolesAsync(user);
+        if (!roles.Any(role => role is "Delivery" or "BossAdmin"))
+        {
+            return Invalid("delivery_pic_role_invalid", "Selected PIC must have Delivery or Admin access.");
+        }
+        return new DeliveryPicResolution(user, DisplayName(user), new ValidationResult([]));
+    }
+
+    private static bool IsActive(AppUser user) => user.LockoutEnd is null || user.LockoutEnd <= DateTimeOffset.UtcNow;
+    private static string DisplayName(AppUser user) => string.IsNullOrWhiteSpace(user.DisplayName) ? user.Email ?? user.UserName ?? user.Id : user.DisplayName.Trim();
+    private static DeliveryPicResolution Invalid(string code, string message) =>
+        new(null, null, new ValidationResult([new ValidationError(code, message)]));
+}
+
+internal static class DeliveryActivityAudit
+{
+    public static DeliveryActivity Create(Guid deliveryId, HttpContext context, string summary, string action) => new()
+    {
+        DeliveryScheduleId = deliveryId,
+        Action = action,
+        ActorUserId = StaffIdentity.CurrentUserId(context),
+        ActorName = AuditTrail.ActorFrom(context.User),
+        Summary = summary.Trim(),
+        CreatedAt = DateTime.UtcNow
+    };
+}
+
+internal static class DeliveryInvoiceRequestResolution
+{
+    public static async Task ResolveForVehicleAsync(AppDbContext db, Guid vehicleId, HttpContext context)
+    {
+        var canonicalCustomerId = await db.Vehicles.AsNoTracking()
+            .Where(vehicle => vehicle.Id == vehicleId)
+            .Select(vehicle => vehicle.CustomerId)
+            .FirstOrDefaultAsync();
+        if (!canonicalCustomerId.HasValue ||
+            !await db.Customers.AsNoTracking().AnyAsync(customer => customer.Id == canonicalCustomerId.Value)) return;
+        var openRequestIds = await db.DeliverySchedules.AsNoTracking()
+            .Where(delivery =>
+                delivery.VehicleId == vehicleId &&
+                delivery.Status != DeliveryStatus.Released &&
+                delivery.Status != DeliveryStatus.Cancelled &&
+                delivery.InvoiceUpdateRequestedAt.HasValue &&
+                (!delivery.InvoiceUpdateResolvedAt.HasValue || delivery.InvoiceUpdateResolvedAt < delivery.InvoiceUpdateRequestedAt))
+            .Select(delivery => delivery.Id)
+            .OrderBy(id => id)
+            .ToListAsync();
+        var resolvedAt = DateTime.UtcNow;
+        foreach (var deliveryId in openRequestIds)
+        {
+            await DeliveryConcurrencyLock.AcquireDeliveryAsync(db, deliveryId);
+            var delivery = await db.DeliverySchedules.FirstOrDefaultAsync(item => item.Id == deliveryId);
+            if (delivery is null ||
+                delivery.CustomerId != canonicalCustomerId ||
+                !DeliveryWorkboardRules.IsActive(delivery) ||
+                !DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest(delivery)) continue;
+            var updated = delivery with
+            {
+                InvoiceUpdateResolvedAt = resolvedAt,
+                InvoiceUpdateResolvedByUserId = StaffIdentity.CurrentUserId(context)
+            };
+            db.Entry(delivery).CurrentValues.SetValues(updated);
+            db.DeliveryActivities.Add(DeliveryActivityAudit.Create(delivery.Id, context, "Finance updated payment or invoice data and resolved the request", "InvoiceUpdateResolved"));
+            ApiAudit.Add(db, context.User, "delivery.invoiceUpdateResolved", nameof(DeliverySchedule), delivery.Id);
+        }
+    }
+}
+
+internal static class DeliveryPaymentScheduleSync
+{
+    public static async Task ApplyAsync(AppDbContext db, DeliverySchedule changedDelivery)
+    {
+        var deliveries = (await db.DeliverySchedules.AsNoTracking()
+                .Where(delivery => delivery.VehicleId == changedDelivery.VehicleId)
+                .ToListAsync())
+            .Where(delivery => delivery.Id != changedDelivery.Id)
+            .Append(changedDelivery)
+            .ToList();
+        var authoritativeDate = DeliveryMutationRules.AuthoritativeOutstationDate(changedDelivery.VehicleId, deliveries);
+        var payments = await db.PaymentRecords.Where(payment => payment.VehicleId == changedDelivery.VehicleId).ToListAsync();
+        foreach (var payment in payments)
+        {
+            db.Entry(payment).CurrentValues.SetValues(payment with { OutstationDeliveryDate = authoritativeDate });
+        }
+    }
 }
 
 public sealed record OcrReviewRequest(OcrReviewDecision Decision, string? Notes);

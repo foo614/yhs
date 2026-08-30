@@ -9,13 +9,15 @@ export function filterFinanceRows<T>(
   keyword: string,
   status: string | undefined,
   searchValues: (row: T) => Array<string | undefined | null>,
-  rowStatus: (row: T) => string
+  rowStatus: (row: T) => string | string[]
 ) {
   const normalizedKeyword = keyword.trim().toLocaleLowerCase();
 
   return rows.filter((row) => {
     const matchesKeyword = !normalizedKeyword || searchValues(row).some((value) => value?.toLocaleLowerCase().includes(normalizedKeyword));
-    return matchesKeyword && (!status || rowStatus(row) === status);
+    const statuses = rowStatus(row);
+    const matchesStatus = !status || (Array.isArray(statuses) ? statuses.includes(status) : statuses === status);
+    return matchesKeyword && matchesStatus;
   });
 }
 
@@ -27,4 +29,12 @@ export function pageFinanceRows<T>(rows: T[], page: number, pageSize = FINANCE_L
   const currentPage = financePageFor(rows.length, page, pageSize);
   const start = (currentPage - 1) * pageSize;
   return rows.slice(start, start + pageSize);
+}
+
+export function financeEmptyText(totalRows: number, filteredRows: number, itemName: string) {
+  return totalRows === 0
+    ? `No ${itemName} yet.`
+    : filteredRows === 0
+      ? `No ${itemName} match the current filters.`
+      : `No ${itemName} yet.`;
 }

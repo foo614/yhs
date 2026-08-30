@@ -41,6 +41,38 @@ public sealed record CustomerProfile(
     IReadOnlyList<CustomerProfileMissingDocument> MissingDocuments,
     CustomerProfilePermissions Permissions);
 
+public sealed record CustomerProfileFinanceSelection(
+    IReadOnlyList<PaymentRecord> Payments,
+    IReadOnlyList<FinanceInvoice> Invoices);
+
+public static class CustomerProfileFinanceRules
+{
+    public static CustomerProfileFinanceSelection Select(
+        Guid customerId,
+        IEnumerable<Vehicle> vehicles,
+        IEnumerable<PaymentRecord> payments,
+        IEnumerable<FinanceInvoice> invoices)
+    {
+        var invoiceList = invoices.ToList();
+        var ownedInvoices = invoiceList.Where(invoice => invoice.CustomerId == customerId).ToList();
+        var ownedPaymentIds = ownedInvoices.Select(invoice => invoice.PaymentRecordId).ToHashSet();
+        var conflictingPaymentIds = invoiceList
+            .Where(invoice => invoice.CustomerId != customerId)
+            .Select(invoice => invoice.PaymentRecordId)
+            .ToHashSet();
+        var canonicalVehicleIds = vehicles
+            .Where(vehicle => vehicle.CustomerId == customerId)
+            .Select(vehicle => vehicle.Id)
+            .ToHashSet();
+        var ownedPayments = payments
+            .Where(payment =>
+                ownedPaymentIds.Contains(payment.Id) ||
+                (canonicalVehicleIds.Contains(payment.VehicleId) && !conflictingPaymentIds.Contains(payment.Id)))
+            .ToList();
+        return new CustomerProfileFinanceSelection(ownedPayments, ownedInvoices);
+    }
+}
+
 public static class CustomerProfileFactory
 {
     public static IReadOnlyList<CustomerProfileOption> CreateOptions(IEnumerable<Customer> customers) =>
@@ -69,28 +101,59 @@ public static class CustomerProfileFactory
         var canViewFinance = roleSet.Contains("BossAdmin") || roleSet.Contains("Finance");
         var canViewEnquiries = roleSet.Contains("BossAdmin") || roleSet.Contains("Sales");
 
-        var customerLoans = loans.Where(loan => loan.CustomerId == customer.Id).ToList();
+        var loanList = loans.ToList();
+        var deliveryList = deliveries.ToList();
+        var customerLoans = loanList.Where(loan => loan.CustomerId == customer.Id).ToList();
         var customerLoanVehicleIds = customerLoans.Select(loan => loan.VehicleId).ToHashSet();
-        var unambiguousLegacyVehicleIds = loans
+        var unambiguousLegacyVehicleIds = loanList
             .Where(loan => customerLoanVehicleIds.Contains(loan.VehicleId))
             .GroupBy(loan => loan.VehicleId)
             .Where(group => group.All(loan => loan.CustomerId == customer.Id))
             .Select(group => group.Key)
             .ToHashSet();
+        var exactDeliveryVehicleIds = deliveryList
+            .Where(delivery => delivery.CustomerId == customer.Id)
+            .Select(delivery => delivery.VehicleId)
+            .ToHashSet();
         var profileVehicles = vehicles
-            .Where(vehicle => vehicle.CustomerId == customer.Id || (vehicle.CustomerId is null && unambiguousLegacyVehicleIds.Contains(vehicle.Id)))
+            .Where(vehicle =>
+                vehicle.CustomerId == customer.Id ||
+                exactDeliveryVehicleIds.Contains(vehicle.Id) ||
+                (vehicle.CustomerId is null && unambiguousLegacyVehicleIds.Contains(vehicle.Id)))
             .OrderByDescending(vehicle => vehicle.IntakeDate)
             .ThenBy(vehicle => vehicle.PlateNumber)
             .ToList();
         var vehicleIds = profileVehicles.Select(vehicle => vehicle.Id).ToHashSet();
         var profileLoans = customerLoans.Where(loan => vehicleIds.Contains(loan.VehicleId)).OrderByDescending(loan => loan.SubmittedAt).ToList();
-        var profileDeliveries = deliveries.Where(delivery => vehicleIds.Contains(delivery.VehicleId)).OrderByDescending(delivery => delivery.ScheduledDate).ToList();
-        var profilePayments = payments.Where(payment => vehicleIds.Contains(payment.VehicleId)).OrderByDescending(payment => payment.CreatedAt).ToList();
-        var paymentIds = profilePayments.Select(payment => payment.Id).ToHashSet();
-        var profileInvoices = invoices.Where(invoice => invoice.CustomerId == customer.Id || paymentIds.Contains(invoice.PaymentRecordId)).OrderByDescending(invoice => invoice.InvoiceDate).ToList();
+        var vehicleById = profileVehicles.ToDictionary(vehicle => vehicle.Id);
+        var profileDeliveries = deliveryList
+            .Where(delivery =>
+                vehicleIds.Contains(delivery.VehicleId) &&
+                (delivery.CustomerId == customer.Id ||
+                 (delivery.CustomerId is null &&
+                  vehicleById.TryGetValue(delivery.VehicleId, out var vehicle) &&
+                  (vehicle.CustomerId == customer.Id ||
+                   (vehicle.CustomerId is null && unambiguousLegacyVehicleIds.Contains(vehicle.Id))) &&
+                  !loanList.Any(loan => loan.VehicleId == delivery.VehicleId && loan.CustomerId != customer.Id))))
+            .OrderByDescending(delivery => delivery.ScheduledDate)
+            .ToList();
+        var financeSelection = CustomerProfileFinanceRules.Select(customer.Id, profileVehicles, payments, invoices);
+        var profilePayments = financeSelection.Payments.OrderByDescending(payment => payment.CreatedAt).ToList();
+        var profileInvoices = financeSelection.Invoices.OrderByDescending(invoice => invoice.InvoiceDate).ToList();
         var profileHandovers = handovers.Where(handover => handover.CustomerId == customer.Id).ToList();
         var handoverIds = profileHandovers.Select(handover => handover.Id).ToHashSet();
-        var profileDocuments = documents.Where(document => document.VehicleId is { } vehicleId && vehicleIds.Contains(vehicleId)).ToList();
+        var profileDeliveryIds = profileDeliveries.Select(delivery => delivery.Id).ToHashSet();
+        var profileDocuments = documents
+            .Where(document => document.VehicleId is { } vehicleId && vehicleIds.Contains(vehicleId))
+            .Where(document =>
+                DeliveryEvidenceUploadRules.IsDeliveryCategory(document.Category)
+                    ? document.CustomerId == customer.Id &&
+                      document.DeliveryScheduleId.HasValue &&
+                      profileDeliveryIds.Contains(document.DeliveryScheduleId.Value)
+                    : document.OwnershipType == DocumentOwnershipType.Buyer
+                        ? document.CustomerId == customer.Id
+                        : !document.CustomerId.HasValue)
+            .ToList();
         var visibleDocuments = profileDocuments
             .Where(document => DepartmentAccess.CanUploadDocument(roleSet, document.Category))
             .OrderByDescending(document => document.UploadedAt)

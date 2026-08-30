@@ -1,11 +1,14 @@
 using System.Globalization;
 using System.ComponentModel.DataAnnotations;
+using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using YSHeng.Api.Domain;
 using SkiaSharp;
+using UglyToad.PdfPig;
 
 namespace YSHeng.Api.Features;
 
@@ -76,7 +79,10 @@ public sealed record DashboardSummary(
     decimal ActualProfit,
     decimal OutstandingCollection,
     decimal SettlementDueAmount,
-    DashboardRefurbishmentSummary Refurbishment);
+    DashboardRefurbishmentSummary Refurbishment)
+{
+    public DashboardAiDocumentProcessing AiDocumentProcessing { get; init; } = DashboardAiDocumentProcessing.Empty;
+}
 
 public sealed record DashboardAgingBucket(string Label, int Count);
 public sealed record DashboardCountSlice(string Label, int Count);
@@ -90,11 +96,34 @@ public sealed record DashboardRefurbishmentSummary(
     int WorkInProgressCount,
     int OverdueWorkCount,
     DashboardAmountSlice[] HighestCostVehicles);
+public sealed record DashboardAiDocumentCategory(
+    string Category,
+    string Label,
+    int ScanCount,
+    int AcceptedCount,
+    int RejectedCount,
+    int LowConfidenceCount,
+    int FailedCount);
+public sealed record DashboardAiDocumentProcessing(
+    int ScanCount,
+    int AcceptedCount,
+    int RejectedCount,
+    int LowConfidenceCount,
+    int FailedCount,
+    int PendingReviewCount,
+    int UsedThisMonth,
+    int MonthlyRequestLimit,
+    int RemainingThisMonth,
+    DashboardAiDocumentCategory[] Categories)
+{
+    public static readonly DashboardAiDocumentProcessing Empty = new(0, 0, 0, 0, 0, 0, 0, 0, 0, []);
+}
 public sealed record DashboardWorkflowBlockers(DashboardCountSlice[] ByType, DashboardCountSlice[] DueBuckets);
 public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal ConversionRate);
 public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
 public sealed record SupplierInvoiceAgingView(Guid InvoiceId, string SupplierName, string InvoiceNumber, Guid VehicleId, SupplierInvoiceAgingStatus Status, DateOnly? DueDate, DateOnly? PaidAt, decimal Amount);
 public sealed record ReminderItem(string Type, string Title, string VehiclePlate, Guid VehicleId, DateOnly DueDate, decimal? Amount);
+public sealed record PriorityActionItem(string Type, string Title, string Target, DateOnly DueDate, string? Subject = null, decimal? Amount = null);
 public sealed record ValidationError(string Code, string Message);
 public sealed record ApiError(string Message);
 public sealed record ValidationResult(IReadOnlyList<ValidationError> Errors)
@@ -138,7 +167,7 @@ public static class DepartmentAccess
         {
             FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.IdentityCard or FileCategory.ApDocument or FileCategory.StatusReceipt => roleSet.Contains("Sales"),
             FileCategory.LoanDocument => roleSet.Contains("Loan"),
-            FileCategory.DeliveryDocument or FileCategory.Policy or FileCategory.RoadTaxReceipt => roleSet.Contains("Delivery"),
+            FileCategory.DeliveryDocument or FileCategory.InspectionReport or FileCategory.HandoverPhoto or FileCategory.SignedHandover or FileCategory.Policy or FileCategory.RoadTaxReceipt or FileCategory.WindscreenPolicy => roleSet.Contains("Delivery"),
             FileCategory.RepairInvoice => roleSet.Contains("Repair"),
             FileCategory.PaymentReceipt or FileCategory.PaymentInvoice => roleSet.Contains("Finance"),
             FileCategory.MedicalCertificate => roleSet.Contains("HrSalary"),
@@ -148,6 +177,8 @@ public static class DepartmentAccess
 
     public static bool IsHrManager(ClaimsPrincipal principal) =>
         principal.IsInRole("BossAdmin") || principal.IsInRole("HrSalary");
+
+    public static bool IsBossAdmin(ClaimsPrincipal principal) => principal.IsInRole("BossAdmin");
 
     public static bool CanAccessHrStaff(ClaimsPrincipal principal, string staffUserId) =>
         IsHrManager(principal) || string.Equals(principal.FindFirstValue(ClaimTypes.NameIdentifier), staffUserId, StringComparison.Ordinal);
@@ -195,14 +226,26 @@ public static class DocumentOwnershipRules
         FileCategory.ApDocument,
         FileCategory.LoanDocument,
         FileCategory.DeliveryDocument,
-        FileCategory.Policy
+        FileCategory.InspectionReport,
+        FileCategory.HandoverPhoto,
+        FileCategory.SignedHandover,
+        FileCategory.Policy,
+        FileCategory.RoadTaxReceipt,
+        FileCategory.WindscreenPolicy
     ];
 
     public static DocumentOwnershipType DefaultFor(FileCategory category) => category switch
     {
         FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.ApDocument => DocumentOwnershipType.Seller,
         FileCategory.IdentityCard => DocumentOwnershipType.Buyer,
-        FileCategory.LoanDocument or FileCategory.DeliveryDocument or FileCategory.Policy => DocumentOwnershipType.Buyer,
+        FileCategory.LoanDocument or
+        FileCategory.DeliveryDocument or
+        FileCategory.InspectionReport or
+        FileCategory.HandoverPhoto or
+        FileCategory.SignedHandover or
+        FileCategory.Policy or
+        FileCategory.RoadTaxReceipt or
+        FileCategory.WindscreenPolicy => DocumentOwnershipType.Buyer,
         _ => DocumentOwnershipType.Vehicle
     };
 
@@ -685,22 +728,18 @@ public static class LeadRules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateStatusOwner(Lead existing, Lead incoming, string currentUserId)
+    public static ValidationResult ValidateStatusOwner(Lead existing, Lead incoming, string currentUserId, bool canManageAll = false)
     {
-        if (existing.Status == incoming.Status)
-        {
-            return new ValidationResult([]);
-        }
-
         if (string.IsNullOrWhiteSpace(currentUserId))
         {
-            return new ValidationResult([new ValidationError("lead_user_required", "A signed-in staff user is required to change lead status.")]);
+            return new ValidationResult([new ValidationError("lead_user_required", "A signed-in staff user is required to update a lead.")]);
         }
 
         if (!string.IsNullOrWhiteSpace(existing.TakenByUserId) &&
-            !string.Equals(existing.TakenByUserId, currentUserId, StringComparison.Ordinal))
+            !string.Equals(existing.TakenByUserId, currentUserId, StringComparison.Ordinal) &&
+            !canManageAll)
         {
-            return new ValidationResult([new ValidationError("lead_assignee_required", "Only the staff member who took this lead can change its status.")]);
+            return new ValidationResult([new ValidationError("lead_assignee_required", "Only the assigned sales agent or Admin can update this lead.")]);
         }
 
         return new ValidationResult([]);
@@ -726,6 +765,7 @@ public static class LeadRules
 
         return incoming with
         {
+            VehicleId = existing.VehicleId,
             CreatedAt = existing.CreatedAt,
             SourcePage = existing.SourcePage,
             SourceReferrer = existing.SourceReferrer,
@@ -973,12 +1013,17 @@ public static class HrRules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateLeaveDecision(HrLeaveRequest request)
+    public static ValidationResult ValidateLeaveDecision(HrLeaveRequest request, HrLeaveStatus? proposedStatus = null)
     {
         var errors = new List<ValidationError>();
         if (request.Status != HrLeaveStatus.Pending)
         {
             errors.Add(new ValidationError("leave_already_decided", "Leave request has already been decided."));
+        }
+
+        if (proposedStatus is not null && proposedStatus is not HrLeaveStatus.Approved and not HrLeaveStatus.Rejected)
+        {
+            errors.Add(new ValidationError("leave_decision_invalid", "Leave requests can only be approved or rejected."));
         }
 
         return new ValidationResult(errors);
@@ -1102,9 +1147,14 @@ public static class HrRules
             errors.Add(new ValidationError("staff_user_required", "Staff user is required."));
         }
 
-        if (profile.MonthlyBaseSalary < 0 || profile.OvertimeHours < 0 || profile.OvertimeRate < 0 || profile.Allowances < 0 || profile.ManualDeductions < 0)
+        if (profile.MonthlyBaseSalary < 0 || profile.HourlyRate < 0 || profile.OvertimeHours < 0 || profile.OvertimeRate < 0 || profile.Allowances < 0 || profile.ManualDeductions < 0)
         {
             errors.Add(new ValidationError("payroll_amount_negative", "Payroll amounts cannot be negative."));
+        }
+
+        if (profile.EmploymentType == HrEmploymentType.Hourly && profile.HourlyRate <= 0)
+        {
+            errors.Add(new ValidationError("hourly_rate_required", "Hourly workers need an hourly rate greater than zero."));
         }
 
         return new ValidationResult(errors);
@@ -1152,8 +1202,35 @@ public static class HrRules
         };
     }
 
-    public static HrPayslip GeneratePayslip(HrPayrollProfile profile, HrPayPeriod period, IEnumerable<HrLeaveRequest> leaveRequests, Guid? id = null)
+    public static HrPayslip GeneratePayslip(HrPayrollProfile profile, HrPayPeriod period, IEnumerable<HrLeaveRequest> leaveRequests, Guid? id = null) =>
+        GeneratePayslip(profile, period, leaveRequests, [], id);
+
+    public static HrPayslip GeneratePayslip(HrPayrollProfile profile, HrPayPeriod period, IEnumerable<HrLeaveRequest> leaveRequests, IEnumerable<HrAttendanceRecord> attendanceRecords, Guid? id = null)
     {
+        if (profile.EmploymentType == HrEmploymentType.Hourly)
+        {
+            var workedHours = Math.Round(CompletedWorkedHours(attendanceRecords, profile.StaffUserId, period), 2, MidpointRounding.AwayFromZero);
+            var attendancePay = Math.Round(workedHours * profile.HourlyRate, 2, MidpointRounding.AwayFromZero);
+            var hourlyGross = Math.Round(attendancePay + profile.Allowances, 2, MidpointRounding.AwayFromZero);
+            var hourlyNet = Math.Round(hourlyGross - profile.ManualDeductions, 2, MidpointRounding.AwayFromZero);
+            return new HrPayslip
+            {
+                Id = id ?? Guid.NewGuid(),
+                StaffUserId = profile.StaffUserId,
+                PayPeriodId = period.Id,
+                Status = HrPayslipStatus.Generated,
+                EmploymentType = HrEmploymentType.Hourly,
+                HourlyRate = profile.HourlyRate,
+                WorkedHours = workedHours,
+                AttendancePay = attendancePay,
+                Allowances = profile.Allowances,
+                ManualDeductions = profile.ManualDeductions,
+                GrossPay = hourlyGross,
+                NetPay = hourlyNet,
+                GeneratedAt = DateTime.UtcNow
+            };
+        }
+
         var dailySalary = Math.Round(profile.MonthlyBaseSalary / period.WorkingDays, 2, MidpointRounding.AwayFromZero);
         var unpaidLeaveDays = ApprovedLeaveDays(leaveRequests, profile.StaffUserId, HrLeaveType.UnpaidLeave, period);
         var unpaidLeaveDeduction = Math.Round(dailySalary * unpaidLeaveDays, 2, MidpointRounding.AwayFromZero);
@@ -1167,6 +1244,7 @@ public static class HrRules
             StaffUserId = profile.StaffUserId,
             PayPeriodId = period.Id,
             Status = HrPayslipStatus.Generated,
+            EmploymentType = HrEmploymentType.Monthly,
             BaseSalary = profile.MonthlyBaseSalary,
             WorkingDays = period.WorkingDays,
             DailySalary = dailySalary,
@@ -1179,6 +1257,51 @@ public static class HrRules
             NetPay = net,
             GeneratedAt = DateTime.UtcNow
         };
+    }
+
+    public static ValidationResult ValidateAttendanceNetwork(HrAttendanceNetwork network)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(network.Label)) errors.Add(new ValidationError("attendance_network_label_required", "Office network label is required."));
+        if (!TryParseCidr(network.Cidr, out _, out _)) errors.Add(new ValidationError("attendance_network_cidr_invalid", "Office network must use a valid CIDR range."));
+        return new ValidationResult(errors);
+    }
+
+    public static HrAttendanceNetwork? FindMatchingAttendanceNetwork(IPAddress? clientAddress, IEnumerable<HrAttendanceNetwork> networks)
+    {
+        if (clientAddress is null) return null;
+        var normalizedClientAddress = clientAddress.IsIPv4MappedToIPv6 ? clientAddress.MapToIPv4() : clientAddress;
+        return networks.FirstOrDefault(network => network.IsActive && TryParseCidr(network.Cidr, out var networkAddress, out var prefixLength) && IsWithinCidr(normalizedClientAddress, networkAddress, prefixLength));
+    }
+
+    public static decimal CompletedWorkedHours(IEnumerable<HrAttendanceRecord> attendance, string staffUserId, HrPayPeriod period) =>
+        attendance
+            .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate >= period.StartDate && record.AttendanceDate <= period.EndDate)
+            .Where(record => record.Status != HrAttendanceStatus.Absent && record.CheckInAt is not null && record.CheckOutAt is not null)
+            .Sum(record => (decimal)(record.CheckOutAt!.Value - record.CheckInAt!.Value).TotalHours);
+
+    private static bool TryParseCidr(string? value, out IPAddress networkAddress, out int prefixLength)
+    {
+        networkAddress = IPAddress.None;
+        prefixLength = 0;
+        var parts = value?.Trim().Split('/', StringSplitOptions.TrimEntries) ?? [];
+        if (parts.Length != 2 || !IPAddress.TryParse(parts[0], out var parsedNetworkAddress) || !int.TryParse(parts[1], out prefixLength)) return false;
+        networkAddress = parsedNetworkAddress;
+        return prefixLength >= 0 && prefixLength <= networkAddress.GetAddressBytes().Length * 8;
+    }
+
+    private static bool IsWithinCidr(IPAddress candidate, IPAddress networkAddress, int prefixLength)
+    {
+        if (candidate.AddressFamily != networkAddress.AddressFamily) return false;
+        var candidateBytes = candidate.GetAddressBytes();
+        var networkBytes = networkAddress.GetAddressBytes();
+        for (var bit = 0; bit < prefixLength; bit++)
+        {
+            var byteIndex = bit / 8;
+            var bitMask = 1 << (7 - bit % 8);
+            if ((candidateBytes[byteIndex] & bitMask) != (networkBytes[byteIndex] & bitMask)) return false;
+        }
+        return true;
     }
 }
 
@@ -1325,6 +1448,16 @@ public static class WorkflowReferenceRules
     }
 }
 
+public static class LoanMutationRules
+{
+    public static ValidationResult ValidateIdentity(LoanApplication existing, LoanApplication update) =>
+        existing.VehicleId == update.VehicleId
+            ? new ValidationResult([])
+            : new ValidationResult([new ValidationError(
+                "loan_vehicle_locked",
+                "Loan vehicle identity cannot be changed after the loan is created.")]);
+}
+
 public static class WorkflowStatusRules
 {
     public static bool IsActiveLoan(LoanApplication loan) =>
@@ -1340,11 +1473,24 @@ public static class WorkflowStatusRules
         return vehicle;
     }
 
-    public static Vehicle ApplyWorkflowStatus(Vehicle vehicle, IEnumerable<LoanApplication> loans, IEnumerable<PaymentRecord> payments)
+    public static Vehicle ApplyWorkflowStatus(
+        Vehicle vehicle,
+        IEnumerable<LoanApplication> loans,
+        IEnumerable<PaymentRecord> payments,
+        IEnumerable<DeliverySchedule>? deliveries = null)
     {
-        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
+        var deliveryList = (deliveries ?? []).ToList();
+        var financeCleared = payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled);
+        var releasedAt = deliveryList
+            .Where(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released)
+            .Select(delivery => delivery.ReleasedAt)
+            .Where(timestamp => timestamp.HasValue)
+            .OrderBy(timestamp => timestamp)
+            .FirstOrDefault();
+        var released = deliveryList.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released);
+        if (financeCleared && released)
         {
-            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? DateTime.UtcNow };
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? releasedAt ?? DateTime.UtcNow };
         }
 
         var activeLoan = loans.FirstOrDefault(loan => loan.VehicleId == vehicle.Id && IsActiveLoan(loan));
@@ -1354,24 +1500,32 @@ public static class WorkflowStatusRules
         }
 
         return vehicle.Status is VehicleStatus.LoanProcessing or VehicleStatus.Sold
-            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false, SoldAt = null }
+            ? vehicle with { Status = VehicleStatus.Available, IsPublic = false }
             : vehicle;
     }
 
-    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, PaymentRecord payment)
+    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, PaymentRecord payment, IEnumerable<DeliverySchedule>? deliveries = null)
     {
-        return ApplyPaymentStatus(vehicle, [payment]);
+        return ApplyPaymentStatus(vehicle, [payment], deliveries);
     }
 
-    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, IEnumerable<PaymentRecord> payments)
+    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, IEnumerable<PaymentRecord> payments, IEnumerable<DeliverySchedule>? deliveries = null)
     {
-        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
+        var deliveryList = (deliveries ?? []).ToList();
+        var releasedAt = deliveryList
+            .Where(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released)
+            .Select(delivery => delivery.ReleasedAt)
+            .Where(timestamp => timestamp.HasValue)
+            .OrderBy(timestamp => timestamp)
+            .FirstOrDefault();
+        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled) &&
+            deliveryList.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released))
         {
-            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? DateTime.UtcNow };
+            return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? releasedAt ?? DateTime.UtcNow };
         }
 
         return vehicle.Status == VehicleStatus.Sold
-            ? vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false, SoldAt = null }
+            ? vehicle with { Status = VehicleStatus.LoanProcessing, IsPublic = false }
             : vehicle;
     }
 }
@@ -1407,7 +1561,7 @@ public static class ReminderRules
         !spend.IsPaid && spend.DueDate <= today;
 
     public static bool IsDeliveryPreparationDue(DeliverySchedule delivery, DateOnly today) =>
-        delivery.Status != DeliveryStatus.Released &&
+        DeliveryWorkboardRules.IsActive(delivery) &&
         !delivery.TwoDayNoticeSent &&
         delivery.ScheduledDate.AddDays(-2) <= today;
 
@@ -1809,10 +1963,85 @@ public static class FinanceRules
     }
 }
 
+public static class PriorityActionQueue
+{
+    public static IReadOnlyList<PriorityActionItem> Create(
+        IEnumerable<string> roles,
+        IEnumerable<LoanApplication> loans,
+        IEnumerable<DeliverySchedule> deliveries,
+        IEnumerable<SettlementReminder> settlements,
+        IEnumerable<PaymentRecord> payments,
+        IEnumerable<DailySpend> dailySpends,
+        IEnumerable<DebtRecoveryCase> debtRecoveries,
+        IEnumerable<PaymentVoucher> paymentVouchers,
+        IEnumerable<RepairJob> repairs,
+        IEnumerable<Lead> leads,
+        IEnumerable<HrLeaveRequest> leaveRequests,
+        IEnumerable<Vehicle> vehicles,
+        DateOnly today)
+    {
+        var roleSet = roles.ToHashSet(StringComparer.Ordinal);
+        var isBoss = roleSet.Contains("BossAdmin");
+        var vehicleById = vehicles.ToDictionary(vehicle => vehicle.Id);
+        var items = new List<PriorityActionItem>();
+        var reminders = ReminderInbox.Create(loans, deliveries, settlements, payments, dailySpends, debtRecoveries, paymentVouchers, vehicles, today);
+
+        void AddReminders(IEnumerable<ReminderItem> source, string target) =>
+            items.AddRange(source.Select(item => new PriorityActionItem(item.Type, item.Title, target, item.DueDate, item.VehiclePlate, item.Amount)));
+
+        if (isBoss || roleSet.Contains("Loan")) AddReminders(reminders.Where(item => item.Type == "LoanFollowUp"), "Loans");
+        if (isBoss || roleSet.Contains("Delivery")) AddReminders(reminders.Where(item => item.Type == "DeliveryPreparation"), "Delivery");
+        if (isBoss || roleSet.Contains("Finance")) AddReminders(reminders.Where(item => item.Type is "SettlementDue" or "PaymentBankFollowUp" or "PaymentStatusFollowUp" or "DailySpendDue" or "DebtRecoveryFollowUp" or "PaymentVoucherFollowUp"), "Finance");
+        if (isBoss || roleSet.Contains("Finance"))
+        {
+            items.AddRange(deliveries
+                .Where(DeliveryWorkboardRules.HasOpenInvoiceUpdateRequest)
+                .Select(delivery => new PriorityActionItem(
+                    "DeliveryInvoiceUpdate",
+                    "Delivery requested an invoice update",
+                    "Finance",
+                    delivery.InvoiceUpdateRequestedAt.HasValue
+                        ? BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(delivery.InvoiceUpdateRequestedAt.Value, DateTimeKind.Utc)))
+                        : today,
+                    vehicleById.TryGetValue(delivery.VehicleId, out var vehicle)
+                        ? $"{vehicle.PlateNumber}: {delivery.InvoiceUpdateRequestReason}"
+                        : delivery.InvoiceUpdateRequestReason)));
+        }
+
+        if (isBoss || roleSet.Contains("Sales"))
+        {
+            items.AddRange(leads.Where(lead => lead.Status == LeadStatus.New)
+                .Select(lead => new PriorityActionItem("LeadFollowUp", "New enquiry needs first contact", "Leads", DateOnly.FromDateTime(lead.CreatedAt.ToUniversalTime()), lead.CustomerName)));
+        }
+
+        if (isBoss || roleSet.Contains("Repair"))
+        {
+            items.AddRange(repairs.Where(repair => !repair.ChecklistDone)
+                .Select(repair => new PriorityActionItem(
+                    "RepairWorkInProgress",
+                    repair.ExpectedCompletionDate is { } expected && expected < today ? "Repair work overdue" : "Repair work in progress",
+                    "Repairs",
+                    repair.ExpectedCompletionDate ?? DateOnly.FromDateTime(repair.CreatedAt.ToUniversalTime()),
+                    vehicleById.TryGetValue(repair.VehicleId, out var vehicle) ? vehicle.PlateNumber : "Unknown")));
+        }
+
+        if (isBoss || roleSet.Contains("HrSalary"))
+        {
+            items.AddRange(leaveRequests.Where(request => request.Status == HrLeaveStatus.Pending)
+                .Select(request => new PriorityActionItem("LeaveApproval", "Leave request awaiting decision", "HrSalary", request.StartDate, request.Type.ToString())));
+        }
+
+        return items.OrderBy(item => item.DueDate).ThenBy(item => item.Type).ToList();
+    }
+}
+
 public static class PaymentManagementReviewRules
 {
     public static PaymentRecord PrepareForCreate(PaymentRecord payment) =>
         payment with { BossChecked = false };
+
+    public static PaymentRecord ApplyManagementReview(PaymentRecord payment) =>
+        payment with { BossChecked = true };
 
     public static PaymentRecord PrepareForUpdate(PaymentRecord existing, PaymentRecord update) =>
         update with
@@ -1835,6 +2064,21 @@ public static class PaymentManagementReviewRules
         existing.BankFollowUpDate != update.BankFollowUpDate ||
         existing.DocumentsPrepared != update.DocumentsPrepared ||
         existing.ChecklistValidated != update.ChecklistValidated;
+
+    public static bool HasInvoiceRelatedChanges(PaymentRecord existing, PaymentRecord update) =>
+        existing.NettPrice != update.NettPrice ||
+        !string.Equals(existing.InvoiceNumber?.Trim(), update.InvoiceNumber?.Trim(), StringComparison.Ordinal) ||
+        existing.SalesPrice != update.SalesPrice ||
+        existing.InterestAdditionalCharges != update.InterestAdditionalCharges ||
+        existing.NcdAmount != update.NcdAmount ||
+        existing.WindscreenCharges != update.WindscreenCharges;
+
+    public static ValidationResult ValidateIdentity(PaymentRecord existing, PaymentRecord update) =>
+        existing.VehicleId == update.VehicleId
+            ? new ValidationResult([])
+            : new ValidationResult([new ValidationError(
+                "payment_vehicle_locked",
+                "Payment vehicle identity cannot be changed after the payment is created.")]);
 }
 
 public static class UploadPolicy
@@ -1851,8 +2095,121 @@ public static class UploadPolicy
             ? new ValidationResult([new ValidationError("invalid_document_category", "Vehicle photos must be uploaded through the photo endpoint.")])
             : new ValidationResult([]);
 
+    public static (ValidationResult Result, string? MimeType) ValidateCollectionEvidenceContent(
+        string fileName,
+        string? declaredMimeType,
+        ReadOnlySpan<byte> bytes)
+    {
+        var detectedMimeType = DetectCollectionEvidenceMimeType(bytes);
+        if (detectedMimeType is null || !IsStructurallyValidCollectionEvidence(detectedMimeType, bytes))
+        {
+            return (new ValidationResult([new ValidationError(
+                "collection_evidence_content_invalid",
+                "Collection evidence must be a valid PDF, JPEG, PNG, or WebP file.")]), null);
+        }
+
+        var normalizedDeclaredMimeType = declaredMimeType?.Split(';', 2)[0].Trim().ToLowerInvariant() switch
+        {
+            "image/jpg" => "image/jpeg",
+            { Length: > 0 } value => value,
+            _ => null
+        };
+        if (!string.Equals(normalizedDeclaredMimeType, detectedMimeType, StringComparison.Ordinal))
+        {
+            return (new ValidationResult([new ValidationError(
+                "collection_evidence_mime_mismatch",
+                "The uploaded evidence content does not match its declared file type.")]), null);
+        }
+
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        var extensionMatches = detectedMimeType switch
+        {
+            "application/pdf" => extension == ".pdf",
+            "image/jpeg" => extension is ".jpg" or ".jpeg",
+            "image/png" => extension == ".png",
+            "image/webp" => extension == ".webp",
+            _ => false
+        };
+        if (!extensionMatches)
+        {
+            return (new ValidationResult([new ValidationError(
+                "collection_evidence_extension_mismatch",
+                "The uploaded evidence filename does not match its verified file type.")]), null);
+        }
+
+        return (new ValidationResult([]), detectedMimeType);
+    }
+
     public static long LimitFor(FileCategory category) =>
         category == FileCategory.VehiclePhoto ? VehiclePhotoLimit : DocumentLimit;
+
+    private static string? DetectCollectionEvidenceMimeType(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length >= 5 && bytes[..5].SequenceEqual("%PDF-"u8)) return "application/pdf";
+        if (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return "image/jpeg";
+        if (bytes.Length >= 8 && bytes[..8].SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A })) return "image/png";
+        if (bytes.Length >= 12 && bytes[..4].SequenceEqual("RIFF"u8) && bytes.Slice(8, 4).SequenceEqual("WEBP"u8)) return "image/webp";
+        return null;
+    }
+
+    private static bool IsStructurallyValidCollectionEvidence(string mimeType, ReadOnlySpan<byte> bytes) =>
+        mimeType == "application/pdf" ? IsStructurallyValidPdf(bytes) : IsDecodableReceiptImage(mimeType, bytes);
+
+    private static bool IsDecodableReceiptImage(string mimeType, ReadOnlySpan<byte> bytes)
+    {
+        try
+        {
+            using var data = SKData.CreateCopy(bytes.ToArray());
+            using var codec = SKCodec.Create(data);
+            if (codec is null) return false;
+            SKEncodedImageFormat? expectedFormat = mimeType switch
+            {
+                "image/jpeg" => SKEncodedImageFormat.Jpeg,
+                "image/png" => SKEncodedImageFormat.Png,
+                "image/webp" => SKEncodedImageFormat.Webp,
+                _ => null
+            };
+            var info = codec.Info;
+            if (expectedFormat is null || codec.EncodedFormat != expectedFormat.Value || info.Width <= 0 || info.Height <= 0 || info.Width > 10_000 || info.Height > 10_000 || (long)info.Width * info.Height > 40_000_000)
+            {
+                return false;
+            }
+
+            using var bitmap = new SKBitmap(info);
+            return codec.GetPixels(info, bitmap.GetPixels()) == SKCodecResult.Success;
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsStructurallyValidPdf(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length < 8 || bytes.Length > DocumentLimit ||
+            !bytes[..5].SequenceEqual("%PDF-"u8) || bytes[5] is < (byte)'1' or > (byte)'2' ||
+            bytes[6] != (byte)'.' || bytes[7] is < (byte)'0' or > (byte)'9')
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = PdfDocument.Open(bytes.ToArray(), ParsingOptions.LenientParsingOff);
+            if (document.NumberOfPages is < 1 or > 100) return false;
+
+            for (var pageNumber = 1; pageNumber <= document.NumberOfPages; pageNumber++)
+            {
+                _ = document.GetPage(pageNumber);
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return false;
+        }
+    }
 }
 
 public static class UploadMetadata
@@ -2200,10 +2557,8 @@ public static class LoanDocumentRules
 
 public static class DeliveryRules
 {
-    public static bool IsReadyForRelease(DeliverySchedule delivery) =>
-        delivery.Status == DeliveryStatus.ReadyForRelease &&
+    public static bool IsReadyForRelease(DeliverySchedule delivery, DateOnly? releaseDate = null) =>
         delivery.InspectionDone &&
-        !string.IsNullOrWhiteSpace(delivery.InspectionReportReference) &&
         delivery.DocumentsPrepared &&
         delivery.PolishDone &&
         delivery.TintedDone &&
@@ -2212,25 +2567,17 @@ public static class DeliveryRules
         delivery.RoadTaxHandled &&
         delivery.WindscreenInsuranceHandled &&
         delivery.TwoDayNoticeSent &&
-        MissingReleaseEvidence(delivery).Count == 0 &&
-        ExpiredDeliveryDocuments(delivery).Count == 0;
+        delivery.CustomerAcknowledged &&
+        delivery.FinalChecklistConfirmed &&
+        ExpiredDeliveryDocuments(delivery, releaseDate).Count == 0;
 
-    public static IReadOnlyList<string> MissingReleaseEvidence(DeliverySchedule delivery)
-    {
-        var missing = new List<string>();
-        if (!delivery.HandoverPhotoCaptured) missing.Add("Handover photo");
-        if (!delivery.SignedHandoverReceived) missing.Add("Signed handover document");
-        if (!delivery.CustomerAcknowledged) missing.Add("Customer acknowledgement");
-        if (!delivery.FinalChecklistConfirmed) missing.Add("Final checklist");
-        return missing;
-    }
-
-    public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery)
+    public static IReadOnlyList<string> ExpiredDeliveryDocuments(DeliverySchedule delivery, DateOnly? releaseDate = null)
     {
         var issues = new List<string>();
-        AddExpiryIssue(issues, delivery.InsuranceExpiryDate, delivery.ScheduledDate, "Insurance policy");
-        AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, delivery.ScheduledDate, "Road tax");
-        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, delivery.ScheduledDate, "Windscreen insurance");
+        var comparisonDate = releaseDate.HasValue && releaseDate.Value > delivery.ScheduledDate ? releaseDate.Value : delivery.ScheduledDate;
+        AddExpiryIssue(issues, delivery.InsuranceExpiryDate, comparisonDate, "Insurance policy");
+        AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, comparisonDate, "Road tax");
+        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, comparisonDate, "Windscreen insurance");
         return issues;
     }
 
@@ -2247,17 +2594,55 @@ public static class DeliveryRules
             errors.Add(new ValidationError("delivery_schedule_required", "Delivery schedule date is required."));
         }
 
-        if (delivery.InspectionDone && string.IsNullOrWhiteSpace(delivery.InspectionReportReference))
+        if (delivery.Status == DeliveryStatus.Cancelled && string.IsNullOrWhiteSpace(delivery.CancellationReason))
         {
-            errors.Add(new ValidationError("inspection_report_required", "Inspection report reference is required after inspection is complete."));
+            errors.Add(new ValidationError("delivery_cancellation_reason_required", "Give a cancellation reason before cancelling delivery."));
         }
 
-        if (delivery.Status == DeliveryStatus.ReadyForRelease && !IsReadyForRelease(delivery))
+        if (delivery.DeliveryType == DeliveryType.Outstation)
         {
-            errors.Add(new ValidationError("delivery_not_ready", DeliveryNotReadyMessage));
+            if (string.IsNullOrWhiteSpace(delivery.DeliveryAddress))
+            {
+                errors.Add(new ValidationError("outstation_delivery_address_required", "Outstation delivery requires the destination address."));
+            }
+
+            if (string.IsNullOrWhiteSpace(delivery.TransportMethod))
+            {
+                errors.Add(new ValidationError("outstation_transport_required", "Outstation delivery requires the transport method."));
+            }
         }
 
         return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateTransition(DeliverySchedule existing, DeliverySchedule update)
+    {
+        if (existing.Status == DeliveryStatus.Released)
+        {
+            return new ValidationResult([new ValidationError("delivery_terminal_status", "Released delivery is read-only and cannot be changed.")]);
+        }
+        if (existing.Status == DeliveryStatus.Cancelled)
+        {
+            return new ValidationResult([new ValidationError("delivery_terminal_status", "Cancelled delivery cannot be changed. Create a new delivery schedule instead.")]);
+        }
+        if (existing.Status == update.Status) return new ValidationResult([]);
+
+        if (update.Status == DeliveryStatus.Cancelled) return new ValidationResult([]);
+        var statuses = new[]
+        {
+            DeliveryStatus.BookingInspection,
+            DeliveryStatus.Scheduled,
+            DeliveryStatus.Inspection,
+            DeliveryStatus.PreparingDocuments,
+            DeliveryStatus.CarPreparation,
+            DeliveryStatus.ReadyForRelease,
+            DeliveryStatus.Released
+        };
+        var existingIndex = Array.IndexOf(statuses, existing.Status);
+        var updateIndex = Array.IndexOf(statuses, update.Status);
+        if (updateIndex == existingIndex + 1) return new ValidationResult([]);
+        if (updateIndex < existingIndex && !string.IsNullOrWhiteSpace(update.RescheduleReason)) return new ValidationResult([]);
+        return new ValidationResult([new ValidationError("delivery_transition_invalid", "Move delivery one stage at a time. Give a reschedule/rework reason when moving it back.")]);
     }
 
     public static ValidationResult ValidateRelease(DeliverySchedule delivery)
@@ -2296,14 +2681,21 @@ public static class DeliveryDocumentRules
     private static readonly FileCategory[] RequiredCategories =
     [
         FileCategory.DeliveryDocument,
+        FileCategory.InspectionReport,
+        FileCategory.HandoverPhoto,
+        FileCategory.SignedHandover,
         FileCategory.Policy,
-        FileCategory.RoadTaxReceipt
+        FileCategory.RoadTaxReceipt,
+        FileCategory.WindscreenPolicy
     ];
 
     public static DeliveryDocumentCheck CheckCompleteness(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
     {
         var deliveryDocuments = documents
-            .Where(document => document.VehicleId == delivery.VehicleId)
+            .Where(document =>
+                document.VehicleId == delivery.VehicleId &&
+                document.DeliveryScheduleId == delivery.Id &&
+                document.CustomerId == delivery.CustomerId)
             .ToList();
         var evidence = RequiredCategories
             .Select(category =>
@@ -2337,7 +2729,7 @@ public static class DeliveryDocumentRules
         var check = CheckCompleteness(delivery, documents);
         return check.IsComplete
             ? new ValidationResult([])
-            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires an uploaded Delivery Document, Policy, and Road Tax Receipt before release.")]);
+            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires delivery documents, inspection report, handover evidence, insurance policy, road tax, and windscreen policy uploaded for this delivery and buyer before release.")]);
     }
 }
 
@@ -2363,6 +2755,83 @@ public static class BusinessClock
     }
 }
 
+public static class AiDocumentProcessingMetrics
+{
+    private const decimal CheckCarefullyConfidenceThreshold = 0.75m;
+
+    private static readonly (string Category, string Label)[] Categories =
+    [
+        ("IdentityCard", "IC"),
+        ("Voc", "VOC"),
+        ("InvoicesAndReceipts", "Invoices & receipts"),
+        ("SupportingDocuments", "Supporting documents")
+    ];
+
+    public static DashboardAiDocumentProcessing Create(
+        IEnumerable<OcrJob> jobs,
+        AiUsageLimitSnapshot usage,
+        DateOnly? analyticsFrom = null,
+        DateOnly? analyticsTo = null)
+    {
+        var jobList = jobs.ToList();
+        var periodJobs = jobList
+            .Where(job => IsInAnalyticsRange(BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(job.CreatedAt, DateTimeKind.Utc))), analyticsFrom, analyticsTo))
+            .ToArray();
+        var categories = Categories
+            .Select(category => CreateCategory(category.Category, category.Label, periodJobs))
+            .ToArray();
+
+        return new DashboardAiDocumentProcessing(
+            periodJobs.Length,
+            periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
+            periodJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
+            periodJobs.Count(IsLowConfidence),
+            periodJobs.Count(job => job.Status == OcrJobStatus.Failed),
+            jobList.Count(job => job.Status == OcrJobStatus.NeedsReview && job.ReviewDecision == OcrReviewDecision.Pending),
+            usage.UsedThisMonth,
+            usage.Limit.MonthlyRequestLimit,
+            usage.RemainingThisMonth,
+            categories);
+    }
+
+    private static DashboardAiDocumentCategory CreateCategory(string category, string label, IEnumerable<OcrJob> jobs)
+    {
+        var categoryJobs = jobs.Where(job => CategoryFor(job.Category) == category).ToArray();
+        return new DashboardAiDocumentCategory(
+            category,
+            label,
+            categoryJobs.Length,
+            categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Accepted),
+            categoryJobs.Count(job => job.ReviewDecision == OcrReviewDecision.Rejected),
+            categoryJobs.Count(IsLowConfidence),
+            categoryJobs.Count(job => job.Status == OcrJobStatus.Failed));
+    }
+
+    private static string CategoryFor(FileCategory category) => category switch
+    {
+        FileCategory.IdentityCard => "IdentityCard",
+        FileCategory.Voc => "Voc",
+        FileCategory.PurchaseInvoice or FileCategory.RepairInvoice or FileCategory.PaymentReceipt or FileCategory.PaymentInvoice => "InvoicesAndReceipts",
+        _ => "SupportingDocuments"
+    };
+
+    private static bool IsLowConfidence(OcrJob job)
+    {
+        if (string.IsNullOrWhiteSpace(job.ResultJson)) return false;
+        try
+        {
+            return JsonSerializer.Deserialize<OcrExtractionResult>(job.ResultJson)?.Confidence < CheckCarefullyConfidenceThreshold;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsInAnalyticsRange(DateOnly value, DateOnly? from, DateOnly? to) =>
+        (from is null || value >= from) && (to is null || value <= to);
+}
+
 public static class DashboardMetrics
 {
     public static DashboardSummary Create(
@@ -2380,12 +2849,16 @@ public static class DashboardMetrics
         IEnumerable<Lead> leads,
         DateOnly today,
         DateOnly? analyticsFrom = null,
-        DateOnly? analyticsTo = null)
+        DateOnly? analyticsTo = null,
+        IEnumerable<CollectionTransaction>? collections = null)
     {
         var vehicleList = vehicles.ToList();
         var loanList = loans.ToList();
         var deliveryList = deliveries.ToList();
         var paymentList = payments.ToList();
+        var collectionsByPayment = (collections ?? [])
+            .GroupBy(collection => collection.PaymentRecordId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<CollectionTransaction>)group.ToList());
         var settlementList = settlements.ToList();
         var repairList = repairs.ToList();
         var supplierInvoiceList = supplierInvoices.ToList();
@@ -2466,7 +2939,8 @@ public static class DashboardMetrics
                 ? pickupAllowanceCost
                 : vehicle.OutstationPickupAllowance;
 
-        var repairCostByVehicle = vehicleList
+        var unsoldVehicles = vehicleList.Where(vehicle => vehicle.Status != VehicleStatus.Sold).ToList();
+        var repairCostByVehicle = unsoldVehicles
             .Select(vehicle => new DashboardAmountSlice(VehicleLabel(vehicle), EffectiveRepairCost(vehicle)))
             .Where(item => item.Amount > 0)
             .OrderByDescending(item => item.Amount)
@@ -2493,7 +2967,6 @@ public static class DashboardMetrics
             OverdueWorkCount: analyticsRepairList.Count(repair => !repair.ChecklistDone && repair.ExpectedCompletionDate is { } expectedCompletion && expectedCompletion < today),
             HighestCostVehicles: refurbishmentHighestCostVehicles);
 
-        var unsoldVehicles = vehicleList.Where(vehicle => vehicle.Status != VehicleStatus.Sold).ToList();
         var agingBuckets = new[]
         {
             new DashboardAgingBucket("0-30", unsoldVehicles.Count(vehicle => AgeInDays(vehicle, today) <= 30)),
@@ -2501,7 +2974,7 @@ public static class DashboardMetrics
             new DashboardAgingBucket("61+", unsoldVehicles.Count(vehicle => AgeInDays(vehicle, today) > 60))
         };
 
-        var totalProfit = vehicleList.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
+        var totalProfit = unsoldVehicles.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
         var realisedProfit = vehicleList.Where(vehicle => vehicle.Status == VehicleStatus.Sold).Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
         var actualProfit = analyticsSoldVehicles.Sum(vehicle => ProfitCalculator.EstimatedProfit(vehicle, EffectiveRepairCost(vehicle), EffectiveCommissionCost(vehicle), EffectivePickupAllowanceCost(vehicle)));
         var monthlyProfitTrend = trendMonths
@@ -2516,7 +2989,9 @@ public static class DashboardMetrics
                     soldVehicles.Length);
             })
             .ToArray();
-        var outstandingPayment = paymentList.Where(payment => payment.Status != PaymentStatus.Reconciled).Sum(payment => payment.NettPrice);
+        var outstandingPayment = paymentList.Sum(payment => payment.FinanceWorkflowVersion == 2
+            ? FinanceV2Rules.Balance(payment, collectionsByPayment.GetValueOrDefault(payment.Id) ?? [])
+            : payment.Status != PaymentStatus.Reconciled ? payment.NettPrice : 0m);
         var openDebtRecovery = debtRecoveryList.Where(debt => debt.Status != DebtRecoveryStatus.Closed).Sum(debt => debt.BalanceAmount);
         var dueSettlements = settlementList.Where(settlement => ReminderRules.IsSettlementDue(settlement, today)).ToArray();
         var settlementDue = dueSettlements.Length;
@@ -2565,11 +3040,11 @@ public static class DashboardMetrics
         var salesFunnel = new DashboardSalesFunnel(
             salesStages,
             analyticsLeadList.Count == 0 ? 0m : decimal.Round(analyticsLeadList.Count(lead => lead.Status == LeadStatus.Closed) * 100m / analyticsLeadList.Count, 1));
-        var totalRevenue = vehicleList.Sum(vehicle => vehicle.SellingPrice + vehicle.AdditionalCharges);
-        var purchaseCost = vehicleList.Sum(vehicle => vehicle.PurchasePrice);
-        var repairCost = vehicleList.Sum(EffectiveRepairCost);
-        var commissionCost = vehicleList.Sum(EffectiveCommissionCost);
-        var pickupAllowanceCost = vehicleList.Sum(EffectivePickupAllowanceCost);
+        var totalRevenue = unsoldVehicles.Sum(vehicle => vehicle.SellingPrice + vehicle.AdditionalCharges);
+        var purchaseCost = unsoldVehicles.Sum(vehicle => vehicle.PurchasePrice);
+        var repairCost = unsoldVehicles.Sum(EffectiveRepairCost);
+        var commissionCost = unsoldVehicles.Sum(EffectiveCommissionCost);
+        var pickupAllowanceCost = unsoldVehicles.Sum(EffectivePickupAllowanceCost);
         var profitBreakdown = new[]
         {
             new DashboardAmountSlice("Selling + Charges", totalRevenue),

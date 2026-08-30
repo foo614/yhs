@@ -30,6 +30,7 @@ import {
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
   type Customer,
+  type BrokerCommission,
   type DashboardAnalyticsPeriod,
   type DocumentCategory,
   type DocumentOwnershipType,
@@ -37,6 +38,7 @@ import {
   type Lead,
   type LoanApplication,
   type Owner,
+  type PaymentVoucher,
   type PurchaseInvoice,
   type RepairJob,
   type Vehicle,
@@ -403,6 +405,8 @@ export function VehiclePage({
   owners,
   purchaseInvoices,
   repairs,
+  brokerCommissions = [],
+  paymentVouchers = [],
   canApproveVehicles,
   dashboardFocus,
   dashboardAnalyticsPeriod,
@@ -427,6 +431,8 @@ export function VehiclePage({
   owners: Owner[];
   purchaseInvoices: PurchaseInvoice[];
   repairs: RepairJob[];
+  brokerCommissions?: BrokerCommission[];
+  paymentVouchers?: PaymentVoucher[];
   canApproveVehicles: boolean;
   dashboardFocus?: DashboardVehicleFocus;
   dashboardAnalyticsPeriod?: DashboardAnalyticsPeriod;
@@ -544,19 +550,12 @@ export function VehiclePage({
   const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
   const repairCostFor = (vehicle: Vehicle) => effectiveRepairCost(vehicle, repairs);
-  const dashboardFocusedVehicles = dashboardFocus === "stock"
-    ? vehicles.filter((vehicle) => vehicle.status !== "Sold")
-    : dashboardFocus === "sold"
-      ? vehicles.filter((vehicle) => vehicle.status === "Sold" && vehicleSoldInAnalyticsPeriod(vehicle, dashboardAnalyticsPeriod))
-    : dashboardFocus === "fresh"
-      ? vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, singaporeTodayIsoDate()) <= 30)
-    : dashboardFocus === "watch"
-      ? vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, singaporeTodayIsoDate()) > 30 && vehicleAgeInDays(vehicle, singaporeTodayIsoDate()) <= 60)
-    : dashboardFocus === "aging"
-      ? vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, singaporeTodayIsoDate()) > 60)
-      : vehicles;
+  const commissionCostFor = (vehicle: Vehicle) => effectiveCommissionCost(vehicle, brokerCommissions);
+  const pickupAllowanceCostFor = (vehicle: Vehicle) => effectivePickupAllowanceCost(vehicle, paymentVouchers);
+  const profitFor = (vehicle: Vehicle) => estimatedVehicleProfit(vehicle, repairCostFor(vehicle), commissionCostFor(vehicle), pickupAllowanceCostFor(vehicle));
+  const dashboardFocusedVehicles = filterVehiclesForDashboardFocus(vehicles, dashboardFocus, dashboardAnalyticsPeriod);
   const filteredVehicles = filterOperationIntakeVehicles(dashboardFocusedVehicles, purchaseInvoices, leads, operationFilters)
-    .sort((left, right) => dashboardFocus === "profit" ? estimatedVehicleProfit(right, repairCostFor(right)) - estimatedVehicleProfit(left, repairCostFor(left)) : 0);
+    .sort((left, right) => dashboardFocus === "profit" ? profitFor(right) - profitFor(left) : 0);
   const mobileVehiclePageCount = Math.max(1, Math.ceil(filteredVehicles.length / mobileVehiclePageSize));
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
   const mobileVehicles = filteredVehicles.slice((clampedMobileVehiclePage - 1) * mobileVehiclePageSize, clampedMobileVehiclePage * mobileVehiclePageSize);
@@ -571,7 +570,7 @@ export function VehiclePage({
     operationFilters.leadActivity
   ].filter(Boolean).length;
   const selectedVehicleProfit = selectedVehicle
-    ? estimatedVehicleProfit(selectedVehicle, repairCostFor(selectedVehicle))
+    ? profitFor(selectedVehicle)
     : 0;
   const selectedWorkflow = selectedVehicle ? getVehicleWorkflowState(selectedVehicle) : undefined;
   const selectedVehicleInvoiceCount = selectedVehicleInvoices.length;
@@ -984,8 +983,8 @@ export function VehiclePage({
     {
       title: "Est. Profit / 预估利润",
       width: 140,
-      sorter: (a, b) => estimatedVehicleProfit(a, repairCostFor(a)) - estimatedVehicleProfit(b, repairCostFor(b)),
-      render: (_, row) => formatMoney(estimatedVehicleProfit(row, repairCostFor(row)))
+      sorter: (a, b) => profitFor(a) - profitFor(b),
+      render: (_, row) => formatMoney(profitFor(row))
     },
     {
       title: "Invoice / 发票",
@@ -1105,8 +1104,8 @@ export function VehiclePage({
     {
       title: "Est. Profit / 预估利润",
       width: 140,
-      sorter: (a, b) => estimatedVehicleProfit(a, repairCostFor(a)) - estimatedVehicleProfit(b, repairCostFor(b)),
-      render: (_, row) => formatMoney(estimatedVehicleProfit(row, repairCostFor(row)))
+      sorter: (a, b) => profitFor(a) - profitFor(b),
+      render: (_, row) => formatMoney(profitFor(row))
     },
     {
       title: "Status / 状态",
@@ -1480,7 +1479,7 @@ export function VehiclePage({
                   <span><small>Purchase Cost / 收车成本</small><strong>{formatMoney(vehicle.purchasePrice)}</strong></span>
                   <span><small>Repair Cost / 整备费用</small><strong>{formatMoney(repairCostFor(vehicle))}</strong></span>
                   <span><small>Selling / 售价</small><strong>{formatMoney(vehicle.sellingPrice)}</strong></span>
-                  <span><small>Est. Profit / 预估利润</small><strong>{formatMoney(estimatedVehicleProfit(vehicle, repairCostFor(vehicle)))}</strong></span>
+                  <span><small>Est. Profit / 预估利润</small><strong>{formatMoney(profitFor(vehicle))}</strong></span>
                 </div>
               </div>
               <div className={`vehicleWorkflowGuide vehicleWorkflowGuide-${workflow.color}`}>
@@ -2922,8 +2921,27 @@ export function effectiveRepairCost(vehicle: Pick<Vehicle, "id" | "refurbishment
     : vehicle.refurbishmentTotal;
 }
 
-export function estimatedVehicleProfit(vehicle: Vehicle, repairCost = vehicle.refurbishmentTotal) {
-  return vehicle.sellingPrice + vehicle.additionalCharges - vehicle.purchasePrice - repairCost - vehicle.commissionTotal - (vehicle.outstationPickupAllowance ?? 0);
+export function effectiveCommissionCost(vehicle: Pick<Vehicle, "id" | "commissionTotal">, brokerCommissions: BrokerCommission[]) {
+  const vehicleCommissions = brokerCommissions.filter((commission) => commission.vehicleId === vehicle.id);
+  return vehicleCommissions.length > 0
+    ? vehicleCommissions.reduce((total, commission) => total + commission.amount, 0)
+    : vehicle.commissionTotal;
+}
+
+export function effectivePickupAllowanceCost(vehicle: Pick<Vehicle, "id" | "outstationPickupAllowance">, paymentVouchers: PaymentVoucher[]) {
+  const vehicleVouchers = paymentVouchers.filter((voucher) => voucher.vehicleId === vehicle.id);
+  return vehicleVouchers.length > 0
+    ? vehicleVouchers.reduce((total, voucher) => total + voucher.amount, 0)
+    : vehicle.outstationPickupAllowance ?? 0;
+}
+
+export function estimatedVehicleProfit(
+  vehicle: Vehicle,
+  repairCost = vehicle.refurbishmentTotal,
+  commissionCost = vehicle.commissionTotal,
+  pickupAllowanceCost = vehicle.outstationPickupAllowance ?? 0
+) {
+  return vehicle.sellingPrice + vehicle.additionalCharges - vehicle.purchasePrice - repairCost - commissionCost - pickupAllowanceCost;
 }
 
 export function vehicleSoldInAnalyticsPeriod(vehicle: Vehicle, period?: DashboardAnalyticsPeriod) {
@@ -2931,6 +2949,20 @@ export function vehicleSoldInAnalyticsPeriod(vehicle: Vehicle, period?: Dashboar
   if (!vehicle.soldAt) return false;
   const soldDate = singaporeTodayIsoDate(new Date(vehicle.soldAt));
   return soldDate >= period.from && soldDate <= period.to;
+}
+
+export function filterVehiclesForDashboardFocus(
+  vehicles: Vehicle[],
+  dashboardFocus?: DashboardVehicleFocus,
+  dashboardAnalyticsPeriod?: DashboardAnalyticsPeriod,
+  todayIsoDate = singaporeTodayIsoDate()
+) {
+  if (dashboardFocus === "stock" || dashboardFocus === "profit") return vehicles.filter((vehicle) => vehicle.status !== "Sold");
+  if (dashboardFocus === "sold") return vehicles.filter((vehicle) => vehicle.status === "Sold" && vehicleSoldInAnalyticsPeriod(vehicle, dashboardAnalyticsPeriod));
+  if (dashboardFocus === "fresh") return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) <= 30);
+  if (dashboardFocus === "watch") return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) > 30 && vehicleAgeInDays(vehicle, todayIsoDate) <= 60);
+  if (dashboardFocus === "aging") return vehicles.filter((vehicle) => vehicle.status !== "Sold" && vehicleAgeInDays(vehicle, todayIsoDate) > 60);
+  return vehicles;
 }
 
 function vehicleAgeInDays(vehicle: Pick<Vehicle, "intakeDate">, todayIsoDate: string) {

@@ -20,7 +20,9 @@ public sealed record AutoCountExportInput(
     IReadOnlyList<SettlementReminder> Settlements,
     DateOnly? From,
     DateOnly? To,
-    DateTime GeneratedAtUtc);
+    DateTime GeneratedAtUtc,
+    IReadOnlyList<FinanceInvoice>? FinanceInvoices = null,
+    IReadOnlyList<CollectionTransaction>? Collections = null);
 
 /// <summary>
 /// Builds a small, dependency-free Open XML workbook for manual AutoCount mapping.
@@ -33,6 +35,9 @@ public static class AutoCountExcel
     public static byte[] Export(AutoCountExportInput input)
     {
         var sourceVehicles = input.Vehicles.ToDictionary(vehicle => vehicle.Id);
+        var sourcePayments = input.Payments.ToDictionary(payment => payment.Id);
+        var financeInvoices = input.FinanceInvoices ?? [];
+        var collections = input.Collections ?? [];
         var selectedPurchaseInvoices = input.PurchaseInvoices
             .Where(invoice => InPeriod(EffectiveDate(null, sourceVehicles, invoice.VehicleId), input.From, input.To)).ToList();
         var selectedSupplierInvoices = input.SupplierInvoices
@@ -51,6 +56,10 @@ public static class AutoCountExcel
             .Where(voucher => InPeriod(EffectiveDate(Present(voucher.IssuedDate), sourceVehicles, voucher.VehicleId), input.From, input.To)).ToList();
         var selectedSettlements = input.Settlements
             .Where(settlement => InPeriod(EffectiveDate(Present(settlement.Deadline), sourceVehicles, settlement.VehicleId), input.From, input.To)).ToList();
+        var selectedFinanceInvoices = financeInvoices
+            .Where(invoice => InPeriod(invoice.InvoiceDate, input.From, input.To)).ToList();
+        var selectedCollections = collections
+            .Where(collection => InPeriod(collection.ReceivedDate, input.From, input.To)).ToList();
 
         var referencedVehicleIds = input.Vehicles
             .Where(vehicle => InPeriod(vehicle.IntakeDate, input.From, input.To))
@@ -63,14 +72,17 @@ public static class AutoCountExcel
                      .Concat(selectedBrokerCommissions.Select(commission => commission.VehicleId))
                      .Concat(selectedDebtRecoveries.Select(debt => debt.VehicleId))
                      .Concat(selectedPaymentVouchers.Select(voucher => voucher.VehicleId))
-                     .Concat(selectedSettlements.Select(settlement => settlement.VehicleId)))
+                     .Concat(selectedSettlements.Select(settlement => settlement.VehicleId))
+                     .Concat(selectedFinanceInvoices.Select(invoice => invoice.VehicleId))
+                     .Concat(selectedCollections.Select(collection => sourcePayments.GetValueOrDefault(collection.PaymentRecordId)?.VehicleId ?? Guid.Empty)))
         {
             referencedVehicleIds.Add(vehicleId);
         }
 
         // A referenced master row must travel with its transaction even when the master date is outside the selected period.
         var includedVehicles = input.Vehicles.Where(vehicle => referencedVehicleIds.Contains(vehicle.Id)).ToList();
-        var includedCustomerIds = includedVehicles.Where(vehicle => vehicle.CustomerId.HasValue).Select(vehicle => vehicle.CustomerId!.Value).ToHashSet();
+        var includedCustomerIds = includedVehicles.Where(vehicle => vehicle.CustomerId.HasValue).Select(vehicle => vehicle.CustomerId!.Value)
+            .Concat(selectedFinanceInvoices.Select(invoice => invoice.CustomerId)).ToHashSet();
         var includedCustomers = input.Customers
             .Where(customer => includedCustomerIds.Contains(customer.Id))
             .OrderBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
@@ -88,7 +100,9 @@ public static class AutoCountExcel
             BrokerCommissions = selectedBrokerCommissions,
             DebtRecoveries = selectedDebtRecoveries,
             PaymentVouchers = selectedPaymentVouchers,
-            Settlements = selectedSettlements
+            Settlements = selectedSettlements,
+            FinanceInvoices = selectedFinanceInvoices,
+            Collections = selectedCollections
         };
         var vehicleLookup = selectedInput.Vehicles.ToDictionary(vehicle => vehicle.Id);
 
@@ -99,7 +113,10 @@ public static class AutoCountExcel
             new("Vehicles", VehicleRows(includedVehicles)),
             new("Purchases", PurchaseRows(selectedInput, vehicleLookup)),
             new("Payments", PaymentRows(selectedInput, vehicleLookup)),
-            new("Expenses", ExpenseRows(selectedInput, vehicleLookup))
+            new("Expenses", ExpenseRows(selectedInput, vehicleLookup)),
+            new("SalesInvoices", SalesInvoiceRows(selectedInput, vehicleLookup)),
+            // Collections are period-scoped, but their invoice reference may belong to an earlier period.
+            new("Collections", CollectionRows(selectedInput, vehicleLookup, sourcePayments, financeInvoices))
         };
 
         using var output = new MemoryStream();
@@ -125,12 +142,12 @@ public static class AutoCountExcel
         var to = input.To?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "Not set";
         return
         [
-            ["AutoCount V1 mapping workbook", "Value"],
+            ["AutoCount V2 mapping workbook", "Value"],
             ["Workbook purpose", "Manual mapping aid for AutoCount 2.2 review; this is not a verified direct AutoCount import."],
             ["Generated at (UTC)", input.GeneratedAtUtc.ToString("O", CultureInfo.InvariantCulture)],
             ["Period from (inclusive)", from],
             ["Period to (inclusive)", to],
-            ["Category sheets", "Customers, Vehicles, Purchases, Payments, Expenses"],
+            ["Category sheets", "Customers, Vehicles, Purchases, Payments, Expenses, SalesInvoices, Collections"],
             ["Vehicles included", vehicles.Count.ToString(CultureInfo.InvariantCulture)],
             ["Customers included", customers.Count.ToString(CultureInfo.InvariantCulture)],
             ["Data boundary", "Only values currently persisted in YS Heng are included; no new database fields are inferred."],
@@ -208,6 +225,52 @@ public static class AutoCountExcel
         }));
         rows.AddRange(input.Settlements.Select(settlement => new[] {
             settlement.Id.ToString(), "Settlement", PlateFor(vehicles, settlement.VehicleId), "Previous owner settlement", Money(settlement.Amount), EffectiveDateText(Present(settlement.Deadline), vehicles, settlement.VehicleId), settlement.IsPaid ? "Paid" : "Due", "Settlement account mapping is not verified."
+        }));
+        return rows;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> SalesInvoiceRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)
+    {
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "SourceId", "InvoiceNumber", "InvoiceDate", "CustomerId", "CustomerName", "CarPlate", "Amount", "SalesPrice", "InterestAdditionalCharges", "NcdAmount", "WindscreenCharges", "CreatedBy", RemarkHeader }
+        };
+        rows.AddRange((input.FinanceInvoices ?? []).OrderBy(invoice => invoice.InvoiceDate).Select(invoice => new[] {
+            invoice.Id.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.CustomerId.ToString(), invoice.CustomerName,
+            string.IsNullOrWhiteSpace(invoice.VehiclePlateNumber) ? PlateFor(vehicles, invoice.VehicleId) : invoice.VehiclePlateNumber,
+            Money(invoice.Amount), Money(invoice.SalesPrice), Money(invoice.InterestAdditionalCharges), Money(invoice.NcdAmount), Money(invoice.WindscreenCharges), invoice.CreatedBy,
+            "YS Heng-issued invoice. Confirm AutoCount customer, account and tax mapping before manual entry or import."
+        }));
+        return rows;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> CollectionRows(
+        AutoCountExportInput input,
+        IReadOnlyDictionary<Guid, Vehicle> vehicles,
+        IReadOnlyDictionary<Guid, PaymentRecord> payments,
+        IReadOnlyList<FinanceInvoice> invoiceLookup)
+    {
+        var invoices = invoiceLookup.ToDictionary(invoice => invoice.PaymentRecordId);
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "SourceId", "PaymentRecordId", "InvoiceNumber", "CarPlate", "ReceivedDate", "Amount", "Method", "CollectionStatus", "FinancingStatus", "Reference", "CreatedBy", "ReconciledBy", "ReconciledAt", "ReversalReason", RemarkHeader }
+        };
+        rows.AddRange((input.Collections ?? []).OrderBy(collection => collection.ReceivedDate).Select(collection =>
+        {
+            payments.TryGetValue(collection.PaymentRecordId, out var payment);
+            invoices.TryGetValue(collection.PaymentRecordId, out var invoice);
+            var remark = collection.Status switch
+            {
+                CollectionStatus.Reconciled => "Reconciled in YS Heng; confirm bank and AutoCount receipt/account mapping before posting.",
+                CollectionStatus.Reversed => "Reversed in YS Heng; do not post as an active receipt. Review any matching AutoCount entry.",
+                _ => "Pending reconciliation in YS Heng; do not treat as a completed receipt."
+            };
+            return new[] {
+                collection.Id.ToString(), collection.PaymentRecordId.ToString(), invoice?.InvoiceNumber ?? "",
+                payment is null ? "" : PlateFor(vehicles, payment.VehicleId), Date(collection.ReceivedDate), Money(collection.Amount),
+                collection.Method.ToString(), collection.Status.ToString(), collection.FinancingStatus.ToString(), collection.Reference ?? "",
+                collection.CreatedBy, collection.ReconciledBy ?? "", collection.ReconciledAt?.ToString("O", CultureInfo.InvariantCulture) ?? "", collection.ReversalReason ?? "", remark
+            };
         }));
         return rows;
     }

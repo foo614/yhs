@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { activeLoanForVehicle, browserRouteUrl, customerIdFromRouteUrl, DashboardPage, DeliveryPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
-import type { Customer, DashboardSummary, DeliverySchedule, LoanApplication, VehicleLookup } from "./api";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, customerIdFromRouteUrl, DashboardPage, DeliveryPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
+import type { Customer, DashboardSummary, LoanApplication, RepairJob, SupplierInvoice, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
   it("retains Customer 360 query changes for Back and Forward navigation", () => {
@@ -73,13 +73,31 @@ describe("management dashboard", () => {
       actualProfit: 5000,
       outstandingCollection: 15000,
       settlementDueAmount: 2000,
-      refurbishment: { finalRepairSpend: 1500, vehicleCount: 1, averageSpendPerVehicle: 1500, workInProgressCount: 1, overdueWorkCount: 0, highestCostVehicles: [] }
+      refurbishment: { finalRepairSpend: 1500, vehicleCount: 1, averageSpendPerVehicle: 1500, workInProgressCount: 1, overdueWorkCount: 0, highestCostVehicles: [] },
+      aiDocumentProcessing: {
+        scanCount: 8,
+        acceptedCount: 4,
+        rejectedCount: 1,
+        lowConfidenceCount: 2,
+        failedCount: 1,
+        pendingReviewCount: 3,
+        usedThisMonth: 32,
+        monthlyRequestLimit: 100,
+        remainingThisMonth: 68,
+        categories: [
+          { category: "IdentityCard", label: "IC", scanCount: 2, acceptedCount: 1, rejectedCount: 0, lowConfidenceCount: 1, failedCount: 0 },
+          { category: "Voc", label: "VOC", scanCount: 2, acceptedCount: 1, rejectedCount: 1, lowConfidenceCount: 0, failedCount: 0 },
+          { category: "InvoicesAndReceipts", label: "Invoices & receipts", scanCount: 3, acceptedCount: 2, rejectedCount: 0, lowConfidenceCount: 1, failedCount: 0 },
+          { category: "SupportingDocuments", label: "Supporting documents", scanCount: 1, acceptedCount: 0, rejectedCount: 0, lowConfidenceCount: 0, failedCount: 1 }
+        ]
+      }
     } satisfies DashboardSummary;
 
     const markup = renderToStaticMarkup(createElement(DashboardPage, {
       dashboard,
       dashboardLoadError: null,
       reminders: [],
+      priorityActions: [],
       reminderLoadError: null,
       lastCheckedAt: null,
       refreshing: false,
@@ -99,6 +117,68 @@ describe("management dashboard", () => {
     expect(markup).toContain("Repair Cost / 整备费用");
     expect(markup).toContain("Projected Stock Profit / 库存预计利润");
     expect(markup).not.toContain("Estimated Profit / 预估利润");
+    expect(markup).toContain("AI document processing / AI 文件处理");
+    expect(markup).toContain("Staff-approved AI results");
+    expect(markup).toContain("Invoices &amp; receipts");
+    expect(markup).not.toContain("identity text");
+
+    const reminderMarkup = renderToStaticMarkup(createElement(DashboardPage, {
+      dashboard,
+      dashboardLoadError: null,
+      reminders: [{
+        type: "SettlementDue",
+        title: "Settlement deadline due",
+        vehiclePlate: "VPK1234",
+        vehicleId: "vehicle-1",
+        dueDate: "2099-06-01",
+        amount: 25000
+      }],
+      priorityActions: [],
+      reminderLoadError: null,
+      lastCheckedAt: null,
+      refreshing: false,
+      analyticsPeriod: { from: "2026-06-01", to: "2026-06-30" },
+      analyticsRangePreset: "ThisMonth",
+      onRefresh: async () => {},
+      onAnalyticsPeriodChange: async () => {},
+      onNavigate: () => {}
+    }));
+    expect(reminderMarkup).toContain("dashboardReminderMobileList");
+    expect(reminderMarkup).toContain("Settlement deadline due");
+    expect(reminderMarkup).toContain("Open follow-up");
+
+    const emptyMarkup = renderToStaticMarkup(createElement(DashboardPage, {
+      dashboard: { ...dashboard, aiDocumentProcessing: { ...dashboard.aiDocumentProcessing!, categories: [] } },
+      dashboardLoadError: null,
+      reminders: [],
+      priorityActions: [],
+      reminderLoadError: null,
+      lastCheckedAt: null,
+      refreshing: false,
+      analyticsPeriod: { from: "2026-06-01", to: "2026-06-30" },
+      analyticsRangePreset: "ThisMonth",
+      onRefresh: async () => {},
+      onAnalyticsPeriodChange: async () => {},
+      onNavigate: () => {}
+    }));
+    expect(emptyMarkup).toContain("No OCR activity in this period.");
+
+    const errorMarkup = renderToStaticMarkup(createElement(DashboardPage, {
+      dashboard: null,
+      dashboardLoadError: "Dashboard request failed",
+      reminders: [],
+      priorityActions: [],
+      reminderLoadError: null,
+      lastCheckedAt: null,
+      refreshing: false,
+      analyticsPeriod: {},
+      analyticsRangePreset: "ThisMonth",
+      onRefresh: async () => {},
+      onAnalyticsPeriodChange: async () => {},
+      onNavigate: () => {}
+    }));
+    expect(errorMarkup).toContain("Dashboard data could not be loaded");
+    expect(errorMarkup).not.toContain("identity text");
   });
 });
 
@@ -142,6 +222,27 @@ describe("repair receipt OCR drafts", () => {
   });
 });
 
+describe("supplier and refurbishment records", () => {
+  it("keeps repair tasks and supplier invoices in the shared operational list", () => {
+    const vehicles: VehicleLookup[] = [{
+      id: "vehicle-1", plateNumber: "VPK 1234", make: "Toyota", model: "Vios", stockOwner: "YSHeng", status: "Available"
+    }];
+    const repairs: RepairJob[] = [{
+      id: "repair-1", vehicleId: "vehicle-1", repairPart: "Bumper", whatToDo: "Polish bumper", cost: 800, checklistDone: false, createdAt: "2026-08-20T08:00:00Z"
+    }];
+    const supplierInvoices: SupplierInvoice[] = [{
+      id: "invoice-1", vehicleId: "vehicle-1", supplierName: "ABC Spray", invoiceNumber: "INV-1001", amount: 800, createdAt: "2026-08-21T08:00:00Z"
+    }];
+
+    const records = buildRefurbishmentTableRecords(repairs, supplierInvoices, vehicles, {});
+
+    expect(records.map((record) => ({ key: record.key, kind: record.kind, plateNumber: record.plateNumber }))).toEqual([
+      { key: "repair-repair-1", kind: "repair", plateNumber: "VPK 1234" },
+      { key: "supplier-invoice-1", kind: "supplierInvoice", plateNumber: "VPK 1234" }
+    ]);
+  });
+});
+
 describe("module document lists", () => {
   it("can omit OCR results for manual Loan and Delivery evidence workflows", () => {
     const loanMarkup = renderToStaticMarkup(createElement(ModuleDocumentList, {
@@ -179,24 +280,19 @@ describe("workflow list query controls", () => {
   const loans: LoanApplication[] = [{
     id: "loan-1", vehicleId: "vehicle-1", customerId: "customer-1", status: "Pending", louApproved: false, louDone: false, submittedAt: "2026-08-25"
   }];
-  const deliveries: DeliverySchedule[] = [{
-    id: "delivery-1", vehicleId: "vehicle-1", pic: "Ah Ming", status: "Scheduled", scheduledDate: "2026-08-26",
-    polishDone: false, tintedDone: false, washDone: false, documentsPrepared: false, inspectionDone: false,
-    notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false
-  }];
-
   it("renders explicit local Query and Reset controls instead of an inert ProTable query form", () => {
     const loanMarkup = renderToStaticMarkup(createElement(LoanPage, {
       vehicles, customers, loans, roles: ["Loan"], dashboardFocus: {}, onClearDashboardFocus: () => {}, onBackToList: () => {}, onCreate: () => {}, onUpdate: () => {}, onUploadDocument: async () => {}
     }));
     const deliveryMarkup = renderToStaticMarkup(createElement(DeliveryPage, {
-      vehicles, deliveries, dashboardFocus: {}, onClearDashboardFocus: () => {}, onCreate: () => {}, onUpdate: () => {}, onOpenCustomer: () => {}, onUploadDocument: async () => {}
+      vehicles, dashboardFocus: {}, onClearDashboardFocus: () => {}, onOpenCustomer: () => {}
     }));
 
-    for (const markup of [loanMarkup, deliveryMarkup]) {
-      expect(markup).toContain("Query");
-      expect(markup).toContain("Reset");
-      expect(markup).not.toContain("ant-pro-query-filter");
-    }
+    expect(loanMarkup).toContain("Query");
+    expect(loanMarkup).toContain("Reset");
+    expect(loanMarkup).not.toContain("ant-pro-query-filter");
+    expect(deliveryMarkup).toContain("Delivery Workboard / 交车工作台");
+    expect(deliveryMarkup).toContain("See every car, customer, PIC, stage, and next action in one place.");
+    expect(deliveryMarkup).not.toContain("ReadyForRelease");
   });
 });

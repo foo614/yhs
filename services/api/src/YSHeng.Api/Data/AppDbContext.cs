@@ -21,8 +21,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<SupplierInvoice> SupplierInvoices => Set<SupplierInvoice>();
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
+    public DbSet<DeliveryActivity> DeliveryActivities => Set<DeliveryActivity>();
     public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
     public DbSet<FinanceInvoice> FinanceInvoices => Set<FinanceInvoice>();
+    public DbSet<CollectionTransaction> CollectionTransactions => Set<CollectionTransaction>();
     public DbSet<SettlementReminder> SettlementReminders => Set<SettlementReminder>();
     public DbSet<DailySpend> DailySpends => Set<DailySpend>();
     public DbSet<BrokerCommission> BrokerCommissions => Set<BrokerCommission>();
@@ -35,6 +37,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<HrAttendanceQrRedemption> HrAttendanceQrRedemptions => Set<HrAttendanceQrRedemption>();
     public DbSet<HrBusinessTrip> HrBusinessTrips => Set<HrBusinessTrip>();
     public DbSet<HrAttendanceReminderPolicy> HrAttendanceReminderPolicies => Set<HrAttendanceReminderPolicy>();
+    public DbSet<HrAttendanceNetwork> HrAttendanceNetworks => Set<HrAttendanceNetwork>();
     public DbSet<HrLeaveRequest> HrLeaveRequests => Set<HrLeaveRequest>();
     public DbSet<HrLeaveBalance> HrLeaveBalances => Set<HrLeaveBalance>();
     public DbSet<HrLeavePolicy> HrLeavePolicies => Set<HrLeavePolicy>();
@@ -61,12 +64,34 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<DocumentBlob>().HasIndex(document => document.OwnershipType);
         builder.Entity<DocumentBlob>().HasIndex(document => document.RepairJobId);
         builder.Entity<DocumentBlob>().HasIndex(document => document.PaymentRecordId);
+        builder.Entity<DocumentBlob>().HasIndex(document => document.CollectionTransactionId);
+        builder.Entity<DocumentBlob>().HasIndex(document => document.DeliveryScheduleId);
+        builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.VehicleId);
+        builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.CustomerId);
+        builder.Entity<DeliveryActivity>().HasIndex(activity => new { activity.DeliveryScheduleId, activity.CreatedAt });
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.RepairJobId);
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.DocumentId).IsUnique();
         builder.Entity<RepairReceiptItem>().HasIndex(item => new { item.RepairReceiptId, item.SortOrder });
         builder.Entity<FinanceInvoice>().Property(invoice => invoice.Content).HasColumnType("bytea");
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.PaymentRecordId).IsUnique();
         builder.Entity<FinanceInvoice>().HasIndex(invoice => invoice.InvoiceNumber).IsUnique();
+        builder.Entity<PaymentRecord>()
+            .HasIndex(payment => payment.VehicleId)
+            .HasDatabaseName("IX_PaymentRecords_VehicleId_FinanceV2")
+            .HasFilter("\"FinanceWorkflowVersion\" = 2")
+            .IsUnique();
+        builder.Entity<CollectionTransaction>().HasIndex(collection => new { collection.PaymentRecordId, collection.CreatedAt });
+        builder.Entity<CollectionTransaction>()
+            .HasIndex(collection => new { collection.PaymentRecordId, collection.IdempotencyKey })
+            .HasDatabaseName("IX_CollectionTransactions_PaymentRecordId_IdempotencyKey")
+            .IsUnique();
+        builder.Entity<CollectionTransaction>().HasIndex(collection => new { collection.Status, collection.ReceivedDate });
+        builder.Entity<CollectionTransaction>().HasIndex(collection => collection.Reference);
+        builder.Entity<CollectionTransaction>()
+            .HasIndex(collection => new { collection.Method, collection.NormalizedReference })
+            .HasDatabaseName("UX_CollectionTransactions_ActiveMethod_NormalizedReference")
+            .HasFilter("\"NormalizedReference\" IS NOT NULL AND \"Status\" <> 2")
+            .IsUnique();
         builder.Entity<CashHandover>().HasIndex(handover => handover.PaymentRecordId).IsUnique();
         builder.Entity<CashHandover>().HasIndex(handover => new { handover.Status, handover.CollectedAt });
         builder.Entity<OfficialReceipt>().Property(receipt => receipt.Content).HasColumnType("bytea");
@@ -77,6 +102,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<HrAttendanceQrRedemption>().HasIndex(redemption => new { redemption.ChallengeId, redemption.StaffUserId, redemption.Action }).IsUnique();
         builder.Entity<HrBusinessTrip>().HasIndex(trip => new { trip.StaffUserId, trip.StartDate, trip.EndDate });
         builder.Entity<HrAttendanceReminderPolicy>().HasIndex(policy => policy.Type).IsUnique();
+        builder.Entity<HrAttendanceNetwork>().HasIndex(network => network.Cidr).IsUnique();
         builder.Entity<HrLeaveBalance>().HasIndex(balance => balance.StaffUserId).IsUnique();
         builder.Entity<HrLeavePolicy>().HasIndex(policy => policy.Role).IsUnique();
         builder.Entity<HrLeaveAdjustment>().HasIndex(adjustment => new { adjustment.StaffUserId, adjustment.CreatedAt });

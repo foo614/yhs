@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "../seo";
 import { ShowroomEnquiryFlow } from "./ShowroomEnquiryFlow";
 
+const publicMetadata = pageMetadata({
+  title: "Showroom enquiry | YS Heng Automotive",
+  description: "Share vehicle preferences with the YS Heng sales team while visiting the Kluang showroom.",
+  path: "/showroom-enquiry"
+});
+
 export const metadata: Metadata = {
-  title: "Showroom enquiry | YS Heng Auto",
-  description: "Tell YS Heng what you are looking for while visiting the showroom."
+  ...publicMetadata,
+  robots: { index: false, follow: false }
 };
 
 export default function ShowroomEnquiryPage() {

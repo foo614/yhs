@@ -29,6 +29,7 @@ function Assert-Contains {
 $productionCompose = Read-Text "infra/docker-compose.production.yml"
 $aspireProductionCompose = Read-Text "infra/docker-compose.aspire.production.yml"
 $caddyfile = Read-Text "infra/caddy/Caddyfile"
+$apiProgram = Read-Text "services/api/src/YSHeng.Api/Program.cs"
 $opsProxy = Read-Text "infra/nginx/ops-proxy.conf"
 $bootstrap = Read-Text "infra/ubuntu/bootstrap-shinjiru.sh"
 $deploy = Read-Text "infra/ubuntu/deploy-production.sh"
@@ -44,6 +45,14 @@ foreach ($compose in @($productionCompose, $aspireProductionCompose)) {
   Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected 'source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH}'
   Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected "target: /run/secrets/google-document-ai.json"
   Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected "read_only: true"
+}
+
+foreach ($expected in @(
+  "app.UseForwardedHeaders();",
+  "options.ForwardLimit = 1;",
+  'options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse("172.16.0.0"), 12));'
+)) {
+  Assert-Contains -Name "Attendance trusted-proxy contract" -Text $apiProgram -Expected $expected
 }
 
 foreach ($expected in @(

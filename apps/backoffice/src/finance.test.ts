@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brokerCommissionCreateBlockReason, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, settlementCreateBlockReason } from "./finance";
+import { brokerCommissionCreateBlockReason, calculateFinanceNettPrice, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, collectionCreateBlockReason, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, financeSaleBlockReason, isFinanceV2, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, receivableStatusLabel, settlementCreateBlockReason } from "./finance";
 import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
 
 const basePayment: PaymentRecord = {
@@ -71,6 +71,32 @@ const basePaymentVoucher: PaymentVoucher = {
 };
 
 describe("finance workflow helpers", () => {
+  it("calculates the server-aligned nett price and labels V2 receivable status plainly", () => {
+    expect(calculateFinanceNettPrice({ salesPrice: 60000, interestAdditionalCharges: 500, ncdAmount: 100, windscreenCharges: 200 })).toBe(60600);
+    expect(receivableStatusLabel("WaitingForApproval")).toBe("Price approval needed");
+    expect(isFinanceV2({ ...basePayment, financeWorkflowVersion: 2 })).toBe(true);
+    expect(isFinanceV2(basePayment)).toBe(false);
+  });
+
+  it("requires a confirmed buyer and a reason only when staff adjust the calculated total", () => {
+    const input = { vehicleId: "vehicle-1", salesPrice: 60000, interestAdditionalCharges: 500, ncdAmount: 100, windscreenCharges: 200 };
+    expect(financeSaleBlockReason(input, vehicleLookup)).toBe("Select a vehicle with a confirmed buyer.");
+    const confirmedVehicles = [{ ...vehicleLookup[0], customerId: "customer-1" }];
+    expect(financeSaleBlockReason(input, confirmedVehicles)).toBeUndefined();
+    expect(financeSaleBlockReason({ ...input, nettPrice: 60000 }, confirmedVehicles)).toBe("Explain the price adjustment before sending it for approval.");
+    expect(financeSaleBlockReason({ ...input, nettPrice: 60000, nettPriceOverrideReason: "Agreed discount" }, confirmedVehicles)).toBeUndefined();
+  });
+
+  it("allows partial collections but blocks non-positive and over-allocated amounts", () => {
+    const payment = { ...basePayment, financeWorkflowVersion: 2, balanceAmount: 50000, availableToAllocate: 40000 };
+    const input = { idempotencyKey: "00000000-0000-0000-0000-000000000123", amount: 10000, method: "DownPayment" as const, financingStatus: "NotApplicable" as const, reference: "MB-1001", receivedDate: "2026-08-27" };
+    expect(collectionCreateBlockReason(payment, input)).toBeUndefined();
+    expect(collectionCreateBlockReason(payment, { ...input, amount: 0 })).toBe("Payment amount must be greater than zero.");
+    expect(collectionCreateBlockReason(payment, { ...input, amount: 40000.01 })).toContain("cannot exceed the available balance");
+    expect(collectionCreateBlockReason(payment, { ...input, reference: " " })).toBe("Enter a traceable payment reference.");
+    expect(collectionCreateBlockReason(payment, { ...input, method: "BankDisbursement", financingStatus: "Disbursed" })).toBe("New bank financing must start as Pending.");
+  });
+
   it("allows reconciliation only when receipt and invoice references are present", () => {
     expect(canReconcilePayment({
       ...basePayment,

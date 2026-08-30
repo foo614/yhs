@@ -45,17 +45,27 @@
 		reverse_proxy ops-proxy:8080
 	}
 
-	# Aspire 13 emits these dashboard routes as root-relative URLs. Recover only
-	# the known dashboard route families through the protected /ops proxy so an
-	# escaped trace or log link cannot fall through to the back-office SPA.
-	@ops-dashboard-route path /resources /resources/* /consolelogs /consolelogs/* /structuredlogs /structuredlogs/* /traces /traces/* /metrics /metrics/*
-	handle @ops-dashboard-route {
+	# Aspire renders both metric views, so the graph module, Plotly bundle, and
+	# hidden table module all load from absolute root paths. Recover only those
+	# three dashboard assets through the /ops adapter.
+	@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js /Components/Controls/Chart/MetricTable.razor.js
+	handle @ops-metrics-scripts {
 		rewrite * /ops{uri}
 		reverse_proxy ops-proxy:8080
 	}
 
+	# Aspire 13 emits these dashboard routes as root-relative URLs. Redirect the
+	# browser to /ops before dashboard authentication so its /ops-scoped cookie
+	# is sent, while escaped trace or log links cannot reach the back-office SPA.
+	@ops-dashboard-route path /resources /resources/* /consolelogs /consolelogs/* /structuredlogs /structuredlogs/* /traces /traces/* /metrics /metrics/*
+	handle @ops-dashboard-route {
+		redir * /ops{uri} temporary
+	}
+
 	@api path /api/*
 	handle @api {
+		# Caddy is the public ingress. Its reverse proxy overwrites client-supplied
+		# X-Forwarded-For before forwarding to the private API container.
 		reverse_proxy api:8080
 	}
 

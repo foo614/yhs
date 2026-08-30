@@ -6,6 +6,7 @@ export type BackOfficeDataKey =
   | "reminders"
   | "vehicles"
   | "vehicleLookup"
+  | "financeVehicleOptions"
   | "customers"
   | "owners"
   | "purchaseInvoices"
@@ -31,6 +32,8 @@ export type BackOfficeDataKey =
   | "hrReminders"
   | "hrReminderPolicies"
   | "hrBusinessTrips"
+  | "hrBossCalendar"
+  | "hrAttendanceNetworks"
   | "hrLeaveRequests"
   | "hrLeaveBalances"
   | "hrLeavePolicies"
@@ -71,6 +74,7 @@ const allDataKeys: BackOfficeDataKey[] = [
   "reminders",
   "vehicles",
   "vehicleLookup",
+  "financeVehicleOptions",
   "customers",
   "owners",
   "purchaseInvoices",
@@ -96,6 +100,8 @@ const allDataKeys: BackOfficeDataKey[] = [
   "hrReminders",
   "hrReminderPolicies",
   "hrBusinessTrips",
+  "hrBossCalendar",
+  "hrAttendanceNetworks",
   "hrLeaveRequests",
   "hrLeaveBalances",
   "hrLeavePolicies",
@@ -131,7 +137,7 @@ export const roleDataKeys: Record<StaffRole, BackOfficeDataKey[]> = {
   Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "cashHandovers", "cashHandoverPaymentLookup", "leads", ...hrSelfServiceDataKeys],
   Loan: ["vehicleLookup", "customers", "loans", ...hrSelfServiceDataKeys],
   Delivery: ["vehicleLookup", "deliveries", ...hrSelfServiceDataKeys],
-  Finance: ["vehicleLookup", "customers", "owners", "payments", "cashHandovers", "cashHandoverPaymentLookup", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", ...hrSelfServiceDataKeys],
+  Finance: ["vehicleLookup", "financeVehicleOptions", "customers", "owners", "payments", "cashHandovers", "cashHandoverPaymentLookup", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", ...hrSelfServiceDataKeys],
   Repair: ["vehicleLookup", "supplierInvoices", "repairs", ...hrSelfServiceDataKeys],
   HrSalary: hrManagementDataKeys
 };

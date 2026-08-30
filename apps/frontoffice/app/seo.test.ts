@@ -4,10 +4,12 @@ import {
   organizationStructuredData,
   pageMetadata,
   structuredDataJson,
+  vehicleListStructuredData,
   vehicleMetadata,
   vehicleStructuredData
 } from "./seo";
 import type { PublicVehicle } from "./vehicles/service";
+import { generateMetadata as generateHomeMetadata } from "./page";
 
 const vehicle: PublicVehicle = {
   id: "vehicle-1",
@@ -23,6 +25,16 @@ const vehicle: PublicVehicle = {
 };
 
 describe("frontoffice SEO", () => {
+  it("publishes entity-first localized homepage metadata", async () => {
+    const english = await generateHomeMetadata({ searchParams: Promise.resolve({}) });
+    const chinese = await generateHomeMetadata({ searchParams: Promise.resolve({ lang: "zh" }) });
+
+    expect(english.title).toBe("Used Cars in Kluang | YS HENG AUTOMOTIVE SDN BHD");
+    expect(english.description).toContain("YS HENG AUTOMOTIVE SDN BHD in Kluang, Johor");
+    expect(chinese.title).toBe("居銮二手车 | YS HENG AUTOMOTIVE SDN BHD");
+    expect(chinese.description).toContain("YS HENG AUTOMOTIVE SDN BHD 位于柔佛州居銮");
+  });
+
   it("publishes reciprocal localized canonicals and social metadata", () => {
     const metadata = pageMetadata({
       title: "测试车辆",
@@ -56,7 +68,7 @@ describe("frontoffice SEO", () => {
         width: 1200,
         height: 630,
         type: "image/png",
-        alt: "2021 Toyota Vios for sale | YS Heng Cars"
+        alt: "2021 Toyota Vios used car for sale | YS Heng Automotive"
       }
     ]);
     expect(fallbackMetadata.openGraph?.images).toEqual([
@@ -65,7 +77,7 @@ describe("frontoffice SEO", () => {
         width: 1200,
         height: 630,
         type: "image/png",
-        alt: "2021 Toyota Vios for sale | YS Heng Cars"
+        alt: "2021 Toyota Vios used car for sale | YS Heng Automotive"
       }
     ]);
   });
@@ -103,8 +115,8 @@ describe("frontoffice SEO", () => {
 
     expect(dealer).toMatchObject({
       "@type": "AutoDealer",
-      name: "YS Heng Automotive",
-      alternateName: ["YS Heng Cars", "YS Heng Auto"],
+      name: "YS HENG AUTOMOTIVE SDN BHD",
+      alternateName: ["YS Heng Automotive", "YS Heng Cars", "YS Heng Auto"],
       legalName: "YS HENG AUTOMOTIVE SDN BHD",
       address: {
         "@type": "PostalAddress",
@@ -144,6 +156,25 @@ describe("frontoffice SEO", () => {
     expect(listing).not.toHaveProperty("plateNumber");
     expect(listing).not.toHaveProperty("stockOwner");
     expect(mixedGalleryListing).toHaveProperty("image", [vehicle.photoUrl]);
+  });
+
+  it("keeps localized vehicle and inventory schema URLs aligned with page canonicals", () => {
+    const listing = vehicleStructuredData(vehicle, "zh");
+    const inventory = vehicleListStructuredData([vehicle], "zh");
+
+    expect(listing).toMatchObject({
+      url: "http://localhost:3000/vehicles/vehicle-1?lang=zh",
+      description: expect.stringContaining("YS HENG AUTOMOTIVE SDN BHD"),
+      offers: { url: "http://localhost:3000/vehicles/vehicle-1?lang=zh" }
+    });
+    expect(inventory.itemListElement).toEqual([
+      {
+        "@type": "ListItem",
+        position: 1,
+        url: "http://localhost:3000/vehicles/vehicle-1?lang=zh",
+        name: "2021 Toyota Vios"
+      }
+    ]);
   });
 
   it("escapes structured-data script breakers", () => {

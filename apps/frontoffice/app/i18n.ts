@@ -45,20 +45,21 @@ export const frontofficeCopy = {
       mobileProfile: "Contact"
     },
     footer: {
-      description: "Second-hand car sales, loan assistance, trade-in discussion, and handover support in Malaysia.",
+      description: "YS HENG AUTOMOTIVE SDN BHD lists used cars and handles buyer enquiries from Kluang, Johor, Malaysia.",
       quickLinks: "Quick Links",
       quickItems: [
-        { label: "Used Cars Under 30k", href: "/vehicles?maxPrice=30000" },
-        { label: "Sell Your Car", href: "/contact#contact" },
-        { label: "Loan Help", href: "/contact#services" }
+        { label: "Used Cars in Kluang", href: "/used-cars-kluang" },
+        { label: "Car Loan Guide for Kluang", href: "/car-loan-kluang" },
+        { label: "Trade-In Car Guide for Kluang", href: "/trade-in-car-kluang" },
+        { label: "Used Cars Under RM30,000", href: "/vehicles?maxPrice=30000" }
       ],
       services: "Services",
       serviceItems: [
-        { label: "Loan Assistance", href: "/contact#services" },
-        { label: "Trade-in", href: "/contact#services" },
-        { label: "Insurance", href: "/contact#services" },
-        { label: "JPJ & Puspakom", href: "/contact#services" },
-        { label: "Workshop Support", href: "/contact#workshop" }
+        { label: "Available Inventory", href: "/vehicles" },
+        { label: "Viewing Details", href: "/contact#contact" },
+        { label: "Loan Process", href: "/car-loan-kluang" },
+        { label: "Trade-In Process", href: "/trade-in-car-kluang" },
+        { label: "Showroom Location", href: "/contact#workshop" }
       ],
       company: "Company",
       companyItems: [
@@ -69,16 +70,15 @@ export const frontofficeCopy = {
       ]
     },
     vehicleCard: {
-      readyStock: "Ready stock",
       sellingPrice: "Selling price",
       viewDetails: "View details",
       viewAria: "View"
     },
     home: {
-      kicker: "Malaysia Used Car Dealer",
+      kicker: "Used Car Dealer in Kluang",
       titleLineOne: "Compare clear prices.",
       titleAccent: "Find your car.",
-      heroIntro: "Ready-to-view used cars with clear pricing at YS Heng Auto in Kluang.",
+      heroIntro: "YS HENG AUTOMOTIVE SDN BHD is a used-car dealership in Kluang, Johor, Malaysia, where buyers can browse currently available vehicles with published prices and confirm viewing details.",
       browseCars: "Browse cars",
       heroLocation: "Kluang, Johor",
       make: "Make",
@@ -95,28 +95,33 @@ export const frontofficeCopy = {
       yearFrom: "Year From",
       anyYear: "Any Year",
       find: "Find cars",
-      readyCars: "ready cars",
-      updatedDaily: "Updated daily",
+      readyCars: "available cars",
+      updatedDaily: "Current available inventory",
       searchHint: "Choose a price card or refine the search.",
       popularMakes: "Popular Makes in Malaysia",
       shopKicker: "Shop by Need",
       shopTitle: "Find the right second-hand car",
       supportKicker: "Buyer Support",
       supportTitle: "Used-car help from search to handover",
-      conciergeKicker: "After-Sales Help",
-      conciergeTitle: "Practical services for Malaysian car buyers",
-      conciergeText: "Buying a used car involves more than choosing a model. Our team can help with loan follow-up, trade-in discussion, viewing, insurance, transfer, and delivery.",
+      conciergeKicker: "Buyer Process",
+      conciergeTitle: "Practical next steps for used-car buyers",
+      conciergeText: "After comparing the published inventory, buyers can ask the team about a specific vehicle, arrange viewing details, discuss a trade-in, and understand the loan enquiry process.",
       buyerHelp: "Buyer Help",
-      workshopKicker: "Showroom & Workshop Support",
+      workshopKicker: "Kluang Showroom",
       workshopTitle: "One location for viewing and handover support",
-      workshopText: "Viewing, inspection follow-up, preparation, light repair coordination, body and paint follow-up, and handover readiness are coordinated through YS Heng Automotive in Kluang.",
-      whyKicker: "Why Buy From Us",
-      whyTitle: "Why Choose YS HENG AUTO?",
-      reviews: "Customer Reviews",
-      readReviews: "Read All 500+ Reviews",
-      reviewOne: "Good service and fast reply. The team helped explain loan documents and viewing steps clearly.",
-      reviewTwo: "Transparent pricing and easy to arrange viewing. The sales team followed up until handover.",
-      reviewName: "Customer Review",
+      workshopText: "Contact the team to confirm a vehicle, viewing appointment, preparation update, or handover detail at the Kluang showroom.",
+      whyKicker: "Check Before You Enquire",
+      whyTitle: "Information buyers can verify",
+      evidenceKicker: "Evidence, not ratings",
+      evidenceTitle: "What you can verify on this site",
+      evidenceIntro: "Use the public information below as a starting point, then confirm vehicle-specific details with the team.",
+      evidenceAction: "Check current inventory",
+      evidenceItems: [
+        { title: "Current available inventory", text: "Browse vehicle records currently published as Available on the public inventory page." },
+        { title: "Published selling prices", text: "Each available listing displays its published selling price for direct comparison." },
+        { title: "Viewing details", text: "Confirm the vehicle and your preferred viewing time with the team before travelling." },
+        { title: "Formal lender terms", text: "Loan estimates and assistance are not an approval; the lender's formal offer determines eligibility, rate, repayments, and final terms." }
+      ],
       categories: [
         { title: "Under RM30k", label: "Budget Friendly", query: "under 30000" },
         { title: "MPVs", label: "Family & Business", query: "MPV" },
@@ -124,18 +129,18 @@ export const frontofficeCopy = {
         { title: "4x4s", label: "Work & Adventure", query: "4x4" }
       ],
       solutions: [
-        { title: "Loan Assistance", text: "We help buyers understand loan options, monthly estimates, documents, and approval steps." },
-        { title: "Inspection & Preparation", text: "Vehicles can be checked, prepared, and followed up before viewing or delivery." },
-        { title: "Transfer Support", text: "Guidance for insurance, JPJ, Puspakom, ownership transfer, and handover paperwork." }
+        { title: "Loan Assistance", text: "Buyers can ask about the loan process, estimates, and documents; approval and final terms come from the lender." },
+        { title: "Vehicle Questions", text: "Ask whether a specific vehicle has been inspected or prepared, and confirm its current details before viewing or handover." },
+        { title: "Handover Information", text: "Ask the team about the documents and handover steps linked to a specific purchase." }
       ],
-      conciergeItems: ["Number Plate Bidding", "Trade-in Discussion", "JPJ & Puspakom", "Insurance Agency"],
+      conciergeItems: ["Current Vehicle Listings", "Trade-in Discussion", "Viewing Arrangements", "Loan Process Guidance"],
       workshopBranches: [
-        { region: "YS Heng Automotive", description: "Kluang showroom, viewing, preparation, and delivery coordination", pinLabel: "Kluang" }
+        { region: "YS HENG AUTOMOTIVE SDN BHD", description: "Kluang showroom for confirmed viewing and handover details", pinLabel: "Kluang" }
       ],
       trustRows: [
-        { title: "Clear Vehicle Info", text: "We present the car, price, and next steps clearly so buyers can decide with confidence." },
-        { title: "Fast Loan Follow-up", text: "Loan and viewing follow-up stays direct, responsive, and easy to understand." },
-        { title: "Handover Support", text: "The team can guide document, insurance, transfer, and delivery steps after booking." }
+        { title: "Available Vehicle Records", text: "The public inventory is limited to vehicle records marked Available." },
+        { title: "Published Selling Prices", text: "Available listings show their selling price so buyers can compare before enquiring." },
+        { title: "Confirm Before Travelling", text: "Contact the team to confirm the vehicle and viewing details before visiting the showroom." }
       ]
     },
     inventory: {
@@ -183,8 +188,8 @@ export const frontofficeCopy = {
     detail: {
       back: "Back to showroom",
       kicker: "Used Car Details",
-      intro: "Ready-to-view second-hand car with enquiry, loan assistance, and delivery follow-up handled by YS Heng Auto.",
-      lead: "A used-car listing prepared for viewing, ownership checks, and financing guidance.",
+      intro: "Used-car listing with a published price and an enquiry form for confirming current details.",
+      lead: "Review the published vehicle details, then contact the team to confirm availability and viewing information.",
       sellingPrice: "Selling price",
       loanTitle: "Loan assistance available",
       loanText: "Estimated from RM {amount} / month, subject to approval and final bank terms.",
@@ -221,7 +226,7 @@ export const frontofficeCopy = {
     contact: {
       kicker: "Services & Contact",
       title: "Used-car support from viewing to handover.",
-      intro: "Reach the team for viewing, loan help, trade-in discussion, workshop preparation, insurance, and delivery support.",
+      intro: "Contact the team to ask about current inventory, confirm viewing details, and discuss a loan, trade-in, or the next steps for a specific purchase.",
       browse: "Browse cars",
       whatsapp: "WhatsApp us",
       showroom: "YS Heng showroom",
@@ -229,14 +234,13 @@ export const frontofficeCopy = {
       email: "Email",
       helpKicker: "Services",
       helpTitle: "What the team helps with",
-      helpText: "Use Services when you want help after finding a car: viewing, loan and trade-in discussion, preparation updates, documents, and handover.",
-      tiles: ["Viewing appointment", "Loan & trade-in guidance", "Vehicle preparation updates", "Delivery handover"],
+      helpText: "Use Services to ask about a specific available vehicle, confirm viewing details, discuss loan or trade-in enquiries, and clarify documents or handover steps.",
+      tiles: ["Available vehicle enquiry", "Confirm viewing details", "Loan & trade-in questions", "Purchase & handover questions"],
       workshopKicker: "Kluang Location",
       workshopTitle: "Visit the Kluang showroom",
-      workshopText: "Use Location when you need the address, map, or directions to the YS Heng Automotive showroom for viewing, preparation follow-up, and handover.",
-      workshopTiles: ["Showroom viewing", "Vehicle preparation", "JPJ & Puspakom steps", "Handover coordination"],
+      workshopText: "Use Location for the verified showroom address, map, and directions. Contact the team before travelling to confirm the vehicle and appointment details.",
+      workshopTiles: ["Showroom address", "Map and directions", "Confirm vehicle availability", "Confirm appointment details"],
       salesIntro: "Nak jual atau beli kereta? Contact Ah Boon at 010-828 1218.",
-      reviewSnippet: "Not yet rated (4 reviews)",
       callNow: "Call now",
       openMap: "Open map",
       facebook: "Facebook",
@@ -277,20 +281,21 @@ export const frontofficeCopy = {
       mobileProfile: "\u8054\u7cfb"
     },
     footer: {
-      description: "马来西亚二手车销售、贷款协助、Trade-in 咨询与交车跟进。",
+      description: "YS HENG AUTOMOTIVE SDN BHD 位于马来西亚柔佛州居銮（Kluang, Johor, Malaysia），网站提供当前可售二手车资料与咨询联络。",
       quickLinks: "快捷链接",
       quickItems: [
-        { label: "RM30k 以下车源", href: "/vehicles?maxPrice=30000" },
-        { label: "卖车咨询", href: "/contact#contact" },
-        { label: "贷款协助", href: "/contact#services" }
+        { label: "居銮二手车指南", href: "/used-cars-kluang" },
+        { label: "居銮汽车贷款指南", href: "/car-loan-kluang" },
+        { label: "居銮旧车 Trade-in 指南", href: "/trade-in-car-kluang" },
+        { label: "RM30,000 以下可售车源", href: "/vehicles?maxPrice=30000" }
       ],
       services: "服务",
       serviceItems: [
-        { label: "贷款协助", href: "/contact#services" },
-        { label: "Trade-in", href: "/contact#services" },
-        { label: "保险", href: "/contact#services" },
-        { label: "JPJ 与 Puspakom", href: "/contact#services" },
-        { label: "维修厂支援", href: "/contact#workshop" }
+        { label: "目前可售车源", href: "/vehicles" },
+        { label: "确认看车详情", href: "/contact#contact" },
+        { label: "贷款流程", href: "/car-loan-kluang" },
+        { label: "Trade-in 流程", href: "/trade-in-car-kluang" },
+        { label: "展厅地点", href: "/contact#workshop" }
       ],
       company: "公司",
       companyItems: [
@@ -301,16 +306,15 @@ export const frontofficeCopy = {
       ]
     },
     vehicleCard: {
-      readyStock: "现货车源",
       sellingPrice: "销售价",
       viewDetails: "查看详情",
       viewAria: "查看"
     },
     home: {
-      kicker: "马来西亚二手车商",
+      kicker: "居銮二手车商",
       titleLineOne: "透明比价，",
       titleAccent: "找到你的车。",
-      heroIntro: "YS Heng Auto 居銮现车，价格清楚，可直接预约看车。",
+      heroIntro: "YS HENG AUTOMOTIVE SDN BHD 是一家位于马来西亚柔佛州居銮（Kluang, Johor, Malaysia）的二手车经销商；买家可浏览目前可售并标明售价的车源，并确认看车详情。",
       browseCars: "浏览车源",
       heroLocation: "居銮，柔佛",
       make: "品牌",
@@ -327,28 +331,33 @@ export const frontofficeCopy = {
       yearFrom: "年份起",
       anyYear: "任何年份",
       find: "找车",
-      readyCars: "辆可看车",
-      updatedDaily: "每日更新",
+      readyCars: "个可询问车源",
+      updatedDaily: "目前可售车源",
       searchHint: "选择价格卡，或继续筛选车源。",
       popularMakes: "马来西亚热门品牌",
       shopKicker: "按需求选车",
       shopTitle: "找到适合你的二手车",
       supportKicker: "买家支援",
       supportTitle: "看车、贷款到交车，我们一路跟进",
-      conciergeKicker: "售后协助",
-      conciergeTitle: "为马来西亚买家准备的实用服务",
-      conciergeText: "买二手车不只是选择车型。我们的团队可协助贷款跟进、Trade-in 咨询、看车安排、保险、转名与交车。",
+      conciergeKicker: "购车流程",
+      conciergeTitle: "二手车买家的实用下一步",
+      conciergeText: "比较网站上已发布的车源后，买家可向团队询问指定车辆、确认看车详情、讨论 Trade-in，并了解贷款咨询流程。",
       buyerHelp: "买家协助",
-      workshopKicker: "展厅与维修支援",
+      workshopKicker: "居銮展厅",
       workshopTitle: "一个地点统筹看车与交车支援",
-      workshopText: "看车、检查跟进、整备、钣喷跟进与交车准备都由居銮 YS Heng Automotive 统筹。",
-      whyKicker: "为什么选择我们",
-      whyTitle: "为什么选择 YS HENG AUTO？",
-      reviews: "客户评价",
-      readReviews: "查看 500+ 评价",
-      reviewOne: "服务好，回复快。团队清楚解释贷款文件与看车流程。",
-      reviewTwo: "价格透明，看车安排方便。销售团队一路跟进到交车。",
-      reviewName: "客户评价",
+      workshopText: "如需确认指定车辆、看车预约、整备进度或交车详情，请先联络居銮展厅团队。",
+      whyKicker: "咨询前先核对",
+      whyTitle: "买家可核对的资料",
+      evidenceKicker: "以资料为准",
+      evidenceTitle: "网站上可核对的资料",
+      evidenceIntro: "先查看以下公开资料，再向团队确认指定车辆的细节。",
+      evidenceAction: "查看目前可售车源",
+      evidenceItems: [
+        { title: "目前可售车源", text: "公开车源页面显示目前标记为 Available 的车辆记录。" },
+        { title: "已发布销售价", text: "每个可售车辆页面都会显示该车辆已发布的销售价，方便直接比较。" },
+        { title: "看车详情", text: "出发前，请先向团队确认车辆及你希望的看车时间。" },
+        { title: "贷款机构正式条款", text: "贷款估算与协助不等于获批；资格、利率、还款额与最终条款以贷款机构的正式文件为准。" }
+      ],
       categories: [
         { title: "RM30k 以下", label: "预算友好", query: "under 30000" },
         { title: "MPV", label: "家庭与商务", query: "MPV" },
@@ -356,18 +365,18 @@ export const frontofficeCopy = {
         { title: "4x4", label: "工作与户外", query: "4x4" }
       ],
       solutions: [
-        { title: "贷款协助", text: "协助买家了解贷款选择、月供估算、文件与审批流程。" },
-        { title: "检查与整备", text: "车辆可在看车或交车前安排检查、整备与跟进。" },
-        { title: "转名支援", text: "协助保险、JPJ、Puspakom、车主转名与交车文件。" }
+        { title: "贷款协助", text: "买家可咨询贷款流程、估算与所需文件；是否获批及最终条款由贷款机构决定。" },
+        { title: "车辆问题", text: "可询问指定车辆是否已检查或整备，并在看车或交车前确认目前详情。" },
+        { title: "交车资料", text: "可向团队了解指定交易所需的文件与交车步骤。" }
       ],
-      conciergeItems: ["车牌竞标", "Trade-in 咨询", "JPJ 与 Puspakom", "保险代理"],
+      conciergeItems: ["目前可售车源", "Trade-in 咨询", "确认看车安排", "贷款流程说明"],
       workshopBranches: [
-        { region: "YS Heng Automotive", description: "居銮展厅、看车、整备与交车协调", pinLabel: "居銮" }
+        { region: "YS HENG AUTOMOTIVE SDN BHD", description: "居銮展厅，可先确认看车与交车详情", pinLabel: "居銮" }
       ],
       trustRows: [
-        { title: "清楚车况资料", text: "清楚呈现车辆、价格与下一步，让买家更安心决定。" },
-        { title: "快速贷款跟进", text: "贷款与看车跟进直接、快速，并保持容易理解。" },
-        { title: "交车支援", text: "团队可协助文件、保险、转名与交车步骤。" }
+        { title: "可售车辆记录", text: "公开车源只显示标记为 Available 的车辆记录。" },
+        { title: "已发布销售价", text: "可售车源显示销售价，让买家在咨询前先作比较。" },
+        { title: "出发前先确认", text: "前往展厅前，请先联络团队确认车辆与看车详情。" }
       ]
     },
     inventory: {
@@ -415,8 +424,8 @@ export const frontofficeCopy = {
     detail: {
       back: "返回车源",
       kicker: "二手车详情",
-      intro: "可安排看车的二手车，询问、贷款协助与交车跟进由 YS Heng Auto 团队处理。",
-      lead: "此二手车资料已准备好供看车、车主资料检查与贷款咨询。",
+      intro: "此二手车页面提供已发布售价与询问表格，方便买家确认目前详情。",
+      lead: "先查看已发布的车辆资料，再联络团队确认车源与看车详情。",
       sellingPrice: "销售价",
       loanTitle: "可协助贷款",
       loanText: "估算每月 RM {amount} 起，须以银行审批与最终条款为准。",
@@ -453,7 +462,7 @@ export const frontofficeCopy = {
     contact: {
       kicker: "服务与联络",
       title: "看车、贷款到交车，我们一路跟进。",
-      intro: "想买车、卖车或 Trade-in？我们可协助安排看车、贷款咨询、车辆整备、保险与交车流程。",
+      intro: "联络团队查询目前可售车源、确认看车详情，并咨询贷款、Trade-in 或指定交易的下一步。",
       browse: "浏览车源",
       whatsapp: "WhatsApp 联络",
       showroom: "YS Heng 展厅",
@@ -461,14 +470,13 @@ export const frontofficeCopy = {
       email: "电邮",
       helpKicker: "服务",
       helpTitle: "团队可以协助的事项",
-      helpText: "找到合适车辆后，可通过服务区了解看车、贷款与 Trade-in 咨询、整备更新、文件流程与交车安排。",
-      tiles: ["看车预约", "贷款与 Trade-in 咨询", "车辆整备更新", "交车安排"],
+      helpText: "可查询指定可售车辆、确认看车详情、提出贷款或 Trade-in 问题，并了解文件或交车步骤。",
+      tiles: ["查询可售车辆", "确认看车详情", "贷款与 Trade-in 问题", "购车与交车问题"],
       workshopKicker: "居銮地点",
       workshopTitle: "前往居銮展厅",
-      workshopText: "地点区块提供 YS Heng Automotive 展厅地址、地图与导航，方便安排看车、整备跟进与交车。",
-      workshopTiles: ["展厅看车", "车辆整备", "JPJ 与 Puspakom 流程", "交车协调"],
+      workshopText: "地点区块提供已核实的展厅地址、地图与导航。出发前，请先联络团队确认车辆与预约详情。",
+      workshopTiles: ["展厅地址", "地图与导航", "确认车辆是否可售", "确认预约详情"],
       salesIntro: "要买车、卖车或 Trade-in？请联系 Ah Boon：010-828 1218。",
-      reviewSnippet: "\u5c1a\u672a\u8a55\u5206\uff084 \u689d\u8a55\u8a9e\uff09",
       callNow: "\u7acb\u5373\u81f4\u96fb",
       openMap: "\u6253\u958b\u5730\u5716",
       facebook: "Facebook",

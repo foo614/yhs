@@ -1,8 +1,10 @@
 using System.Security.Claims;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using SkiaSharp;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
 using YSHeng.Api.Features;
@@ -194,7 +196,7 @@ public sealed class BusinessRulesTests
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789", IcNumber = "900101-01-1234", Email = "ali@example.test", Address = "Demo address" };
         var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = customer.Id, PlateNumber = "WXY1234" };
         var loan = new LoanApplication { CustomerId = customer.Id, VehicleId = vehicle.Id, Status = LoanStatus.Pending };
-        var delivery = new DeliverySchedule { VehicleId = vehicle.Id, Pic = "Delivery Team", ScheduledDate = new DateOnly(2026, 8, 20), Status = DeliveryStatus.Scheduled, InsuranceHandled = true };
+        var delivery = new DeliverySchedule { VehicleId = vehicle.Id, CustomerId = customer.Id, Pic = "Delivery Team", ScheduledDate = new DateOnly(2026, 8, 20), Status = DeliveryStatus.Scheduled, InsuranceHandled = true };
         var payment = new PaymentRecord { VehicleId = vehicle.Id, NettPrice = 55000m, Status = PaymentStatus.Approved, ReceiptNumber = "R-100" };
         var invoice = new FinanceInvoice { CustomerId = customer.Id, VehicleId = vehicle.Id, PaymentRecordId = payment.Id, InvoiceNumber = "INV-100", Amount = 55000m };
         var handover = new CashHandover { CustomerId = customer.Id, VehicleId = vehicle.Id, PaymentRecordId = payment.Id, Amount = 55000m, CollectedByUserId = "sales-1" };
@@ -202,7 +204,7 @@ public sealed class BusinessRulesTests
         var documents = new[]
         {
             new DocumentBlob { VehicleId = vehicle.Id, Category = FileCategory.IdentityCard, FileName = "ic.png", MimeType = "image/png", Checksum = "ic" },
-            new DocumentBlob { VehicleId = vehicle.Id, Category = FileCategory.Policy, FileName = "policy.pdf", MimeType = "application/pdf", Checksum = "policy" }
+            new DocumentBlob { VehicleId = vehicle.Id, CustomerId = customer.Id, DeliveryScheduleId = delivery.Id, OwnershipType = DocumentOwnershipType.Buyer, Category = FileCategory.Policy, FileName = "policy.pdf", MimeType = "application/pdf", Checksum = "policy" }
         };
         var lead = new Lead { CustomerId = customer.Id, VehicleId = vehicle.Id, CustomerName = customer.Name, Phone = customer.Phone };
 
@@ -254,7 +256,7 @@ public sealed class BusinessRulesTests
 
         Assert.Equal([legacyVehicle.Id], profile.Vehicles.Select(vehicle => vehicle.Id));
         Assert.Equal([legacyVehicle.Id], profile.Deliveries.Select(delivery => delivery.VehicleId));
-        Assert.Equal([legacyVehicle.Id], profile.Payments.Select(payment => payment.VehicleId));
+        Assert.Empty(profile.Payments);
         Assert.Equal([legacyVehicle.Id], profile.Documents.Select(document => document.VehicleId));
     }
 
@@ -274,6 +276,70 @@ public sealed class BusinessRulesTests
         Assert.Empty(firstProfile.Loans);
         Assert.Empty(secondProfile.Vehicles);
         Assert.Empty(secondProfile.Loans);
+    }
+
+    [Fact]
+    public void Customer_profile_keeps_historical_delivery_but_isolates_payments_and_invoices_after_buyer_change()
+    {
+        var firstCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
+        var secondCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim", Phone = "0198765432" };
+        var vehicle = VehicleSeed.Available(false) with { CustomerId = secondCustomer.Id, PlateNumber = "HISTORY1" };
+        var historicalDelivery = new DeliverySchedule
+        {
+            VehicleId = vehicle.Id,
+            CustomerId = firstCustomer.Id,
+            Pic = "Delivery One",
+            Status = DeliveryStatus.Released,
+            ScheduledDate = new DateOnly(2026, 8, 20)
+        };
+        var firstPayment = new PaymentRecord { VehicleId = vehicle.Id, InvoiceNumber = "A-100" };
+        var secondPayment = new PaymentRecord { Id = Guid.NewGuid(), VehicleId = vehicle.Id, InvoiceNumber = "B-100" };
+        var secondOrphanPayment = new PaymentRecord { Id = Guid.NewGuid(), VehicleId = vehicle.Id };
+        var firstInvoice = new FinanceInvoice { CustomerId = firstCustomer.Id, VehicleId = vehicle.Id, PaymentRecordId = firstPayment.Id, InvoiceNumber = "A-100" };
+        var secondInvoice = new FinanceInvoice { CustomerId = secondCustomer.Id, VehicleId = vehicle.Id, PaymentRecordId = secondPayment.Id, InvoiceNumber = "B-100" };
+        var firstEvidence = new DocumentBlob
+        {
+            VehicleId = vehicle.Id,
+            CustomerId = firstCustomer.Id,
+            DeliveryScheduleId = historicalDelivery.Id,
+            OwnershipType = DocumentOwnershipType.Buyer,
+            Category = FileCategory.Policy
+        };
+
+        var firstProfile = CustomerProfileFactory.Create(
+            firstCustomer,
+            ["BossAdmin"],
+            [vehicle],
+            [],
+            [historicalDelivery],
+            [firstPayment, secondPayment, secondOrphanPayment],
+            [firstInvoice, secondInvoice],
+            [],
+            [],
+            [firstEvidence],
+            []);
+        var secondProfile = CustomerProfileFactory.Create(
+            secondCustomer,
+            ["BossAdmin"],
+            [vehicle],
+            [],
+            [historicalDelivery],
+            [firstPayment, secondPayment, secondOrphanPayment],
+            [firstInvoice, secondInvoice],
+            [],
+            [],
+            [firstEvidence],
+            []);
+
+        Assert.Equal([vehicle.Id], firstProfile.Vehicles.Select(item => item.Id));
+        Assert.Equal([historicalDelivery.Id], firstProfile.Deliveries.Select(item => item.Id));
+        Assert.Equal([firstPayment.Id], firstProfile.Payments.Select(item => item.Id));
+        Assert.Equal([firstInvoice.Id], firstProfile.Invoices.Select(item => item.Id));
+        Assert.Equal([firstEvidence.Id], firstProfile.Documents.Select(item => item.Id));
+        Assert.Equal(new[] { secondPayment.Id, secondOrphanPayment.Id }.Order(), secondProfile.Payments.Select(item => item.Id).Order());
+        Assert.Equal([secondInvoice.Id], secondProfile.Invoices.Select(item => item.Id));
+        Assert.Empty(secondProfile.Deliveries);
+        Assert.Empty(secondProfile.Documents);
     }
 
     [Fact]
@@ -684,6 +750,57 @@ public sealed class BusinessRulesTests
         Assert.Equal(100m, payslip.UnpaidLeaveDeduction);
         Assert.Equal(2330m, payslip.GrossPay);
         Assert.Equal(2210m, payslip.NetPay);
+    }
+
+    [Fact]
+    public void Hr_hourly_payslip_uses_completed_eligible_attendance_with_allowances_and_deductions()
+    {
+        var profile = new HrPayrollProfile
+        {
+            StaffUserId = "daily-worker",
+            EmploymentType = HrEmploymentType.Hourly,
+            HourlyRate = 10m,
+            Allowances = 5m,
+            ManualDeductions = 3m
+        };
+        var period = new HrPayPeriod
+        {
+            Id = Guid.NewGuid(),
+            Name = "June 2026",
+            StartDate = new DateOnly(2026, 6, 1),
+            EndDate = new DateOnly(2026, 6, 30),
+            WorkingDays = 22
+        };
+        var attendance = new[]
+        {
+            new HrAttendanceRecord { StaffUserId = "daily-worker", AttendanceDate = new DateOnly(2026, 6, 2), Status = HrAttendanceStatus.Present, CheckInAt = new DateTime(2026, 6, 2, 9, 0, 0, DateTimeKind.Utc), CheckOutAt = new DateTime(2026, 6, 2, 17, 0, 0, DateTimeKind.Utc) },
+            new HrAttendanceRecord { StaffUserId = "daily-worker", AttendanceDate = new DateOnly(2026, 6, 3), Status = HrAttendanceStatus.Late, CheckInAt = new DateTime(2026, 6, 3, 10, 0, 0, DateTimeKind.Utc), CheckOutAt = new DateTime(2026, 6, 3, 14, 0, 0, DateTimeKind.Utc) },
+            new HrAttendanceRecord { StaffUserId = "daily-worker", AttendanceDate = new DateOnly(2026, 6, 4), Status = HrAttendanceStatus.Absent, CheckInAt = new DateTime(2026, 6, 4, 9, 0, 0, DateTimeKind.Utc), CheckOutAt = new DateTime(2026, 6, 4, 18, 0, 0, DateTimeKind.Utc) },
+            new HrAttendanceRecord { StaffUserId = "daily-worker", AttendanceDate = new DateOnly(2026, 7, 1), Status = HrAttendanceStatus.Present, CheckInAt = new DateTime(2026, 7, 1, 9, 0, 0, DateTimeKind.Utc), CheckOutAt = new DateTime(2026, 7, 1, 13, 0, 0, DateTimeKind.Utc) }
+        };
+
+        var payslip = HrRules.GeneratePayslip(profile, period, [], attendance);
+
+        Assert.Equal(HrEmploymentType.Hourly, payslip.EmploymentType);
+        Assert.Equal(12m, payslip.WorkedHours);
+        Assert.Equal(120m, payslip.AttendancePay);
+        Assert.Equal(125m, payslip.GrossPay);
+        Assert.Equal(122m, payslip.NetPay);
+    }
+
+    [Fact]
+    public void Hr_attendance_network_matches_active_cidr_without_accepting_other_ranges()
+    {
+        var networks = new[]
+        {
+            new HrAttendanceNetwork { Label = "Showroom", Cidr = "203.0.113.0/24", IsActive = true },
+            new HrAttendanceNetwork { Label = "Old office", Cidr = "198.51.100.0/24", IsActive = false }
+        };
+
+        Assert.Equal("Showroom", HrRules.FindMatchingAttendanceNetwork(IPAddress.Parse("203.0.113.42"), networks)?.Label);
+        Assert.Null(HrRules.FindMatchingAttendanceNetwork(IPAddress.Parse("198.51.100.42"), networks));
+        Assert.Null(HrRules.FindMatchingAttendanceNetwork(IPAddress.Parse("192.0.2.42"), networks));
+        Assert.False(HrRules.ValidateAttendanceNetwork(new HrAttendanceNetwork { Label = "Bad", Cidr = "203.0.113.0/99" }).IsValid);
     }
 
     [Fact]
@@ -1166,6 +1283,19 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Loan_vehicle_identity_is_immutable_after_create_and_uses_the_shared_vehicle_lock_key()
+    {
+        var vehicleId = Guid.NewGuid();
+        var loan = new LoanApplication { VehicleId = vehicleId, CustomerId = Guid.NewGuid() };
+
+        Assert.True(LoanMutationRules.ValidateIdentity(loan, loan with { Status = LoanStatus.Approved }).IsValid);
+        Assert.Contains(
+            LoanMutationRules.ValidateIdentity(loan, loan with { VehicleId = Guid.NewGuid() }).Errors,
+            error => error.Code == "loan_vehicle_locked");
+        Assert.Equal($"delivery-vehicle:{vehicleId:N}", DeliveryMutationRules.VehicleAdvisoryLockKey(loan.VehicleId));
+    }
+
+    [Fact]
     public void Delivery_and_reconciliation_require_a_canonical_existing_buyer()
     {
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };
@@ -1181,7 +1311,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Reconciled_payment_marks_vehicle_sold_and_private()
+    public void Vehicle_is_sold_only_after_finance_reconciliation_and_delivery_release()
     {
         var vehicle = VehicleSeed.LoanProcessing(publicVisible: false);
         var payment = new PaymentRecord
@@ -1191,10 +1321,54 @@ public sealed class BusinessRulesTests
             Status = PaymentStatus.Reconciled
         };
 
-        var result = WorkflowStatusRules.ApplyPaymentStatus(vehicle, payment);
+        var financeOnly = WorkflowStatusRules.ApplyPaymentStatus(vehicle, payment);
+        var releasedDelivery = new DeliverySchedule
+        {
+            VehicleId = vehicle.Id,
+            Status = DeliveryStatus.Released,
+            ScheduledDate = new DateOnly(2026, 6, 3)
+        };
+        var result = WorkflowStatusRules.ApplyPaymentStatus(vehicle, payment, [releasedDelivery]);
 
+        Assert.Equal(VehicleStatus.LoanProcessing, financeOnly.Status);
         Assert.Equal(VehicleStatus.Sold, result.Status);
         Assert.False(result.IsPublic);
+    }
+
+    [Fact]
+    public void Finance_reversal_and_reclear_preserve_the_original_release_month_sale_timestamp()
+    {
+        var releaseTime = new DateTime(2026, 8, 31, 10, 0, 0, DateTimeKind.Utc);
+        var vehicle = VehicleSeed.LoanProcessing(false);
+        var releasedDelivery = new DeliverySchedule
+        {
+            VehicleId = vehicle.Id,
+            Status = DeliveryStatus.Released,
+            ReleasedAt = releaseTime
+        };
+        var reconciled = new PaymentRecord { VehicleId = vehicle.Id, Status = PaymentStatus.Reconciled, NettPrice = 58000m };
+        var corrected = reconciled with { Status = PaymentStatus.Disbursed };
+
+        var soldInAugust = WorkflowStatusRules.ApplyWorkflowStatus(vehicle, [], [reconciled], [releasedDelivery]);
+        var temporarilyNotSold = WorkflowStatusRules.ApplyWorkflowStatus(soldInAugust, [], [corrected], [releasedDelivery]);
+        var soldAgainInSeptember = WorkflowStatusRules.ApplyWorkflowStatus(temporarilyNotSold, [], [reconciled], [releasedDelivery]);
+
+        Assert.Equal(VehicleStatus.Sold, soldInAugust.Status);
+        Assert.Equal(releaseTime, soldInAugust.SoldAt);
+        Assert.NotEqual(VehicleStatus.Sold, temporarilyNotSold.Status);
+        Assert.Equal(releaseTime, temporarilyNotSold.SoldAt);
+        Assert.Equal(VehicleStatus.Sold, soldAgainInSeptember.Status);
+        Assert.Equal(releaseTime, soldAgainInSeptember.SoldAt);
+        var loanStatusCopy = WorkflowStatusRules.ApplyLoanStatus(
+            soldInAugust,
+            new LoanApplication { VehicleId = vehicle.Id, CustomerId = Guid.NewGuid(), Status = LoanStatus.Pending });
+        Assert.Equal(releaseTime, loanStatusCopy.SoldAt);
+
+        var attributed = soldAgainInSeptember with { SalesAgentUserId = "agent-1", SalesAgentName = "Agent One" };
+        var augustWorkboard = SalesWorkboardRules.Create(["agent-1"], new DateOnly(2026, 8, 31), [attributed], [], [], [], [releasedDelivery], [reconciled], []);
+        var septemberWorkboard = SalesWorkboardRules.Create(["agent-1"], new DateOnly(2026, 9, 2), [attributed], [], [], [], [releasedDelivery], [reconciled], []);
+        Assert.Equal(1, augustWorkboard.SoldThisMonth);
+        Assert.Equal(0, septemberWorkboard.SoldThisMonth);
     }
 
     [Fact]
@@ -1315,6 +1489,9 @@ public sealed class BusinessRulesTests
         var editedAmount = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { NettPrice = 59000m, BossChecked = true });
         var editedDocuments = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { DocumentsPrepared = true, BossChecked = true });
         var editedChecklist = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { ChecklistValidated = true, BossChecked = true });
+        var editedBank = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { BankName = "DBS", BossChecked = true });
+        var editedInvoice = PaymentManagementReviewRules.PrepareForUpdate(payment, payment with { InvoiceNumber = "INV-1002", BossChecked = true });
+        var reviewed = PaymentManagementReviewRules.ApplyManagementReview(payment with { BossChecked = false });
 
         Assert.False(created.BossChecked);
         Assert.True(unchanged.BossChecked);
@@ -1323,6 +1500,23 @@ public sealed class BusinessRulesTests
         Assert.False(editedAmount.BossChecked);
         Assert.False(editedDocuments.BossChecked);
         Assert.False(editedChecklist.BossChecked);
+        Assert.False(PaymentManagementReviewRules.HasInvoiceRelatedChanges(payment, editedBank));
+        Assert.False(PaymentManagementReviewRules.HasInvoiceRelatedChanges(payment, editedDocuments));
+        Assert.False(PaymentManagementReviewRules.HasInvoiceRelatedChanges(payment, editedChecklist));
+        Assert.True(PaymentManagementReviewRules.HasInvoiceRelatedChanges(payment, editedInvoice));
+        Assert.True(PaymentManagementReviewRules.HasInvoiceRelatedChanges(payment, editedAmount));
+        Assert.Equal(payment with { BossChecked = true }, reviewed);
+    }
+
+    [Fact]
+    public void Payment_vehicle_identity_is_immutable_after_create()
+    {
+        var payment = new PaymentRecord { VehicleId = Guid.NewGuid(), NettPrice = 58000m };
+
+        Assert.True(PaymentManagementReviewRules.ValidateIdentity(payment, payment with { NettPrice = 59000m }).IsValid);
+        Assert.Contains(
+            PaymentManagementReviewRules.ValidateIdentity(payment, payment with { VehicleId = Guid.NewGuid() }).Errors,
+            error => error.Code == "payment_vehicle_locked");
     }
 
     [Fact]
@@ -1582,6 +1776,28 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Priority_actions_only_include_the_signed_in_roles_work_queue()
+    {
+        var today = new DateOnly(2026, 6, 1);
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), PlateNumber = "VPK1234" };
+        var actions = PriorityActionQueue.Create(
+            ["Loan", "HrSalary"],
+            [new LoanApplication { VehicleId = vehicle.Id, CustomerId = Guid.NewGuid(), Status = LoanStatus.Pending, SubmittedAt = today.AddDays(-3) }],
+            [new DeliverySchedule { VehicleId = vehicle.Id, Pic = "Delivery", Status = DeliveryStatus.Scheduled, ScheduledDate = today.AddDays(2) }],
+            [new SettlementReminder { VehicleId = vehicle.Id, Amount = 10m, Deadline = today, IsPaid = false }],
+            [], [], [], [],
+            [],
+            [new Lead { VehicleId = vehicle.Id, CustomerName = "New lead", Phone = "0123456789", Status = LeadStatus.New }],
+            [new HrLeaveRequest { StaffUserId = "staff-1", Status = HrLeaveStatus.Pending, StartDate = today, EndDate = today, Days = 1m }],
+            [vehicle],
+            today);
+
+        Assert.Contains(actions, action => action.Type == "LoanFollowUp" && action.Target == "Loans");
+        Assert.Contains(actions, action => action.Type == "LeaveApproval" && action.Target == "HrSalary");
+        Assert.DoesNotContain(actions, action => action.Target is "Delivery" or "Finance" or "Leads" or "Repairs");
+    }
+
+    [Fact]
     public void Payment_voucher_follow_up_is_due_until_paid()
     {
         var voucher = new PaymentVoucher
@@ -1690,6 +1906,30 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Collection_evidence_requires_strict_pdf_content_and_matching_declared_type()
+    {
+        var invalidPdf = "%PDF-1.7\nnot a PDF document"u8.ToArray();
+        var payment = new PaymentRecord { VehicleId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), NettPrice = 100m, SalesPrice = 100m };
+        var vehicle = new Vehicle { Id = payment.VehicleId, PlateNumber = "ABC1234", Make = "Toyota", Model = "Vios", Year = 2022, CustomerId = payment.CustomerId };
+        var customer = new Customer { Id = payment.CustomerId!.Value, Name = "Ali", Phone = "0123" };
+        var validPdf = FinanceInvoiceFactory.Create(payment, vehicle, customer, "YSH-INV-2026-000001", "finance-1", DateTime.UtcNow).Content;
+
+        var invalid = UploadPolicy.ValidateCollectionEvidenceContent("receipt.pdf", "application/pdf", invalidPdf);
+        var valid = UploadPolicy.ValidateCollectionEvidenceContent("receipt.pdf", "application/pdf", validPdf);
+        var mimeMismatch = UploadPolicy.ValidateCollectionEvidenceContent("receipt.pdf", "image/png", validPdf);
+        var extensionMismatch = UploadPolicy.ValidateCollectionEvidenceContent("receipt.png", "application/pdf", validPdf);
+
+        Assert.False(invalid.Result.IsValid);
+        Assert.Contains(invalid.Result.Errors, error => error.Code == "collection_evidence_content_invalid");
+        Assert.True(valid.Result.IsValid);
+        Assert.Equal("application/pdf", valid.MimeType);
+        Assert.False(mimeMismatch.Result.IsValid);
+        Assert.Contains(mimeMismatch.Result.Errors, error => error.Code == "collection_evidence_mime_mismatch");
+        Assert.False(extensionMismatch.Result.IsValid);
+        Assert.Contains(extensionMismatch.Result.Errors, error => error.Code == "collection_evidence_extension_mismatch");
+    }
+
+    [Fact]
     public void Document_ownership_validation_requires_one_compatible_workflow_record()
     {
         var repairId = Guid.NewGuid();
@@ -1719,8 +1959,12 @@ public sealed class BusinessRulesTests
         Assert.Equal(DocumentOwnershipType.Vehicle, DocumentOwnershipRules.DefaultFor(FileCategory.StatusReceipt));
         Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.LoanDocument));
         Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.DeliveryDocument));
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.InspectionReport));
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.HandoverPhoto));
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.SignedHandover));
         Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.Policy));
-        Assert.Equal(DocumentOwnershipType.Vehicle, DocumentOwnershipRules.DefaultFor(FileCategory.RoadTaxReceipt));
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.RoadTaxReceipt));
+        Assert.Equal(DocumentOwnershipType.Buyer, DocumentOwnershipRules.DefaultFor(FileCategory.WindscreenPolicy));
         Assert.Equal(DocumentOwnershipType.Vehicle, DocumentOwnershipRules.DefaultFor(FileCategory.RepairInvoice));
     }
 
@@ -1834,6 +2078,47 @@ public sealed class BusinessRulesTests
         Assert.Contains("both from and to", missingPairError);
         Assert.False(DashboardAnalyticsPeriodRules.TryParse("2026-06-30", "2026-06-01", out _, out var invertedError));
         Assert.Contains("must not be after", invertedError);
+    }
+
+    [Fact]
+    public void Ai_document_processing_metrics_group_period_activity_without_exposing_document_content()
+    {
+        var acceptedResult = JsonSerializer.Serialize(new OcrExtractionResult(FileCategory.IdentityCard, 0.92m, [], [], "identity text", [], null));
+        var lowConfidenceResult = JsonSerializer.Serialize(new OcrExtractionResult(FileCategory.Voc, 0.70m, [], [], "voc text", [], null));
+        var rejectedResult = JsonSerializer.Serialize(new OcrExtractionResult(FileCategory.ApDocument, 0.86m, [], [], "supporting text", [], null));
+        var jobs = new[]
+        {
+            new OcrJob { Category = FileCategory.IdentityCard, Status = OcrJobStatus.NeedsReview, ReviewDecision = OcrReviewDecision.Accepted, ResultJson = acceptedResult, CreatedAt = new DateTime(2026, 6, 10, 8, 0, 0, DateTimeKind.Utc) },
+            new OcrJob { Category = FileCategory.Voc, Status = OcrJobStatus.NeedsReview, ReviewDecision = OcrReviewDecision.Pending, ResultJson = lowConfidenceResult, CreatedAt = new DateTime(2026, 6, 11, 8, 0, 0, DateTimeKind.Utc) },
+            new OcrJob { Category = FileCategory.RepairInvoice, Status = OcrJobStatus.Failed, CreatedAt = new DateTime(2026, 6, 12, 8, 0, 0, DateTimeKind.Utc) },
+            new OcrJob { Category = FileCategory.ApDocument, Status = OcrJobStatus.NeedsReview, ReviewDecision = OcrReviewDecision.Rejected, ResultJson = rejectedResult, CreatedAt = new DateTime(2026, 6, 13, 8, 0, 0, DateTimeKind.Utc) },
+            new OcrJob { Category = FileCategory.LoanDocument, Status = OcrJobStatus.NeedsReview, ReviewDecision = OcrReviewDecision.Pending, CreatedAt = new DateTime(2026, 5, 25, 8, 0, 0, DateTimeKind.Utc) }
+        };
+        var usage = new AiUsageLimitSnapshot(
+            new AiServiceLimit { Service = AiService.Ocr, MonthlyRequestLimit = 100 },
+            UsedThisMonth: 32,
+            RemainingThisMonth: 68);
+
+        var metrics = AiDocumentProcessingMetrics.Create(jobs, usage, new DateOnly(2026, 6, 1), new DateOnly(2026, 6, 30));
+
+        Assert.Equal(4, metrics.ScanCount);
+        Assert.Equal(1, metrics.AcceptedCount);
+        Assert.Equal(1, metrics.RejectedCount);
+        Assert.Equal(1, metrics.LowConfidenceCount);
+        Assert.Equal(1, metrics.FailedCount);
+        Assert.Equal(2, metrics.PendingReviewCount);
+        Assert.Equal(32, metrics.UsedThisMonth);
+        Assert.Equal(100, metrics.MonthlyRequestLimit);
+        Assert.Equal(68, metrics.RemainingThisMonth);
+        Assert.Collection(metrics.Categories,
+            category => Assert.Equal(("IC", 1, 1, 0, 0, 0), (category.Label, category.ScanCount, category.AcceptedCount, category.RejectedCount, category.LowConfidenceCount, category.FailedCount)),
+            category => Assert.Equal(("VOC", 1, 0, 0, 1, 0), (category.Label, category.ScanCount, category.AcceptedCount, category.RejectedCount, category.LowConfidenceCount, category.FailedCount)),
+            category => Assert.Equal(("Invoices & receipts", 1, 0, 0, 0, 1), (category.Label, category.ScanCount, category.AcceptedCount, category.RejectedCount, category.LowConfidenceCount, category.FailedCount)),
+            category => Assert.Equal(("Supporting documents", 1, 0, 1, 0, 0), (category.Label, category.ScanCount, category.AcceptedCount, category.RejectedCount, category.LowConfidenceCount, category.FailedCount)));
+        var responseJson = JsonSerializer.Serialize(metrics);
+        Assert.DoesNotContain("identity text", responseJson);
+        Assert.DoesNotContain("voc text", responseJson);
+        Assert.DoesNotContain("supporting text", responseJson);
     }
 
     [Fact]
@@ -2105,9 +2390,10 @@ public sealed class BusinessRulesTests
         Assert.Equal(20m, summary.SalesFunnel.ConversionRate);
         Assert.Equal(2, summary.TopEnquiredVehicles[0].Count);
         Assert.Contains(vehicles[0].PlateNumber, summary.TopEnquiredVehicles[0].Label);
-        Assert.Equal(3, summary.RepairCostByVehicle.Length);
+        Assert.Equal(2, summary.RepairCostByVehicle.Length);
         Assert.Equal(2000m, summary.RepairCostByVehicle[0].Amount);
         Assert.Contains(vehicles[1].PlateNumber, summary.RepairCostByVehicle[0].Label);
+        Assert.DoesNotContain(summary.RepairCostByVehicle, item => item.Amount == 1000m);
         Assert.Single(summary.TopSellingModels);
         Assert.Equal(1, summary.TopSellingModels[0].Count);
         Assert.DoesNotContain(summary.TopSellingModels, item => item.Label == "Smoke Workflow");
@@ -2683,10 +2969,8 @@ public sealed class BusinessRulesTests
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { InsuranceHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { WindscreenInsuranceHandled = false }));
-        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { InspectionReportReference = " " }));
-        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { SignedHandoverReceived = false }));
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { FinalChecklistConfirmed = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxExpiryDate = new DateOnly(2026, 6, 1) }));
-        Assert.Contains("Signed handover document", DeliveryRules.MissingReleaseEvidence(delivery with { SignedHandoverReceived = false }));
         Assert.Contains("Road tax expired before scheduled delivery", DeliveryRules.ExpiredDeliveryDocuments(delivery with { RoadTaxExpiryDate = new DateOnly(2026, 6, 1) }));
     }
 
@@ -2738,7 +3022,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Delivery_validation_rejects_ready_for_release_when_checklist_is_incomplete()
+    public void Ordinary_delivery_validation_does_not_accept_raw_status_as_a_release_action()
     {
         var delivery = new DeliverySchedule
         {
@@ -2761,8 +3045,8 @@ public sealed class BusinessRulesTests
 
         var result = DeliveryRules.Validate(delivery);
 
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, error => error.Code == "delivery_not_ready");
+        Assert.True(result.IsValid);
+        Assert.False(DeliveryRules.IsReadyForRelease(delivery));
     }
 
     [Fact]
@@ -2772,6 +3056,7 @@ public sealed class BusinessRulesTests
         {
             Id = Guid.NewGuid(),
             VehicleId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
             Pic = "Ah Ming",
             Status = DeliveryStatus.ReadyForRelease,
             ScheduledDate = new DateOnly(2026, 6, 3)
@@ -2779,6 +3064,8 @@ public sealed class BusinessRulesTests
         var oldPolicy = new DocumentBlob
         {
             VehicleId = delivery.VehicleId,
+            CustomerId = delivery.CustomerId,
+            DeliveryScheduleId = delivery.Id,
             Category = FileCategory.Policy,
             FileName = "old-policy.pdf",
             UploadedBy = "delivery@ysheng.local",
@@ -2801,6 +3088,8 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsComplete);
         Assert.Contains(FileCategory.DeliveryDocument, result.MissingCategories);
+        Assert.Contains(FileCategory.HandoverPhoto, result.MissingCategories);
+        Assert.Contains(FileCategory.SignedHandover, result.MissingCategories);
         Assert.Contains(FileCategory.RoadTaxReceipt, result.MissingCategories);
         Assert.DoesNotContain(FileCategory.Policy, result.MissingCategories);
         var policyEvidence = result.Evidence.First(item => item.Category == FileCategory.Policy);
@@ -2837,7 +3126,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Delivery_validation_requires_report_reference_after_inspection()
+    public void Inspection_report_is_verified_from_exact_uploaded_evidence_not_a_typed_reference()
     {
         var delivery = new DeliverySchedule
         {
@@ -2850,10 +3139,447 @@ public sealed class BusinessRulesTests
             InspectionReportReference = " "
         };
 
+        var validation = DeliveryRules.Validate(delivery);
+        var documentCheck = DeliveryDocumentRules.CheckCompleteness(delivery, []);
+
+        Assert.True(validation.IsValid);
+        Assert.Contains(FileCategory.InspectionReport, documentCheck.MissingCategories);
+    }
+
+    [Fact]
+    public void Delivery_validation_requires_outstation_destination_and_transport()
+    {
+        var delivery = new DeliverySchedule
+        {
+            VehicleId = Guid.NewGuid(),
+            Pic = "Ah Ming",
+            Status = DeliveryStatus.Scheduled,
+            DeliveryType = DeliveryType.Outstation,
+            ScheduledDate = new DateOnly(2026, 8, 27)
+        };
+
         var result = DeliveryRules.Validate(delivery);
 
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, error => error.Code == "inspection_report_required");
+        Assert.Contains(result.Errors, error => error.Code == "outstation_delivery_address_required");
+        Assert.Contains(result.Errors, error => error.Code == "outstation_transport_required");
+    }
+
+    [Fact]
+    public void Delivery_transition_requires_order_or_a_rework_reason()
+    {
+        var scheduled = new DeliverySchedule { Pic = "Ah Ming", Status = DeliveryStatus.Scheduled, ScheduledDate = new DateOnly(2026, 8, 27) };
+
+        Assert.True(DeliveryRules.ValidateTransition(scheduled, scheduled with { Status = DeliveryStatus.Inspection }).IsValid);
+        Assert.False(DeliveryRules.ValidateTransition(scheduled, scheduled with { Status = DeliveryStatus.ReadyForRelease }).IsValid);
+        Assert.True(DeliveryRules.ValidateTransition(scheduled with { Status = DeliveryStatus.CarPreparation }, scheduled with { Status = DeliveryStatus.Inspection, RescheduleReason = "Tint needs rework" }).IsValid);
+        Assert.False(DeliveryRules.ValidateTransition(scheduled with { Status = DeliveryStatus.Released }, scheduled with { Status = DeliveryStatus.Scheduled }).IsValid);
+    }
+
+    [Fact]
+    public void Delivery_terminal_records_reject_even_same_status_updates()
+    {
+        var released = new DeliverySchedule { Status = DeliveryStatus.Released, ScheduledDate = new DateOnly(2026, 8, 27) };
+        var cancelled = released with { Status = DeliveryStatus.Cancelled };
+
+        var releasedError = Assert.Single(DeliveryRules.ValidateTransition(released, released).Errors);
+        var cancelledError = Assert.Single(DeliveryRules.ValidateTransition(cancelled, cancelled).Errors);
+
+        Assert.Equal("delivery_terminal_status", releasedError.Code);
+        Assert.DoesNotContain("Create a new delivery", releasedError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("delivery_terminal_status", cancelledError.Code);
+        Assert.Contains("Create a new delivery", cancelledError.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Delivery_create_resets_forged_progress_and_server_owned_fields()
+    {
+        var incoming = DeliveryWorkboardSeed.Ready() with
+        {
+            Id = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            PicUserId = "forged-user",
+            Pic = "Forged PIC",
+            Status = DeliveryStatus.Released,
+            ReleasedAt = DateTime.UtcNow,
+            ReleasedByUserId = "forged-user",
+            InvoiceUpdateRequestedAt = DateTime.UtcNow,
+            InspectionBookingReference = "BOOK-100"
+        };
+        var lockedCustomerId = Guid.NewGuid();
+
+        var created = DeliveryMutationRules.PrepareCreate(incoming, lockedCustomerId, "delivery-1", "Delivery One");
+
+        Assert.NotEqual(incoming.Id, created.Id);
+        Assert.Equal(lockedCustomerId, created.CustomerId);
+        Assert.Equal("delivery-1", created.PicUserId);
+        Assert.Equal("Delivery One", created.Pic);
+        Assert.Equal(DeliveryStatus.BookingInspection, created.Status);
+        Assert.Null(created.InspectionBookingReference);
+        Assert.False(created.InspectionDone);
+        Assert.False(created.PolishDone);
+        Assert.False(created.DocumentsPrepared);
+        Assert.False(created.CustomerAcknowledged);
+        Assert.Null(created.ReleasedAt);
+        Assert.Null(created.InvoiceUpdateRequestedAt);
+    }
+
+    [Fact]
+    public void Delivery_create_rejects_sold_or_previously_released_vehicle()
+    {
+        var soldVehicle = VehicleSeed.Sold(false);
+        var releasedVehicle = VehicleSeed.Available(false) with { Id = Guid.NewGuid() };
+        var priorRelease = new DeliverySchedule { VehicleId = releasedVehicle.Id, Status = DeliveryStatus.Released };
+
+        Assert.Contains(
+            DeliveryMutationRules.ValidateCreateEligibility(soldVehicle, []).Errors,
+            error => error.Code == "delivery_vehicle_sold");
+        Assert.Contains(
+            DeliveryMutationRules.ValidateCreateEligibility(releasedVehicle, [priorRelease]).Errors,
+            error => error.Code == "delivery_already_released");
+        Assert.True(DeliveryMutationRules.ValidateCreateEligibility(releasedVehicle, []).IsValid);
+    }
+
+    [Fact]
+    public void Vehicle_buyer_change_is_locked_by_active_or_released_delivery_history()
+    {
+        var existing = VehicleSeed.LoanProcessing(false) with { CustomerId = Guid.NewGuid() };
+        var update = existing with { CustomerId = Guid.NewGuid() };
+        var active = new DeliverySchedule { VehicleId = existing.Id, Status = DeliveryStatus.Scheduled };
+        var released = active with { Id = Guid.NewGuid(), Status = DeliveryStatus.Released };
+        var cancelled = active with { Id = Guid.NewGuid(), Status = DeliveryStatus.Cancelled };
+
+        Assert.Contains(
+            DeliveryMutationRules.ValidateVehicleCustomerChange(existing, update, [active]).Errors,
+            error => error.Code == "vehicle_customer_delivery_locked");
+        Assert.Contains(
+            DeliveryMutationRules.ValidateVehicleCustomerChange(existing, update, [released]).Errors,
+            error => error.Code == "vehicle_customer_delivery_locked");
+        Assert.True(DeliveryMutationRules.ValidateVehicleCustomerChange(existing, update, [cancelled]).IsValid);
+        Assert.True(DeliveryMutationRules.ValidateVehicleCustomerChange(existing, existing, [active]).IsValid);
+    }
+
+    [Fact]
+    public void Delivery_lock_order_is_vehicle_first_deduplicated_and_delivery_scoped()
+    {
+        var first = Guid.Parse("00000000-0000-0000-0000-000000000001");
+        var second = Guid.Parse("00000000-0000-0000-0000-000000000002");
+
+        Assert.Equal([first, second], DeliveryMutationRules.OrderedVehicleLockIds([second, first, second]));
+        Assert.StartsWith("delivery-vehicle:", DeliveryMutationRules.VehicleAdvisoryLockKey(first));
+        Assert.StartsWith("delivery:", DeliveryMutationRules.DeliveryAdvisoryLockKey(first));
+        Assert.NotEqual(DeliveryMutationRules.VehicleAdvisoryLockKey(first), DeliveryMutationRules.DeliveryAdvisoryLockKey(first));
+    }
+
+    [Fact]
+    public void Delivery_activity_summary_names_changed_operational_items()
+    {
+        var before = DeliveryWorkboardSeed.Ready() with
+        {
+            InspectionDone = false,
+            PolishDone = false,
+            TintedDone = false,
+            TwoDayNoticeSent = false,
+            CustomerAcknowledged = false,
+            FinalChecklistConfirmed = false
+        };
+        var after = before with
+        {
+            InspectionDone = true,
+            PolishDone = true,
+            TintedDone = true,
+            TwoDayNoticeSent = true,
+            CustomerAcknowledged = true,
+            FinalChecklistConfirmed = true
+        };
+
+        Assert.Equal(
+            "Updated inspection, polish, tint, customer notice, customer acknowledgement, final checklist",
+            DeliveryMutationRules.ActivitySummary(before, after));
+    }
+
+    [Fact]
+    public void Delivery_allows_only_one_active_plan_per_vehicle()
+    {
+        var vehicleId = Guid.NewGuid();
+        var currentId = Guid.NewGuid();
+        var active = new DeliverySchedule { Id = currentId, VehicleId = vehicleId, Status = DeliveryStatus.BookingInspection };
+        var released = active with { Id = Guid.NewGuid(), Status = DeliveryStatus.Released };
+
+        Assert.Contains(
+            DeliveryWorkboardRules.ValidateSingleActive(vehicleId, null, [active, released]).Errors,
+            error => error.Code == "delivery_active_exists");
+        Assert.True(DeliveryWorkboardRules.ValidateSingleActive(vehicleId, currentId, [active, released]).IsValid);
+    }
+
+    [Fact]
+    public void Delivery_evidence_must_match_the_exact_delivery_and_locked_buyer()
+    {
+        var delivery = DeliveryWorkboardSeed.Ready();
+        var correct = new DocumentBlob
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = delivery.VehicleId,
+            CustomerId = delivery.CustomerId,
+            DeliveryScheduleId = delivery.Id,
+            Category = FileCategory.Policy
+        };
+        var wrongDelivery = correct with { Id = Guid.NewGuid(), DeliveryScheduleId = Guid.NewGuid() };
+        var wrongBuyer = correct with { Id = Guid.NewGuid(), CustomerId = Guid.NewGuid() };
+
+        var check = DeliveryDocumentRules.CheckCompleteness(delivery, [wrongDelivery, wrongBuyer, correct]);
+        var policy = check.Evidence.Single(item => item.Category == FileCategory.Policy);
+
+        Assert.True(policy.IsPresent);
+        Assert.Equal(correct.Id, policy.DocumentId);
+        Assert.Equal(6, check.MissingCategories.Count);
+    }
+
+    [Fact]
+    public void Delivery_evidence_uses_file_signature_instead_of_claimed_mime_type()
+    {
+        var pdf = Encoding.ASCII.GetBytes("""
+            %PDF-1.4
+            1 0 obj
+            << /Type /Catalog /Pages 2 0 R >>
+            endobj
+            2 0 obj
+            << /Type /Pages /Count 0 >>
+            endobj
+            xref
+            0 3
+            0000000000 65535 f
+            trailer
+            << /Root 1 0 R /Size 3 >>
+            startxref
+            100
+            %%EOF
+            """);
+        static byte[] EncodeImage(SKEncodedImageFormat format)
+        {
+            using var bitmap = new SKBitmap(2, 2);
+            bitmap.Erase(SKColors.CornflowerBlue);
+            using var image = SKImage.FromBitmap(bitmap);
+            using var data = image.Encode(format, 90);
+            return data.ToArray();
+        }
+        var jpeg = EncodeImage(SKEncodedImageFormat.Jpeg);
+        var png = EncodeImage(SKEncodedImageFormat.Png);
+        var webp = EncodeImage(SKEncodedImageFormat.Webp);
+
+        var document = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.Policy, pdf);
+        var invalidPhoto = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.HandoverPhoto, pdf);
+        var photo = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.HandoverPhoto, jpeg);
+        var pngDocument = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.Policy, png);
+        var webpPhoto = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.HandoverPhoto, webp);
+        var truncatedPdf = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.Policy, "%PDF-"u8.ToArray());
+        var truncatedJpeg = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.HandoverPhoto, [0xff, 0xd8, 0xff]);
+        var truncatedPng = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.HandoverPhoto, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        var truncatedWebp = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.HandoverPhoto, "RIFF0000WEBP"u8.ToArray());
+        var fake = DeliveryEvidenceUploadRules.ValidateAndDetect(FileCategory.Policy, Encoding.UTF8.GetBytes("not a document"));
+
+        Assert.True(document.IsValid);
+        Assert.Equal("application/pdf", document.MimeType);
+        Assert.False(invalidPhoto.IsValid);
+        Assert.True(photo.IsValid);
+        Assert.Equal("image/jpeg", photo.MimeType);
+        Assert.Equal("image/png", pngDocument.MimeType);
+        Assert.Equal("image/webp", webpPhoto.MimeType);
+        Assert.False(truncatedPdf.IsValid);
+        Assert.False(truncatedJpeg.IsValid);
+        Assert.False(truncatedPng.IsValid);
+        Assert.False(truncatedWebp.IsValid);
+        Assert.Equal("delivery_evidence_content_invalid", fake.Error?.Code);
+    }
+
+    [Fact]
+    public void Workboard_stage_returns_one_next_action_and_blocks_open_invoice_request()
+    {
+        var planning = DeliveryWorkboardSeed.Ready() with { InspectionBookingReference = null };
+        var planningDocuments = DeliveryDocumentRules.CheckCompleteness(planning, DeliveryWorkboardSeed.EvidenceFor(planning));
+        Assert.Equal(DeliveryStage.PlanDelivery, DeliveryWorkboardRules.StageFor(planning, true, planningDocuments));
+        Assert.Equal("Add inspection booking", DeliveryWorkboardRules.NextAction(planning, true, planningDocuments));
+        Assert.Null(DeliveryWorkboardRules.Blocker(planning, true, planningDocuments));
+
+        var buyerNotLocked = DeliveryWorkboardSeed.Ready() with { CustomerId = null };
+        var buyerDocuments = DeliveryDocumentRules.CheckCompleteness(buyerNotLocked, DeliveryWorkboardSeed.EvidenceFor(buyerNotLocked));
+        Assert.Equal("Buyer not locked", DeliveryWorkboardRules.NextAction(buyerNotLocked, true, buyerDocuments));
+        Assert.Equal("Delivery buyer is not locked or no longer matches the vehicle.", DeliveryWorkboardRules.Blocker(buyerNotLocked, true, buyerDocuments));
+
+        var requestedAt = new DateTime(2026, 8, 27, 1, 0, 0, DateTimeKind.Utc);
+        var waiting = DeliveryWorkboardSeed.Ready() with
+        {
+            InvoiceUpdateRequestedAt = requestedAt,
+            InvoiceUpdateRequestReason = "Correct buyer address"
+        };
+        var waitingDocuments = DeliveryDocumentRules.CheckCompleteness(waiting, DeliveryWorkboardSeed.EvidenceFor(waiting));
+
+        Assert.Equal(DeliveryStage.ClearDocuments, DeliveryWorkboardRules.StageFor(waiting, true, waitingDocuments, new DateOnly(2026, 8, 27)));
+        Assert.Equal("Wait for Finance invoice update", DeliveryWorkboardRules.NextAction(waiting, true, waitingDocuments, today: new DateOnly(2026, 8, 27)));
+        Assert.Equal("Finance has not resolved the invoice update request yet.", DeliveryWorkboardRules.Blocker(waiting, true, waitingDocuments, today: new DateOnly(2026, 8, 27)));
+        Assert.False(DeliveryWorkboardRules.CanRelease(waiting, true, waitingDocuments, new DateOnly(2026, 8, 27)));
+
+        var resolved = waiting with { InvoiceUpdateResolvedAt = requestedAt.AddMinutes(10) };
+        var resolvedDocuments = DeliveryDocumentRules.CheckCompleteness(resolved, DeliveryWorkboardSeed.EvidenceFor(resolved));
+        Assert.Equal(DeliveryStage.Handover, DeliveryWorkboardRules.StageFor(resolved, true, resolvedDocuments, new DateOnly(2026, 8, 27)));
+        Assert.Equal("Release vehicle", DeliveryWorkboardRules.NextAction(resolved, true, resolvedDocuments, today: new DateOnly(2026, 8, 27)));
+        Assert.True(DeliveryWorkboardRules.CanRelease(resolved, true, resolvedDocuments, new DateOnly(2026, 8, 27)));
+    }
+
+    [Fact]
+    public void Release_checks_coverage_against_actual_handover_day()
+    {
+        var delivery = DeliveryWorkboardSeed.Ready() with
+        {
+            ScheduledDate = new DateOnly(2026, 8, 20),
+            InsuranceExpiryDate = new DateOnly(2026, 8, 25)
+        };
+        var documents = DeliveryDocumentRules.CheckCompleteness(delivery, DeliveryWorkboardSeed.EvidenceFor(delivery));
+
+        Assert.True(DeliveryWorkboardRules.CanRelease(delivery, true, documents, new DateOnly(2026, 8, 20)));
+        Assert.False(DeliveryWorkboardRules.CanRelease(delivery, true, documents, new DateOnly(2026, 8, 27)));
+        Assert.Contains("Insurance policy expired before scheduled delivery", DeliveryRules.ExpiredDeliveryDocuments(delivery, new DateOnly(2026, 8, 27)));
+    }
+
+    [Fact]
+    public void Active_delivery_requires_time_while_legacy_records_remain_visible_as_plan_blockers()
+    {
+        var legacy = DeliveryWorkboardSeed.Ready() with { ScheduledTime = null };
+        var documents = DeliveryDocumentRules.CheckCompleteness(legacy, DeliveryWorkboardSeed.EvidenceFor(legacy));
+
+        Assert.Contains(DeliveryMutationRules.ValidateActiveSchedule(legacy).Errors, error => error.Code == "delivery_schedule_time_required");
+        Assert.Equal(DeliveryStage.PlanDelivery, DeliveryWorkboardRules.StageFor(legacy, true, documents));
+        Assert.Equal("Set delivery time", DeliveryWorkboardRules.NextAction(legacy, true, documents));
+    }
+
+    [Fact]
+    public void Outstation_date_is_derived_from_delivery_schedule_and_standard_delivery_clears_it()
+    {
+        var vehicleId = Guid.NewGuid();
+        var releasedOutstation = new DeliverySchedule
+        {
+            VehicleId = vehicleId,
+            Status = DeliveryStatus.Released,
+            DeliveryType = DeliveryType.Outstation,
+            ScheduledDate = new DateOnly(2026, 8, 20),
+            ReleasedAt = new DateTime(2026, 8, 20, 1, 0, 0, DateTimeKind.Utc)
+        };
+        var activeOutstation = releasedOutstation with
+        {
+            Id = Guid.NewGuid(),
+            Status = DeliveryStatus.BookingInspection,
+            ScheduledDate = new DateOnly(2026, 8, 30),
+            ReleasedAt = null
+        };
+
+        Assert.Equal(new DateOnly(2026, 8, 30), DeliveryMutationRules.AuthoritativeOutstationDate(vehicleId, [releasedOutstation, activeOutstation]));
+        Assert.Null(DeliveryMutationRules.AuthoritativeOutstationDate(vehicleId, [releasedOutstation, activeOutstation with { DeliveryType = DeliveryType.Standard }]));
+        Assert.Null(DeliveryMutationRules.AuthoritativeOutstationDate(vehicleId, [activeOutstation with { Status = DeliveryStatus.Cancelled }]));
+    }
+
+    [Fact]
+    public void Sales_workboard_scopes_each_agent_and_counts_distinct_singapore_month_sales()
+    {
+        var today = new DateOnly(2026, 8, 27);
+        var sharedVehicle = VehicleSeed.LoanProcessing(false);
+        var soldVehicle = VehicleSeed.Sold(false) with
+        {
+            Id = Guid.NewGuid(),
+            PlateNumber = "SOLD1",
+            SalesAgentUserId = "agent-1",
+            SalesAgentName = "Agent One",
+            SoldAt = new DateTime(2026, 8, 1, 0, 30, 0, DateTimeKind.Utc)
+        };
+        var unassignedVehicle = VehicleSeed.Available(false) with { Id = Guid.NewGuid(), PlateNumber = "NEW1" };
+        var leads = new[]
+        {
+            new Lead { VehicleId = sharedVehicle.Id, Status = LeadStatus.Contacted, TakenByUserId = "agent-1", TakenByName = "Agent One", TakenAt = DateTime.UtcNow },
+            new Lead { Id = Guid.NewGuid(), VehicleId = sharedVehicle.Id, Status = LeadStatus.Contacted, TakenByUserId = "agent-2", TakenByName = "Agent Two", TakenAt = DateTime.UtcNow },
+            new Lead { Id = Guid.NewGuid(), VehicleId = soldVehicle.Id, Status = LeadStatus.Contacted, TakenByUserId = "agent-2", TakenByName = "Agent Two", TakenAt = DateTime.UtcNow },
+            new Lead { Id = Guid.NewGuid(), VehicleId = unassignedVehicle.Id, Status = LeadStatus.New, CustomerName = "New", Phone = "012" }
+        };
+        var vehicles = new[] { sharedVehicle, soldVehicle, unassignedVehicle };
+
+        var agentOne = SalesWorkboardRules.Create(["agent-1"], today, vehicles, leads, [], [], [], [], []);
+        var agentTwo = SalesWorkboardRules.Create(["agent-2"], today, vehicles, leads, [], [], [], [], []);
+        var boss = SalesWorkboardRules.Create(["agent-1", "agent-2"], today, vehicles, leads, [], [], [], [], [], includeUnassigned: true);
+
+        Assert.Equal(1, agentOne.SoldThisMonth);
+        Assert.Equal(1, agentOne.InProgressCount);
+        Assert.Equal(2, agentOne.Items.Count);
+        Assert.Single(agentTwo.Items);
+        Assert.Equal(0, agentTwo.SoldThisMonth);
+        Assert.DoesNotContain(agentTwo.Items, item => item.VehicleId == soldVehicle.Id);
+        Assert.All(agentTwo.Items, item => Assert.Equal("agent-2", item.SalesAgentUserId));
+        Assert.Contains(boss.Items, item => item.VehicleId == unassignedVehicle.Id && item.SalesAgentName == "Unassigned");
+    }
+
+    [Fact]
+    public void Finance_invoice_update_queue_includes_only_open_active_requests_with_canonical_identity()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan" };
+        var vehicle = VehicleSeed.LoanProcessing(false) with { CustomerId = customer.Id, PlateNumber = "QUEUE1", Make = "Toyota", Model = "Vios" };
+        var requestedAt = new DateTime(2026, 8, 28, 1, 0, 0, DateTimeKind.Utc);
+        var open = new DeliverySchedule
+        {
+            VehicleId = vehicle.Id,
+            CustomerId = customer.Id,
+            InvoiceUpdateRequestedAt = requestedAt,
+            InvoiceUpdateRequestReason = "Correct invoice address"
+        };
+        var resolved = open with { Id = Guid.NewGuid(), InvoiceUpdateResolvedAt = requestedAt.AddMinutes(5) };
+        var terminal = open with { Id = Guid.NewGuid(), Status = DeliveryStatus.Released };
+        var invalidBuyer = open with { Id = Guid.NewGuid(), CustomerId = Guid.NewGuid() };
+
+        var item = Assert.Single(DeliveryInvoiceUpdateQueueRules.Create([open, resolved, terminal, invalidBuyer], [vehicle], [customer]));
+
+        Assert.Equal(open.Id, item.Id);
+        Assert.Equal(vehicle.Id, item.VehicleId);
+        Assert.Equal("QUEUE1", item.PlateNumber);
+        Assert.Equal("Toyota Vios", item.VehicleLabel);
+        Assert.Equal("Ali Tan", item.CustomerName);
+        Assert.Equal("Correct invoice address", item.RequestReason);
+        Assert.Equal(requestedAt, item.RequestedAt);
+        Assert.DoesNotContain(item.GetType().GetProperties(), property => property.Name.Contains("Amount", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Sales_workboard_requires_finance_clearance_before_released_delivery_is_completed()
+    {
+        var vehicle = VehicleSeed.LoanProcessing(false) with { SalesAgentUserId = "agent-1", SalesAgentName = "Agent One" };
+        var released = new DeliverySchedule { VehicleId = vehicle.Id, Status = DeliveryStatus.Released };
+        var unfinishedRepair = new RepairJob { VehicleId = vehicle.Id, ChecklistDone = false };
+
+        var waitingForFinance = SalesWorkboardRules.Create(
+            ["agent-1"],
+            new DateOnly(2026, 8, 27),
+            [vehicle],
+            [],
+            [],
+            [unfinishedRepair],
+            [released],
+            [],
+            []);
+        var completed = SalesWorkboardRules.Create(
+            ["agent-1"],
+            new DateOnly(2026, 8, 27),
+            [vehicle],
+            [],
+            [],
+            [unfinishedRepair],
+            [released],
+            [new PaymentRecord { VehicleId = vehicle.Id, Status = PaymentStatus.Reconciled }],
+            []);
+
+        var waitingItem = Assert.Single(waitingForFinance.Items);
+        Assert.Equal("Delivery", waitingItem.Process);
+        Assert.Equal("Finance", waitingItem.ResponsibleDepartment);
+        Assert.Equal("Wait for Finance clearance", waitingItem.NextAction);
+        Assert.Equal(1, waitingForFinance.InProgressCount);
+
+        var completedItem = Assert.Single(completed.Items);
+        Assert.Equal("Completed", completedItem.Process);
+        Assert.Equal("Sale completed", completedItem.NextAction);
+        Assert.Equal(0, completed.InProgressCount);
     }
 
     [Fact]
@@ -3080,6 +3806,8 @@ public sealed class BusinessRulesTests
         Assert.True(DepartmentAccess.CanUploadDocument(["Sales"], FileCategory.Voc));
         Assert.True(DepartmentAccess.CanUploadDocument(["Loan"], FileCategory.LoanDocument));
         Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.Policy));
+        Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.HandoverPhoto));
+        Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.SignedHandover));
         Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.RoadTaxReceipt));
         Assert.True(DepartmentAccess.CanUploadDocument(["Repair"], FileCategory.RepairInvoice));
         Assert.True(DepartmentAccess.CanUploadDocument(["Finance"], FileCategory.PaymentReceipt));
@@ -3524,4 +4252,58 @@ internal static class VehicleSeed
     public static Vehicle Sold(bool publicVisible) => Available(publicVisible) with { Status = VehicleStatus.Sold };
 
     public static Vehicle LoanProcessing(bool publicVisible) => Available(publicVisible) with { Status = VehicleStatus.LoanProcessing };
+}
+
+internal static class DeliveryWorkboardSeed
+{
+    public static DeliverySchedule Ready() => new()
+    {
+        Id = Guid.NewGuid(),
+        VehicleId = Guid.NewGuid(),
+        CustomerId = Guid.NewGuid(),
+        PicUserId = "delivery-1",
+        Pic = "Delivery One",
+        Status = DeliveryStatus.BookingInspection,
+        DeliveryType = DeliveryType.Standard,
+        ScheduledDate = new DateOnly(2026, 8, 27),
+        ScheduledTime = new TimeOnly(10, 0),
+        InspectionBookingReference = "BOOK-100",
+        InspectionDone = true,
+        PolishDone = true,
+        TintedDone = true,
+        WashDone = true,
+        DocumentsPrepared = true,
+        TwoDayNoticeSent = true,
+        InsuranceHandled = true,
+        InsuranceExpiryDate = new DateOnly(2026, 12, 31),
+        RoadTaxHandled = true,
+        RoadTaxExpiryDate = new DateOnly(2026, 12, 31),
+        WindscreenInsuranceHandled = true,
+        WindscreenInsuranceExpiryDate = new DateOnly(2026, 12, 31),
+        CustomerAcknowledged = true,
+        FinalChecklistConfirmed = true
+    };
+
+    public static DocumentBlob[] EvidenceFor(DeliverySchedule delivery) =>
+    [
+        File(delivery, FileCategory.DeliveryDocument),
+        File(delivery, FileCategory.InspectionReport),
+        File(delivery, FileCategory.HandoverPhoto),
+        File(delivery, FileCategory.SignedHandover),
+        File(delivery, FileCategory.Policy),
+        File(delivery, FileCategory.RoadTaxReceipt),
+        File(delivery, FileCategory.WindscreenPolicy)
+    ];
+
+    private static DocumentBlob File(DeliverySchedule delivery, FileCategory category) => new()
+    {
+        VehicleId = delivery.VehicleId,
+        CustomerId = delivery.CustomerId,
+        DeliveryScheduleId = delivery.Id,
+        OwnershipType = DocumentOwnershipType.Buyer,
+        Category = category,
+        FileName = $"{category}.pdf",
+        MimeType = "application/pdf",
+        UploadedBy = "delivery@ysheng.local"
+    };
 }

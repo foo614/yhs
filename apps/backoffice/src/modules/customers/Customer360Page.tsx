@@ -43,12 +43,16 @@ const documentLabels: Record<CustomerProfileDocument["category"], string> = {
   StatusReceipt: "Status Receipt",
   LoanDocument: "Loan Document",
   DeliveryDocument: "Delivery Document",
+  HandoverPhoto: "Handover Photo",
+  SignedHandover: "Signed Handover",
   Policy: "Policy",
   RoadTaxReceipt: "Road Tax Receipt",
   RepairInvoice: "Repair Invoice",
   PaymentReceipt: "Payment Receipt",
   PaymentInvoice: "Payment Invoice",
-  MedicalCertificate: "Medical Certificate"
+  MedicalCertificate: "Medical Certificate",
+  InspectionReport: "Inspection Report",
+  WindscreenPolicy: "Windscreen Policy"
 };
 
 function displayValue(value?: string | number | null) {

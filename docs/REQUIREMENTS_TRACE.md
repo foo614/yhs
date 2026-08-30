@@ -39,16 +39,16 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 
 | Module | Status | Evidence |
 | --- | --- | --- |
-| Dashboard | Implemented, verified | Summary metrics including Total Profit, aging buckets, reminder inbox filters; backend tests and smoke checks. |
+| Dashboard | Implemented, verified | Current unsold-stock cost and projected margin, selected-period realised sold profit, aging buckets, and the role-scoped priority queue; backend, back-office, and smoke checks. |
 | Vehicles/intake | Implemented, verified | Vehicle CRUD, customer/owner links, purchase invoice tracking, duplicate plate validation, upload metadata. |
 | Repairs/refurbishment | Implemented, verified | Repair jobs, repair parts, supplier invoices, duplicate/wrong-plate validation, derived supplier summary, supplier invoice aging, high-cost repair approval gates, repair document uploads. |
 | Loan workflow | Implemented, verified | Loan CRUD, LOU status rules, document completeness check, 3-day reminders, loan-owned uploads. |
-| Delivery workflow | Implemented, verified | Scheduling, PIC, inspection booking/report, handover refs, preparation checklist, release readiness, 2-day notice. |
-| Finance/payment tracking | Implemented, verified | Payments, manual reconciliation prerequisites, audited bank-collection CSV export for manual accounting submission, settlements, daily spend, broker commissions/CP58 state, debt recovery, payment vouchers, finance document uploads. |
-| Leads triage | Implemented, verified | Public enquiries appear in back office, lead/customer linking, status/customer-link filters, duplicate phone reuse. |
+| Delivery workflow | Implemented; focused verification pending | One active plan per vehicle; canonical buyer lock with controlled Boss/Admin correction for legacy rows; active-staff PIC; server-derived Plan delivery, Prepare car, Clear documents, and Handover stages; inspection, polish/tint/wash, coverage, notice, outstation, handover, exact delivery evidence, Finance and open-invoice-request release gates, activity history, and immutable terminal records. |
+| Finance/payment tracking | Implemented for V2 non-cash collections; physical-cash V2 linking remains follow-up work | YS Heng sales-invoice PDF generation; server-calculated nett price with audited different-user Boss/Admin variance approval; multiple idempotent partial collections with globally unique active references; collection-linked evidence with strict PDF/image validation; maker-checker reconciliation; pending, approved, disbursed, reconciled, and reversed states; reconciled-only balance and delivery-aware sold-state derivation; canonical-buyer locking; legacy compatibility; AutoCount Excel mapping export for manual submission; settlements, spend, commissions, debt recovery, and vouchers. |
+| Leads triage | Implemented; focused verification pending | Public enquiries appear in back office, lead/customer linking, status/customer-link filters, duplicate phone reuse, Sales-agent attribution, and a server-scoped My Cars view with monthly sold and current-process counts. |
 | Audit log | Implemented, verified | Authenticated mutations write staff actor; Boss/Admin audit log filters by actor/action/entity. |
 | Admin users/roles | Implemented, verified | Staff creation, role update, display-name update, password reset, enable/disable, validation, role enforcement. |
-| HR/Salary | Implemented as next MVP slice | Staff self-service attendance, leave/MC requests, own payslips, HR/Admin approvals, AL/MC balances, working-day setup, payroll profiles, and payslip generation are implemented under authenticated back-office access. |
+| HR/Salary | Implemented as first workforce-operations release | Staff self-service attendance and leave/MC requests; Boss-only approved-leave availability calendar; office CIDR attendance verification with no raw-IP history; audited HR corrections; AL/MC balances; monthly and hourly payroll profiles; and payslip generation under authenticated back-office access. WhatsApp/AI conflict reminders and outstation assignment remain blocked follow-up work. |
 
 ## API And Security
 
@@ -68,10 +68,10 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| PostgreSQL blob storage | Implemented, verified | `VehiclePhoto` and `DocumentBlob` bytea columns; smoke upload/download checks. |
+| PostgreSQL blob storage | Implemented; focused verification pending | `VehiclePhoto` and `DocumentBlob` bytea columns; workflow ownership includes exact repair, payment, collection, and delivery schedule links; the smoke path is updated for exact delivery ownership. |
 | Metadata/checksum/uploader/category | Implemented, verified | API stores and returns file metadata; smoke checks checksum/uploader metadata. |
 | Thumbnail generation | Implemented, verified | SkiaSharp thumbnail creation and public photo selection; public listing uses photo endpoint. |
-| Upload size limits | Implemented, verified | 5 MB photos, 10 MB documents; invalid upload smoke checks. |
+| Upload size limits | Implemented; focused verification pending | 5 MB photos, 10 MB documents; delivery evidence uses detected PDF/image signatures and collection evidence uses strict PdfPig PDF parsing or bounded image decoding; focused tests and the updated smoke path cover invalid content. |
 | Category-aware authorization | Implemented, verified | Upload policy maps categories to module roles; smoke checks finance/sales category restrictions. |
 
 ## Automation And Extension Boundaries
@@ -79,10 +79,10 @@ This trace maps the requested YS Heng front-office/back-office/API MVP to curren
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Rules-based reminders | Implemented, verified | Reminder worker and dashboard reminder inbox with due/type filters and dashboard drill-down targets; smoke checks loan, delivery, payment, spend, debt, voucher reminders. |
-| Workflow validations/status changes | Implemented, verified | Loan moves vehicles to LoanProcessing/private; reconciled/corrected payments update sold/loan-processing state; smoke checks automation. |
+| Workflow validations/status changes | Implemented; focused verification pending | Loan moves vehicles to LoanProcessing/private; delivery accepts one active plan, locks buyer/PIC, and keeps terminal records immutable; a Finance V2 receivable is settled only by reconciled collections, while `Sold` requires that clearance plus released delivery; focused tests and the updated smoke path cover the new gates. |
 | Audit trails | Implemented, verified | Mutation audit records with authenticated staff email; public lead audit actor. |
-| OCR/AI/WhatsApp/accounting export | OCR and manual accounting export implemented for first scope; other automation remains extension point | Document OCR uses Google Document AI with optional specialized invoice/expense processors and stores extracted draft fields in `OcrJobs`; Finance exports a spreadsheet for manual AutoCount submission, while WhatsApp, loan eligibility prediction, photo optimization, and profit prediction remain extension points. |
-| Salary/pay slip/CP58 generation | Implemented for HR payslips; CP58 remains extension point | HR payslips calculate daily salary from configured working days and exclude statutory payroll formulas; CP58 state remains represented without generating statutory forms. |
+| OCR/AI/WhatsApp/accounting export | OCR and manual accounting export implemented for first scope; other automation remains extension point | Document OCR uses Google Document AI with optional specialized invoice/expense processors and stores extracted draft fields in `OcrJobs`; Finance exports customers, vehicles, sales invoices, collections, purchases, payments, and expenses for staff review and manual AutoCount submission; it is not a verified direct integration. WhatsApp, loan eligibility prediction, photo optimization, and profit prediction remain extension points. |
+| Salary/pay slip/CP58 generation | Implemented for monthly and hourly HR payslips; CP58 remains extension point | Monthly payslips retain configured-working-day calculation. Hourly payslips use completed eligible attendance time, hourly rate, allowances, and manual deductions; no automatic break, overtime multiplier, or paid leave/MC hours. CP58 state remains represented without generating statutory forms. |
 
 ## Verification Evidence
 

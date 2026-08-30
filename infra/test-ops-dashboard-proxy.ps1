@@ -23,6 +23,7 @@ foreach ($expected in @(
   'uri replace /js/app-theme.js /ops/js/app-theme.js',
   '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
   'uri replace /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js /ops/_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
+  '@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js /Components/Controls/Chart/MetricTable.razor.js',
   '@ops-dashboard-route path /resources /resources/* /consolelogs /consolelogs/* /structuredlogs /structuredlogs/* /traces /traces/* /metrics /metrics/*',
   'rewrite * /ops{uri}',
   'reverse_proxy ops-proxy:8080'
@@ -33,18 +34,30 @@ foreach ($expected in @(
 $loginRouteIndex = $caddyfile.IndexOf('@ops-login-script path /Components/Pages/Login.razor.js')
 $dashboardRouteIndex = $caddyfile.IndexOf('@ops-dashboard-route path /resources')
 $apiRouteIndex = $caddyfile.IndexOf('@api path /api/*')
-if ($loginRouteIndex -lt 0 -or $dashboardRouteIndex -lt 0 -or $apiRouteIndex -lt 0 -or $loginRouteIndex -ge $apiRouteIndex -or $dashboardRouteIndex -ge $apiRouteIndex) {
-  throw "The Aspire login script route must be evaluated before the back-office API route."
+$backOfficeFallbackIndex = $caddyfile.IndexOf('reverse_proxy backoffice:3001')
+if ($loginRouteIndex -lt 0 -or $dashboardRouteIndex -lt 0 -or $apiRouteIndex -lt 0 -or $backOfficeFallbackIndex -lt 0 -or $loginRouteIndex -ge $apiRouteIndex -or $dashboardRouteIndex -ge $apiRouteIndex -or $loginRouteIndex -ge $backOfficeFallbackIndex -or $dashboardRouteIndex -ge $backOfficeFallbackIndex) {
+  throw "The Aspire dashboard routes must be evaluated before the back-office API and fallback routes."
 }
 
 foreach ($assetRoute in @(
   '@ops-theme-script path /js/app-theme.js',
-  '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js'
+  '@ops-fluent-script path /_content/Microsoft.FluentUI.AspNetCore.Components/Microsoft.FluentUI.AspNetCore.Components.lib.module.js',
+  '@ops-metrics-scripts path /js/app-metrics.js /js/plotly-basic-2.35.2.min.js /Components/Controls/Chart/MetricTable.razor.js'
 )) {
   $assetRouteIndex = $caddyfile.IndexOf($assetRoute)
-  if ($assetRouteIndex -lt 0 -or $assetRouteIndex -ge $apiRouteIndex) {
-    throw "The Aspire dashboard asset route must be evaluated before the back-office API route: $assetRoute"
+  if ($assetRouteIndex -lt 0 -or $assetRouteIndex -ge $apiRouteIndex -or $assetRouteIndex -ge $backOfficeFallbackIndex) {
+    throw "The Aspire dashboard asset route must be evaluated before the back-office API and fallback routes: $assetRoute"
   }
+}
+
+$metricsAssetRoutePattern = '(?s)@ops-metrics-scripts path /js/app-metrics\.js /js/plotly-basic-2\.35\.2\.min\.js /Components/Controls/Chart/MetricTable\.razor\.js\s+handle @ops-metrics-scripts \{\s+rewrite \* /ops\{uri\}\s+reverse_proxy ops-proxy:8080\s+\}'
+if (-not [regex]::IsMatch($caddyfile, $metricsAssetRoutePattern)) {
+  throw "The Aspire metrics asset route must rebase all three exact JavaScript paths through /ops."
+}
+
+$dashboardRoutePattern = '(?s)@ops-dashboard-route path /resources /resources/\* /consolelogs /consolelogs/\* /structuredlogs /structuredlogs/\* /traces /traces/\* /metrics /metrics/\*\s+handle @ops-dashboard-route \{\s+redir \* /ops\{uri\} temporary\s+\}'
+if (-not [regex]::IsMatch($caddyfile, $dashboardRoutePattern)) {
+  throw "Escaped Aspire dashboard routes must redirect the browser to /ops before dashboard authentication."
 }
 
 foreach ($expected in @(

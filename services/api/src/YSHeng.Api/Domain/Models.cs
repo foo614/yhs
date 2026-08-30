@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace YSHeng.Api.Domain;
 
@@ -7,22 +8,29 @@ public enum VehicleStatus { Available, LoanProcessing, Sold }
 public enum LeadStatus { New, Contacted, Closed }
 public enum LeadClosureOutcome { Sold, Lost, Invalid }
 public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
-public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released }
+public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released, Cancelled }
+public enum DeliveryType { Standard, Outstation }
+public enum DeliveryStage { PlanDelivery, PrepareCar, ClearDocuments, Handover, Completed, Cancelled }
 public enum PaymentStatus { Pending, Approved, Disbursed, Reconciled }
+public enum CollectionStatus { Pending, Reconciled, Reversed }
+public enum CollectionMethod { BookingDeposit, DownPayment, BankTransfer, BankDisbursement, Cheque, Card, TradeInCredit, Other, Cash }
+public enum FinancingStatus { NotApplicable, Pending, Approved, Disbursed }
+public enum ReceivableStatus { Draft, WaitingForApproval, ReadyToCollect, PartiallyPaid, Paid, AttentionNeeded }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum CashHandoverStatus { ReceivedBySales, PendingHandover, HandedOver, Rejected, Receipted }
 public enum DebtRecoveryStatus { Open, FollowedUp, Closed }
 public enum RepairApprovalStatus { Pending, Approved, Rejected }
 public enum SupplierInvoiceAgingStatus { Unmatched, DueSoon, Overdue, Paid }
 public enum HrAttendanceStatus { Present, Late, HalfDay, Absent }
-public enum HrAttendanceVerificationMethod { Manual, OfficeQr, Outstation, ManualException }
+public enum HrAttendanceVerificationMethod { Manual, OfficeQr, Outstation, ManualException, OfficeIp }
 public enum HrAttendanceAction { CheckIn, CheckOut }
 public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave }
 public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrBusinessTripStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrAttendanceReminderType { PendingApproval, UpcomingOutstation, MissingCheckOut }
 public enum HrPayslipStatus { Draft, Generated }
-public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate }
+public enum HrEmploymentType { Monthly, Hourly }
+public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate, InspectionReport, WindscreenPolicy }
 public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed }
 public enum OcrReviewDecision { Pending, Accepted, Rejected }
@@ -60,6 +68,8 @@ public sealed record Vehicle
     public string? OutstationPickupBookingSlip { get; init; }
     public DateOnly IntakeDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
     public DateTime? SoldAt { get; init; }
+    public string? SalesAgentUserId { get; init; }
+    public string? SalesAgentName { get; init; }
 }
 
 public sealed record VehicleCatalogModel
@@ -148,6 +158,8 @@ public sealed record DocumentBlob
     public Guid? OwnerId { get; init; }
     public Guid? RepairJobId { get; init; }
     public Guid? PaymentRecordId { get; init; }
+    public Guid? CollectionTransactionId { get; init; }
+    public Guid? DeliveryScheduleId { get; init; }
     public DocumentOwnershipType OwnershipType { get; init; } = DocumentOwnershipType.Vehicle;
     public FileCategory Category { get; init; }
     public string FileName { get; init; } = "";
@@ -222,9 +234,17 @@ public sealed record DeliverySchedule
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
+    public Guid? CustomerId { get; init; }
+    public string? PicUserId { get; init; }
     public string Pic { get; init; } = "";
     public DeliveryStatus Status { get; init; } = DeliveryStatus.BookingInspection;
+    public DeliveryType DeliveryType { get; init; } = DeliveryType.Standard;
     public DateOnly ScheduledDate { get; init; }
+    public TimeOnly? ScheduledTime { get; init; }
+    public string? DeliveryAddress { get; init; }
+    public string? TransportMethod { get; init; }
+    public string? RescheduleReason { get; init; }
+    public string? CancellationReason { get; init; }
     public bool PolishDone { get; init; }
     public bool TintedDone { get; init; }
     public bool WashDone { get; init; }
@@ -247,13 +267,41 @@ public sealed record DeliverySchedule
     public bool SignedHandoverReceived { get; init; }
     public bool CustomerAcknowledged { get; init; }
     public bool FinalChecklistConfirmed { get; init; }
+    public DateTime? ReleasedAt { get; init; }
+    public string? ReleasedByUserId { get; init; }
+    public DateTime? InvoiceUpdateRequestedAt { get; init; }
+    public string? InvoiceUpdateRequestedByUserId { get; init; }
+    public string? InvoiceUpdateRequestReason { get; init; }
+    public DateTime? InvoiceUpdateResolvedAt { get; init; }
+    public string? InvoiceUpdateResolvedByUserId { get; init; }
+}
+
+public sealed record DeliveryActivity
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid DeliveryScheduleId { get; init; }
+    public string Action { get; init; } = "";
+    public string ActorUserId { get; init; } = "";
+    public string ActorName { get; init; } = "";
+    public string Summary { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record PaymentRecord
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
+    public Guid? CustomerId { get; init; }
     public decimal NettPrice { get; init; }
+    public decimal CalculatedNettPrice { get; init; }
+    public decimal NettPriceVariance { get; init; }
+    public string? NettPriceOverrideReason { get; init; }
+    public string? NettPriceOverrideRequestedBy { get; init; }
+    public DateTime? NettPriceOverrideRequestedAt { get; init; }
+    public string? NettPriceOverrideApprovedBy { get; init; }
+    public DateTime? NettPriceOverrideApprovedAt { get; init; }
+    public string FormulaVersion { get; init; } = "legacy";
+    public int FinanceWorkflowVersion { get; init; } = 1;
     public PaymentStatus Status { get; init; } = PaymentStatus.Pending;
     public string? ReceiptNumber { get; init; }
     public string? InvoiceNumber { get; init; }
@@ -276,6 +324,11 @@ public sealed record FinanceInvoice
     public Guid PaymentRecordId { get; init; }
     public Guid VehicleId { get; init; }
     public Guid CustomerId { get; init; }
+    public string CustomerName { get; init; } = "";
+    public string? CustomerPhone { get; init; }
+    public string? CustomerAddress { get; init; }
+    public string VehiclePlateNumber { get; init; } = "";
+    public string VehicleDescription { get; init; } = "";
     public string InvoiceNumber { get; init; } = "";
     public DateOnly InvoiceDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
     public decimal Amount { get; init; }
@@ -378,6 +431,31 @@ public sealed record OfficialReceipt
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 }
 
+public sealed record CollectionTransaction
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid PaymentRecordId { get; init; }
+    public Guid IdempotencyKey { get; init; } = Guid.NewGuid();
+    [JsonIgnore]
+    public string IdempotencyFingerprint { get; init; } = "";
+    public decimal Amount { get; init; }
+    public CollectionMethod Method { get; init; }
+    public CollectionStatus Status { get; init; } = CollectionStatus.Pending;
+    public FinancingStatus FinancingStatus { get; init; } = FinancingStatus.NotApplicable;
+    public string? Reference { get; init; }
+    [JsonIgnore]
+    public string? NormalizedReference { get; init; }
+    public DateOnly ReceivedDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public string? Notes { get; init; }
+    public string CreatedBy { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public string? ReconciledBy { get; init; }
+    public DateTime? ReconciledAt { get; init; }
+    public string? ReversedBy { get; init; }
+    public DateTime? ReversedAt { get; init; }
+    public string? ReversalReason { get; init; }
+}
+
 public sealed record HrAttendanceRecord
 {
     public Guid Id { get; init; } = Guid.NewGuid();
@@ -387,6 +465,7 @@ public sealed record HrAttendanceRecord
     public DateTime? CheckOutAt { get; init; }
     public HrAttendanceStatus Status { get; init; } = HrAttendanceStatus.Present;
     public HrAttendanceVerificationMethod VerificationMethod { get; init; } = HrAttendanceVerificationMethod.Manual;
+    public string? OfficeNetworkLabel { get; init; }
     public string? Notes { get; init; }
 }
 
@@ -433,6 +512,17 @@ public sealed record HrAttendanceReminderPolicy
     public string UpdatedBy { get; init; } = "";
     public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }
+
+public sealed record HrAttendanceNetwork
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string Label { get; init; } = "";
+    public string Cidr { get; init; } = "";
+    public bool IsActive { get; init; } = true;
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrCalendarAvailability(string StaffUserId, string StaffName, DateOnly Date, string Status = "Unavailable");
 
 public sealed record HrLeaveRequest
 {
@@ -501,7 +591,9 @@ public sealed record HrPayrollProfile
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string StaffUserId { get; init; } = "";
+    public HrEmploymentType EmploymentType { get; init; } = HrEmploymentType.Monthly;
     public decimal MonthlyBaseSalary { get; init; }
+    public decimal HourlyRate { get; init; }
     public decimal OvertimeHours { get; init; }
     public decimal OvertimeRate { get; init; }
     public decimal Allowances { get; init; }
@@ -525,7 +617,11 @@ public sealed record HrPayslip
     public string StaffUserId { get; init; } = "";
     public Guid PayPeriodId { get; init; }
     public HrPayslipStatus Status { get; init; } = HrPayslipStatus.Generated;
+    public HrEmploymentType EmploymentType { get; init; } = HrEmploymentType.Monthly;
     public decimal BaseSalary { get; init; }
+    public decimal HourlyRate { get; init; }
+    public decimal WorkedHours { get; init; }
+    public decimal AttendancePay { get; init; }
     public int WorkingDays { get; init; }
     public decimal DailySalary { get; init; }
     public decimal UnpaidLeaveDays { get; init; }
