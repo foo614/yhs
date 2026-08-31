@@ -8,7 +8,7 @@ import {
   UserOutlined
 } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
-import { OperationsProTable } from "../shared/OperationsProTable";
+import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import {
   Alert,
   Button,
@@ -547,7 +547,7 @@ export function DeliveryWorkboardPage({
         {eligibleVehicles.length === 0 && !loading && <Alert type="info" showIcon message="No buyer-confirmed car is waiting for a new delivery." />}
         {picOptions.length === 0 && !loading && <Alert type="warning" showIcon message="No active Delivery PIC is available. Ask Admin to assign Delivery access." />}
 
-        <div className="deliveryWorkboardToolbar">
+        <div className="deliveryWorkboardToolbar pageFilterMobileOnly">
           <Input.Search
             allowClear
             value={keyword}
@@ -609,11 +609,36 @@ export function DeliveryWorkboardPage({
             />}
           </div>
           <OperationsProTable
-            className="deliveryWorkboardTable"
+            className="deliveryWorkboardTable nativeSearchDesktopOnly"
             rowKey="id"
             size="small"
             columns={columns}
             dataSource={filteredItems}
+            nativeSearch={{
+              fields: [
+                { name: "plate", label: "Plate" },
+                { name: "customer", label: "Customer" },
+                { name: "pic", label: "PIC", options: picOptions.map((pic) => ({ value: pic.id, label: pic.displayName })) },
+                { name: "schedule", label: "Schedule" },
+                { name: "stage", label: "Stage", options: Object.entries(stageMeta).map(([value, meta]) => ({ value, label: meta.shortLabel })) }
+              ],
+              values: {
+                pic: picFilter === "All" ? undefined : picFilter,
+                stage: stageFilter === "All" ? undefined : stageFilter
+              },
+              onSubmit: (values) => {
+                setKeyword(operationsKeywordFromFields(values, ["plate", "customer", "schedule"]));
+                setPicFilter((values.pic as string | undefined) ?? "All");
+                setStageFilter((values.stage as DeliveryWorkboardStage | undefined) ?? "All");
+                setMobilePage(1);
+              },
+              onReset: () => {
+                setKeyword("");
+                setPicFilter("All");
+                setStageFilter("All");
+                setMobilePage(1);
+              }
+            }}
             pagination={{ pageSize: 10, showSizeChanger: false }}
             scroll={{ x: 1040 }}
             locale={{ emptyText: "No deliveries match these filters." }}

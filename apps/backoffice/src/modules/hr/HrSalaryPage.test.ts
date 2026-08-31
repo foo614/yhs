@@ -66,10 +66,7 @@ describe("HR record list helpers", () => {
 
   it("keeps policy editing to the existing rows and disables row creation", () => {
     expect(leavePolicyTableConfig).toEqual({
-      search: false,
-      options: false,
-      pagination: false,
-      recordCreatorProps: false
+      pagination: false
     });
   });
 

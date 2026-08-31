@@ -22,7 +22,12 @@ function New-TestEnvFile {
     SEED_ADMIN_PASSWORD = "S3cure-admin-password!"
     SEED_DATA_ENABLED = "true"
     ASPNETCORE_ENVIRONMENT = "Production"
-    OCR_PROVIDER = "LocalMock"
+    GOOGLE_DOCUMENT_AI_PROJECT_ID = "ysheng-test"
+    GOOGLE_DOCUMENT_AI_LOCATION = "asia-southeast1"
+    GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID = "general-ocr-processor"
+    GOOGLE_DOCUMENT_AI_INVOICE_PROCESSOR_ID = "invoice-processor"
+    GOOGLE_DOCUMENT_AI_EXPENSE_PROCESSOR_ID = "expense-processor"
+    GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH = "/opt/ysheng/shared/google-document-ai.json"
     ASPIRE_DASHBOARD_BROWSER_TOKEN = "dashboard-browser-token-with-32-characters"
     ASPIRE_DASHBOARD_OTLP_API_KEY = "dashboard-otlp-key-with-32-characters"
     PUBLIC_API_BASE_URL = "https://portal.ysheng.example.my"
@@ -152,12 +157,11 @@ $badSeedBoolean = New-TestEnvFile -Name "bad-seed-bool" -Overrides @{
 Assert-ValidationFails -Name "Seed data boolean" -Path $badSeedBoolean -ExpectedMessage "SEED_DATA_ENABLED must be true or false."
 
 $missingGoogleOcrConfig = New-TestEnvFile -Name "missing-google-ocr-config" -Overrides @{
-  OCR_PROVIDER = "GoogleDocumentAi"
+  GOOGLE_DOCUMENT_AI_PROJECT_ID = $null
 }
-Assert-ValidationFails -Name "Missing Google OCR configuration" -Path $missingGoogleOcrConfig -ExpectedMessage "GOOGLE_DOCUMENT_AI_PROJECT_ID is required when OCR_PROVIDER is GoogleDocumentAi."
+Assert-ValidationFails -Name "Missing Google OCR configuration" -Path $missingGoogleOcrConfig -ExpectedMessage "GOOGLE_DOCUMENT_AI_PROJECT_ID is required for Google Document AI."
 
 $validGoogleOcrConfig = New-TestEnvFile -Name "valid-google-ocr-config" -Overrides @{
-  OCR_PROVIDER = "GoogleDocumentAi"
   GOOGLE_DOCUMENT_AI_PROJECT_ID = "ysheng-production"
   GOOGLE_DOCUMENT_AI_LOCATION = "asia-southeast1"
   GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID = "general-ocr-processor"
@@ -168,18 +172,12 @@ $validGoogleOcrConfig = New-TestEnvFile -Name "valid-google-ocr-config" -Overrid
 Assert-ValidationPasses -Name "Google OCR configuration" -Path $validGoogleOcrConfig
 
 $placeholderGoogleOcrConfig = New-TestEnvFile -Name "placeholder-google-ocr-config" -Overrides @{
-  OCR_PROVIDER = "GoogleDocumentAi"
   GOOGLE_DOCUMENT_AI_PROJECT_ID = "replace-with-google-cloud-project-id"
   GOOGLE_DOCUMENT_AI_LOCATION = "asia-southeast1"
   GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID = "replace-with-enterprise-ocr-processor-id"
   GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH = "/opt/ysheng/shared/google-document-ai.json"
 }
 Assert-ValidationFails -Name "Placeholder Google OCR configuration" -Path $placeholderGoogleOcrConfig -ExpectedMessage "GOOGLE_DOCUMENT_AI_PROJECT_ID still uses an example value."
-
-$invalidOcrProvider = New-TestEnvFile -Name "invalid-ocr-provider" -Overrides @{
-  OCR_PROVIDER = "UnknownProvider"
-}
-Assert-ValidationFails -Name "Invalid OCR provider" -Path $invalidOcrProvider -ExpectedMessage "OCR_PROVIDER must be GoogleDocumentAi, BaiduUnlimited, or LocalMock."
 
 $localExample = Join-Path $repoRoot "infra/compose.env.local.example"
 Assert-ValidationPasses -Name "Local Docker example with override" -Path $localExample -AllowExampleValues

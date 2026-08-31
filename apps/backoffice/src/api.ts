@@ -3,6 +3,7 @@ export type VehicleStatus = "Available" | "LoanProcessing" | "Sold";
 export type LeadStatus = "New" | "Contacted" | "Closed";
 export type LeadClosureOutcome = "Sold" | "Lost" | "Invalid";
 export type LoanStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Done";
+export type LoanDecisionStatus = "Approved" | "Rejected";
 export type DeliveryStatus = "BookingInspection" | "Scheduled" | "Inspection" | "PreparingDocuments" | "CarPreparation" | "ReadyForRelease" | "Released" | "Cancelled";
 export type DeliveryType = "Standard" | "Outstation";
 export type PaymentStatus = "Pending" | "Approved" | "Disbursed" | "Reconciled";
@@ -36,6 +37,7 @@ export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected" | "Reviewed"
 export type OcrLineItem = {
   description: string;
   quantity?: string | null;
+  unit?: string | null;
   unitPrice?: string | null;
   amount?: string | null;
   confidence?: number;
@@ -50,6 +52,11 @@ export type OcrExtractionResult = {
   lineItems?: OcrLineItem[];
   rawText: string;
   warnings: string[];
+};
+
+export type OwnerIdentityCardPreview = {
+  result: OcrExtractionResult;
+  existingOwner?: Owner;
 };
 
 export type OcrReviewedResult = {
@@ -143,7 +150,7 @@ export type Vehicle = {
 };
 
 export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status" | "customerId"> &
-  Partial<Pick<Vehicle, "sellingPrice" | "additionalCharges">>;
+  Partial<Pick<Vehicle, "year" | "sellingPrice" | "additionalCharges">>;
 
 export type FinanceVehicleOption = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "status" | "customerId" | "sellingPrice" | "additionalCharges">;
 
@@ -445,6 +452,9 @@ export type LoanApplication = {
   louApproved: boolean;
   louDone: boolean;
   submittedAt?: string;
+  decisionBy?: string;
+  decisionAt?: string;
+  rejectionReason?: string;
 };
 
 export type DeliverySchedule = {
@@ -656,6 +666,18 @@ export type SettlementReminder = {
   isPaid: boolean;
 };
 
+export type VehicleIntakeCreateInput = {
+  vehicle: Vehicle;
+  settlement?: SettlementReminder;
+  newOwner?: Owner;
+};
+
+export type VehicleIntakeCreateResponse = {
+  vehicle: Vehicle;
+  settlement?: SettlementReminder;
+  createdOwner?: Owner;
+};
+
 export type DailySpend = {
   id: string;
   description: string;
@@ -709,9 +731,19 @@ export type PaymentVoucher = {
   notes?: string;
 };
 
+export type SettlementDraft = {
+  vehicleId: string;
+  ownerId?: string;
+  purchasePrice: number;
+};
+
 export type RepairReceiptItemInput = {
   description: string;
+  /** Legacy field kept so existing confirmed receipts remain readable. */
   repairPart?: string;
+  quantity?: string;
+  unit?: string;
+  unitPrice?: number;
   amount: number;
   sortOrder: number;
 };
@@ -1521,6 +1553,10 @@ export async function getSettlementReminders(): Promise<SettlementReminder[]> {
   return getWithNetworkFallback("/api/settlement-reminders", []);
 }
 
+export async function getSettlementDrafts(): Promise<SettlementDraft[]> {
+  return getWithNetworkFallback("/api/settlement-drafts", []);
+}
+
 export async function getDailySpends(): Promise<DailySpend[]> {
   return getWithNetworkFallback("/api/daily-spends", []);
 }
@@ -1793,6 +1829,23 @@ export async function createVehicle(vehicle: Vehicle): Promise<Vehicle> {
   });
 }
 
+export async function createVehicleIntake(input: VehicleIntakeCreateInput, identityCard: File): Promise<VehicleIntakeCreateResponse> {
+  const formData = new FormData();
+  formData.append("request", JSON.stringify(input));
+  formData.append("identityCard", identityCard);
+  const response = await fetch(`${apiBaseUrl}/api/vehicle-intakes`, {
+    method: "POST",
+    credentials: "include",
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Vehicle intake failed with status (${response.status})`));
+  }
+
+  return parseOptionalJson<VehicleIntakeCreateResponse>(response);
+}
+
 export async function updateVehicle(vehicle: Vehicle): Promise<Vehicle> {
   return request<Vehicle>(`/api/vehicles/${vehicle.id}`, {
     method: "PUT",
@@ -1972,6 +2025,13 @@ export async function createPayment(payment: PaymentRecord): Promise<PaymentReco
   return request<PaymentRecord>("/api/payments", {
     method: "POST",
     body: JSON.stringify(payment)
+  });
+}
+
+export async function decideLoan(loanId: string, status: LoanDecisionStatus, rejectionReason?: string): Promise<LoanApplication> {
+  return request<LoanApplication>(`/api/loans/${loanId}/decision`, {
+    method: "POST",
+    body: JSON.stringify({ status, rejectionReason })
   });
 }
 
@@ -2267,8 +2327,8 @@ export async function getVehicleDocuments(vehicleId: string): Promise<VehicleDoc
   return [];
 }
 
-export async function getVehicleDocumentsStrict(vehicleId: string): Promise<VehicleDocument[]> {
-  return request<VehicleDocument[]>(`/api/vehicles/${vehicleId}/documents`, {}, "Unable to load finance evidence");
+export async function getVehicleDocumentsStrict(vehicleId: string, errorMessage = "Unable to load finance evidence"): Promise<VehicleDocument[]> {
+  return request<VehicleDocument[]>(`/api/vehicles/${vehicleId}/documents`, {}, errorMessage);
 }
 
 export async function getVehicleOcrJobs(vehicleId: string): Promise<VehicleOcrJob[]> {
@@ -2305,6 +2365,14 @@ export function vehicleDocumentContentUrl(vehicleId: string, documentId: string)
   return `${apiBaseUrl}/api/vehicles/${vehicleId}/documents/${documentId}/content`;
 }
 
+export async function getVehicleDocumentContent(vehicleId: string, documentId: string): Promise<Blob> {
+  const response = await fetch(vehicleDocumentContentUrl(vehicleId, documentId), { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Unable to load document preview (${response.status})`));
+  }
+  return response.blob();
+}
+
 export function officialReceiptContentUrl(cashHandoverId: string) {
   return `${apiBaseUrl}/api/cash-handovers/${cashHandoverId}/official-receipt/content`;
 }
@@ -2323,6 +2391,10 @@ export async function uploadVehicleDocument(vehicleId: string, file: File, categ
 
 export async function uploadVehicleDocumentWithProgress(vehicleId: string, file: File, category: DocumentCategory, onProgress?: UploadProgressHandler, owner?: DocumentUploadOwner): Promise<VehicleDocument> {
   return uploadFileWithProgress<VehicleDocument>(documentUploadPath(vehicleId, category, owner), file, onProgress);
+}
+
+export async function previewOwnerIdentityCard(file: File, onProgress?: UploadProgressHandler): Promise<OwnerIdentityCardPreview> {
+  return uploadFileWithProgress<OwnerIdentityCardPreview>("/api/owner-intakes/identity-card-preview", file, onProgress);
 }
 
 function documentUploadPath(vehicleId: string, category: DocumentCategory, owner?: DocumentUploadOwner) {
@@ -2985,6 +3057,7 @@ function vehicleLookupFromVehicle(vehicle: Vehicle): VehicleLookup {
     plateNumber: vehicle.plateNumber,
     make: vehicle.make,
     model: vehicle.model,
+    year: vehicle.year,
     stockOwner: vehicle.stockOwner,
     status: vehicle.status,
     customerId: vehicle.customerId

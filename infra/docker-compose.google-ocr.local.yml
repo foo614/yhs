@@ -1,0 +1,16 @@
+# Use with the base Compose file only when real Google OCR is intended locally.
+# The credential stays on the host and is mounted read-only into the API container.
+services:
+  api:
+    environment:
+      Ocr__GoogleDocumentAi__ProjectId: ${GOOGLE_DOCUMENT_AI_PROJECT_ID:?GOOGLE_DOCUMENT_AI_PROJECT_ID is required for local Google OCR.}
+      Ocr__GoogleDocumentAi__Location: ${GOOGLE_DOCUMENT_AI_LOCATION:-asia-southeast1}
+      Ocr__GoogleDocumentAi__DefaultProcessorId: ${GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID:?GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID is required for local Google OCR.}
+      Ocr__GoogleDocumentAi__InvoiceProcessorId: ${GOOGLE_DOCUMENT_AI_INVOICE_PROCESSOR_ID:-}
+      Ocr__GoogleDocumentAi__ExpenseProcessorId: ${GOOGLE_DOCUMENT_AI_EXPENSE_PROCESSOR_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-document-ai.json
+    volumes:
+      - type: bind
+        source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH:?GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH is required for local Google OCR.}
+        target: /run/secrets/google-document-ai.json
+        read_only: true

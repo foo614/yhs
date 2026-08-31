@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanApproved, markLoanDone } from "./loan";
+import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanDone } from "./loan";
 import type { Customer, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 
 const baseLoan: LoanApplication = {
@@ -22,14 +22,6 @@ const filterCustomers: Customer[] = [
 ];
 
 describe("loan workflow helpers", () => {
-  it("marks LOU approved when loan is approved", () => {
-    const result = markLoanApproved(baseLoan);
-
-    expect(result.status).toBe("Approved");
-    expect(result.louApproved).toBe(true);
-    expect(result.louDone).toBe(false);
-  });
-
   it("marks LOU approved before marking loan done", () => {
     const result = markLoanDone(baseLoan);
 
@@ -53,6 +45,11 @@ describe("loan workflow helpers", () => {
 
   it("limits loan uploads to loan workflow document categories", () => {
     expect(loanDocumentCategories).toEqual(["Voc", "ApDocument", "StatusReceipt", "LoanDocument"]);
+  });
+
+  it("requires a reason for exceptional rejected loan creation", () => {
+    expect(loanCreateBlockReason({ ...baseLoan, status: "Rejected", rejectionReason: " " })).toBe("Rejection reason is required for a rejected loan.");
+    expect(loanCreateBlockReason({ ...baseLoan, status: "Rejected", rejectionReason: "Bank declined" })).toBeUndefined();
   });
 
   it("keeps manual loan creation restricted to Boss/Admin", () => {

@@ -1,10 +1,10 @@
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
-import { ProCard, ProTable } from "@ant-design/pro-components";
+import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { ProCard } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
-import { OperationsProTable } from "../shared/OperationsProTable";
+import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import { Calendar, DatePicker } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
@@ -176,10 +176,7 @@ export function businessTripSearchText(trip: HrBusinessTrip, staffDisplayName: s
 }
 
 export const leavePolicyTableConfig = {
-  search: false,
-  options: false,
-  pagination: false,
-  recordCreatorProps: false
+  pagination: false
 } as const;
 
 export function groupCalendarAvailabilityByDate(availability: HrCalendarAvailability[]) {
@@ -315,6 +312,28 @@ export function HrSalaryPage({
   const setRecordPage = (list: HrRecordListKey, page: number) => {
     setRecordPages((current) => ({ ...current, [list]: page }));
   };
+  const recordNativeSearch = (
+    list: HrRecordListKey,
+    keywordFields: Array<{ name: string; label: string }>,
+    statusOptions?: Array<{ value: string; label: string }>
+  ) => ({
+    fields: [
+      ...keywordFields,
+      ...(statusOptions ? [{ name: "status", label: "Status / 状态", placeholder: "All statuses / 全部状态", options: statusOptions }] : [])
+    ],
+    values: { status: recordFilters[list].status },
+    onSubmit: (values: Record<string, unknown>) => {
+      setRecordFilters((current) => ({
+        ...current,
+        [list]: {
+          keyword: operationsKeywordFromFields(values, keywordFields.map((field) => field.name)) || undefined,
+          status: values.status ? String(values.status) : undefined
+        }
+      }));
+      setRecordPages((current) => ({ ...current, [list]: 1 }));
+    },
+    onReset: () => clearRecordFilters(list)
+  });
   const changeTab = (tab: string) => {
     setActiveTab(tab);
     setRecordPages(initialHrRecordPages);
@@ -852,7 +871,7 @@ export function HrSalaryPage({
                     <Form.Item name="isActive" label="Status / 状态"><Select options={[{ value: true, label: "Active / 启用" }, { value: false, label: "Disabled / 停用" }]} /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit">Add office network / 新增办公室网络</Button></Form.Item>
                   </Form>
-                  <Table className="desktopDataTable" rowKey="id" columns={attendanceNetworkColumns} dataSource={attendanceNetworks} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No office network configured / 尚未配置办公室网络" }} />
+                  <OperationsProTable className="desktopDataTable" rowKey="id" columns={attendanceNetworkColumns} dataSource={attendanceNetworks} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No office network configured / 尚未配置办公室网络" }} />
                 </ProCard>
               </Space>
             )
@@ -892,7 +911,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("attendance")}
                 />
                 {attendanceMobileCards}
-                <OperationsProTable className="desktopDataTable" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} nativeSearch={recordNativeSearch("attendance", [{ name: "staff", label: "Staff / 员工" }, { name: "date", label: "Date / 日期" }], attendanceStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
               </>
             )
           },
@@ -918,7 +937,7 @@ export function HrSalaryPage({
               <ProCard title="Team Availability / 团队可用时间">
                 <Space direction="vertical" size={12} className="fullWidth">
                   <Typography.Text type="secondary">Staff see only busy status for other people; HR/Admin can see approved trip details. This calendar does not track GPS or replace attendance. / 员工只能看到其他人的忙碌状态；HR/Admin 可看到已批准外勤详情。此日历不追踪 GPS，也不取代打卡。</Typography.Text>
-                  <Table
+                  <OperationsProTable
                     rowKey={(item) => `${item.staffUserId}-${item.kind}-${item.startDate}-${item.endDate}`}
                     dataSource={availabilityCalendar}
                     pagination={{ pageSize: 8, showSizeChanger: false }}
@@ -1023,7 +1042,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("leave")}
                 />
                 {leaveMobileCards}
-                <OperationsProTable className="desktopDataTable" rowKey="id" columns={leaveColumns} dataSource={filteredLeaveRequests} pagination={{ ...tablePagination(hrRecordPageSize), current: leavePage.current, onChange: (page) => setRecordPage("leave", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: leaveEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={leaveColumns} dataSource={filteredLeaveRequests} nativeSearch={recordNativeSearch("leave", [{ name: "staff", label: "Staff / 员工" }, { name: "leaveType", label: "Leave type / 假期" }, { name: "date", label: "Date / 日期" }, { name: "reason", label: "Reason / 原因" }], leaveStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: leavePage.current, onChange: (page) => setRecordPage("leave", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: leaveEmptyText }} />
               </Space>
             )
           },
@@ -1035,10 +1054,10 @@ export function HrSalaryPage({
                 {isHrManager && (
                   <>
                     <ProCard title="Leave Policies / 假期政策">
-                      <ProTable<HrLeavePolicy>
+                      <OperationsProTable<HrLeavePolicy>
                         className="desktopDataTable"
                         rowKey="id"
-                        columns={policyColumns}
+                        columns={policyColumns as ColumnsType<HrLeavePolicy>}
                         dataSource={leavePolicies}
                         {...leavePolicyTableConfig}
                         editable={{
@@ -1079,7 +1098,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("balances")}
                 />
                 {balanceMobileCards}
-                <OperationsProTable className="desktopDataTable" rowKey="id" columns={balanceColumns} dataSource={filteredLeaveBalances} pagination={{ ...tablePagination(hrRecordPageSize), current: balancePage.current, onChange: (page) => setRecordPage("balances", page) }} locale={{ emptyText: balanceEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={balanceColumns} dataSource={filteredLeaveBalances} nativeSearch={recordNativeSearch("balances", [{ name: "staff", label: "Staff / 员工" }, { name: "role", label: "Role / 角色" }, { name: "notes", label: "Notes / 备注" }])} pagination={{ ...tablePagination(hrRecordPageSize), current: balancePage.current, onChange: (page) => setRecordPage("balances", page) }} locale={{ emptyText: balanceEmptyText }} />
                 <HrRecordFilterControls
                   filters={recordFilters.adjustments}
                   total={leaveAdjustments.length}
@@ -1089,7 +1108,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("adjustments")}
                 />
                 {adjustmentMobileCards}
-                <OperationsProTable className="desktopDataTable" rowKey="id" columns={adjustmentColumns} dataSource={filteredLeaveAdjustments} pagination={{ ...tablePagination(hrRecordPageSize), current: adjustmentPage.current, onChange: (page) => setRecordPage("adjustments", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: adjustmentEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={adjustmentColumns} dataSource={filteredLeaveAdjustments} nativeSearch={recordNativeSearch("adjustments", [{ name: "staff", label: "Staff / 员工" }, { name: "action", label: "Action / 操作" }, { name: "date", label: "Date / 日期" }, { name: "reason", label: "Reason / 原因" }])} pagination={{ ...tablePagination(hrRecordPageSize), current: adjustmentPage.current, onChange: (page) => setRecordPage("adjustments", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: adjustmentEmptyText }} />
               </Space>
             )
           },
@@ -1113,7 +1132,7 @@ export function HrSalaryPage({
                         <Form.Item name="manualDeductions" label="Deductions / 扣除"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Profile / 保存资料</Button></Form.Item>
                       </Form>
-                      <Table className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
+                      <OperationsProTable className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
                     </ProCard>
                     <ProCard title="Working Day Pay Period / 薪资月份">
                       <Form form={payPeriodForm} layout="vertical" className="formGrid" onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={payPeriodDefaults(dayjs(today))}>
@@ -1143,7 +1162,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("payslips")}
                 />
                 {payslipMobileCards}
-                <OperationsProTable className="desktopDataTable" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} nativeSearch={recordNativeSearch("payslips", [{ name: "staff", label: "Staff / 员工" }, { name: "payPeriod", label: "Pay period / 薪资月份" }], payslipStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
               </Space>
             )
           }
@@ -1175,8 +1194,8 @@ export function HrRecordFilterControls({
   const filterActive = Boolean(filters.keyword?.trim() || filters.status);
 
   return (
-    <Space wrap size={8} className="toolbarForm">
-      <Input.Search allowClear placeholder={keywordPlaceholder} value={filters.keyword} style={{ width: 280 }} onChange={(event) => onKeywordChange(event.target.value)} />
+    <Space wrap size={8} className="toolbarForm pageFilterMobileOnly">
+      <Input.Search aria-label={keywordPlaceholder} allowClear placeholder={keywordPlaceholder} value={filters.keyword} style={{ width: 280 }} onChange={(event) => onKeywordChange(event.target.value)} />
       {statusOptions && <Select allowClear placeholder="Status / 状态" value={filters.status} options={statusOptions} style={{ minWidth: 160 }} onChange={onStatusChange} />}
       <Tag color={filterActive ? "blue" : "default"}>{filterActive ? `${filtered} of ${total} matching / 相符` : `${total} record${total === 1 ? "" : "s"} / 记录`}</Tag>
       {filterActive && <Button size="small" onClick={onClear}>Clear filters / 清除筛选</Button>}

@@ -5,7 +5,6 @@ services:
   api:
     restart: unless-stopped
     environment:
-      Ocr__Provider: GoogleDocumentAi
       Ocr__GoogleDocumentAi__ProjectId: ${GOOGLE_DOCUMENT_AI_PROJECT_ID}
       Ocr__GoogleDocumentAi__Location: ${GOOGLE_DOCUMENT_AI_LOCATION}
       Ocr__GoogleDocumentAi__DefaultProcessorId: ${GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID}

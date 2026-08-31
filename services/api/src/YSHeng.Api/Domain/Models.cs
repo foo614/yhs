@@ -267,9 +267,9 @@ public sealed record PurchaseInvoiceLine
 }
 public sealed record RepairJob { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string RepairPart { get; init; } = ""; public string WhatToDo { get; init; } = ""; public decimal Cost { get; init; } public bool ChecklistDone { get; init; } public string? AssignedTo { get; init; } public DateOnly? StartedOn { get; init; } public DateOnly? ExpectedCompletionDate { get; init; } public RepairApprovalStatus ApprovalStatus { get; init; } = RepairApprovalStatus.Approved; public string? ApprovalNotes { get; init; } public string? ApprovedBy { get; init; } public DateTime? ApprovedAt { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
 public sealed record RepairReceipt { public Guid Id { get; init; } = Guid.NewGuid(); public Guid RepairJobId { get; init; } public Guid DocumentId { get; init; } public string? SupplierName { get; init; } public string? InvoiceNumber { get; init; } public decimal? TotalAmount { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
-public sealed record RepairReceiptItem { public Guid Id { get; init; } = Guid.NewGuid(); public Guid RepairReceiptId { get; init; } public string Description { get; init; } = ""; public string? RepairPart { get; init; } public decimal Amount { get; init; } public int SortOrder { get; init; } }
+public sealed record RepairReceiptItem { public Guid Id { get; init; } = Guid.NewGuid(); public Guid RepairReceiptId { get; init; } public string Description { get; init; } = ""; public string? RepairPart { get; init; } public string? Quantity { get; init; } public string? Unit { get; init; } public decimal? UnitPrice { get; init; } public decimal Amount { get; init; } public int SortOrder { get; init; } }
 public sealed record ConfirmRepairReceiptRequest(Guid DocumentId, string? SupplierName, string? InvoiceNumber, decimal? TotalAmount, IReadOnlyList<ConfirmRepairReceiptItemRequest> Items);
-public sealed record ConfirmRepairReceiptItemRequest(string Description, string? RepairPart, decimal Amount, int SortOrder);
+public sealed record ConfirmRepairReceiptItemRequest(string Description, string? RepairPart, decimal Amount, int SortOrder, string? Quantity = null, string? Unit = null, decimal? UnitPrice = null);
 public sealed record SupplierInvoice { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public Guid? SupplierId { get; init; } public string SupplierName { get; init; } = ""; public string InvoiceNumber { get; init; } = ""; public string? PlateNumberOnInvoice { get; init; } public DateOnly? InvoiceDate { get; init; } public decimal Amount { get; init; } public DateOnly? DueDate { get; init; } public DateOnly? PaidAt { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
 public sealed record CreateRepairWithReceiptRequest(RepairJob Repair, SupplierInvoice Invoice, ConfirmRepairReceiptRequest Receipt);
 public sealed record CreateRepairWithReceiptResponse(RepairJob Repair, SupplierInvoice Invoice, RepairReceipt Receipt, IReadOnlyList<RepairReceiptItem> Items);
@@ -283,7 +283,12 @@ public sealed record LoanApplication
     public bool LouApproved { get; init; }
     public bool LouDone { get; init; }
     public DateOnly? SubmittedAt { get; init; }
+    public string? DecisionBy { get; init; }
+    public DateTime? DecisionAt { get; init; }
+    public string? RejectionReason { get; init; }
 }
+
+public sealed record LoanDecisionRequest(LoanStatus Status, string? RejectionReason);
 
 public sealed record DeliverySchedule
 {

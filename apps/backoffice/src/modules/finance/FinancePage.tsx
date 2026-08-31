@@ -5,7 +5,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
-import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
+import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, filterFinanceRowsByFields, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
 import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
@@ -28,7 +28,8 @@ import {
   paymentVoucherCreateBlockReason,
   receivableStatusColor,
   receivableStatusLabel,
-  settlementCreateBlockReason
+  settlementCreateBlockReason,
+  supplierApprovalBlockReason
 } from "../../finance";
 import {
   customerSelectLabel,
@@ -62,10 +63,12 @@ import {
   type DocumentUploadOwner,
   type FinanceSaleInput,
   type FinancingStatus,
+  type LoanApplication,
   type Owner,
   type PaymentRecord,
   type PaymentVoucher,
   type PurchaseInvoice,
+  type SettlementDraft,
   type SettlementReminder,
   type StaffUser,
   type Supplier,
@@ -101,6 +104,14 @@ export function canPrepareFinanceInvoice(paymentLoadError: string | null, vehicl
   return !paymentLoadError && !vehiclePriceLoadError && eligibleVehicleCount > 0;
 }
 
+export function settlementDraftForVehicle(drafts: SettlementDraft[], vehicleId: string) {
+  const draft = drafts.find((item) => item.vehicleId === vehicleId);
+  return {
+    ownerId: draft?.ownerId,
+    amount: Number(draft?.purchasePrice ?? 0)
+  };
+}
+
 export function createUnpaidDailySpend(id: string, description: string, amount: number, dueDate: string): DailySpend {
   return { id, description, amount, dueDate, isPaid: false };
 }
@@ -110,8 +121,9 @@ export function payDailySpend(spend: DailySpend): DailySpend {
 }
 
 export function financeInvoiceSubmitLabel(calculatedTotal: number, agreedTotal: number | null | undefined, adjusting: boolean) {
-  const hasVariance = adjusting && agreedTotal !== null && agreedTotal !== undefined && Math.round(Number(agreedTotal) * 100) !== Math.round(calculatedTotal * 100);
-  return hasVariance ? "Review & send for approval" : "Review & generate invoice";
+  const hasVariance = adjusting && agreedTotal !== null && agreedTotal !== undefined &&
+    Math.round(Number(agreedTotal) * 100) !== Math.round(calculatedTotal * 100);
+  return hasVariance ? "Review & send for approval" : "Review & generate sales invoice";
 }
 
 export function financeRequesterLabel(requestedBy?: string, currentUserId?: string) {
@@ -132,11 +144,12 @@ export function financeSearchCopy(tab: string) {
     case "daily":
       return { placeholder: "Search description or due date", ariaLabel: "Search daily spend by description or due date" };
     default:
-      return { placeholder: "Search plate, customer, invoice or reference", ariaLabel: "Search invoices and collections by plate, customer, invoice, or reference" };
+      return { placeholder: "Search plate, customer, sales invoice or reference", ariaLabel: "Search sales invoices and collections by plate, customer, invoice, or reference" };
   }
 }
 
 type CollectionFormValues = Omit<CollectionCreateInput, "receivedDate" | "idempotencyKey"> & { receivedDate?: Dayjs };
+type SettlementFormValues = Omit<SettlementReminder, "id">;
 
 export function InvoiceUpdateRequestQueue({
   requests,
@@ -190,6 +203,7 @@ export function InvoiceUpdateRequestQueue({
 export function FinancePage({
   vehicles,
   customers,
+  loans,
   owners,
   payments,
   paymentLoadError,
@@ -197,6 +211,7 @@ export function FinancePage({
   financeVehicleOptionLoadError,
   financeVehicleOptionRefreshing,
   settlements,
+  settlementDrafts,
   dailySpends,
   brokerCommissions,
   debtRecoveries,
@@ -242,6 +257,7 @@ export function FinancePage({
 }: {
   vehicles: VehicleLookup[];
   customers: Customer[];
+  loans: LoanApplication[];
   owners: Owner[];
   payments: PaymentRecord[];
   paymentLoadError: string | null;
@@ -249,6 +265,7 @@ export function FinancePage({
   financeVehicleOptionLoadError: string | null;
   financeVehicleOptionRefreshing: boolean;
   settlements: SettlementReminder[];
+  settlementDrafts: SettlementDraft[];
   dailySpends: DailySpend[];
   brokerCommissions: BrokerCommission[];
   debtRecoveries: DebtRecoveryCase[];
@@ -308,6 +325,7 @@ export function FinancePage({
   const [financeCreateOpen, setFinanceCreateOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [financeTab, setFinanceTab] = useState(() => financeTabFromLocation(canManageFinance));
   const [financeKeyword, setFinanceKeyword] = useState("");
+  const [financeFieldFilters, setFinanceFieldFilters] = useState<Record<string, unknown>>({});
   const [financeStatus, setFinanceStatus] = useState<string>();
   const [financePage, setFinancePage] = useState(1);
   const [autoCountPeriod, setAutoCountPeriod] = useState<{ from?: string; to?: string }>({});
@@ -322,6 +340,7 @@ export function FinancePage({
   const [invoiceRequestError, setInvoiceRequestError] = useState<string>();
   const [resolvingInvoiceRequestId, setResolvingInvoiceRequestId] = useState<string>();
   const [prepareInvoiceOpen, setPrepareInvoiceOpen] = useState(false);
+  const [invoiceReviewInput, setInvoiceReviewInput] = useState<FinanceSaleInput>();
   const [salesAgents, setSalesAgents] = useState<StaffUser[]>([]);
   const [deliveryAccountingCharges, setDeliveryAccountingCharges] = useState<DeliveryAccountingCharge[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
@@ -335,6 +354,7 @@ export function FinancePage({
   const [v2MutationKey, setV2MutationKey] = useState<string>();
   const [prepareInvoiceForm] = Form.useForm<FinanceSaleInput>();
   const [collectionForm] = Form.useForm<CollectionFormValues>();
+  const [settlementForm] = Form.useForm<SettlementFormValues>();
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
   const selectedCollectionPayment = payments.find((payment) => payment.id === collectionPaymentId);
@@ -350,7 +370,6 @@ export function FinancePage({
   const invoiceSalesPrice = Form.useWatch("salesPrice", prepareInvoiceForm) ?? 0;
   const invoiceAdditionalCharges = Form.useWatch("interestAdditionalCharges", prepareInvoiceForm) ?? 0;
   const invoiceNcdAmount = Form.useWatch("ncdAmount", prepareInvoiceForm) ?? 0;
-  const invoiceWindscreenCharges = Form.useWatch("windscreenCharges", prepareInvoiceForm) ?? 0;
   const invoiceInsurancePaidOnBehalf = Form.useWatch("insurancePaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
   const invoiceRoadTaxPaidOnBehalf = Form.useWatch("roadTaxPaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
   const invoiceAdvancePaidOnBehalf = Form.useWatch("advancePaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
@@ -360,7 +379,7 @@ export function FinancePage({
     salesPrice: Number(invoiceSalesPrice),
     interestAdditionalCharges: Number(invoiceAdditionalCharges),
     ncdAmount: Number(invoiceNcdAmount),
-    windscreenCharges: Number(invoiceWindscreenCharges),
+    windscreenCharges: 0,
     insurancePaidOnBehalfAmount: Number(invoiceInsurancePaidOnBehalf),
     roadTaxPaidOnBehalfAmount: Number(invoiceRoadTaxPaidOnBehalf),
     advancePaidOnBehalfAmount: Number(invoiceAdvancePaidOnBehalf)
@@ -440,6 +459,7 @@ export function FinancePage({
   const changeFinanceTab = (nextTab: string) => {
     setFinanceTab(nextTab);
     setFinanceKeyword("");
+    setFinanceFieldFilters({});
     setFinanceStatus(undefined);
     setFinancePage(1);
     onClearDashboardFocus(nextTab);
@@ -447,6 +467,7 @@ export function FinancePage({
 
   useEffect(() => {
     setFinanceKeyword("");
+    setFinanceFieldFilters({});
     setFinanceStatus(undefined);
     setFinancePage(1);
   }, [financeTab]);
@@ -623,21 +644,32 @@ export function FinancePage({
       return;
     }
 
-    const vehicle = vehicles.find((item) => item.id === input.vehicleId);
-    const agreedTotal = input.nettPrice ?? calculateFinanceNettPrice(input);
-    const hasVariance = agreedTotal !== calculateFinanceNettPrice(input);
-    Modal.confirm({
-      title: hasVariance ? "Send adjusted price for approval?" : "Generate this invoice?",
-      content: `${vehicle?.plateNumber ?? "Selected vehicle"} · ${formatMoney(agreedTotal)}${hasVariance ? " · Boss/Admin approval is required before issue." : ""}`,
-      okText: hasVariance ? "Send for approval" : "Generate invoice",
-      cancelText: "Check again",
-      onOk: async () => {
-        await runV2Mutation("prepare-invoice", () => onCreateFinanceSale(input));
-        setPrepareInvoiceOpen(false);
-        prepareInvoiceForm.resetFields();
-        setAdjustInvoicePrice(false);
-      }
+    setInvoiceReviewInput(input);
+  };
+
+  const confirmFinanceSale = async () => {
+    if (!invoiceReviewInput) return;
+    await runV2Mutation("prepare-invoice", () => onCreateFinanceSale(invoiceReviewInput));
+    setInvoiceReviewInput(undefined);
+    setPrepareInvoiceOpen(false);
+    prepareInvoiceForm.resetFields();
+    setAdjustInvoicePrice(false);
+  };
+
+  const openNewSettlement = () => {
+    const vehicle = vehicles[0];
+    settlementForm.resetFields();
+    settlementForm.setFieldsValue({
+      vehicleId: vehicle?.id,
+      ...(vehicle ? settlementDraftForVehicle(settlementDrafts, vehicle.id) : {}),
+      deadline: today(),
+      isPaid: false
     });
+    setFinanceCreateOpen("settlement");
+  };
+
+  const updateSettlementVehicleDefaults = (vehicleId: string) => {
+    settlementForm.setFieldsValue(settlementDraftForVehicle(settlementDrafts, vehicleId));
   };
 
   const openAddPayment = (payment: PaymentRecord) => {
@@ -826,11 +858,56 @@ export function FinancePage({
   );
 
   const columns: ColumnsType<PaymentRecord> = [
-    { title: "Vehicle & Customer / 车辆与客户", dataIndex: "vehicleId", render: (vehicleId, row) => isFinanceV2(row) ? <Space direction="vertical" size={0}><Typography.Text strong>{plateFor(vehicles, vehicleId)}</Typography.Text><Typography.Text type="secondary">{customerLabel(customers, row.customerId ?? vehicles.find((vehicle) => vehicle.id === vehicleId)?.customerId)}</Typography.Text></Space> : plateFor(vehicles, vehicleId) },
-    { title: "Invoice Total / 发票总额", dataIndex: "nettPrice", render: (value, row) => formatMoney(isFinanceV2(row) ? row.invoice?.amount ?? value : value) },
-    { title: "Collected / 已收", render: (_, row) => isFinanceV2(row) ? formatMoney(row.collectedAmount ?? 0) : <Tag color={row.status === "Reconciled" ? "green" : "orange"}>{row.status}</Tag> },
-    { title: "Balance Due / 未收", render: (_, row) => isFinanceV2(row) ? formatMoney(row.balanceAmount ?? row.nettPrice) : <Space direction="vertical" size={0}><Typography.Text>{row.receiptNumber || "No receipt"}</Typography.Text><Typography.Text type="secondary">{row.invoiceNumber || "No invoice"}</Typography.Text></Space> },
-    { title: "Status & Invoice / 状态与发票", render: (_, row) => isFinanceV2(row) ? <Space direction="vertical" size={2}><Tag color={receivableStatusColor(row.receivableStatus)}>{receivableStatusLabel(row.receivableStatus)}</Tag>{row.invoice ? <Typography.Link href={financeInvoiceContentUrl(row.invoice.id)} target="_blank">{row.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Invoice not issued</Typography.Text>}</Space> : <Space wrap size={4}><Tag>Legacy</Tag><Tag color={row.bossChecked ? "green" : "orange"}>{row.bossChecked ? "Reviewed" : "Review pending"}</Tag>{paymentChecklistReady(row) ? <Tag color="green">Checklist done</Tag> : <Tag color="gold">Checklist pending</Tag>}</Space> },
+    {
+      title: "Vehicle / 车辆",
+      dataIndex: "vehicleId",
+      render: (vehicleId) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text type="secondary">{plateFor(vehicles, vehicleId)}</Typography.Text>
+          <Typography.Text strong>{financeVehicleDescription(vehicles, vehicleId)}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Customer / 客户",
+      render: (_, row) => {
+        const customerId = financePaymentCustomerId(row, vehicles, loans);
+        return customerId ? (
+          <Typography.Link href={`/customer-360?customerId=${encodeURIComponent(customerId)}`} onClick={(event) => { event.preventDefault(); onOpenCustomer(customerId); }}>
+            {financePaymentCustomerLabel(row, vehicles, customers, loans)}
+          </Typography.Link>
+        ) : <Typography.Text type="secondary">Not linked / 未关联</Typography.Text>;
+      }
+    },
+    { title: "Sales Invoice Total / 销售发票总额", dataIndex: "nettPrice", render: (value, row) => formatMoney(isFinanceV2(row) ? row.invoice?.amount ?? value : value) },
+    {
+      title: "Collected / 已收",
+      render: (_, row) => isFinanceV2(row) ? formatMoney(row.collectedAmount ?? 0) : <Tag color={row.status === "Reconciled" ? "green" : "orange"}>{row.status}</Tag>
+    },
+    {
+      title: "Balance Due / 未收",
+      render: (_, row) => isFinanceV2(row) ? formatMoney(row.balanceAmount ?? row.nettPrice) : (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>{row.receiptNumber || "No customer receipt"}</Typography.Text>
+          <Typography.Text type="secondary">{row.invoiceNumber || "No sales invoice"}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      title: "Status & Sales Invoice / 状态与销售发票",
+      render: (_, row) => isFinanceV2(row) ? (
+        <Space direction="vertical" size={2}>
+          <Tag color={receivableStatusColor(row.receivableStatus)}>{receivableStatusLabel(row.receivableStatus)}</Tag>
+          {row.invoice ? <Typography.Link href={financeInvoiceContentUrl(row.invoice.id)} target="_blank">{row.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
+        </Space>
+      ) : (
+        <Space wrap size={4}>
+          <Tag>Legacy</Tag>
+          <Tag color={row.bossChecked ? "green" : "orange"}>{row.bossChecked ? "Reviewed" : "Review pending"}</Tag>
+          {paymentChecklistReady(row) ? <Tag color="green">Checklist done</Tag> : <Tag color="gold">Checklist pending</Tag>}
+        </Space>
+      )
+    },
     {
       title: "Next Action / 操作",
       fixed: "right",
@@ -959,29 +1036,47 @@ export function FinancePage({
       )
     }
   ];
-  const filteredPayments = filterFinanceRows(payments, financeKeyword, financeStatus, (payment) => [
+  const filteredPayments = filterFinanceRowsByFields(filterFinanceRows(payments, financeKeyword, financeStatus, (payment) => [
     plateFor(vehicles, payment.vehicleId),
-    customerLabel(customers, payment.customerId ?? vehicles.find((vehicle) => vehicle.id === payment.vehicleId)?.customerId),
-    payment.receiptNumber, payment.invoiceNumber, payment.invoice?.invoiceNumber, payment.bankName, payment.bankFollowUpDate,
+    financePaymentCustomerLabel(payment, vehicles, customers, loans),
+    payment.receiptNumber,
+    payment.invoiceNumber,
+    payment.invoice?.invoiceNumber,
+    payment.bankName,
+    payment.bankFollowUpDate,
     ...(payment.collections ?? []).flatMap((collection) => [collection.reference, collection.method, collection.status, collection.financingStatus])
   ], (payment) => isFinanceV2(payment)
-    ? [payment.receivableStatus ?? "Draft", ...(payment.collections ?? []).flatMap((collection) => [collection.status, collection.financingStatus])]
-    : payment.status).filter((payment) => matchesDashboardFinanceFocus(dashboardFocus, payment.vehicleId, dashboardFocus.attention === "open" ? isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled" : true));
-  const filteredSettlements = filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
+    ? [
+        payment.receivableStatus ?? "Draft",
+        ...(payment.collections ?? []).flatMap((collection) => [collection.status, collection.financingStatus])
+      ]
+    : payment.status), financeFieldFilters, (payment) => ({
+      plate: plateFor(vehicles, payment.vehicleId),
+      customer: financePaymentCustomerLabel(payment, vehicles, customers, loans),
+      receipt: payment.receiptNumber,
+      invoice: payment.invoiceNumber ?? payment.invoice?.invoiceNumber,
+      bank: payment.bankName
+    })).filter((payment) => matchesDashboardFinanceFocus(
+    dashboardFocus,
+    payment.vehicleId,
+    dashboardFocus.attention === "open" ? isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled" : true
+  ));
+  const filteredSettlements = filterFinanceRowsByFields(filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
     plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
-  ], (settlement) => settlement.isPaid ? "Paid" : "Due").filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, settlementMatchesDashboardAttention(settlement, dashboardFocus.attention, dashboardToday)));
-  const filteredDailySpends = filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due").filter((spend) => matchesDashboardFinanceFocus(dashboardFocus, undefined, dailySpendMatchesDashboardAttention(spend, dashboardFocus.attention, dashboardToday)));
-  const filteredBrokerCommissions = filterFinanceRows(brokerCommissions, financeKeyword, financeStatus, (commission) => [
+  ], (settlement) => settlement.isPaid ? "Paid" : "Due"), financeFieldFilters, (settlement) => ({ plate: plateFor(vehicles, settlement.vehicleId), owner: contactFor(owners, settlement.ownerId), deadline: settlement.deadline })).filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, settlementMatchesDashboardAttention(settlement, dashboardFocus.attention, dashboardToday)));
+  const filteredDailySpends = filterFinanceRowsByFields(filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due"), financeFieldFilters, (spend) => ({ description: spend.description, dueDate: spend.dueDate })).filter((spend) => matchesDashboardFinanceFocus(dashboardFocus, undefined, dailySpendMatchesDashboardAttention(spend, dashboardFocus.attention, dashboardToday)));
+  const filteredBrokerCommissions = filterFinanceRowsByFields(filterFinanceRows(brokerCommissions, financeKeyword, financeStatus, (commission) => [
     plateFor(vehicles, commission.vehicleId), commission.brokerName
-  ], (commission) => commission.isPaid ? "Paid" : "Unpaid").filter((commission) => matchesDashboardFinanceFocus(dashboardFocus, commission.vehicleId));
-  const filteredDebtRecoveries = filterFinanceRows(debtRecoveries, financeKeyword, financeStatus, (debt) => [
+  ], (commission) => commission.isPaid ? "Paid" : "Unpaid"), financeFieldFilters, (commission) => ({ plate: plateFor(vehicles, commission.vehicleId), broker: commission.brokerName })).filter((commission) => matchesDashboardFinanceFocus(dashboardFocus, commission.vehicleId));
+  const filteredDebtRecoveries = filterFinanceRowsByFields(filterFinanceRows(debtRecoveries, financeKeyword, financeStatus, (debt) => [
     plateFor(vehicles, debt.vehicleId), customerLabel(customers, debt.customerId), debt.followUpDate, debt.notes
-  ], (debt) => debt.status).filter((debt) => matchesDashboardFinanceFocus(dashboardFocus, debt.vehicleId, dashboardFocus.attention === "open" ? debt.status !== "Closed" : true));
-  const filteredPaymentVouchers = filterFinanceRows(paymentVouchers, financeKeyword, financeStatus, (voucher) => [
+  ], (debt) => debt.status), financeFieldFilters, (debt) => ({ plate: plateFor(vehicles, debt.vehicleId), customer: customerLabel(customers, debt.customerId), followUp: debt.followUpDate })).filter((debt) => matchesDashboardFinanceFocus(dashboardFocus, debt.vehicleId, dashboardFocus.attention === "open" ? debt.status !== "Closed" : true));
+  const filteredPaymentVouchers = filterFinanceRowsByFields(filterFinanceRows(paymentVouchers, financeKeyword, financeStatus, (voucher) => [
     plateFor(vehicles, voucher.vehicleId), voucher.payeeName, voucher.purpose, voucher.issuedDate, voucher.notes
-  ], (voucher) => voucher.status).filter((voucher) => matchesDashboardFinanceFocus(dashboardFocus, voucher.vehicleId, dashboardFocus.attention === "open" ? voucher.status !== "Paid" : dashboardFocus.attention === "due" ? voucher.status !== "Paid" && voucher.issuedDate <= dashboardToday : true));
+  ], (voucher) => voucher.status), financeFieldFilters, (voucher) => ({ plate: plateFor(vehicles, voucher.vehicleId), payee: voucher.payeeName, purpose: voucher.purpose, issuedDate: voucher.issuedDate })).filter((voucher) => matchesDashboardFinanceFocus(dashboardFocus, voucher.vehicleId, dashboardFocus.attention === "open" ? voucher.status !== "Paid" : dashboardFocus.attention === "due" ? voucher.status !== "Paid" && voucher.issuedDate <= dashboardToday : true));
   const financeStatusOptions = statusOptionsForFinanceTab(financeTab);
   const searchCopy = financeSearchCopy(financeTab);
+  const financeKeywordFields = financeKeywordSearchFields(financeTab);
   const activeFinanceList = financeTab === "settlements"
     ? { filtered: filteredSettlements.length, total: settlements.length }
     : financeTab === "commissions"
@@ -993,9 +1088,29 @@ export function FinancePage({
           : financeTab === "daily"
             ? { filtered: filteredDailySpends.length, total: dailySpends.length }
             : { filtered: filteredPayments.length, total: payments.length };
-  const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus || dashboardFocusActive);
+  const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus || Object.values(financeFieldFilters).some((value) => String(value ?? "").trim()) || dashboardFocusActive);
+  const financeNativeSearch = {
+    fields: [
+      ...financeKeywordFields,
+      { name: "status", label: "Status", placeholder: "All statuses", options: financeStatusOptions }
+    ],
+    values: { ...financeFieldFilters, status: financeStatus },
+    onSubmit: (values: Record<string, unknown>) => {
+      setFinanceFieldFilters(Object.fromEntries(financeKeywordFields
+        .map((field) => [field.name, values[field.name]] as const)
+        .filter(([, value]) => String(value ?? "").trim())));
+      setFinanceStatus(values.status ? String(values.status) : undefined);
+      setFinancePage(1);
+    },
+    onReset: () => {
+      setFinanceKeyword("");
+      setFinanceFieldFilters({});
+      setFinanceStatus(undefined);
+      setFinancePage(1);
+    }
+  };
   const financeFilters = (
-    <Space wrap className="toolbarForm">
+    <Space wrap className="toolbarForm financeToolbarForm pageFilterMobileOnly">
       <Input.Search
         aria-label={searchCopy.ariaLabel}
         className="financeKeywordFilter"
@@ -1032,6 +1147,7 @@ export function FinancePage({
       {(financeKeyword.trim() || financeStatus) && <Button
         onClick={() => {
           setFinanceKeyword("");
+          setFinanceFieldFilters({});
           setFinanceStatus(undefined);
           setFinancePage(1);
         }}
@@ -1119,11 +1235,11 @@ export function FinancePage({
           onChange={changeFinanceTab}
           items={[
             ...(canManageFinance ? [
-              { key: "payments", label: "Invoices & Collections / 发票与收款" },
+              { key: "payments", label: "Sales Invoices & Collections / 销售发票与收款" },
               { key: "settlements", label: "Settlement / 结算" },
               { key: "commissions", label: "Broker Commission / 经纪佣金" },
               { key: "debt", label: "Debt Recovery / 欠款追讨" },
-              { key: "vouchers", label: "Payment Voucher / 付款凭证" },
+              { key: "vouchers", label: "Approvals & Vouchers / 审核与付款凭证" },
               { key: "daily", label: "Daily Spend / 日常支出" }
             ] : []),
             { key: "cash-custody", label: "Cash Handover / Official Receipts" }
@@ -1166,7 +1282,7 @@ export function FinancePage({
         />
       )}
       {financeTab === "payments" && <ProCard
-        title="Invoices & Collections / 发票与收款"
+        title="Sales Invoices & Collections / 销售发票与收款"
         extra={<Space wrap>
           <DatePicker.RangePicker
             aria-label="AutoCount export period"
@@ -1174,11 +1290,11 @@ export function FinancePage({
           />
           <Button disabled={Boolean(paymentLoadError)} onClick={handleExportAutoCount}>Export for AutoCount (.xlsx)</Button>
           <Button disabled={Boolean(paymentLoadError)} onClick={handleExportPayments}>Legacy export (.csv)</Button>
-          <Button type="primary" disabled={!canPrepareInvoice} onClick={openPrepareInvoice}>Prepare invoice</Button>
+          <Button type="primary" disabled={!canPrepareInvoice} onClick={openPrepareInvoice}>Prepare sales invoice</Button>
         </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
-          <Alert type="info" showIcon message="YS Heng issues the invoice here. The AutoCount Excel export is reviewed and submitted manually; it is not a direct integration." />
+          <Alert type="info" showIcon message="YS Heng issues the sales invoice to the new customer here. Customer receipts record money received; previous-owner payouts remain under Settlement." />
           {paymentLoadError && <Alert type="error" showIcon message="Finance records are unavailable" description={`${paymentLoadError} No demo or cached balances are shown.`} action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>} />}
           {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
           {financeFilters}
@@ -1187,24 +1303,26 @@ export function FinancePage({
           <div className="mobileRecordList">
           {filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
           {visiblePayments.map((payment) => {
+            const customerId = financePaymentCustomerId(payment, vehicles, loans);
             if (isFinanceV2(payment)) {
               return (
                 <article className="mobileRecordCard financeV2MobileCard" key={payment.id}>
                   <div className="mobileRecordHeader">
                     <div>
                       <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                      <Typography.Title level={5}>{plateFor(vehicles, payment.vehicleId)}</Typography.Title>
-                      <Typography.Text type="secondary">{customerLabel(customers, payment.customerId ?? vehicles.find((vehicle) => vehicle.id === payment.vehicleId)?.customerId)}</Typography.Text>
+                      <Typography.Text type="secondary">{plateFor(vehicles, payment.vehicleId)}</Typography.Text>
+                      <Typography.Title level={5}>{financeVehicleDescription(vehicles, payment.vehicleId)}</Typography.Title>
+                      {customerId ? <Typography.Link href={`/customer-360?customerId=${encodeURIComponent(customerId)}`} onClick={(event) => { event.preventDefault(); onOpenCustomer(customerId); }}>{financePaymentCustomerLabel(payment, vehicles, customers, loans)}</Typography.Link> : <Typography.Text type="secondary">Customer not linked / 未关联客户</Typography.Text>}
                     </div>
                     <Tag color={receivableStatusColor(payment.receivableStatus)}>{receivableStatusLabel(payment.receivableStatus)}</Tag>
                   </div>
                   <div className="mobileRecordMeta">
-                    <span><small>Invoice Total / 发票总额</small><strong>{formatMoney(payment.invoice?.amount ?? payment.nettPrice)}</strong></span>
+                    <span><small>Sales Invoice Total / 销售发票总额</small><strong>{formatMoney(payment.invoice?.amount ?? payment.nettPrice)}</strong></span>
                     <span><small>Collected / 已收</small><strong>{formatMoney(payment.collectedAmount ?? 0)}</strong></span>
                     <span><small>Balance Due / 未收</small><strong>{formatMoney(payment.balanceAmount ?? payment.nettPrice)}</strong></span>
                   </div>
                   <div className="mobileRecordFooter">
-                    {payment.invoice ? <Typography.Link href={financeInvoiceContentUrl(payment.invoice.id)} target="_blank">{payment.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Invoice not issued</Typography.Text>}
+                    {payment.invoice ? <Typography.Link href={financeInvoiceContentUrl(payment.invoice.id)} target="_blank">{payment.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
                     <div className="financeV2PrimaryAction">{v2PrimaryAction(payment)}</div>
                   </div>
                 </article>
@@ -1215,7 +1333,9 @@ export function FinancePage({
               <div className="mobileRecordHeader">
                 <div>
                   <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                  <Typography.Title level={5}>{plateFor(vehicles, payment.vehicleId)}</Typography.Title>
+                  <Typography.Text type="secondary">{plateFor(vehicles, payment.vehicleId)}</Typography.Text>
+                  <Typography.Title level={5}>{financeVehicleDescription(vehicles, payment.vehicleId)}</Typography.Title>
+                  {customerId ? <Typography.Link href={`/customer-360?customerId=${encodeURIComponent(customerId)}`} onClick={(event) => { event.preventDefault(); onOpenCustomer(customerId); }}>{financePaymentCustomerLabel(payment, vehicles, customers, loans)}</Typography.Link> : <Typography.Text type="secondary">Customer not linked / 未关联客户</Typography.Text>}
                 </div>
                 <Space wrap size={4}><Tag>Legacy</Tag><Tag color={payment.status === "Reconciled" ? "green" : "orange"}>{payment.status}</Tag></Space>
               </div>
@@ -1230,8 +1350,8 @@ export function FinancePage({
               <div className="mobileRecordFooter">
                 <Space wrap size={6}>
                   <Badge status={payment.bossChecked ? "success" : "warning"} text={payment.bossChecked ? "Management reviewed" : "Review pending"} />
-                  <Tag>{payment.receiptNumber || "No receipt"}</Tag>
-                  <Tag>{payment.invoiceNumber || "No invoice"}</Tag>
+                  <Tag>{payment.receiptNumber || "No customer receipt"}</Tag>
+                  <Tag>{payment.invoiceNumber || "No sales invoice"}</Tag>
                 </Space>
                 <Space className="tableActionGroup" wrap size={6}>
                   <Button size="small" type="primary" onClick={() => selectPayment(payment.id)}>Details</Button>
@@ -1248,14 +1368,15 @@ export function FinancePage({
           })}
           <Pagination className="mobileRecordPagination" current={paymentPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPayments.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <OperationsProTable className="desktopDataTable" rowKey="id" columns={columns} dataSource={filteredPayments} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={columns} dataSource={filteredPayments} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentEmptyText }} />
         </Space>
       </ProCard>}
       <Modal
-        title="Prepare invoice / 准备发票"
+        title="Prepare sales invoice / 准备销售发票"
         width={700}
         open={prepareInvoiceOpen}
         onCancel={() => {
+          setInvoiceReviewInput(undefined);
           setPrepareInvoiceOpen(false);
           setAdjustInvoicePrice(false);
           prepareInvoiceForm.resetFields();
@@ -1265,7 +1386,7 @@ export function FinancePage({
         className="recordCreateModal financeV2Modal"
       >
         <Form form={prepareInvoiceForm} layout="vertical" className="modalForm" onFinish={prepareFinanceSale}>
-          <Alert type="info" showIcon message="Check the buyer and amounts below. YS Heng generates the invoice; AutoCount only receives the reviewed Excel export." />
+          <Alert type="info" showIcon message="Check the buyer and amounts below. YS Heng generates the sales invoice for the new customer; AutoCount only receives the reviewed Excel export." />
           <Form.Item name="vehicleId" label="Vehicle & Buyer / 车辆与买家" rules={[{ required: true, message: "Select a vehicle." }]}>
             <Select showSearch optionFilterProp="label" onChange={updateInvoiceVehicleDefaults} options={eligibleInvoiceVehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model} · ${customerLabel(customers, vehicle.customerId)}` }))} />
           </Form.Item>
@@ -1286,19 +1407,50 @@ export function FinancePage({
               <Form.Item name="advancePaidOnBehalfAmount" label="Other advance (Finance mapping required)"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             </div>
           </ProCard>
-          <div className="financeV2CalculatedTotal"><span>Calculated invoice total / 系统计算总额</span><strong>{formatMoney(invoiceCalculatedTotal)}</strong><small>Selling price + additional charges + windscreen + paid-on-behalf lines − NCD</small></div>
+          <div className="financeV2CalculatedTotal">
+            <span>Calculated sales invoice total / 系统计算销售发票总额</span>
+            <strong>{formatMoney(invoiceCalculatedTotal)}</strong>
+            <small>Selling price + additional charges + windscreen + paid-on-behalf lines − NCD</small>
+          </div>
           <Checkbox checked={adjustInvoicePrice} onChange={(event) => {
             const checked = event.target.checked;
             setAdjustInvoicePrice(checked);
             prepareInvoiceForm.setFieldsValue({ nettPrice: checked ? invoiceCalculatedTotal : undefined, nettPriceOverrideReason: undefined });
           }}>Adjust price / 手动调整</Checkbox>
           {adjustInvoicePrice && <>
-            <Form.Item name="nettPrice" label="Agreed invoice total / 协议总额" rules={[{ required: true, message: "Enter the agreed total." }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="nettPriceOverrideReason" label="Reason for adjustment / 调整原因" rules={[{ required: true, whitespace: true, message: "Explain why the total is different." }]}><Input.TextArea rows={3} maxLength={500} showCount placeholder="Example: agreed discount approved during final negotiation" /></Form.Item>
+            <Form.Item name="nettPrice" label="Agreed sales invoice total / 协议销售发票总额" rules={[{ required: true, message: "Enter the agreed total." }]}>
+              <InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+            </Form.Item>
+            <Form.Item name="nettPriceOverrideReason" label="Reason for adjustment / 调整原因" rules={[{ required: true, whitespace: true, message: "Explain why the total is different." }]}>
+              <Input.TextArea rows={3} maxLength={500} showCount placeholder="Example: agreed discount approved during final negotiation" />
+            </Form.Item>
             <Alert type="warning" showIcon message="A different agreed total waits for Boss/Admin approval before the invoice is issued." />
           </>}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === "prepare-invoice"}>{invoiceSubmitLabel}</Button></Form.Item>
         </Form>
+      </Modal>
+      <Modal
+        title={invoiceReviewInput && (invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput)) !== calculateFinanceNettPrice(invoiceReviewInput)
+          ? "Send adjusted price for approval?"
+          : "Generate this sales invoice?"}
+        open={Boolean(invoiceReviewInput)}
+        okText={invoiceReviewInput && (invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput)) !== calculateFinanceNettPrice(invoiceReviewInput)
+          ? "Send for approval"
+          : "Generate sales invoice"}
+        cancelText="Check again"
+        confirmLoading={v2MutationKey === "prepare-invoice"}
+        onCancel={() => setInvoiceReviewInput(undefined)}
+        onOk={confirmFinanceSale}
+        destroyOnClose
+      >
+        {invoiceReviewInput && <Typography.Text>
+          {vehicles.find((item) => item.id === invoiceReviewInput.vehicleId)?.plateNumber ?? "Selected vehicle"}
+          {" · "}
+          {formatMoney(invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput))}
+          {(invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput)) !== calculateFinanceNettPrice(invoiceReviewInput)
+            ? " · Boss/Admin approval is required before issue."
+            : ""}
+        </Typography.Text>}
       </Modal>
       <Drawer
         title="Add payment / 新增收款"
@@ -1327,17 +1479,25 @@ export function FinancePage({
           {collectionHistory(selectedCollectionPayment)}
         </Space>}
       </Drawer>
-      <Drawer title="Invoice & payment details / 发票与收款详情" width={600} open={Boolean(v2DetailsPaymentId)} onClose={() => setV2DetailsPaymentId(undefined)} className="recordEditDrawer financeV2Drawer">
+      <Drawer
+        title="Sales invoice & collection details / 销售发票与收款详情"
+        width={600}
+        open={Boolean(v2DetailsPaymentId)}
+        onClose={() => setV2DetailsPaymentId(undefined)}
+        className="recordEditDrawer financeV2Drawer"
+      >
         {selectedV2DetailsPayment && <Space direction="vertical" size={16} className="fullWidth">
           <FinanceV2BalanceSummary payment={selectedV2DetailsPayment} vehicles={vehicles} customers={customers} />
-          {(selectedV2DetailsPayment.nettPriceVariance ?? 0) !== 0 && <ProCard size="small" title="Price adjustment / 价格调整"><Descriptions size="small" column={1}>
-            <Descriptions.Item label="Calculated total">{formatMoney(selectedV2DetailsPayment.calculatedNettPrice ?? selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
-            <Descriptions.Item label="Agreed invoice total">{formatMoney(selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
-            <Descriptions.Item label="Variance">{formatMoney(selectedV2DetailsPayment.nettPriceVariance ?? 0)}</Descriptions.Item>
-            <Descriptions.Item label="Reason">{selectedV2DetailsPayment.nettPriceOverrideReason ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="Requested by">{financeRequesterLabel(selectedV2DetailsPayment.nettPriceOverrideRequestedBy, currentUser?.id)}</Descriptions.Item>
-            <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for Boss/Admin"}</Descriptions.Item>
-          </Descriptions></ProCard>}
+          {(selectedV2DetailsPayment.nettPriceVariance ?? 0) !== 0 && <ProCard size="small" title="Price adjustment / 价格调整">
+            <Descriptions size="small" column={1}>
+              <Descriptions.Item label="Calculated total">{formatMoney(selectedV2DetailsPayment.calculatedNettPrice ?? selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
+              <Descriptions.Item label="Agreed sales invoice total">{formatMoney(selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
+              <Descriptions.Item label="Variance">{formatMoney(selectedV2DetailsPayment.nettPriceVariance ?? 0)}</Descriptions.Item>
+              <Descriptions.Item label="Reason">{selectedV2DetailsPayment.nettPriceOverrideReason ?? "-"}</Descriptions.Item>
+              <Descriptions.Item label="Requested by">{financeRequesterLabel(selectedV2DetailsPayment.nettPriceOverrideRequestedBy, currentUser?.id)}</Descriptions.Item>
+              <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for Boss/Admin"}</Descriptions.Item>
+            </Descriptions>
+          </ProCard>}
           {selectedV2DetailsPayment.invoice && <Button block href={financeInvoiceContentUrl(selectedV2DetailsPayment.invoice.id)} target="_blank">Open invoice PDF · {selectedV2DetailsPayment.invoice.invoiceNumber}</Button>}
           {selectedV2DetailsPayment.receivableStatus !== "Paid" && (selectedV2DetailsPayment.availableToAllocate ?? 0) > 0 && <Button block type="primary" onClick={() => { setV2DetailsPaymentId(undefined); openAddPayment(selectedV2DetailsPayment); }}>Add payment</Button>}
           {collectionHistory(selectedV2DetailsPayment)}
@@ -1393,8 +1553,8 @@ export function FinancePage({
           <Form.Item name="nettPrice" label="Collection Amount / Nett Price" rules={[{ required: true, message: "Collection amount is required." }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><DatePicker className="fullWidth" /></Form.Item>
-          <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
+          <Form.Item name="receiptNumber" label="Customer Receipt No. / 客户收据号"><Input placeholder="RCPT-1001" /></Form.Item>
+          <Form.Item name="invoiceNumber" label="Sales Invoice No. / 销售发票号"><Input placeholder="INV-1001" /></Form.Item>
           <Alert type="info" showIcon message="Collection starts as Pending. Export the spreadsheet and submit it manually to AutoCount; use row actions for disbursement, management review, checklist, and reconciliation." />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Collection</Button></Form.Item>
         </Form>
@@ -1429,8 +1589,8 @@ export function FinancePage({
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
+          <Form.Item name="receiptNumber" label="Customer Receipt No. / 客户收据号"><Input placeholder="RCPT-1001" /></Form.Item>
+          <Form.Item name="invoiceNumber" label="Sales Invoice No. / 销售发票号"><Input placeholder="INV-1001" /></Form.Item>
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
@@ -1486,12 +1646,12 @@ export function FinancePage({
             setFinanceEditorOpen(null);
           }}
         >
-          <Form.Item name="id" label="Selected Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
+          <Form.Item name="id" label="Selected Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No customer receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedEditPayment?.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item name="receiptNumber" label="Receipt No."><Input placeholder="RCPT-1001" /></Form.Item>
-          <Form.Item name="invoiceNumber" label="Invoice No."><Input placeholder="INV-1001" /></Form.Item>
+          <Form.Item name="receiptNumber" label="Customer Receipt No. / 客户收据号"><Input placeholder="RCPT-1001" /></Form.Item>
+          <Form.Item name="invoiceNumber" label="Sales Invoice No. / 销售发票号"><Input placeholder="INV-1001" /></Form.Item>
           <Descriptions size="small" column={1} className="fullWidth">
             <Descriptions.Item label="Management Review / 管理层审核">{selectedEditPayment?.bossChecked ? "Reviewed" : "Pending"}</Descriptions.Item>
           </Descriptions>
@@ -1516,7 +1676,7 @@ export function FinancePage({
         <Space direction="vertical" size={12} className="fullWidth">
           {selectedPayment && !isFinanceV2(selectedPayment) && <MissingUploadReminder
             title="Payment evidence required"
-            description="Attach the receipt or invoice to this collection record before finance reconciliation."
+            description="Attach the customer receipt or sales invoice to this collection record before finance reconciliation."
             items={financeDocumentCategories.map((category) => ({
               label: documentCategoryLabel(category),
               isPresent: paymentDocuments.some((document) => document.category === category)
@@ -1534,42 +1694,42 @@ export function FinancePage({
                 }}
                 options={payments.map((payment) => ({
                   value: payment.id,
-                  label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No receipt"} / ${payment.invoiceNumber || "No invoice"}`
+                  label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No customer receipt"} / ${payment.invoiceNumber || "No sales invoice"}`
                 }))}
               />
             </Form.Item>
             {selectedPayment && !isFinanceV2(selectedPayment) && <>
-            <Form.Item label="Document Type / 文件类型">
-              <Select<DocumentCategory>
-                value={documentCategory}
-                onChange={setDocumentCategory}
-                options={financeDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
-              />
-            </Form.Item>
-            <Form.Item label="Receipt / Invoice Upload / 收据与发票上传">
-              <OcrUploadReview
-                vehicleId={selectedPayment.vehicleId}
-                category={documentCategory}
-                uploadOwner={{ paymentRecordId: selectedPayment.id }}
-                buttonLabel="Add receipt or invoice photo"
-                applyLabel="Use details in payment"
-                fields={[
-                  { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
-                  { name: "receiptNumber", label: "Receipt No." },
-                  { name: "invoiceNumber", label: "Invoice No." },
-                  { name: "nettPrice", label: "Nett Price", type: "number" },
-                  { name: "salesPrice", label: "Sales Price", type: "number" },
-                  { name: "bankName", label: "Bank" },
-                  { name: "bankFollowUpDate", label: "Bank Follow-up" }
-                ]}
-                onApply={(values) => {
-                  setEditPaymentId(selectedPayment.id);
-                  setPaymentOcrDraft(values);
-                  setFinanceEditorOpen("payment");
-                }}
-                onUploaded={() => setDocumentReloadKey((value) => value + 1)}
-              />
-            </Form.Item>
+              <Form.Item label="Document Type / 文件类型">
+                <Select<DocumentCategory>
+                  value={documentCategory}
+                  onChange={setDocumentCategory}
+                  options={financeDocumentCategories.map((category) => ({ value: category, label: documentCategoryLabel(category) }))}
+                />
+              </Form.Item>
+              <Form.Item label="Customer Receipt / Sales Invoice Upload / 客户收据与销售发票上传">
+                <OcrUploadReview
+                  vehicleId={selectedPayment.vehicleId}
+                  category={documentCategory}
+                  uploadOwner={{ paymentRecordId: selectedPayment.id }}
+                  buttonLabel="Add customer receipt or sales invoice photo"
+                  applyLabel="Use details in payment"
+                  fields={[
+                    { name: "vehicleId", label: "Car Plate", type: "select", options: vehicleOptions },
+                    { name: "receiptNumber", label: "Customer Receipt No." },
+                    { name: "invoiceNumber", label: "Sales Invoice No." },
+                    { name: "nettPrice", label: "Nett Price", type: "number" },
+                    { name: "salesPrice", label: "Sales Price", type: "number" },
+                    { name: "bankName", label: "Bank" },
+                    { name: "bankFollowUpDate", label: "Bank Follow-up" }
+                  ]}
+                  onApply={(values) => {
+                    setEditPaymentId(selectedPayment.id);
+                    setPaymentOcrDraft(values);
+                    setFinanceEditorOpen("payment");
+                  }}
+                  onUploaded={() => setDocumentReloadKey((value) => value + 1)}
+                />
+               </Form.Item>
             </>}
           </Form>
           <Alert
@@ -1584,7 +1744,7 @@ export function FinancePage({
       {financeTab === "settlements" && <ProCard
         id="settlement-list-card"
         title="Settlement Reminder / 收车结算提醒"
-        extra={<Button type="primary" onClick={() => setFinanceCreateOpen("settlement")}>New Settlement</Button>}
+        extra={<Button type="primary" onClick={openNewSettlement}>New Settlement</Button>}
       >
         <Space direction="vertical" size={16} className="fullWidth">
           {financeFilters}
@@ -1625,17 +1785,20 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={settlementPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredSettlements.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <OperationsProTable className="desktopDataTable" rowKey="id" columns={settlementColumns} dataSource={filteredSettlements} pagination={tablePagination(filteredSettlements.length, settlementPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: settlementEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={settlementColumns} dataSource={filteredSettlements} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredSettlements.length, settlementPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: settlementEmptyText }} />
           <Modal
             title="New Settlement / 新增结算提醒"
             width={620}
             open={financeCreateOpen === "settlement"}
-            onCancel={() => setFinanceCreateOpen(null)}
+            onCancel={() => {
+              setFinanceCreateOpen(null);
+              settlementForm.resetFields();
+            }}
             footer={null}
             destroyOnClose
             className="recordCreateModal"
           >
-          <Form layout="vertical" className="modalForm" onFinish={(values) => {
+          <Form form={settlementForm} layout="vertical" className="modalForm" onFinish={(values) => {
             const settlement: SettlementReminder = {
               id: newId(),
               vehicleId: values.vehicleId,
@@ -1651,11 +1814,13 @@ export function FinancePage({
             }
             onCreateSettlement(settlement);
             setFinanceCreateOpen(null);
-          }} initialValues={{ vehicleId: vehicles[0]?.id, deadline: today(), isPaid: false }}>
-            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="ownerId" label="Settlement Owner / Previous Owner"><Select allowClear showSearch optionFilterProp="label" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} /></Form.Item>
-            <Form.Item name="amount" label="Settlement Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="deadline" label="Deadline" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
+            settlementForm.resetFields();
+          }}>
+            <Alert type="info" showIcon message="Previous owner and purchase price are copied from vehicle intake for Finance to review before saving." />
+            <Form.Item name="vehicleId" label="Vehicle / 车辆" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" onChange={updateSettlementVehicleDefaults} options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${financeVehicleDescription(vehicles, vehicle.id)}` }))} /></Form.Item>
+            <Form.Item name="ownerId" label="Previous owner / 原车主"><Select allowClear showSearch optionFilterProp="label" options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} /></Form.Item>
+            <Form.Item name="amount" label="Purchase settlement amount / 收车结算金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="deadline" label="Settlement deadline / 结算期限" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Settlement</Button></Form.Item>
           </Form>
@@ -1744,7 +1909,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredBrokerCommissions.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <OperationsProTable className="desktopDataTable" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage)} scroll={{ x: 760 }} locale={{ emptyText: brokerCommissionEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage)} scroll={{ x: 760 }} locale={{ emptyText: brokerCommissionEmptyText }} />
           <Modal
             title="New Broker Commission / 新增经纪人佣金"
             width={620}
@@ -1860,7 +2025,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={debtRecoveryPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredDebtRecoveries.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <OperationsProTable className="desktopDataTable" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
           <Modal
             title="New Debt Recovery Case / 新增欠款追讨"
             width={620}
@@ -1943,7 +2108,7 @@ export function FinancePage({
           </Form>
       </Drawer>
       {financeTab === "vouchers" && <ProCard title="Supplier master approval / 供应商审核">
-        <Alert className="sectionIntroAlert" type="info" showIcon message="Approve complete supplier records before they are used for purchase accounting." />
+        <Alert className="sectionIntroAlert" type="info" showIcon message="Review complete supplier drafts here. Finance creators need another approver; Boss/Admin may approve their own draft as an audited override." />
         <OperationsProTable<Supplier>
           rowKey="id"
           dataSource={supplierMaster}
@@ -1954,8 +2119,13 @@ export function FinancePage({
             { title: "Address", dataIndex: "address" },
             { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
             { title: "Creditor code", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
+            { title: "Created by", render: (_, supplier) => supplier.createdBy === currentUser?.id ? <Tag>You</Tag> : "Another staff member" },
             { title: "Status", dataIndex: "approvalStatus", render: (value) => <Tag color={value === "Approved" ? "green" : "gold"}>{value}</Tag> },
-            { title: "Action", render: (_, supplier) => supplier.approvalStatus === "Draft" ? <Button size="small" onClick={async () => { try { await approveSupplier(supplier.id); message.success("Supplier approved."); await reloadSupplierMaster(); } catch (error) { message.error(humanizeApiError(error, "Unable to approve supplier.")); } }}>Approve</Button> : null }
+            { title: "Action", render: (_, supplier) => {
+              if (supplier.approvalStatus !== "Draft") return null;
+              const blockReason = supplierApprovalBlockReason(supplier, currentUser?.id, Boolean(currentUser?.roles.includes("BossAdmin")));
+              return <Tooltip title={blockReason}><span><Button size="small" type="primary" disabled={Boolean(blockReason)} onClick={async () => { try { await approveSupplier(supplier.id); message.success("Supplier approved."); await reloadSupplierMaster(); } catch (error) { message.error(humanizeApiError(error, "Unable to approve supplier.")); } }}>{blockReason ? "Needs another approver" : "Approve"}</Button></span></Tooltip>;
+            } }
           ]}
         />
       </ProCard>}
@@ -2031,7 +2201,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={paymentVoucherPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPaymentVouchers.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <OperationsProTable className="desktopDataTable" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
           <Modal
             title="New Payment Voucher / 新增付款凭证"
             width={620}
@@ -2175,7 +2345,7 @@ export function FinancePage({
             ))}
             <Pagination className="mobileRecordPagination" current={dailySpendPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredDailySpends.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <OperationsProTable className="desktopDataTable" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
           <Modal
             title="New Daily Spend / 新增日常支出"
             width={560}
@@ -2257,12 +2427,12 @@ export function FinanceV2BalanceSummary({ payment, vehicles, customers }: { paym
       <div className="financeV2BalanceHeader">
         <div>
           <Typography.Text type="secondary">{plateFor(vehicles, payment.vehicleId)}</Typography.Text>
-          <Typography.Title level={4}>{customerLabel(customers, payment.customerId ?? vehicles.find((vehicle) => vehicle.id === payment.vehicleId)?.customerId)}</Typography.Title>
+          <Typography.Title level={4}>{financePaymentCustomerLabel(payment, vehicles, customers)}</Typography.Title>
         </div>
         <Tag color={receivableStatusColor(payment.receivableStatus)}>{receivableStatusLabel(payment.receivableStatus)}</Tag>
       </div>
       <div className="financeV2BalanceGrid">
-        <span><small>Invoice total</small><strong>{formatMoney(payment.invoice?.amount ?? payment.nettPrice)}</strong></span>
+        <span><small>Sales invoice total</small><strong>{formatMoney(payment.invoice?.amount ?? payment.nettPrice)}</strong></span>
         <span><small>Collected</small><strong>{formatMoney(payment.collectedAmount ?? 0)}</strong></span>
         <span><small>Balance due</small><strong>{formatMoney(payment.balanceAmount ?? payment.nettPrice)}</strong></span>
       </div>
@@ -2308,8 +2478,8 @@ function documentCategoryLabel(category: DocumentCategory) {
     Policy: "Policy",
     RoadTaxReceipt: "Road Tax Receipt",
     RepairInvoice: "Repair Invoice",
-    PaymentReceipt: "Payment Receipt",
-    PaymentInvoice: "Payment Invoice",
+    PaymentReceipt: "Customer Receipt",
+    PaymentInvoice: "Sales Invoice",
     MedicalCertificate: "Medical Certificate",
     InspectionReport: "Inspection Report",
     WindscreenPolicy: "Windscreen Policy"
@@ -2347,9 +2517,29 @@ function plateFor(vehicles: VehicleLookup[], vehicleId: string) {
   return vehicles.find((vehicle) => vehicle.id === vehicleId)?.plateNumber ?? "Unknown";
 }
 
+export function financeVehicleDescription(vehicles: VehicleLookup[], vehicleId: string) {
+  const vehicle = vehicles.find((item) => item.id === vehicleId);
+  if (!vehicle) return "Unknown vehicle";
+  return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
+}
+
 function customerLabel(customers: Customer[], customerId?: string) {
   if (!customerId) return "Unknown";
   return customers.find((customer) => customer.id === customerId)?.name ?? "Unknown";
+}
+
+export function financePaymentCustomerId(payment: PaymentRecord, vehicles: VehicleLookup[], loans: LoanApplication[] = []) {
+  const directCustomerId = payment.customerId ?? vehicles.find((vehicle) => vehicle.id === payment.vehicleId)?.customerId;
+  if (directCustomerId) return directCustomerId;
+
+  const loanCustomerIds = Array.from(new Set(loans
+    .filter((loan) => loan.vehicleId === payment.vehicleId && loan.status !== "Rejected")
+    .map((loan) => loan.customerId)));
+  return loanCustomerIds.length === 1 ? loanCustomerIds[0] : undefined;
+}
+
+export function financePaymentCustomerLabel(payment: PaymentRecord, vehicles: VehicleLookup[], customers: Customer[], loans: LoanApplication[] = []) {
+  return customerLabel(customers, financePaymentCustomerId(payment, vehicles, loans));
 }
 
 function paymentChecklistTags(payment: PaymentRecord) {
@@ -2402,6 +2592,40 @@ function statusOptionsForFinanceTab(tab: string) {
       : financeStatusLabel(value),
     value
   }));
+}
+
+function financeKeywordSearchFields(tab: string) {
+  if (tab === "settlements") return [
+    { name: "plate", label: "Plate" },
+    { name: "owner", label: "Previous owner" },
+    { name: "deadline", label: "Deadline" }
+  ];
+  if (tab === "commissions") return [
+    { name: "plate", label: "Plate" },
+    { name: "broker", label: "Broker" }
+  ];
+  if (tab === "debt") return [
+    { name: "plate", label: "Plate" },
+    { name: "customer", label: "Customer" },
+    { name: "followUp", label: "Follow-up date" }
+  ];
+  if (tab === "vouchers") return [
+    { name: "plate", label: "Plate" },
+    { name: "payee", label: "Payee" },
+    { name: "purpose", label: "Purpose" },
+    { name: "issuedDate", label: "Issued date" }
+  ];
+  if (tab === "daily") return [
+    { name: "description", label: "Description" },
+    { name: "dueDate", label: "Due date" }
+  ];
+  return [
+    { name: "plate", label: "Plate" },
+    { name: "customer", label: "Customer" },
+    { name: "receipt", label: "Customer Receipt" },
+    { name: "invoice", label: "Sales Invoice" },
+    { name: "bank", label: "Bank" }
+  ];
 }
 
 function addCalendarDays(isoDate: string, days: number) {

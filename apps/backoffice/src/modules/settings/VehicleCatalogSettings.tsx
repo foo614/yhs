@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Switch, Tag, Typography, message } from "antd";
-import { OperationsProTable } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
+import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import {
   createVehicleCatalogModel,
   getVehicleCatalogModels,
@@ -180,7 +180,7 @@ export function VehicleCatalogSettings() {
           </Space>
         </Form.Item>
       </Form>
-      <div className="vehicleOperationFilters">
+      <div className="vehicleOperationFilters pageFilterMobileOnly">
         <Input.Search
           allowClear
           value={catalogFilters.keyword}
@@ -231,10 +231,32 @@ export function VehicleCatalogSettings() {
         )}
       </div>
       <OperationsProTable
-        className="desktopDataTable"
+        className="desktopDataTable nativeSearchDesktopOnly"
         rowKey="id"
         columns={catalogColumns}
         dataSource={filteredCatalogModels}
+        nativeSearch={{
+          fields: [
+            { name: "make", label: "Make" },
+            { name: "model", label: "Model" },
+            { name: "status", label: "Website status", options: [
+              { value: "active", label: "Visible" },
+              { value: "hidden", label: "Hidden" }
+            ] }
+          ],
+          values: { status: catalogFilters.status },
+          onSubmit: (values) => {
+            setCatalogFilters({
+              keyword: operationsKeywordFromFields(values, ["make", "model"]),
+              status: values.status as VehicleCatalogFilters["status"] | undefined
+            });
+            setMobileCatalogPage(1);
+          },
+          onReset: () => {
+            setCatalogFilters({});
+            setMobileCatalogPage(1);
+          }
+        }}
         pagination={{ pageSize: 8, showSizeChanger: false, current: clampedMobileCatalogPage, onChange: setMobileCatalogPage }}
         scroll={{ x: 640 }}
         locale={{ emptyText: catalogEmptyText }}

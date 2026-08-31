@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, possibleOwnersForIdentityReview, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -71,6 +71,16 @@ describe("filterOperationIntakeVehicles", () => {
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { ownerLink: "missing", customerLink: "missing", invoiceLink: "missing" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-2"]);
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { leadActivity: "active" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
     expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { leadActivity: "none" }).map((vehicle) => vehicle.id)).toEqual(["vehicle-2", "vehicle-3"]);
+  });
+
+  it("combines the structured plate, make, model, and year fields", () => {
+    expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, {
+      plate: "VAA 1001",
+      make: "Toyota",
+      model: "Vios",
+      year: 2022
+    }).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
+    expect(filterOperationIntakeVehicles(vehicles, purchaseInvoices, leads, { make: "Toyota", model: "City" })).toEqual([]);
   });
 });
 
@@ -217,6 +227,82 @@ describe("vehicleFromCreateIntakeValues", () => {
       bossConfirmed: true,
       isPublic: false
     });
+  });
+
+  it("prepares an unpaid seller settlement from the intake owner and purchase price", () => {
+    expect(settlementFromVehicleIntakeValues({
+      ...intakeValues,
+      ownerId: "owner-1",
+      purchasePrice: 49_900,
+      prepareSettlement: true,
+      settlementDeadline: "2026-09-01"
+    }, "vehicle-new", "settlement-new")).toEqual({
+      id: "settlement-new",
+      vehicleId: "vehicle-new",
+      ownerId: "owner-1",
+      amount: 49_900,
+      deadline: "2026-09-01",
+      isPaid: false
+    });
+  });
+
+  it("does not create a settlement when the staff member leaves it for Finance", () => {
+    expect(settlementFromVehicleIntakeValues({ ...intakeValues, prepareSettlement: false }, "vehicle-new", "settlement-new")).toBeUndefined();
+  });
+});
+
+describe("previous owner identity review", () => {
+  it("creates a trimmed owner draft and formats a 12-digit IC number", () => {
+    expect(ownerFromIdentityCardReview({
+      name: "  Lim Owner  ",
+      phone: " 019-888 7777 ",
+      icNumber: "900101011234",
+      address: "  12 Jalan Demo  "
+    }, "owner-new")).toEqual({
+      id: "owner-new",
+      name: "Lim Owner",
+      phone: "019-888 7777",
+      icNumber: "900101-01-1234",
+      address: "12 Jalan Demo"
+    });
+  });
+
+  it("suggests exact normalized name matches for manual duplicate review", () => {
+    const owners = [
+      { id: "owner-1", name: "Lim   Owner", phone: "0198887777" },
+      { id: "owner-2", name: "Different Owner", phone: "0112223333" }
+    ];
+
+    expect(possibleOwnersForIdentityReview(owners, " lim owner ").map((owner) => owner.id)).toEqual(["owner-1"]);
+  });
+
+  it("shows the unreadable recovery state only when OCR found no useful identity fields", () => {
+    expect(ownerIdentityCardReadFailed({
+      result: {
+        documentCategory: "IdentityCard",
+        confidence: 0,
+        fieldConfidence: {},
+        fields: {},
+        rawText: "",
+        warnings: ["Automatic reading was unavailable."]
+      }
+    })).toBe(true);
+
+    expect(ownerIdentityCardReadFailed({
+      result: {
+        documentCategory: "IdentityCard",
+        confidence: 0.7,
+        fieldConfidence: { icNumber: 0.7 },
+        fields: { icNumber: "900101011234" },
+        rawText: "900101011234",
+        warnings: []
+      }
+    })).toBe(false);
+  });
+
+  it("shows only the final four NRIC digits in the compact owner summary", () => {
+    expect(identityCardEnding("900101-01-1234")).toBe("1234");
+    expect(identityCardEnding(undefined)).toBeUndefined();
   });
 });
 

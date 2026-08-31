@@ -1,8 +1,8 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { DownloadOutlined, UploadOutlined } from "@ant-design/icons";
-import { ProCard, ProDescriptions, ProTable, ProConfigProvider, StepsForm } from "@ant-design/pro-components";
+import { CheckCircleFilled, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
+import { ProCard, ProDescriptions, ProConfigProvider, StepsForm } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { enUSIntl } from "@ant-design/pro-provider";
 import MDEditor from "@uiw/react-md-editor";
@@ -11,11 +11,12 @@ import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, In
 import type { FormInstance } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
-import { customerCreateBlockReason, ownerCreateBlockReason } from "../../contacts";
+import type { UploadRequestOption } from "rc-upload/lib/interface";
+import { customerCreateBlockReason, normalizeIdentityCardNumber, ownerCreateBlockReason } from "../../contacts";
 import { singaporeTodayIsoDate, type DashboardVehicleFocus } from "../../dashboard";
 import { isRepairCostFinal } from "../../repairs";
-import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
-import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
+import { isMalaysiaPlateFormat, malaysiaPlateFormatMessage, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
+import { isOcrImageMimeType, OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
@@ -28,6 +29,7 @@ import {
   getVehiclePhotos,
   getSupplierMaster,
   humanizeApiError,
+  previewOwnerIdentityCard,
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
@@ -40,13 +42,16 @@ import {
   type Lead,
   type LoanApplication,
   type Owner,
+  type OwnerIdentityCardPreview,
   type PaymentVoucher,
   type PurchaseInvoice,
   type RepairJob,
+  type SettlementReminder,
   type Supplier,
   type Vehicle,
   type VehicleCatalogModel,
   type VehicleIntakeValues,
+  type VehicleIntakeCreateResponse,
   type VehicleDocument,
   type VehicleOcrJob,
   type VehiclePhoto
@@ -58,7 +63,17 @@ const receiptInvoiceDocumentCategories: DocumentCategory[] = ["PurchaseInvoice",
 const mobileVehiclePageSize = 8;
 const earliestVehicleYear = 1990;
 const latestVehicleYear = new Date().getFullYear() + 1;
-export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id">>;
+export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id">> & {
+  prepareSettlement?: boolean;
+  settlementDeadline?: string;
+};
+
+type SellerIdentityReviewValues = {
+  name?: string;
+  phone?: string;
+  icNumber?: string;
+  address?: string;
+};
 
 export function vehicleDocumentOwnershipDefault(category: DocumentCategory): DocumentOwnershipType {
   switch (category) {
@@ -238,6 +253,7 @@ export function vehicleFromCreateIntakeValues(values: VehicleIntakeDraft, canApp
   const bossConfirmed = canApproveVehicles ? Boolean(values.bossConfirmed) : false;
   return vehicleFromIntakeValues({
     ...values,
+    plateNumber: normalizeMalaysiaPlate(values.plateNumber),
     stockOwner: values.stockOwner || "YSHeng",
     status: "Available",
     bossConfirmed,
@@ -245,10 +261,57 @@ export function vehicleFromCreateIntakeValues(values: VehicleIntakeDraft, canApp
   } as VehicleIntakeValues, id);
 }
 
-function VehicleIntakeReview({ draft, customers, owners }: { draft: VehicleIntakeDraft; customers: Customer[]; owners: Owner[] }) {
+export function settlementFromVehicleIntakeValues(values: VehicleIntakeDraft, vehicleId: string, settlementId: string): SettlementReminder | undefined {
+  if (!values.prepareSettlement) return undefined;
+  return {
+    id: settlementId,
+    vehicleId,
+    ownerId: values.ownerId,
+    amount: Number(values.purchasePrice ?? 0),
+    deadline: values.settlementDeadline ?? "",
+    isPaid: false
+  };
+}
+
+export function ownerFromIdentityCardReview(values: SellerIdentityReviewValues, id: string): Owner {
+  return {
+    id,
+    name: values.name?.trim() ?? "",
+    phone: values.phone?.trim() ?? "",
+    icNumber: formatIdentityCardNumber(values.icNumber),
+    address: values.address?.trim() || undefined
+  };
+}
+
+export function possibleOwnersForIdentityReview(owners: Owner[], name?: string) {
+  const normalizedName = name?.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  if (!normalizedName) return [];
+  return owners.filter((owner) => owner.name.trim().replace(/\s+/g, " ").toLocaleLowerCase() === normalizedName);
+}
+
+export function ownerIdentityCardReadFailed(preview?: OwnerIdentityCardPreview | null) {
+  if (!preview) return false;
+  const fields = preview.result.fields;
+  return ![fields.customerName, fields.name, fields.icNumber, fields.address]
+    .some((value) => typeof value === "string" && value.trim().length > 0);
+}
+
+export function identityCardEnding(value?: string) {
+  const normalized = normalizeIdentityCardNumber(value);
+  return normalized.length >= 4 ? normalized.slice(-4) : undefined;
+}
+
+function formatIdentityCardNumber(value?: string) {
+  const normalized = normalizeIdentityCardNumber(value);
+  return normalized.length === 12
+    ? `${normalized.slice(0, 6)}-${normalized.slice(6, 8)}-${normalized.slice(8)}`
+    : value?.trim() || undefined;
+}
+
+function VehicleIntakeReview({ draft, customers, owners, pendingOwner, hasSellerNric }: { draft: VehicleIntakeDraft; customers: Customer[]; owners: Owner[]; pendingOwner?: Owner | null; hasSellerNric: boolean }) {
   const displayValue = (value: unknown) => value === undefined || value === "" || value === null ? "Not provided" : String(value);
   const customer = customers.find((item) => item.id === draft.customerId);
-  const owner = owners.find((item) => item.id === draft.ownerId);
+  const owner = owners.find((item) => item.id === draft.ownerId) ?? (pendingOwner?.id === draft.ownerId ? pendingOwner : undefined);
 
   return (
     <Space direction="vertical" size={12} className="fullWidth">
@@ -263,8 +326,11 @@ function VehicleIntakeReview({ draft, customers, owners }: { draft: VehicleIntak
         <ProDescriptions.Item label="Vehicle / 车辆">{[draft.make, draft.model, draft.year].filter(Boolean).join(" ") || "Not provided"}</ProDescriptions.Item>
         <ProDescriptions.Item label="Purchase / 收车价">{formatMoney(Number(draft.purchasePrice ?? 0))}</ProDescriptions.Item>
         <ProDescriptions.Item label="Selling / 售价">{formatMoney(Number(draft.sellingPrice ?? 0))}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Customer / 客户">{customer ? customerSelectLabel(customer) : "Not selected"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Owner / 原车主">{owner ? `${owner.name} / ${owner.phone}` : "Not selected"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Confirmed buyer / 已确认买家">{customer ? customerSelectLabel(customer) : "Not linked"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Previous owner / 原车主">{owner ? `${owner.name} / ${owner.phone}` : "Not selected"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Previous owner NRIC / 原车主身份证">{hasSellerNric ? "Reviewed and ready to upload" : "Not uploaded"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Settlement reminder / 结算提醒">{draft.prepareSettlement ? formatMoney(Number(draft.purchasePrice ?? 0)) : "Finance follow-up after intake"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Settlement deadline / 结算期限">{draft.prepareSettlement ? displayValue(draft.settlementDeadline) : "Not prepared"}</ProDescriptions.Item>
       </ProDescriptions>
     </Space>
   );
@@ -272,6 +338,10 @@ function VehicleIntakeReview({ draft, customers, owners }: { draft: VehicleIntak
 
 export type OperationIntakeVehicleFilters = {
   keyword?: string;
+  plate?: string;
+  make?: string;
+  model?: string;
+  year?: number;
   status?: Vehicle["status"];
   stockOwner?: Vehicle["stockOwner"];
   publicState?: "visible" | "hidden";
@@ -411,11 +481,19 @@ export function filterOperationIntakeVehicles(
     const hasOutstationPickup = Boolean(vehicle.outstationPickupScheduledAt || vehicle.outstationPickupAllowance || vehicle.outstationPickupBookingSlip);
     const hasInvoice = invoiceVehicleIds.has(vehicle.id);
     const hasActiveLead = activeLeadVehicleIds.has(vehicle.id);
+    const normalizedPlate = filters.plate?.trim().toLowerCase();
+    const compactPlate = normalizedPlate?.replace(/[^a-z0-9]/gi, "");
+    const vehiclePlate = vehicle.plateNumber.toLowerCase();
+    const compactVehiclePlate = vehiclePlate.replace(/[^a-z0-9]/gi, "");
 
     if (keywordTokens.some((token) => {
       const compactToken = token.replace(/[^a-z0-9]/gi, "");
       return !searchable.includes(token) && (!compactToken || !compactSearchable.includes(compactToken));
     })) return false;
+    if (normalizedPlate && !vehiclePlate.includes(normalizedPlate) && (!compactPlate || !compactVehiclePlate.includes(compactPlate))) return false;
+    if (filters.make && vehicle.make !== filters.make) return false;
+    if (filters.model && vehicle.model !== filters.model) return false;
+    if (filters.year && vehicle.year !== filters.year) return false;
     if (filters.status && vehicle.status !== filters.status) return false;
     if (filters.stockOwner && vehicle.stockOwner !== filters.stockOwner) return false;
     if (filters.publicState === "visible" && !vehicle.isPublic) return false;
@@ -448,6 +526,7 @@ export function VehiclePage({
   brokerCommissions = [],
   paymentVouchers = [],
   canApproveVehicles,
+  canPrepareSettlement,
   dashboardFocus,
   dashboardAnalyticsPeriod,
   onClearDashboardFocus,
@@ -474,10 +553,11 @@ export function VehiclePage({
   brokerCommissions?: BrokerCommission[];
   paymentVouchers?: PaymentVoucher[];
   canApproveVehicles: boolean;
+  canPrepareSettlement: boolean;
   dashboardFocus?: DashboardVehicleFocus;
   dashboardAnalyticsPeriod?: DashboardAnalyticsPeriod;
   onClearDashboardFocus: () => void;
-  onCreate: (vehicle: Vehicle) => Promise<void>;
+  onCreate: (vehicle: Vehicle, settlement: SettlementReminder | undefined, newOwner: Owner | undefined, identityCard: File) => Promise<VehicleIntakeCreateResponse>;
   onUpdate: (vehicle: Vehicle) => Promise<void>;
   onStartLoan: (vehicle: Vehicle) => Promise<void>;
   onOpenCustomer: (customerId: string) => void;
@@ -510,6 +590,33 @@ export function VehiclePage({
   const [vehicleAssetTab, setVehicleAssetTab] = useState("documents");
   const [vehicleCreateOpen, setVehicleCreateOpen] = useState(false);
   const [vehicleIntakeDraft, setVehicleIntakeDraft] = useState<VehicleIntakeDraft>({});
+  const [sellerIdentityReviewForm] = Form.useForm<SellerIdentityReviewValues>();
+  const [sellerIdentityPreview, setSellerIdentityPreview] = useState<OwnerIdentityCardPreview | null>(null);
+  const [sellerIdentityReviewOpen, setSellerIdentityReviewOpen] = useState(false);
+  const [sellerIdentityBusy, setSellerIdentityBusy] = useState(false);
+  const [sellerIdentityManualEntry, setSellerIdentityManualEntry] = useState(false);
+  const [sellerNricFile, setSellerNricFile] = useState<File | null>(null);
+  const [pendingOwnerDraft, setPendingOwnerDraft] = useState<Owner | null>(null);
+  const sellerIdentityRequestId = useRef(0);
+  const sellerIdentityName = Form.useWatch("name", sellerIdentityReviewForm);
+  const sellerIdentityIcNumber = Form.useWatch("icNumber", sellerIdentityReviewForm);
+  const reviewedExistingOwner = sellerIdentityPreview?.existingOwner ?? owners.find((owner) => {
+    const normalized = normalizeIdentityCardNumber(sellerIdentityIcNumber);
+    return normalized.length > 0 && normalizeIdentityCardNumber(owner.icNumber) === normalized;
+  });
+  const possibleIdentityOwners = useMemo(
+    () => possibleOwnersForIdentityReview(owners, sellerIdentityName).filter((owner) => owner.id !== reviewedExistingOwner?.id),
+    [owners, sellerIdentityName, reviewedExistingOwner?.id]
+  );
+  const sellerIdentityConfirmed = Boolean(
+    sellerNricFile && (
+      pendingOwnerDraft?.id === vehicleIntakeDraft.ownerId ||
+      sellerIdentityPreview?.existingOwner?.id === vehicleIntakeDraft.ownerId
+    )
+  );
+  const selectedIntakeOwner = owners.find((owner) => owner.id === vehicleIntakeDraft.ownerId)
+    ?? (pendingOwnerDraft?.id === vehicleIntakeDraft.ownerId ? pendingOwnerDraft : undefined);
+  const sellerIdentityReadFailed = ownerIdentityCardReadFailed(sellerIdentityPreview);
   const [purchaseInvoiceCreateOpen, setPurchaseInvoiceCreateOpen] = useState(false);
   const [purchaseInvoiceOcrDraft, setPurchaseInvoiceOcrDraft] = useState<OcrReviewValues | null>(null);
   const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
@@ -524,7 +631,6 @@ export function VehiclePage({
   const [customerCreateForVehicleDetails, setCustomerCreateForVehicleDetails] = useState(false);
   const [customerCreating, setCustomerCreating] = useState(false);
   const [ownerCreateOpen, setOwnerCreateOpen] = useState(false);
-  const [ownerCreateForVehicleIntake, setOwnerCreateForVehicleIntake] = useState(false);
   const [ownerCreateForVehicleDetails, setOwnerCreateForVehicleDetails] = useState(false);
   const [loanHandoffVehicleId, setLoanHandoffVehicleId] = useState("");
   const [loanHandoffCustomerId, setLoanHandoffCustomerId] = useState("");
@@ -687,7 +793,9 @@ export function VehiclePage({
   const vehicleName = (vehicle: Vehicle) => `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
   const operationFilterOptions = {
     status: ["Available", "LoanProcessing", "Sold"].map((value) => ({ value, label: value })),
-    stockOwner: ["YSHeng", "KS"].map((value) => ({ value, label: value })),
+    make: Array.from(new Set(vehicles.map((vehicle) => vehicle.make))).sort().map((value) => ({ value, label: value })),
+    model: Array.from(new Set(vehicles.map((vehicle) => vehicle.model))).sort().map((value) => ({ value, label: value })),
+    year: Array.from(new Set(vehicles.map((vehicle) => vehicle.year))).sort((left, right) => right - left).map((value) => ({ value, label: String(value) })),
     publicState: [{ value: "visible", label: "Visible" }, { value: "hidden", label: "Hidden" }],
     approval: [{ value: "confirmed", label: "Confirmed" }, { value: "pending", label: "Pending" }],
     ownerLink: [{ value: "linked", label: "Owner linked" }, { value: "missing", label: "Owner missing" }],
@@ -1395,8 +1503,96 @@ export function VehiclePage({
     return true;
   };
   const closeVehicleCreate = () => {
+    sellerIdentityRequestId.current += 1;
     setVehicleCreateOpen(false);
     setVehicleIntakeDraft({});
+    setSellerIdentityPreview(null);
+    setSellerIdentityReviewOpen(false);
+    setSellerIdentityBusy(false);
+    setSellerIdentityManualEntry(false);
+    setSellerNricFile(null);
+    setPendingOwnerDraft(null);
+    sellerIdentityReviewForm.resetFields();
+  };
+
+  const clearPreviousOwnerIdentity = () => {
+    sellerIdentityRequestId.current += 1;
+    vehicleCreateFormRef.current?.setFieldValue("ownerId", undefined);
+    setVehicleIntakeDraft((current) => ({ ...current, ownerId: undefined }));
+    setPendingOwnerDraft(null);
+    setSellerIdentityPreview(null);
+    setSellerIdentityReviewOpen(false);
+    setSellerIdentityManualEntry(false);
+    setSellerNricFile(null);
+    sellerIdentityReviewForm.resetFields();
+  };
+
+  const selectSellerIdentityOwner = (owner: Owner) => {
+    setPendingOwnerDraft(null);
+    setSellerIdentityPreview((current) => current ? { ...current, existingOwner: owner } : current);
+    vehicleCreateFormRef.current?.setFieldValue("ownerId", owner.id);
+    setVehicleIntakeDraft((current) => ({ ...current, ownerId: owner.id }));
+    setSellerIdentityReviewOpen(false);
+    setSellerIdentityManualEntry(false);
+    message.success("Existing previous owner selected.");
+  };
+
+  const handleSellerIdentityUpload = async (option: UploadRequestOption) => {
+    const file = option.file as File;
+    if (!isOcrImageMimeType(file.type)) {
+      const error = new Error("Use a JPG, PNG, or WebP image for NRIC checking.");
+      option.onError?.(error);
+      message.error(error.message);
+      return;
+    }
+
+    const requestId = ++sellerIdentityRequestId.current;
+    setPendingOwnerDraft(null);
+    vehicleCreateFormRef.current?.setFieldValue("ownerId", undefined);
+    setVehicleIntakeDraft((current) => ({ ...current, ownerId: undefined }));
+    setSellerNricFile(null);
+    setSellerIdentityPreview(null);
+    setSellerIdentityReviewOpen(false);
+    setSellerIdentityManualEntry(false);
+    sellerIdentityReviewForm.resetFields();
+    setSellerIdentityBusy(true);
+    try {
+      const preview = await previewOwnerIdentityCard(file);
+      if (requestId !== sellerIdentityRequestId.current) return;
+      const extracted = preview.result.fields;
+      setSellerNricFile(file);
+      setSellerIdentityPreview(preview);
+      sellerIdentityReviewForm.setFieldsValue({
+        name: extracted.customerName ?? extracted.name ?? undefined,
+        icNumber: formatIdentityCardNumber(extracted.icNumber ?? undefined),
+        address: extracted.address ?? undefined,
+        phone: preview.existingOwner?.phone
+      });
+      setSellerIdentityReviewOpen(true);
+      option.onSuccess?.({ ok: true });
+    } catch (error) {
+      if (requestId !== sellerIdentityRequestId.current) return;
+      option.onError?.(error instanceof Error ? error : new Error("Unable to check this NRIC."));
+      message.error(humanizeApiError(error, "Unable to check this NRIC. Please try a clearer photo."));
+    } finally {
+      if (requestId === sellerIdentityRequestId.current) setSellerIdentityBusy(false);
+    }
+  };
+
+  const confirmNewOwnerFromIdentityCard = async (values: SellerIdentityReviewValues) => {
+    const owner = ownerFromIdentityCardReview(values, pendingOwnerDraft?.id ?? newId());
+    const blockReason = ownerCreateBlockReason(owner, owners);
+    if (blockReason) {
+      message.warning(blockReason);
+      return;
+    }
+
+    setPendingOwnerDraft(owner);
+    vehicleCreateFormRef.current?.setFieldValue("ownerId", owner.id);
+    setVehicleIntakeDraft((current) => ({ ...current, ownerId: owner.id }));
+    setSellerIdentityReviewOpen(false);
+    setSellerIdentityManualEntry(false);
+    message.success("New previous owner confirmed. The record will be created with the vehicle.");
   };
   return (
     <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
@@ -1487,13 +1683,43 @@ export function VehiclePage({
             <Alert type="info" showIcon message="Select a vehicle row to view its workflow summary." />
           )}
         </div>
-        <div className="vehicleOperationFilters">
-          <Input.Search
+        <div className="vehicleOperationFilters pageFilterMobileOnly">
+          <Input
             allowClear
-            aria-label="Search vehicles"
-            placeholder="Search plate, make, model, or year"
-            value={operationFilters.keyword}
-            onChange={(event) => updateOperationFilter("keyword", event.target.value)}
+            aria-label="Filter vehicles by plate"
+            placeholder="Plate / 车牌"
+            value={operationFilters.plate}
+            onChange={(event) => updateOperationFilter("plate", event.target.value)}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            aria-label="Filter vehicles by make"
+            placeholder="Make / 品牌"
+            value={operationFilters.make}
+            options={operationFilterOptions.make}
+            onChange={(value) => updateOperationFilter("make", value)}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            aria-label="Filter vehicles by model"
+            placeholder="Model / 车型"
+            value={operationFilters.model}
+            options={operationFilterOptions.model}
+            onChange={(value) => updateOperationFilter("model", value)}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            aria-label="Filter vehicles by year"
+            placeholder="Year / 年份"
+            value={operationFilters.year}
+            options={operationFilterOptions.year}
+            onChange={(value) => updateOperationFilter("year", value)}
           />
           <Select
             allowClear
@@ -1595,14 +1821,62 @@ export function VehiclePage({
           )}
         </div>
         <ProConfigProvider intl={enUSIntl}>
-        <ProTable<Vehicle>
-          className="desktopDataTable"
+        <OperationsProTable<Vehicle>
+          className="desktopDataTable nativeSearchDesktopOnly"
           rowKey="id"
-          columns={compactOperationIntakeColumns}
+          columns={compactOperationIntakeColumns as ColumnsType<Vehicle>}
           dataSource={filteredVehicles}
-          search={false}
-          options={{ reload: false, density: false, setting: false, fullScreen: false }}
-          cardBordered={false}
+          nativeSearch={{
+            fields: [
+              { name: "plate", label: "Plate", placeholder: "Plate number" },
+              { name: "make", label: "Make", options: operationFilterOptions.make },
+              { name: "model", label: "Model", options: operationFilterOptions.model },
+              { name: "year", label: "Year", options: operationFilterOptions.year },
+              { name: "status", label: "Status", options: operationFilterOptions.status },
+              { name: "publicState", label: "Website", options: operationFilterOptions.publicState },
+              { name: "approval", label: "Approval", options: operationFilterOptions.approval },
+              { name: "ownerLink", label: "Owner", options: operationFilterOptions.ownerLink },
+              { name: "customerLink", label: "Customer", options: operationFilterOptions.customerLink },
+              { name: "invoiceLink", label: "Invoice", options: operationFilterOptions.invoiceLink },
+              { name: "outstationPickup", label: "Outstation pickup", options: operationFilterOptions.outstationPickup },
+              { name: "leadActivity", label: "Lead activity", options: operationFilterOptions.leadActivity }
+            ],
+            values: {
+              plate: operationFilters.plate,
+              make: operationFilters.make,
+              model: operationFilters.model,
+              year: operationFilters.year,
+              status: operationFilters.status,
+              publicState: operationFilters.publicState,
+              approval: operationFilters.approval,
+              ownerLink: operationFilters.ownerLink,
+              customerLink: operationFilters.customerLink,
+              invoiceLink: operationFilters.invoiceLink,
+              outstationPickup: operationFilters.outstationPickup,
+              leadActivity: operationFilters.leadActivity
+            },
+            onSubmit: (values) => {
+              setOperationFilters({
+                plate: String(values.plate ?? ""),
+                make: values.make ? String(values.make) : undefined,
+                model: values.model ? String(values.model) : undefined,
+                year: values.year ? Number(values.year) : undefined,
+                status: values.status as OperationIntakeVehicleFilters["status"],
+                publicState: values.publicState as OperationIntakeVehicleFilters["publicState"],
+                approval: values.approval as OperationIntakeVehicleFilters["approval"],
+                ownerLink: values.ownerLink as OperationIntakeVehicleFilters["ownerLink"],
+                customerLink: values.customerLink as OperationIntakeVehicleFilters["customerLink"],
+                invoiceLink: values.invoiceLink as OperationIntakeVehicleFilters["invoiceLink"],
+                outstationPickup: values.outstationPickup as OperationIntakeVehicleFilters["outstationPickup"],
+                leadActivity: values.leadActivity as OperationIntakeVehicleFilters["leadActivity"]
+              });
+              setMobileVehiclePage(1);
+            },
+            onReset: () => {
+              setOperationFilters({});
+              setMobileVehiclePage(1);
+            }
+          }}
           pagination={{ ...tablePagination(8), current: clampedMobileVehiclePage, onChange: setMobileVehiclePage }}
           scroll={{ x: 1650 }}
           rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}
@@ -2018,7 +2292,7 @@ export function VehiclePage({
                 activeKey={documentOwnershipTab}
                 onChange={(key) => selectDocumentOwnershipTab(key as DocumentOwnershipType)}
                 items={[
-                  { key: "Seller", label: "Seller / Original owner" },
+                  { key: "Seller", label: "Previous owner / 原车主" },
                   { key: "Buyer", label: "Buyer / Customer" },
                   { key: "Vehicle", label: "Vehicle / 车辆" }
                 ]}
@@ -2039,10 +2313,10 @@ export function VehiclePage({
                     extra="The active ownership tab is saved with the document and is not changed by OCR review."
                   >
                     <Tag color={documentOwnershipTab === "Seller" ? "gold" : "blue"}>
-                      {documentOwnershipTab === "Seller" ? "Seller / Original owner" : "Buyer / Customer"}
+                      {documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / Customer"}
                     </Tag>
                   </Form.Item>
-                  <Form.Item label={documentOwnershipTab === "Seller" ? "Seller / Original owner" : "Buyer / Customer"}>
+                  <Form.Item label={documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / Customer"}>
                     <Select
                       value={documentPersonId || undefined}
                       placeholder="Select the linked person"
@@ -2056,7 +2330,7 @@ export function VehiclePage({
                     <Alert
                       type="info"
                       showIcon
-                      message={`Link a ${documentOwnershipTab === "Seller" ? "seller / original owner" : "buyer / customer"} before uploading`}
+                      message={`Link a ${documentOwnershipTab === "Seller" ? "previous owner" : "buyer / customer"} before uploading`}
                       description="Only a person already linked to this vehicle can be selected for a person-owned document."
                       action={(
                         <Button
@@ -2082,7 +2356,7 @@ export function VehiclePage({
                   type="info"
                   showIcon
                   message="Ownership: Vehicle / 车辆"
-                  description="This document category is stored against the vehicle. No seller or buyer selection is required."
+                  description="This document category is stored against the vehicle. No previous owner or buyer selection is required."
                 />
               )}
               <div hidden={documentCategory !== "PurchaseInvoice"}>
@@ -2126,7 +2400,7 @@ export function VehiclePage({
                     disabled={uploadDisabled || !documentOwnershipReady}
                     buttonLabel={documentCategory === "IdentityCard" ? "Add identity card photo" : "Add VOC photo"}
                     applyLabel={documentCategory === "IdentityCard"
-                      ? documentOwnershipTab === "Seller" ? "Use details in original owner record" : "Use details in customer record"
+                      ? documentOwnershipTab === "Seller" ? "Use details in previous owner record" : "Use details in customer record"
                       : "Use details in vehicle record"}
                     uploadOwner={documentUploadOwner}
                     existingValues={documentCategory === "IdentityCard"
@@ -2142,7 +2416,7 @@ export function VehiclePage({
                         : undefined}
                     fields={documentCategory === "IdentityCard"
                       ? [
-                        { name: documentOwnershipTab === "Seller" ? "ownerName" : "customerName", label: documentOwnershipTab === "Seller" ? "Original Owner Name" : "Customer Name" },
+                        { name: documentOwnershipTab === "Seller" ? "ownerName" : "customerName", label: documentOwnershipTab === "Seller" ? "Previous Owner Name" : "Customer Name" },
                         { name: "icNumber", label: "IC Number" },
                         { name: "address", label: "Address" }
                       ]
@@ -2162,7 +2436,7 @@ export function VehiclePage({
                       if (documentCategory === "IdentityCard") {
                         if (documentOwnershipTab === "Seller") {
                           if (!selectedVehicleOwner) {
-                            message.warning("Link an original owner to this vehicle before applying IC values.");
+                            message.warning("Link a previous owner to this vehicle before applying IC values.");
                             return;
                           }
                           onUpdateOwner({
@@ -2171,7 +2445,7 @@ export function VehiclePage({
                             icNumber: ocrOptionalText(values.icNumber, selectedVehicleOwner.icNumber),
                             address: ocrOptionalText(values.address, selectedVehicleOwner.address)
                           });
-                          message.success("Approved IC values were saved to the linked original owner record.");
+                          message.success("Approved IC values were saved to the linked previous owner record.");
                         } else {
                           if (!selectedVehicleCustomer) {
                             message.warning("Link a customer to this vehicle before applying approved IC values.");
@@ -2260,29 +2534,40 @@ export function VehiclePage({
             })
           }}
           onFinish={async (values) => {
-            const vehicle = vehicleFromCreateIntakeValues(values as VehicleIntakeDraft, canApproveVehicles, newId());
+            const intakeValues = values as VehicleIntakeDraft;
+            if (!sellerNricFile || !sellerIdentityConfirmed) {
+              message.warning("Attach the previous owner NRIC and confirm the owner details before creating the vehicle.");
+              return false;
+            }
+            const vehicleId = newId();
+            const vehicle = vehicleFromCreateIntakeValues(intakeValues, canApproveVehicles, vehicleId);
             const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
             if (blockReason) {
               message.warning(blockReason);
               return false;
             }
 
-            await onCreate(vehicle);
+            const settlement = settlementFromVehicleIntakeValues(intakeValues, vehicleId, newId());
+            await onCreate(vehicle, settlement, pendingOwnerDraft ?? undefined, sellerNricFile);
             closeVehicleCreate();
             return true;
           }}
         >
-          <StepsForm.StepForm name="identity" title="Vehicle / 车辆" onFinish={captureVehicleIntakeStep} className="formGrid vehicleIntakeStepForm">
+          <StepsForm.StepForm name="identity" title="Vehicle & parties / 车辆与相关人员" onFinish={captureVehicleIntakeStep} className="formGrid vehicleIntakeStepForm">
             <Form.Item
               name="plateNumber"
               label="Plate / 车牌"
-              normalize={(value: string) => value?.toUpperCase()}
+              normalize={normalizeMalaysiaPlate}
               rules={[
                 { required: true, message: "Enter the car plate." },
-                { pattern: /^[A-Z0-9]+$/, message: "Use letters and numbers only, with no spaces or symbols." }
+                {
+                  validator: async (_, value?: string) => {
+                    if (value && !isMalaysiaPlateFormat(value)) throw new Error(malaysiaPlateFormatMessage);
+                  }
+                }
               ]}
             >
-              <Input autoComplete="off" />
+              <Input autoComplete="off" autoCapitalize="characters" maxLength={16} placeholder="e.g. BKC3003 or MALAYSIA1" />
             </Form.Item>
             <Form.Item name="chassisNumber" label="Chassis Number"><Input /></Form.Item>
             <Form.Item name="engineNumber" label="Engine Number"><Input /></Form.Item>
@@ -2296,6 +2581,116 @@ export function VehiclePage({
               ]}
             >
               <InputNumber className="fullWidth" min={earliestVehicleYear} max={latestVehicleYear} precision={0} step={1} />
+            </Form.Item>
+            <Form.Item className="vehicleIntakePreviousOwner" label="Previous owner / 原车主" required>
+              <div className="vehicleIntakePreviousOwnerControl">
+                <Typography.Text type="secondary">
+                  Search an existing record, or scan NRIC. Scanning searches existing records first and offers creation only when no match is found.
+                </Typography.Text>
+                <Form.Item
+                  name="ownerId"
+                  noStyle
+                  rules={[{ required: true, message: "Select or confirm the previous owner before continuing." }]}
+                >
+                  <Select
+                    className={selectedIntakeOwner ? "vehicleIntakeOwnerSelectHidden" : undefined}
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Search previous owner"
+                    options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))}
+                    onChange={(ownerId) => {
+                      setPendingOwnerDraft(null);
+                      setSellerNricFile(null);
+                      setSellerIdentityPreview(null);
+                      setSellerIdentityManualEntry(false);
+                      setVehicleIntakeDraft((current) => ({ ...current, ownerId }));
+                    }}
+                  />
+                </Form.Item>
+                {selectedIntakeOwner ? (
+                  <div className="vehicleIntakeOwnerSummary">
+                    <CheckCircleFilled aria-hidden className="vehicleIntakeOwnerSummaryIcon" />
+                    <div>
+                      <strong>{pendingOwnerDraft ? "New previous owner ready" : "Existing previous owner selected"}</strong>
+                      <span>
+                        {selectedIntakeOwner.name}
+                        {identityCardEnding(selectedIntakeOwner.icNumber)
+                          ? ` · NRIC ending ${identityCardEnding(selectedIntakeOwner.icNumber)}`
+                          : " · NRIC not recorded"}
+                      </span>
+                    </div>
+                    <Space className="vehicleIntakeOwnerActions" size={4} wrap>
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => pendingOwnerDraft ? setSellerIdentityReviewOpen(true) : selectOwner(selectedIntakeOwner.id)}
+                      >
+                        View
+                      </Button>
+                      <Button type="link" size="small" onClick={clearPreviousOwnerIdentity}>Change</Button>
+                    </Space>
+                  </div>
+                ) : null}
+                {sellerNricFile ? (
+                  <div className="vehicleIntakeNricAttachment">
+                    <CheckCircleFilled aria-hidden className="vehicleIntakeNricAttachmentIcon" />
+                    <div>
+                      <strong>NRIC image attached</strong>
+                      <span>{sellerIdentityConfirmed ? "Uploaded just now" : "Uploaded just now · Review required"}</span>
+                    </div>
+                    <Space className="vehicleIntakeOwnerActions" size={4} wrap>
+                      <Button type="link" size="small" onClick={() => setSellerIdentityReviewOpen(true)}>Review</Button>
+                      <Upload
+                        accept="image/jpeg,image/png,image/webp"
+                        maxCount={1}
+                        showUploadList={false}
+                        customRequest={(option) => void handleSellerIdentityUpload(option)}
+                      >
+                        <Button type="link" size="small" loading={sellerIdentityBusy}>Replace</Button>
+                      </Upload>
+                    </Space>
+                  </div>
+                ) : (
+                  <div className="vehicleIntakeNricScanAction">
+                    <Upload
+                      accept="image/jpeg,image/png,image/webp"
+                      maxCount={1}
+                      showUploadList={false}
+                      customRequest={(option) => void handleSellerIdentityUpload(option)}
+                    >
+                      <Button icon={<UploadOutlined />} loading={sellerIdentityBusy}>Scan NRIC / 扫描身份证</Button>
+                    </Upload>
+                    <Typography.Text type="secondary" className="vehicleIntakeScanHint vehicleIntakeScanHintDesktop">Upload image</Typography.Text>
+                    <Typography.Text type="secondary" className="vehicleIntakeScanHint vehicleIntakeScanHintMobile">Take photo or upload</Typography.Text>
+                  </div>
+                )}
+              </div>
+            </Form.Item>
+            <Form.Item name="customerId" label="Confirmed buyer / 已确认买家" extra="Optional. Leave blank when the vehicle has no confirmed buyer yet.">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Select confirmed buyer"
+                options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
+                dropdownRender={(menu) => (
+                  <>
+                    {menu}
+                    <Button
+                      type="text"
+                      block
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setCustomerCreateForVehicleIntake(true);
+                        setCustomerCreateOpen(true);
+                      }}
+                    >
+                      Register new customer
+                    </Button>
+                  </>
+                )}
+              />
             </Form.Item>
           </StepsForm.StepForm>
           <StepsForm.StepForm
@@ -2322,70 +2717,168 @@ export function VehiclePage({
             </Form.Item>
             <Form.Item name="outstationPickupBookingSlip" label="Booking Slip Reference / 预约单参考编号"><Input placeholder="Booking slip no. or file ref" /></Form.Item>
           </StepsForm.StepForm>
-          <StepsForm.StepForm name="publication" title="Buyer & publication / 买家与发布" onFinish={captureVehicleIntakeStep} className="formGrid vehicleIntakeStepForm" initialValues={{ bossConfirmed: false }}>
-            <Form.Item name="customerId" label="Customer / 客户">
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                placeholder="Select customer"
-                options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
-                dropdownRender={(menu) => (
-                  <>
-                    {menu}
-                    <Button
-                      type="text"
-                      block
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setCustomerCreateForVehicleIntake(true);
-                        setCustomerCreateOpen(true);
-                      }}
-                    >
-                      Register new customer
-                    </Button>
-                  </>
-                )}
+          <StepsForm.StepForm
+            name="settlement"
+            title="Previous owner settlement / 原车主结算"
+            onFinish={captureVehicleIntakeStep}
+            className="vehicleIntakeStepForm"
+            initialValues={{ prepareSettlement: canPrepareSettlement, settlementDeadline: singaporeTodayIsoDate() }}
+          >
+            {canPrepareSettlement ? <>
+              <Alert
+                type="info"
+                showIcon
+                message="Prepare the previous owner settlement reminder"
+                description="The previous owner comes from Step 1 and the amount follows the purchase price from Step 2. This creates an unpaid Finance reminder; it does not approve or record payment."
               />
-            </Form.Item>
-            <Form.Item name="ownerId" label="Owner / 原车主" rules={[{ required: true, message: "Select or register the original owner before completing intake." }]}>
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                placeholder="Select owner"
-                options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))}
-                dropdownRender={(menu) => (
-                  <>
-                    {menu}
-                    <Button
-                      type="text"
-                      block
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setOwnerCreateForVehicleIntake(true);
-                        setOwnerCreateOpen(true);
-                      }}
-                    >
-                      Register new owner
-                    </Button>
-                  </>
-                )}
-              />
-            </Form.Item>
-            <Form.Item className="vehicleMarkdownField" name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Optional public copy. Raw HTML is displayed as text.">
-              <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: "## Ready stock\n\n- Key feature\n- Viewing by appointment" }} />
-            </Form.Item>
-            <div className="vehicleMarkdownPreviewField">
-              <Form.Item noStyle shouldUpdate={(previous, current) => previous.publicDescriptionMarkdown !== current.publicDescriptionMarkdown}>
-                {({ getFieldValue }) => <MarketingDescription markdown={getFieldValue("publicDescriptionMarkdown")} className="backofficeMarketingPreview" />}
+              <Form.Item name="prepareSettlement" label="Create settlement reminder / 建立结算提醒" valuePropName="checked">
+                <Switch checkedChildren="Yes" unCheckedChildren="No" />
               </Form.Item>
-            </div>
+              <Form.Item noStyle shouldUpdate={(previous, current) => previous.prepareSettlement !== current.prepareSettlement}>
+                {({ getFieldValue }) => getFieldValue("prepareSettlement") ? <>
+                  <Descriptions bordered size="small" column={1}>
+                    <Descriptions.Item label="Previous owner / 原车主">
+                      {(owners.find((owner) => owner.id === vehicleIntakeDraft.ownerId) ?? (pendingOwnerDraft?.id === vehicleIntakeDraft.ownerId ? pendingOwnerDraft : undefined))?.name ?? "Not selected"}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Settlement amount / 结算金额">
+                      {formatMoney(Number(vehicleIntakeDraft.purchasePrice ?? 0))}
+                    </Descriptions.Item>
+                  </Descriptions>
+                  <Form.Item
+                    name="settlementDeadline"
+                    label="Settlement deadline / 结算期限"
+                    rules={[{ required: true, message: "Choose the settlement deadline." }]}
+                    getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })}
+                    normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}
+                  >
+                    <DatePicker className="fullWidth" format="DD MMM YYYY" />
+                  </Form.Item>
+                </> : <Alert type="warning" showIcon message="No settlement reminder will be created. Finance must add it after vehicle intake." />}
+              </Form.Item>
+            </> : <Alert
+              type="info"
+              showIcon
+              message="Finance will prepare the previous owner settlement"
+              description="Your access can create the vehicle intake, but only Finance or Admin can create the settlement reminder."
+            />}
           </StepsForm.StepForm>
           <StepsForm.StepForm name="review" title="Review / 核对">
-            <VehicleIntakeReview draft={vehicleIntakeDraft} customers={customers} owners={owners} />
+            <VehicleIntakeReview draft={vehicleIntakeDraft} customers={customers} owners={owners} pendingOwner={pendingOwnerDraft} hasSellerNric={Boolean(sellerNricFile)} />
           </StepsForm.StepForm>
         </StepsForm>
+      </Modal>
+      <Modal
+        title="Check Previous Owner NRIC / 核对原车主身份证"
+        width={620}
+        open={sellerIdentityReviewOpen}
+        onCancel={() => setSellerIdentityReviewOpen(false)}
+        footer={null}
+        destroyOnClose={false}
+        className="recordCreateModal"
+      >
+        <Space direction="vertical" size={16} className="fullWidth">
+          {!sellerIdentityReadFailed && !reviewedExistingOwner ? (
+            <Alert
+              type="info"
+              showIcon
+              message="Nothing has been created yet"
+              description="Check the details read from the NRIC. The previous owner is created only when the complete vehicle intake is submitted."
+            />
+          ) : null}
+          {sellerIdentityReadFailed && !sellerIdentityManualEntry ? (
+            <Alert
+              type="error"
+              showIcon
+              message="We couldn't read this NRIC"
+              description="Make sure the entire card is visible, the image is clear, and there is no glare."
+              action={(
+                <Space className="identityFailureActions" wrap>
+                  <Upload
+                    accept="image/jpeg,image/png,image/webp"
+                    maxCount={1}
+                    showUploadList={false}
+                    customRequest={(option) => void handleSellerIdentityUpload(option)}
+                  >
+                    <Button size="small" loading={sellerIdentityBusy}>Try another photo</Button>
+                  </Upload>
+                  <Button size="small" onClick={() => setSellerIdentityManualEntry(true)}>Enter details manually</Button>
+                </Space>
+              )}
+            />
+          ) : reviewedExistingOwner ? (
+            <>
+              <Alert
+                type="warning"
+                showIcon
+                message="A previous-owner record with this NRIC already exists"
+                description="A duplicate record cannot be created. Use the existing previous owner for this vehicle intake."
+              />
+              <Descriptions bordered size="small" column={1}>
+                <Descriptions.Item label="Owner name / 原车主姓名">{reviewedExistingOwner.name}</Descriptions.Item>
+                <Descriptions.Item label="Phone / 电话">{reviewedExistingOwner.phone}</Descriptions.Item>
+                <Descriptions.Item label="IC / 身份证">{reviewedExistingOwner.icNumber || "Not recorded"}</Descriptions.Item>
+                <Descriptions.Item label="Address / 地址">{reviewedExistingOwner.address || "Not recorded"}</Descriptions.Item>
+              </Descriptions>
+              <Space className="formActions" wrap>
+                <Button onClick={() => setSellerIdentityReviewOpen(false)}>Back</Button>
+                <Button onClick={() => selectOwner(reviewedExistingOwner.id)}>View owner</Button>
+                <Button type="primary" onClick={() => selectSellerIdentityOwner(reviewedExistingOwner)}>Use existing owner</Button>
+              </Space>
+            </>
+          ) : sellerIdentityPreview ? (
+            <Form form={sellerIdentityReviewForm} layout="vertical" onFinish={(values) => void confirmNewOwnerFromIdentityCard(values)}>
+              <Alert
+                type="warning"
+                showIcon
+                message={sellerIdentityManualEntry ? "Enter previous owner details manually" : "No exact NRIC match was found"}
+                description={sellerIdentityManualEntry
+                  ? "Confirm every field before continuing. The system will stop a duplicate when the NRIC matches an existing record."
+                  : "Review every field before confirming a new previous owner. A similar name may still belong to an existing record."}
+              />
+              {possibleIdentityOwners.length ? (
+                <Form.Item label="Possible existing owner / 可能已有原车主" extra="Select only when you have confirmed this is the same person.">
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Review similar owner names"
+                    options={possibleIdentityOwners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone} / ${owner.icNumber || "No IC"}` }))}
+                    onChange={(ownerId) => {
+                      const owner = owners.find((item) => item.id === ownerId);
+                      if (owner) selectSellerIdentityOwner(owner);
+                    }}
+                  />
+                </Form.Item>
+              ) : null}
+              <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true, message: "Confirm the owner name." }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true, message: "Enter the previous owner phone number." }]} extra="NRIC does not contain a phone number. Enter it before continuing.">
+                <Input />
+              </Form.Item>
+              <Form.Item
+                name="icNumber"
+                label="IC / 身份证"
+                rules={[
+                  { required: true, message: "Confirm the IC number." },
+                  {
+                    validator: async (_, value?: string) => {
+                      if (value && normalizeIdentityCardNumber(value).length !== 12) throw new Error("Enter a complete 12-digit Malaysian IC number.");
+                    }
+                  }
+                ]}
+              >
+                <Input placeholder="900101-01-1234" />
+              </Form.Item>
+              <Form.Item name="address" label="Address / 地址"><Input.TextArea rows={3} /></Form.Item>
+              <Form.Item className="formActions">
+                <Space wrap>
+                  <Button onClick={() => setSellerIdentityReviewOpen(false)}>Back</Button>
+                  <Button type="primary" htmlType="submit">Confirm new previous owner</Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          ) : null}
+        </Space>
       </Modal>
       {false && <ProCard
         id="purchase-invoice-list-card"
@@ -2732,7 +3225,6 @@ export function VehiclePage({
         open={ownerCreateOpen}
         onCancel={() => {
           setOwnerCreateOpen(false);
-          setOwnerCreateForVehicleIntake(false);
           setOwnerCreateForVehicleDetails(false);
         }}
         footer={null}
@@ -2755,14 +3247,9 @@ export function VehiclePage({
           }
 
           await onCreateOwner(owner);
-          const vehicleIntake = ownerCreateForVehicleIntake;
           const vehicleDetails = ownerCreateForVehicleDetails;
-          setOwnerCreateForVehicleIntake(false);
           setOwnerCreateForVehicleDetails(false);
           setOwnerCreateOpen(false);
-          if (vehicleIntake) {
-            vehicleCreateFormRef.current?.setFieldValue("ownerId", owner.id);
-          }
           if (vehicleDetails && selectedVehicle) {
             await onUpdate({ ...selectedVehicle, ownerId: owner.id });
           }
@@ -2771,7 +3258,7 @@ export function VehiclePage({
           <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
           <Form.Item name="tinNumber" label="TIN / Tax identification number"><Input /></Form.Item>
-          <Form.Item name="address" label="Address / 地址"><Input placeholder="Original owner address" /></Form.Item>
+          <Form.Item name="address" label="Address / 地址"><Input placeholder="Previous owner address" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Owner</Button></Form.Item>
         </Form>
       </Modal>
@@ -2859,7 +3346,7 @@ export function VehiclePage({
           <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
           <Form.Item name="tinNumber" label="TIN / Tax identification number"><Input /></Form.Item>
-          <Form.Item name="address" label="Address / 地址"><Input placeholder="Original owner address" /></Form.Item>
+          <Form.Item name="address" label="Address / 地址"><Input placeholder="Previous owner address" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
         </Form>
       </Drawer>
@@ -2993,7 +3480,7 @@ function contactFor<T extends { id: string; name: string; phone: string }>(conta
 }
 
 function documentOwnershipLabel(document: Pick<VehicleDocument, "ownershipType" | "customerId" | "ownerId"> | Pick<VehicleOcrJob["document"], "ownershipType" | "customerId" | "ownerId">, customers: Customer[], owners: Owner[]) {
-  if (document.ownershipType === "Seller") return `Seller / Original owner: ${contactFor(owners, document.ownerId)}`;
+  if (document.ownershipType === "Seller") return `Previous owner / 原车主: ${contactFor(owners, document.ownerId)}`;
   if (document.ownershipType === "Buyer") return `Buyer / Customer: ${contactFor(customers, document.customerId)}`;
   return "Vehicle / 车辆";
 }

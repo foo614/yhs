@@ -17,7 +17,6 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}
-      Ocr__Provider: GoogleDocumentAi
       Ocr__GoogleDocumentAi__ProjectId: ${GOOGLE_DOCUMENT_AI_PROJECT_ID}
       Ocr__GoogleDocumentAi__Location: ${GOOGLE_DOCUMENT_AI_LOCATION}
       Ocr__GoogleDocumentAi__DefaultProcessorId: ${GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID}

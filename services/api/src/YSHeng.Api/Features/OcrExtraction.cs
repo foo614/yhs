@@ -23,7 +23,7 @@ public sealed record OcrExtractionResult(
     IReadOnlyList<string> Warnings,
     IReadOnlyList<OcrLineItem>? LineItems = null);
 
-public sealed record OcrLineItem(string Description, string? Quantity, string? UnitPrice, string? Amount, decimal? Confidence, string? RawText);
+public sealed record OcrLineItem(string Description, string? Quantity, string? UnitPrice, string? Amount, decimal? Confidence, string? RawText, string? Unit = null);
 public sealed record OcrReviewedResult(Dictionary<string, string?> Fields, IReadOnlyList<OcrLineItem>? LineItems = null);
 public sealed record OcrReviewChange(string Field, string? ExtractedValue, string? ReviewedValue);
 public sealed record OcrReviewComparison(IReadOnlyList<OcrReviewChange> Changes, int ComparedFieldCount, int CorrectFieldCount);
@@ -266,7 +266,11 @@ public static class GoogleDocumentAiEntityMapper
 
         ApplyFirst(entities, fields, fieldConfidence, "invoiceNumber", "invoice_id");
         ApplyFirst(entities, fields, fieldConfidence, "receiptNumber", "receipt_id", "expense_id");
-        ApplyFirst(entities, fields, fieldConfidence, "supplierName", "supplier_name");
+        ApplyFirst(entities, fields, fieldConfidence, "supplierName", "supplier_name", "supplier_company_name");
+        ApplyFirst(entities, fields, fieldConfidence, "supplierAddress", "supplier_address", "supplier_address/address");
+        ApplyFirst(entities, fields, fieldConfidence, "supplierPhone", "supplier_phone", "supplier_phone_number");
+        ApplyFirst(entities, fields, fieldConfidence, "supplierRegistrationNumber", "supplier_registration", "supplier_registration_number", "supplier_registration_no");
+        ApplyFirst(entities, fields, fieldConfidence, "supplierTinNumber", "supplier_tax_id", "supplier_tin", "supplier_tax_identification_number");
 
         var amount = FindFirst(entities, "total_amount", "net_amount", "invoice_amount");
         if (amount is not null)
@@ -287,17 +291,19 @@ public static class GoogleDocumentAiEntityMapper
 
         if (extraction.DocumentCategory == FileCategory.RepairInvoice)
         {
-            var repairDetails = entities
-                .Where(entity => new[] { "line_item", "line_item/description", "description" }.Contains(entity.Type, StringComparer.OrdinalIgnoreCase))
-                .Select(entity => entity.Value.Trim())
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+            var directLineItems = entities
+                .Where(entity => string.Equals(entity.Type, "line_item", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var repairDetails = (directLineItems.Count > 0 ? directLineItems : entities
+                .Where(entity => new[] { "line_item/description", "description" }.Contains(entity.Type, StringComparer.OrdinalIgnoreCase)))
+                .Where(entity => !string.IsNullOrWhiteSpace(entity.Value))
                 .ToList();
             var lineItems = repairDetails
-                .Select(value => new OcrLineItem(value, null, null, null, entities
-                    .Where(entity => string.Equals(entity.Value.Trim(), value, StringComparison.OrdinalIgnoreCase))
-                    .Select(entity => (decimal?)entity.Confidence)
-                    .FirstOrDefault(), value))
+                .Select(entity => OcrExtractionParser.ParseRepairLineItem(entity.Value, entity.Confidence, allowDescriptionOnly: true))
+                .Where(item => item is not null)
+                .Select(item => item!)
+                .GroupBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
                 .ToList();
             return extraction with { Fields = fields, FieldConfidence = fieldConfidence, LineItems = lineItems };
         }
@@ -455,46 +461,6 @@ public sealed class BaiduUnlimitedOcrExtractor(BaiduUnlimitedOcrClient client) :
             recognition.Confidence,
             recognition.Warnings);
     }
-}
-
-public sealed class LocalMockOcrExtractor : IOcrExtractor
-{
-    public Task<OcrExtractionResult> AnalyzeAsync(DocumentBlob document, IEnumerable<Vehicle> vehicles, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Analyze(document, vehicles));
-
-    public OcrExtractionResult Analyze(DocumentBlob document, IEnumerable<Vehicle> vehicles)
-    {
-        var text = BuildRawText(document);
-        return OcrExtractionParser.Analyze(document, vehicles, text, 0.82m, [], allowMockFallbacks: true);
-    }
-
-    private static string BuildRawText(DocumentBlob document)
-    {
-        if (!document.MimeType.StartsWith("text/", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Local OCR mock cannot read image files. Configure Google Document AI to extract values from uploaded photos.");
-        }
-
-        var text = System.Text.Encoding.UTF8.GetString(document.Content);
-        if (!string.IsNullOrWhiteSpace(text)) return text;
-
-        return document.Category switch
-        {
-            FileCategory.PurchaseInvoice => $"Purchase Invoice {MockReference(document, "PI")} Amount RM {MockAmount(document)}",
-            FileCategory.IdentityCard => "Identity Card Name Ali Tan IC 900101-01-1234 Address Demo customer address",
-            FileCategory.Voc => "Vehicle Ownership Certificate Registration WXY1234 Chassis MMBXUFG2WNH123456 Engine 4B11T123456 Make Proton Model X70 Year 2024 Owner Ali Tan",
-            FileCategory.RepairInvoice => $"Supplier OCR Demo Supplier Invoice {MockReference(document, "SUP")} Amount RM {MockAmount(document)}",
-            FileCategory.PaymentReceipt => $"Payment Receipt {MockReference(document, "RCPT")} Bank Maybank Amount RM {MockAmount(document)}",
-            FileCategory.PaymentInvoice => $"Payment Invoice {MockReference(document, "PINV")} Bank Maybank Amount RM {MockAmount(document)}",
-            _ => $"Document {document.FileName} Amount RM {MockAmount(document)}"
-        };
-    }
-
-    private static string MockReference(DocumentBlob document, string prefix) =>
-        $"{prefix}-{document.Id.ToString("N")[..6].ToUpperInvariant()}";
-
-    private static string MockAmount(DocumentBlob document) =>
-        (500 + document.Content.Length).ToString("0.00");
 }
 
 public static class OcrExtractionParser
@@ -785,30 +751,99 @@ public static class OcrExtractionParser
         return candidate.Success ? candidate.Groups["plate"].Value.Replace(" ", "", StringComparison.Ordinal).ToUpperInvariant() : null;
     }
 
+    public static OcrLineItem? ParseRepairLineItem(string rawLine, decimal confidence, bool allowDescriptionOnly = false)
+    {
+        var line = Regex.Replace(rawLine.Replace("\\.", ".", StringComparison.Ordinal).Trim(), @"\s+", " ");
+        if (string.IsNullOrWhiteSpace(line) || IsIgnoredRepairLine(line)) return null;
+
+        // Values are intentionally captured from one printed row. Pairing the
+        // last amounts or units found anywhere on a receipt can assign one
+        // item's RM 130 to a later item's RM 7.50.
+        var structured = Regex.Match(
+            line,
+            @"^(?<description>.+?)\s+(?<quantity>\d+(?:\.\d+)?)\s+(?<unit>[A-Za-z]{1,12})\s+(?:RM\s*)?(?<unitPrice>\d{1,6}(?:,\d{3})*\.\d{2})\s+(?:RM\s*)?(?<amount>\d{1,6}(?:,\d{3})*\.\d{2})$",
+            RegexOptions.IgnoreCase);
+        if (structured.Success)
+        {
+            return new OcrLineItem(
+                structured.Groups["description"].Value.Trim(),
+                structured.Groups["quantity"].Value,
+                NormalizeMoney(structured.Groups["unitPrice"].Value),
+                NormalizeMoney(structured.Groups["amount"].Value),
+                confidence,
+                rawLine,
+                structured.Groups["unit"].Value.ToUpperInvariant());
+        }
+
+        var structuredWithoutUnit = Regex.Match(
+            line,
+            @"^(?<description>.+?)\s+(?<quantity>\d+(?:\.\d+)?)\s+(?:RM\s*)?(?<unitPrice>\d{1,6}(?:,\d{3})*\.\d{2})\s+(?:RM\s*)?(?<amount>\d{1,6}(?:,\d{3})*\.\d{2})$",
+            RegexOptions.IgnoreCase);
+        if (structuredWithoutUnit.Success)
+        {
+            return new OcrLineItem(
+                structuredWithoutUnit.Groups["description"].Value.Trim(),
+                structuredWithoutUnit.Groups["quantity"].Value,
+                NormalizeMoney(structuredWithoutUnit.Groups["unitPrice"].Value),
+                NormalizeMoney(structuredWithoutUnit.Groups["amount"].Value),
+                confidence,
+                rawLine);
+        }
+
+        var numbered = Regex.Match(line, @"^\d+[.)]\s*(?<description>[A-Za-z][^\r\n]{2,120}?)\s*$");
+        if (numbered.Success)
+        {
+            var description = numbered.Groups["description"].Value.Trim();
+            if (IsIgnoredRepairLine(description)) return null;
+            var quantityAndAmount = Regex.Match(
+                description,
+                @"^(?<description>.+?)\s+qty\s*(?<quantity>\d+(?:\.\d+)?)\s+(?:RM\s*)?(?<amount>\d{1,6}(?:,\d{3})*(?:\.\d{1,2})?)$",
+                RegexOptions.IgnoreCase);
+            if (quantityAndAmount.Success)
+            {
+                return new OcrLineItem(
+                    quantityAndAmount.Groups["description"].Value.Trim(),
+                    quantityAndAmount.Groups["quantity"].Value,
+                    null,
+                    NormalizeMoney(quantityAndAmount.Groups["amount"].Value),
+                    confidence,
+                    rawLine);
+            }
+
+            return new OcrLineItem(description, null, null, null, confidence, rawLine);
+        }
+
+        return allowDescriptionOnly
+            ? new OcrLineItem(line, null, null, null, confidence, rawLine)
+            : null;
+    }
+
     private static IReadOnlyList<OcrLineItem> ParseRepairLineItems(string text, decimal confidence)
     {
         var items = new List<OcrLineItem>();
         foreach (var line in TextLines(text))
         {
             if (Regex.IsMatch(line, @"^(?:notes?|b/f pages total|page total|total)\b", RegexOptions.IgnoreCase)) break;
-            var match = Regex.Match(line, @"^\s*\d+[.)]\s*(?<description>[A-Za-z][^\r\n]{2,120}?)\s*$");
-            if (!match.Success || Regex.IsMatch(match.Groups["description"].Value, @"^(?:all cheques|cheques should|authorised signature)\b", RegexOptions.IgnoreCase)) continue;
-            var description = Regex.Replace(match.Groups["description"].Value.Trim(), @"\s+", " ");
-            items.Add(new OcrLineItem(description, null, null, null, confidence, line));
+            var item = ParseRepairLineItem(line, confidence);
+            if (item is not null) items.Add(item);
         }
         if (items.Count == 0)
         {
             var flattened = Regex.Replace(text.Replace("\\.", ".", StringComparison.Ordinal), @"\s+", " ");
-            foreach (Match match in Regex.Matches(flattened, @"(?:^|\s)\d+[.)]\s+(?<description>.+?)(?=\s+\d+[.)]\s+|\s+(?:Notes?|B/F Pages Total|Page Total|Total)\b|$)", RegexOptions.IgnoreCase))
+            foreach (Match match in Regex.Matches(flattened, @"(?:^|\s)(?<number>\d+)[.)]\s+(?<description>.+?)(?=\s+\d+[.)]\s+|\s+(?:Notes?|B/F Pages Total|Page Total|Total)\b|$)", RegexOptions.IgnoreCase))
             {
-                var description = match.Groups["description"].Value.Trim();
-                if (description.Length >= 3 && !Regex.IsMatch(description, @"^(?:all cheques|cheques should|authorised signature)\b", RegexOptions.IgnoreCase))
-                    items.Add(new OcrLineItem(description, null, null, null, confidence, description));
+                var item = ParseRepairLineItem($"{match.Groups["number"].Value}. {match.Groups["description"].Value}", confidence);
+                if (item is not null) items.Add(item);
             }
         }
 
         return items;
     }
+
+    private static bool IsIgnoredRepairLine(string value) =>
+        Regex.IsMatch(value, @"^(?:notes?|b/f pages total|page total|total|all cheques|cheques should|authorised signature)\b", RegexOptions.IgnoreCase);
+
+    private static string NormalizeMoney(string value) => value.Replace(",", "", StringComparison.Ordinal);
 
     private static string? FindPlate(string text)
     {

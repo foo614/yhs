@@ -138,32 +138,26 @@ if ($values.ContainsKey("SEED_DATA_ENABLED") -and $values["SEED_DATA_ENABLED"] -
   $errors.Add("SEED_DATA_ENABLED must be true or false.")
 }
 
-if ($values.ContainsKey("OCR_PROVIDER") -and $values["OCR_PROVIDER"] -notin @("GoogleDocumentAi", "BaiduUnlimited", "LocalMock")) {
-  $errors.Add("OCR_PROVIDER must be GoogleDocumentAi, BaiduUnlimited, or LocalMock.")
+foreach ($key in @("GOOGLE_DOCUMENT_AI_PROJECT_ID", "GOOGLE_DOCUMENT_AI_LOCATION", "GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID", "GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH")) {
+  if (-not $values.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($values[$key])) {
+    $errors.Add("$key is required for Google Document AI.")
+  }
 }
-
-if ($values.ContainsKey("OCR_PROVIDER") -and $values["OCR_PROVIDER"] -eq "GoogleDocumentAi") {
-  foreach ($key in @("GOOGLE_DOCUMENT_AI_PROJECT_ID", "GOOGLE_DOCUMENT_AI_LOCATION", "GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID", "GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH")) {
-    if (-not $values.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($values[$key])) {
-      $errors.Add("$key is required when OCR_PROVIDER is GoogleDocumentAi.")
-    }
+if ($values.ContainsKey("GOOGLE_DOCUMENT_AI_LOCATION") -and $values["GOOGLE_DOCUMENT_AI_LOCATION"] -notmatch "^[a-z0-9-]+$") {
+  $errors.Add("GOOGLE_DOCUMENT_AI_LOCATION is invalid.")
+}
+foreach ($key in @("GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID", "GOOGLE_DOCUMENT_AI_INVOICE_PROCESSOR_ID", "GOOGLE_DOCUMENT_AI_EXPENSE_PROCESSOR_ID")) {
+  if ($values.ContainsKey($key) -and -not [string]::IsNullOrWhiteSpace($values[$key]) -and $values[$key] -notmatch "^[A-Za-z0-9_-]+$") {
+    $errors.Add("$key is invalid.")
   }
-  if ($values.ContainsKey("GOOGLE_DOCUMENT_AI_LOCATION") -and $values["GOOGLE_DOCUMENT_AI_LOCATION"] -notmatch "^[a-z0-9-]+$") {
-    $errors.Add("GOOGLE_DOCUMENT_AI_LOCATION is invalid.")
+}
+foreach ($key in @("GOOGLE_DOCUMENT_AI_PROJECT_ID", "GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID")) {
+  if ($values.ContainsKey($key) -and $values[$key].StartsWith("replace-with-")) {
+    $errors.Add("$key still uses an example value.")
   }
-  foreach ($key in @("GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID", "GOOGLE_DOCUMENT_AI_INVOICE_PROCESSOR_ID", "GOOGLE_DOCUMENT_AI_EXPENSE_PROCESSOR_ID")) {
-    if ($values.ContainsKey($key) -and -not [string]::IsNullOrWhiteSpace($values[$key]) -and $values[$key] -notmatch "^[A-Za-z0-9_-]+$") {
-      $errors.Add("$key is invalid.")
-    }
-  }
-  foreach ($key in @("GOOGLE_DOCUMENT_AI_PROJECT_ID", "GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID")) {
-    if ($values.ContainsKey($key) -and $values[$key].StartsWith("replace-with-")) {
-      $errors.Add("$key still uses an example value.")
-    }
-  }
-  if ($values.ContainsKey("GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH") -and -not $values["GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH"].StartsWith("/")) {
-    $errors.Add("GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH must be an absolute VPS path.")
-  }
+}
+if ($values.ContainsKey("GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH") -and -not $values["GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH"].StartsWith("/")) {
+  $errors.Add("GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH must be an absolute VPS path.")
 }
 
 if ($errors.Count -gt 0) {

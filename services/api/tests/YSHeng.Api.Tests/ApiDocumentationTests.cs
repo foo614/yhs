@@ -93,7 +93,36 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
-    public void Dashboard_ai_document_processing_remains_aggregate_and_dashboard_only()
+    public void Google_document_ai_is_the_only_registered_runtime_ocr_provider()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+
+        Assert.Contains("AddScoped<IOcrExtractor>(services => services.GetRequiredService<GoogleDocumentAiExtractor>())", program);
+        Assert.DoesNotContain("LocalMockOcrExtractor", program);
+        Assert.DoesNotContain("BaiduUnlimitedOcrExtractor", program);
+        Assert.DoesNotContain("Ocr:Provider", program);
+    }
+
+    [Fact]
+    public void Vehicle_intake_requires_and_atomically_persists_validated_seller_identity_evidence()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var seed = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Data", "SeedData.cs"));
+        var intakeRoute = program[program.IndexOf("backOffice.MapPost(\"/vehicle-intakes\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapPost(\"/vehicles\"", StringComparison.Ordinal)];
+
+        Assert.Contains("form.Files.GetFile(\"identityCard\")", intakeRoute);
+        Assert.Contains("UploadPolicy.ValidateOcrImageContent", intakeRoute);
+        Assert.Contains("db.DocumentBlobs.Add(identityCardDocument)", intakeRoute);
+        Assert.True(
+            intakeRoute.IndexOf("db.DocumentBlobs.Add(identityCardDocument)", StringComparison.Ordinal) < intakeRoute.IndexOf("await db.SaveChangesAsync(cancellationToken)", StringComparison.Ordinal),
+            "The seller NRIC must be attached before the intake transaction is saved.");
+        Assert.Contains("UX_Owners_NormalizedIcNumber", seed);
+    }
+
+    [Fact]
+    public void Dashboard_ai_document_processing_remains_aggregate_and_boss_admin_only()
     {
         var root = FindRepositoryRoot();
         var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
