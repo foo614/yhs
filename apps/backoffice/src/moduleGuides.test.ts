@@ -89,7 +89,7 @@ describe("module guidance", () => {
       "Settlement / 结算",
       "Broker Commission / 经纪佣金",
       "Debt Recovery / 欠款追讨",
-      "Payment Voucher / 付款凭证",
+      "Approvals & Vouchers / 审核与付款凭证",
       "Daily Spend / 日常支出",
       "Cash Handover / Official Receipts"
     ];

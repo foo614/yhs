@@ -177,9 +177,9 @@ const vehicleGuide: ModuleGuideDefinition = {
       label: "Create Vehicle: Buyer & publication / 新增车辆：买家与发布",
       kind: "section",
       audience: "Sales",
-      purpose: "Link the original owner, optionally confirm a buyer, and prepare public listing content.",
-      actions: ["Select the confirmed buyer only when known.", "Select or register the original owner.", "Add website description and publication details."],
-      requiredItems: ["Original owner"],
+      purpose: "Link the previous owner, optionally confirm a buyer, and prepare public listing content.",
+      actions: ["Select the confirmed buyer only when known.", "Select or register the previous owner.", "Add website description and publication details."],
+      requiredItems: ["Previous owner"],
       completeWhen: "The owner is correct and buyer/public copy are either confirmed or intentionally left incomplete.",
       handoff: "Create Vehicle: Review.",
       warnings: ["A new vehicle starts Available but hidden.", "Sales cannot self-approve the vehicle."]
@@ -190,7 +190,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Sales",
       purpose: "Confirm the intake before creating the stock record.",
-      actions: ["Review identity and prices.", "Confirm the original owner.", "Confirm the intended buyer or deliberately leave the vehicle unassigned.", "Create the vehicle."],
+      actions: ["Review identity and prices.", "Confirm the previous owner.", "Confirm the intended buyer or deliberately leave the vehicle unassigned.", "Create the vehicle."],
       requiredItems: ["Reviewed vehicle, price, owner, and buyer decision"],
       completeWhen: "The intended stock record is created once with the correct ownership context.",
       handoff: "Vehicle Inventory.",
@@ -227,7 +227,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       audience: "Sales",
       purpose: "Verify the confirmed buyer, previous owner, and related enquiries.",
       actions: ["Verify the Buyer card and open Customer 360 or edit/create the customer when needed.", "Verify the Previous Owner and edit/create the owner when needed.", "Review linked leads and confirm the canonical buyer."],
-      requiredItems: ["Canonical buyer matching any active loan", "Correct original owner"],
+      requiredItems: ["Canonical buyer matching any active loan", "Correct previous owner"],
       completeWhen: "The correct people are linked and lead history is understood.",
       handoff: "Loan, Delivery, or Finance.",
       warnings: ["Multiple leads may exist, but there is only one confirmed buyer.", "Vehicle Record has no existing-customer selector; choose an existing buyer during intake/Start Loan or create and auto-link here."]
@@ -434,7 +434,7 @@ const loanGuide: ModuleGuideDefinition = {
       requiredItems: ["Correct vehicle", "Correct confirmed customer"],
       completeWhen: "The current status and document state are understood and the next action is owned.",
       handoff: "Loan Details.",
-      warnings: ["The current loan record has no bank, loan amount, application reference, bank outcome, rejection reason, cancellation, or reopen fields."]
+      warnings: ["The current loan record has no bank, loan amount, application reference, cancellation, or reopen fields."]
     },
     {
       key: "loan-status-flow",
@@ -442,8 +442,8 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Loan and Boss/Admin",
       purpose: "Move the loan through supported states without bypassing LOU or document checks.",
-      actions: ["Submit Draft to Pending.", "Approve Pending to set Approved and LOU Approved.", "From Approved, use Mark Done only after every required document is complete.", "Treat Rejected and Done as review-only terminal states in the current UI."],
-      requiredItems: ["Submitted date for active states", "LOU Approved for Approved or Done", "LOU Done and all documents for Done"],
+      actions: ["Submit Draft to Pending.", "From Pending, record approval or record rejection with the bank or decision reason.", "From Approved, use Mark Done only after every required document is complete.", "Treat Rejected and Done as review-only terminal states in the current UI."],
+      requiredItems: ["Submitted date for active states", "Rejection reason for Rejected", "LOU Approved for Approved or Done", "LOU Done and all documents for Done"],
       completeWhen: "Status is valid and Done only after the LOU and document requirements are satisfied.",
       handoff: "Delivery and Finance.",
       warnings: ["The same Loan user can currently approve and complete; there is no independent checker.", "There is no reopen or cancel action in the UI."]
@@ -466,11 +466,11 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Loan uploads Loan Document; Sales supplies shared vehicle files; Boss/Admin may upload all",
       purpose: "Complete the four-document checklist for the current vehicle and buyer.",
-      actions: ["Review missing items.", "Upload the Loan Document.", "Request Sales-owned VOC, AP Document, and Status Receipt through Vehicles.", "Recheck completeness.", "Mark Done only when the checklist is Complete."],
+      actions: ["Review missing items.", "Choose the correct category and preview the file before confirming upload.", "Upload the Loan Document.", "Request Sales-owned VOC, AP Document, and Status Receipt through Vehicles.", "Preview or download uploaded evidence when checking it.", "Mark Done only when the checklist is Complete."],
       requiredItems: ["VOC", "AP Document", "Status Receipt", "Loan Document", "Every file linked to the same vehicle and current buyer"],
       completeWhen: "The API reports the loan document checklist Complete.",
       handoff: "Status Done, then Delivery and Finance.",
-      warnings: ["Loan role can upload Loan Document only; Boss/Admin can upload all four.", "A file for another buyer or vehicle never satisfies this loan."]
+      warnings: ["Loan role can upload Loan Document only; Boss/Admin can upload all four.", "Inline preview supports PDF, JPEG, PNG, and WebP; other allowed upload types remain download-only.", "A file for another buyer or vehicle never satisfies this loan."]
     },
     {
       key: "manual-loan",
@@ -478,8 +478,8 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Boss/Admin exception only",
       purpose: "Capture or correct an exceptional legacy loan record.",
-      actions: ["Select the exact vehicle and confirmed customer.", "Choose Draft, Pending, Approved, or Rejected.", "Enter Submitted date for active states.", "Set LOU fields consistently.", "Create the record."],
-      requiredItems: ["Consistent customer, vehicle, state, date, and LOU values"],
+      actions: ["Select the exact vehicle and confirmed customer.", "Choose Draft, Pending, Approved, or Rejected.", "Enter Submitted date for active states and a reason for Rejected.", "Set LOU fields consistently.", "Create the record."],
+      requiredItems: ["Consistent customer, vehicle, state, date, LOU values, and rejection reason when applicable"],
       completeWhen: "The exception record appears in the list with a valid state.",
       handoff: "Loan Workflow list.",
       warnings: ["Normal sales start from Vehicle Details.", "The API does not enforce one active loan for the same vehicle/customer.", "Manual creation cannot bypass Done document validation."]
@@ -654,15 +654,15 @@ const financeManagementGuide: ModuleGuideDefinition = {
     },
     {
       key: "vouchers",
-      label: "Payment Voucher / 付款凭证",
+      label: "Approvals & Vouchers / 审核与付款凭证",
       kind: "tab",
       audience: "Finance and Boss/Admin",
       purpose: "Use four nested workflows: approve supplier masters, confirm purchase-invoice accounting, confirm delivery accounting, and control outgoing payment vouchers.",
-      actions: ["Supplier Master approval: review the Draft legal/contact/TIN and AutoCount creditor code, then a Finance/Boss user other than the creator approves it.", "Purchase Invoice accounting: review supplier, vehicle, invoice date/number, classified lines, capitalisation, and total before confirming; confirmation makes it immutable.", "Delivery accounting: review classification 006 insurance/road-tax provider, invoice date, reference, amount, and paid-on-behalf flag before confirming; confirmation makes it immutable.", "Outgoing voucher: maker enters payee, vehicle, purpose, amount, issued date, payment method, source account, reference, conditional cheque number, bank charge/account, and notes.", "A different approver approves the voucher.", "A different payer records Paid with payment evidence and paid date."],
+      actions: ["Supplier Master approval: review the Draft legal/contact/TIN and AutoCount creditor code. Finance creators need another approver; Boss/Admin may approve their own draft as an audited override.", "Purchase Invoice accounting: review supplier, vehicle, invoice date/number, classified lines, capitalisation, and total before confirming; confirmation makes it immutable.", "Delivery accounting: review classification 006 insurance/road-tax provider, invoice date, reference, amount, and paid-on-behalf flag before confirming; confirmation makes it immutable.", "Outgoing voucher: maker enters payee, vehicle, purpose, amount, issued date, payment method, source account, reference, conditional cheque number, bank charge/account, and notes.", "A different approver approves the voucher.", "A different payer records Paid with payment evidence and paid date."],
       requiredItems: ["Supplier approval: complete supplier master", "Purchase accounting: approved supplier, reconciled classified lines, amount and invoice date", "Delivery accounting: classification 006, provider, invoice date, amount, and source reference", "Voucher: payee, purpose, amount, issued date, payment method and account", "Cheque number when payment method is cheque", "Bank-charge account when bank charge is entered", "Payment evidence for Paid"],
       completeWhen: "Each nested review is confirmed by the correct role and an outgoing voucher reaches Paid only after separate approval and payment evidence.",
       handoff: "Confirmed records are posting candidates and paid vouchers remain as disbursement evidence; the workbook may still include review-only rows that Finance must exclude or resolve.",
-      warnings: ["Do not approve a supplier you created.", "Do not confirm accounting until source facts and totals match.", "Voucher maker, approver, and payer must be different users.", "Cheque and bank-charge fields are conditional and must match the payment method."]
+      warnings: ["Finance users must not approve a supplier they created; Boss/Admin overrides are recorded in the audit log.", "Do not confirm accounting until source facts and totals match.", "Voucher maker, approver, and payer must be different users.", "Cheque and bank-charge fields are conditional and must match the payment method."]
     },
     {
       key: "daily",

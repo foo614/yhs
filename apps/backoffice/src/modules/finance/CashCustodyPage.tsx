@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
 import { Alert, Button, Descriptions, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { OperationsProTable } from "../shared/OperationsProTable";
+import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financeEmptyText, financePageFor, pageFinanceRows } from "./financeList";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import {
@@ -188,7 +188,7 @@ export function CashCustodyPage({
 
       <ProCard title="Custody Register / 交接记录">
         <Space direction="vertical" size={12} className="fullWidth">
-          <Space wrap className="toolbarForm">
+          <Space className="financeToolbarForm pageFilterMobileOnly" wrap>
             <Input.Search
               aria-label="Search cash custody records by plate, customer, invoice, or reference"
               className="financeKeywordFilter"
@@ -269,7 +269,7 @@ export function CashCustodyPage({
             />
           </div>
           <OperationsProTable
-            className="desktopDataTable"
+            className="desktopDataTable nativeSearchDesktopOnly"
             rowKey="id"
             columns={columns}
             dataSource={filteredHandovers}
@@ -280,6 +280,34 @@ export function CashCustodyPage({
               showSizeChanger: false,
               onChange: setPage,
               showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`
+            }}
+            nativeSearch={{
+              fields: [
+                { name: "plate", label: "Plate" },
+                { name: "customer", label: "Customer" },
+                { name: "invoice", label: "Invoice" },
+                { name: "receipt", label: "Receipt" },
+                { name: "status", label: "Status", options: [
+                  { value: "ReceivedBySales", label: "Received by Sales" },
+                  { value: "PendingHandover", label: "Pending Handover" },
+                  { value: "HandedOver", label: "Handed Over" },
+                  { value: "Receipted", label: "Receipted" },
+                  { value: "Rejected", label: "Rejected" },
+                  { value: "Overdue", label: "Overdue" },
+                  { value: "AmountMismatch", label: "Amount mismatch" }
+                ] }
+              ],
+              values: { status },
+              onSubmit: (values) => {
+                setKeyword(operationsKeywordFromFields(values, ["plate", "customer", "invoice", "receipt"]));
+                setStatus(values.status as CashHandover["status"] | undefined);
+                setPage(1);
+              },
+              onReset: () => {
+                setKeyword("");
+                setStatus(undefined);
+                setPage(1);
+              }
             }}
             scroll={{ x: 1150 }}
             locale={{ emptyText: custodyEmptyText }}

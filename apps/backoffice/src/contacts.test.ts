@@ -40,4 +40,15 @@ describe("contact creation helpers", () => {
     }, [baseOwner])).toBe("Owner phone already exists.");
     expect(ownerCreateBlockReason(baseOwner)).toBeUndefined();
   });
+
+  it("blocks duplicate owner IC numbers regardless of separators", () => {
+    const existing = { ...baseOwner, icNumber: "900101-01-1234" };
+
+    expect(ownerCreateBlockReason({
+      ...baseOwner,
+      id: "owner-new",
+      phone: "012-3456789",
+      icNumber: "900101011234"
+    }, [existing])).toBe("An owner with this IC number already exists.");
+  });
 });

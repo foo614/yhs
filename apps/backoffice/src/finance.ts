@@ -1,6 +1,14 @@
-import type { BrokerCommission, CollectionCreateInput, Customer, DailySpend, DebtRecoveryCase, FinanceSaleInput, Owner, PaymentRecord, PaymentVoucher, ReceivableStatus, SettlementReminder, VehicleLookup } from "./api";
+import type { BrokerCommission, CollectionCreateInput, Customer, DailySpend, DebtRecoveryCase, FinanceSaleInput, Owner, PaymentRecord, PaymentVoucher, ReceivableStatus, SettlementReminder, Supplier, VehicleLookup } from "./api";
 
 export const financeDocumentCategories = ["PaymentReceipt", "PaymentInvoice"] as const;
+
+export function supplierApprovalBlockReason(supplier: Pick<Supplier, "approvalStatus" | "createdBy">, currentUserId?: string, isBossAdmin = false) {
+  if (supplier.approvalStatus !== "Draft") return "Only draft suppliers can be approved.";
+  if (!isBossAdmin && currentUserId && supplier.createdBy === currentUserId) {
+    return "You created this supplier. Another Finance user or Boss/Admin must approve it.";
+  }
+  return undefined;
+}
 
 export function isFinanceV2(payment: PaymentRecord) {
   return (payment.financeWorkflowVersion ?? 1) >= 2;
@@ -12,10 +20,24 @@ export function calculateFinanceNettPrice(values: Pick<FinanceSaleInput, "salesP
 }
 
 export function financeSaleBlockReason(input: FinanceSaleInput, vehicles: VehicleLookup[] = []) {
-  if (!vehicles.some((vehicle) => vehicle.id === input.vehicleId && Boolean(vehicle.customerId))) return "Select a vehicle with a confirmed buyer.";
-  if (!input.salesAgentUserId?.trim()) return "Select the responsible sales agent.";
-  if ([input.salesPrice, input.interestAdditionalCharges, input.ncdAmount, input.windscreenCharges].some((amount) => amount < 0)) return "Invoice amounts cannot be negative.";
-  if ([input.insurancePaidOnBehalfAmount ?? 0, input.roadTaxPaidOnBehalfAmount ?? 0, input.advancePaidOnBehalfAmount ?? 0].some((amount) => amount < 0)) return "Paid-on-behalf amounts cannot be negative.";
+  if (!vehicles.some((vehicle) => vehicle.id === input.vehicleId && Boolean(vehicle.customerId))) {
+    return "Select a vehicle with a confirmed buyer.";
+  }
+
+  if (![input.salesPrice, input.interestAdditionalCharges, input.ncdAmount, input.windscreenCharges].every(Number.isFinite)) {
+    return "Complete the required sales invoice amounts.";
+  }
+  if (input.salesPrice < 0 || input.interestAdditionalCharges < 0 || input.ncdAmount < 0 || input.windscreenCharges < 0) {
+    return "Invoice amounts cannot be negative.";
+  }
+  if (!input.salesAgentUserId) return "Select the responsible sales agent.";
+  if (![input.insurancePaidOnBehalfAmount, input.roadTaxPaidOnBehalfAmount, input.advancePaidOnBehalfAmount]
+    .every((value) => value === undefined || Number.isFinite(value))) {
+    return "Complete the paid-on-behalf amounts or leave them at zero.";
+  }
+  if ((input.insurancePaidOnBehalfAmount ?? 0) < 0 || (input.roadTaxPaidOnBehalfAmount ?? 0) < 0 || (input.advancePaidOnBehalfAmount ?? 0) < 0) {
+    return "Paid-on-behalf amounts cannot be negative.";
+  }
 
   const calculated = calculateFinanceNettPrice(input);
   const agreed = input.nettPrice ?? calculated;

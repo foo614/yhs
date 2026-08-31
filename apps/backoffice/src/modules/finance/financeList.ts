@@ -26,6 +26,25 @@ export function filterFinanceRows<T>(
   });
 }
 
+export function filterFinanceRowsByFields<T>(
+  rows: T[],
+  filters: Record<string, unknown>,
+  searchValues: (row: T) => Record<string, string | undefined | null>
+) {
+  const activeFilters = Object.entries(filters)
+    .map(([name, value]) => [name, String(value ?? "").trim().toLocaleLowerCase()] as const)
+    .filter(([, value]) => Boolean(value));
+
+  if (activeFilters.length === 0) return rows;
+  return rows.filter((row) => {
+    const values = searchValues(row);
+    return activeFilters.every(([name, filter]) => {
+      const value = values[name]?.toLocaleLowerCase() ?? "";
+      return value.includes(filter) || compactSearchValue(value).includes(compactSearchValue(filter));
+    });
+  });
+}
+
 function compactSearchValue(value: string) {
   return value.replace(/[^a-z0-9]/gi, "").toLocaleLowerCase();
 }

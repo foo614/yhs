@@ -1,8 +1,29 @@
 import type { PurchaseInvoice, Vehicle } from "./api";
 
+const malaysiaRegistrationPattern = /^(?:[A-Z]+(?:_[A-Z]+)*[1-9][0-9]{0,3}[A-Z]?|[0-9]{1,3}-[0-9]{1,3}-[A-Z]{2,4})$/;
+export const malaysiaPlateFormatMessage = "Enter a valid Malaysia registration number, for example BKC3003 or MALAYSIA1.";
+
+export function normalizeMalaysiaPlate(value?: string) {
+  return value
+    ?.normalize("NFKC")
+    .trim()
+    .toUpperCase()
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, "") ?? "";
+}
+
+export function isMalaysiaPlateFormat(value?: string) {
+  const normalized = normalizeMalaysiaPlate(value);
+  return normalized.length <= 16 && malaysiaRegistrationPattern.test(normalized);
+}
+
 export function vehicleCreateBlockReason(vehicle: Vehicle, existing: Vehicle[] = []) {
   if (!vehicle.plateNumber?.trim()) {
     return "Car plate is required.";
+  }
+
+  if (!isMalaysiaPlateFormat(vehicle.plateNumber)) {
+    return malaysiaPlateFormatMessage;
   }
 
   if (!vehicle.make?.trim()) {
@@ -45,7 +66,7 @@ export function vehicleCreateBlockReason(vehicle: Vehicle, existing: Vehicle[] =
     return "Outstation pickup allowance cannot be negative.";
   }
 
-  if (existing.some((item) => item.id !== vehicle.id && normalizeReference(item.plateNumber) === normalizeReference(vehicle.plateNumber))) {
+  if (existing.some((item) => item.id !== vehicle.id && normalizeMalaysiaPlate(item.plateNumber) === normalizeMalaysiaPlate(vehicle.plateNumber))) {
     return "Car plate already exists in inventory.";
   }
 

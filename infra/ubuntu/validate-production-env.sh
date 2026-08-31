@@ -57,25 +57,21 @@ done
 [[ "$(read_env ASPNETCORE_ENVIRONMENT)" == "Production" ]] || failures+=("ASPNETCORE_ENVIRONMENT must be Production.")
 [[ "$(read_env SEED_DATA_ENABLED)" =~ ^(true|false)$ ]] || failures+=("SEED_DATA_ENABLED must be true or false.")
 
-ocr_provider="$(read_env OCR_PROVIDER)"
-[[ "$ocr_provider" =~ ^(GoogleDocumentAi|BaiduUnlimited|LocalMock)$ ]] || failures+=("OCR_PROVIDER must be GoogleDocumentAi, BaiduUnlimited, or LocalMock.")
-if [[ "$ocr_provider" == "GoogleDocumentAi" ]]; then
-  for key in GOOGLE_DOCUMENT_AI_PROJECT_ID GOOGLE_DOCUMENT_AI_LOCATION GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH; do
-    require_value "$key"
-  done
-  [[ "$(read_env GOOGLE_DOCUMENT_AI_LOCATION)" =~ ^[a-z0-9-]+$ ]] || failures+=("GOOGLE_DOCUMENT_AI_LOCATION is invalid.")
-  for key in GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID GOOGLE_DOCUMENT_AI_INVOICE_PROCESSOR_ID GOOGLE_DOCUMENT_AI_EXPENSE_PROCESSOR_ID; do
-    value="$(read_env "$key")"
-    [[ -z "$value" || "$value" =~ ^[A-Za-z0-9_-]+$ ]] || failures+=("$key is invalid.")
-  done
-  for key in GOOGLE_DOCUMENT_AI_PROJECT_ID GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID; do
-    value="$(read_env "$key")"
-    [[ "$value" != replace-with-* ]] || failures+=("$key still uses an example value.")
-  done
-  credentials_path="$(read_env GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH)"
-  [[ "$credentials_path" == /* ]] || failures+=("GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH must be an absolute VPS path.")
-  [[ -f "$credentials_path" ]] || failures+=("Google Application Default Credentials file not found at GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH.")
-fi
+for key in GOOGLE_DOCUMENT_AI_PROJECT_ID GOOGLE_DOCUMENT_AI_LOCATION GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH; do
+  require_value "$key"
+done
+[[ "$(read_env GOOGLE_DOCUMENT_AI_LOCATION)" =~ ^[a-z0-9-]+$ ]] || failures+=("GOOGLE_DOCUMENT_AI_LOCATION is invalid.")
+for key in GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID GOOGLE_DOCUMENT_AI_INVOICE_PROCESSOR_ID GOOGLE_DOCUMENT_AI_EXPENSE_PROCESSOR_ID; do
+  value="$(read_env "$key")"
+  [[ -z "$value" || "$value" =~ ^[A-Za-z0-9_-]+$ ]] || failures+=("$key is invalid.")
+done
+for key in GOOGLE_DOCUMENT_AI_PROJECT_ID GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID; do
+  value="$(read_env "$key")"
+  [[ "$value" != replace-with-* ]] || failures+=("$key still uses an example value.")
+done
+credentials_path="$(read_env GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH)"
+[[ "$credentials_path" == /* ]] || failures+=("GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH must be an absolute VPS path.")
+[[ -f "$credentials_path" ]] || failures+=("Google Application Default Credentials file not found at GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH.")
 
 for key in API_DOMAIN FRONTOFFICE_DOMAIN BACKOFFICE_DOMAIN; do
   value="$(read_env "$key")"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
+import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, filterFinanceRowsByFields, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 
 describe("finance list helpers", () => {
   const rows = [
@@ -21,6 +21,17 @@ describe("finance list helpers", () => {
 
     expect(filterFinanceRows(collectionRows, "", "Approved", (row) => [row.plate], (row) => row.statuses)).toEqual([collectionRows[0]]);
     expect(filterFinanceRows(collectionRows, "", "Disbursed", (row) => [row.plate], (row) => row.statuses)).toEqual([collectionRows[1]]);
+  });
+
+  it("applies native ProTable fields independently with AND semantics", () => {
+    const paymentRows = [
+      { plate: "VPK1234", customer: "Ali Tan", invoice: "INV-1001" },
+      { plate: "SMK139653", customer: "Smoke Workflow Customer", invoice: "INV-1002" }
+    ];
+
+    expect(filterFinanceRowsByFields(paymentRows, { customer: "Ali Tan" }, (row) => row)).toEqual([paymentRows[0]]);
+    expect(filterFinanceRowsByFields(paymentRows, { plate: "VPK 1234", customer: "Ali" }, (row) => row)).toEqual([paymentRows[0]]);
+    expect(filterFinanceRowsByFields(paymentRows, { plate: "VPK1234", customer: "Smoke" }, (row) => row)).toEqual([]);
   });
 
   it("uses eight rows per page and clamps an out-of-range current page", () => {

@@ -13,6 +13,12 @@ export type RefurbishmentFilters = {
   state?: "All" | "Open" | "Done";
 };
 
+export function refurbishmentDetailsSelection(record: RefurbishmentRecord) {
+  return record.kind === "repair"
+    ? { repairId: record.repair.id, supplierInvoiceId: undefined }
+    : { repairId: undefined, supplierInvoiceId: record.invoice.id };
+}
+
 export function filterRefurbishmentRecords(
   repairs: RepairJob[],
   supplierInvoices: SupplierInvoice[],

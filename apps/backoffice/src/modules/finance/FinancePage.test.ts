@@ -1,7 +1,24 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { canPrepareFinanceInvoice, createUnpaidDailySpend, dailySpendMatchesDashboardAttention, FinanceV2BalanceSummary, financeInvoiceSubmitLabel, financeInvoiceVehicleDefaults, financeRequesterLabel, financeSearchCopy, financeTabForUrl, InvoiceUpdateRequestQueue, payDailySpend, settlementMatchesDashboardAttention } from "./FinancePage";
+import {
+  canPrepareFinanceInvoice,
+  createUnpaidDailySpend,
+  dailySpendMatchesDashboardAttention,
+  FinanceV2BalanceSummary,
+  financeInvoiceSubmitLabel,
+  financeInvoiceVehicleDefaults,
+  financePaymentCustomerId,
+  financePaymentCustomerLabel,
+  financeRequesterLabel,
+  financeSearchCopy,
+  financeTabForUrl,
+  financeVehicleDescription,
+  InvoiceUpdateRequestQueue,
+  payDailySpend,
+  settlementDraftForVehicle,
+  settlementMatchesDashboardAttention
+} from "./FinancePage";
 
 describe("finance module navigation", () => {
   it("keeps legacy cash custody links on the consolidated cash handover tab", () => {
@@ -15,8 +32,8 @@ describe("finance module navigation", () => {
     expect(financeTabForUrl("/finance", "?tab=unknown", true)).toBe("payments");
   });
 
-  it("describes the searchable fields for each finance tab", () => {
-    expect(financeSearchCopy("payments").placeholder).toBe("Search plate, customer, invoice or reference");
+  it("describes the actual searchable fields for each finance tab", () => {
+    expect(financeSearchCopy("payments").placeholder).toBe("Search plate, customer, sales invoice or reference");
     expect(financeSearchCopy("settlements").placeholder).toBe("Search plate, owner or deadline");
     expect(financeSearchCopy("commissions").placeholder).toBe("Search plate or broker");
     expect(financeSearchCopy("debt").placeholder).toBe("Search plate, customer, date or notes");
@@ -48,6 +65,14 @@ describe("Settlement dashboard drill-down", () => {
     expect(settlementMatchesDashboardAttention({ isPaid: true, deadline: "2026-05-31" }, "open", today)).toBe(false);
     expect(settlementMatchesDashboardAttention({ isPaid: false, deadline: "2026-06-10" }, "due", today)).toBe(false);
     expect(settlementMatchesDashboardAttention({ isPaid: false, deadline: "2026-06-01" }, "due", today)).toBe(true);
+  });
+
+  it("reuses the previous owner and purchase price captured during vehicle intake", () => {
+    expect(settlementDraftForVehicle([{
+      vehicleId: "vehicle-1",
+      ownerId: "owner-1",
+      purchasePrice: 49_900
+    }], "vehicle-1")).toEqual({ ownerId: "owner-1", amount: 49_900 });
   });
 });
 
@@ -84,11 +109,59 @@ describe("Finance V2 summary", () => {
 
     expect(markup).toContain("VPK1234");
     expect(markup).toContain("Ali Tan");
-    expect(markup).toContain("Invoice total");
+    expect(markup).toContain("Sales invoice total");
     expect(markup).toContain("RM 60,600.00");
     expect(markup).toContain("RM 10,000.00");
     expect(markup).toContain("RM 50,600.00");
     expect(markup).toContain("Partially paid");
+  });
+});
+
+describe("finance payment customer display", () => {
+  const vehicles = [{
+    id: "vehicle-1",
+    plateNumber: "VPK1234",
+    make: "Toyota",
+    model: "Vios",
+    stockOwner: "YSHeng" as const,
+    status: "Available" as const
+  }];
+  const customers = [{ id: "customer-1", name: "Ali Tan", phone: "0123456789" }];
+  const loans = [{ id: "loan-1", vehicleId: "vehicle-1", customerId: "customer-1", status: "Done" as const, louApproved: true, louDone: true }];
+
+  it("resolves the linked customer for legacy and Finance V2 payment rows", () => {
+    const legacyPayment = {
+      id: "legacy-payment",
+      vehicleId: "vehicle-1",
+      nettPrice: 58_000,
+      status: "Pending" as const,
+      bossChecked: false,
+      documentsPrepared: false,
+      checklistValidated: false,
+      createdAt: "2026-06-01T00:00:00Z"
+    };
+
+    expect(financePaymentCustomerId(legacyPayment, vehicles, loans)).toBe("customer-1");
+    expect(financePaymentCustomerLabel(legacyPayment, vehicles, customers, loans)).toBe("Ali Tan");
+    expect(financePaymentCustomerLabel({ ...legacyPayment, customerId: "customer-1", financeWorkflowVersion: 2 }, vehicles, customers, loans)).toBe("Ali Tan");
+  });
+
+  it("shows year, make, and model separately from the car plate", () => {
+    expect(financeVehicleDescription([{ ...vehicles[0], year: 2018, make: "Honda", model: "City E 1.5" }], "vehicle-1"))
+      .toBe("2018 Honda City E 1.5");
+  });
+
+  it("does not guess when legacy loan history points to multiple customers", () => {
+    expect(financePaymentCustomerId({
+      id: "legacy-payment",
+      vehicleId: "vehicle-1",
+      nettPrice: 58_000,
+      status: "Pending",
+      bossChecked: false,
+      documentsPrepared: false,
+      checklistValidated: false,
+      createdAt: "2026-06-01T00:00:00Z"
+    }, vehicles, [...loans, { ...loans[0], id: "loan-2", customerId: "customer-2" }])).toBeUndefined();
   });
 });
 
@@ -110,8 +183,8 @@ describe("Finance V2 review copy", () => {
   });
 
   it("distinguishes immediate invoice generation from a real price-variance approval", () => {
-    expect(financeInvoiceSubmitLabel(60_000, undefined, false)).toBe("Review & generate invoice");
-    expect(financeInvoiceSubmitLabel(60_000, 60_000, true)).toBe("Review & generate invoice");
+    expect(financeInvoiceSubmitLabel(60_000, undefined, false)).toBe("Review & generate sales invoice");
+    expect(financeInvoiceSubmitLabel(60_000, 60_000, true)).toBe("Review & generate sales invoice");
     expect(financeInvoiceSubmitLabel(60_000, 59_500, true)).toBe("Review & send for approval");
   });
 

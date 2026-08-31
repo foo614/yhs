@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { DeleteOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
-import { ProTable } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Select, Space, Tag, Typography, Upload, message } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
-import { formatMoneyInput, parseMoneyInput } from "../../money";
+import { formatMoneyInputWithTwoDecimals, parseMoneyInput } from "../../money";
 import {
   getOcrJob,
   humanizeApiError,
@@ -17,12 +17,21 @@ import {
   type OcrLineItem,
   type OcrReviewedResult
 } from "../../api";
+import { OperationsProTable } from "./OperationsProTable";
 
 export type OcrFieldConfig = {
   name: string;
   label: string;
   type?: "text" | "number" | "select";
   options?: { value: string; label: string }[];
+  section?: OcrFieldSection;
+  fullWidth?: boolean;
+};
+
+export type OcrFieldSection = {
+  key: string;
+  title: string;
+  description?: string;
 };
 
 export type OcrReviewValues = Record<string, string | number | undefined>;
@@ -40,6 +49,11 @@ export function isOcrImageMimeType(mimeType: string) {
   return ocrImageMimeTypes.includes(mimeType as (typeof ocrImageMimeTypes)[number]);
 }
 
+export function ocrFailureMessage(job: Pick<OcrJob, "status" | "result" | "warnings"> | null | undefined) {
+  if (job?.status !== "Failed") return undefined;
+  return job.warnings.find((warning) => Boolean(warning.trim())) ?? "OCR could not read this document.";
+}
+
 export function ocrFieldConflicts(fields: OcrFieldConfig[], existingValues: OcrReviewValues | undefined, extractedValues: OcrReviewValues): OcrFieldConflict[] {
   if (!existingValues) return [];
 
@@ -49,6 +63,16 @@ export function ocrFieldConflicts(fields: OcrFieldConfig[], existingValues: OcrR
     if (existingValue === undefined || extractedValue === undefined || String(existingValue).trim() === "" || String(extractedValue).trim() === "" || valuesMatch(existingValue, extractedValue)) return [];
     return [{ name: field.name, label: field.label, existingValue, extractedValue }];
   });
+}
+
+export function groupOcrFields(fields: OcrFieldConfig[]) {
+  return fields.reduce<Array<{ key: string; section?: OcrFieldSection; fields: OcrFieldConfig[] }>>((groups, field) => {
+    const key = field.section?.key ?? "details";
+    const previous = groups[groups.length - 1];
+    if (!previous || previous.key !== key) groups.push({ key, section: field.section, fields: [] });
+    groups[groups.length - 1].fields.push(field);
+    return groups;
+  }, []);
 }
 
 function OcrReviewShell({
@@ -127,7 +151,11 @@ export function OcrUploadReview({
   const hasMissingLineItemAmounts = lineItems.length > 0 && lineItems.some((item) => parseOcrAmount(item.amount) === undefined);
   const hasCompleteLineItemAmounts = lineItems.length > 0 && lineItems.every((item) => parseOcrAmount(item.amount) !== undefined);
   const hasAmountReconciliation = fields.some((field) => field.name === "amount") && declaredAmountNumber !== undefined && hasCompleteLineItemAmounts;
+  const lineItemsMatchDeclaredAmount = !hasAmountReconciliation || Math.abs(lineItemsTotal - declaredAmountForDisplay) <= 0.01;
+  const failureMessage = ocrFailureMessage(job);
+  const canApplyReview = !failureMessage && Boolean(job?.result) && !hasMissingLineItemAmounts && lineItemsMatchDeclaredAmount;
   const reviewConflicts = job ? ocrFieldConflicts(fields, existingValues, initialValuesFromJob(job, fields)) : [];
+  const reviewFieldGroups = groupOcrFields(fields);
 
   async function handleUpload(option: UploadRequestOption) {
     if (!vehicleId) {
@@ -167,6 +195,10 @@ export function OcrUploadReview({
 
   async function applyResult() {
     if (!job) return;
+    if (!canApplyReview) {
+      message.warning("Correct the receipt item amounts so they match the receipt total before saving this review.");
+      return;
+    }
     try {
       const values = await form.validateFields();
       const reviewedResult = reviewedResultFrom(job, values, lineItems);
@@ -230,33 +262,44 @@ export function OcrUploadReview({
         title={(
           <div className="ocrReviewDrawerTitle">
             <span className="ocrStepLabel">Step 2 of 3</span>
-            <span>Check the details we found</span>
+            <span>{failureMessage ? "OCR could not read this photo" : "Check the details we found"}</span>
           </div>
         )}
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
         actions={(
           <div className="ocrReviewActions">
-            <Button type="primary" disabled={!job?.result} onClick={() => void applyResult()}>{applyLabel}</Button>
+            {failureMessage
+              ? <Button onClick={() => setReviewOpen(false)}>Close</Button>
+              : <Button type="primary" disabled={!canApplyReview} onClick={() => void applyResult()}>{applyLabel}</Button>}
           </div>
         )}
       >
         <Space direction="vertical" size={16} className="fullWidth">
-          <Alert
-            type="info"
-            showIcon
-            message="Nothing has been saved yet."
-            description="Check the details below and correct anything that looks wrong. Saving the review records every difference from the original AI result."
-          />
-          {job?.warnings?.length ? (
+          {failureMessage ? (
+            <Alert
+              type="error"
+              showIcon
+              message="No values were extracted from this photo."
+              description={<>{failureMessage}<br />Use the manual-entry path for this document, or ask an administrator to configure an image OCR provider for this environment.</>}
+            />
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              message="Nothing has been saved yet."
+              description="Check the details below and correct anything that looks wrong. Saving the review records every difference from the original AI result."
+            />
+          )}
+          {!failureMessage && job?.warnings?.length ? (
             <Alert type="warning" showIcon message={job.warnings.join(" ")} />
           ) : null}
-          <Space wrap className="ocrReviewSummary">
+          {!failureMessage ? <Space wrap className="ocrReviewSummary">
             <Tag color="blue">{documentCategoryLabel(job?.category)}</Tag>
             <Tag color="green">Ready for your check</Tag>
             <Tag color={confidenceColor(job?.result?.confidence)}>Reading quality: {confidenceLabel(job?.result?.confidence)}</Tag>
-          </Space>
-          <Form form={form} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
+          </Space> : null}
+          {!failureMessage ? <Form form={form} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
             {reviewConflicts.length > 0 ? (
               <Form.Item label="Information already on file" extra="The current value is shown below. Edit it if this document proves it should change.">
                 <Space direction="vertical" size={8} className="fullWidth">
@@ -276,36 +319,46 @@ export function OcrUploadReview({
               <Typography.Text strong>Details from this document</Typography.Text>
               <Typography.Text type="secondary">Edit any value before you continue.</Typography.Text>
             </div>
-            {fields.map((field) => (
-              <Form.Item key={field.name} name={field.name} label={fieldLabel(field, job)}>
-                {field.type === "number" ? (
-                  <InputNumber className="fullWidth" min={0} precision={isMoneyField(field.name) ? 2 : undefined} formatter={isMoneyField(field.name) ? formatMoneyInput : undefined} parser={isMoneyField(field.name) ? parseMoneyInput : undefined} />
-                ) : field.type === "select" ? (
-                  <Select showSearch optionFilterProp="label" options={field.options ?? []} />
-                ) : (
-                  <Input />
-                )}
-              </Form.Item>
+            {reviewFieldGroups.map((group) => (
+              <section key={group.key} className={group.section ? "ocrReviewFieldSection" : undefined}>
+                {group.section ? (
+                  <div className="ocrReviewFieldSectionHeading">
+                    <Typography.Text strong>{group.section.title}</Typography.Text>
+                    {group.section.description ? <Typography.Text type="secondary">{group.section.description}</Typography.Text> : null}
+                  </div>
+                ) : null}
+                <div className={group.section ? "ocrReviewFieldGrid" : undefined}>
+                  {group.fields.map((field) => (
+                    <Form.Item key={field.name} name={field.name} className={field.fullWidth ? "ocrReviewFieldFullWidth" : undefined} label={fieldLabel(field, job)}>
+                      {field.type === "number" ? (
+                        <InputNumber className="fullWidth" min={0} precision={isMoneyField(field.name) ? 2 : undefined} formatter={isMoneyField(field.name) ? formatMoneyInputWithTwoDecimals : undefined} parser={isMoneyField(field.name) ? parseMoneyInput : undefined} />
+                      ) : field.type === "select" ? (
+                        <Select showSearch optionFilterProp="label" options={field.options ?? []} />
+                      ) : (
+                        <Input />
+                      )}
+                    </Form.Item>
+                  ))}
+                </div>
+              </section>
             ))}
             {job ? (
               <Form.Item
                 label={(
                   <Space style={{ width: "100%", justifyContent: "space-between" }}>
-                    <span>Items found on this document</span>
+                    <span>Receipt items</span>
                     <Button size="small" icon={<PlusOutlined />} onClick={addLineItem}>Add item</Button>
                   </Space>
                 )}
-                extra="Edit, add, or remove items before creating the repair."
+                extra="Check the description, quantity, unit, unit price, and line amount against the receipt before you continue."
               >
-                <ProTable<OcrLineItem>
+                <OperationsProTable<OcrLineItem>
                   size="small"
                   rowKey={(_, index) => String(index)}
-                  columns={lineItemColumns}
+                  columns={lineItemColumns as ColumnsType<OcrLineItem>}
                   dataSource={lineItems}
-                  search={false}
-                  options={false}
                   pagination={false}
-                  scroll={{ x: 840 }}
+                  scroll={{ x: 1040 }}
                   locale={{ emptyText: "No line item descriptions detected. Add one manually." }}
                 />
                 {hasMissingLineItemAmounts ? (
@@ -313,25 +366,25 @@ export function OcrUploadReview({
                 ) : null}
                 {hasAmountReconciliation ? (
                   <Alert
-                    type={Math.abs(lineItemsTotal - declaredAmountForDisplay) <= 0.01 ? "success" : "warning"}
+                    type={lineItemsMatchDeclaredAmount ? "success" : "warning"}
                     showIcon
-                    message={Math.abs(lineItemsTotal - declaredAmountForDisplay) <= 0.01
+                    message={lineItemsMatchDeclaredAmount
                       ? `Amounts match / 金额一致: RM ${lineItemsTotal.toFixed(2)}`
-                      : `Check totals / 请核对金额: receipt RM ${declaredAmountForDisplay.toFixed(2)}, items RM ${lineItemsTotal.toFixed(2)}`}
+                      : `Check totals before saving / 请先核对金额: receipt RM ${declaredAmountForDisplay.toFixed(2)}, items RM ${lineItemsTotal.toFixed(2)}`}
                   />
                 ) : null}
               </Form.Item>
             ) : null}
-          </Form>
-          <Collapse
+          </Form> : null}
+          {!failureMessage ? <Collapse
             size="small"
             items={[{
               key: "raw-text",
               label: "Technical details (only if you need to check the scan)",
               children: <Input.TextArea rows={5} value={job?.result?.rawText ?? ""} readOnly aria-label="Original text read from the document" />
             }]}
-          />
-          <Typography.Text type="secondary">Step 3: save the reviewed values. The system records every change for OCR accuracy reporting.</Typography.Text>
+          /> : null}
+          {!failureMessage ? <Typography.Text type="secondary">Step 3: save the reviewed values. The system records every change for OCR accuracy reporting.</Typography.Text> : null}
         </Space>
       </OcrReviewShell>
     </>
@@ -344,7 +397,7 @@ export function OcrUploadReview({
   }
 
   function addLineItem() {
-    setLineItems((current) => [...current, { description: "", quantity: "1", amount: "", rawText: "Added manually" }]);
+    setLineItems((current) => [...current, { description: "", quantity: "1", unit: "", unitPrice: "", amount: "", rawText: "Added manually" }]);
   }
 
   function removeLineItem(index: number) {
@@ -352,35 +405,68 @@ export function OcrUploadReview({
   }
 }
 
-function repairLineItemsFromRawText(rawText?: string): OcrLineItem[] {
+export function repairLineItemsFromRawText(rawText?: string): OcrLineItem[] {
   if (!rawText) return [];
   const items: OcrLineItem[] = [];
   for (const line of rawText.split(/\r?\n/).map((value) => value.trim())) {
     if (/^(?:notes?|b\/f pages total|page total|total)\b/i.test(line)) break;
-    const description = line.match(/^\d+[.)]\s*(.+)$/)?.[1]?.trim() ?? "";
-    if (!description || /^(?:all cheques|cheques should|authorised signature)\b/i.test(description)) continue;
-    items.push({ description, quantity: "1", amount: "", rawText: description, confidence: undefined });
+    const item = repairLineItemFromText(line);
+    if (item) items.push(item);
   }
   if (items.length === 0) {
     const flattened = rawText.replace(/\\\./g, ".").replace(/\s+/g, " ");
     const matches = [...flattened.matchAll(/(?:^|\s)(\d+)[.)]\s+(.+?)(?=\s+\d+[.)]\s+|\s+(?:Notes?|B\/F Pages Total|Page Total|Total)\b|$)/gi)];
     for (const match of matches) {
-      const description = match[2].trim();
-      if (!/^(?:all cheques|cheques should|authorised signature)\b/i.test(description) && description.length >= 3) {
-        items.push({ description, quantity: "1", amount: "", rawText: description, confidence: undefined });
-      }
+      const item = repairLineItemFromText(`${match[1]}. ${match[2]}`);
+      if (item) items.push(item);
     }
   }
-  const detailText = rawText.split(/\b(?:Notes?|B\/F Pages Total)\b/i)[0];
-  const amounts = [...detailText.matchAll(/\b\d{1,6}(?:,\d{3})*\.\d{2}\b/g)].map((match) => match[0].replace(/,/g, ""));
-  const rowAmounts = amounts.slice(-items.length);
-  const units = [...detailText.matchAll(/\b(SQF|PC|UNIT|HOUR|SET)\b/gi)].map((match) => match[1].toUpperCase());
-  const rowUnits = units.slice(-items.length);
-  items.forEach((item, index) => {
-    if (rowAmounts[index]) item.amount = rowAmounts[index];
-    if (rowUnits[index]) item.unitPrice = rowUnits[index];
-  });
-  return items
+  return items;
+}
+
+function repairLineItemFromText(rawLine: string): OcrLineItem | undefined {
+  const line = rawLine.replace(/\\\./g, ".").replace(/\s+/g, " ").trim();
+  if (!line || /^(?:all cheques|cheques should|authorised signature)\b/i.test(line)) return undefined;
+
+  // Read values from the same printed row only. Never pair every amount on the
+  // receipt by position: that is how one row's RM 130 was shown as another row's RM 7.50.
+  const structured = line.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]{1,12})\s+(?:RM\s*)?(\d{1,6}(?:,\d{3})*\.\d{2})\s+(?:RM\s*)?(\d{1,6}(?:,\d{3})*\.\d{2})$/i);
+  if (structured) {
+    return {
+      description: structured[1].trim(),
+      quantity: structured[2],
+      unit: structured[3].toUpperCase(),
+      unitPrice: structured[4].replace(/,/g, ""),
+      amount: structured[5].replace(/,/g, ""),
+      rawText: line,
+      confidence: undefined
+    };
+  }
+
+  const structuredWithoutUnit = line.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s+(?:RM\s*)?(\d{1,6}(?:,\d{3})*\.\d{2})\s+(?:RM\s*)?(\d{1,6}(?:,\d{3})*\.\d{2})$/i);
+  if (structuredWithoutUnit) {
+    return {
+      description: structuredWithoutUnit[1].trim(),
+      quantity: structuredWithoutUnit[2],
+      unitPrice: structuredWithoutUnit[3].replace(/,/g, ""),
+      amount: structuredWithoutUnit[4].replace(/,/g, ""),
+      rawText: line,
+      confidence: undefined
+    };
+  }
+
+  const numbered = line.match(/^\d+[.)]\s*(.+)$/)?.[1]?.trim();
+  if (!numbered || /^(?:all cheques|cheques should|authorised signature)\b/i.test(numbered)) return undefined;
+  const quantityAndAmount = numbered.match(/^(.+?)\s+qty\s*(\d+(?:\.\d+)?)\s+(?:RM\s*)?(\d{1,6}(?:,\d{3})*(?:\.\d{1,2})?)$/i);
+  return quantityAndAmount
+    ? {
+      description: quantityAndAmount[1].trim(),
+      quantity: quantityAndAmount[2],
+      amount: quantityAndAmount[3].replace(/,/g, ""),
+      rawText: line,
+      confidence: undefined
+    }
+    : { description: numbered, quantity: "1", amount: "", rawText: line, confidence: undefined };
 }
 
 function isMoneyField(name: string) {
@@ -483,18 +569,42 @@ function ocrLineItemColumns(
     },
     {
       title: "Unit",
-      dataIndex: "unitPrice",
+      dataIndex: "unit",
       width: 110,
       render: (_, record, index) => (
-        <Input value={record.unitPrice ?? ""} onChange={(event) => updateLineItem(index, "unitPrice", event.target.value)} />
+        <Input value={record.unit ?? ""} onChange={(event) => updateLineItem(index, "unit", event.target.value)} />
       )
     },
     {
-      title: "Amount",
-      dataIndex: "amount",
-      width: 120,
+      title: "Unit price (RM)",
+      dataIndex: "unitPrice",
+      width: 150,
       render: (_, record, index) => (
-        <Input value={record.amount ?? ""} onChange={(event) => updateLineItem(index, "amount", event.target.value)} />
+        <InputNumber
+          className="fullWidth"
+          min={0}
+          precision={2}
+          value={parseOcrAmount(record.unitPrice)}
+          formatter={formatMoneyInputWithTwoDecimals}
+          parser={parseMoneyInput}
+          onChange={(value) => updateLineItem(index, "unitPrice", value)}
+        />
+      )
+    },
+    {
+      title: "Line amount (RM)",
+      dataIndex: "amount",
+      width: 150,
+      render: (_, record, index) => (
+        <InputNumber
+          className="fullWidth"
+          min={0}
+          precision={2}
+          value={parseOcrAmount(record.amount)}
+          formatter={formatMoneyInputWithTwoDecimals}
+          parser={parseMoneyInput}
+          onChange={(value) => updateLineItem(index, "amount", value)}
+        />
       )
     },
     {

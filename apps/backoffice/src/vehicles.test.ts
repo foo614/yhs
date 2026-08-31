@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PurchaseInvoice, Vehicle } from "./api";
-import { purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "./vehicles";
+import { isMalaysiaPlateFormat, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "./vehicles";
 
 const baseInvoice: PurchaseInvoice = {
   id: "purchase-1",
@@ -29,6 +29,27 @@ const baseVehicle: Vehicle = {
 };
 
 describe("vehicle purchase workflow helpers", () => {
+  it("normalizes Malaysia registration numbers for operational storage", () => {
+    expect(normalizeMalaysiaPlate(" bkc 3003 ")).toBe("BKC3003");
+    expect(normalizeMalaysiaPlate("m_m 1")).toBe("M_M1");
+    expect(normalizeMalaysiaPlate("12 - 34 - dc")).toBe("12-34-DC");
+  });
+
+  it("accepts JPJ-style standard, regional suffix, special, and diplomatic formats", () => {
+    expect(isMalaysiaPlateFormat("BKC3003")).toBe(true);
+    expect(isMalaysiaPlateFormat("SAA1234A")).toBe(true);
+    expect(isMalaysiaPlateFormat("MALAYSIA1")).toBe(true);
+    expect(isMalaysiaPlateFormat("M_M1")).toBe(true);
+    expect(isMalaysiaPlateFormat("12-34-DC")).toBe(true);
+  });
+
+  it("rejects registration numbers without a valid series and 1 to 4 digit number", () => {
+    expect(isMalaysiaPlateFormat("123ABC")).toBe(false);
+    expect(isMalaysiaPlateFormat("BKC0123")).toBe(false);
+    expect(isMalaysiaPlateFormat("BKC10000")).toBe(false);
+    expect(isMalaysiaPlateFormat("BKC@123")).toBe(false);
+  });
+
   it("blocks purchase invoices with duplicate invoice numbers", () => {
     const existing = [
       baseInvoice,
@@ -68,11 +89,20 @@ describe("vehicle purchase workflow helpers", () => {
     expect(vehicleCreateBlockReason(baseVehicle)).toBeUndefined();
   });
 
+  it("blocks vehicle intake when the car plate is not a supported Malaysia registration format", () => {
+    expect(vehicleCreateBlockReason({ ...baseVehicle, plateNumber: "123ABC" })).toBe("Enter a valid Malaysia registration number, for example BKC3003 or MALAYSIA1.");
+  });
+
   it("blocks vehicle intake with duplicate car plates", () => {
     expect(vehicleCreateBlockReason({
       ...baseVehicle,
       id: "vehicle-new",
       plateNumber: " vpk1234 "
+    }, [baseVehicle])).toBe("Car plate already exists in inventory.");
+    expect(vehicleCreateBlockReason({
+      ...baseVehicle,
+      id: "vehicle-new",
+      plateNumber: "vpk 1234"
     }, [baseVehicle])).toBe("Car plate already exists in inventory.");
   });
 });

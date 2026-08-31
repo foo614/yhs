@@ -41,7 +41,7 @@ $backupTimer = Read-Text "infra/ubuntu/ysheng-backup.timer"
 $workflow = Read-Text ".github/workflows/ci.yml"
 
 foreach ($compose in @($productionCompose, $aspireProductionCompose)) {
-  Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected "Ocr__Provider: GoogleDocumentAi"
+  Assert-Contains -Name "Production Google OCR project" -Text $compose -Expected "Ocr__GoogleDocumentAi__ProjectId"
   Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected 'source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH}'
   Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected "target: /run/secrets/google-document-ai.json"
   Assert-Contains -Name "Production OCR Compose" -Text $compose -Expected "read_only: true"

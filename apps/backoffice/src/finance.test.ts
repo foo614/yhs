@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brokerCommissionCreateBlockReason, calculateFinanceNettPrice, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, collectionCreateBlockReason, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, financeSaleBlockReason, isFinanceV2, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, receivableStatusLabel, settlementCreateBlockReason } from "./finance";
+import { brokerCommissionCreateBlockReason, calculateFinanceNettPrice, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, collectionCreateBlockReason, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, financeSaleBlockReason, isFinanceV2, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, receivableStatusLabel, settlementCreateBlockReason, supplierApprovalBlockReason } from "./finance";
 import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
 
 const basePayment: PaymentRecord = {
@@ -40,6 +40,25 @@ const customers: Customer[] = [
 const owners: Owner[] = [
   { id: "owner-1", name: "Previous Owner", phone: "0198887777" }
 ];
+
+describe("supplier approval maker-checker", () => {
+  const draftSupplier = { approvalStatus: "Draft" as const, createdBy: "repair-user" };
+
+  it("blocks a Finance creator while allowing another authorized approver", () => {
+    expect(supplierApprovalBlockReason(draftSupplier, "repair-user"))
+      .toBe("You created this supplier. Another Finance user or Boss/Admin must approve it.");
+    expect(supplierApprovalBlockReason(draftSupplier, "finance-user")).toBeUndefined();
+  });
+
+  it("allows Boss/Admin to approve a supplier they created", () => {
+    expect(supplierApprovalBlockReason(draftSupplier, "repair-user", true)).toBeUndefined();
+  });
+
+  it("does not offer approval for a completed supplier", () => {
+    expect(supplierApprovalBlockReason({ ...draftSupplier, approvalStatus: "Approved" }, "finance-user"))
+      .toBe("Only draft suppliers can be approved.");
+  });
+});
 
 const baseBrokerCommission: BrokerCommission = {
   id: "commission-1",
@@ -87,6 +106,7 @@ describe("finance workflow helpers", () => {
     expect(financeSaleBlockReason(input, vehicleLookup)).toBe("Select a vehicle with a confirmed buyer.");
     const confirmedVehicles = [{ ...vehicleLookup[0], customerId: "customer-1" }];
     expect(financeSaleBlockReason(input, confirmedVehicles)).toBeUndefined();
+    expect(financeSaleBlockReason({ ...input, salesPrice: Number.NaN }, confirmedVehicles)).toBe("Complete the required sales invoice amounts.");
     expect(financeSaleBlockReason({ ...input, nettPrice: 60000 }, confirmedVehicles)).toBe("Explain the price adjustment before sending it for approval.");
     expect(financeSaleBlockReason({ ...input, nettPrice: 60000, nettPriceOverrideReason: "Agreed discount" }, confirmedVehicles)).toBeUndefined();
   });

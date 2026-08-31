@@ -32,22 +32,8 @@ builder.Services.Configure<GoogleDocumentAiOptions>(builder.Configuration.GetSec
 builder.Services.AddSingleton<IGoogleAccessTokenProvider, GoogleApplicationDefaultAccessTokenProvider>();
 builder.Services.AddHttpClient<GoogleDocumentAiClient>();
 builder.Services.AddScoped<GoogleDocumentAiExtractor>();
-builder.Services.Configure<BaiduUnlimitedOcrOptions>(builder.Configuration.GetSection("Ocr:BaiduUnlimited"));
-builder.Services.AddHttpClient<BaiduUnlimitedOcrClient>();
-builder.Services.AddScoped<BaiduUnlimitedOcrExtractor>();
-builder.Services.AddScoped<LocalMockOcrExtractor>();
 builder.Services.AddScoped<AiUsageQuotaService>();
-builder.Services.AddScoped<IOcrExtractor>(services =>
-{
-    var provider = services.GetRequiredService<IConfiguration>().GetValue("Ocr:Provider", "GoogleDocumentAi");
-    return provider?.ToUpperInvariant() switch
-    {
-        "GOOGLEDOCUMENTAI" => services.GetRequiredService<GoogleDocumentAiExtractor>(),
-        "BAIDUUNLIMITED" => services.GetRequiredService<BaiduUnlimitedOcrExtractor>(),
-        "LOCALMOCK" => services.GetRequiredService<LocalMockOcrExtractor>(),
-        _ => throw new InvalidOperationException($"Unsupported OCR provider '{provider}'.")
-    };
-});
+builder.Services.AddScoped<IOcrExtractor>(services => services.GetRequiredService<GoogleDocumentAiExtractor>());
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = UploadPolicy.MultipartBodyLimit;
@@ -268,6 +254,195 @@ backOffice.MapGet("/vehicle-lookup", async (AppDbContext db) =>
 backOffice.MapGet("/finance/vehicle-options", async (AppDbContext db) =>
     (await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync())
         .Select(FinanceVehicleOptions.ToResponse)).RequireAuthorization("Finance");
+backOffice.MapPost("/owner-intakes/identity-card-preview", async (IFormFile file, AppDbContext db, HttpContext context, IOcrExtractor extractor, AiUsageQuotaService aiUsageQuota, CancellationToken cancellationToken) =>
+{
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    if (!DepartmentAccess.CanUploadDocument(roles, FileCategory.IdentityCard)) return Results.Forbid();
+    if (!UploadPolicy.IsAllowed(FileCategory.IdentityCard, file.Length))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("identity_card_size_invalid", "Identity card photo must be between 1 byte and 10 MB.")]));
+    }
+
+    await using var stream = file.OpenReadStream();
+    using var memory = new MemoryStream();
+    await stream.CopyToAsync(memory, cancellationToken);
+    var bytes = memory.ToArray();
+    var contentValidation = UploadPolicy.ValidateOcrImageContent(file.FileName, file.ContentType, bytes);
+    if (!contentValidation.Result.IsValid) return Results.BadRequest(contentValidation.Result);
+
+    var previewDocument = new DocumentBlob
+    {
+        Category = FileCategory.IdentityCard,
+        OwnershipType = DocumentOwnershipType.Seller,
+        FileName = file.FileName,
+        MimeType = contentValidation.MimeType!,
+        Content = bytes,
+        Checksum = Convert.ToHexString(SHA256.HashData(bytes)),
+        UploadedBy = UploadMetadata.UploaderFrom(context.User)
+    };
+    var reservation = await aiUsageQuota.ReserveOcrAsync(previewDocument.Id, StaffIdentity.CurrentUserId(context), cancellationToken);
+    if (!reservation.IsAllowed)
+    {
+        return Results.Json(new ApiError(reservation.Message ?? "OCR is unavailable."), statusCode: StatusCodes.Status429TooManyRequests);
+    }
+
+    try
+    {
+        var extraction = await extractor.AnalyzeAsync(previewDocument, await db.Vehicles.AsNoTracking().ToListAsync(), cancellationToken);
+        await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, true, cancellationToken);
+        var existingOwner = ContactRules.FindOwnerByIcNumber(
+            extraction.Fields.GetValueOrDefault("icNumber"),
+            await db.Owners.AsNoTracking().ToListAsync());
+        ApiAudit.Add(db, context.User, "owner.identityCard.previewed", "OwnerIdentityCardPreview", previewDocument.Id);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new OwnerIdentityCardPreviewResponse(extraction, existingOwner));
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, false, CancellationToken.None);
+        throw;
+    }
+    catch (Exception)
+    {
+        await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, false, cancellationToken);
+        var fallback = new OcrExtractionResult(
+            FileCategory.IdentityCard,
+            0m,
+            [],
+            [],
+            "",
+            ["Automatic reading was unavailable. Enter and confirm the previous owner details manually."]);
+        ApiAudit.Add(db, context.User, "owner.identityCard.previewFailed", "OwnerIdentityCardPreview", previewDocument.Id);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new OwnerIdentityCardPreviewResponse(fallback, null));
+    }
+}).DisableAntiforgery().RequireAuthorization("Vehicles");
+backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbContext db, HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!httpRequest.HasFormContentType)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_intake_form_required", "Vehicle intake must include the reviewed previous owner NRIC image.")]));
+    }
+
+    var form = await httpRequest.ReadFormAsync(cancellationToken);
+    var requestPayload = form["request"].ToString();
+    var identityCard = form.Files.GetFile("identityCard");
+    if (string.IsNullOrWhiteSpace(requestPayload) || identityCard is null)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("seller_identity_card_required", "Upload and review the previous owner NRIC before creating the vehicle.")]));
+    }
+
+    VehicleIntakeRequest? request;
+    try
+    {
+        var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        serializerOptions.Converters.Add(new JsonStringEnumConverter());
+        request = JsonSerializer.Deserialize<VehicleIntakeRequest>(requestPayload, serializerOptions);
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_intake_request_invalid", "The vehicle intake details are invalid.")]));
+    }
+    if (request is null)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_intake_request_invalid", "The vehicle intake details are invalid.")]));
+    }
+
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    if (!DepartmentAccess.CanUploadDocument(roles, FileCategory.IdentityCard)) return Results.Forbid();
+    if (!UploadPolicy.IsAllowed(FileCategory.IdentityCard, identityCard.Length))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("identity_card_size_invalid", "Identity card photo must be between 1 byte and 10 MB.")]));
+    }
+    await using var identityCardStream = identityCard.OpenReadStream();
+    using var identityCardMemory = new MemoryStream();
+    await identityCardStream.CopyToAsync(identityCardMemory, cancellationToken);
+    var identityCardBytes = identityCardMemory.ToArray();
+    var identityCardValidation = UploadPolicy.ValidateOcrImageContent(identityCard.FileName, identityCard.ContentType, identityCardBytes);
+    if (!identityCardValidation.Result.IsValid) return Results.BadRequest(identityCardValidation.Result);
+
+    if (request.Settlement is not null && !context.User.IsInRole("BossAdmin") && !context.User.IsInRole("Finance"))
+    {
+        return Results.Json(new ApiError("Preparing a settlement during vehicle intake requires Finance or Admin access."), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var vehicle = VehicleRules.NormalizeDateTimes(request.Vehicle with { RepairCost = null });
+    var workflowStatusValidation = VehicleWorkflowRules.ValidateCreate(vehicle);
+    if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
+    var approvalValidation = VehicleApprovalRules.ValidateCreate(vehicle, context.User.IsInRole("BossAdmin"));
+    if (!approvalValidation.IsValid) return Results.Json(approvalValidation, statusCode: StatusCodes.Status403Forbidden);
+    vehicle = VehicleApprovalRules.EnforceVisibility(vehicle);
+    var validation = VehicleRules.ValidateIntake(vehicle);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var customers = await db.Customers.AsNoTracking().ToListAsync();
+    var owners = await db.Owners.AsNoTracking().ToListAsync();
+    var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
+    var existingVehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var intakeOwnerValidation = VehicleIntakeOwnerRules.Validate(vehicle, request.NewOwner, owners);
+    if (!intakeOwnerValidation.IsValid) return Results.BadRequest(intakeOwnerValidation);
+    var availableOwners = request.NewOwner is null ? owners : [.. owners, request.NewOwner];
+    var contactLinkValidation = VehicleRules.ValidateContactLinks(vehicle, customers, availableOwners, loans, requireOwner: true);
+    if (!contactLinkValidation.IsValid) return Results.BadRequest(contactLinkValidation);
+    var uniquePlateValidation = VehicleRules.ValidateUniquePlate(vehicle, existingVehicles);
+    if (!uniquePlateValidation.IsValid) return Results.BadRequest(uniquePlateValidation);
+
+    var settlement = request.Settlement;
+    if (settlement is not null)
+    {
+        var intakeSettlementValidation = VehicleIntakeSettlementRules.Validate(vehicle, settlement);
+        if (!intakeSettlementValidation.IsValid) return Results.BadRequest(intakeSettlementValidation);
+        var financeValidation = FinanceRules.ValidateSettlement(settlement, availableOwners);
+        if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
+    }
+
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    if (request.NewOwner is not null)
+    {
+        db.Owners.Add(request.NewOwner);
+        ApiAudit.Add(db, context.User, "owner.createdFromVehicleIntake", nameof(Owner), request.NewOwner.Id);
+    }
+    db.Vehicles.Add(vehicle);
+    StockMovementAudit.AddInitial(db, vehicle, context.User, "Vehicle intake created");
+    ApiAudit.Add(db, context.User, "vehicle.created", nameof(Vehicle), vehicle.Id);
+    if (vehicle.BossConfirmed)
+    {
+        ApiAudit.Add(db, context.User, "vehicle.approved", nameof(Vehicle), vehicle.Id);
+    }
+
+    if (settlement is not null)
+    {
+        db.SettlementReminders.Add(settlement);
+        ApiAudit.Add(db, context.User, "settlementReminder.createdFromVehicleIntake", nameof(SettlementReminder), settlement.Id);
+    }
+
+    var identityCardDocument = new DocumentBlob
+    {
+        VehicleId = vehicle.Id,
+        OwnerId = vehicle.OwnerId,
+        OwnershipType = DocumentOwnershipType.Seller,
+        Category = FileCategory.IdentityCard,
+        FileName = identityCard.FileName,
+        MimeType = identityCardValidation.MimeType!,
+        Content = identityCardBytes,
+        Checksum = Convert.ToHexString(SHA256.HashData(identityCardBytes)),
+        UploadedBy = UploadMetadata.UploaderFrom(context.User)
+    };
+
+    db.DocumentBlobs.Add(identityCardDocument);
+    ApiAudit.Add(db, context.User, "vehicle.document.uploadedFromVehicleIntake", nameof(DocumentBlob), identityCardDocument.Id);
+    try
+    {
+        await db.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception, "UX_Owners_NormalizedIcNumber"))
+    {
+        await transaction.RollbackAsync(cancellationToken);
+        return Results.Conflict(new ValidationResult([new ValidationError("duplicate_owner_ic", "An owner with this IC number already exists. Select the existing owner and try again.")]));
+    }
+    await transaction.CommitAsync();
+    return Results.Created($"/api/vehicles/{vehicle.Id}", new VehicleIntakeResponse(vehicle, settlement, request.NewOwner));
+}).DisableAntiforgery().RequireAuthorization("Vehicles");
 backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpContext context) =>
 {
     vehicle = vehicle with { RepairCost = null, SalesAgentUserId = null, SalesAgentName = null };
@@ -533,8 +708,8 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
 
     if (selectedOwnerId.HasValue)
     {
-        if (vehicle.OwnerId != selectedOwnerId.Value) return Results.BadRequest(new { message = "Selected original owner is not linked to this vehicle." });
-        if (!await db.Owners.AsNoTracking().AnyAsync(item => item.Id == selectedOwnerId.Value)) return Results.BadRequest(new { message = "Selected original owner does not exist." });
+        if (vehicle.OwnerId != selectedOwnerId.Value) return Results.BadRequest(new { message = "Selected previous owner is not linked to this vehicle." });
+        if (!await db.Owners.AsNoTracking().AnyAsync(item => item.Id == selectedOwnerId.Value)) return Results.BadRequest(new { message = "Selected previous owner does not exist." });
     }
 
     if (selectedCustomerId.HasValue)
@@ -550,7 +725,13 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     var bytes = memory.ToArray();
     ValidationResult contentValidation;
     string? detectedMimeType;
-    if (collectionTransactionId.HasValue)
+    if (category == FileCategory.IdentityCard)
+    {
+        var identityContentValidation = UploadPolicy.ValidateOcrImageContent(file.FileName, file.ContentType, bytes);
+        contentValidation = identityContentValidation.Result;
+        detectedMimeType = identityContentValidation.MimeType;
+    }
+    else if (collectionTransactionId.HasValue)
     {
         var collectionEvidenceValidation = UploadPolicy.ValidateCollectionEvidenceContent(file.FileName, file.ContentType, bytes);
         contentValidation = collectionEvidenceValidation.Result;
@@ -858,11 +1039,21 @@ backOffice.MapPost("/owners", async (Owner owner, AppDbContext db, HttpContext c
 {
     var validation = ContactRules.ValidateOwner(owner);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    var uniquePhoneValidation = ContactRules.ValidateUniqueOwnerPhone(owner, await db.Owners.AsNoTracking().ToListAsync());
+    var owners = await db.Owners.AsNoTracking().ToListAsync();
+    var uniquePhoneValidation = ContactRules.ValidateUniqueOwnerPhone(owner, owners);
     if (!uniquePhoneValidation.IsValid) return Results.BadRequest(uniquePhoneValidation);
+    var uniqueIcValidation = ContactRules.ValidateUniqueOwnerIcNumber(owner, owners);
+    if (!uniqueIcValidation.IsValid) return Results.BadRequest(uniqueIcValidation);
     db.Owners.Add(owner);
     ApiAudit.Add(db, context.User, "owner.created", nameof(Owner), owner.Id);
-    await db.SaveChangesAsync();
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception, "UX_Owners_NormalizedIcNumber"))
+    {
+        return Results.Conflict(new ValidationResult([new ValidationError("duplicate_owner_ic", "An owner with this IC number already exists.")]));
+    }
     return Results.Created($"/api/owners/{owner.Id}", owner);
 }).RequireAuthorization("Vehicles");
 backOffice.MapPut("/owners/{id:guid}", async (Guid id, Owner owner, AppDbContext db, HttpContext context) =>
@@ -871,11 +1062,21 @@ backOffice.MapPut("/owners/{id:guid}", async (Guid id, Owner owner, AppDbContext
     if (!await db.Owners.AnyAsync(item => item.Id == id)) return Results.NotFound();
     var validation = ContactRules.ValidateOwner(owner);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    var uniquePhoneValidation = ContactRules.ValidateUniqueOwnerPhone(owner, await db.Owners.AsNoTracking().ToListAsync());
+    var owners = await db.Owners.AsNoTracking().ToListAsync();
+    var uniquePhoneValidation = ContactRules.ValidateUniqueOwnerPhone(owner, owners);
     if (!uniquePhoneValidation.IsValid) return Results.BadRequest(uniquePhoneValidation);
+    var uniqueIcValidation = ContactRules.ValidateUniqueOwnerIcNumber(owner, owners);
+    if (!uniqueIcValidation.IsValid) return Results.BadRequest(uniqueIcValidation);
     db.Owners.Update(owner);
     ApiAudit.Add(db, context.User, "owner.updated", nameof(Owner), owner.Id);
-    await db.SaveChangesAsync();
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception, "UX_Owners_NormalizedIcNumber"))
+    {
+        return Results.Conflict(new ValidationResult([new ValidationError("duplicate_owner_ic", "An owner with this IC number already exists.")]));
+    }
     return Results.Ok(owner);
 }).RequireAuthorization("Vehicles");
 
@@ -941,6 +1142,9 @@ backOffice.MapGet("/loans", async (AppDbContext db) => await db.LoanApplications
 backOffice.MapPost("/loans", async (LoanApplication loan, AppDbContext db, HttpContext context) =>
 {
     await using var loanTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [loan.VehicleId]);
+    var decisionValidation = LoanDecisionRules.ValidateCreate(loan);
+    if (!decisionValidation.IsValid) return Results.BadRequest(decisionValidation);
+    loan = LoanDecisionRules.PrepareForCreate(loan, AuditTrail.ActorFrom(context.User), DateTime.UtcNow);
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
     var customers = await db.Customers.AsNoTracking().ToListAsync();
     var existingLoans = await db.LoanApplications.AsNoTracking().ToListAsync();
@@ -966,6 +1170,35 @@ backOffice.MapPost("/loans", async (LoanApplication loan, AppDbContext db, HttpC
     await loanTransaction.CommitAsync();
     return Results.Created($"/api/loans/{loan.Id}", loan);
 }).RequireAuthorization("Loans");
+backOffice.MapPost("/loans/{id:guid}/decision", async (Guid id, LoanDecisionRequest request, AppDbContext db, HttpContext context) =>
+{
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    var existingLoan = await db.LoanApplications
+        .FromSqlInterpolated($"SELECT * FROM \"LoanApplications\" WHERE \"Id\" = {id} FOR UPDATE")
+        .SingleOrDefaultAsync();
+    if (existingLoan is null) return Results.NotFound();
+
+    var decisionValidation = LoanDecisionRules.ValidateDecision(existingLoan, request);
+    if (!decisionValidation.IsValid) return Results.BadRequest(decisionValidation);
+
+    var updated = LoanDecisionRules.ApplyDecision(existingLoan, request, AuditTrail.ActorFrom(context.User), DateTime.UtcNow);
+    var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
+    var customers = await db.Customers.AsNoTracking().ToListAsync();
+    var existingLoans = await db.LoanApplications.AsNoTracking().ToListAsync();
+    var validation = WorkflowReferenceRules.ValidateLoan(updated, vehicles, customers, existingLoans);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+
+    var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    var updatedLoans = existingLoans.Where(item => item.Id != id).Append(updated).ToList();
+    var vehicle = await FinanceApi.LockVehicleAsync(db, updated.VehicleId);
+    if (vehicle is null) return Results.BadRequest(new ApiError("The loan vehicle is unavailable."));
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments));
+    db.Entry(existingLoan).CurrentValues.SetValues(updated);
+    ApiAudit.Add(db, context.User, updated.Status == LoanStatus.Approved ? "loan.approved" : "loan.rejected", nameof(LoanApplication), id);
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+    return Results.Ok(updated);
+}).RequireAuthorization("Loans");
 backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppDbContext db, HttpContext context) =>
 {
     if (id != loan.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("loan"));
@@ -978,6 +1211,9 @@ backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppD
     if (existingLoan is null) return Results.NotFound();
     var identityValidation = LoanMutationRules.ValidateIdentity(existingLoan, loan);
     if (!identityValidation.IsValid) return Results.BadRequest(identityValidation);
+    var transitionValidation = LoanDecisionRules.ValidateGenericUpdate(existingLoan, loan);
+    if (!transitionValidation.IsValid) return Results.BadRequest(transitionValidation);
+    loan = LoanDecisionRules.PreserveDecisionMetadata(existingLoan, loan);
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
     var customers = await db.Customers.AsNoTracking().ToListAsync();
     var existingLoans = await db.LoanApplications.AsNoTracking().ToListAsync();
@@ -999,7 +1235,7 @@ backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppD
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == existingLoan.VehicleId);
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments, deliveries));
 
-    db.LoanApplications.Update(loan);
+    db.Entry(existingLoan).CurrentValues.SetValues(loan);
     ApiAudit.Add(db, context.User, "loan.updated", nameof(LoanApplication), loan.Id);
     await db.SaveChangesAsync();
     await loanTransaction.CommitAsync();
@@ -1413,7 +1649,7 @@ backOffice.MapPost("/repairs/from-receipt", async (CreateRepairWithReceiptReques
     if (await db.RepairReceipts.AnyAsync(item => item.DocumentId == document.Id)) return Results.Conflict(new ApiError("This repair receipt has already been confirmed."));
 
     var receipt = new RepairReceipt { RepairJobId = repair.Id, DocumentId = document.Id, SupplierName = request.Receipt.SupplierName?.Trim(), InvoiceNumber = request.Receipt.InvoiceNumber?.Trim(), TotalAmount = request.Receipt.TotalAmount };
-    var items = request.Receipt.Items.Select(item => new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = item.Description.Trim(), RepairPart = item.RepairPart?.Trim(), Amount = item.Amount, SortOrder = item.SortOrder }).ToList();
+    var items = request.Receipt.Items.Select(item => new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = item.Description.Trim(), RepairPart = item.RepairPart?.Trim(), Quantity = item.Quantity?.Trim(), Unit = item.Unit?.Trim(), UnitPrice = item.UnitPrice, Amount = item.Amount, SortOrder = item.SortOrder }).ToList();
     db.RepairJobs.Add(repair);
     db.SupplierInvoices.Add(request.Invoice);
     db.Entry(document).CurrentValues.SetValues(document with { RepairJobId = repair.Id });
@@ -1473,7 +1709,7 @@ backOffice.MapPost("/repairs/{id:guid}/receipts/confirm", async (Guid id, Confir
     if (await db.RepairReceipts.AnyAsync(item => item.DocumentId == request.DocumentId)) return Results.Conflict(new ApiError("This repair receipt has already been confirmed."));
 
     var receipt = new RepairReceipt { RepairJobId = id, DocumentId = request.DocumentId, SupplierName = request.SupplierName?.Trim(), InvoiceNumber = request.InvoiceNumber?.Trim(), TotalAmount = request.TotalAmount };
-    var items = request.Items.Select(item => new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = item.Description.Trim(), RepairPart = item.RepairPart?.Trim(), Amount = item.Amount, SortOrder = item.SortOrder }).ToList();
+    var items = request.Items.Select(item => new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = item.Description.Trim(), RepairPart = item.RepairPart?.Trim(), Quantity = item.Quantity?.Trim(), Unit = item.Unit?.Trim(), UnitPrice = item.UnitPrice, Amount = item.Amount, SortOrder = item.SortOrder }).ToList();
     db.RepairReceipts.Add(receipt);
     db.RepairReceiptItems.AddRange(items);
     ApiAudit.Add(db, context.User, "repairReceipt.confirmed", nameof(RepairReceipt), receipt.Id);
@@ -1523,10 +1759,12 @@ backOffice.MapPost("/supplier-master/{id:guid}/approve", async (Guid id, AppDbCo
     if (supplier is null) return Results.NotFound();
     if (supplier.ApprovalStatus != SupplierApprovalStatus.Draft) return Results.Conflict(new ApiError("Only a draft supplier can be approved."));
     var actor = StaffIdentity.CurrentUserId(context);
-    if (string.Equals(supplier.CreatedBy, actor, StringComparison.Ordinal)) return Results.Conflict(new ApiError("The supplier creator cannot approve the same supplier."));
+    var isBossAdmin = context.User.IsInRole("BossAdmin");
+    if (!SupplierRules.CanApprove(supplier.CreatedBy, actor, isBossAdmin)) return Results.Conflict(new ApiError("A Finance user cannot approve a supplier they created. Boss/Admin may override this rule."));
+    var isAdminOverride = isBossAdmin && string.Equals(supplier.CreatedBy, actor, StringComparison.Ordinal);
     var updated = supplier with { ApprovalStatus = SupplierApprovalStatus.Approved, ApprovedBy = actor, ApprovedAt = DateTime.UtcNow };
     db.Entry(supplier).CurrentValues.SetValues(updated);
-    ApiAudit.Add(db, context.User, "supplier.approved", nameof(Supplier), id);
+    ApiAudit.Add(db, context.User, isAdminOverride ? "supplier.approved.admin_override" : "supplier.approved", nameof(Supplier), id);
     await db.SaveChangesAsync();
     return Results.Ok(updated);
 }).RequireAuthorization("Finance");
@@ -2270,6 +2508,9 @@ backOffice.MapGet("/finance-invoices/{invoiceId:guid}/content", async (Guid invo
 }).RequireAuthorization("Finance");
 
 backOffice.MapGet("/settlement-reminders", async (AppDbContext db) => await db.SettlementReminders.AsNoTracking().OrderBy(reminder => reminder.Deadline).ToListAsync()).RequireAuthorization("Finance");
+backOffice.MapGet("/settlement-drafts", async (AppDbContext db) =>
+    (await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync())
+        .Select(FinanceSettlementDraft.ToResponse)).RequireAuthorization("Finance");
 backOffice.MapPost("/settlement-reminders", async (SettlementReminder reminder, AppDbContext db, HttpContext context) =>
 {
     var validation = WorkflowReferenceRules.ValidateVehicleLink(reminder.VehicleId, await db.Vehicles.AsNoTracking().ToListAsync());

@@ -218,6 +218,31 @@ body {
   font-weight: 760;
 }
 
+.ocrReviewFieldSection {
+  display: grid;
+  gap: 10px;
+}
+
+.ocrReviewFieldSection + .ocrReviewFieldSection {
+  border-top: 1px solid rgba(20, 72, 61, .12);
+  padding-top: 14px;
+}
+
+.ocrReviewFieldSectionHeading {
+  display: grid;
+  gap: 2px;
+}
+
+.ocrReviewFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.ocrReviewFieldFullWidth {
+  grid-column: 1 / -1;
+}
+
 .ocrReviewSummary .ant-tag {
   margin-inline-end: 0;
 }
@@ -2437,6 +2462,60 @@ body {
   margin-top: 16px;
 }
 
+.loanDecisionPanel {
+  width: 100%;
+  padding-top: 16px;
+  border-top: 1px solid #e3ebe8;
+}
+
+.documentPreviewContent {
+  display: grid;
+  gap: 14px;
+  min-height: 320px;
+}
+
+.documentPreviewMeta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.documentPreviewContent img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: auto;
+  object-fit: contain;
+}
+
+.documentPreviewContent iframe {
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid #d9e5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.documentPreviewState {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+}
+
+.documentPreviewFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.documentPreviewFooter > div:first-child {
+  display: grid;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+}
+
 .recordCreateModal .ant-pro-steps-form-container {
   width: 100% !important;
   min-width: 0 !important;
@@ -2445,6 +2524,100 @@ body {
 
 .recordCreateModal .ant-pro-steps-form-container > .ant-space {
   margin-top: 20px;
+}
+
+.recordCreateModal .vehicleIntakeStepForm.formGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.recordCreateModal .vehicleIntakeStepForm.formGrid .ant-form-item {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.recordCreateModal .vehicleIntakeStepForm.formGrid .vehicleIntakePreviousOwner {
+  grid-column: 1 / -1;
+  padding-top: 4px;
+}
+
+.vehicleIntakePreviousOwnerControl {
+  display: grid;
+  gap: 10px;
+}
+
+.vehicleIntakePreviousOwnerControl > .ant-form-item {
+  margin-bottom: 0;
+}
+
+.vehicleIntakeOwnerSelectHidden {
+  display: none;
+}
+
+.vehicleIntakeOwnerSummary,
+.vehicleIntakeNricAttachment {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #d9e8e2;
+  border-radius: 8px;
+  background: #f6fbf9;
+}
+
+.vehicleIntakeNricAttachment {
+  border-color: #d9d9d9;
+  background: #fff;
+}
+
+.vehicleIntakeOwnerSummaryIcon,
+.vehicleIntakeNricAttachmentIcon {
+  color: #0d6b57;
+  font-size: 16px;
+}
+
+.vehicleIntakeOwnerSummary > div,
+.vehicleIntakeNricAttachment > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vehicleIntakeOwnerSummary strong,
+.vehicleIntakeNricAttachment strong {
+  color: #14251f;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.vehicleIntakeOwnerSummary span,
+.vehicleIntakeNricAttachment span,
+.vehicleIntakeScanHint {
+  color: #60746e;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.vehicleIntakeOwnerActions .ant-btn-link {
+  height: auto;
+  padding-inline: 4px;
+}
+
+.vehicleIntakeNricScanAction {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vehicleIntakeScanHintMobile {
+  display: none;
+}
+
+.identityFailureActions {
+  justify-content: flex-end;
 }
 
 .recordCreateModal .ant-steps-item-finish .ant-steps-item-icon {
@@ -2513,8 +2686,119 @@ body {
   gap: 10px;
 }
 
+.repairCreateContext {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.repairCreateContextHeading {
+  display: grid;
+  gap: 2px;
+}
+
+.repairCreateContextFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.repairCreateContextFields .ant-form-item {
+  margin-bottom: 0;
+}
+
+.repairReceiptStart {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.repairReceiptStartHeading,
+.repairReceiptFinalStepHeading {
+  display: grid;
+  gap: 3px;
+}
+
+.repairReceiptUploadAction,
+.repairReceiptUploadAction > .ant-space,
+.repairReceiptUploadAction .ant-space-item,
+.repairReceiptUploadAction .ant-upload-wrapper,
+.repairReceiptUploadAction .ant-upload,
+.repairReceiptUploadAction .ant-btn {
+  width: 100%;
+}
+
+.repairReceiptUploadAction .ant-btn {
+  min-height: 42px;
+  justify-content: center;
+  font-weight: 650;
+}
+
+.repairReceiptFinalStep {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(20, 72, 61, .12);
+}
+
+.repairReceiptFinalStep .ant-form-item {
+  margin-bottom: 0;
+}
+
 .repairReceiptFlow .ocrReviewInline {
   margin-top: 0;
+}
+
+.repairManualFlow {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+  min-width: 0;
+}
+
+.repairManualIntro {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.repairManualEyebrow {
+  color: #0d6b57;
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.repairManualFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  min-width: 0;
+}
+
+.repairManualFields .ant-form-item {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.repairManualFieldFullWidth {
+  grid-column: 1 / -1;
+}
+
+.repairManualApprovalNote {
+  padding-top: 12px;
+  border-top: 1px solid rgba(20, 72, 61, .12);
 }
 
 .vehicleMarkdownField,
@@ -3226,6 +3510,12 @@ body {
 .toolbarForm {
   margin-bottom: 16px;
   row-gap: 12px;
+}
+
+@media (min-width: 721px) {
+  .pageFilterMobileOnly {
+    display: none !important;
+  }
 }
 
 .leadFilterControls {
@@ -4323,6 +4613,11 @@ body {
     margin-bottom: 0;
   }
 
+  .ocrReviewFieldGrid,
+  .repairCreateContextFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .ant-form-item-control,
   .ant-form-item-control-input,
   .ant-form-item-control-input-content {
@@ -4884,7 +5179,119 @@ body {
     padding: 32px;
   }
 }
+.financeKeywordFilter {
+  min-width: min(360px, 100%);
+}
+
+.financeStatusFilter {
+  min-width: 190px;
+}
+
 @media (max-width: 720px) {
+  .financeToolbarForm {
+    display: flex !important;
+  }
+
+  .ant-modal-wrap {
+    overflow-x: hidden !important;
+  }
+
+  .vehicleIntakeOwnerSummary,
+  .vehicleIntakeNricAttachment {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .vehicleIntakeOwnerActions {
+    display: flex !important;
+    grid-column: 1 / -1;
+    width: 100%;
+    padding-left: 22px;
+  }
+
+  .vehicleIntakeOwnerActions .ant-space-item,
+  .vehicleIntakeOwnerActions .ant-btn {
+    width: auto !important;
+  }
+
+  .vehicleIntakeOwnerActions .ant-btn {
+    min-height: 40px;
+  }
+
+  .vehicleIntakeScanHintDesktop {
+    display: none;
+  }
+
+  .vehicleIntakeScanHintMobile {
+    display: inline;
+  }
+
+  .identityFailureActions {
+    display: grid;
+    width: 100%;
+  }
+
+  .identityFailureActions .ant-space-item,
+  .identityFailureActions .ant-upload-wrapper,
+  .identityFailureActions .ant-btn {
+    width: 100%;
+  }
+
+  .nativeSearchDesktopOnly .ant-pro-query-filter {
+    display: none;
+  }
+
+  .repairManualFlow,
+  .repairManualFields {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .repairManualFields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .repairManualFieldFullWidth {
+    grid-column: auto;
+  }
+
+  .recordCreateModal .repairManualSubmit {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding: 12px 0 max(12px, env(safe-area-inset-bottom));
+    background: #fff;
+  }
+
+  .recordCreateModal .repairManualSubmit .ant-form-item-control-input-content,
+  .recordCreateModal .repairManualSubmit .ant-btn {
+    width: 100%;
+  }
+
+  .recordCreateModal .repairManualSubmit .ant-btn {
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  .documentPreviewDrawer .ant-drawer-content-wrapper {
+    width: 100% !important;
+  }
+
+  .documentPreviewFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .documentPreviewFooter .ant-space,
+  .documentPreviewFooter .ant-space-item,
+  .documentPreviewFooter .ant-btn {
+    width: 100%;
+  }
+
+  .documentPreviewContent iframe {
+    min-height: 60vh;
+  }
+
   .moduleCommandAside {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -5543,10 +5950,6 @@ body {
 
 .financeV2PrimaryAction .ant-btn {
   min-width: 132px;
-}
-
-.financeToolbarForm {
-  display: flex !important;
 }
 
 .financeKeywordFilter {

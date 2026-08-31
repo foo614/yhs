@@ -120,8 +120,10 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `POST` | `/api/vehicle-catalog/models` | `Vehicles` | Add a make/model option for public filters. |
 | `PUT` | `/api/vehicle-catalog/models/{id}` | `Vehicles` | Edit or deactivate a make/model option without changing existing vehicle records. |
 | `POST` | `/api/vehicles` | `Vehicles` | Create an available vehicle intake, including optional chassis and engine identifiers. Sales-created vehicles remain pending and private; only Boss/Admin can submit approval. |
+| `POST` | `/api/vehicle-intakes` | `Vehicles` | Multipart intake with `request` JSON and the reviewed seller NRIC in `identityCard`. Atomically creates the available vehicle, seller-owned NRIC document, optional confirmed new previous owner, and optional unpaid seller-settlement reminder. A new owner must match the vehicle owner ID and have a confirmed IC number; including the settlement requires Finance or Boss/Admin access. |
+| `POST` | `/api/owner-intakes/identity-card-preview` | `Vehicles` | Analyze an in-memory seller NRIC image, return editable OCR values, and return an exact existing-owner match when the normalized IC number is already recorded. The preview image is not persisted by this endpoint. |
 | `PUT` | `/api/vehicles/{id}` | `Vehicles` | Update vehicle intake, chassis/engine identifiers, and public status without changing its workflow-owned status. Changing management approval requires Boss/Admin; unapproved vehicles are always private. |
-| `GET` | `/api/vehicle-lookup` | `VehicleRead` | Plate/make/model/status and linked customer ID lookup for authorized workflow selectors and customer-profile hand-off. |
+| `GET` | `/api/vehicle-lookup` | `VehicleRead` | Plate/year/make/model/status and linked customer ID lookup for authorized workflow selectors and customer-profile hand-off. |
 | `GET` | `/api/vehicles/{id}/stock-movements` | `VehicleRead` | List stock owner, status, and location movement history with actor, timestamp, previous value, new value, and reason. |
 | `GET` | `/api/customers` | `CustomerRead` | Customer lookup/list. |
 | `GET` | `/api/customers/profile-options` | `CustomerProfile` | Minimal canonical customer ID and name choices for the Customer 360 selector. Delivery-only users receive only customers with a linked delivery schedule. |
@@ -129,8 +131,8 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `POST` | `/api/customers` | `Vehicles` | Create customer. |
 | `PUT` | `/api/customers/{id}` | `Vehicles` | Update customer. |
 | `GET` | `/api/owners` | `OwnerRead` | Previous-owner lookup/list. |
-| `POST` | `/api/owners` | `Vehicles` | Create previous owner. |
-| `PUT` | `/api/owners/{id}` | `Vehicles` | Update previous owner. |
+| `POST` | `/api/owners` | `Vehicles` | Create previous owner. Normalized phone and non-empty IC numbers must be unique. |
+| `PUT` | `/api/owners/{id}` | `Vehicles` | Update previous owner while preserving normalized phone and IC uniqueness. |
 | `GET` | `/api/purchase-invoices` | `PurchaseAccountingRead` | List purchase invoices with invoice/purchase dates and classified fee lines. |
 | `POST` | `/api/purchase-invoices` | `Vehicles` | Create a purchase invoice against an approved supplier. Classified lines must equal the invoice total. |
 | `PUT` | `/api/purchase-invoices/{id}` | `Vehicles` | Update a draft purchase invoice and replace its classified lines. Finance-confirmed invoices are immutable. |
@@ -158,11 +160,11 @@ OCR runtime:
 - IC extraction returns customer name, IC number, and address. VOC extraction returns registration, chassis, engine, make, model, year, and registered-owner suggestions. Invoice and receipt extraction retains the existing finance and supplier fields. Repair-invoice extraction also proposes repair-part and repair-detail values from recognized line items so the reviewer can populate the Repair task form.
 - The back-office review drawer shows field confidence and pre-fills a current master value when it conflicts with AI output. Staff edit the final value directly and save one review; there is no accept/reject choice. The server keeps the original output, reviewed result, and every field/line-item difference. OCR field accuracy is calculated from all non-empty extracted or reviewed values: unchanged values are correct; changed, added, and removed values are corrections.
 
-- The default OCR provider is `GoogleDocumentAi`. Configure `Ocr__GoogleDocumentAi__ProjectId`, `Location`, and `DefaultProcessorId`; the deployment environment uses the equivalent `GOOGLE_DOCUMENT_AI_*` values.
+- Google Document AI is the only runtime OCR provider. Configure `Ocr__GoogleDocumentAi__ProjectId`, `Location`, and `DefaultProcessorId`; the deployment environment uses the equivalent `GOOGLE_DOCUMENT_AI_*` values.
 - Configure `InvoiceProcessorId` for purchase, repair, and payment invoices and `ExpenseProcessorId` for payment receipts. When either specialized processor is absent, OCR falls back to `DefaultProcessorId` and adds a review warning.
 - Authentication uses Google Application Default Credentials and the `cloud-platform` OAuth scope. The production container reads a least-privilege credential from `/run/secrets/google-document-ai.json`; never store credential JSON in source control or an environment-file value.
 - The backend sends uploaded image bytes to Google Document AI. Keep the existing manual review step because schema-valid extraction can still be semantically wrong. PDF conversion remains outside this upload flow.
-- `Ocr__Provider=LocalMock` is for deterministic local tests. `BaiduUnlimited` remains an explicit legacy provider during migration but is no longer the default.
+- Local and production OCR both require Google Document AI configuration and Application Default Credentials; there is no local/mock runtime fallback.
 - Before OCR calls an external provider, the API reserves one usage unit against the server-side OCR limits. Exhausted or disabled limits return `429` with a structured `message`; a provider-attempted request remains counted even if the provider later fails.
 
 Document upload ownership:
@@ -185,8 +187,9 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/loans` | `Loans` | List loan applications. |
-| `POST` | `/api/loans` | `Loans` | Create loan workflow record. An active loan establishes or verifies the vehicle's canonical customer. |
-| `PUT` | `/api/loans/{id}` | `Loans` | Update loan workflow record. An active loan establishes or verifies the vehicle's canonical customer; `Done` requires the current buyer's full vehicle-scoped document set. |
+| `POST` | `/api/loans` | `Loans` | Create an exceptional/manual loan workflow record. An active loan establishes or verifies the vehicle's canonical customer. Manual `Rejected` records require a rejection reason; decision actor/time are server-owned. |
+| `POST` | `/api/loans/{id}/decision` | `Loans` | Record `Approved` or `Rejected` for a `Pending` loan. Rejection requires a reason. The server sets decision actor/time and normalizes LOU flags. |
+| `PUT` | `/api/loans/{id}` | `Loans` | Update non-decision loan workflow fields. Approval/rejection must use the decision action, terminal `Rejected`/`Done` records are review-only, and `Done` requires the current buyer's full vehicle-scoped document set. General updates and decisions lock the loan row so a stale update cannot overwrite a recorded decision. |
 | `GET` | `/api/loans/{id}/document-check` | `Loans` | Check VOC/AP/status receipt/loan document completeness. |
 | `GET` | `/api/deliveries` | `Deliveries` | List delivery schedules. |
 | `GET` | `/api/deliveries/workboard` | `Deliveries` | Return delivery rows with their server-derived stage, next action, blocker, Finance clearance, locked customer/PIC, and delivery-owned evidence. |
@@ -210,7 +213,7 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `GET` | `/api/suppliers` | `Repairs` | Derived supplier master summary from supplier invoices. |
 | `GET` | `/api/supplier-master` | `SupplierRead` | List supplier master records with address, phone, TIN, AutoCount creditor code, and approval status. |
 | `POST` / `PUT` | `/api/supplier-master` | `Repairs` | Create or update a supplier draft. Approved suppliers are immutable. |
-| `POST` | `/api/supplier-master/{id}/approve` | `Finance` | Approve a supplier draft. The creator cannot approve the same supplier. |
+| `POST` | `/api/supplier-master/{id}/approve` | `Finance` | Approve a supplier draft. Finance creators require another approver; Boss/Admin may self-approve as an audited override. |
 | `GET` | `/api/supplier-invoices` | `Repairs` | List supplier invoices. |
 | `GET` | `/api/supplier-invoices/aging` | `Repairs` | Supplier invoice aging view for unmatched, due-soon, overdue, and paid states. |
 | `POST` | `/api/supplier-invoices` | `Repairs` | Create supplier invoice. |
@@ -239,6 +242,7 @@ Only one active delivery plan is allowed per vehicle. A delivery locks the vehic
 Workflow integrity:
 
 - Vehicle intake create/update cannot set `LoanProcessing` or `Sold`; loan and payment workflow updates derive those states on the server.
+- Loan approval and rejection are explicit server-audited decisions available only from `Pending`. Rejection requires a reason, preserves the linked customer and documents, and returns the vehicle to `Available` while keeping it private when no other workflow owns its state.
 - A loan can become `Done` only when `StatusReceipt`, `Voc`, `ApDocument`, and `LoanDocument` all belong to its exact vehicle and canonical buyer. The validation response uses `loan_documents_incomplete` and names the missing categories.
 - Legacy documents uploaded before buyer ownership was recorded remain available for reference but intentionally do not satisfy loan completion. Staff must re-upload the required documents from the loan checklist after the canonical buyer is linked; the system does not guess or backfill document ownership.
 - Delivery creation/update and payment reconciliation require that the vehicle has a `CustomerId` pointing to an existing canonical customer. Cash sales remain supported and do not require a loan.
@@ -271,6 +275,7 @@ First-deploy assumption: no pre-existing Finance V2 invoice can already have an 
 | `POST` | `/api/deliveries/{id}/resolve-invoice-update` | Finance closes a legacy pre-issuance Delivery invoice-update request after handling it; this records the Finance actor and server timestamp. Resolution is rejected after an immutable Finance V2 invoice exists. |
 | `GET` | `/api/finance-invoices/{invoiceId}/content` | Download the protected YS Heng sales-invoice PDF and record the authenticated Finance actor in the audit log before content is returned. |
 | `GET` / `POST` | `/api/settlement-reminders` | List/create settlement reminders. |
+| `GET` | `/api/settlement-drafts` | Return Finance-only previous-owner and purchase-price intake values used to prefill settlement review. |
 | `PUT` | `/api/settlement-reminders/{id}` | Update settlement reminder. |
 | `GET` / `POST` | `/api/daily-spends` | List/create daily spend rows. |
 | `PUT` | `/api/daily-spends/{id}` | Update daily spend row. |

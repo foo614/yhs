@@ -27,6 +27,8 @@ public static class SeedData
         await EnsureRepairReceiptSchemaAsync(db);
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
         await EnsureDeliveryWorkboardSchemaAsync(db);
+        await EnsureAutoCountAccountingSchemaAsync(db);
+        await EnsureLoanDecisionSchemaAsync(db);
 
         if (!await db.AiServiceLimits.AnyAsync(limit => limit.Service == AiService.Ocr))
         {
@@ -592,6 +594,9 @@ public static class SeedData
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnershipType" integer NOT NULL DEFAULT 2;
             ALTER TABLE "Owners" ADD COLUMN IF NOT EXISTS "IcNumber" text NULL;
             ALTER TABLE "Owners" ADD COLUMN IF NOT EXISTS "Address" text NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_Owners_NormalizedIcNumber"
+                ON "Owners" ((regexp_replace(COALESCE("IcNumber", ''), '[^0-9]', '', 'g')))
+                WHERE regexp_replace(COALESCE("IcNumber", ''), '[^0-9]', '', 'g') <> '';
 
             UPDATE "DocumentBlobs"
             SET "OwnershipType" = CASE
@@ -782,6 +787,26 @@ public static class SeedData
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "FinanceWorkflowVersion" integer NOT NULL DEFAULT 1;
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_PaymentRecords_VehicleId_FinanceV2" ON "PaymentRecords" ("VehicleId") WHERE "FinanceWorkflowVersion" = 2;
 
+            WITH "UnambiguousLoanCustomers" AS (
+                SELECT "VehicleId", MAX("CustomerId"::text)::uuid AS "CustomerId"
+                FROM "LoanApplications"
+                WHERE "Status" <> 3
+                GROUP BY "VehicleId"
+                HAVING COUNT(DISTINCT "CustomerId") = 1
+            )
+            UPDATE "Vehicles" AS vehicle
+            SET "CustomerId" = mapping."CustomerId"
+            FROM "UnambiguousLoanCustomers" AS mapping
+            WHERE vehicle."Id" = mapping."VehicleId"
+              AND vehicle."CustomerId" IS NULL;
+
+            UPDATE "PaymentRecords" AS payment
+            SET "CustomerId" = vehicle."CustomerId"
+            FROM "Vehicles" AS vehicle
+            WHERE payment."VehicleId" = vehicle."Id"
+              AND payment."CustomerId" IS NULL
+              AND vehicle."CustomerId" IS NOT NULL;
+
             CREATE TABLE IF NOT EXISTS "FinanceInvoices" (
                 "Id" uuid NOT NULL,
                 "PaymentRecordId" uuid NOT NULL,
@@ -885,9 +910,15 @@ public static class SeedData
                 "RepairReceiptId" uuid NOT NULL,
                 "Description" text NOT NULL,
                 "RepairPart" text NULL,
+                "Quantity" text NULL,
+                "Unit" text NULL,
+                "UnitPrice" numeric NULL,
                 "Amount" numeric NOT NULL,
                 "SortOrder" integer NOT NULL
             );
+            ALTER TABLE "RepairReceiptItems" ADD COLUMN IF NOT EXISTS "Quantity" text NULL;
+            ALTER TABLE "RepairReceiptItems" ADD COLUMN IF NOT EXISTS "Unit" text NULL;
+            ALTER TABLE "RepairReceiptItems" ADD COLUMN IF NOT EXISTS "UnitPrice" numeric NULL;
             CREATE INDEX IF NOT EXISTS "IX_RepairReceiptItems_RepairReceiptId_SortOrder" ON "RepairReceiptItems" ("RepairReceiptId", "SortOrder");
         """);
     }
@@ -988,6 +1019,15 @@ public static class SeedData
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaidBy" text NULL;
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaidAt" timestamp with time zone NULL;
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaymentEvidenceReference" text NULL;
+        """);
+    }
+
+    private static async Task EnsureLoanDecisionSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "DecisionBy" text NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "DecisionAt" timestamp with time zone NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "RejectionReason" text NULL;
         """);
     }
 }

@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using YSHeng.Api.Domain;
 using SkiaSharp;
@@ -46,7 +47,11 @@ public sealed record PublicVehicleDetailResponse(Guid Id, string PlateNumber, st
 public sealed record PublicVehicleCatalogModelResponse(string Make, string Model);
 public sealed record VehicleCatalogModelRequest(string Make, string Model, bool IsActive = true);
 public sealed record RepairApprovalRequest(string? Notes);
-public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId, decimal SellingPrice, decimal AdditionalCharges);
+public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId, decimal SellingPrice, decimal AdditionalCharges);
+public sealed record SettlementDraftResponse(Guid VehicleId, Guid? OwnerId, decimal PurchasePrice);
+public sealed record VehicleIntakeRequest(Vehicle Vehicle, SettlementReminder? Settlement, Owner? NewOwner = null);
+public sealed record VehicleIntakeResponse(Vehicle Vehicle, SettlementReminder? Settlement, Owner? CreatedOwner = null);
+public sealed record OwnerIdentityCardPreviewResponse(OcrExtractionResult Result, Owner? ExistingOwner);
 public sealed record DashboardSummary(
     int TotalStock,
     decimal PurchaseCost,
@@ -443,11 +448,70 @@ public static class BackOfficeVehicleLookup
             vehicle.PlateNumber,
             vehicle.Make,
             vehicle.Model,
+            vehicle.Year,
             vehicle.StockOwner,
             vehicle.Status,
             vehicle.CustomerId,
             vehicle.SellingPrice,
             vehicle.AdditionalCharges);
+}
+
+public static class FinanceSettlementDraft
+{
+    public static SettlementDraftResponse ToResponse(Vehicle vehicle) =>
+        new(vehicle.Id, vehicle.OwnerId, vehicle.PurchasePrice);
+}
+
+public static class VehicleIntakeSettlementRules
+{
+    public static ValidationResult Validate(Vehicle vehicle, SettlementReminder settlement)
+    {
+        var errors = new List<ValidationError>();
+        if (settlement.VehicleId != vehicle.Id)
+        {
+            errors.Add(new ValidationError("settlement_vehicle_mismatch", "Settlement must reference the vehicle being created."));
+        }
+
+        if (settlement.OwnerId != vehicle.OwnerId)
+        {
+            errors.Add(new ValidationError("settlement_owner_mismatch", "Settlement must reference the previous owner selected during vehicle intake."));
+        }
+
+        if (settlement.IsPaid)
+        {
+            errors.Add(new ValidationError("settlement_paid_during_intake", "Vehicle intake can prepare a settlement reminder but cannot mark it paid."));
+        }
+
+        return new ValidationResult(errors);
+    }
+}
+
+public static class VehicleIntakeOwnerRules
+{
+    public static ValidationResult Validate(Vehicle vehicle, Owner? newOwner, IEnumerable<Owner> existingOwners)
+    {
+        if (newOwner is null) return new ValidationResult([]);
+
+        var errors = new List<ValidationError>();
+        if (vehicle.OwnerId != newOwner.Id)
+        {
+            errors.Add(new ValidationError("intake_owner_mismatch", "The new owner must match the previous owner selected for this vehicle."));
+        }
+
+        if (string.IsNullOrWhiteSpace(newOwner.IcNumber))
+        {
+            errors.Add(new ValidationError("owner_ic_required", "Confirm the seller IC number before creating a new owner from the identity card."));
+        }
+        else if (ContactRules.NormalizeIcNumber(newOwner.IcNumber).Length != 12)
+        {
+            errors.Add(new ValidationError("owner_ic_invalid", "Seller IC number must contain 12 digits."));
+        }
+
+        errors.AddRange(ContactRules.ValidateOwner(newOwner).Errors);
+        errors.AddRange(ContactRules.ValidateUniqueOwnerPhone(newOwner, existingOwners).Errors);
+        errors.AddRange(ContactRules.ValidateUniqueOwnerIcNumber(newOwner, existingOwners).Errors);
+        return new ValidationResult(errors);
+    }
 }
 
 public static class PublicVehiclePhotos
@@ -476,10 +540,15 @@ public static class PublicVehiclePhotos
 
 public static class VehicleRules
 {
+    private static readonly Regex MalaysiaRegistrationPattern = new(
+        "^(?:[A-Z]+(?:_[A-Z]+)*[1-9][0-9]{0,3}[A-Z]?|[0-9]{1,3}-[0-9]{1,3}-[A-Z]{2,4})$",
+        RegexOptions.CultureInvariant);
+
     public static Vehicle NormalizeDateTimes(Vehicle vehicle)
     {
         var normalized = vehicle with
         {
+            PlateNumber = NormalizeMalaysiaPlate(vehicle.PlateNumber),
             PublicDescriptionMarkdown = string.IsNullOrWhiteSpace(vehicle.PublicDescriptionMarkdown)
                 ? null
                 : vehicle.PublicDescriptionMarkdown.Trim()
@@ -496,6 +565,10 @@ public static class VehicleRules
         if (string.IsNullOrWhiteSpace(vehicle.PlateNumber))
         {
             errors.Add(new ValidationError("plate_required", "Car plate is required."));
+        }
+        else if (!IsMalaysiaPlateFormat(vehicle.PlateNumber))
+        {
+            errors.Add(new ValidationError("invalid_plate_format", "Enter a valid Malaysia registration number, for example BKC3003 or MALAYSIA1."));
         }
 
         if (string.IsNullOrWhiteSpace(vehicle.Make))
@@ -558,14 +631,25 @@ public static class VehicleRules
 
     public static ValidationResult ValidateUniquePlate(Vehicle incoming, IEnumerable<Vehicle> existing)
     {
-        var normalizedPlate = incoming.PlateNumber.Trim();
+        var normalizedPlate = NormalizeMalaysiaPlate(incoming.PlateNumber);
         var isDuplicate = existing.Any(vehicle =>
             vehicle.Id != incoming.Id &&
-            vehicle.PlateNumber.Trim().Equals(normalizedPlate, StringComparison.OrdinalIgnoreCase));
+            NormalizeMalaysiaPlate(vehicle.PlateNumber).Equals(normalizedPlate, StringComparison.Ordinal));
 
         return isDuplicate
             ? new ValidationResult([new ValidationError("duplicate_plate", "Car plate already exists in inventory.")])
             : new ValidationResult([]);
+    }
+
+    public static string NormalizeMalaysiaPlate(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : Regex.Replace(value.Trim().ToUpperInvariant().Replace('–', '-').Replace('—', '-'), "\\s+", string.Empty);
+
+    public static bool IsMalaysiaPlateFormat(string? value)
+    {
+        var normalized = NormalizeMalaysiaPlate(value);
+        return normalized.Length <= 16 && MalaysiaRegistrationPattern.IsMatch(normalized);
     }
 
     public static ValidationResult ValidateContactLinks(Vehicle vehicle, IEnumerable<Customer> customers, IEnumerable<Owner> owners, IEnumerable<LoanApplication>? loans = null, bool requireOwner = false)
@@ -837,6 +921,27 @@ public static class ContactRules
             ? new ValidationResult([new ValidationError("duplicate_owner_phone", "Owner phone already exists.")])
             : new ValidationResult([]);
     }
+
+    public static ValidationResult ValidateUniqueOwnerIcNumber(Owner incoming, IEnumerable<Owner> existing)
+    {
+        var normalizedIncoming = NormalizeIcNumber(incoming.IcNumber);
+        return normalizedIncoming.Length > 0 && existing.Any(owner =>
+                owner.Id != incoming.Id &&
+                string.Equals(NormalizeIcNumber(owner.IcNumber), normalizedIncoming, StringComparison.Ordinal))
+            ? new ValidationResult([new ValidationError("duplicate_owner_ic", "An owner with this IC number already exists.")])
+            : new ValidationResult([]);
+    }
+
+    public static Owner? FindOwnerByIcNumber(string? icNumber, IEnumerable<Owner> owners)
+    {
+        var normalized = NormalizeIcNumber(icNumber);
+        return normalized.Length != 12
+            ? null
+            : owners.FirstOrDefault(owner => string.Equals(NormalizeIcNumber(owner.IcNumber), normalized, StringComparison.Ordinal));
+    }
+
+    public static string NormalizeIcNumber(string? icNumber) =>
+        string.IsNullOrWhiteSpace(icNumber) ? "" : new(icNumber.Where(char.IsDigit).ToArray());
 
     private static bool SamePhone(string left, string right)
     {
@@ -1468,6 +1573,133 @@ public static class LoanMutationRules
             : new ValidationResult([new ValidationError(
                 "loan_vehicle_locked",
                 "Loan vehicle identity cannot be changed after the loan is created.")]);
+}
+
+public static class LoanDecisionRules
+{
+    public const int RejectionReasonMaxLength = 500;
+
+    public static ValidationResult ValidateCreate(LoanApplication loan)
+    {
+        if (loan.Status != LoanStatus.Rejected)
+        {
+            return new ValidationResult([]);
+        }
+
+        return ValidateRejectionReason(loan.RejectionReason);
+    }
+
+    public static ValidationResult ValidateDecision(LoanApplication loan, LoanDecisionRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (loan.Status != LoanStatus.Pending)
+        {
+            errors.Add(new ValidationError("loan_decision_pending_required", "Only a pending loan can receive an approval or rejection decision."));
+        }
+
+        if (request.Status is not (LoanStatus.Approved or LoanStatus.Rejected))
+        {
+            errors.Add(new ValidationError("loan_decision_status_invalid", "Choose Approved or Rejected for the loan decision."));
+        }
+
+        if (request.Status == LoanStatus.Rejected)
+        {
+            errors.AddRange(ValidateRejectionReason(request.RejectionReason).Errors);
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateGenericUpdate(LoanApplication existing, LoanApplication update)
+    {
+        if (existing.Status is LoanStatus.Rejected or LoanStatus.Done)
+        {
+            return new ValidationResult([new ValidationError(
+                "loan_terminal_status_locked",
+                "Rejected and completed loans are review-only and cannot be changed through the general update action.")]);
+        }
+
+        if (existing.Status == update.Status)
+        {
+            return new ValidationResult([]);
+        }
+
+        if (update.Status is LoanStatus.Approved or LoanStatus.Rejected)
+        {
+            return new ValidationResult([new ValidationError(
+                "loan_decision_action_required",
+                "Use the loan decision action to approve or reject a pending loan.")]);
+        }
+
+        if ((existing.Status == LoanStatus.Draft && update.Status == LoanStatus.Pending) ||
+            (existing.Status == LoanStatus.Approved && update.Status == LoanStatus.Done))
+        {
+            return new ValidationResult([]);
+        }
+
+        return new ValidationResult([new ValidationError(
+            "loan_status_transition_invalid",
+            "Use Submit for Draft loans, the decision action for Pending loans, and Mark Done for Approved loans.")]);
+    }
+
+    public static LoanApplication PreserveDecisionMetadata(LoanApplication existing, LoanApplication update) =>
+        update with
+        {
+            DecisionBy = existing.DecisionBy,
+            DecisionAt = existing.DecisionAt,
+            RejectionReason = existing.RejectionReason
+        };
+
+    public static LoanApplication PrepareForCreate(LoanApplication loan, string actor, DateTime createdAt) =>
+        loan.Status switch
+        {
+            LoanStatus.Approved => ApplyDecision(
+                loan with { Status = LoanStatus.Pending },
+                new LoanDecisionRequest(LoanStatus.Approved, null),
+                actor,
+                createdAt),
+            LoanStatus.Rejected => ApplyDecision(
+                loan with { Status = LoanStatus.Pending },
+                new LoanDecisionRequest(LoanStatus.Rejected, loan.RejectionReason),
+                actor,
+                createdAt),
+            _ => loan with { DecisionBy = null, DecisionAt = null, RejectionReason = null }
+        };
+
+    public static LoanApplication ApplyDecision(LoanApplication loan, LoanDecisionRequest request, string actor, DateTime decidedAt) =>
+        request.Status == LoanStatus.Approved
+            ? loan with
+            {
+                Status = LoanStatus.Approved,
+                LouApproved = true,
+                LouDone = false,
+                DecisionBy = actor,
+                DecisionAt = decidedAt,
+                RejectionReason = null
+            }
+            : loan with
+            {
+                Status = LoanStatus.Rejected,
+                LouApproved = false,
+                LouDone = false,
+                DecisionBy = actor,
+                DecisionAt = decidedAt,
+                RejectionReason = request.RejectionReason!.Trim()
+            };
+
+    private static ValidationResult ValidateRejectionReason(string? rejectionReason)
+    {
+        var reason = rejectionReason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return new ValidationResult([new ValidationError("loan_rejection_reason_required", "Enter a rejection reason before rejecting the loan.")]);
+        }
+
+        return reason.Length > RejectionReasonMaxLength
+            ? new ValidationResult([new ValidationError("loan_rejection_reason_too_long", $"Rejection reason must be {RejectionReasonMaxLength} characters or fewer.")])
+            : new ValidationResult([]);
+    }
+
 }
 
 public static class WorkflowStatusRules
@@ -2167,6 +2399,50 @@ public static class UploadPolicy
             ? new ValidationResult([new ValidationError("invalid_document_category", "Vehicle photos must be uploaded through the photo endpoint.")])
             : new ValidationResult([]);
 
+    public static (ValidationResult Result, string? MimeType) ValidateOcrImageContent(
+        string fileName,
+        string? declaredMimeType,
+        ReadOnlySpan<byte> bytes)
+    {
+        var detectedMimeType = DetectCollectionEvidenceMimeType(bytes);
+        if (detectedMimeType is not ("image/jpeg" or "image/png" or "image/webp") || !IsDecodableReceiptImage(detectedMimeType, bytes))
+        {
+            return (new ValidationResult([new ValidationError(
+                "ocr_image_content_invalid",
+                "Identity card OCR requires a valid JPEG, PNG, or WebP image.")]), null);
+        }
+
+        var normalizedDeclaredMimeType = declaredMimeType?.Split(';', 2)[0].Trim().ToLowerInvariant() switch
+        {
+            "image/jpg" => "image/jpeg",
+            { Length: > 0 } value => value,
+            _ => null
+        };
+        if (!string.Equals(normalizedDeclaredMimeType, detectedMimeType, StringComparison.Ordinal))
+        {
+            return (new ValidationResult([new ValidationError(
+                "ocr_image_mime_mismatch",
+                "The identity card image content does not match its declared file type.")]), null);
+        }
+
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        var extensionMatches = detectedMimeType switch
+        {
+            "image/jpeg" => extension is ".jpg" or ".jpeg",
+            "image/png" => extension == ".png",
+            "image/webp" => extension == ".webp",
+            _ => false
+        };
+        if (!extensionMatches)
+        {
+            return (new ValidationResult([new ValidationError(
+                "ocr_image_extension_mismatch",
+                "The identity card filename does not match its verified image type.")]), null);
+        }
+
+        return (new ValidationResult([]), detectedMimeType);
+    }
+
     public static (ValidationResult Result, string? MimeType) ValidateCollectionEvidenceContent(
         string fileName,
         string? declaredMimeType,
@@ -2394,7 +2670,7 @@ public static class RepairReceiptRules
 {
     public static ValidationResult Validate(ConfirmRepairReceiptRequest receipt)
     {
-        if (receipt.Items is null || receipt.Items.Count == 0 || receipt.Items.Any(item => string.IsNullOrWhiteSpace(item.Description) || item.Amount < 0))
+        if (receipt.Items is null || receipt.Items.Count == 0 || receipt.Items.Any(item => string.IsNullOrWhiteSpace(item.Description) || item.Amount < 0 || item.UnitPrice is < 0))
         {
             return new ValidationResult([new ValidationError("repair_receipt_items_invalid", "Add at least one repair receipt item with a description and non-negative amount.")]);
         }
@@ -2523,6 +2799,9 @@ public static class SupplierInvoiceRules
 
 public static class SupplierRules
 {
+    public static bool CanApprove(string createdBy, string actor, bool isBossAdmin) =>
+        isBossAdmin || !string.Equals(createdBy, actor, StringComparison.Ordinal);
+
     public static ValidationResult Validate(Supplier incoming, IEnumerable<Supplier> existing)
     {
         var errors = new List<ValidationError>();
@@ -2888,6 +3167,7 @@ public static class OcrReviewAccuracy
     [
         ("description", item => item?.Description),
         ("quantity", item => item?.Quantity),
+        ("unit", item => item?.Unit),
         ("unitPrice", item => item?.UnitPrice),
         ("amount", item => item?.Amount)
     ];

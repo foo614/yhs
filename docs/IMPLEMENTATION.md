@@ -31,7 +31,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Vehicle photo and document uploads are stored in PostgreSQL blobs with metadata for MIME type, category, checksum, linked entity, and authenticated uploader; vehicle photos also create cached JPEG thumbnails with SkiaSharp.
 - ASP.NET multipart parsing allows a small request overhead above the 10 MB document payload limit, while endpoint validation still enforces 10 MB documents and the stricter 5 MB vehicle-photo limit before storing blobs.
 - Document uploads reject the `VehiclePhoto` category so photos stay on the photo endpoint with thumbnail generation and the separate 5 MB image limit.
-- Uploaded IC, VOC, receipt, and invoice OCR runs through Google Document AI with optional specialized invoice and expense processors, storing reviewable draft fields in `OcrJobs` while preserving document category authorization; deterministic local runs use `LocalMock`.
+- Uploaded IC, VOC, receipt, and invoice OCR runs exclusively through Google Document AI with optional specialized invoice and expense processors, storing reviewable draft fields in `OcrJobs` while preserving document category authorization. Local Docker runs require the same Google project, processor, and read-only Application Default Credentials setup; there is no mock runtime provider.
 - Back-office vehicle intake shows uploaded website photo metadata, including uploader and checksum, next to document metadata and download/preview links.
 - Public vehicle listings now request the latest uploaded vehicle thumbnail from `/api/public/vehicles/{id}/photo` and gracefully fall back to initials when no photo exists.
 - Public vehicle detail pages now fetch `GET /api/public/vehicles/{id}` directly and return not-found for vehicles the public API rejects.
@@ -60,7 +60,14 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Finance payment records now track receipt number, invoice number, bank name, and bank follow-up date; reconciled payments require receipt and invoice references before saving.
 - Finance payment records now track Boss Check, and final reconciliation is blocked until the boss verification step is marked checked.
 - Finance payment records track Prepare Document and Checklist Validation as manual Bank workflow checklist states; staff export the bank-collection spreadsheet and submit it to AutoCount outside this system.
-- Finance payment records capture customer invoice detail fields from the portal requirement docs: sales price, interest/additional charges, NCD amount, and windscreen charges. The outstation delivery date is read-only in Finance and is synchronized from the active Delivery schedule.
+- Finance payment records now also capture customer invoice detail fields from the portal requirement docs: sales price, interest/additional charges, NCD amount, windscreen charges, and outstation delivery date.
+- Customer and previous-owner records now capture TIN for AutoCount master-data review.
+- Purchase invoices now require an approved supplier, invoice date, and classified fee lines whose amounts equal the invoice total. Finance confirms the classification before export.
+- Repair maintains a proper supplier master with address, phone, TIN, optional AutoCount creditor code, and Finance approval; Finance creators require another approver, while Boss/Admin may self-approve through an explicit audited override.
+- Delivery records insurance and road-tax provider, invoice date, amount, reference, and paid-on-behalf status as a Finance-review draft.
+- Finance sales now snapshot the responsible sales agent, optional loan-bank reference, and customer-paid-on-behalf insurance, road-tax, and advance lines.
+- Payment vouchers now capture payment method, source account, cheque or transfer reference, bank charge, accounting account, and separate creator, approver, and payer evidence.
+- The AutoCount review workbook uses the approved mappings: vehicle sale account `5500-0000` with classification `025`; insurance account `4001-I001` and road-tax account `4001-R001` with classification `006`; vehicle purchase `6P00-0000`; purchase processing `6P00-1000`; parking `6T00-1000`; refurbishment `6R00-0000`; insurance paid on behalf `4001-I002`; loan application fee `8000-L002`. `TaxCode` remains blank until Finance confirms the separate tax mapping.
 - Finance payment validation rejects negative customer invoice detail amounts before they enter payment tracking.
 - Finance payment records can now be edited from the Finance screen so staff can correct car plate, nett price, receipt/invoice references, bank follow-up metadata, customer invoice fields, and reconciliation checklist state without recreating the payment.
 - Reconciled payment records reject duplicate receipt or payment invoice references with normalized spacing/case so finance cannot reuse final documents by accident.
@@ -115,8 +122,10 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - Customer detail records now include address and notes alongside name, phone, IC, and email for invoice, loan, and delivery follow-up.
 - Customer and previous-owner records can now be updated after creation so staff can correct contact, IC, address, notes, and owner details without creating duplicate records.
 - Vehicle intake now tracks outstation pickup allowance, scheduled pickup date/time, and booking slip reference from the 收车 workflow.
-- The Vehicle intake form warns before submitting blank identity fields, invalid years, invalid price totals, or duplicate car plates.
+- The Vehicle intake form top-aligns each responsive field row and validates Malaysian registration-number structure on both client and API: uppercase normalization, a JPJ-style series/index plus a 1-4 digit number, supported regional suffixes and special-series underscores, and duplicate matching across optional spacing. This is a format check; staff still confirm issuance against the JPJ registration document.
 - Vehicle intake now includes structured purchase invoice tracking linked to the car plate, alongside purchase invoice document upload.
+- Vehicle intake uses four focused steps: vehicle and parties, stock and pricing, seller settlement, and final review. Public-description Markdown remains editable after intake instead of occupying the create wizard.
+- Finance/Admin can atomically create an unpaid seller-settlement reminder with a new vehicle; the previous owner comes from intake, the amount follows the purchase price, and Sales-only intake cannot create the finance record.
 
 - Vehicle master profiles now include stock location and an auditable stock movement history for stock owner, status, and physical location changes.
 - OCR review now lets staff correct and save one final value set, preserving the original extraction, every changed field or line item, reviewer context, timestamps, and field-accuracy counts before values are applied to vehicle workflows.
@@ -160,7 +169,9 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - The Loan submission form warns before submitting active Pending/Approved/Done loans without a submitted date for 3-day follow-up tracking.
 - The API rejects loan records where the loan is approved before LOU Approved is recorded, where LOU is marked done before approval, or where the loan is completed before LOU Done is recorded.
 - The Loan submission form now uses a searchable customer selector with name, phone, and IC labels instead of requiring staff to paste a customer GUID.
-- The Loan screen now exposes loan-owned document uploads for VOC, AP Document, Status Receipt, and Loan Document so Loan staff can resolve checklist gaps without Sales vehicle-intake access.
+- The Loan screen exposes the four-category checklist while enforcing category ownership: Loan staff upload Loan Document, Sales supplies shared vehicle evidence, and Boss/Admin may upload all four.
+- Pending loans now use an explicit decision action. Approval and rejection are server-audited with actor/time, rejection requires a reason, and rejected files remain available read-only while the vehicle returns to Available/private unless another workflow owns its state.
+- Loan document uploads now open a review drawer before transfer, show upload progress, and require explicit confirmation; uploaded PDF, JPEG, PNG, and WebP files can be previewed through authenticated content fetches, while other types remain download-only.
 - Active loan workflow records require a submitted date so 3-day follow-up reminders can be calculated reliably.
 - Dashboard repair cost and estimated profit now use detailed repair job costs when repair rows exist for a vehicle, falling back to the vehicle refurbishment total for older intake records.
 - Dashboard `TotalProfit` and the backward-compatible `EstimatedProfit` field both represent projected margin on current unsold stock. Selected-period realised sold profit remains separate in `ActualProfit`.

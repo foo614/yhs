@@ -23,6 +23,7 @@ import {
   createSettlementReminder,
   createSupplierInvoice,
   createVehicle,
+  createVehicleIntake,
   checkInHrAttendance,
   checkOutHrAttendance,
   cancelHrLeaveRequest,
@@ -33,6 +34,7 @@ import {
   customerFromLead,
   customerSelectLabel,
   decideHrLeaveRequest,
+  decideLoan,
   exportAutoCountWorkbook,
   exportPaymentsCsv,
   generateHrPayslips,
@@ -83,6 +85,7 @@ import {
   getVehicleLookup,
   getStaffUsers,
   getVehicleDocuments,
+  getVehicleDocumentContent,
   getVehicleOcrJobs,
   getVehiclePhotos,
   getSalesWorkboard,
@@ -238,6 +241,7 @@ describe("backoffice api client", () => {
       plateNumber: "VPK1234",
       make: "Toyota",
       model: "Vios",
+      year: 2022,
       stockOwner: "YSHeng",
       status: "Available"
     };
@@ -306,6 +310,54 @@ describe("backoffice api client", () => {
     }, false, 400);
 
     await expect(createVehicle(vehicle)).rejects.toThrow("Car plate is required.");
+  });
+
+  it("creates a vehicle and optional settlement through the atomic intake endpoint", async () => {
+    const input = {
+      vehicle: {
+        id: "00000000-0000-0000-0000-000000000001",
+        plateNumber: "BKC3003",
+        make: "Honda",
+        model: "City E 1.5",
+        year: 2018,
+        stockOwner: "YSHeng" as const,
+        status: "Available" as const,
+        isPublic: false,
+        purchasePrice: 49_900,
+        sellingPrice: 61_100,
+        additionalCharges: 0,
+        refurbishmentTotal: 0,
+        commissionTotal: 0,
+        ownerId: "00000000-0000-0000-0000-000000000002"
+      },
+      settlement: {
+        id: "00000000-0000-0000-0000-000000000003",
+        vehicleId: "00000000-0000-0000-0000-000000000001",
+        ownerId: "00000000-0000-0000-0000-000000000002",
+        amount: 49_900,
+        deadline: "2026-09-01",
+        isPaid: false
+      },
+      newOwner: {
+        id: "00000000-0000-0000-0000-000000000002",
+        name: "Lim Owner",
+        phone: "0198887777",
+        icNumber: "900101-01-1234"
+      }
+    };
+    const fetchMock = mockFetch(input);
+    const identityCard = new File(["nric-image"], "seller.png", { type: "image/png" });
+
+    await createVehicleIntake(input, identityCard);
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicle-intakes", {
+      method: "POST",
+      credentials: "include",
+      body: expect.any(FormData)
+    });
+    const requestBody = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(requestBody.get("request")).toBe(JSON.stringify(input));
+    expect(requestBody.get("identityCard")).toBe(identityCard);
   });
 
   it("creates operational records with authenticated JSON requests", async () => {
@@ -397,6 +449,21 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/loans", expect.objectContaining({ method: "POST", credentials: "include" }));
     expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:5000/api/deliveries", expect.objectContaining({ method: "POST", credentials: "include" }));
     expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:5000/api/payments", expect.objectContaining({ method: "POST", credentials: "include" }));
+  });
+
+  it("records loan approval or rejection through the dedicated decision endpoint", async () => {
+    const fetchMock = mockFetch({ status: "Rejected", rejectionReason: "Bank declined" });
+
+    await decideLoan("loan-1", "Rejected", "Bank declined");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/loans/loan-1/decision",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ status: "Rejected", rejectionReason: "Bank declined" })
+      })
+    );
   });
 
   it("uses authenticated Finance V2 invoice and partial-collection endpoints", async () => {
@@ -1726,6 +1793,22 @@ describe("backoffice api client", () => {
     expect(result[0].checksum).toBe("ABCDEF0123456789");
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicles/vehicle-1/documents", { credentials: "include" });
     expect(vehicleDocumentContentUrl("vehicle-1", documents[0].id)).toBe("http://localhost:5000/api/vehicles/vehicle-1/documents/00000000-0000-0000-0000-000000000010/content");
+  });
+
+  it("loads protected document content as a blob for preview", async () => {
+    const content = new Blob(["preview"], { type: "application/pdf" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: vi.fn().mockResolvedValue(content)
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getVehicleDocumentContent("vehicle-1", "document-1")).resolves.toBe(content);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/documents/document-1/content",
+      { credentials: "include" }
+    );
   });
 
   it("loads captured OCR data for a vehicle", async () => {

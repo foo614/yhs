@@ -55,6 +55,10 @@ export function filterLoanApplications(
 }
 
 export function loanCreateBlockReason(loan: LoanApplication) {
+  if (loan.status === "Rejected" && !loan.rejectionReason?.trim()) {
+    return "Rejection reason is required for a rejected loan.";
+  }
+
   if ((loan.status === "Pending" || loan.status === "Approved" || loan.status === "Done") && !loan.submittedAt?.trim()) {
     return "Submitted date is required for active loan follow-up.";
   }
@@ -72,14 +76,6 @@ export function loanCreateBlockReason(loan: LoanApplication) {
   }
 
   return undefined;
-}
-
-export function markLoanApproved(loan: LoanApplication): LoanApplication {
-  return {
-    ...loan,
-    status: "Approved",
-    louApproved: true
-  };
 }
 
 export function markLoanDone(loan: LoanApplication): LoanApplication {

@@ -21,6 +21,21 @@ export function formatMoneyInput(value: string | number | undefined) {
   return decimal === undefined ? grouped : `${grouped}.${decimal}`;
 }
 
+/**
+ * Format an editable monetary value with two decimals after the user finishes
+ * typing, while leaving their in-progress input untouched.
+ */
+export function formatMoneyInputWithTwoDecimals(
+  value: string | number | undefined,
+  info?: { userTyping: boolean; input: string }
+) {
+  if (info?.userTyping) return formatMoneyInput(info.input);
+  if (value === undefined || value === "") return "";
+
+  const numeric = Number(parseMoneyInput(String(value)));
+  return Number.isFinite(numeric) ? formatMoneyNumber(numeric) : formatMoneyInput(value);
+}
+
 export function parseMoneyInput(value: string | undefined) {
   return value?.replace(/,/g, "") ?? "";
 }

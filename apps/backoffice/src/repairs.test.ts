@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepairJob, SupplierInvoice } from "./api";
-import { filterRefurbishmentRecords, isRepairCostFinal, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
+import { filterRefurbishmentRecords, isRepairCostFinal, refurbishmentDetailsSelection, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
 
 const baseInvoice: SupplierInvoice = {
   id: "supplier-1",
@@ -25,6 +25,13 @@ const baseRepair: RepairJob = {
 };
 
 describe("repair supplier invoice helpers", () => {
+  it("opens both refurbishment record types through the page detail selection", () => {
+    expect(refurbishmentDetailsSelection({ key: "repair-repair-1", kind: "repair", repair: baseRepair }))
+      .toEqual({ repairId: "repair-1", supplierInvoiceId: undefined });
+    expect(refurbishmentDetailsSelection({ key: "supplier-supplier-1", kind: "supplierInvoice", invoice: baseInvoice }))
+      .toEqual({ repairId: undefined, supplierInvoiceId: "supplier-1" });
+  });
+
   it("blocks supplier invoices with duplicate supplier and invoice numbers", () => {
     const existing = [
       baseInvoice,

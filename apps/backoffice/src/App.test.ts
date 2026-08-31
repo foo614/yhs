@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, customerIdFromRouteUrl, DashboardPage, DeliveryPage, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, repairReceiptDraftFromOcr, vehicleLoanCustomerId } from "./App";
-import type { Customer, DashboardSummary, DeliveryAccountingCharge, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, customerIdFromRouteUrl, DashboardPage, DeliveryPage, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
+import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
+  it("formats workflow vehicle identity with plate, year, make, and model", () => {
+    const vehicles: VehicleLookup[] = [{
+      id: "vehicle-1", plateNumber: "BKC3003", year: 2018, make: "Honda", model: "City E 1.5", stockOwner: "YSHeng", status: "Available"
+    }];
+
+    expect(vehicleIdentityFor(vehicles, "vehicle-1")).toEqual({
+      plateNumber: "BKC3003",
+      description: "2018 Honda City E 1.5"
+    });
+  });
+
   it("retains Customer 360 query changes for Back and Forward navigation", () => {
     const customerA = browserRouteUrl({ pathname: "/customer-360", search: "?customerId=customer-a" });
     const customerB = browserRouteUrl({ pathname: "/customer-360", search: "?customerId=customer-b" });
@@ -215,16 +226,16 @@ describe("repair receipt OCR drafts", () => {
           rawText: "Replace bumper qty 1 RM 180\nPaint bumper qty 1 RM 200",
           warnings: [],
           lineItems: [
-            { description: "Replace bumper qty 1 RM 180", amount: "180" },
-            { description: "Paint bumper qty 1 RM 200", amount: "200" }
+            { description: "Replace bumper", quantity: "1", unit: "PC", unitPrice: "180", amount: "180" },
+            { description: "Paint bumper", quantity: "1", unit: "PC", unitPrice: "200", amount: "200" }
           ]
         }
       }
     );
 
     expect(draft.items).toEqual([
-      { description: "Replace bumper qty 1 RM 180", repairPart: "Replace bumper qty 1 RM 180", amount: 180, sortOrder: 1 },
-      { description: "Paint bumper qty 1 RM 200", repairPart: "Paint bumper qty 1 RM 200", amount: 200, sortOrder: 2 }
+      { description: "Replace bumper", quantity: "1", unit: "PC", unitPrice: 180, amount: 180, sortOrder: 1 },
+      { description: "Paint bumper", quantity: "1", unit: "PC", unitPrice: 200, amount: 200, sortOrder: 2 }
     ]);
     expect(draft).not.toHaveProperty("repairPart");
     expect(draft).not.toHaveProperty("whatToDo");
@@ -269,8 +280,12 @@ describe("module document lists", () => {
     expect(loanMarkup).not.toContain("No OCR results for these documents yet.");
     expect(deliveryMarkup).toContain("No uploaded documents for this selected record.");
     expect(deliveryMarkup).not.toContain("No OCR results for these documents yet.");
-    expect(loanMarkup).not.toContain("ant-pro-query-filter");
-    expect(deliveryMarkup).not.toContain("ant-pro-query-filter");
+    expect(loanMarkup).toContain("ant-pro-query-filter");
+    expect(deliveryMarkup).toContain("ant-pro-query-filter");
+    expect(loanMarkup).toContain("Uploaded / 日期");
+    expect(deliveryMarkup).toContain("Uploaded / 日期");
+    expect(loanMarkup).not.toContain("Search table records");
+    expect(deliveryMarkup).not.toContain("Search table records");
   });
 
   it("keeps OCR results available to modules that opt in", () => {
@@ -315,6 +330,44 @@ describe("supplier and refurbishment search records", () => {
     expect(filterSupplierMaster(suppliers, "ABC", "Draft")).toEqual([]);
   });
 
+  it("matches an OCR supplier by a unique master identifier or exact normalized company name", () => {
+    const suppliers: Supplier[] = [{
+      id: "supplier-1", companyName: "LK Tint & Car Accessories Sdn. Bhd.", registrationNumber: "201901234567", tinNumber: "C1234567890", address: "Johor", phone: "016-7334699", approvalStatus: "Approved"
+    }];
+
+    expect(supplierMasterMatchFromOcr(suppliers, "LK TINT CAR ACCESSORIES SDN BHD")).toEqual(suppliers[0]);
+    expect(supplierMasterMatchFromOcr(suppliers, "LK TINT")).toBeUndefined();
+    expect(supplierMasterMatchFromOcr(suppliers, {
+      companyName: "LK TINT & CAR ACCESORIES",
+      phone: "016 733-4699",
+      tinNumber: "C1234567890"
+    })).toEqual(suppliers[0]);
+  });
+
+  it("does not auto-match a receipt supplier when its OCR identifiers point to different master records", () => {
+    const suppliers: Supplier[] = [
+      { id: "supplier-1", companyName: "LK Tint", address: "Johor", phone: "016-7334699", approvalStatus: "Approved" },
+      { id: "supplier-2", companyName: "LK Accessories", address: "Johor", tinNumber: "C1234567890", phone: "012-3333333", approvalStatus: "Approved" }
+    ];
+
+    expect(supplierMasterMatchFromOcr(suppliers, {
+      companyName: "LK TINT & CAR ACCESORIES",
+      phone: "016-7334699",
+      tinNumber: "C1234567890"
+    })).toBeUndefined();
+  });
+
+  it("shows whether a receipt plate matches the selected car without changing the uploaded document link", () => {
+    const vehicles: VehicleLookup[] = [
+      { id: "vehicle-1", plateNumber: "BKC3003", make: "Toyota", model: "Vios", stockOwner: "YSHeng", status: "Available" },
+      { id: "vehicle-2", plateNumber: "PRU6955", make: "Honda", model: "City", stockOwner: "YSHeng", status: "Available" }
+    ];
+
+    expect(receiptVehicleMatchFromOcr(vehicles, "vehicle-1", "BKC 3003")).toEqual({ kind: "matched", vehicle: vehicles[0] });
+    expect(receiptVehicleMatchFromOcr(vehicles, "vehicle-1", "PRU6955")).toEqual({ kind: "different", vehicle: vehicles[1] });
+    expect(receiptVehicleMatchFromOcr(vehicles, "vehicle-1", "UNKNOWN 1")).toEqual({ kind: "notFound", plate: "UNKNOWN 1" });
+  });
+
   it("searches delivery accounting values using the displayed plate and status", () => {
     const vehicles: VehicleLookup[] = [{ id: "vehicle-1", plateNumber: "VPK 1234", make: "Toyota", model: "Vios", stockOwner: "YSHeng", status: "Available" }];
     const charges: DeliveryAccountingCharge[] = [{
@@ -335,20 +388,20 @@ describe("workflow list query controls", () => {
   const loans: LoanApplication[] = [{
     id: "loan-1", vehicleId: "vehicle-1", customerId: "customer-1", status: "Pending", louApproved: false, louDone: false, submittedAt: "2026-08-25"
   }];
-  it("renders explicit local Query and Reset controls instead of an inert ProTable query form", () => {
+  it("keeps compact mobile filters while loan tables expose the native desktop query form", () => {
     const loanMarkup = renderToStaticMarkup(createElement(LoanPage, {
-      vehicles, customers, loans, roles: ["Loan"], dashboardFocus: {}, onClearDashboardFocus: () => {}, onBackToList: () => {}, onCreate: () => {}, onUpdate: () => {}, onUploadDocument: async () => {}
+      vehicles, customers, loans, roles: ["Loan"], dashboardFocus: {}, onClearDashboardFocus: () => {}, onBackToList: () => {}, onCreate: () => {}, onUpdate: () => {}, onDecide: async () => {}, onUploadDocument: async () => {}
     }));
     const deliveryMarkup = renderToStaticMarkup(createElement(DeliveryPage, {
       vehicles, dashboardFocus: {}, onClearDashboardFocus: () => {}, onOpenCustomer: () => {}
     }));
 
-    expect(loanMarkup).toContain("Query");
-    expect(loanMarkup).toContain("Reset");
-    expect(loanMarkup).not.toContain("ant-pro-query-filter");
-    expect(deliveryMarkup).toContain("Delivery Workboard / 交车工作台");
-    expect(deliveryMarkup).toContain("See every car, customer, PIC, stage, and next action in one place.");
-    expect(deliveryMarkup).not.toContain("ReadyForRelease");
+    expect(loanMarkup).toContain("Search plate, customer, phone, status");
+    expect(deliveryMarkup).toContain("Search plate, customer or PIC");
+    expect(loanMarkup).toContain("pageFilterMobileOnly");
+    expect(loanMarkup).toContain("nativeSearchDesktopOnly");
+    expect(loanMarkup).toContain("ant-pro-query-filter");
+    expect(deliveryMarkup).toContain("pageFilterMobileOnly");
   });
 });
 
@@ -384,6 +437,8 @@ describe("lead search controls", () => {
 
     expect(markup).toContain("Search leads by customer, phone, plate, or message");
     expect(markup).toContain("Customer, phone, plate, or message");
-    expect(markup).not.toContain("ant-pro-query-filter");
+    expect(markup).toContain("pageFilterMobileOnly");
+    expect(markup).toContain("nativeSearchDesktopOnly");
+    expect(markup).toContain("ant-pro-query-filter");
   });
 });

@@ -185,11 +185,32 @@ public sealed class BusinessRulesTests
         Assert.Equal(vehicle.PlateNumber, result.PlateNumber);
         Assert.Equal(vehicle.Make, result.Make);
         Assert.Equal(vehicle.Model, result.Model);
+        Assert.Equal(vehicle.Year, result.Year);
         Assert.Equal(vehicle.Status, result.Status);
         Assert.Equal(vehicle.CustomerId, result.CustomerId);
         Assert.Equal(vehicle.SellingPrice, result.SellingPrice);
         Assert.Equal(vehicle.AdditionalCharges, result.AdditionalCharges);
         Assert.DoesNotContain(result.GetType().GetProperties(), property => property.Name is "PurchasePrice" or "RefurbishmentTotal" or "CommissionTotal" or "IsPublic");
+    }
+
+    [Fact]
+    public void Finance_settlement_draft_includes_only_the_intake_values_needed_for_review()
+    {
+        var ownerId = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(publicVisible: true) with
+        {
+            OwnerId = ownerId,
+            PurchasePrice = 42000m,
+            SellingPrice = 58000m,
+            CommissionTotal = 1200m
+        };
+
+        var result = FinanceSettlementDraft.ToResponse(vehicle);
+
+        Assert.Equal(vehicle.Id, result.VehicleId);
+        Assert.Equal(ownerId, result.OwnerId);
+        Assert.Equal(42000m, result.PurchasePrice);
+        Assert.DoesNotContain(result.GetType().GetProperties(), property => property.Name is "SellingPrice" or "CommissionTotal" or "CustomerId");
     }
 
     [Fact]
@@ -1071,6 +1092,133 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Owner_validation_rejects_duplicate_normalized_ic_number()
+    {
+        var existing = new Owner { Id = Guid.NewGuid(), Name = "Mr Tan", Phone = "0123456789", IcNumber = "900101-01-1234" };
+        var incoming = new Owner { Id = Guid.NewGuid(), Name = "Mr Tan Duplicate", Phone = "0199998888", IcNumber = "900101011234" };
+
+        var result = ContactRules.ValidateUniqueOwnerIcNumber(incoming, [existing]);
+
+        Assert.Contains(result.Errors, error => error.Code == "duplicate_owner_ic");
+        Assert.Equal(existing.Id, ContactRules.FindOwnerByIcNumber("900101 01 1234", [existing])?.Id);
+    }
+
+    [Fact]
+    public void Vehicle_intake_new_owner_must_match_vehicle_and_include_identity_details()
+    {
+        var owner = new Owner { Id = Guid.NewGuid(), Name = "Lim Owner", Phone = "0198887777", IcNumber = "900101-01-1234" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = Guid.NewGuid() };
+
+        var mismatch = VehicleIntakeOwnerRules.Validate(vehicle, owner, []);
+        var accepted = VehicleIntakeOwnerRules.Validate(vehicle with { OwnerId = owner.Id }, owner, []);
+        var incompleteIc = VehicleIntakeOwnerRules.Validate(vehicle with { OwnerId = owner.Id }, owner with { IcNumber = "900101" }, []);
+
+        Assert.Contains(mismatch.Errors, error => error.Code == "intake_owner_mismatch");
+        Assert.Contains(incompleteIc.Errors, error => error.Code == "owner_ic_invalid");
+        Assert.True(accepted.IsValid);
+    }
+
+    [Fact]
+    public void Loan_decision_requires_a_pending_application_and_a_rejection_reason()
+    {
+        var pending = new LoanApplication { Status = LoanStatus.Pending };
+        var approved = pending with { Status = LoanStatus.Approved, LouApproved = true };
+
+        var missingReason = LoanDecisionRules.ValidateDecision(pending, new LoanDecisionRequest(LoanStatus.Rejected, " "));
+        var wrongSourceState = LoanDecisionRules.ValidateDecision(approved, new LoanDecisionRequest(LoanStatus.Rejected, "Bank declined"));
+        var wrongTargetState = LoanDecisionRules.ValidateDecision(pending, new LoanDecisionRequest(LoanStatus.Done, null));
+
+        Assert.Contains(missingReason.Errors, error => error.Code == "loan_rejection_reason_required");
+        Assert.Contains(wrongSourceState.Errors, error => error.Code == "loan_decision_pending_required");
+        Assert.Contains(wrongTargetState.Errors, error => error.Code == "loan_decision_status_invalid");
+    }
+
+    [Fact]
+    public void Loan_decision_records_server_owned_actor_time_and_normalizes_lou_state()
+    {
+        var decidedAt = new DateTime(2026, 8, 31, 9, 30, 0, DateTimeKind.Utc);
+        var pending = new LoanApplication
+        {
+            Status = LoanStatus.Pending,
+            LouApproved = true,
+            LouDone = true,
+            DecisionBy = "untrusted-client",
+            DecisionAt = decidedAt.AddDays(-1)
+        };
+
+        var rejected = LoanDecisionRules.ApplyDecision(
+            pending,
+            new LoanDecisionRequest(LoanStatus.Rejected, "  Bank declined  "),
+            "loan@ysheng.local",
+            decidedAt);
+
+        Assert.Equal(LoanStatus.Rejected, rejected.Status);
+        Assert.False(rejected.LouApproved);
+        Assert.False(rejected.LouDone);
+        Assert.Equal("Bank declined", rejected.RejectionReason);
+        Assert.Equal("loan@ysheng.local", rejected.DecisionBy);
+        Assert.Equal(decidedAt, rejected.DecisionAt);
+    }
+
+    [Fact]
+    public void Loan_general_update_cannot_bypass_decision_action_or_forge_decision_metadata()
+    {
+        var decidedAt = new DateTime(2026, 8, 31, 9, 30, 0, DateTimeKind.Utc);
+        var pending = new LoanApplication { Status = LoanStatus.Pending };
+        var rejected = new LoanApplication
+        {
+            Status = LoanStatus.Rejected,
+            DecisionBy = "loan@ysheng.local",
+            DecisionAt = decidedAt,
+            RejectionReason = "Bank declined"
+        };
+
+        var bypass = LoanDecisionRules.ValidateGenericUpdate(pending, pending with { Status = LoanStatus.Approved, LouApproved = true });
+        var skipDecision = LoanDecisionRules.ValidateGenericUpdate(pending, pending with { Status = LoanStatus.Done, LouApproved = true, LouDone = true });
+        var reopen = LoanDecisionRules.ValidateGenericUpdate(rejected, rejected with { Status = LoanStatus.Pending });
+        var mutateRejected = LoanDecisionRules.ValidateGenericUpdate(rejected, rejected with { CustomerId = Guid.NewGuid(), LouApproved = true });
+        var preserved = LoanDecisionRules.PreserveDecisionMetadata(rejected, rejected with
+        {
+            DecisionBy = "untrusted-client",
+            DecisionAt = decidedAt.AddDays(1),
+            RejectionReason = "Changed"
+        });
+
+        Assert.Contains(bypass.Errors, error => error.Code == "loan_decision_action_required");
+        Assert.Contains(skipDecision.Errors, error => error.Code == "loan_status_transition_invalid");
+        Assert.Contains(reopen.Errors, error => error.Code == "loan_terminal_status_locked");
+        Assert.Contains(mutateRejected.Errors, error => error.Code == "loan_terminal_status_locked");
+        Assert.Equal("loan@ysheng.local", preserved.DecisionBy);
+        Assert.Equal(decidedAt, preserved.DecisionAt);
+        Assert.Equal("Bank declined", preserved.RejectionReason);
+    }
+
+    [Fact]
+    public void Manual_rejected_loan_requires_a_reason_and_uses_server_decision_metadata()
+    {
+        var decidedAt = new DateTime(2026, 8, 31, 9, 30, 0, DateTimeKind.Utc);
+        var rejected = new LoanApplication
+        {
+            Status = LoanStatus.Rejected,
+            RejectionReason = "  Bank policy  ",
+            DecisionBy = "untrusted-client"
+        };
+
+        Assert.Contains(
+            LoanDecisionRules.ValidateCreate(rejected with { RejectionReason = null }).Errors,
+            error => error.Code == "loan_rejection_reason_required");
+
+        var prepared = LoanDecisionRules.PrepareForCreate(rejected, "admin@ysheng.local", decidedAt);
+
+        Assert.Equal(LoanStatus.Rejected, prepared.Status);
+        Assert.Equal("Bank policy", prepared.RejectionReason);
+        Assert.Equal("admin@ysheng.local", prepared.DecisionBy);
+        Assert.Equal(decidedAt, prepared.DecisionAt);
+        Assert.False(prepared.LouApproved);
+        Assert.False(prepared.LouDone);
+    }
+
+    [Fact]
     public void Loan_validation_requires_submitted_date_for_active_follow_up_status()
     {
         var vehicle = VehicleSeed.Available(publicVisible: true);
@@ -1178,6 +1326,43 @@ public sealed class BusinessRulesTests
         Assert.Contains(result.Errors, error => error.Code == "make_required");
         Assert.Contains(result.Errors, error => error.Code == "model_required");
         Assert.Contains(result.Errors, error => error.Code == "invalid_year");
+    }
+
+    [Theory]
+    [InlineData("BKC3003")]
+    [InlineData("SAA1234A")]
+    [InlineData("MALAYSIA1")]
+    [InlineData("M_M1")]
+    [InlineData("12-34-DC")]
+    public void Vehicle_intake_validation_accepts_supported_malaysia_registration_formats(string plateNumber)
+    {
+        var result = VehicleRules.ValidateIntake(VehicleSeed.Available(publicVisible: true) with { PlateNumber = plateNumber });
+
+        Assert.DoesNotContain(result.Errors, error => error.Code == "invalid_plate_format");
+    }
+
+    [Theory]
+    [InlineData("123ABC")]
+    [InlineData("BKC0123")]
+    [InlineData("BKC10000")]
+    [InlineData("BKC@123")]
+    public void Vehicle_intake_validation_rejects_invalid_malaysia_registration_formats(string plateNumber)
+    {
+        var result = VehicleRules.ValidateIntake(VehicleSeed.Available(publicVisible: true) with { PlateNumber = plateNumber });
+
+        Assert.Contains(result.Errors, error => error.Code == "invalid_plate_format");
+    }
+
+    [Fact]
+    public void Vehicle_normalization_uppercases_and_compacts_registration_numbers()
+    {
+        var standard = VehicleRules.NormalizeDateTimes(VehicleSeed.Available(publicVisible: true) with { PlateNumber = " bkc 3003 " });
+        var special = VehicleRules.NormalizeDateTimes(VehicleSeed.Available(publicVisible: true) with { PlateNumber = " m_m 1 " });
+        var diplomatic = VehicleRules.NormalizeDateTimes(VehicleSeed.Available(publicVisible: true) with { PlateNumber = " 12 - 34 - dc " });
+
+        Assert.Equal("BKC3003", standard.PlateNumber);
+        Assert.Equal("M_M1", special.PlateNumber);
+        Assert.Equal("12-34-DC", diplomatic.PlateNumber);
     }
 
     [Fact]
@@ -1702,6 +1887,45 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "unknown_settlement_owner");
+    }
+
+    [Fact]
+    public void Vehicle_intake_settlement_must_match_the_new_vehicle_and_previous_owner_and_remain_unpaid()
+    {
+        var ownerId = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = ownerId };
+        var settlement = new SettlementReminder
+        {
+            VehicleId = Guid.NewGuid(),
+            OwnerId = Guid.NewGuid(),
+            Amount = 42000m,
+            Deadline = new DateOnly(2026, 9, 1),
+            IsPaid = true
+        };
+
+        var result = VehicleIntakeSettlementRules.Validate(vehicle, settlement);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "settlement_vehicle_mismatch");
+        Assert.Contains(result.Errors, error => error.Code == "settlement_owner_mismatch");
+        Assert.Contains(result.Errors, error => error.Code == "settlement_paid_during_intake");
+    }
+
+    [Fact]
+    public void Vehicle_intake_settlement_accepts_a_matching_unpaid_reminder()
+    {
+        var ownerId = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = ownerId };
+        var settlement = new SettlementReminder
+        {
+            VehicleId = vehicle.Id,
+            OwnerId = ownerId,
+            Amount = 42000m,
+            Deadline = new DateOnly(2026, 9, 1),
+            IsPaid = false
+        };
+
+        Assert.True(VehicleIntakeSettlementRules.Validate(vehicle, settlement).IsValid);
     }
 
     [Fact]
@@ -2699,6 +2923,14 @@ public sealed class BusinessRulesTests
         Assert.Equal(RepairApprovalStatus.Pending, edited.ApprovalStatus);
         Assert.Null(edited.ApprovedBy);
         Assert.Null(edited.ApprovedAt);
+    }
+
+    [Fact]
+    public void Supplier_approval_allows_admin_override_but_keeps_finance_maker_checker()
+    {
+        Assert.True(SupplierRules.CanApprove("creator-user", "creator-user", isBossAdmin: true));
+        Assert.False(SupplierRules.CanApprove("creator-user", "creator-user", isBossAdmin: false));
+        Assert.True(SupplierRules.CanApprove("creator-user", "finance-user", isBossAdmin: false));
     }
 
     [Fact]
@@ -3859,7 +4091,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Local_mock_ocr_extracts_purchase_invoice_fields_from_uploaded_text()
+    public void Ocr_parser_extracts_purchase_invoice_fields_from_provider_text()
     {
         var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "VPK1234" };
         var document = new DocumentBlob
@@ -3871,7 +4103,7 @@ public sealed class BusinessRulesTests
             Content = System.Text.Encoding.UTF8.GetBytes("Purchase invoice PI-1001 plate VPK1234 amount RM 52000.00")
         };
 
-        var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
+        var result = AnalyzeOcrFixture(document, [vehicle]);
 
         Assert.Equal(FileCategory.PurchaseInvoice, result.DocumentCategory);
         Assert.Equal("PI-1001", result.Fields["invoiceNumber"]);
@@ -3881,7 +4113,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Local_mock_ocr_extracts_typed_identity_card_fields_without_invoice_values()
+    public void Ocr_parser_extracts_typed_identity_card_fields_without_invoice_values()
     {
         var document = new DocumentBlob
         {
@@ -3891,29 +4123,13 @@ public sealed class BusinessRulesTests
             Content = System.Text.Encoding.UTF8.GetBytes("Identity Card Name Ali Tan IC 900101-01-1234 Address 12 Jalan Demo")
         };
 
-        var result = new LocalMockOcrExtractor().Analyze(document, []);
+        var result = AnalyzeOcrFixture(document, []);
 
         Assert.Equal("900101-01-1234", result.Fields["icNumber"]);
         Assert.Equal("Ali Tan", result.Fields["customerName"]);
         Assert.Equal("12 Jalan Demo", result.Fields["address"]);
         Assert.Null(result.Fields["invoiceNumber"]);
         Assert.Null(result.Fields["amount"]);
-    }
-
-    [Fact]
-    public void Local_mock_ocr_rejects_image_files_instead_of_decoding_image_bytes_as_text()
-    {
-        var document = new DocumentBlob
-        {
-            Category = FileCategory.IdentityCard,
-            FileName = "ic.jpg",
-            MimeType = "image/jpeg",
-            Content = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]
-        };
-
-        var error = Assert.Throws<InvalidOperationException>(() => new LocalMockOcrExtractor().Analyze(document, []));
-
-        Assert.Contains("cannot read image files", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -3931,7 +4147,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Local_mock_ocr_extracts_typed_voc_fields_without_invoice_values()
+    public void Ocr_parser_extracts_typed_voc_fields_without_invoice_values()
     {
         var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "WXY1234" };
         var document = new DocumentBlob
@@ -3943,7 +4159,7 @@ public sealed class BusinessRulesTests
             Content = System.Text.Encoding.UTF8.GetBytes("Vehicle Ownership Certificate Registration WXY1234 Chassis MMBXUFG2WNH123456 Engine 4B11T123456 Make Proton Model X70 Year 2024 Owner Ali Tan")
         };
 
-        var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
+        var result = AnalyzeOcrFixture(document, [vehicle]);
 
         Assert.Equal("WXY1234", result.Fields["plateNumber"]);
         Assert.Equal("MMBXUFG2WNH123456", result.Fields["chassisNumber"]);
@@ -3956,7 +4172,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Local_mock_ocr_extracts_repair_invoice_supplier_and_plate()
+    public void Ocr_parser_extracts_repair_invoice_supplier_and_plate()
     {
         var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "ABC1234" };
         var document = new DocumentBlob
@@ -3968,7 +4184,7 @@ public sealed class BusinessRulesTests
             Content = System.Text.Encoding.UTF8.GetBytes("Brilliant Spray\nSupplier invoice SUP-7788 plate ABC1234 total RM 880\nRepair part: Bumper\nDescription: Paint bumper and polish\n1. Replace bumper qty 1 RM 180\n2. Paint bumper qty 1 RM 200\nTotal 380")
         };
 
-        var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
+        var result = AnalyzeOcrFixture(document, [vehicle]);
 
         Assert.Equal("Brilliant Spray", result.Fields["supplierName"]);
         Assert.Equal("SUP-7788", result.Fields["invoiceNumber"]);
@@ -3976,7 +4192,44 @@ public sealed class BusinessRulesTests
         Assert.Equal("380", result.Fields["amount"]);
         Assert.DoesNotContain("repairPart", result.Fields.Keys, StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain("whatToDo", result.Fields.Keys, StringComparer.OrdinalIgnoreCase);
-        Assert.Equal(["Replace bumper qty 1 RM 180", "Paint bumper qty 1 RM 200"], result.LineItems?.Select(item => item.Description));
+        Assert.Equal(["Replace bumper", "Paint bumper"], result.LineItems?.Select(item => item.Description));
+        Assert.Equal(["1", "1"], result.LineItems?.Select(item => item.Quantity));
+        Assert.Equal(["180", "200"], result.LineItems?.Select(item => item.Amount));
+    }
+
+    [Fact]
+    public void Ocr_parser_keeps_each_structured_repair_receipt_row_together()
+    {
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.RepairInvoice,
+            FileName = "repair.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes("LK TINT & CAR ACCESORIES\n50 HD 2PLY FRONT SCREEN 1 SQF 130.00 130.00\nCARWALES SOFTWIPER14 1 PC 7.50 7.50\nTotal 137.50")
+        };
+
+        var result = AnalyzeOcrFixture(document, []);
+        var items = result.LineItems?.ToList();
+
+        Assert.Equal("137.50", result.Fields["amount"]);
+        Assert.NotNull(items);
+        Assert.Collection(items,
+            item =>
+            {
+                Assert.Equal("50 HD 2PLY FRONT SCREEN", item.Description);
+                Assert.Equal("1", item.Quantity);
+                Assert.Equal("SQF", item.Unit);
+                Assert.Equal("130.00", item.UnitPrice);
+                Assert.Equal("130.00", item.Amount);
+            },
+            item =>
+            {
+                Assert.Equal("CARWALES SOFTWIPER14", item.Description);
+                Assert.Equal("1", item.Quantity);
+                Assert.Equal("PC", item.Unit);
+                Assert.Equal("7.50", item.UnitPrice);
+                Assert.Equal("7.50", item.Amount);
+            });
     }
 
     [Fact]
@@ -4000,7 +4253,54 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Local_mock_ocr_extracts_finance_receipt_fields()
+    public void Google_document_ai_parses_a_unitless_repair_line_item()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.RepairInvoice },
+            [],
+            "Repair invoice",
+            0.9m,
+            []);
+
+        var result = GoogleDocumentAiEntityMapper.Apply(extraction, [
+            new GoogleDocumentAiEntity("line_item", "DASHCAM FRONT & REAR (OWNER GOODS) 1 60.00 60.00", 0.91m)
+        ]);
+
+        var item = Assert.Single(result.LineItems!);
+        Assert.Equal("DASHCAM FRONT & REAR (OWNER GOODS)", item.Description);
+        Assert.Equal("1", item.Quantity);
+        Assert.Null(item.Unit);
+        Assert.Equal("60.00", item.UnitPrice);
+        Assert.Equal("60.00", item.Amount);
+    }
+
+    [Fact]
+    public void Google_document_ai_maps_supplier_contact_details_for_review()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.RepairInvoice },
+            [],
+            "Repair invoice",
+            0.9m,
+            []);
+
+        var result = GoogleDocumentAiEntityMapper.Apply(extraction, [
+            new GoogleDocumentAiEntity("supplier_name", "LK Tint & Car Accessories", 0.91m),
+            new GoogleDocumentAiEntity("supplier_address", "12 Jalan Example, Johor", 0.88m),
+            new GoogleDocumentAiEntity("supplier_phone", "012-3456789", 0.87m),
+            new GoogleDocumentAiEntity("supplier_registration", "202601012345", 0.86m),
+            new GoogleDocumentAiEntity("supplier_tax_id", "C1234567890", 0.86m)
+        ]);
+
+        Assert.Equal("LK Tint & Car Accessories", result.Fields["supplierName"]);
+        Assert.Equal("12 Jalan Example, Johor", result.Fields["supplierAddress"]);
+        Assert.Equal("012-3456789", result.Fields["supplierPhone"]);
+        Assert.Equal("202601012345", result.Fields["supplierRegistrationNumber"]);
+        Assert.Equal("C1234567890", result.Fields["supplierTinNumber"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_extracts_finance_receipt_fields()
     {
         var vehicle = VehicleSeed.Available(publicVisible: false);
         var document = new DocumentBlob
@@ -4012,7 +4312,7 @@ public sealed class BusinessRulesTests
             Content = System.Text.Encoding.UTF8.GetBytes("Receipt RCPT-9001 Maybank amount RM 58000 date 2026-06-08")
         };
 
-        var result = new LocalMockOcrExtractor().Analyze(document, [vehicle]);
+        var result = AnalyzeOcrFixture(document, [vehicle]);
 
         Assert.Equal("RCPT-9001", result.Fields["receiptNumber"]);
         Assert.Equal("Maybank", result.Fields["bankName"]);
@@ -4274,6 +4574,14 @@ public sealed class BusinessRulesTests
         Assert.Contains(PurchaseInvoiceRules.Validate(invoice, [], [vehicle]).Errors, error => error.Code == "purchase_invoice_line_total_mismatch");
         Assert.True(PurchaseInvoiceRules.Validate(invoice with { Lines = [invoice.Lines[0] with { Amount = 100m }] }, [], [vehicle]).IsValid);
     }
+
+    private static OcrExtractionResult AnalyzeOcrFixture(DocumentBlob document, IEnumerable<Vehicle> vehicles) =>
+        OcrExtractionParser.Analyze(
+            document,
+            vehicles,
+            Encoding.UTF8.GetString(document.Content),
+            0.82m,
+            []);
 
 }
 

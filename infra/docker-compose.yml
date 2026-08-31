@@ -28,7 +28,6 @@ services:
       SeedData__Enabled: ${SEED_DATA_ENABLED:-true}
       SeedAdmin__Email: ${SEED_ADMIN_EMAIL:-admin@ysheng.local}
       SeedAdmin__Password: ${SEED_ADMIN_PASSWORD:-ChangeMe123!}
-      Ocr__Provider: ${OCR_PROVIDER:-LocalMock}
       Ocr__GoogleDocumentAi__ProjectId: ${GOOGLE_DOCUMENT_AI_PROJECT_ID:-}
       Ocr__GoogleDocumentAi__Location: ${GOOGLE_DOCUMENT_AI_LOCATION:-asia-southeast1}
       Ocr__GoogleDocumentAi__DefaultProcessorId: ${GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID:-}

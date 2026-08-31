@@ -29,9 +29,18 @@ export function ownerCreateBlockReason(owner: Owner, existing: Owner[] = []) {
     return "Owner phone already exists.";
   }
 
+  const normalizedIcNumber = normalizeIdentityCardNumber(owner.icNumber);
+  if (normalizedIcNumber && existing.some((item) => item.id !== owner.id && normalizeIdentityCardNumber(item.icNumber) === normalizedIcNumber)) {
+    return "An owner with this IC number already exists.";
+  }
+
   return undefined;
 }
 
 function normalizePhone(phone: string) {
   return phone.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+export function normalizeIdentityCardNumber(icNumber?: string) {
+  return icNumber?.replace(/\D/g, "") ?? "";
 }
