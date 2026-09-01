@@ -2070,9 +2070,9 @@ export function DashboardPage({
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
       <div className="dashboardCommandBar">
         <div>
-          <Typography.Text className="loginKicker">Executive pulse / 老板速览</Typography.Text>
-          <Typography.Title level={2}>See demand, cost, sales, and follow-up at a glance</Typography.Title>
-          <Typography.Text>Every ranking comes from protected operational records.</Typography.Text>
+          <Typography.Text className="loginKicker">Management dashboard / 管理看板</Typography.Text>
+          <Typography.Title level={2}>Business health and decisions at a glance</Typography.Title>
+          <Typography.Text>Review sales, profit, cash exposure, aging stock, and actions requiring attention.</Typography.Text>
         </div>
         <div className={topDemandVehicle ? "dashboardFocusQueue dashboardFocusQueueHot" : "dashboardFocusQueue"}>
           <span>URGENT STOCK</span>
@@ -2081,33 +2081,31 @@ export function DashboardPage({
         </div>
       </div>
 
-        <ProCard
-          title="Operations dashboard / 运营看板"
-          className="dashboardOverviewCard"
-          extra={<Space size={8} wrap><Tag color={reminderLoadError ? "orange" : priorityDueNowCount > 0 ? "red" : "green"}>{reminderLoadError ? "Check incomplete" : `${priorityDueNowCount} due now`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
-        >
-          <DashboardAnalyticsControls
-            period={analyticsPeriod}
-            preset={analyticsRangePreset}
-            disabled={refreshing}
-            onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)}
-          />
-          <Typography.Text type="secondary">Live stock, current-stock cost, projected margin, loan, collection, settlement, and aging figures are current as of now. Sales, realised profit, lead, and refurbishment analysis use {analyticsPeriodLabel}. {lastCheckedAt ? `Last checked ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet."}</Typography.Text>
-          <div className="metricGrid dashboardMetricGrid">
-            <Metric label="Total Stock / 总库存" value={dashboard.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+      <ProCard
+        title="Management snapshot / 管理概览"
+        className="dashboardOverviewCard"
+        extra={<Space size={8} wrap><Tag color={reminderLoadError ? "orange" : priorityDueNowCount > 0 ? "red" : "green"}>{reminderLoadError ? "Check incomplete" : `${priorityDueNowCount} due now`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
+      >
+        <DashboardAnalyticsControls
+          period={analyticsPeriod}
+          preset={analyticsRangePreset}
+          disabled={refreshing}
+          onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)}
+        />
+        <Typography.Text type="secondary">Live stock, current-stock cost, projected margin, loan, collection, settlement, and aging figures are current as of now. Sales, realised profit, lead, and refurbishment analysis use {analyticsPeriodLabel}. {lastCheckedAt ? `Last checked ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet."}</Typography.Text>
+        <section className="dashboardMetricSection" aria-labelledby="dashboard-performance-title">
+          <div className="dashboardMetricSectionHeader">
+            <h3 id="dashboard-performance-title">Business performance / 经营表现</h3>
+            <span>The outcomes and cash position management checks first.</span>
+          </div>
+          <div className="metricGrid dashboardMetricGrid dashboardHeadlineMetrics">
             <Metric label="Total Sales / 销售总数" value={totalSales} meta={analyticsPeriodLabel} tone="profit" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
             <Metric label="Total Profit / 实际利润" value={formatCompactMoney(actualProfit)} meta={analyticsPeriodLabel} tone={actualProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
-            <Metric label="Pending Loan / 贷款待跟进" value={dashboard.pendingLoan} tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
             <Metric label="Outstanding Collection / 待收总额" value={formatCompactMoney(outstandingCollection)} meta="Unreconciled payments + open debt" tone={outstandingCollection > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("payments"))} />
-            <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} meta={formatCompactMoney(settlementDueAmount)} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
-            <Metric label="Purchase Cost / 收车成本" value={formatCompactMoney(purchaseCost)} meta="Current unsold stock" tone="neutral" onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Repair Cost / 整备费用" value={formatCompactMoney(dashboard.repairCost)} meta="Current unsold stock" tone={dashboard.repairCost > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
             <Metric label="Projected Stock Profit / 库存预计利润" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
-            <Metric label="Aging / 超60天库存" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
           </div>
-        </ProCard>
-
-        {aiDocumentProcessing && <DashboardAiDocumentProcessingPanel processing={aiDocumentProcessing} analyticsPeriodLabel={analyticsPeriodLabel} />}
+        </section>
+      </ProCard>
 
         {/* The upstream fallback is retained in data-safe form by the priority, cash, and aging panels below. */}
         {/*
@@ -2213,6 +2211,18 @@ export function DashboardPage({
                 })}
               </div>
             ) : <Typography.Text type="secondary">No outstanding cash follow-up.</Typography.Text>}
+          </div>
+        </ProCard>
+
+        <ProCard title="Operational exposure / 运营风险" className="dashboardOverviewCard">
+          <Typography.Text type="secondary">Stock, workflow, and cost indicators that may need management intervention.</Typography.Text>
+          <div className="metricGrid dashboardMetricGrid dashboardSupportingMetrics">
+            <Metric label="Total Stock / 总库存" value={dashboard.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+            <Metric label="Pending Loan / 贷款待跟进" value={dashboard.pendingLoan} tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
+            <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} meta={formatCompactMoney(settlementDueAmount)} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
+            <Metric label="Aging / 超60天库存" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
+            <Metric label="Purchase Cost / 收车成本" value={formatCompactMoney(purchaseCost)} meta="Current unsold stock" tone="neutral" onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+            <Metric label="Repair Cost / 整备费用" value={formatCompactMoney(dashboard.repairCost)} meta="Current unsold stock" tone={dashboard.repairCost > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
           </div>
         </ProCard>
 
@@ -2413,6 +2423,8 @@ export function DashboardPage({
             <DashboardAgingActionBoard items={agingBuckets} onNavigate={onNavigate} />
           </ProCard>
         </div>
+
+        {aiDocumentProcessing && <DashboardAiDocumentProcessingPanel processing={aiDocumentProcessing} analyticsPeriodLabel={analyticsPeriodLabel} />}
     </Space>
   );
 }

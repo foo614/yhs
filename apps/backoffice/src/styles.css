@@ -1136,6 +1136,57 @@ body {
   margin-top: 2px;
 }
 
+.dashboardMetricSection {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboardMetricSectionHeader {
+  display: grid;
+  gap: 2px;
+}
+
+.dashboardMetricSectionHeader h3 {
+  margin: 0;
+  color: #14251f;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.dashboardMetricSectionHeader span {
+  color: #687973;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.metricGrid.dashboardHeadlineMetrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metricGrid.dashboardHeadlineMetrics .metricCard {
+  min-height: 104px;
+  align-content: start;
+}
+
+.metricGrid.dashboardSupportingMetrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 1024px) {
+  .metricGrid.dashboardHeadlineMetrics,
+  .metricGrid.dashboardSupportingMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .metricGrid.dashboardHeadlineMetrics,
+  .metricGrid.dashboardSupportingMetrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .operationalInfoAlert.ant-alert,
 .sectionIntroAlert.ant-alert {
   padding: 8px 12px;
