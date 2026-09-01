@@ -133,6 +133,13 @@ describe("management dashboard", () => {
     expect(markup).toContain("Current unsold stock");
     expect(markup).toContain("New enquiry needs first contact");
     expect(markup).not.toContain("All clear");
+    expect(markup).toContain("Management snapshot / 管理概览");
+    expect(markup).toContain("Business performance / 经营表现");
+    expect(markup).toContain("Operational exposure / 运营风险");
+    expect(markup.indexOf("Management snapshot / 管理概览")).toBeLessThan(markup.indexOf("Priority actions / 老板待办"));
+    expect(markup.indexOf("Priority actions / 老板待办")).toBeLessThan(markup.indexOf("Operational exposure / 运营风险"));
+    expect(markup.indexOf("Operational exposure / 运营风险")).toBeLessThan(markup.indexOf("Reminder inbox / 提醒事项"));
+    expect(markup.indexOf("Executive intelligence / 决策图表")).toBeLessThan(markup.indexOf("AI document processing / AI 文件处理"));
     expect(markup).toContain("AI document processing / AI 文件处理");
     expect(markup).toContain("OCR field accuracy / OCR 字段准确率");
     expect(markup).toContain("Invoices &amp; receipts");
