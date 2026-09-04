@@ -43,6 +43,9 @@ describe("Sales My Cars", () => {
     expect(markup).toContain("Cars in progress");
     expect(markup).toContain("Current process / 当前流程");
     expect(markup).toContain("Search plate, model or next action");
+    expect(markup).toContain("salesMyCarsFilterBar");
+    expect(markup).toContain("salesMyCarsTable");
+    expect(markup.includes("ant-pro-query-filter")).toBe(false);
     expect(markup).toContain("Responsible team / 负责部门");
     expect(markup).toContain("Prepare the car");
     expect(markup).not.toContain("Invoice");
