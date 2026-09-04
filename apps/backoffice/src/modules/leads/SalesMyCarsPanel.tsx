@@ -140,6 +140,7 @@ export function SalesMyCarsPanel({
           size="small"
           columns={columns}
           dataSource={filteredItems}
+          search={false}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           scroll={{ x: 880 }}
           locale={{ emptyText: keyword.trim() ? "No cars match this search." : "No cars are assigned to this sales view yet." }}
