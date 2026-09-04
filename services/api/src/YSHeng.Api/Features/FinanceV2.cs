@@ -445,7 +445,8 @@ public static class FinanceV2Rules
     public static ReceivableStatus DeriveReceivableStatus(PaymentRecord payment, FinanceInvoice? invoice, IEnumerable<CollectionTransaction> collections)
     {
         if (payment.FinanceWorkflowVersion != 2) return payment.Status == PaymentStatus.Reconciled ? ReceivableStatus.Paid : ReceivableStatus.Draft;
-        if (invoice is null) return HasApprovedVariance(payment) ? ReceivableStatus.Draft : ReceivableStatus.WaitingForApproval;
+        if (!HasApprovedVariance(payment)) return invoice is null ? ReceivableStatus.WaitingForApproval : ReceivableStatus.AttentionNeeded;
+        if (invoice is null) return ReceivableStatus.Draft;
         if (ActiveAllocatedAmount(collections) > payment.NettPrice) return ReceivableStatus.AttentionNeeded;
         if (Balance(payment, collections) == 0) return ReceivableStatus.Paid;
         if (CollectedAmount(collections) > 0) return ReceivableStatus.PartiallyPaid;

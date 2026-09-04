@@ -255,7 +255,8 @@ describe("approved vehicle selling price controls", () => {
   it("locks an approved selling price for Sales while leaving Boss/Admin a warned reprice path", () => {
     expect(vehicleSellingPriceEditPolicy(baseVehicle, false)).toEqual({ locked: true, warnsBeforeReprice: false });
     expect(vehicleSellingPriceEditPolicy(baseVehicle, true)).toEqual({ locked: false, warnsBeforeReprice: true });
-    expect(vehicleSellingPriceChanged(58_000, 58_000.001)).toBe(false);
+    expect(vehicleSellingPriceChanged(58_000, 58_000)).toBe(false);
+    expect(vehicleSellingPriceChanged(58_000, 58_000.001)).toBe(true);
     expect(vehicleSellingPriceChanged(58_000, 57_500)).toBe(true);
   });
 

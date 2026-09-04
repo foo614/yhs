@@ -262,7 +262,7 @@ export function vehicleFromCreateIntakeValues(values: VehicleIntakeDraft, canApp
 }
 
 export function vehicleSellingPriceChanged(currentPrice: number, nextPrice: number) {
-  return Math.round(Number(currentPrice) * 100) !== Math.round(Number(nextPrice) * 100);
+  return Number(currentPrice) !== Number(nextPrice);
 }
 
 export function vehicleSellingPriceEditPolicy(vehicle: Pick<Vehicle, "bossConfirmed"> | undefined, canApproveVehicles: boolean) {

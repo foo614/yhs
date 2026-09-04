@@ -135,6 +135,33 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
+    public void Historical_positive_ncd_invoice_with_reconciled_collection_requires_remediation_before_paid_status()
+    {
+        var payment = V2Payment(14_500m) with
+        {
+            SalesPrice = 15_000m,
+            NcdAmount = 500m,
+            NettPriceOverrideReason = "Historical NCD entitlement"
+        };
+        var invoice = InvoiceFor(payment);
+        var reconciled = CollectionFor(payment, 14_500m, CollectionStatus.Reconciled, "HISTORICAL-PAID");
+
+        Assert.Equal(ReceivableStatus.AttentionNeeded, FinanceV2Rules.DeriveReceivableStatus(payment, invoice, [reconciled]));
+        Assert.False(FinanceV2Rules.IsReceivableSettled(payment, invoice, [reconciled]));
+
+        var approved = payment with
+        {
+            NettPriceOverrideRequestedBy = "finance-1",
+            NettPriceOverrideRequestedAt = DateTime.UtcNow.AddMinutes(-1),
+            NettPriceOverrideApprovedBy = "boss-1",
+            NettPriceOverrideApprovedAt = DateTime.UtcNow
+        };
+
+        Assert.Equal(ReceivableStatus.Paid, FinanceV2Rules.DeriveReceivableStatus(approved, invoice, [reconciled]));
+        Assert.True(FinanceV2Rules.IsReceivableSettled(approved, invoice, [reconciled]));
+    }
+
+    [Fact]
     public void Legacy_receivable_cannot_start_below_approved_price_and_terms_are_immutable_after_creation()
     {
         var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 15_000m, BossConfirmed = true };
