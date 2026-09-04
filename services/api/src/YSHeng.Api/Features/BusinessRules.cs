@@ -1728,6 +1728,37 @@ public static class LoanDecisionRules
 
 }
 
+public static class FinanceClearanceRules
+{
+    public static bool IsPaymentCleared(
+        PaymentRecord payment,
+        FinanceInvoice? invoice,
+        IEnumerable<CollectionTransaction> collections) =>
+        payment.FinanceWorkflowVersion == 2
+            ? FinanceV2Rules.IsReceivableSettled(payment, invoice, collections)
+            : payment.Status == PaymentStatus.Reconciled;
+
+    public static HashSet<Guid> ClearedVehicleIds(
+        IEnumerable<PaymentRecord> payments,
+        IEnumerable<FinanceInvoice> invoices,
+        IEnumerable<CollectionTransaction> collections)
+    {
+        var invoiceByPayment = invoices.ToLookup(invoice => invoice.PaymentRecordId);
+        var collectionsByPayment = collections.ToLookup(collection => collection.PaymentRecordId);
+        return payments
+            .Where(payment => IsPaymentCleared(payment, invoiceByPayment[payment.Id].FirstOrDefault(), collectionsByPayment[payment.Id]))
+            .Select(payment => payment.VehicleId)
+            .ToHashSet();
+    }
+
+    public static bool IsVehicleCleared(
+        Guid vehicleId,
+        IEnumerable<PaymentRecord> payments,
+        IEnumerable<FinanceInvoice> invoices,
+        IEnumerable<CollectionTransaction> collections) =>
+        ClearedVehicleIds(payments, invoices, collections).Contains(vehicleId);
+}
+
 public static class WorkflowStatusRules
 {
     public static bool IsActiveLoan(LoanApplication loan) =>
@@ -1747,10 +1778,12 @@ public static class WorkflowStatusRules
         Vehicle vehicle,
         IEnumerable<LoanApplication> loans,
         IEnumerable<PaymentRecord> payments,
-        IEnumerable<DeliverySchedule>? deliveries = null)
+        IEnumerable<DeliverySchedule>? deliveries = null,
+        IEnumerable<FinanceInvoice>? financeInvoices = null,
+        IEnumerable<CollectionTransaction>? collections = null)
     {
         var deliveryList = (deliveries ?? []).ToList();
-        var financeCleared = payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled);
+        var financeCleared = FinanceClearanceRules.IsVehicleCleared(vehicle.Id, payments, financeInvoices ?? [], collections ?? []);
         var releasedAt = deliveryList
             .Where(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released)
             .Select(delivery => delivery.ReleasedAt)
@@ -1774,12 +1807,22 @@ public static class WorkflowStatusRules
             : vehicle;
     }
 
-    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, PaymentRecord payment, IEnumerable<DeliverySchedule>? deliveries = null)
+    public static Vehicle ApplyPaymentStatus(
+        Vehicle vehicle,
+        PaymentRecord payment,
+        IEnumerable<DeliverySchedule>? deliveries = null,
+        IEnumerable<FinanceInvoice>? financeInvoices = null,
+        IEnumerable<CollectionTransaction>? collections = null)
     {
-        return ApplyPaymentStatus(vehicle, [payment], deliveries);
+        return ApplyPaymentStatus(vehicle, [payment], deliveries, financeInvoices, collections);
     }
 
-    public static Vehicle ApplyPaymentStatus(Vehicle vehicle, IEnumerable<PaymentRecord> payments, IEnumerable<DeliverySchedule>? deliveries = null)
+    public static Vehicle ApplyPaymentStatus(
+        Vehicle vehicle,
+        IEnumerable<PaymentRecord> payments,
+        IEnumerable<DeliverySchedule>? deliveries = null,
+        IEnumerable<FinanceInvoice>? financeInvoices = null,
+        IEnumerable<CollectionTransaction>? collections = null)
     {
         var deliveryList = (deliveries ?? []).ToList();
         var releasedAt = deliveryList
@@ -1788,7 +1831,7 @@ public static class WorkflowStatusRules
             .Where(timestamp => timestamp.HasValue)
             .OrderBy(timestamp => timestamp)
             .FirstOrDefault();
-        if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled) &&
+        if (FinanceClearanceRules.IsVehicleCleared(vehicle.Id, payments, financeInvoices ?? [], collections ?? []) &&
             deliveryList.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released))
         {
             return vehicle with { Status = VehicleStatus.Sold, IsPublic = false, SoldAt = vehicle.SoldAt ?? releasedAt ?? DateTime.UtcNow };

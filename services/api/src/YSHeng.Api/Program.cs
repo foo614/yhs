@@ -1168,7 +1168,9 @@ backOffice.MapPost("/loans", async (LoanApplication loan, AppDbContext db, HttpC
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == loan.VehicleId);
     var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
     var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, existingLoans.Append(loan), payments, deliveries));
+    var financeInvoices = await db.FinanceInvoices.AsNoTracking().ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().ToListAsync();
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, existingLoans.Append(loan), payments, deliveries, financeInvoices, collections));
     db.LoanApplications.Add(loan);
     ApiAudit.Add(db, context.User, "loan.created", nameof(LoanApplication), loan.Id);
     await db.SaveChangesAsync();
@@ -1197,7 +1199,10 @@ backOffice.MapPost("/loans/{id:guid}/decision", async (Guid id, LoanDecisionRequ
     var updatedLoans = existingLoans.Where(item => item.Id != id).Append(updated).ToList();
     var vehicle = await FinanceApi.LockVehicleAsync(db, updated.VehicleId);
     if (vehicle is null) return Results.BadRequest(new ApiError("The loan vehicle is unavailable."));
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments));
+    var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
+    var financeInvoices = await db.FinanceInvoices.AsNoTracking().ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().ToListAsync();
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments, deliveries, financeInvoices, collections));
     db.Entry(existingLoan).CurrentValues.SetValues(updated);
     ApiAudit.Add(db, context.User, updated.Status == LoanStatus.Approved ? "loan.approved" : "loan.rejected", nameof(LoanApplication), id);
     await db.SaveChangesAsync();
@@ -1236,9 +1241,11 @@ backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppD
 
     var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
     var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
+    var financeInvoices = await db.FinanceInvoices.AsNoTracking().ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().ToListAsync();
     var updatedLoans = existingLoans.Where(item => item.Id != loan.Id).Append(loan).ToList();
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == existingLoan.VehicleId);
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments, deliveries));
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments, deliveries, financeInvoices, collections));
 
     db.Entry(existingLoan).CurrentValues.SetValues(loan);
     ApiAudit.Add(db, context.User, "loan.updated", nameof(LoanApplication), loan.Id);
@@ -1261,11 +1268,10 @@ backOffice.MapGet("/deliveries/workboard", async (AppDbContext db, UserManager<A
     var vehicles = (await db.Vehicles.AsNoTracking().ToListAsync()).ToDictionary(vehicle => vehicle.Id);
     var customers = (await db.Customers.AsNoTracking().ToListAsync()).ToDictionary(customer => customer.Id);
     var documents = await db.DocumentBlobs.AsNoTracking().Where(document => document.DeliveryScheduleId.HasValue).ToListAsync();
-    var financeClearedVehicleIds = (await db.PaymentRecords.AsNoTracking()
-        .Where(payment => payment.Status == PaymentStatus.Reconciled)
-        .Select(payment => payment.VehicleId)
-        .Distinct()
-        .ToListAsync()).ToHashSet();
+    var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    var financeInvoices = await db.FinanceInvoices.AsNoTracking().ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().ToListAsync();
+    var financeClearedVehicleIds = FinanceClearanceRules.ClearedVehicleIds(payments, financeInvoices, collections);
     var validPicUserIds = (await DeliveryStaffDirectory.GetPicOptionsAsync(userManager)).Select(option => option.Id).ToHashSet(StringComparer.Ordinal);
     var result = new List<DeliveryWorkboardItem>();
     foreach (var delivery in deliveries)
@@ -1393,7 +1399,9 @@ backOffice.MapPost("/deliveries/{id:guid}/release", async (Guid id, AppDbContext
     if (vehicle is null || customer is null) return Results.BadRequest(new ValidationResult([new ValidationError("delivery_identity_incomplete", "Delivery vehicle or buyer no longer exists.")]));
     if (vehicle.CustomerId != delivery.CustomerId) return Results.BadRequest(new ValidationResult([new ValidationError("delivery_buyer_not_canonical", "Vehicle buyer and locked delivery buyer must match before release.")]));
     var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
-    var financeCleared = payments.Any(payment => payment.VehicleId == delivery.VehicleId && payment.Status == PaymentStatus.Reconciled);
+    var financeInvoices = await db.FinanceInvoices.AsNoTracking().ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().ToListAsync();
+    var financeCleared = FinanceClearanceRules.IsVehicleCleared(delivery.VehicleId, payments, financeInvoices, collections);
     var documents = await db.DocumentBlobs.AsNoTracking().Where(document => document.DeliveryScheduleId == delivery.Id).ToListAsync();
     var workboardItem = DeliveryWorkboardRules.CreateItem(delivery, vehicle, customer, financeCleared, documents, BusinessClock.Today());
     if (!workboardItem.CanRelease)
@@ -1412,7 +1420,7 @@ backOffice.MapPost("/deliveries/{id:guid}/release", async (Guid id, AppDbContext
     await DeliveryPaymentScheduleSync.ApplyAsync(db, released);
     var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
     var deliveries = (await db.DeliverySchedules.AsNoTracking().ToListAsync()).Where(item => item.Id != id).Append(released);
-    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, payments, deliveries));
+    db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, payments, deliveries, financeInvoices, collections));
     db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, "Vehicle released to customer", "Released"));
     ApiAudit.Add(db, context.User, "delivery.released", nameof(DeliverySchedule), id);
     await db.SaveChangesAsync();
@@ -3828,7 +3836,11 @@ backOffice.MapGet("/deliveries/{id:guid}/release-readiness", async (Guid id, App
     if (delivery is null) return Results.NotFound();
     var documentCheck = DeliveryDocumentRules.CheckCompleteness(delivery, await db.DocumentBlobs.AsNoTracking().ToListAsync());
     var expiredDocuments = DeliveryRules.ExpiredDeliveryDocuments(delivery, BusinessClock.Today());
-    var financeCleared = await db.PaymentRecords.AsNoTracking().AnyAsync(payment => payment.VehicleId == delivery.VehicleId && payment.Status == PaymentStatus.Reconciled);
+    var payments = await db.PaymentRecords.AsNoTracking().Where(payment => payment.VehicleId == delivery.VehicleId).ToListAsync();
+    var paymentIds = payments.Select(payment => payment.Id).ToHashSet();
+    var financeInvoices = await db.FinanceInvoices.AsNoTracking().Where(invoice => invoice.VehicleId == delivery.VehicleId).ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().Where(collection => paymentIds.Contains(collection.PaymentRecordId)).ToListAsync();
+    var financeCleared = FinanceClearanceRules.IsVehicleCleared(delivery.VehicleId, payments, financeInvoices, collections);
     var vehicleCustomerId = await db.Vehicles.AsNoTracking()
         .Where(vehicle => vehicle.Id == delivery.VehicleId)
         .Select(vehicle => vehicle.CustomerId)
@@ -4089,7 +4101,13 @@ internal static class FinanceApi
         var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
         var deliveries = await db.DeliverySchedules.AsNoTracking().Where(delivery => delivery.VehicleId == payment.VehicleId).ToListAsync();
         var vehicle = await db.Vehicles.FirstAsync(item => item.Id == payment.VehicleId);
-        var updatedVehicle = WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, allPayments, deliveries);
+        var updatedVehicle = WorkflowStatusRules.ApplyWorkflowStatus(
+            vehicle,
+            loans,
+            allPayments,
+            deliveries,
+            invoice is null ? [] : [invoice],
+            collections);
         db.Entry(vehicle).CurrentValues.SetValues(updatedVehicle);
 
         return ToResponse(updatedPayment, invoice, collections);

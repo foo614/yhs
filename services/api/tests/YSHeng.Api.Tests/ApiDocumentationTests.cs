@@ -247,7 +247,9 @@ public sealed class ApiDocumentationTests
         Assert.Contains("PdfDocument.Open", businessRules);
         Assert.Contains("ParsingOptions.LenientParsingOff", businessRules);
         Assert.Contains("var deliveries = await db.DeliverySchedules.AsNoTracking()", program);
-        Assert.Contains("WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, allPayments, deliveries)", program);
+        Assert.Matches(new Regex(@"WorkflowStatusRules\.ApplyWorkflowStatus\(\s*vehicle,\s*loans,\s*allPayments,\s*deliveries,\s*invoice is null \? \[\] : \[invoice\],\s*collections\)"), program);
+        Assert.Contains("FinanceClearanceRules.ClearedVehicleIds(payments, financeInvoices, collections)", program);
+        Assert.True(Regex.Matches(program, @"FinanceClearanceRules\.IsVehicleCleared\(delivery\.VehicleId, payments, financeInvoices, collections\)").Count >= 2);
         Assert.Contains("Finance V2 uses one receivable per vehicle", apiDocs);
         Assert.Contains("Creating the receivable locks the buyer identity", apiDocs);
         Assert.Contains("First-deploy assumption", apiDocs);

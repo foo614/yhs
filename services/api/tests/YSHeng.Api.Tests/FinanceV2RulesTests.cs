@@ -162,6 +162,60 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
+    public void Historical_unapproved_adjustment_cannot_clear_delivery_or_make_the_vehicle_sold()
+    {
+        var payment = V2Payment(14_500m) with
+        {
+            SalesPrice = 15_000m,
+            NcdAmount = 500m,
+            NettPriceOverrideReason = "Historical NCD entitlement",
+            Status = PaymentStatus.Reconciled
+        };
+        var invoice = InvoiceFor(payment);
+        var reconciled = CollectionFor(payment, 14_500m, CollectionStatus.Reconciled, "HISTORICAL-DELIVERY");
+        var readyDelivery = DeliveryWorkboardSeed.Ready() with
+        {
+            VehicleId = payment.VehicleId,
+            CustomerId = payment.CustomerId
+        };
+        var vehicle = new Vehicle
+        {
+            Id = payment.VehicleId,
+            CustomerId = payment.CustomerId,
+            Status = VehicleStatus.LoanProcessing,
+            PlateNumber = "NCD500",
+            Make = "Toyota",
+            Model = "Vios"
+        };
+        var customer = new Customer { Id = payment.CustomerId!.Value, Name = "Buyer" };
+        var documents = DeliveryWorkboardSeed.EvidenceFor(readyDelivery);
+        var financeCleared = FinanceClearanceRules.IsVehicleCleared(vehicle.Id, [payment], [invoice], [reconciled]);
+        var workboardItem = DeliveryWorkboardRules.CreateItem(readyDelivery, vehicle, customer, financeCleared, documents, readyDelivery.ScheduledDate);
+        var releasedDelivery = readyDelivery with { Status = DeliveryStatus.Released, ReleasedAt = DateTime.UtcNow };
+
+        Assert.False(FinanceV2Rules.IsReceivableSettled(payment, invoice, [reconciled]));
+        Assert.False(workboardItem.FinanceCleared);
+        Assert.False(workboardItem.CanRelease);
+        Assert.Equal(DeliveryStage.ClearDocuments, workboardItem.Stage);
+        Assert.NotEqual(VehicleStatus.Sold, WorkflowStatusRules.ApplyWorkflowStatus(vehicle, [], [payment], [releasedDelivery], [invoice], [reconciled]).Status);
+
+        var approved = payment with
+        {
+            NettPriceOverrideRequestedBy = "finance-1",
+            NettPriceOverrideRequestedAt = DateTime.UtcNow.AddMinutes(-1),
+            NettPriceOverrideApprovedBy = "boss-1",
+            NettPriceOverrideApprovedAt = DateTime.UtcNow
+        };
+        var approvedFinanceCleared = FinanceClearanceRules.IsVehicleCleared(vehicle.Id, [approved], [invoice], [reconciled]);
+        var approvedWorkboardItem = DeliveryWorkboardRules.CreateItem(readyDelivery, vehicle, customer, approvedFinanceCleared, documents, readyDelivery.ScheduledDate);
+
+        Assert.True(approvedFinanceCleared);
+        Assert.True(approvedWorkboardItem.CanRelease);
+        Assert.Equal(DeliveryStage.Handover, approvedWorkboardItem.Stage);
+        Assert.Equal(VehicleStatus.Sold, WorkflowStatusRules.ApplyWorkflowStatus(vehicle, [], [approved], [releasedDelivery], [invoice], [reconciled]).Status);
+    }
+
+    [Fact]
     public void Legacy_receivable_cannot_start_below_approved_price_and_terms_are_immutable_after_creation()
     {
         var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 15_000m, BossConfirmed = true };
