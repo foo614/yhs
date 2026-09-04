@@ -375,9 +375,35 @@ public static class VehicleApprovalRules
             ? AdminApprovalRequired()
             : new ValidationResult([]);
 
-    public static ValidationResult ValidateUpdate(Vehicle existing, Vehicle update, bool canApprove) =>
-        existing.BossConfirmed != update.BossConfirmed && !canApprove
-            ? AdminApprovalRequired()
+    public static ValidationResult ValidateUpdate(Vehicle existing, Vehicle update, bool canApprove)
+    {
+        if (!canApprove && existing.BossConfirmed && IsSellingPriceChange(existing, update))
+        {
+            return new ValidationResult([new ValidationError(
+                "vehicle_repricing_admin_required",
+                "Only Boss/Admin can change the selling price after a vehicle has been approved.")]);
+        }
+
+        return !IsSellingPriceChange(existing, update) &&
+            existing.BossConfirmed != update.BossConfirmed &&
+            !canApprove
+                ? AdminApprovalRequired()
+                : new ValidationResult([]);
+    }
+
+    public static bool IsSellingPriceChange(Vehicle existing, Vehicle update) =>
+        existing.SellingPrice != update.SellingPrice;
+
+    public static Vehicle EnforceRepricingApproval(Vehicle existing, Vehicle update) =>
+        IsSellingPriceChange(existing, update)
+            ? update with { BossConfirmed = false, IsPublic = false }
+            : update;
+
+    public static ValidationResult ValidateRepricingReceivableLock(Vehicle existing, Vehicle update, IEnumerable<PaymentRecord> payments) =>
+        IsSellingPriceChange(existing, update) && payments.Any(payment => payment.VehicleId == existing.Id)
+            ? new ValidationResult([new ValidationError(
+                "vehicle_selling_price_locked_by_receivable",
+                "Selling price cannot change after a Finance receivable exists. Non-price vehicle details can still be updated.")])
             : new ValidationResult([]);
 
     public static Vehicle EnforceVisibility(Vehicle vehicle) =>
@@ -2076,6 +2102,52 @@ public static class FinanceRules
         }
 
         return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateLegacyReceivableCreate(PaymentRecord payment, Vehicle vehicle)
+    {
+        var errors = new List<ValidationError>();
+        if (!vehicle.BossConfirmed)
+        {
+            errors.Add(new ValidationError("finance_vehicle_not_approved", "Boss/Admin must approve the vehicle selling price before Finance creates a receivable."));
+        }
+
+        if (payment.NettPrice != vehicle.SellingPrice)
+        {
+            errors.Add(new ValidationError("finance_legacy_nett_price_mismatch", "Legacy collection total must exactly match the approved vehicle selling price. Use Finance V2 for charges or controlled price adjustments."));
+        }
+
+        if (payment.InterestAdditionalCharges != 0 ||
+            payment.NcdAmount != 0 ||
+            payment.WindscreenCharges != 0 ||
+            payment.InsurancePaidOnBehalfAmount != 0 ||
+            payment.RoadTaxPaidOnBehalfAmount != 0 ||
+            payment.AdvancePaidOnBehalfAmount != 0)
+        {
+            errors.Add(new ValidationError("finance_legacy_price_components_require_v2", "Charges, NCD, and paid-on-behalf amounts must use Finance V2."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static PaymentRecord ApplyLegacyCanonicalSalesPrice(PaymentRecord payment, Vehicle vehicle) =>
+        payment with { SalesPrice = vehicle.SellingPrice };
+
+    public static ValidationResult ValidateLegacyPricingUpdate(PaymentRecord existing, PaymentRecord update)
+    {
+        var changed = existing.NettPrice != update.NettPrice ||
+            existing.SalesPrice != update.SalesPrice ||
+            existing.InterestAdditionalCharges != update.InterestAdditionalCharges ||
+            existing.NcdAmount != update.NcdAmount ||
+            existing.WindscreenCharges != update.WindscreenCharges ||
+            existing.InsurancePaidOnBehalfAmount != update.InsurancePaidOnBehalfAmount ||
+            existing.RoadTaxPaidOnBehalfAmount != update.RoadTaxPaidOnBehalfAmount ||
+            existing.AdvancePaidOnBehalfAmount != update.AdvancePaidOnBehalfAmount;
+        return changed
+            ? new ValidationResult([new ValidationError(
+                "finance_legacy_price_immutable",
+                "Legacy payment financial terms cannot be changed after creation. Create controlled price adjustments through Finance V2.")])
+            : new ValidationResult([]);
     }
 
     public static ValidationResult ValidateSettlement(SettlementReminder settlement) =>

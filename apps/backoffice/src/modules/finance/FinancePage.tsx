@@ -22,6 +22,7 @@ import {
   debtRecoveryCreateBlockReason,
   financeDocumentCategories,
   financeSaleBlockReason,
+  financeSaleNeedsApproval,
   isFinanceV2,
   paymentCreateBlockReason,
   paymentReconcileBlockReason,
@@ -100,8 +101,53 @@ export function financeInvoiceVehicleDefaults(vehicle: Pick<VehicleLookup, "sell
   };
 }
 
+export function financeSaleInputFromForm(values: FinanceSaleInput, vehicles: VehicleLookup[], adjustInvoicePrice: boolean): FinanceSaleInput {
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === values.vehicleId);
+  const input: FinanceSaleInput = {
+    vehicleId: values.vehicleId,
+    salesAgentUserId: values.salesAgentUserId,
+    loanBankReference: values.loanBankReference?.trim() || undefined,
+    salesPrice: Number(selectedVehicle?.sellingPrice ?? Number.NaN),
+    interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
+    ncdAmount: Number(values.ncdAmount ?? 0),
+    windscreenCharges: Number(values.windscreenCharges ?? 0),
+    insurancePaidOnBehalfAmount: Number(values.insurancePaidOnBehalfAmount ?? 0),
+    roadTaxPaidOnBehalfAmount: Number(values.roadTaxPaidOnBehalfAmount ?? 0),
+    advancePaidOnBehalfAmount: Number(values.advancePaidOnBehalfAmount ?? 0),
+    ...(adjustInvoicePrice ? { nettPrice: Number(values.nettPrice ?? 0) } : {})
+  };
+
+  if (financeSaleNeedsApproval(input)) {
+    input.nettPriceOverrideReason = values.nettPriceOverrideReason?.trim() || undefined;
+  }
+  return input;
+}
+
+export function paymentFromEditableDetails(currentPayment: PaymentRecord, values: Partial<PaymentRecord>): PaymentRecord {
+  return {
+    ...currentPayment,
+    vehicleId: currentPayment.vehicleId,
+    status: values.status ?? currentPayment.status,
+    receiptNumber: values.receiptNumber?.trim() || undefined,
+    invoiceNumber: values.invoiceNumber?.trim() || undefined,
+    documentsPrepared: values.documentsPrepared ?? currentPayment.documentsPrepared,
+    checklistValidated: values.checklistValidated ?? currentPayment.checklistValidated,
+    nettPrice: currentPayment.nettPrice,
+    salesPrice: currentPayment.salesPrice,
+    interestAdditionalCharges: currentPayment.interestAdditionalCharges,
+    ncdAmount: currentPayment.ncdAmount,
+    windscreenCharges: currentPayment.windscreenCharges,
+    bankName: values.bankName?.trim() || undefined,
+    bankFollowUpDate: values.bankFollowUpDate?.trim() || undefined
+  };
+}
+
 export function canPrepareFinanceInvoice(paymentLoadError: string | null, vehiclePriceLoadError: string | null, eligibleVehicleCount: number) {
   return !paymentLoadError && !vehiclePriceLoadError && eligibleVehicleCount > 0;
+}
+
+export function financeApprovedBuyerVehicles(vehicles: VehicleLookup[]) {
+  return vehicles.filter((vehicle) => Boolean(vehicle.customerId) && Number.isFinite(vehicle.sellingPrice) && Number(vehicle.sellingPrice) > 0);
 }
 
 export function settlementDraftForVehicle(drafts: SettlementDraft[], vehicleId: string) {
@@ -120,15 +166,44 @@ export function payDailySpend(spend: DailySpend): DailySpend {
   return { ...spend, isPaid: true };
 }
 
-export function financeInvoiceSubmitLabel(calculatedTotal: number, agreedTotal: number | null | undefined, adjusting: boolean) {
+export function financeInvoiceSubmitLabel(calculatedTotal: number, agreedTotal: number | null | undefined, adjusting: boolean, ncdAmount = 0) {
   const hasVariance = adjusting && agreedTotal !== null && agreedTotal !== undefined &&
     Math.round(Number(agreedTotal) * 100) !== Math.round(calculatedTotal * 100);
-  return hasVariance ? "Review & send for approval" : "Review & generate sales invoice";
+  return hasVariance || ncdAmount > 0 ? "Review & send for approval" : "Review & generate sales invoice";
 }
 
 export function financeRequesterLabel(requestedBy?: string, currentUserId?: string) {
   if (!requestedBy) return "-";
   return requestedBy === currentUserId ? "You" : "Finance staff";
+}
+
+export function financePaymentNeedsAdjustmentApproval(payment: Pick<PaymentRecord, "ncdAmount" | "nettPriceVariance">) {
+  return Number(payment.ncdAmount ?? 0) > 0 || Number(payment.nettPriceVariance ?? 0) !== 0;
+}
+
+export function FinancePriceAdjustmentSummary({ payment }: {
+  payment: Pick<PaymentRecord, "ncdAmount" | "nettPrice" | "calculatedNettPrice" | "nettPriceVariance" | "nettPriceOverrideReason">;
+}) {
+  const storedVariance = Number(payment.nettPriceVariance ?? 0);
+  const calculatedTotal = Number(payment.calculatedNettPrice ?? (payment.nettPrice - storedVariance));
+  const variance = Number(payment.nettPriceVariance ?? (payment.nettPrice - calculatedTotal));
+  const signedVariance = variance > 0
+    ? `+${formatMoney(variance)}`
+    : variance < 0 ? `-${formatMoney(Math.abs(variance))}` : formatMoney(0);
+
+  return (
+    <Descriptions size="small" column={1}>
+      <Descriptions.Item label="NCD deduction">{formatMoney(Number(payment.ncdAmount ?? 0))}</Descriptions.Item>
+      <Descriptions.Item label="Calculated total">{formatMoney(calculatedTotal)}</Descriptions.Item>
+      <Descriptions.Item label="Agreed sales invoice total">{formatMoney(payment.nettPrice)}</Descriptions.Item>
+      <Descriptions.Item label="Variance">{signedVariance}</Descriptions.Item>
+      <Descriptions.Item label="Reason">{payment.nettPriceOverrideReason ?? "-"}</Descriptions.Item>
+    </Descriptions>
+  );
+}
+
+export function canApproveFinanceAdjustment(payment: Pick<PaymentRecord, "nettPriceOverrideRequestedBy">, currentUser: CurrentUser | null) {
+  return Boolean(currentUser?.roles.includes("BossAdmin")) && payment.nettPriceOverrideRequestedBy !== currentUser?.id;
 }
 
 export function financeSearchCopy(tab: string) {
@@ -311,8 +386,8 @@ export function FinancePage({
 }) {
   const canManageFinance = !currentUser?.isAuthenticated || currentUser.roles.some((role) => role === "BossAdmin" || role === "Finance");
   const canApproveManagementReview = Boolean(currentUser?.roles.includes("BossAdmin"));
-  const eligiblePaymentVehicles = vehicles.filter((vehicle) => Boolean(vehicle.customerId));
-  const eligibleInvoiceVehicles = eligiblePaymentVehicles.filter((vehicle) => !payments.some((payment) => payment.vehicleId === vehicle.id));
+  const approvedBuyerVehicles = financeApprovedBuyerVehicles(vehicles);
+  const eligibleInvoiceVehicles = approvedBuyerVehicles.filter((vehicle) => !payments.some((payment) => payment.vehicleId === vehicle.id));
   const canPrepareInvoice = canPrepareFinanceInvoice(paymentLoadError, financeVehicleOptionLoadError, eligibleInvoiceVehicles.length);
   const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
   const [editPaymentId, setEditPaymentId] = useState(payments[0]?.id ?? "");
@@ -341,6 +416,7 @@ export function FinancePage({
   const [resolvingInvoiceRequestId, setResolvingInvoiceRequestId] = useState<string>();
   const [prepareInvoiceOpen, setPrepareInvoiceOpen] = useState(false);
   const [invoiceReviewInput, setInvoiceReviewInput] = useState<FinanceSaleInput>();
+  const [invoiceSubmitError, setInvoiceSubmitError] = useState<string>();
   const [salesAgents, setSalesAgents] = useState<StaffUser[]>([]);
   const [deliveryAccountingCharges, setDeliveryAccountingCharges] = useState<DeliveryAccountingCharge[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
@@ -353,6 +429,7 @@ export function FinancePage({
   const [reverseReason, setReverseReason] = useState("");
   const [v2MutationKey, setV2MutationKey] = useState<string>();
   const [prepareInvoiceForm] = Form.useForm<FinanceSaleInput>();
+  const [legacyCollectionForm] = Form.useForm();
   const [collectionForm] = Form.useForm<CollectionFormValues>();
   const [settlementForm] = Form.useForm<SettlementFormValues>();
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
@@ -370,6 +447,7 @@ export function FinancePage({
   const invoiceSalesPrice = Form.useWatch("salesPrice", prepareInvoiceForm) ?? 0;
   const invoiceAdditionalCharges = Form.useWatch("interestAdditionalCharges", prepareInvoiceForm) ?? 0;
   const invoiceNcdAmount = Form.useWatch("ncdAmount", prepareInvoiceForm) ?? 0;
+  const invoiceWindscreenCharges = Form.useWatch("windscreenCharges", prepareInvoiceForm) ?? 0;
   const invoiceInsurancePaidOnBehalf = Form.useWatch("insurancePaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
   const invoiceRoadTaxPaidOnBehalf = Form.useWatch("roadTaxPaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
   const invoiceAdvancePaidOnBehalf = Form.useWatch("advancePaidOnBehalfAmount", prepareInvoiceForm) ?? 0;
@@ -379,12 +457,14 @@ export function FinancePage({
     salesPrice: Number(invoiceSalesPrice),
     interestAdditionalCharges: Number(invoiceAdditionalCharges),
     ncdAmount: Number(invoiceNcdAmount),
-    windscreenCharges: 0,
+    windscreenCharges: Number(invoiceWindscreenCharges),
     insurancePaidOnBehalfAmount: Number(invoiceInsurancePaidOnBehalf),
     roadTaxPaidOnBehalfAmount: Number(invoiceRoadTaxPaidOnBehalf),
     advancePaidOnBehalfAmount: Number(invoiceAdvancePaidOnBehalf)
   });
-  const invoiceSubmitLabel = financeInvoiceSubmitLabel(invoiceCalculatedTotal, invoiceAgreedTotal, adjustInvoicePrice);
+  const invoiceRequiresApproval = Number(invoiceNcdAmount) > 0 || (adjustInvoicePrice && invoiceAgreedTotal !== null && invoiceAgreedTotal !== undefined &&
+    Math.round(Number(invoiceAgreedTotal) * 100) !== Math.round(invoiceCalculatedTotal * 100));
+  const invoiceSubmitLabel = financeInvoiceSubmitLabel(invoiceCalculatedTotal, invoiceAgreedTotal, adjustInvoicePrice, Number(invoiceNcdAmount));
 
   const loadInvoiceUpdateRequests = useCallback(async () => {
     if (!canManageFinance) return;
@@ -602,6 +682,7 @@ export function FinancePage({
     const vehicle = eligibleInvoiceVehicles[0];
     if (!vehicle) return;
     setAdjustInvoicePrice(false);
+    setInvoiceSubmitError(undefined);
     prepareInvoiceForm.setFieldsValue({
       vehicleId: vehicle.id,
       ...financeInvoiceVehicleDefaults(vehicle),
@@ -619,25 +700,11 @@ export function FinancePage({
     if (!vehicle) return;
     prepareInvoiceForm.setFieldsValue(financeInvoiceVehicleDefaults(vehicle));
     setAdjustInvoicePrice(false);
+    setInvoiceSubmitError(undefined);
   };
 
   const prepareFinanceSale = (values: FinanceSaleInput) => {
-    const input: FinanceSaleInput = {
-      vehicleId: values.vehicleId,
-      salesAgentUserId: values.salesAgentUserId,
-      loanBankReference: values.loanBankReference?.trim() || undefined,
-      salesPrice: Number(values.salesPrice ?? 0),
-      interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
-      ncdAmount: Number(values.ncdAmount ?? 0),
-      windscreenCharges: Number(values.windscreenCharges ?? 0),
-      insurancePaidOnBehalfAmount: Number(values.insurancePaidOnBehalfAmount ?? 0),
-      roadTaxPaidOnBehalfAmount: Number(values.roadTaxPaidOnBehalfAmount ?? 0),
-      advancePaidOnBehalfAmount: Number(values.advancePaidOnBehalfAmount ?? 0),
-      ...(adjustInvoicePrice ? {
-        nettPrice: Number(values.nettPrice ?? 0),
-        nettPriceOverrideReason: values.nettPriceOverrideReason?.trim() || undefined
-      } : {})
-    };
+    const input = financeSaleInputFromForm(values, eligibleInvoiceVehicles, adjustInvoicePrice);
     const blockReason = financeSaleBlockReason(input, eligibleInvoiceVehicles);
     if (blockReason) {
       message.warning(blockReason);
@@ -649,11 +716,17 @@ export function FinancePage({
 
   const confirmFinanceSale = async () => {
     if (!invoiceReviewInput) return;
-    await runV2Mutation("prepare-invoice", () => onCreateFinanceSale(invoiceReviewInput));
-    setInvoiceReviewInput(undefined);
-    setPrepareInvoiceOpen(false);
-    prepareInvoiceForm.resetFields();
-    setAdjustInvoicePrice(false);
+    setInvoiceSubmitError(undefined);
+    try {
+      await runV2Mutation("prepare-invoice", () => onCreateFinanceSale(invoiceReviewInput));
+      setInvoiceReviewInput(undefined);
+      setPrepareInvoiceOpen(false);
+      prepareInvoiceForm.resetFields();
+      setAdjustInvoicePrice(false);
+    } catch (error) {
+      setInvoiceSubmitError(humanizeApiError(error, "The sale could not be prepared. Refresh the vehicle price and try again."));
+      setInvoiceReviewInput(undefined);
+    }
   };
 
   const openNewSettlement = () => {
@@ -732,8 +805,12 @@ export function FinancePage({
 
   const approveAndIssueInvoice = (payment: PaymentRecord) => {
     Modal.confirm({
-      title: "Approve the adjusted price and issue the invoice?",
-      content: `${plateFor(vehicles, payment.vehicleId)} · ${formatMoney(payment.nettPrice)} · ${payment.nettPriceOverrideReason ?? "Manual adjustment"}`,
+      title: "Approve the NCD or nett-price adjustment and issue the invoice?",
+      content: <Space direction="vertical" size={12} className="fullWidth">
+        <Typography.Text strong>{plateFor(vehicles, payment.vehicleId)}</Typography.Text>
+        <FinancePriceAdjustmentSummary payment={payment} />
+        <Typography.Text type="secondary">Approval must be completed by a different Boss/Admin user from the requester.</Typography.Text>
+      </Space>,
       okText: "Approve & issue",
       cancelText: "Cancel",
       onOk: async () => {
@@ -793,7 +870,7 @@ export function FinancePage({
   const v2PrimaryAction = (payment: PaymentRecord) => {
     const available = payment.availableToAllocate ?? payment.balanceAmount ?? payment.nettPrice;
     if (payment.receivableStatus === "WaitingForApproval") {
-      return canApproveManagementReview
+      return canApproveFinanceAdjustment(payment, currentUser)
         ? <Button size="small" type="primary" loading={v2MutationKey === `approve-${payment.id}`} onClick={() => approveAndIssueInvoice(payment)}>Approve & issue</Button>
         : <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View approval request</Button>;
     }
@@ -1298,8 +1375,8 @@ export function FinancePage({
           {paymentLoadError && <Alert type="error" showIcon message="Finance records are unavailable" description={`${paymentLoadError} No demo or cached balances are shown.`} action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>} />}
           {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
           {financeFilters}
-          {!financeVehicleOptionLoadError && eligiblePaymentVehicles.length === 0 && <Alert type="warning" showIcon message="Link a confirmed buyer to a vehicle before preparing an invoice." />}
-          {!financeVehicleOptionLoadError && eligiblePaymentVehicles.length > 0 && eligibleInvoiceVehicles.length === 0 && <Alert type="info" showIcon message="All buyer-linked vehicles already have a finance record. Search the records below to continue collection work." />}
+          {!financeVehicleOptionLoadError && approvedBuyerVehicles.length === 0 && <Alert type="warning" showIcon message="Only a Boss/Admin-approved vehicle with a confirmed buyer can be prepared for invoicing." />}
+          {!financeVehicleOptionLoadError && approvedBuyerVehicles.length > 0 && eligibleInvoiceVehicles.length === 0 && <Alert type="info" showIcon message="All approved, buyer-linked vehicles already have a finance record. Search the records below to continue collection work." />}
           <div className="mobileRecordList">
           {filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
           {visiblePayments.map((payment) => {
@@ -1377,6 +1454,7 @@ export function FinancePage({
         open={prepareInvoiceOpen}
         onCancel={() => {
           setInvoiceReviewInput(undefined);
+          setInvoiceSubmitError(undefined);
           setPrepareInvoiceOpen(false);
           setAdjustInvoicePrice(false);
           prepareInvoiceForm.resetFields();
@@ -1385,8 +1463,9 @@ export function FinancePage({
         destroyOnClose
         className="recordCreateModal financeV2Modal"
       >
-        <Form form={prepareInvoiceForm} layout="vertical" className="modalForm" onFinish={prepareFinanceSale}>
-          <Alert type="info" showIcon message="Check the buyer and amounts below. YS Heng generates the sales invoice for the new customer; AutoCount only receives the reviewed Excel export." />
+        <Form form={prepareInvoiceForm} layout="vertical" className="modalForm" onFinish={prepareFinanceSale} onValuesChange={() => { if (invoiceSubmitError) setInvoiceSubmitError(undefined); }}>
+          <Alert type="info" showIcon message="Check the buyer and amounts below. YS Heng generates the sales invoice only after all required approvals; AutoCount only receives the reviewed Excel export." />
+          {invoiceSubmitError && <Alert type="error" showIcon message="Sale not prepared" description={invoiceSubmitError} />}
           <Form.Item name="vehicleId" label="Vehicle & Buyer / 车辆与买家" rules={[{ required: true, message: "Select a vehicle." }]}>
             <Select showSearch optionFilterProp="label" onChange={updateInvoiceVehicleDefaults} options={eligibleInvoiceVehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model} · ${customerLabel(customers, vehicle.customerId)}` }))} />
           </Form.Item>
@@ -1395,9 +1474,16 @@ export function FinancePage({
           </Form.Item>
           <Form.Item name="loanBankReference" label="Loan bank reference"><Input placeholder="Bank / loan approval reference" /></Form.Item>
           <div className="financeV2AmountGrid">
-            <Form.Item name="salesPrice" label="Selling price / 售价" rules={[{ required: true, message: "Selling price is required." }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item
+              name="salesPrice"
+              label="Approved selling price / 已批准售价"
+              rules={[{ required: true, message: "Selling price is required." }]}
+              extra="Authoritative Vehicle record price. Finance cannot edit this amount."
+            >
+              <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" />
+            </Form.Item>
             <Form.Item name="interestAdditionalCharges" label="Additional charges / 附加费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]} extra="Any amount above RM 0 requires a reason and separate Boss/Admin approval."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="windscreenCharges" label="Windscreen charges / 挡风玻璃费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           </div>
           <ProCard size="small" title="Paid on behalf of customer / 代客户支付" bordered>
@@ -1415,26 +1501,31 @@ export function FinancePage({
           <Checkbox checked={adjustInvoicePrice} onChange={(event) => {
             const checked = event.target.checked;
             setAdjustInvoicePrice(checked);
-            prepareInvoiceForm.setFieldsValue({ nettPrice: checked ? invoiceCalculatedTotal : undefined, nettPriceOverrideReason: undefined });
+            prepareInvoiceForm.setFieldsValue({
+              nettPrice: checked ? invoiceCalculatedTotal : undefined,
+              ...(Number(invoiceNcdAmount) > 0 ? {} : { nettPriceOverrideReason: undefined })
+            });
           }}>Adjust price / 手动调整</Checkbox>
-          {adjustInvoicePrice && <>
+          {adjustInvoicePrice &&
             <Form.Item name="nettPrice" label="Agreed sales invoice total / 协议销售发票总额" rules={[{ required: true, message: "Enter the agreed total." }]}>
               <InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
             </Form.Item>
-            <Form.Item name="nettPriceOverrideReason" label="Reason for adjustment / 调整原因" rules={[{ required: true, whitespace: true, message: "Explain why the total is different." }]}>
-              <Input.TextArea rows={3} maxLength={500} showCount placeholder="Example: agreed discount approved during final negotiation" />
+          }
+          {invoiceRequiresApproval && <>
+            <Form.Item name="nettPriceOverrideReason" label="Approval reason / 批准原因" rules={[{ required: true, whitespace: true, message: "Explain the NCD or nett-price adjustment." }]}>
+              <Input.TextArea rows={3} maxLength={500} showCount placeholder="Example: verified NCD entitlement or agreed price adjustment and supporting basis" />
             </Form.Item>
-            <Alert type="warning" showIcon message="A different agreed total waits for Boss/Admin approval before the invoice is issued." />
+            <Alert type="warning" showIcon message="This adjustment will not issue an invoice now." description="A different Boss/Admin user must review and approve the NCD or adjusted total before the sales invoice can be issued." />
           </>}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === "prepare-invoice"}>{invoiceSubmitLabel}</Button></Form.Item>
         </Form>
       </Modal>
       <Modal
-        title={invoiceReviewInput && (invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput)) !== calculateFinanceNettPrice(invoiceReviewInput)
-          ? "Send adjusted price for approval?"
+        title={invoiceReviewInput && financeSaleNeedsApproval(invoiceReviewInput)
+          ? "Send NCD or nett-price adjustment for approval?"
           : "Generate this sales invoice?"}
         open={Boolean(invoiceReviewInput)}
-        okText={invoiceReviewInput && (invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput)) !== calculateFinanceNettPrice(invoiceReviewInput)
+        okText={invoiceReviewInput && financeSaleNeedsApproval(invoiceReviewInput)
           ? "Send for approval"
           : "Generate sales invoice"}
         cancelText="Check again"
@@ -1447,8 +1538,8 @@ export function FinancePage({
           {vehicles.find((item) => item.id === invoiceReviewInput.vehicleId)?.plateNumber ?? "Selected vehicle"}
           {" · "}
           {formatMoney(invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput))}
-          {(invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput)) !== calculateFinanceNettPrice(invoiceReviewInput)
-            ? " · Boss/Admin approval is required before issue."
+          {financeSaleNeedsApproval(invoiceReviewInput)
+            ? " · No invoice is issued now; a different Boss/Admin user must approve this adjustment first."
             : ""}
         </Typography.Text>}
       </Modal>
@@ -1488,14 +1579,11 @@ export function FinancePage({
       >
         {selectedV2DetailsPayment && <Space direction="vertical" size={16} className="fullWidth">
           <FinanceV2BalanceSummary payment={selectedV2DetailsPayment} vehicles={vehicles} customers={customers} />
-          {(selectedV2DetailsPayment.nettPriceVariance ?? 0) !== 0 && <ProCard size="small" title="Price adjustment / 价格调整">
+          {financePaymentNeedsAdjustmentApproval(selectedV2DetailsPayment) && <ProCard size="small" title="Discount & price approval / 折扣与价格审批">
+            <FinancePriceAdjustmentSummary payment={selectedV2DetailsPayment} />
             <Descriptions size="small" column={1}>
-              <Descriptions.Item label="Calculated total">{formatMoney(selectedV2DetailsPayment.calculatedNettPrice ?? selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
-              <Descriptions.Item label="Agreed sales invoice total">{formatMoney(selectedV2DetailsPayment.nettPrice)}</Descriptions.Item>
-              <Descriptions.Item label="Variance">{formatMoney(selectedV2DetailsPayment.nettPriceVariance ?? 0)}</Descriptions.Item>
-              <Descriptions.Item label="Reason">{selectedV2DetailsPayment.nettPriceOverrideReason ?? "-"}</Descriptions.Item>
               <Descriptions.Item label="Requested by">{financeRequesterLabel(selectedV2DetailsPayment.nettPriceOverrideRequestedBy, currentUser?.id)}</Descriptions.Item>
-              <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for Boss/Admin"}</Descriptions.Item>
+              <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for a different Boss/Admin user"}</Descriptions.Item>
             </Descriptions>
           </ProCard>}
           {selectedV2DetailsPayment.invoice && <Button block href={financeInvoiceContentUrl(selectedV2DetailsPayment.invoice.id)} target="_blank">Open invoice PDF · {selectedV2DetailsPayment.invoice.invoiceNumber}</Button>}
@@ -1522,18 +1610,23 @@ export function FinancePage({
         destroyOnClose
         className="recordCreateModal"
       >
-        <Form layout="vertical" className="modalForm" onFinish={(values) => {
+        <Form form={legacyCollectionForm} layout="vertical" className="modalForm" onFinish={(values) => {
+          const vehicle = approvedBuyerVehicles.find((item) => item.id === values.vehicleId);
+          if (!vehicle || !Number.isFinite(vehicle.sellingPrice)) {
+            message.warning("Select a Boss/Admin-approved vehicle with a confirmed buyer.");
+            return;
+          }
           const payment: PaymentRecord = {
             id: newId(),
             vehicleId: values.vehicleId,
-            nettPrice: Number(values.nettPrice ?? 0),
+            nettPrice: Number(vehicle.sellingPrice),
             status: "Pending",
             receiptNumber: values.receiptNumber?.trim() || undefined,
             invoiceNumber: values.invoiceNumber?.trim() || undefined,
             bossChecked: false,
             documentsPrepared: false,
             checklistValidated: false,
-            salesPrice: 0,
+            salesPrice: Number(vehicle.sellingPrice),
             interestAdditionalCharges: 0,
             ncdAmount: 0,
             windscreenCharges: 0,
@@ -1548,9 +1641,17 @@ export function FinancePage({
           }
           onCreate(payment);
           setFinanceCreateOpen(null);
-        }} initialValues={{ vehicleId: eligiblePaymentVehicles[0]?.id }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={eligiblePaymentVehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="nettPrice" label="Collection Amount / Nett Price" rules={[{ required: true, message: "Collection amount is required." }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+        }} initialValues={{ vehicleId: approvedBuyerVehicles[0]?.id, nettPrice: approvedBuyerVehicles[0]?.sellingPrice }}>
+          <Alert type="info" showIcon message="New sales belong in Prepare sales invoice" description="This legacy collection path accepts only a Boss/Admin-approved vehicle price. The amount is loaded from the Vehicle record and cannot be reduced here." />
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={approvedBuyerVehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))}
+              onChange={(vehicleId) => legacyCollectionForm.setFieldValue("nettPrice", approvedBuyerVehicles.find((vehicle) => vehicle.id === vehicleId)?.sellingPrice)}
+            />
+          </Form.Item>
+          <Form.Item name="nettPrice" label="Approved Vehicle Price / 已批准售价" rules={[{ required: true, message: "Approved vehicle price is required." }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" /></Form.Item>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><DatePicker className="fullWidth" /></Form.Item>
           <Form.Item name="receiptNumber" label="Customer Receipt No. / 客户收据号"><Input placeholder="RCPT-1001" /></Form.Item>
@@ -1620,22 +1721,7 @@ export function FinancePage({
           initialValues={{ ...selectedEditPayment, ...paymentOcrDraft }}
           onFinish={(values) => {
             if (!selectedEditPayment) return;
-            const payment: PaymentRecord = {
-              ...selectedEditPayment,
-              vehicleId: values.vehicleId,
-              nettPrice: Number(values.nettPrice ?? 0),
-              status: values.status,
-              receiptNumber: values.receiptNumber?.trim() || undefined,
-              invoiceNumber: values.invoiceNumber?.trim() || undefined,
-              documentsPrepared: values.documentsPrepared,
-              checklistValidated: values.checklistValidated,
-              salesPrice: Number(values.salesPrice ?? 0),
-              interestAdditionalCharges: Number(values.interestAdditionalCharges ?? 0),
-              ncdAmount: Number(values.ncdAmount ?? 0),
-              windscreenCharges: Number(values.windscreenCharges ?? 0),
-              bankName: values.bankName?.trim() || undefined,
-              bankFollowUpDate: values.bankFollowUpDate?.trim() || undefined
-            };
+            const payment = paymentFromEditableDetails(selectedEditPayment, values);
             const blockReason = paymentCreateBlockReason(payment, payments);
             if (blockReason) {
               message.warning(blockReason);
@@ -1647,8 +1733,9 @@ export function FinancePage({
           }}
         >
           <Form.Item name="id" label="Selected Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No customer receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedEditPayment?.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" disabled options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedEditPayment?.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Alert type="info" showIcon message="Recorded sale amounts are read-only" description="Workflow and document references may be corrected here. The approved selling price and stored invoice terms cannot be rewritten." />
+          <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="receiptNumber" label="Customer Receipt No. / 客户收据号"><Input placeholder="RCPT-1001" /></Form.Item>
           <Form.Item name="invoiceNumber" label="Sales Invoice No. / 销售发票号"><Input placeholder="INV-1001" /></Form.Item>
@@ -1658,10 +1745,10 @@ export function FinancePage({
           {canApproveManagementReview && selectedEditPayment && !selectedEditPayment.bossChecked && <Button onClick={() => onApproveManagementReview(selectedEditPayment.id)}>Approve Management Review</Button>}
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
-          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-          <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+          <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" /></Form.Item>
+          <Form.Item name="interestAdditionalCharges" label="Interest + Additional Charges / 利息与增加项"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly /></Form.Item>
+          <Form.Item name="ncdAmount" label={shortformLabel("NCD / 无索偿折扣", "No claim discount")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly /></Form.Item>
+          <Form.Item name="windscreenCharges" label="Windscreen Charges / 挡风玻璃费用"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly /></Form.Item>
           <Descriptions size="small" column={1} className="fullWidth">
             <Descriptions.Item label="Outstation Delivery Date / 外地送车日期">
               {selectedEditPayment?.outstationDeliveryDate || "Set in Delivery Workboard"}

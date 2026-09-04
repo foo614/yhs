@@ -252,7 +252,7 @@ backOffice.MapGet("/vehicle-lookup", async (AppDbContext db) =>
     (await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync())
         .Select(BackOfficeVehicleLookup.ToResponse)).RequireAuthorization("VehicleRead");
 backOffice.MapGet("/finance/vehicle-options", async (AppDbContext db) =>
-    (await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync())
+    (await db.Vehicles.AsNoTracking().Where(vehicle => vehicle.BossConfirmed).OrderBy(vehicle => vehicle.PlateNumber).ToListAsync())
         .Select(FinanceVehicleOptions.ToResponse)).RequireAuthorization("Finance");
 backOffice.MapPost("/owner-intakes/identity-card-preview", async (IFormFile file, AppDbContext db, HttpContext context, IOcrExtractor extractor, AiUsageQuotaService aiUsageQuota, CancellationToken cancellationToken) =>
 {
@@ -482,8 +482,12 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
     if (existingVehicle is null) return Results.NotFound();
     var existingSnapshot = existingVehicle with { };
+    var sellingPriceChanged = VehicleApprovalRules.IsSellingPriceChange(existingSnapshot, update);
+    var vehiclePayments = await db.PaymentRecords.AsNoTracking().Where(payment => payment.VehicleId == id).ToListAsync();
+    var repricingLockValidation = VehicleApprovalRules.ValidateRepricingReceivableLock(existingSnapshot, update, vehiclePayments);
+    if (!repricingLockValidation.IsValid) return Results.Conflict(repricingLockValidation);
     if (existingSnapshot.CustomerId != update.CustomerId &&
-        await db.PaymentRecords.AsNoTracking().AnyAsync(item => item.VehicleId == id && item.FinanceWorkflowVersion == 2))
+        vehiclePayments.Any(item => item.FinanceWorkflowVersion == 2))
     {
         return Results.BadRequest(new ValidationResult([new ValidationError(
             "finance_v2_buyer_locked",
@@ -491,7 +495,7 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     }
     var receivableBuyerValidation = FinanceV2Rules.ValidateReceivableBuyer(
         update.CustomerId,
-        await db.PaymentRecords.AsNoTracking().Where(payment => payment.VehicleId == id).ToListAsync());
+        vehiclePayments);
     if (!receivableBuyerValidation.IsValid) return Results.Conflict(receivableBuyerValidation);
     var customerLockValidation = DeliveryMutationRules.ValidateVehicleCustomerChange(
         existingSnapshot,
@@ -503,6 +507,7 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var canApprove = context.User.IsInRole("BossAdmin");
     var approvalValidation = VehicleApprovalRules.ValidateUpdate(existingSnapshot, update, canApprove);
     if (!approvalValidation.IsValid) return Results.Json(approvalValidation, statusCode: StatusCodes.Status403Forbidden);
+    update = VehicleApprovalRules.EnforceRepricingApproval(existingSnapshot, update);
     update = VehicleApprovalRules.EnforceVisibility(update);
     var validation = VehicleRules.ValidateIntake(update);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -517,7 +522,7 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     db.Entry(existingVehicle).CurrentValues.SetValues(update);
     db.Entry(existingVehicle).Property(vehicle => vehicle.SalesAgentUserId).IsModified = false;
     db.Entry(existingVehicle).Property(vehicle => vehicle.SalesAgentName).IsModified = false;
-    if (!canApprove)
+    if (!canApprove && !sellingPriceChanged)
     {
         db.Entry(existingVehicle).Property(vehicle => vehicle.BossConfirmed).IsModified = false;
     }
@@ -1918,10 +1923,13 @@ backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, H
     var existingPayments = await db.PaymentRecords.AsNoTracking().ToListAsync();
     var receivableValidation = FinanceV2Rules.ValidateReceivableCreate(payment.VehicleId, existingPayments);
     if (!receivableValidation.IsValid) return Results.Conflict(receivableValidation);
-    var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
-    if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var vehicle = await FinanceApi.LockVehicleAsync(db, payment.VehicleId);
     if (vehicle is null) return Results.BadRequest(new ApiError("Select an existing car plate."));
+    var legacyPriceValidation = FinanceRules.ValidateLegacyReceivableCreate(payment, vehicle);
+    if (!legacyPriceValidation.IsValid) return Results.BadRequest(legacyPriceValidation);
+    payment = FinanceRules.ApplyLegacyCanonicalSalesPrice(payment, vehicle);
+    var financeValidation = FinanceRules.ValidatePayment(payment, existingPayments);
+    if (!financeValidation.IsValid) return Results.BadRequest(financeValidation);
     var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, existingPayments.Append(payment), deliveries));
     db.PaymentRecords.Add(payment);
@@ -1946,6 +1954,8 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     }
     var identityValidation = PaymentManagementReviewRules.ValidateIdentity(existingPayment, payment);
     if (!identityValidation.IsValid) return Results.BadRequest(identityValidation);
+    var legacyPriceValidation = FinanceRules.ValidateLegacyPricingUpdate(existingPayment, payment);
+    if (!legacyPriceValidation.IsValid) return Results.BadRequest(legacyPriceValidation);
     var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
     payment = payment with { OutstationDeliveryDate = DeliveryMutationRules.AuthoritativeOutstationDate(payment.VehicleId, deliveries) };
     payment = PaymentManagementReviewRules.PrepareForUpdate(existingPayment, payment);
@@ -2031,16 +2041,16 @@ backOffice.MapPost("/payments/finance-sale", async (FinanceSaleRequest request, 
 
     var now = DateTime.UtcNow;
     var actorUserId = StaffIdentity.CurrentUserId(context);
-    var payment = FinanceV2Rules.CreatePayment(request, customerId, actorUserId, now) with
+    var payment = FinanceV2Rules.CreatePayment(request, vehicle, customerId, actorUserId, now) with
     {
         SalesAgentName = string.IsNullOrWhiteSpace(salesAgent.DisplayName) ? salesAgent.Email : salesAgent.DisplayName
     };
-    var validation = FinanceV2Rules.ValidateSale(request, payment);
+    var validation = FinanceV2Rules.ValidateSale(request, payment, vehicle);
     if (!validation.IsValid) return Results.BadRequest(validation);
 
     db.PaymentRecords.Add(payment);
     FinanceInvoice? invoice = null;
-    if (payment.NettPriceVariance == 0)
+    if (!FinanceV2Rules.RequiresNettPriceApproval(payment))
     {
         var issue = await FinanceApi.IssueInvoiceAsync(db, payment, actorUserId, now);
         if (!issue.Validation.IsValid) return Results.BadRequest(issue.Validation);
@@ -2072,15 +2082,9 @@ backOffice.MapPost("/payments/{id:guid}/nett-price-override/approve", async (Gui
     if (payment is null) return Results.NotFound();
     if (payment.VehicleId != initialVehicleId.Value) return Results.Conflict(new ApiError("The payment vehicle changed while the approval was starting. Try again."));
     var existingInvoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == id);
-    if (existingInvoice is not null)
+    if (!FinanceV2Rules.RequiresNettPriceApproval(payment))
     {
-        var existingCollections = await db.CollectionTransactions.AsNoTracking().Where(item => item.PaymentRecordId == id).OrderByDescending(item => item.CreatedAt).ToListAsync();
-        await transaction.CommitAsync();
-        return Results.Ok(FinanceApi.ToResponse(payment, existingInvoice, existingCollections));
-    }
-    if (payment.NettPriceVariance == 0)
-    {
-        return Results.BadRequest(new ApiError("This sale has no nett price adjustment to approve. Use the invoice action if a retry is needed."));
+        return Results.BadRequest(new ApiError("This sale has no NCD or nett price adjustment to approve. Use the invoice action if a retry is needed."));
     }
 
     var actorUserId = StaffIdentity.CurrentUserId(context);
@@ -2097,6 +2101,14 @@ backOffice.MapPost("/payments/{id:guid}/nett-price-override/approve", async (Gui
         db.Entry(payment).CurrentValues.SetValues(approved);
         payment = approved;
         ApiAudit.Add(db, context.User, "finance.nettPriceOverrideApproved", nameof(PaymentRecord), id);
+    }
+
+    if (existingInvoice is not null)
+    {
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+        var existingCollections = await db.CollectionTransactions.AsNoTracking().Where(item => item.PaymentRecordId == id).OrderByDescending(item => item.CreatedAt).ToListAsync();
+        return Results.Ok(FinanceApi.ToResponse(payment, existingInvoice, existingCollections));
     }
 
     var issue = await FinanceApi.IssueInvoiceAsync(db, payment, actorUserId, DateTime.UtcNow);
@@ -2276,7 +2288,7 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reconcile", async (Guid i
             document.PaymentRecordId == payment.Id &&
             document.VehicleId == payment.VehicleId &&
             (document.Category == FileCategory.PaymentReceipt || document.Category == FileCategory.PaymentInvoice));
-        var validation = FinanceV2Rules.ValidateReconcile(collection, actorUserId, hasLinkedEvidence);
+        var validation = FinanceV2Rules.ValidateReconcile(payment, collection, actorUserId, hasLinkedEvidence);
         if (!validation.IsValid) return Results.BadRequest(validation);
         var updated = collection with { Status = CollectionStatus.Reconciled, ReconciledBy = actorUserId, ReconciledAt = DateTime.UtcNow };
         db.Entry(collection).CurrentValues.SetValues(updated);
@@ -4035,6 +4047,8 @@ internal static class FinanceApi
         }
 
         var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == payment.VehicleId);
+        var vehiclePriceValidation = FinanceV2Rules.ValidateCanonicalVehicleForInvoice(payment, vehicle);
+        if (!vehiclePriceValidation.IsValid) return new FinanceInvoiceIssueResult(payment, null, vehiclePriceValidation);
         var customer = payment.CustomerId is { } customerId
             ? await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == customerId)
             : null;
@@ -4262,6 +4276,7 @@ internal static class StockMovementAudit
         AddIfChanged(db, after.Id, "Make", before.Make, after.Make, actor, reason);
         AddIfChanged(db, after.Id, "Model", before.Model, after.Model, actor, reason);
         AddIfChanged(db, after.Id, "Year", before.Year.ToString(), after.Year.ToString(), actor, reason);
+        AddIfChanged(db, after.Id, "SellingPrice", before.SellingPrice.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), after.SellingPrice.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), actor, reason);
         AddIfChanged(db, after.Id, "BossConfirmed", before.BossConfirmed.ToString(), after.BossConfirmed.ToString(), actor, reason);
         AddIfChanged(db, after.Id, "IsPublic", before.IsPublic.ToString(), after.IsPublic.ToString(), actor, reason);
     }

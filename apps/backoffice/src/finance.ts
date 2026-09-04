@@ -19,6 +19,12 @@ export function calculateFinanceNettPrice(values: Pick<FinanceSaleInput, "salesP
     + (values.insurancePaidOnBehalfAmount ?? 0) + (values.roadTaxPaidOnBehalfAmount ?? 0) + (values.advancePaidOnBehalfAmount ?? 0) - values.ncdAmount);
 }
 
+export function financeSaleNeedsApproval(input: FinanceSaleInput) {
+  const calculated = calculateFinanceNettPrice(input);
+  const agreed = input.nettPrice ?? calculated;
+  return input.ncdAmount > 0 || roundMoney(agreed - calculated) !== 0;
+}
+
 export function financeSaleBlockReason(input: FinanceSaleInput, vehicles: VehicleLookup[] = []) {
   if (!vehicles.some((vehicle) => vehicle.id === input.vehicleId && Boolean(vehicle.customerId))) {
     return "Select a vehicle with a confirmed buyer.";
@@ -42,7 +48,7 @@ export function financeSaleBlockReason(input: FinanceSaleInput, vehicles: Vehicl
   const calculated = calculateFinanceNettPrice(input);
   const agreed = input.nettPrice ?? calculated;
   if (calculated <= 0 || agreed <= 0) return "Invoice total must be greater than zero.";
-  if (roundMoney(agreed - calculated) !== 0 && !input.nettPriceOverrideReason?.trim()) return "Explain the price adjustment before sending it for approval.";
+  if (financeSaleNeedsApproval(input) && !input.nettPriceOverrideReason?.trim()) return "Explain the NCD or price reduction before sending it for Boss/Admin approval.";
   return undefined;
 }
 

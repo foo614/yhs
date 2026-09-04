@@ -16,11 +16,148 @@ public sealed class FinanceV2RulesTests
     public void Variance_requires_reason_and_requester_cannot_approve_their_own_adjustment()
     {
         var request = new FinanceSaleRequest(Guid.NewGuid(), 50_000m, 1_000m, 500m, 100m, 50_500m, null);
-        var payment = FinanceV2Rules.CreatePayment(request, Guid.NewGuid(), "finance-1", DateTime.UtcNow);
+        var vehicle = new Vehicle { Id = request.VehicleId, SellingPrice = 50_000m, BossConfirmed = true };
+        var payment = FinanceV2Rules.CreatePayment(request, vehicle, Guid.NewGuid(), "finance-1", DateTime.UtcNow);
 
-        Assert.Contains(FinanceV2Rules.ValidateSale(request, payment).Errors, error => error.Code == "finance_nett_variance_reason_required");
+        Assert.Contains(FinanceV2Rules.ValidateSale(request, payment, vehicle).Errors, error => error.Code == "finance_nett_variance_reason_required");
         Assert.Contains(FinanceV2Rules.ValidateVarianceApproval(payment, "finance-1").Errors, error => error.Code == "finance_variance_self_approval_forbidden");
-        Assert.True(FinanceV2Rules.ValidateVarianceApproval(payment, "boss-2").IsValid);
+        Assert.Contains(FinanceV2Rules.ValidateVarianceApproval(payment, "boss-2").Errors, error => error.Code == "finance_nett_variance_reason_required");
+
+        var reasoned = FinanceV2Rules.CreatePayment(
+            request with { NettPriceOverrideReason = "Approved negotiated total" },
+            vehicle,
+            Guid.NewGuid(),
+            "finance-1",
+            DateTime.UtcNow);
+        Assert.True(FinanceV2Rules.ValidateVarianceApproval(reasoned, "boss-2").IsValid);
+    }
+
+    [Fact]
+    public void Finance_sale_uses_the_locked_vehicle_price_and_rejects_a_lower_submitted_price()
+    {
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 15_000m, BossConfirmed = true };
+        var request = new FinanceSaleRequest(vehicle.Id, 10_000m, 0, 0, 0, null, null, "sales-1");
+
+        var payment = FinanceV2Rules.CreatePayment(request, vehicle, Guid.NewGuid(), "finance-1", DateTime.UtcNow);
+        var validation = FinanceV2Rules.ValidateSale(request, payment, vehicle);
+
+        Assert.Equal(15_000m, payment.SalesPrice);
+        Assert.Equal(15_000m, payment.NettPrice);
+        Assert.Contains(validation.Errors, error => error.Code == "finance_sales_price_mismatch");
+    }
+
+    [Fact]
+    public void Finance_sale_rejects_an_unapproved_vehicle()
+    {
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 15_000m, BossConfirmed = false };
+        var request = new FinanceSaleRequest(vehicle.Id, 15_000m, 0, 0, 0, null, null, "sales-1");
+        var payment = FinanceV2Rules.CreatePayment(request, vehicle, Guid.NewGuid(), "finance-1", DateTime.UtcNow);
+
+        Assert.Contains(
+            FinanceV2Rules.ValidateSale(request, payment, vehicle).Errors,
+            error => error.Code == "finance_vehicle_not_approved");
+    }
+
+    [Fact]
+    public void Invoice_issuance_rechecks_approval_and_the_current_vehicle_price()
+    {
+        var payment = V2Payment(15_000m);
+        var vehicle = new Vehicle { Id = payment.VehicleId, SellingPrice = 15_000m, BossConfirmed = true };
+
+        Assert.True(FinanceV2Rules.ValidateCanonicalVehicleForInvoice(payment, vehicle).IsValid);
+        Assert.Contains(
+            FinanceV2Rules.ValidateCanonicalVehicleForInvoice(payment, vehicle with { BossConfirmed = false }).Errors,
+            error => error.Code == "finance_vehicle_not_approved");
+        Assert.Contains(
+            FinanceV2Rules.ValidateCanonicalVehicleForInvoice(payment, vehicle with { SellingPrice = 10_000m }).Errors,
+            error => error.Code == "finance_sales_price_changed");
+    }
+
+    [Fact]
+    public void Positive_ncd_requires_reason_and_distinct_maker_checker_approval()
+    {
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 15_000m, BossConfirmed = true };
+        var request = new FinanceSaleRequest(vehicle.Id, 15_000m, 0, 500m, 0, null, null, "sales-1");
+        var payment = FinanceV2Rules.CreatePayment(request, vehicle, Guid.NewGuid(), "finance-1", DateTime.UtcNow);
+
+        Assert.Equal(0m, payment.NettPriceVariance);
+        Assert.True(FinanceV2Rules.RequiresNettPriceApproval(payment));
+        Assert.Contains(
+            FinanceV2Rules.ValidateSale(request, payment, vehicle).Errors,
+            error => error.Code == "finance_nett_variance_reason_required");
+        Assert.Contains(
+            FinanceV2Rules.ValidateVarianceApproval(payment, "finance-1").Errors,
+            error => error.Code == "finance_variance_self_approval_forbidden");
+        Assert.Contains(
+            FinanceV2Rules.ValidateInvoiceEligibility(payment, null).Errors,
+            error => error.Code == "finance_variance_approval_required");
+
+        var reasoned = FinanceV2Rules.CreatePayment(
+            request with { NettPriceOverrideReason = "Customer NCD entitlement verified" },
+            vehicle,
+            Guid.NewGuid(),
+            "finance-1",
+            DateTime.UtcNow);
+        var approved = reasoned with { NettPriceOverrideApprovedBy = "boss-2", NettPriceOverrideApprovedAt = DateTime.UtcNow };
+        Assert.True(FinanceV2Rules.ValidateVarianceApproval(reasoned, "boss-2").IsValid);
+        Assert.True(FinanceV2Rules.ValidateSale(request with { NettPriceOverrideReason = "Customer NCD entitlement verified" }, reasoned, vehicle).IsValid);
+        Assert.True(FinanceV2Rules.ValidateInvoiceEligibility(approved, null).IsValid);
+    }
+
+    [Fact]
+    public void Existing_positive_ncd_invoice_cannot_create_or_reconcile_collections_without_approval()
+    {
+        var payment = V2Payment(14_500m) with { SalesPrice = 15_000m, NcdAmount = 500m };
+        var invoice = InvoiceFor(payment);
+        var request = new CreateCollectionRequest(14_500m, CollectionMethod.BankTransfer, "BANK-15", null, null, null);
+        var collection = CollectionFor(payment, 14_500m, CollectionStatus.Pending, "BANK-15") with { CreatedBy = "finance-1" };
+
+        Assert.Contains(
+            FinanceV2Rules.ValidateCollectionCreate(payment, invoice, request, []).Errors,
+            error => error.Code == "finance_variance_approval_required");
+        Assert.Contains(
+            FinanceV2Rules.ValidateReconcile(payment, collection, "finance-2", hasLinkedEvidence: true).Errors,
+            error => error.Code == "finance_variance_approval_required");
+        Assert.Contains(
+            FinanceV2Rules.ValidateVarianceApproval(payment, "boss-1").Errors,
+            error => error.Code == "finance_variance_request_metadata_required");
+
+        var approved = payment with
+        {
+            NettPriceOverrideReason = "Historical NCD entitlement verified",
+            NettPriceOverrideRequestedBy = "finance-1",
+            NettPriceOverrideRequestedAt = DateTime.UtcNow.AddMinutes(-1),
+            NettPriceOverrideApprovedBy = "boss-1",
+            NettPriceOverrideApprovedAt = DateTime.UtcNow
+        };
+        Assert.True(FinanceV2Rules.ValidateCollectionCreate(approved, invoice, request, []).IsValid);
+        Assert.True(FinanceV2Rules.ValidateReconcile(approved, collection, "finance-2", hasLinkedEvidence: true).IsValid);
+    }
+
+    [Fact]
+    public void Legacy_receivable_cannot_start_below_approved_price_and_terms_are_immutable_after_creation()
+    {
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 15_000m, BossConfirmed = true };
+        var lower = new PaymentRecord { VehicleId = vehicle.Id, NettPrice = 10_000m };
+        var canonical = new PaymentRecord { VehicleId = vehicle.Id, NettPrice = 15_000m };
+
+        Assert.Contains(
+            FinanceRules.ValidateLegacyReceivableCreate(lower, vehicle).Errors,
+            error => error.Code == "finance_legacy_nett_price_mismatch");
+        Assert.Contains(
+            FinanceRules.ValidateLegacyReceivableCreate(canonical with { NettPrice = 20_000m }, vehicle).Errors,
+            error => error.Code == "finance_legacy_nett_price_mismatch");
+        Assert.Contains(
+            FinanceRules.ValidateLegacyReceivableCreate(canonical, vehicle with { BossConfirmed = false }).Errors,
+            error => error.Code == "finance_vehicle_not_approved");
+        Assert.Contains(
+            FinanceRules.ValidateLegacyReceivableCreate(canonical with { NcdAmount = 500m }, vehicle).Errors,
+            error => error.Code == "finance_legacy_price_components_require_v2");
+        Assert.Equal(15_000m, FinanceRules.ApplyLegacyCanonicalSalesPrice(lower, vehicle).SalesPrice);
+        Assert.Contains(
+            FinanceRules.ValidateLegacyPricingUpdate(canonical, canonical with { NettPrice = 10_000m }).Errors,
+            error => error.Code == "finance_legacy_price_immutable");
+        Assert.True(FinanceRules.ValidateLegacyPricingUpdate(canonical, canonical with { InvoiceNumber = "INV-1" }).IsValid);
     }
 
     [Fact]
@@ -128,11 +265,11 @@ public sealed class FinanceV2RulesTests
         var collection = CollectionFor(payment, 10m, CollectionStatus.Pending, "BANK-1") with { CreatedBy = "finance-1" };
 
         Assert.Contains(
-            FinanceV2Rules.ValidateReconcile(collection, "finance-1", hasLinkedEvidence: true).Errors,
+            FinanceV2Rules.ValidateReconcile(payment, collection, "finance-1", hasLinkedEvidence: true).Errors,
             error => error.Code == "collection_reconcile_self_approval_forbidden");
-        Assert.True(FinanceV2Rules.ValidateReconcile(collection, "finance-2", hasLinkedEvidence: true).IsValid);
+        Assert.True(FinanceV2Rules.ValidateReconcile(payment, collection, "finance-2", hasLinkedEvidence: true).IsValid);
         Assert.Contains(
-            FinanceV2Rules.ValidateReconcile(collection, "finance-2", hasLinkedEvidence: false).Errors,
+            FinanceV2Rules.ValidateReconcile(payment, collection, "finance-2", hasLinkedEvidence: false).Errors,
             error => error.Code == "collection_evidence_required");
     }
 
@@ -328,7 +465,8 @@ public sealed class FinanceV2RulesTests
             CalculatedNettPrice = 110m,
             NettPriceVariance = -10m,
             NettPriceOverrideReason = "Agreed discount",
-            NettPriceOverrideRequestedBy = "finance-1"
+            NettPriceOverrideRequestedBy = "finance-1",
+            NettPriceOverrideRequestedAt = DateTime.UtcNow.AddMinutes(-1)
         };
         var paid = CollectionFor(adjusted, 100m, CollectionStatus.Reconciled, "PAID");
         Assert.False(FinanceV2Rules.IsReceivableSettled(adjusted, InvoiceFor(adjusted), [paid]));

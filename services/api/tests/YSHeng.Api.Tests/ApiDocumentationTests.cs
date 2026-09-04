@@ -20,6 +20,53 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Vehicle_and_finance_routes_enforce_the_canonical_approved_selling_price()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+
+        var vehicleUpdate = program[
+            program.IndexOf("backOffice.MapPut(\"/vehicles/{id:guid}\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/stock-movements\"", StringComparison.Ordinal)];
+        Assert.Contains("VehicleApprovalRules.ValidateRepricingReceivableLock", vehicleUpdate);
+        Assert.Contains("VehicleApprovalRules.EnforceRepricingApproval", vehicleUpdate);
+        Assert.Contains("\"SellingPrice\"", program[program.IndexOf("internal static class StockMovementAudit", StringComparison.Ordinal)..]);
+
+        var legacyCreate = program[
+            program.IndexOf("backOffice.MapPost(\"/payments\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPut(\"/payments/{id:guid}\"", StringComparison.Ordinal)];
+        Assert.Contains("ValidateLegacyReceivableCreate", legacyCreate);
+        Assert.Contains("ApplyLegacyCanonicalSalesPrice", legacyCreate);
+
+        var legacyUpdate = program[
+            program.IndexOf("backOffice.MapPut(\"/payments/{id:guid}\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/payments/{id:guid}/management-review\"", StringComparison.Ordinal)];
+        Assert.Contains("ValidateLegacyPricingUpdate", legacyUpdate);
+
+        var v2Create = program[
+            program.IndexOf("backOffice.MapPost(\"/payments/finance-sale\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/payments/{id:guid}/nett-price-override/approve\"", StringComparison.Ordinal)];
+        Assert.Contains("CreatePayment(request, vehicle", v2Create);
+        Assert.Contains("ValidateSale(request, payment, vehicle)", v2Create);
+        Assert.Contains("!FinanceV2Rules.RequiresNettPriceApproval(payment)", v2Create);
+
+        var collectionCreate = program[
+            program.IndexOf("backOffice.MapPost(\"/payments/{id:guid}/collections\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/collection-transactions/{id:guid}/financing-status\"", StringComparison.Ordinal)];
+        Assert.Contains("FinanceV2Rules.ValidateCollectionCreate(payment", collectionCreate);
+
+        var collectionReconcile = program[
+            program.IndexOf("backOffice.MapPost(\"/collection-transactions/{id:guid}/reconcile\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/collection-transactions/{id:guid}/reverse\"", StringComparison.Ordinal)];
+        Assert.Contains("FinanceV2Rules.ValidateReconcile(payment", collectionReconcile);
+
+        var financeOptions = program[
+            program.IndexOf("backOffice.MapGet(\"/finance/vehicle-options\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/owner-intakes/identity-card-preview\"", StringComparison.Ordinal)];
+        Assert.Contains("Where(vehicle => vehicle.BossConfirmed)", financeOptions);
+    }
+
+    [Fact]
     public void Workflow_approval_actions_are_dedicated_and_boss_admin_only()
     {
         var root = FindRepositoryRoot();
