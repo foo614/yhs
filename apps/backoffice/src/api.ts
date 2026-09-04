@@ -2382,7 +2382,9 @@ export function vehiclePhotoContentUrl(vehicleId: string, photoId: string) {
 }
 
 export async function uploadVehiclePhoto(vehicleId: string, file: File) {
-  return uploadFile(`/api/vehicles/${vehicleId}/photos`, file);
+  return uploadFile(`/api/vehicles/${vehicleId}/photos`, file, {
+    isRepresentativeImage: "false"
+  });
 }
 
 export async function uploadVehicleDocument(vehicleId: string, file: File, category: DocumentCategory, owner?: DocumentUploadOwner): Promise<VehicleDocument> {
@@ -2475,9 +2477,10 @@ async function requestWithNetworkFallback<T = unknown>(
   throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`));
 }
 
-async function uploadFile<T = unknown>(path: string, file: File): Promise<T> {
+async function uploadFile<T = unknown>(path: string, file: File, fields?: Record<string, string>): Promise<T> {
   const formData = new FormData();
   formData.append("file", file);
+  Object.entries(fields ?? {}).forEach(([name, value]) => formData.append(name, value));
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method: "POST",
     credentials: "include",

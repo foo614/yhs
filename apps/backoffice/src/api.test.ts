@@ -762,6 +762,8 @@ describe("backoffice api client", () => {
         body: expect.any(FormData)
       })
     );
+    const photoRequest = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((photoRequest.body as FormData).get("isRepresentativeImage")).toBe("false");
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "http://localhost:5000/api/vehicles/vehicle-1/documents?category=Voc",
