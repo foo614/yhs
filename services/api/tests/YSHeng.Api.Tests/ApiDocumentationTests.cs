@@ -238,6 +238,7 @@ public sealed class ApiDocumentationTests
         var apiDocs = File.ReadAllText(Path.Combine(root, "docs", "API.md"));
         var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
         var businessRules = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "BusinessRules.cs"));
+        var deliveryWorkboard = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "DeliveryWorkboard.cs"));
 
         Assert.Contains("backOffice.MapPost(\"/payments/finance-sale\"", program);
         Assert.Contains("backOffice.MapPost(\"/payments/{id:guid}/collections\"", program);
@@ -250,6 +251,8 @@ public sealed class ApiDocumentationTests
         Assert.Matches(new Regex(@"WorkflowStatusRules\.ApplyWorkflowStatus\(\s*vehicle,\s*loans,\s*allPayments,\s*deliveries,\s*invoice is null \? \[\] : \[invoice\],\s*collections\)"), program);
         Assert.Contains("FinanceClearanceRules.ClearedVehicleIds(payments, financeInvoices, collections)", program);
         Assert.True(Regex.Matches(program, @"FinanceClearanceRules\.IsVehicleCleared\(delivery\.VehicleId, payments, financeInvoices, collections\)").Count >= 2);
+        Assert.Contains("FinanceClearanceRules.ClearedVehicleIds(paymentList, financeInvoices ?? [], collections ?? [])", deliveryWorkboard);
+        Assert.Matches(new Regex(@"SalesWorkboardRules\.Create\(\s*selectedAgentIds,[\s\S]*?financeInvoices:\s*financeInvoices,\s*collections:\s*collections\)"), program);
         Assert.Contains("Finance V2 uses one receivable per vehicle", apiDocs);
         Assert.Contains("Creating the receivable locks the buyer identity", apiDocs);
         Assert.Contains("First-deploy assumption", apiDocs);

@@ -2789,6 +2789,9 @@ backOffice.MapGet("/sales/workboard", async (string? agentUserId, AppDbContext d
         selectedAgentIds = agentOptions.Select(agent => agent.Id).ToArray();
     }
 
+    var payments = await db.PaymentRecords.AsNoTracking().ToListAsync();
+    var financeInvoices = await db.FinanceInvoices.AsNoTracking().ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().ToListAsync();
     return Results.Ok(SalesWorkboardRules.Create(
         selectedAgentIds,
         BusinessClock.Today(),
@@ -2797,9 +2800,11 @@ backOffice.MapGet("/sales/workboard", async (string? agentUserId, AppDbContext d
         await db.LoanApplications.AsNoTracking().ToListAsync(),
         await db.RepairJobs.AsNoTracking().ToListAsync(),
         await db.DeliverySchedules.AsNoTracking().ToListAsync(),
-        await db.PaymentRecords.AsNoTracking().ToListAsync(),
+        payments,
         isBoss ? agentOptions : [],
-        includeUnassigned: isBoss && string.IsNullOrWhiteSpace(agentUserId)));
+        includeUnassigned: isBoss && string.IsNullOrWhiteSpace(agentUserId),
+        financeInvoices: financeInvoices,
+        collections: collections));
 }).RequireAuthorization("Sales");
 backOffice.MapGet("/audit-log", async (string? q, string? actor, string? action, string? entityName, AppDbContext db) =>
 {

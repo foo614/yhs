@@ -216,6 +216,81 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
+    public void Sales_workboard_requires_approved_v2_clearance_even_when_sold_state_and_legacy_payment_are_present()
+    {
+        var today = new DateOnly(2026, 9, 5);
+        var payment = V2Payment(14_500m) with
+        {
+            SalesPrice = 15_000m,
+            NcdAmount = 500m,
+            NettPriceOverrideReason = "Historical NCD entitlement",
+            Status = PaymentStatus.Reconciled
+        };
+        var vehicle = new Vehicle
+        {
+            Id = payment.VehicleId,
+            CustomerId = payment.CustomerId,
+            Status = VehicleStatus.Sold,
+            SoldAt = new DateTime(2026, 9, 2, 0, 0, 0, DateTimeKind.Utc),
+            SalesAgentUserId = "sales-1",
+            SalesAgentName = "Sales One",
+            PlateNumber = "NCD501",
+            Make = "Toyota",
+            Model = "Vios"
+        };
+        var invoice = InvoiceFor(payment);
+        var reconciled = CollectionFor(payment, 14_500m, CollectionStatus.Reconciled, "HISTORICAL-SALES");
+        var legacy = new PaymentRecord { VehicleId = vehicle.Id, Status = PaymentStatus.Reconciled };
+        var released = new DeliverySchedule { VehicleId = vehicle.Id, Status = DeliveryStatus.Released };
+
+        var blocked = SalesWorkboardRules.Create(
+            ["sales-1"],
+            today,
+            [vehicle],
+            [],
+            [],
+            [],
+            [released],
+            [legacy, payment],
+            [],
+            financeInvoices: [invoice],
+            collections: [reconciled]);
+
+        var blockedItem = Assert.Single(blocked.Items);
+        Assert.Equal("Delivery", blockedItem.Process);
+        Assert.Equal("Finance", blockedItem.ResponsibleDepartment);
+        Assert.Equal("Wait for Finance clearance", blockedItem.NextAction);
+        Assert.Equal(1, blocked.InProgressCount);
+        Assert.Equal(0, blocked.SoldThisMonth);
+
+        var approved = payment with
+        {
+            NettPriceOverrideRequestedBy = "finance-1",
+            NettPriceOverrideRequestedAt = DateTime.UtcNow.AddMinutes(-1),
+            NettPriceOverrideApprovedBy = "boss-1",
+            NettPriceOverrideApprovedAt = DateTime.UtcNow
+        };
+        var cleared = SalesWorkboardRules.Create(
+            ["sales-1"],
+            today,
+            [vehicle],
+            [],
+            [],
+            [],
+            [released],
+            [legacy, approved],
+            [],
+            financeInvoices: [invoice],
+            collections: [reconciled]);
+
+        var clearedItem = Assert.Single(cleared.Items);
+        Assert.Equal("Completed", clearedItem.Process);
+        Assert.Equal("Sale completed", clearedItem.NextAction);
+        Assert.Equal(0, cleared.InProgressCount);
+        Assert.Equal(1, cleared.SoldThisMonth);
+    }
+
+    [Fact]
     public void Legacy_receivable_cannot_start_below_approved_price_and_terms_are_immutable_after_creation()
     {
         var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 15_000m, BossConfirmed = true };

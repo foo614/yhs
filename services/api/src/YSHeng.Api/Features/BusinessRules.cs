@@ -1743,11 +1743,20 @@ public static class FinanceClearanceRules
         IEnumerable<FinanceInvoice> invoices,
         IEnumerable<CollectionTransaction> collections)
     {
+        var paymentList = payments.ToList();
         var invoiceByPayment = invoices.ToLookup(invoice => invoice.PaymentRecordId);
         var collectionsByPayment = collections.ToLookup(collection => collection.PaymentRecordId);
-        return payments
-            .Where(payment => IsPaymentCleared(payment, invoiceByPayment[payment.Id].FirstOrDefault(), collectionsByPayment[payment.Id]))
-            .Select(payment => payment.VehicleId)
+        return paymentList
+            .GroupBy(payment => payment.VehicleId)
+            .Where(group =>
+            {
+                IEnumerable<PaymentRecord> authoritativePayments = group.Any(payment => payment.FinanceWorkflowVersion == 2)
+                    ? group.Where(payment => payment.FinanceWorkflowVersion == 2)
+                    : group;
+                return authoritativePayments.Any(payment =>
+                    IsPaymentCleared(payment, invoiceByPayment[payment.Id].FirstOrDefault(), collectionsByPayment[payment.Id]));
+            })
+            .Select(group => group.Key)
             .ToHashSet();
     }
 
