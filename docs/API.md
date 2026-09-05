@@ -229,7 +229,7 @@ The delivery workboard presents four active stages: `Plan delivery`, `Prepare ca
 Delivery release-readiness responses include:
 
 - `isReady`: true only when the release checklist, exact delivery-owned documents, and reconciled Finance clearance are all complete.
-- `financeCleared`: read-only Boolean showing whether a reconciled payment exists for the delivery vehicle; no Finance amounts or references are returned.
+- `financeCleared`: read-only Boolean showing whether the vehicle has cleared Finance. V2 requires an invoice, approved NCD/price adjustments, and fully reconciled collections; legacy records retain their reconciled-status rule. No Finance amounts or references are returned.
 - `missingCategories`: required release document categories still missing.
 - `missingEvidence`: required handover-photo or signed-handover uploads still missing.
 - `expiredDocuments`: delivery-critical expiry blockers for insurance, road tax, or windscreen insurance.
@@ -246,7 +246,7 @@ Workflow integrity:
 - A loan can become `Done` only when `StatusReceipt`, `Voc`, `ApDocument`, and `LoanDocument` all belong to its exact vehicle and canonical buyer. The validation response uses `loan_documents_incomplete` and names the missing categories.
 - Legacy documents uploaded before buyer ownership was recorded remain available for reference but intentionally do not satisfy loan completion. Staff must re-upload the required documents from the loan checklist after the canonical buyer is linked; the system does not guess or backfill document ownership.
 - Delivery creation/update and payment reconciliation require that the vehicle has a `CustomerId` pointing to an existing canonical customer. Cash sales remain supported and do not require a loan.
-- Vehicle `Sold` state requires both a reconciled payment and a released delivery. Reconciliation alone leaves the car in its private in-progress state; a later Finance correction that removes reconciliation recalculates that state on the server. A physically released car remains assigned to Finance in Sales My Cars until clearance is restored.
+- Vehicle `Sold` state requires both Finance clearance and a released delivery. V2 clearance requires an invoice, approved NCD/price adjustments, and fully reconciled collections; legacy records retain their reconciled-status rule. Reconciliation alone leaves the car in its private in-progress state; a later Finance correction that removes clearance recalculates that state on the server. A physically released car remains assigned to Finance in Sales My Cars until clearance is restored, even when its stored vehicle status still says `Sold`.
 - Loan and payment records keep their vehicle identity after creation. Their workflow changes, Delivery release, and vehicle buyer edits share the same vehicle-scoped serialization so one department cannot overwrite a newer cross-department state.
 - Closing a vehicle lead as `Sold` records the responsible Sales agent on the vehicle. `GET /api/sales/workboard` uses that server-owned assignment for the agent's monthly sold count and current-process list.
 
@@ -254,7 +254,7 @@ Workflow integrity:
 
 Finance V2 uses one receivable per vehicle, one immutable YS Heng invoice snapshot, and multiple partial collection rows. Creating the receivable locks the buyer identity, requires a Boss/Admin-approved vehicle, and copies the locked vehicle selling price instead of trusting the submitted amount. A stale or different submitted sales price is rejected. Manual nett-price variances and every positive NCD remain pending until maker-checker approval. An active Delivery invoice-update request must be resolved or cancelled before the immutable invoice is issued, and no new request can be opened or closed after issuance. All finance endpoints require the `Finance` policy except the Boss/Admin-only legacy management review, nett-price/NCD approval, and collection reversal actions.
 
-First-deploy assumptions: no pre-existing Finance V2 invoice can already have an open Delivery invoice-update request. Historical positive-NCD records without a recorded reason, requester, and request time remain blocked from approval and collection until explicitly reviewed and remediated; the API does not infer a maker for them. If invalid data is imported later, the API rejects invoice issuance and request resolution instead of claiming that an immutable PDF was changed.
+First-deploy assumptions: no pre-existing Finance V2 invoice can already have an open Delivery invoice-update request. Historical positive-NCD records without a recorded reason, requester, and request time remain blocked from approval and collection until explicitly reviewed and remediated; the API does not infer a maker for them. An invoiced V2 record with an unapproved adjustment shows `AttentionNeeded` and cannot clear Delivery or appear completed in My Cars, even if older collections were reconciled. Review affected historical records with Finance before operational use; this release does not fabricate approval metadata or rewrite stored transactions. If invalid data is imported later, the API rejects invoice issuance and request resolution instead of claiming that an immutable PDF was changed.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
