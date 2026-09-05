@@ -70,24 +70,25 @@ public static class FinanceV2Rules
         decimal advancePaidOnBehalfAmount = 0) =>
         decimal.Round(salesPrice + interestAdditionalCharges + windscreenCharges + insurancePaidOnBehalfAmount + roadTaxPaidOnBehalfAmount + advancePaidOnBehalfAmount - ncdAmount, 2, MidpointRounding.AwayFromZero);
 
-    public static PaymentRecord CreatePayment(FinanceSaleRequest request, Guid customerId, string actorUserId, DateTime now)
+    public static PaymentRecord CreatePayment(FinanceSaleRequest request, Vehicle vehicle, Guid customerId, string actorUserId, DateTime now)
     {
-        var calculated = CalculateNettPrice(request.SalesPrice, request.InterestAdditionalCharges, request.NcdAmount, request.WindscreenCharges, request.InsurancePaidOnBehalfAmount, request.RoadTaxPaidOnBehalfAmount, request.AdvancePaidOnBehalfAmount);
+        var calculated = CalculateNettPrice(vehicle.SellingPrice, request.InterestAdditionalCharges, request.NcdAmount, request.WindscreenCharges, request.InsurancePaidOnBehalfAmount, request.RoadTaxPaidOnBehalfAmount, request.AdvancePaidOnBehalfAmount);
         var agreed = decimal.Round(request.NettPrice ?? calculated, 2, MidpointRounding.AwayFromZero);
         var variance = decimal.Round(agreed - calculated, 2, MidpointRounding.AwayFromZero);
+        var requiresApproval = variance != 0 || request.NcdAmount > 0;
         return new PaymentRecord
         {
-            VehicleId = request.VehicleId,
+            VehicleId = vehicle.Id,
             CustomerId = customerId,
             NettPrice = agreed,
             CalculatedNettPrice = calculated,
             NettPriceVariance = variance,
-            NettPriceOverrideReason = variance == 0 ? null : request.NettPriceOverrideReason?.Trim(),
-            NettPriceOverrideRequestedBy = variance == 0 ? null : actorUserId,
-            NettPriceOverrideRequestedAt = variance == 0 ? null : now,
+            NettPriceOverrideReason = requiresApproval ? request.NettPriceOverrideReason?.Trim() : null,
+            NettPriceOverrideRequestedBy = requiresApproval ? actorUserId : null,
+            NettPriceOverrideRequestedAt = requiresApproval ? now : null,
             FormulaVersion = FormulaVersion,
             FinanceWorkflowVersion = 2,
-            SalesPrice = request.SalesPrice,
+            SalesPrice = vehicle.SellingPrice,
             InterestAdditionalCharges = request.InterestAdditionalCharges,
             NcdAmount = request.NcdAmount,
             WindscreenCharges = request.WindscreenCharges,
@@ -115,9 +116,25 @@ public static class FinanceV2Rules
             FinanceWorkflowVersion = existing.FinanceWorkflowVersion
         };
 
-    public static ValidationResult ValidateSale(FinanceSaleRequest request, PaymentRecord payment)
+    public static ValidationResult ValidateSale(FinanceSaleRequest request, PaymentRecord payment, Vehicle vehicle)
     {
         var errors = new List<ValidationError>();
+        if (request.VehicleId != vehicle.Id || payment.VehicleId != vehicle.Id)
+        {
+            errors.Add(new("finance_vehicle_mismatch", "The Finance sale must use the selected vehicle record."));
+        }
+        if (!vehicle.BossConfirmed)
+        {
+            errors.Add(new("finance_vehicle_not_approved", "Boss/Admin must approve the vehicle selling price before Finance prepares the sale."));
+        }
+        if (request.SalesPrice != vehicle.SellingPrice)
+        {
+            errors.Add(new("finance_sales_price_mismatch", "The submitted sales price does not match the approved vehicle selling price. Refresh the vehicle price and try again."));
+        }
+        if (payment.SalesPrice != vehicle.SellingPrice)
+        {
+            errors.Add(new("finance_canonical_sales_price_invalid", "The receivable must use the approved vehicle selling price."));
+        }
         if (request.SalesPrice <= 0) errors.Add(new("finance_sales_price_invalid", "Sales price must be greater than zero."));
         if (request.InterestAdditionalCharges < 0) errors.Add(new("finance_additional_charges_invalid", "Interest and additional charges cannot be negative."));
         if (request.NcdAmount < 0) errors.Add(new("finance_ncd_invalid", "NCD amount cannot be negative."));
@@ -128,23 +145,39 @@ public static class FinanceV2Rules
             errors.Add(new("finance_paid_on_behalf_invalid", "Paid-on-behalf amounts cannot be negative."));
         }
         if (payment.CalculatedNettPrice <= 0 || payment.NettPrice <= 0) errors.Add(new("finance_nett_price_invalid", "Calculated and agreed nett prices must be greater than zero."));
-        if (payment.NettPriceVariance != 0 && string.IsNullOrWhiteSpace(payment.NettPriceOverrideReason))
+        if (RequiresNettPriceApproval(payment) && string.IsNullOrWhiteSpace(payment.NettPriceOverrideReason))
         {
-            errors.Add(new("finance_nett_variance_reason_required", "Explain why the agreed nett price differs from the calculated amount."));
+            errors.Add(new("finance_nett_variance_reason_required", "Explain the NCD or agreed nett price adjustment before requesting approval."));
         }
         if (payment.NettPriceOverrideReason?.Length > 500) errors.Add(new("finance_nett_variance_reason_too_long", "Nett price adjustment reason must be 500 characters or fewer."));
         return new ValidationResult(errors);
     }
 
+    public static bool RequiresNettPriceApproval(PaymentRecord payment) =>
+        payment.NettPriceVariance != 0 || payment.NcdAmount > 0;
+
     public static bool HasApprovedVariance(PaymentRecord payment) =>
-        payment.NettPriceVariance == 0 ||
-        !string.IsNullOrWhiteSpace(payment.NettPriceOverrideApprovedBy) && payment.NettPriceOverrideApprovedAt.HasValue;
+        !RequiresNettPriceApproval(payment) ||
+        !string.IsNullOrWhiteSpace(payment.NettPriceOverrideReason) &&
+        !string.IsNullOrWhiteSpace(payment.NettPriceOverrideRequestedBy) &&
+        payment.NettPriceOverrideRequestedAt.HasValue &&
+        !string.IsNullOrWhiteSpace(payment.NettPriceOverrideApprovedBy) &&
+        payment.NettPriceOverrideApprovedAt.HasValue &&
+        !string.Equals(payment.NettPriceOverrideRequestedBy, payment.NettPriceOverrideApprovedBy, StringComparison.Ordinal);
 
     public static ValidationResult ValidateVarianceApproval(PaymentRecord payment, string actorUserId)
     {
         var errors = new List<ValidationError>();
         if (payment.FinanceWorkflowVersion != 2) errors.Add(new("finance_v2_required", "This approval is only available for Finance V2 sales."));
-        if (payment.NettPriceVariance == 0) errors.Add(new("finance_variance_not_required", "This sale has no nett price adjustment to approve."));
+        if (!RequiresNettPriceApproval(payment)) errors.Add(new("finance_variance_not_required", "This sale has no NCD or nett price adjustment to approve."));
+        if (string.IsNullOrWhiteSpace(payment.NettPriceOverrideReason))
+        {
+            errors.Add(new("finance_nett_variance_reason_required", "Explain the NCD or agreed nett price adjustment before requesting approval."));
+        }
+        if (string.IsNullOrWhiteSpace(payment.NettPriceOverrideRequestedBy) || !payment.NettPriceOverrideRequestedAt.HasValue)
+        {
+            errors.Add(new("finance_variance_request_metadata_required", "This adjustment has no recorded requester and cannot be approved safely. Review the historical sale before continuing."));
+        }
         if (string.Equals(payment.NettPriceOverrideRequestedBy, actorUserId, StringComparison.Ordinal))
         {
             errors.Add(new("finance_variance_self_approval_forbidden", "The person who requested the nett price adjustment cannot approve it."));
@@ -160,6 +193,25 @@ public static class FinanceV2Rules
         if (payment.NettPrice <= 0 || payment.CalculatedNettPrice <= 0) errors.Add(new("finance_nett_price_invalid", "A positive calculated and agreed nett price is required."));
         if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Boss/Admin approval is required before issuing an adjusted-price invoice."));
         if (existingInvoice is not null && existingInvoice.PaymentRecordId != payment.Id) errors.Add(new("finance_invoice_conflict", "The existing invoice does not belong to this payment."));
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateCanonicalVehicleForInvoice(PaymentRecord payment, Vehicle? vehicle)
+    {
+        var errors = new List<ValidationError>();
+        if (vehicle is null || vehicle.Id != payment.VehicleId)
+        {
+            errors.Add(new("finance_vehicle_unavailable", "The receivable vehicle is unavailable."));
+            return new ValidationResult(errors);
+        }
+        if (!vehicle.BossConfirmed)
+        {
+            errors.Add(new("finance_vehicle_not_approved", "Boss/Admin must approve the current vehicle selling price before Finance issues the invoice."));
+        }
+        if (payment.SalesPrice != vehicle.SellingPrice)
+        {
+            errors.Add(new("finance_sales_price_changed", "The approved vehicle selling price changed after this receivable was prepared. Review the sale before issuing an invoice."));
+        }
         return new ValidationResult(errors);
     }
 
@@ -247,6 +299,7 @@ public static class FinanceV2Rules
         var errors = new List<ValidationError>();
         if (payment.FinanceWorkflowVersion != 2) errors.Add(new("finance_v2_required", "Partial collections are only available for Finance V2 sales."));
         if (invoice is null) errors.Add(new("finance_invoice_required", "Issue the invoice before recording a collection."));
+        if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Boss/Admin approval is required before recording a collection for an NCD or adjusted nett price."));
         if (!Enum.IsDefined(typeof(CollectionMethod), request.Method)) errors.Add(new("collection_method_invalid", "Select a valid collection method."));
         if (request.FinancingStatus is { } financingStatus && !Enum.IsDefined(typeof(FinancingStatus), financingStatus))
         {
@@ -345,9 +398,10 @@ public static class FinanceV2Rules
         return new ValidationResult(errors);
     }
 
-    public static ValidationResult ValidateReconcile(CollectionTransaction collection, string actorUserId, bool hasLinkedEvidence)
+    public static ValidationResult ValidateReconcile(PaymentRecord payment, CollectionTransaction collection, string actorUserId, bool hasLinkedEvidence)
     {
         var errors = new List<ValidationError>();
+        if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Boss/Admin approval is required before reconciling a collection for an NCD or adjusted nett price."));
         if (!Enum.IsDefined(typeof(CollectionMethod), collection.Method)) errors.Add(new("collection_method_invalid", "The stored collection method is invalid and requires review."));
         if (!Enum.IsDefined(typeof(FinancingStatus), collection.FinancingStatus)) errors.Add(new("collection_financing_status_invalid", "The stored financing status is invalid and requires review."));
         if (collection.Status == CollectionStatus.Reversed) errors.Add(new("collection_reversed", "A reversed collection cannot be reconciled."));
@@ -391,7 +445,8 @@ public static class FinanceV2Rules
     public static ReceivableStatus DeriveReceivableStatus(PaymentRecord payment, FinanceInvoice? invoice, IEnumerable<CollectionTransaction> collections)
     {
         if (payment.FinanceWorkflowVersion != 2) return payment.Status == PaymentStatus.Reconciled ? ReceivableStatus.Paid : ReceivableStatus.Draft;
-        if (invoice is null) return HasApprovedVariance(payment) ? ReceivableStatus.Draft : ReceivableStatus.WaitingForApproval;
+        if (!HasApprovedVariance(payment)) return invoice is null ? ReceivableStatus.WaitingForApproval : ReceivableStatus.AttentionNeeded;
+        if (invoice is null) return ReceivableStatus.Draft;
         if (ActiveAllocatedAmount(collections) > payment.NettPrice) return ReceivableStatus.AttentionNeeded;
         if (Balance(payment, collections) == 0) return ReceivableStatus.Paid;
         if (CollectedAmount(collections) > 0) return ReceivableStatus.PartiallyPaid;

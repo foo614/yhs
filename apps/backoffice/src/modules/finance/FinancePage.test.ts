@@ -2,20 +2,26 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  canApproveFinanceAdjustment,
   canPrepareFinanceInvoice,
   createUnpaidDailySpend,
   dailySpendMatchesDashboardAttention,
+  FinancePriceAdjustmentSummary,
   FinanceV2BalanceSummary,
+  financeApprovedBuyerVehicles,
   financeInvoiceSubmitLabel,
   financeInvoiceVehicleDefaults,
+  financePaymentNeedsAdjustmentApproval,
   financePaymentCustomerId,
   financePaymentCustomerLabel,
   financeRequesterLabel,
+  financeSaleInputFromForm,
   financeSearchCopy,
   financeTabForUrl,
   financeVehicleDescription,
   InvoiceUpdateRequestQueue,
   payDailySpend,
+  paymentFromEditableDetails,
   settlementDraftForVehicle,
   settlementMatchesDashboardAttention
 } from "./FinancePage";
@@ -175,11 +181,72 @@ describe("Finance V2 review copy", () => {
     });
   });
 
+  it("submits the selected approved vehicle price even if a form value is forged", () => {
+    const input = financeSaleInputFromForm({
+      vehicleId: "vehicle-1",
+      salesAgentUserId: "sales-1",
+      salesPrice: 10_000,
+      interestAdditionalCharges: 750,
+      ncdAmount: 0,
+      windscreenCharges: 0
+    }, [{
+      id: "vehicle-1",
+      plateNumber: "VPK1234",
+      make: "Toyota",
+      model: "Vios",
+      stockOwner: "YSHeng",
+      status: "Available",
+      customerId: "customer-1",
+      sellingPrice: 58_000,
+      additionalCharges: 750
+    }], false);
+
+    expect(input.salesPrice).toBe(58_000);
+  });
+
+  it("keeps a positive NCD amount in approval state with its required reason", () => {
+    const input = financeSaleInputFromForm({
+      vehicleId: "vehicle-1",
+      salesAgentUserId: "sales-1",
+      salesPrice: 10_000,
+      interestAdditionalCharges: 0,
+      ncdAmount: 500,
+      windscreenCharges: 0,
+      nettPriceOverrideReason: "  Customer NCD entitlement verified  "
+    }, [{
+      id: "vehicle-1",
+      plateNumber: "VPK1234",
+      make: "Toyota",
+      model: "Vios",
+      stockOwner: "YSHeng",
+      status: "Available",
+      customerId: "customer-1",
+      sellingPrice: 58_000
+    }], false);
+
+    expect(input).toMatchObject({
+      salesPrice: 58_000,
+      ncdAmount: 500,
+      nettPriceOverrideReason: "Customer NCD entitlement verified"
+    });
+    expect(financeInvoiceSubmitLabel(57_500, undefined, false, 500)).toBe("Review & send for approval");
+  });
+
   it("disables invoice preparation until both finance records and canonical vehicle prices are available", () => {
     expect(canPrepareFinanceInvoice(null, null, 1)).toBe(true);
     expect(canPrepareFinanceInvoice("Payments unavailable", null, 1)).toBe(false);
     expect(canPrepareFinanceInvoice(null, "Vehicle prices unavailable", 1)).toBe(false);
     expect(canPrepareFinanceInvoice(null, null, 0)).toBe(false);
+  });
+
+  it("offers only buyer-linked vehicles that received an approved canonical price", () => {
+    const base = { id: "vehicle-1", plateNumber: "VPK1234", make: "Toyota", model: "Vios", stockOwner: "YSHeng" as const, status: "Available" as const };
+    expect(financeApprovedBuyerVehicles([
+      { ...base, customerId: "customer-1", sellingPrice: 58_000 },
+      { ...base, id: "vehicle-unapproved", customerId: "customer-2", sellingPrice: undefined },
+      { ...base, id: "vehicle-zero-price", customerId: "customer-3", sellingPrice: 0 },
+      { ...base, id: "vehicle-no-buyer", sellingPrice: 55_000 }
+    ]).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
   });
 
   it("distinguishes immediate invoice generation from a real price-variance approval", () => {
@@ -192,6 +259,74 @@ describe("Finance V2 review copy", () => {
     expect(financeRequesterLabel()).toBe("-");
     expect(financeRequesterLabel("finance-user", "finance-user")).toBe("You");
     expect(financeRequesterLabel("other-user", "finance-user")).toBe("Finance staff");
+  });
+
+  it("requires a different Boss/Admin user to approve an NCD or nett-price adjustment", () => {
+    const payment = { ncdAmount: 500, nettPriceVariance: 0, nettPriceOverrideRequestedBy: "boss-1" };
+    expect(financePaymentNeedsAdjustmentApproval(payment)).toBe(true);
+    expect(canApproveFinanceAdjustment(payment, { isAuthenticated: true, id: "boss-1", roles: ["BossAdmin"] })).toBe(false);
+    expect(canApproveFinanceAdjustment(payment, { isAuthenticated: true, id: "boss-2", roles: ["BossAdmin"] })).toBe(true);
+    expect(canApproveFinanceAdjustment(payment, { isAuthenticated: true, id: "finance-1", roles: ["Finance"] })).toBe(false);
+  });
+
+  it("shows the full signed adjustment basis before a Boss/Admin approves it", () => {
+    const markup = renderToStaticMarkup(createElement(FinancePriceAdjustmentSummary, {
+      payment: {
+        ncdAmount: 500,
+        calculatedNettPrice: 58_000,
+        nettPrice: 58_250,
+        nettPriceVariance: 250,
+        nettPriceOverrideReason: "Approved accessory package"
+      }
+    }));
+
+    expect(markup).toContain("NCD deduction");
+    expect(markup).toContain("RM 500.00");
+    expect(markup).toContain("Calculated total");
+    expect(markup).toContain("RM 58,000.00");
+    expect(markup).toContain("Agreed sales invoice total");
+    expect(markup).toContain("RM 58,250.00");
+    expect(markup).toContain("+RM 250.00");
+    expect(markup).toContain("Approved accessory package");
+  });
+
+  it("keeps stored financial terms locked while saving editable payment details", () => {
+    const current = {
+      id: "payment-1",
+      vehicleId: "vehicle-1",
+      nettPrice: 58_000,
+      status: "Pending" as const,
+      bossChecked: false,
+      documentsPrepared: false,
+      checklistValidated: false,
+      salesPrice: 58_000,
+      interestAdditionalCharges: 500,
+      ncdAmount: 0,
+      windscreenCharges: 200,
+      createdAt: "2026-09-04T00:00:00Z"
+    };
+
+    const result = paymentFromEditableDetails(current, {
+      vehicleId: "vehicle-2",
+      nettPrice: 10_000,
+      salesPrice: 10_000,
+      interestAdditionalCharges: 0,
+      ncdAmount: 2_000,
+      windscreenCharges: 0,
+      status: "Approved",
+      receiptNumber: " RCPT-1 "
+    });
+
+    expect(result).toMatchObject({
+      vehicleId: "vehicle-1",
+      nettPrice: 58_000,
+      salesPrice: 58_000,
+      interestAdditionalCharges: 500,
+      ncdAmount: 0,
+      windscreenCharges: 200,
+      status: "Approved",
+      receiptNumber: "RCPT-1"
+    });
   });
 });
 

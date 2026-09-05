@@ -261,6 +261,34 @@ export function vehicleFromCreateIntakeValues(values: VehicleIntakeDraft, canApp
   } as VehicleIntakeValues, id);
 }
 
+export function vehicleSellingPriceChanged(currentPrice: number, nextPrice: number) {
+  return Number(currentPrice) !== Number(nextPrice);
+}
+
+export function vehicleSellingPriceEditPolicy(vehicle: Pick<Vehicle, "bossConfirmed"> | undefined, canApproveVehicles: boolean) {
+  const approved = Boolean(vehicle?.bossConfirmed);
+  return {
+    locked: approved && !canApproveVehicles,
+    warnsBeforeReprice: approved && canApproveVehicles
+  };
+}
+
+export function vehicleFromEditValues(values: VehicleIntakeValues, currentVehicle: Vehicle, canApproveVehicles: boolean): Vehicle {
+  const approvedPriceIsLocked = Boolean(currentVehicle.bossConfirmed) && !canApproveVehicles;
+  const sellingPrice = approvedPriceIsLocked ? currentVehicle.sellingPrice : Number(values.sellingPrice ?? 0);
+  const repricingApprovedVehicle = Boolean(currentVehicle.bossConfirmed) && vehicleSellingPriceChanged(currentVehicle.sellingPrice, sellingPrice);
+  const bossConfirmed = Boolean(currentVehicle.bossConfirmed) && !repricingApprovedVehicle;
+
+  return vehicleFromIntakeValues({
+    ...values,
+    stockOwner: values.stockOwner || currentVehicle.stockOwner || "YSHeng",
+    status: currentVehicle.status,
+    sellingPrice,
+    bossConfirmed,
+    isPublic: bossConfirmed ? Boolean(values.isPublic) : false
+  }, currentVehicle.id);
+}
+
 export function settlementFromVehicleIntakeValues(values: VehicleIntakeDraft, vehicleId: string, settlementId: string): SettlementReminder | undefined {
   if (!values.prepareSettlement) return undefined;
   return {
@@ -667,6 +695,7 @@ export function VehiclePage({
     void loadCatalogModels();
   }, [loadCatalogModels]);
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
+  const selectedVehiclePricePolicy = vehicleSellingPriceEditPolicy(selectedVehicle, canApproveVehicles);
   const selectedVehicleCustomerPolicy = selectedVehicle ? vehicleCustomerEditPolicy(selectedVehicle, loans) : { locked: false, allowedCustomerIds: [] };
   const selectedVehicleCustomerOptions = selectedVehicleCustomerPolicy.allowedCustomerIds.length > 0
     ? customers.filter((customer) => selectedVehicleCustomerPolicy.allowedCustomerIds.includes(customer.id))
@@ -2063,30 +2092,64 @@ export function VehiclePage({
             title="Vehicle Record / 收车资料"
           >
             <Form
-              key={selectedVehicle?.id ?? "vehicle-detail-edit"}
+              key={selectedVehicle
+                ? `${selectedVehicle.id}-${selectedVehicle.sellingPrice}-${Boolean(selectedVehicle.bossConfirmed)}-${selectedVehicle.isPublic}`
+                : "vehicle-detail-edit"}
               layout="vertical"
               className="formGrid vehicleDetailForm"
               initialValues={selectedVehicle}
-              onFinish={(values) => {
+              onFinish={async (values) => {
                 if (!selectedVehicle) return;
-                const bossConfirmed = Boolean(selectedVehicle.bossConfirmed);
-                const vehicle = vehicleFromIntakeValues({
-                  ...values,
-                  stockOwner: values.stockOwner || selectedVehicle.stockOwner || "YSHeng",
-                  status: selectedVehicle.status,
-                  bossConfirmed,
-                  isPublic: bossConfirmed ? Boolean(values.isPublic) : false
-                }, selectedVehicle.id);
+                const vehicle = vehicleFromEditValues(values as VehicleIntakeValues, selectedVehicle, canApproveVehicles);
                 const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
                 if (blockReason) {
                   message.warning(blockReason);
                   return;
                 }
 
-                onUpdate(vehicle);
-                message.success("Vehicle record updated.");
+                if (selectedVehicle.bossConfirmed && vehicleSellingPriceChanged(selectedVehicle.sellingPrice, vehicle.sellingPrice)) {
+                  Modal.confirm({
+                    title: "Reprice this approved vehicle?",
+                    content: "Saving the new selling price revokes management confirmation and immediately hides the vehicle from the public website. A Boss/Admin must review and approve the new price in a separate step before it can be published or invoiced.",
+                    okText: "Save & revoke approval",
+                    cancelText: "Keep approved price",
+                    okButtonProps: { danger: true },
+                    onOk: async () => {
+                      try {
+                        await onUpdate(vehicle);
+                        message.success("New selling price saved. Management reapproval is now required.");
+                      } catch (error) {
+                        message.error(humanizeApiError(error, "The new selling price could not be saved."));
+                        throw error;
+                      }
+                    }
+                  });
+                  return;
+                }
+
+                try {
+                  await onUpdate(vehicle);
+                  message.success("Vehicle record updated.");
+                } catch (error) {
+                  message.error(humanizeApiError(error, "The vehicle record could not be updated."));
+                }
               }}
             >
+              {selectedVehiclePricePolicy.locked ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="Approved selling price is locked"
+                  description="Sales and other non-management users cannot change an approved price. Ask Boss/Admin to start a reprice if the agreed selling price changes."
+                />
+              ) : selectedVehiclePricePolicy.warnsBeforeReprice ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="Changing the approved price starts a reapproval"
+                  description="Saving a different selling price revokes confirmation and website visibility. Review and approve the new price separately after saving."
+                />
+              ) : null}
               <Form.Item
                 className="vehicleVisibilityToggle"
                 name="isPublic"
@@ -2122,7 +2185,17 @@ export function VehiclePage({
                 <InputNumber className="fullWidth" min={earliestVehicleYear} max={latestVehicleYear} precision={0} step={1} />
               </Form.Item>
               <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item
+                name="sellingPrice"
+                label="Selling / 售价"
+                extra={selectedVehiclePricePolicy.locked
+                  ? "Locked at the management-approved amount."
+                  : selectedVehiclePricePolicy.warnsBeforeReprice
+                    ? "A changed amount will be saved as unapproved and hidden until explicit reapproval."
+                    : "This amount becomes locked after management approval."}
+              >
+                <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} disabled={selectedVehiclePricePolicy.locked} />
+              </Form.Item>
               <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item name="refurbishmentTotal" label="Refurbishment Total / 整备预算"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>

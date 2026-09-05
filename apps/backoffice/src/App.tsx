@@ -1188,7 +1188,7 @@ export default function App() {
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
               onApproveManagementReview={(paymentId) => runUpdate(() => approvePaymentManagementReview(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Management review approved")}
-              onCreateFinanceSale={(input) => runCreateWithResult(() => createFinanceSale(input), (record) => setPayments((items) => replaceByIdOrPrepend(items, record)), "Invoice prepared")}
+              onCreateFinanceSale={(input) => runCreateWithResult(() => createFinanceSale(input), (record) => setPayments((items) => replaceByIdOrPrepend(items, record)), "Sale review saved")}
               onApproveNettPriceOverride={(paymentId) => runUpdateWithResult(() => approveNettPriceOverride(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Price adjustment approved")}
               onIssueInvoice={(paymentId) => runUpdateWithResult(() => issueFinanceInvoice(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Invoice issued")}
               onCreateCollection={(paymentId, input) => runUpdateWithResult(() => createCollection(paymentId, input), (record) => setPayments((items) => replaceById(items, record)), "Payment added")}

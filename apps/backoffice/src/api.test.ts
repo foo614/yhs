@@ -279,6 +279,18 @@ describe("backoffice api client", () => {
     expect(mergeFinanceVehicleOptions([lookup], [financeOption])).toEqual([
       { ...lookup, sellingPrice: 58_000, additionalCharges: 750 }
     ]);
+
+    const unapprovedLookup: VehicleLookup = {
+      ...lookup,
+      id: "vehicle-unapproved",
+      plateNumber: "VPK5678",
+      sellingPrice: 55_000,
+      additionalCharges: 400
+    };
+    expect(mergeFinanceVehicleOptions([lookup, unapprovedLookup], [financeOption])).toEqual([
+      { ...lookup, sellingPrice: 58_000, additionalCharges: 750 },
+      { ...unapprovedLookup, sellingPrice: undefined, additionalCharges: undefined }
+    ]);
   });
 
   it("fails closed when Finance vehicle defaults cannot be loaded", async () => {
@@ -310,6 +322,22 @@ describe("backoffice api client", () => {
     }, false, 400);
 
     await expect(createVehicle(vehicle)).rejects.toThrow("Car plate is required.");
+  });
+
+  it.each([
+    ["finance_vehicle_not_approved", "Boss/Admin must approve the vehicle selling price before Finance prepares the sale."],
+    ["finance_sales_price_mismatch", "The submitted sales price does not match the approved vehicle selling price. Refresh the vehicle price and try again."]
+  ])("surfaces the structured %s Finance sale error", async (code, validationMessage) => {
+    mockFetch({ errors: [{ code, message: validationMessage }] }, false, 400);
+
+    await expect(createFinanceSale({
+      vehicleId: "vehicle-1",
+      salesAgentUserId: "sales-1",
+      salesPrice: 58_000,
+      interestAdditionalCharges: 500,
+      ncdAmount: 0,
+      windscreenCharges: 0
+    })).rejects.toThrow(validationMessage);
   });
 
   it("creates a vehicle and optional settlement through the atomic intake endpoint", async () => {

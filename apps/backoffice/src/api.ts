@@ -1453,7 +1453,11 @@ export function mergeFinanceVehicleOptions(vehicles: VehicleLookup[], financeOpt
           sellingPrice: financeOption.sellingPrice,
           additionalCharges: financeOption.additionalCharges
         }
-      : vehicle;
+      : {
+          ...vehicle,
+          sellingPrice: undefined,
+          additionalCharges: undefined
+        };
   });
 }
 

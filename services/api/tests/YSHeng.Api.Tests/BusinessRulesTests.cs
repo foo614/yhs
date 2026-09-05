@@ -74,6 +74,42 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Repricing_always_revokes_approval_and_public_visibility_until_a_later_approval_action()
+    {
+        var approved = VehicleSeed.Available(publicVisible: true) with { SellingPrice = 15_000m, BossConfirmed = true };
+        var sameRequestReapproval = approved with { SellingPrice = 10_000m, BossConfirmed = true, IsPublic = true };
+
+        Assert.Contains(
+            VehicleApprovalRules.ValidateUpdate(approved, sameRequestReapproval, canApprove: false).Errors,
+            error => error.Code == "vehicle_repricing_admin_required");
+        Assert.True(VehicleApprovalRules.ValidateUpdate(approved, sameRequestReapproval, canApprove: true).IsValid);
+        var repriced = VehicleApprovalRules.EnforceRepricingApproval(approved, sameRequestReapproval);
+        repriced = VehicleApprovalRules.EnforceVisibility(repriced);
+
+        Assert.Equal(10_000m, repriced.SellingPrice);
+        Assert.False(repriced.BossConfirmed);
+        Assert.False(repriced.IsPublic);
+
+        var laterApproval = repriced with { BossConfirmed = true, IsPublic = true };
+        Assert.True(VehicleApprovalRules.ValidateUpdate(repriced, laterApproval, canApprove: true).IsValid);
+        Assert.Equal(laterApproval, VehicleApprovalRules.EnforceRepricingApproval(repriced, laterApproval));
+        Assert.True(VehicleApprovalRules.ValidateUpdate(repriced, repriced with { SellingPrice = 11_000m }, canApprove: false).IsValid);
+    }
+
+    [Fact]
+    public void Existing_receivable_locks_selling_price_but_not_other_vehicle_details()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: true) with { SellingPrice = 15_000m };
+        var payment = new PaymentRecord { VehicleId = vehicle.Id, NettPrice = 15_000m };
+
+        Assert.Contains(
+            VehicleApprovalRules.ValidateRepricingReceivableLock(vehicle, vehicle with { SellingPrice = 10_000m }, [payment]).Errors,
+            error => error.Code == "vehicle_selling_price_locked_by_receivable");
+        Assert.True(VehicleApprovalRules.ValidateRepricingReceivableLock(vehicle, vehicle with { StockLocation = "Lot B" }, [payment]).IsValid);
+        Assert.True(VehicleApprovalRules.ValidateRepricingReceivableLock(vehicle, vehicle with { SellingPrice = 10_000m }, []).IsValid);
+    }
+
+    [Fact]
     public void Vehicle_crud_cannot_claim_workflow_owned_statuses()
     {
         var existing = VehicleSeed.Available(publicVisible: false);

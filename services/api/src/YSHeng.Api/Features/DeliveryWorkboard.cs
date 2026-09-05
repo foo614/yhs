@@ -586,7 +586,9 @@ public static class SalesWorkboardRules
         IEnumerable<DeliverySchedule> deliveries,
         IEnumerable<PaymentRecord> payments,
         IReadOnlyList<SalesAgentOption> availableAgents,
-        bool includeUnassigned = false)
+        bool includeUnassigned = false,
+        IEnumerable<FinanceInvoice>? financeInvoices = null,
+        IEnumerable<CollectionTransaction>? collections = null)
     {
         var leadList = leads.ToList();
         var vehicleById = vehicles.ToDictionary(vehicle => vehicle.Id);
@@ -644,15 +646,29 @@ public static class SalesWorkboardRules
         var repairList = repairs.ToList();
         var deliveryList = deliveries.ToList();
         var paymentList = payments.ToList();
+        var financeClearedVehicleIds = FinanceClearanceRules.ClearedVehicleIds(paymentList, financeInvoices ?? [], collections ?? []);
+        var financeV2VehicleIds = paymentList
+            .Where(payment => payment.FinanceWorkflowVersion == 2)
+            .Select(payment => payment.VehicleId)
+            .ToHashSet();
         var items = vehicleAssignments
-            .Select(item => CreateItem(item.Vehicle, item.AgentUserId, item.AgentName, leadList, loanList, repairList, deliveryList, paymentList))
+            .Select(item => CreateItem(
+                item.Vehicle,
+                item.AgentUserId,
+                item.AgentName,
+                leadList,
+                loanList,
+                repairList,
+                deliveryList,
+                financeClearedVehicleIds.Contains(item.Vehicle.Id),
+                financeV2VehicleIds.Contains(item.Vehicle.Id)))
             .ToList();
-        var soldThisMonth = vehicleAssignments.Where(item =>
-            item.Vehicle.Status == VehicleStatus.Sold &&
-            item.Vehicle.SoldAt is { } soldAt &&
+        var soldThisMonth = items.Where(item =>
+            item.Process == "Completed" &&
+            item.SoldAt is { } soldAt &&
             BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(soldAt, DateTimeKind.Utc))).Year == today.Year &&
             BusinessClock.SingaporeDate(new DateTimeOffset(DateTime.SpecifyKind(soldAt, DateTimeKind.Utc))).Month == today.Month)
-            .Select(item => item.Vehicle.Id)
+            .Select(item => item.VehicleId)
             .Distinct()
             .Count();
         return new SalesWorkboardResponse(
@@ -670,18 +686,21 @@ public static class SalesWorkboardRules
         IReadOnlyList<LoanApplication> loans,
         IReadOnlyList<RepairJob> repairs,
         IReadOnlyList<DeliverySchedule> deliveries,
-        IReadOnlyList<PaymentRecord> payments)
+        bool financeCleared,
+        bool hasFinanceV2Receivable)
     {
         string process;
         string department;
         string nextAction;
         var released = deliveries.Any(delivery => delivery.VehicleId == vehicle.Id && delivery.Status == DeliveryStatus.Released);
-        var financeCleared = payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled);
-        if (vehicle.Status == VehicleStatus.Sold || (released && financeCleared))
+        var completed = hasFinanceV2Receivable
+            ? released && financeCleared
+            : vehicle.Status == VehicleStatus.Sold || (released && financeCleared);
+        if (completed)
         {
             (process, department, nextAction) = ("Completed", "Sales", "Sale completed");
         }
-        else if (released)
+        else if (released || (hasFinanceV2Receivable && vehicle.Status == VehicleStatus.Sold && !financeCleared))
         {
             (process, department, nextAction) = ("Delivery", "Finance", "Wait for Finance clearance");
         }
@@ -697,7 +716,7 @@ public static class SalesWorkboardRules
         {
             (process, department, nextAction) = ("Preparation", "Delivery", "Plan vehicle delivery");
         }
-        else if (payments.Any(payment => payment.VehicleId == vehicle.Id && payment.Status == PaymentStatus.Reconciled))
+        else if (financeCleared)
         {
             (process, department, nextAction) = ("Delivery", "Delivery", "Plan vehicle delivery");
         }

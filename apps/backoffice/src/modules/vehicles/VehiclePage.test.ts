@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, possibleOwnersForIdentityReview, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, possibleOwnersForIdentityReview, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -248,6 +248,28 @@ describe("vehicleFromCreateIntakeValues", () => {
 
   it("does not create a settlement when the staff member leaves it for Finance", () => {
     expect(settlementFromVehicleIntakeValues({ ...intakeValues, prepareSettlement: false }, "vehicle-new", "settlement-new")).toBeUndefined();
+  });
+});
+
+describe("approved vehicle selling price controls", () => {
+  it("locks an approved selling price for Sales while leaving Boss/Admin a warned reprice path", () => {
+    expect(vehicleSellingPriceEditPolicy(baseVehicle, false)).toEqual({ locked: true, warnsBeforeReprice: false });
+    expect(vehicleSellingPriceEditPolicy(baseVehicle, true)).toEqual({ locked: false, warnsBeforeReprice: true });
+    expect(vehicleSellingPriceChanged(58_000, 58_000)).toBe(false);
+    expect(vehicleSellingPriceChanged(58_000, 58_000.001)).toBe(true);
+    expect(vehicleSellingPriceChanged(58_000, 57_500)).toBe(true);
+  });
+
+  it("ignores a crafted Sales price change after approval", () => {
+    const result = vehicleFromEditValues({ ...baseVehicle, sellingPrice: 50_000 }, baseVehicle, false);
+
+    expect(result).toMatchObject({ sellingPrice: 58_000, bossConfirmed: true, isPublic: true });
+  });
+
+  it("revokes approval and public visibility when Boss/Admin reprices an approved vehicle", () => {
+    const result = vehicleFromEditValues({ ...baseVehicle, sellingPrice: 57_500 }, baseVehicle, true);
+
+    expect(result).toMatchObject({ sellingPrice: 57_500, bossConfirmed: false, isPublic: false });
   });
 });
 
