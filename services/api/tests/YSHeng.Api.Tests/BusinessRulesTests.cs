@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using SkiaSharp;
+using UglyToad.PdfPig.Writer;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
 using YSHeng.Api.Features;
@@ -2192,6 +2193,28 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Vehicle_intake_voc_accepts_a_valid_pdf_and_rejects_invalid_page_counts_or_malformed_content()
+    {
+        var validPdf = BuildPdfWithPageCount(1);
+        var zeroPagePdf = BuildPdfWithPageCount(0);
+        var tooManyPagesPdf = BuildPdfWithPageCount(16);
+        var malformedPdf = "%PDF-1.7\nnot a PDF document"u8.ToArray();
+
+        var valid = UploadPolicy.ValidateVehicleIntakeVocContent("voc.pdf", "application/pdf", validPdf);
+        var zeroPages = UploadPolicy.ValidateVehicleIntakeVocContent("voc.pdf", "application/pdf", zeroPagePdf);
+        var tooManyPages = UploadPolicy.ValidateVehicleIntakeVocContent("voc.pdf", "application/pdf", tooManyPagesPdf);
+        var malformed = UploadPolicy.ValidateVehicleIntakeVocContent("voc.pdf", "application/pdf", malformedPdf);
+        var mimeMismatch = UploadPolicy.ValidateVehicleIntakeVocContent("voc.pdf", "image/png", validPdf);
+
+        Assert.True(valid.Result.IsValid);
+        Assert.Equal("application/pdf", valid.MimeType);
+        Assert.Contains(zeroPages.Result.Errors, error => error.Code == "voc_pdf_page_count_invalid");
+        Assert.Contains(tooManyPages.Result.Errors, error => error.Code == "voc_pdf_page_limit_exceeded");
+        Assert.Contains(malformed.Result.Errors, error => error.Code == "voc_pdf_malformed");
+        Assert.Contains(mimeMismatch.Result.Errors, error => error.Code == "voc_mime_mismatch");
+    }
+
+    [Fact]
     public void Document_ownership_validation_requires_one_compatible_workflow_record()
     {
         var repairId = Guid.NewGuid();
@@ -3244,7 +3267,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Delivery_is_ready_only_when_release_checklist_is_complete()
+    public void Delivery_is_ready_without_windscreen_cover_when_other_release_requirements_are_complete()
     {
         var delivery = new DeliverySchedule
         {
@@ -3264,8 +3287,8 @@ public sealed class BusinessRulesTests
             InsuranceExpiryDate = new DateOnly(2026, 6, 30),
             RoadTaxHandled = true,
             RoadTaxExpiryDate = new DateOnly(2026, 6, 30),
-            WindscreenInsuranceHandled = true,
-            WindscreenInsuranceExpiryDate = new DateOnly(2026, 6, 30),
+            WindscreenInsuranceHandled = false,
+            WindscreenInsuranceExpiryDate = new DateOnly(2026, 6, 1),
             HandoverPhotoCaptured = true,
             SignedHandoverReceived = true,
             CustomerAcknowledged = true,
@@ -3276,10 +3299,10 @@ public sealed class BusinessRulesTests
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { WashDone = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { InsuranceHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxHandled = false }));
-        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { WindscreenInsuranceHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { FinalChecklistConfirmed = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxExpiryDate = new DateOnly(2026, 6, 1) }));
         Assert.Contains("Road tax expired before scheduled delivery", DeliveryRules.ExpiredDeliveryDocuments(delivery with { RoadTaxExpiryDate = new DateOnly(2026, 6, 1) }));
+        Assert.DoesNotContain("Windscreen", DeliveryRules.ExpiredDeliveryDocuments(delivery));
     }
 
     [Fact]
@@ -3412,6 +3435,26 @@ public sealed class BusinessRulesTests
         var deliveryEvidence = result.Evidence.First(item => item.Category == FileCategory.DeliveryDocument);
         Assert.False(deliveryEvidence.IsPresent);
         Assert.Null(deliveryEvidence.DocumentId);
+    }
+
+    [Fact]
+    public void Delivery_document_check_does_not_require_windscreen_policy_for_release()
+    {
+        var delivery = DeliveryWorkboardSeed.Ready() with
+        {
+            WindscreenInsuranceHandled = false,
+            WindscreenInsuranceExpiryDate = new DateOnly(2026, 1, 1)
+        };
+        var documents = DeliveryWorkboardSeed.EvidenceFor(delivery)
+            .Where(document => document.Category != FileCategory.WindscreenPolicy)
+            .ToList();
+
+        var check = DeliveryDocumentRules.CheckCompleteness(delivery, documents);
+
+        Assert.True(check.IsComplete);
+        Assert.DoesNotContain(FileCategory.WindscreenPolicy, check.MissingCategories);
+        Assert.False(check.Evidence.Single(item => item.Category == FileCategory.WindscreenPolicy).IsPresent);
+        Assert.True(DeliveryWorkboardRules.CanRelease(delivery, true, check, new DateOnly(2026, 8, 27)));
     }
 
     [Fact]
@@ -3606,6 +3649,81 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Delivery_reopening_an_earlier_step_recomputes_readiness_and_keeps_reschedules_audited()
+    {
+        var before = DeliveryWorkboardSeed.Ready() with { Status = DeliveryStatus.ReadyForRelease };
+        var reopened = DeliveryMutationRules.PrepareUpdate(
+            before,
+            before with { Status = DeliveryStatus.Released, WashDone = false },
+            before.PicUserId!,
+            before.Pic);
+        var reopenedDocuments = DeliveryDocumentRules.CheckCompleteness(reopened, DeliveryWorkboardSeed.EvidenceFor(reopened));
+
+        Assert.Equal(DeliveryStatus.ReadyForRelease, reopened.Status);
+        Assert.True(DeliveryRules.ValidateTransition(before, reopened).IsValid);
+        Assert.Equal(DeliveryStage.PrepareCar, DeliveryWorkboardRules.StageFor(reopened, true, reopenedDocuments));
+        Assert.False(DeliveryWorkboardRules.CanRelease(reopened, true, reopenedDocuments, new DateOnly(2026, 8, 27)));
+        Assert.Equal("Updated car wash", DeliveryMutationRules.ActivitySummary(before, reopened));
+
+        var rescheduled = DeliveryMutationRules.PrepareUpdate(
+            before,
+            before with
+            {
+                ScheduledDate = new DateOnly(2026, 8, 28),
+                RescheduleReason = "Customer requested a new handover time"
+            },
+            before.PicUserId!,
+            before.Pic);
+
+        Assert.True(DeliveryMutationRules.ValidateReschedule(before, rescheduled).IsValid);
+        Assert.Equal("Delivery rescheduled: Customer requested a new handover time", DeliveryMutationRules.ActivitySummary(before, rescheduled));
+    }
+
+    [Fact]
+    public void Delivery_rescheduling_clears_prior_notice_confirmations_until_the_new_notice_is_saved()
+    {
+        var before = DeliveryWorkboardSeed.Ready() with
+        {
+            Status = DeliveryStatus.ReadyForRelease,
+            NotificationSent = true,
+            TwoDayNoticeSent = true
+        };
+        var documents = DeliveryDocumentRules.CheckCompleteness(before, DeliveryWorkboardSeed.EvidenceFor(before));
+
+        Assert.True(DeliveryWorkboardRules.CanRelease(before, true, documents, new DateOnly(2026, 8, 27)));
+
+        var rescheduled = DeliveryMutationRules.PrepareUpdate(
+            before,
+            before with
+            {
+                ScheduledDate = new DateOnly(2026, 8, 28),
+                RescheduleReason = "Customer requested a new handover time",
+                NotificationSent = true,
+                TwoDayNoticeSent = true
+            },
+            before.PicUserId!,
+            before.Pic);
+        var rescheduledDocuments = DeliveryDocumentRules.CheckCompleteness(rescheduled, DeliveryWorkboardSeed.EvidenceFor(rescheduled));
+
+        Assert.True(DeliveryMutationRules.ValidateReschedule(before, rescheduled).IsValid);
+        Assert.False(rescheduled.NotificationSent);
+        Assert.False(rescheduled.TwoDayNoticeSent);
+        Assert.Equal("Delivery rescheduled: Customer requested a new handover time", DeliveryMutationRules.ActivitySummary(before, rescheduled));
+        Assert.False(DeliveryWorkboardRules.CanRelease(rescheduled, true, rescheduledDocuments, new DateOnly(2026, 8, 28)));
+
+        var reconfirmed = DeliveryMutationRules.PrepareUpdate(
+            rescheduled,
+            rescheduled with { NotificationSent = true, TwoDayNoticeSent = true },
+            before.PicUserId!,
+            before.Pic);
+        var reconfirmedDocuments = DeliveryDocumentRules.CheckCompleteness(reconfirmed, DeliveryWorkboardSeed.EvidenceFor(reconfirmed));
+
+        Assert.True(reconfirmed.NotificationSent);
+        Assert.True(reconfirmed.TwoDayNoticeSent);
+        Assert.True(DeliveryWorkboardRules.CanRelease(reconfirmed, true, reconfirmedDocuments, new DateOnly(2026, 8, 28)));
+    }
+
+    [Fact]
     public void Delivery_allows_only_one_active_plan_per_vehicle()
     {
         var vehicleId = Guid.NewGuid();
@@ -3639,7 +3757,7 @@ public sealed class BusinessRulesTests
 
         Assert.True(policy.IsPresent);
         Assert.Equal(correct.Id, policy.DocumentId);
-        Assert.Equal(6, check.MissingCategories.Count);
+        Assert.Equal(5, check.MissingCategories.Count);
     }
 
     [Fact]
@@ -4169,6 +4287,29 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Identity_card_address_does_not_accept_an_identity_number_as_the_labeled_address()
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var text = "MYKAD\nIC 900101-01-1234\nAddress: 900101-01-1234\nNO 12 JALAN DEMO\n50000 KUALA LUMPUR";
+
+        var result = OcrExtractionParser.Analyze(document, [], text, 0.9m, []);
+
+        Assert.Equal("900101-01-1234", result.Fields["icNumber"]);
+        Assert.Equal("NO 12 JALAN DEMO 50000 KUALA LUMPUR", result.Fields["address"]);
+    }
+
+    [Fact]
+    public void Identity_card_address_normalization_rejects_prefixed_identity_numbers_but_keeps_a_following_address()
+    {
+        Assert.Null(OcrExtractionParser.NormalizeIdentityCardAddress("IC: 900101-01-1234"));
+        Assert.Null(OcrExtractionParser.NormalizeIdentityCardAddress("NRIC 900101-01-1234"));
+        Assert.Null(OcrExtractionParser.NormalizeIdentityCardAddress("IC: 900101 01 1234"));
+        Assert.Equal(
+            "NO 12 JALAN DEMO 50000 KUALA LUMPUR",
+            OcrExtractionParser.NormalizeIdentityCardAddress("IC: 900101-01-1234 NO 12 JALAN DEMO 50000 KUALA LUMPUR"));
+    }
+
+    [Fact]
     public void MyKad_parser_ignores_a_misread_card_header_and_starts_the_address_at_its_house_number()
     {
         var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
@@ -4180,6 +4321,78 @@ public sealed class BusinessRulesTests
         Assert.Equal("NO 12 JALAN DEMO 4 TAMAN CONTOH 50000 KUALA LUMPUR", result.Fields["address"]);
         Assert.Equal("900101-01-123", result.Fields["icNumber"]);
         Assert.Contains(result.Warnings, warning => warning.Contains("appears incomplete", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void MyKad_parser_preserves_clean_multiline_name_and_accepts_postcode_verified_gdw_kampung_address()
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var text = "Kad Pengenalan\nMalaysia\nKERAJAAN\n900101-01-1234\n%%%%\n####\nKad Pengenalan\nEXAMPLE SAMPLE\nPERSON\nKad Pengenalan\nGDW KAMPUNG CONTOH\n80000 KENINGAU\nSABAH\nWARGANEGARA\nLELAKI\n@@@@";
+
+        var result = OcrExtractionParser.Analyze(document, [], text, 0.9m, []);
+
+        Assert.Equal("EXAMPLE SAMPLE PERSON", System.Text.RegularExpressions.Regex.Replace(result.Fields["customerName"]!, @"\s+", " "));
+        Assert.Equal("900101-01-1234", result.Fields["icNumber"]);
+        Assert.Equal("GDW KAMPUNG CONTOH 80000 KENINGAU SABAH", result.Fields["address"]);
+    }
+
+    [Fact]
+    public void MyKad_parser_rejects_identity_only_and_unverified_locality_as_addresses()
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var identityOnly = OcrExtractionParser.Analyze(document, [], "KAD PENGENALAN\n900101-01-1234\nWARGANEGARA\nLELAKI", 0.9m, []);
+        var missingState = OcrExtractionParser.Analyze(document, [], "KAD PENGENALAN\n900101-01-1234\nGDW KAMPUNG CONTOH\n80000 KENINGAU\nWARGANEGARA\nLELAKI", 0.9m, []);
+
+        Assert.Null(identityOnly.Fields["address"]);
+        Assert.Null(missingState.Fields["address"]);
+    }
+
+    [Theory]
+    [InlineData("900101-01-1234")]
+    [InlineData("IC: 900101-01-1234")]
+    [InlineData("NRIC: 900101-01-1234")]
+    [InlineData("MYKAD 900101-01-1234")]
+    [InlineData("MYKAD NO. 900101-01-1234")]
+    [InlineData("MYKAD NO: 900101-01-1234")]
+    [InlineData("NO: 900101-01-1234")]
+    [InlineData("KAD PENGENALAN IC: 900101-01-1234")]
+    [InlineData("KAD PENGENALAN NO. 900101-01-1234")]
+    [InlineData("KAD PENGENALAN: 900101-01-1234")]
+    public void MyKad_parser_excludes_identity_only_heading_forms_from_locality_and_numbered_addresses(string identityLine)
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var locality = OcrExtractionParser.Analyze(document, [], $"900101-01-1234\nGDW KAMPUNG CONTOH\n{identityLine}\n80000 KENINGAU\nSABAH\nWARGANEGARA", 0.9m, []);
+        var numbered = OcrExtractionParser.Analyze(document, [], $"900101-01-1234\nNO 12 JALAN DEMO\n{identityLine}\n50000 KUALA LUMPUR\nWARGANEGARA", 0.9m, []);
+
+        Assert.Equal("GDW KAMPUNG CONTOH 80000 KENINGAU SABAH", locality.Fields["address"]);
+        Assert.Equal("NO 12 JALAN DEMO 50000 KUALA LUMPUR", numbered.Fields["address"]);
+    }
+
+    [Fact]
+    public void MyKad_parser_preserves_a_normal_numbered_street_address()
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var result = OcrExtractionParser.Analyze(document, [], "900101-01-1234\nNO 12 JALAN DEMO\n50000 KUALA LUMPUR\nWARGANEGARA", 0.9m, []);
+
+        Assert.Equal("NO 12 JALAN DEMO 50000 KUALA LUMPUR", result.Fields["address"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_identity_card_address_entity_does_not_map_an_identity_number()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.IdentityCard },
+            [],
+            "MYKAD IC 900101-01-1234",
+            0.9m,
+            []);
+
+        var result = GoogleDocumentAiEntityMapper.Apply(extraction, [
+            new GoogleDocumentAiEntity("address", "NRIC 900101-01-1234", 0.94m)
+        ]);
+
+        Assert.Equal("900101-01-1234", result.Fields["icNumber"]);
+        Assert.Null(result.Fields["address"]);
     }
 
     [Fact]
@@ -4205,6 +4418,167 @@ public sealed class BusinessRulesTests
         Assert.Equal("2024", result.Fields["year"]);
         Assert.Equal("Ali Tan", result.Fields["ownerName"]);
         Assert.Null(result.Fields["invoiceNumber"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_maps_jpj_voc_column_layout_without_using_unlabelled_identifiers()
+    {
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.Voc,
+            FileName = "jpj-voc.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes(
+                "DOC 1234\n" +
+                "XYD 9988\n" +
+                "NO. PENDAFTARAN\n" +
+                "NO. CHASIS / NO. ENJIN\n" +
+                "BUATAN / NAMA MODEL\n" +
+                "KAPASITI ENJIN\n" +
+                "1498 CC\n" +
+                "MMBXXA12345678901 / 4B11T123456\n" +
+                "Proton / X70\n" +
+                "JENIS BADAN / TAHUN DIBUAT\n" +
+                "TARIKH PENDAFTARAN\n" +
+                "SUV / 2024\n" +
+                "2024-05-10")
+        };
+
+        var result = AnalyzeOcrFixture(document, []);
+
+        Assert.Equal("XYD9988", result.Fields["plateNumber"]);
+        Assert.Equal("MMBXXA12345678901", result.Fields["chassisNumber"]);
+        Assert.Equal("4B11T123456", result.Fields["engineNumber"]);
+        Assert.Equal("Proton", result.Fields["make"]);
+        Assert.Equal("X70", result.Fields["model"]);
+        Assert.Equal("2024", result.Fields["year"]);
+        Assert.Null(result.Fields["invoiceNumber"]);
+        Assert.Null(result.Fields["amount"]);
+        Assert.DoesNotContain(result.Warnings, warning => warning.Contains("No chassis number", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Warnings, warning => warning.Contains("No engine number", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Ocr_parser_maps_jpj_voc_paired_values_when_make_model_heading_follows_identifiers()
+    {
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.Voc,
+            FileName = "jpj-voc-pdf-order.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes(
+                "FORM 4567\n" +
+                "VAB 1020\n" +
+                "NO. PENDAFTARAN\n" +
+                "NO. CHASSIS / NO. ENJIN\n" +
+                "MMBXXA12345678901 / 4B11T123456\n" +
+                "BUATAN / NAMA MODEL\n" +
+                "Honda / City\n" +
+                "JENIS BADAN / TAHUN DIBUAT\n" +
+                "SEDAN / 2023")
+        };
+
+        var result = AnalyzeOcrFixture(document, []);
+
+        Assert.Equal("VAB1020", result.Fields["plateNumber"]);
+        Assert.Equal("MMBXXA12345678901", result.Fields["chassisNumber"]);
+        Assert.Equal("4B11T123456", result.Fields["engineNumber"]);
+        Assert.Equal("Honda", result.Fields["make"]);
+        Assert.Equal("City", result.Fields["model"]);
+        Assert.Equal("2023", result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_maps_jpj_voc_observed_punctuation_variants()
+    {
+        var jpegLayout = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "jpj-voc-jpeg-layout.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    ": QXY 1234WATERMARK\n" +
+                    "No. Pendaftaran\n" +
+                    "No. Chasis No. Enjin\n" +
+                    "Buatan Nama Model\n" +
+                    "Keupayaan Enjin\n" +
+                    "Bahan Bakar\n" +
+                    "MMBXXA12345678901/4B11T123456\n" +
+                    "Proton X70\n" +
+                    "Jenis Badan Tahun Dibuat\n" +
+                    "Tarikh Pendaftaran\n" +
+                    "SUV / 2024\n" +
+                    "10/05/2024")
+            },
+            []);
+
+        var pdfLayout = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "jpj-voc-pdf-layout.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    ": HJK 2020WATERMARK\n" +
+                    "No. Pendaftaran\n" +
+                    "No. Chasis/No. Enjin\n" +
+                    ": MMBXXA12345678901/4B11T123456\n" +
+                    "Buatan/ Nama Model\n" +
+                    ": Honda City\n" +
+                    "Jenis Badan/Tahun Dibuat SEDAN / 2023\n" +
+                    "Tarikh Pendaftaran\n" +
+                    "10/05/2023")
+            },
+            []);
+
+        Assert.Equal("QXY1234", jpegLayout.Fields["plateNumber"]);
+        Assert.Equal("MMBXXA12345678901", jpegLayout.Fields["chassisNumber"]);
+        Assert.Equal("4B11T123456", jpegLayout.Fields["engineNumber"]);
+        Assert.Equal("Proton", jpegLayout.Fields["make"]);
+        Assert.Equal("X70", jpegLayout.Fields["model"]);
+        Assert.Equal("2024", jpegLayout.Fields["year"]);
+        Assert.Equal("HJK2020", pdfLayout.Fields["plateNumber"]);
+        Assert.Equal("MMBXXA12345678901", pdfLayout.Fields["chassisNumber"]);
+        Assert.Equal("4B11T123456", pdfLayout.Fields["engineNumber"]);
+        Assert.Equal("Honda", pdfLayout.Fields["make"]);
+        Assert.Equal("City", pdfLayout.Fields["model"]);
+        Assert.Equal("2023", pdfLayout.Fields["year"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_keeps_unreadable_jpj_voc_values_for_manual_review()
+    {
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.Voc,
+            FileName = "jpj-voc-unreadable.txt",
+            MimeType = "text/plain",
+            Content = System.Text.Encoding.UTF8.GetBytes(
+                "SFE 1001\n" +
+                "NO. PENDAFTARAN\n" +
+                "NO. CHASSIS / NO. ENJIN\n" +
+                "CHASSIS UNREADABLE / ENGINE UNREADABLE\n" +
+                "CHASSIS FALLBACKCHASSIS\n" +
+                "ENGINE FALLBACKENGINE\n" +
+                "BUATAN / NAMA MODEL\n" +
+                "MAKE UNREADABLE / MODEL UNREADABLE\n" +
+                "MAKE FALLBACKMAKE\n" +
+                "MODEL FALLBACKMODEL\n" +
+                "JENIS BADAN / TAHUN DIBUAT\n" +
+                "TARIKH PENDAFTARAN 10/05/2025")
+        };
+
+        var result = AnalyzeOcrFixture(document, []);
+
+        Assert.Equal("SFE1001", result.Fields["plateNumber"]);
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Null(result.Fields["make"]);
+        Assert.Null(result.Fields["model"]);
+        Assert.Null(result.Fields["year"]);
+        Assert.Contains(result.Warnings, warning => warning.Contains("No chassis number", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Warnings, warning => warning.Contains("No engine number", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -4519,6 +4893,48 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public async Task Google_document_ai_serializes_an_intake_voc_pdf_as_a_raw_document()
+    {
+        string? requestBody = null;
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            requestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"document":{"text":"Vehicle ownership certificate","pages":[]}}""",
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        });
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions
+            {
+                ProjectId = "ysheng-ocr",
+                Location = "asia-southeast1",
+                DefaultProcessorId = "general-processor"
+            }));
+        var pdf = BuildPdfWithPageCount(1);
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.Voc,
+            FileName = "voc.pdf",
+            MimeType = "application/pdf",
+            Content = pdf
+        };
+
+        var recognition = await client.RecognizeAsync(document);
+
+        using var requestJson = JsonDocument.Parse(requestBody!);
+        var rawDocument = requestJson.RootElement.GetProperty("rawDocument");
+        Assert.Equal("application/pdf", rawDocument.GetProperty("mimeType").GetString());
+        Assert.Equal(Convert.ToBase64String(pdf), rawDocument.GetProperty("content").GetString());
+        Assert.Equal("Vehicle ownership certificate", recognition.RawText);
+    }
+
+    [Fact]
     public async Task Google_document_ai_rejects_missing_configuration_before_sending_document()
     {
         var handler = new StubHttpMessageHandler(_ => throw new InvalidOperationException("HTTP request should not be sent."));
@@ -4618,6 +5034,17 @@ public sealed class BusinessRulesTests
             Encoding.UTF8.GetString(document.Content),
             0.82m,
             []);
+
+    private static byte[] BuildPdfWithPageCount(int pageCount)
+    {
+        var builder = new PdfDocumentBuilder();
+        for (var page = 0; page < pageCount; page++)
+        {
+            builder.AddPage(100, 100);
+        }
+
+        return builder.Build();
+    }
 
 }
 

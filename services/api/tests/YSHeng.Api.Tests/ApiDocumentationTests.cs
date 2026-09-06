@@ -204,6 +204,28 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Api_reference_documents_shared_calendar_and_terminal_collection_evidence_rules()
+    {
+        var apiDocs = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "docs", "API.md"));
+        var calendar = ExtractMarkdownSection(apiDocs, "## Shared Operations Calendar");
+
+        Assert.Contains("`/api/operations-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD`", calendar);
+        Assert.Contains("at most 93 days", calendar);
+        Assert.Contains("`status`", calendar);
+        Assert.Contains("Busy events have null time and status", calendar);
+        Assert.Contains("Delivery API authorization is unchanged", calendar);
+        Assert.Contains("locked collection is `Pending`", apiDocs);
+        var payment = new PaymentRecord { VehicleId = Guid.NewGuid() };
+        var collection = new CollectionTransaction { PaymentRecordId = payment.Id, Status = CollectionStatus.Reconciled };
+        var statusError = Assert.Single(FinanceV2Rules.ValidateCollectionDocumentUpload(payment, collection, payment.VehicleId, payment.Id).Errors);
+        Assert.Contains($"`{statusError.Code}`", apiDocs);
+        Assert.Contains("Previously uploaded evidence remains readable", apiDocs);
+        Assert.Contains("Windscreen expiry is not release-critical", apiDocs);
+        Assert.Contains("`WindscreenPolicy` is optional historical evidence", apiDocs);
+        Assert.DoesNotContain("expiry blockers for insurance, road tax, or windscreen insurance", apiDocs);
+    }
+
+    [Fact]
     public void Vehicle_photo_delete_is_authorized_composite_scoped_audited_and_documented()
     {
         var root = FindRepositoryRoot();

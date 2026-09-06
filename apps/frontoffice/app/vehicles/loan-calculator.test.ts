@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { calculateFlatRateLoan } from "./loan-calculator";
 
@@ -14,5 +15,12 @@ describe("calculateFlatRateLoan", () => {
     const estimate = calculateFlatRateLoan({ sellingPrice: 10000, downPayment: 20000, annualRate: -1, years: 0 });
 
     expect(estimate).toEqual({ principal: 0, totalInterest: 0, monthlyRepayment: 0 });
+  });
+
+  it("insets values in fields without an RM prefix", () => {
+    const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+    const suffixInputRule = styles.match(/\.loanCalculatorInputShell > input:first-child\s*\{([^}]+)\}/)?.[1] ?? "";
+
+    expect(suffixInputRule).toMatch(/padding-inline-start:\s*12px;/);
   });
 });

@@ -59,6 +59,10 @@ export type OwnerIdentityCardPreview = {
   existingOwner?: Owner;
 };
 
+export type VehicleIntakeVocPreview = {
+  result: OcrExtractionResult;
+};
+
 export type OcrReviewedResult = {
   fields: Record<string, string | null | undefined>;
   lineItems?: OcrLineItem[];
@@ -352,6 +356,8 @@ export type PurchaseInvoice = {
   id: string;
   vehicleId: string;
   supplierId?: string;
+  sourceType?: PurchaseInvoiceSourceType;
+  ownerId?: string;
   invoiceNumber: string;
   invoiceDate?: string;
   purchaseDate?: string;
@@ -360,8 +366,14 @@ export type PurchaseInvoice = {
   accountingStatus?: AccountingConfirmationStatus;
   accountingConfirmedBy?: string;
   accountingConfirmedAt?: string;
+  /** Legacy supplier records remain revision zero. Owner-acquisition records start at one. */
+  currentRevisionNumber?: number;
+  /** The current snapshot is metadata only; official PDF bytes use the protected content route. */
+  currentRevision?: PurchaseInvoiceRevision;
   lines?: PurchaseInvoiceLine[];
 };
+
+export type PurchaseInvoiceSourceType = "LegacySupplier" | "OwnerAcquisition";
 
 export type PurchaseInvoiceLine = {
   id: string;
@@ -370,6 +382,61 @@ export type PurchaseInvoiceLine = {
   description: string;
   amount: number;
   capitaliseIntoVehicleCost: boolean;
+};
+
+export type PurchaseInvoiceRevisionLine = PurchaseInvoiceLine & {
+  sortOrder?: number;
+};
+
+export type PurchaseInvoiceRevision = {
+  id: string;
+  purchaseInvoiceId: string;
+  revisionNumber: number;
+  invoiceNumber: string;
+  sourceVehicleId: string;
+  sourceOwnerId?: string;
+  invoiceDate: string;
+  purchaseDate: string;
+  paymentReference?: string;
+  sellerName: string;
+  sellerPhone: string;
+  sellerIcNumber?: string;
+  sellerTinNumber?: string;
+  sellerAddress?: string;
+  vehiclePlateNumber: string;
+  vehicleDescription: string;
+  amount: number;
+  accountingStatus: AccountingConfirmationStatus;
+  accountingConfirmedBy?: string;
+  accountingConfirmedAt?: string;
+  createdBy?: string;
+  createdAt: string;
+  reason?: string;
+  lines: PurchaseInvoiceRevisionLine[];
+};
+
+export type GeneratePurchaseInvoiceInput = {
+  expectedOwnerId: string;
+  expectedPurchasePrice: number;
+  expectedIntakeDate: string;
+};
+
+export type PurchaseInvoiceRevisionSellerInput = {
+  name: string;
+  phone: string;
+  icNumber?: string;
+  tinNumber?: string;
+  address?: string;
+};
+
+export type CreatePurchaseInvoiceRevisionInput = {
+  expectedRevision: number;
+  reason: string;
+  invoiceDate: string;
+  purchaseDate: string;
+  paymentReference?: string;
+  seller: PurchaseInvoiceRevisionSellerInput;
+  lines: Array<Pick<PurchaseInvoiceLine, "lineType" | "description" | "amount" | "capitaliseIntoVehicleCost">>;
 };
 
 export type Supplier = {
@@ -1309,9 +1376,10 @@ export function humanizeApiError(error: unknown, fallback = "Please try again.")
   if (normalized.includes("(404)") || normalized.includes("not found")) {
     return "The requested record could not be found. It may have been removed or is no longer available.";
   }
-  if (normalized.includes("(409)") || normalized.includes("conflict")) {
+  if (/^\s*(?:request|upload) failed with status\s*\(?409\)?\.?\s*$/i.test(rawMessage)) {
     return "This record conflicts with existing data. Please check for duplicates and try again.";
   }
+  if (normalized.includes("(409)") || normalized.includes("conflict")) return rawMessage;
   if (normalized.includes("(413)")) {
     return "The file is too large. Please choose a smaller file and try again.";
   }
@@ -1677,6 +1745,20 @@ export async function getHrAvailabilityCalendar(): Promise<HrAvailabilityCalenda
   return getWithNetworkFallback("/api/hr/availability-calendar", []);
 }
 
+export type OperationsCalendarEvent = {
+  id: string;
+  kind: "Delivery" | "Busy";
+  title: string;
+  startDate: string;
+  endDate: string;
+  time: string | null;
+  status: DeliveryStatus | null;
+};
+
+export async function getOperationsCalendar(from: string, to: string): Promise<OperationsCalendarEvent[]> {
+  return request(`/api/operations-calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+}
+
 export async function getHrAttendanceReminderPolicies(): Promise<HrAttendanceReminderPolicy[]> {
   return getWithNetworkFallback("/api/hr/reminder-policies", []);
 }
@@ -1833,10 +1915,11 @@ export async function createVehicle(vehicle: Vehicle): Promise<Vehicle> {
   });
 }
 
-export async function createVehicleIntake(input: VehicleIntakeCreateInput, identityCard: File): Promise<VehicleIntakeCreateResponse> {
+export async function createVehicleIntake(input: VehicleIntakeCreateInput, identityCard: File, voc?: File): Promise<VehicleIntakeCreateResponse> {
   const formData = new FormData();
   formData.append("request", JSON.stringify(input));
   formData.append("identityCard", identityCard);
+  if (voc) formData.append("voc", voc);
   const response = await fetch(`${apiBaseUrl}/api/vehicle-intakes`, {
     method: "POST",
     credentials: "include",
@@ -1929,8 +2012,32 @@ export async function updatePurchaseInvoice(invoice: PurchaseInvoice): Promise<P
   });
 }
 
-export async function confirmPurchaseInvoiceAccounting(invoiceId: string): Promise<PurchaseInvoice> {
-  return request<PurchaseInvoice>(`/api/purchase-invoices/${invoiceId}/confirm-accounting`, { method: "POST" });
+export async function generatePurchaseInvoice(vehicleId: string, input: GeneratePurchaseInvoiceInput): Promise<PurchaseInvoice> {
+  return request<PurchaseInvoice>(`/api/vehicles/${vehicleId}/purchase-invoice/generate`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function createPurchaseInvoiceRevision(invoiceId: string, input: CreatePurchaseInvoiceRevisionInput): Promise<PurchaseInvoice> {
+  return request<PurchaseInvoice>(`/api/purchase-invoices/${invoiceId}/revisions`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function getPurchaseInvoiceRevisions(invoiceId: string): Promise<PurchaseInvoiceRevision[]> {
+  return request<PurchaseInvoiceRevision[]>(`/api/purchase-invoices/${invoiceId}/revisions`);
+}
+
+export async function getPurchaseInvoiceRevisionContent(invoiceId: string, revisionNumber: number): Promise<Blob> {
+  return requestBlob(`/api/purchase-invoices/${invoiceId}/revisions/${revisionNumber}/content`, "Unable to download purchase invoice PDF");
+}
+
+export async function confirmPurchaseInvoiceAccounting(invoiceId: string, expectedRevision?: number): Promise<PurchaseInvoice> {
+  const confirmationPath = `/api/purchase-invoices/${invoiceId}/confirm-accounting`;
+  const suffix = expectedRevision === undefined ? "" : `?expectedRevision=${encodeURIComponent(String(expectedRevision))}`;
+  return request<PurchaseInvoice>(`${confirmationPath}${suffix}`, { method: "POST" });
 }
 
 export function customerFromLead(lead: Lead, id: string): Customer {
@@ -2411,6 +2518,10 @@ export async function previewOwnerIdentityCard(file: File, onProgress?: UploadPr
   return uploadFileWithProgress<OwnerIdentityCardPreview>("/api/owner-intakes/identity-card-preview", file, onProgress);
 }
 
+export async function previewVehicleIntakeVoc(file: File, onProgress?: UploadProgressHandler): Promise<VehicleIntakeVocPreview> {
+  return uploadFileWithProgress<VehicleIntakeVocPreview>("/api/vehicle-intakes/voc-preview", file, onProgress);
+}
+
 function documentUploadPath(vehicleId: string, category: DocumentCategory, owner?: DocumentUploadOwner) {
   const query = new URLSearchParams({ category });
   if (owner?.ownershipType) query.set("ownershipType", owner.ownershipType);
@@ -2450,10 +2561,19 @@ async function request<T = unknown>(path: string, init: RequestInit = {}, errorM
   });
 
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`));
+    throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`, path.split("?")[0] === "/api/auth/login"));
   }
 
   return parseOptionalJson<T>(response);
+}
+
+async function requestBlob(path: string, errorMessage = "Request failed with status"): Promise<Blob> {
+  const response = await fetch(`${apiBaseUrl}${path}`, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`));
+  }
+
+  return response.blob();
 }
 
 async function requestWithNetworkFallback<T = unknown>(
@@ -2555,12 +2675,14 @@ async function parseOptionalJson<T>(response: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-async function responseErrorMessage(response: Response, fallback: string) {
+async function responseErrorMessage(response: Response, fallback: string, isLoginRequest = false) {
   const text = await response.text();
   const extractedMessage = extractErrorMessage(text);
   if (extractedMessage) return extractedMessage;
   if (response.status === 401) {
-    return "Login failed. Please check your email and password.";
+    return isLoginRequest
+      ? "Login failed. Please check your email and password."
+      : "Your session could not be verified. Please sign in again.";
   }
   if (response.status === 400) {
     return `${fallback} (empty or malformed request payload).`;

@@ -14,6 +14,16 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe("operational table UI contract", () => {
+  it("lets the Leads and My Cars panels use the full page width", () => {
+    const styles = readFileSync(join(sourceRoot, "styles.css"), "utf8");
+    const leadItemRules = Array.from(styles.matchAll(/([^{}]*\.leadsPage[^{}]*)\{([^{}]*)\}/g))
+      .filter((match) => /\.ant-space-item/.test(match[1]) && !/\.ant-pro-card|\.formGrid/.test(match[1]));
+
+    expect(leadItemRules.length).toBeGreaterThan(0);
+    expect(leadItemRules.some((match) => /width:\s*100%/.test(match[2]))).toBe(true);
+    expect(leadItemRules.some((match) => /width:\s*calc\(50%/.test(match[2]))).toBe(false);
+  });
+
   it("uses ProTable rather than importing the plain Ant Design Table component", () => {
     const offenders = sourceFiles(sourceRoot).flatMap((path) => {
       const source = readFileSync(path, "utf8");

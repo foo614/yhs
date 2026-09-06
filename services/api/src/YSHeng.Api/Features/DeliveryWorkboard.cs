@@ -223,7 +223,6 @@ public static class DeliveryWorkboardRules
         if (!delivery.DocumentsPrepared || documents.MissingCategories.Contains(FileCategory.DeliveryDocument)) return "Prepare delivery documents";
         if (!delivery.InsuranceHandled || documents.MissingCategories.Contains(FileCategory.Policy)) return "Clear insurance";
         if (!delivery.RoadTaxHandled || documents.MissingCategories.Contains(FileCategory.RoadTaxReceipt)) return "Clear road tax";
-        if (!delivery.WindscreenInsuranceHandled || documents.MissingCategories.Contains(FileCategory.WindscreenPolicy)) return "Clear windscreen insurance";
         if (DeliveryRules.ExpiredDeliveryDocuments(delivery, today).Count > 0) return "Update expired coverage";
         if (!delivery.TwoDayNoticeSent) return "Notify customer";
         if (!financeCleared) return "Wait for Finance clearance";
@@ -263,8 +262,6 @@ public static class DeliveryWorkboardRules
         !documents.MissingCategories.Contains(FileCategory.Policy) &&
         delivery.RoadTaxHandled &&
         !documents.MissingCategories.Contains(FileCategory.RoadTaxReceipt) &&
-        delivery.WindscreenInsuranceHandled &&
-        !documents.MissingCategories.Contains(FileCategory.WindscreenPolicy) &&
         DeliveryRules.ExpiredDeliveryDocuments(delivery, today).Count == 0 &&
         delivery.TwoDayNoticeSent &&
         financeCleared &&
@@ -358,28 +355,32 @@ public static class DeliveryMutationRules
         InvoiceUpdateResolvedByUserId = null
     };
 
-    public static DeliverySchedule PrepareUpdate(DeliverySchedule existing, DeliverySchedule incoming, string picUserId, string picName) => incoming with
+    public static DeliverySchedule PrepareUpdate(DeliverySchedule existing, DeliverySchedule incoming, string picUserId, string picName)
     {
-        Id = existing.Id,
-        VehicleId = existing.VehicleId,
-        CustomerId = existing.CustomerId,
-        PicUserId = picUserId,
-        Pic = picName,
-        Status = existing.Status,
-        RescheduleReason = ScheduleChanged(existing, incoming)
-            ? incoming.RescheduleReason?.Trim()
-            : existing.RescheduleReason,
-        CancellationReason = existing.CancellationReason,
-        HandoverPhotoCaptured = existing.HandoverPhotoCaptured,
-        SignedHandoverReceived = existing.SignedHandoverReceived,
-        ReleasedAt = existing.ReleasedAt,
-        ReleasedByUserId = existing.ReleasedByUserId,
-        InvoiceUpdateRequestedAt = existing.InvoiceUpdateRequestedAt,
-        InvoiceUpdateRequestedByUserId = existing.InvoiceUpdateRequestedByUserId,
-        InvoiceUpdateRequestReason = existing.InvoiceUpdateRequestReason,
-        InvoiceUpdateResolvedAt = existing.InvoiceUpdateResolvedAt,
-        InvoiceUpdateResolvedByUserId = existing.InvoiceUpdateResolvedByUserId
-    };
+        var scheduleChanged = ScheduleChanged(existing, incoming);
+        return incoming with
+        {
+            Id = existing.Id,
+            VehicleId = existing.VehicleId,
+            CustomerId = existing.CustomerId,
+            PicUserId = picUserId,
+            Pic = picName,
+            Status = existing.Status,
+            RescheduleReason = scheduleChanged ? incoming.RescheduleReason?.Trim() : existing.RescheduleReason,
+            NotificationSent = scheduleChanged ? false : incoming.NotificationSent,
+            TwoDayNoticeSent = scheduleChanged ? false : incoming.TwoDayNoticeSent,
+            CancellationReason = existing.CancellationReason,
+            HandoverPhotoCaptured = existing.HandoverPhotoCaptured,
+            SignedHandoverReceived = existing.SignedHandoverReceived,
+            ReleasedAt = existing.ReleasedAt,
+            ReleasedByUserId = existing.ReleasedByUserId,
+            InvoiceUpdateRequestedAt = existing.InvoiceUpdateRequestedAt,
+            InvoiceUpdateRequestedByUserId = existing.InvoiceUpdateRequestedByUserId,
+            InvoiceUpdateRequestReason = existing.InvoiceUpdateRequestReason,
+            InvoiceUpdateResolvedAt = existing.InvoiceUpdateResolvedAt,
+            InvoiceUpdateResolvedByUserId = existing.InvoiceUpdateResolvedByUserId
+        };
+    }
 
     public static bool ScheduleChanged(DeliverySchedule before, DeliverySchedule after) =>
         before.ScheduledDate != after.ScheduledDate ||

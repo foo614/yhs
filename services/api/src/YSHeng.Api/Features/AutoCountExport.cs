@@ -219,19 +219,25 @@ public static class AutoCountExcel
     private static IReadOnlyList<IReadOnlyList<string>> PurchaseRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)
     {
         var suppliers = (input.Suppliers ?? []).ToDictionary(supplier => supplier.Id);
-        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "Category", "CarPlate", "InvoiceNumber", "SupplierName", "InvoiceDate", "PurchaseDate", "PaymentReference", "LineType", "Description", "AccountCode", "UOM", "Amount", "CapitaliseIntoVehicleCost", "AccountingStatus", "TaxCode", RemarkHeader } };
+        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "Category", "CarPlate", "InvoiceNumber", "SupplierName", "InvoiceDate", "PurchaseDate", "PaymentReference", "LineType", "Description", "AccountCode", "UOM", "Amount", "CapitaliseIntoVehicleCost", "AccountingStatus", "TaxCode", RemarkHeader, "SourceType", "OwnerName", "CurrentRevision" } };
         rows.AddRange(input.PurchaseInvoices.SelectMany(invoice => (invoice.Lines.Count > 0 ? invoice.Lines : [new PurchaseInvoiceLine { Id = invoice.Id, PurchaseInvoiceId = invoice.Id, LineType = PurchaseInvoiceLineType.Other, Description = "Legacy purchase invoice - classify before import", Amount = invoice.Amount }]).Select(line => new[] {
             line.Id.ToString(), "PurchaseInvoice", PlateFor(vehicles, invoice.VehicleId), invoice.InvoiceNumber,
-            invoice.SupplierId.HasValue && suppliers.TryGetValue(invoice.SupplierId.Value, out var supplier) ? supplier.CompanyName : "",
+            invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition ? "" : invoice.SupplierId.HasValue && suppliers.TryGetValue(invoice.SupplierId.Value, out var supplier) ? supplier.CompanyName : "",
             Date(invoice.InvoiceDate), Date(invoice.PurchaseDate), invoice.PaymentReference ?? "", line.LineType.ToString(), line.Description,
             PurchaseAccountCode(line.LineType), "UNIT", Money(line.Amount), line.CapitaliseIntoVehicleCost ? "Yes" : "No", invoice.AccountingStatus.ToString(), "",
-            "Account follows the approved workbook mapping where available; TaxCode is intentionally blank pending Finance confirmation."
+            PurchaseRemark(invoice), invoice.SourceType.ToString(), invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition ? invoice.CurrentRevision?.SellerName ?? "" : "", invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition ? invoice.CurrentRevisionNumber.ToString(CultureInfo.InvariantCulture) : ""
         })));
         rows.AddRange(input.SupplierInvoices.Select(invoice => new[] {
             invoice.Id.ToString(), "SupplierInvoice", PlateFor(vehicles, invoice.VehicleId), invoice.InvoiceNumber, invoice.SupplierName, Date(invoice.InvoiceDate), "", "", "Other", invoice.PlateNumberOnInvoice ?? "", "", "UNIT", Money(invoice.Amount), "No", "", "", "Supplier invoice needs Finance account and TaxCode review."
         }));
         return rows;
     }
+
+    private static string PurchaseRemark(PurchaseInvoice invoice) => invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition
+        ? $"Owner acquisition revision {invoice.CurrentRevisionNumber}; Finance must manually map the owner creditor/account. Do not create or guess a Supplier or AutoCount creditor code.{(invoice.AccountingStatus == AccountingConfirmationStatus.FinanceConfirmed ? " Finance confirmed; TaxCode remains a separate unresolved field." : " Draft only; do not import.")}"
+        : invoice.AccountingStatus == AccountingConfirmationStatus.FinanceConfirmed
+            ? "Finance confirmed; TaxCode remains a separate unresolved field."
+            : "Account follows the approved workbook mapping where available; TaxCode is intentionally blank pending Finance confirmation.";
 
     private static IReadOnlyList<IReadOnlyList<string>> PaymentRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)
     {

@@ -17,6 +17,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<PurchaseInvoice> PurchaseInvoices => Set<PurchaseInvoice>();
     public DbSet<PurchaseInvoiceLine> PurchaseInvoiceLines => Set<PurchaseInvoiceLine>();
+    public DbSet<PurchaseInvoiceRevision> PurchaseInvoiceRevisions => Set<PurchaseInvoiceRevision>();
+    public DbSet<PurchaseInvoiceRevisionLine> PurchaseInvoiceRevisionLines => Set<PurchaseInvoiceRevisionLine>();
     public DbSet<RepairJob> RepairJobs => Set<RepairJob>();
     public DbSet<RepairReceipt> RepairReceipts => Set<RepairReceipt>();
     public DbSet<RepairReceiptItem> RepairReceiptItems => Set<RepairReceiptItem>();
@@ -62,6 +64,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<Supplier>().HasIndex(supplier => supplier.CompanyName).IsUnique();
         builder.Entity<Supplier>().HasIndex(supplier => supplier.AutoCountCreditorCode).IsUnique();
         builder.Entity<PurchaseInvoiceLine>().HasIndex(line => new { line.PurchaseInvoiceId, line.LineType });
+        builder.Entity<PurchaseInvoice>().HasIndex(invoice => invoice.InvoiceNumber);
+        builder.Entity<PurchaseInvoice>().HasIndex(invoice => invoice.VehicleId)
+            .HasDatabaseName("UX_PurchaseInvoices_OwnerAcquisitionVehicle")
+            .HasFilter("\"SourceType\" = 1")
+            .IsUnique();
+        builder.Entity<PurchaseInvoice>().HasIndex(invoice => invoice.InvoiceNumber)
+            .HasDatabaseName("UX_PurchaseInvoices_OwnerAcquisitionNumber")
+            .HasFilter("\"SourceType\" = 1")
+            .IsUnique();
+        builder.Entity<PurchaseInvoiceRevision>().Property(revision => revision.Content).HasColumnType("bytea");
+        builder.Entity<PurchaseInvoiceRevision>().HasIndex(revision => new { revision.PurchaseInvoiceId, revision.RevisionNumber })
+            .HasDatabaseName("UX_PurchaseInvoiceRevisions_Invoice_Revision")
+            .IsUnique();
+        builder.Entity<PurchaseInvoiceRevision>().HasIndex(revision => new { revision.InvoiceNumber, revision.RevisionNumber })
+            .HasDatabaseName("UX_PurchaseInvoiceRevisions_Number_Revision")
+            .IsUnique();
+        builder.Entity<PurchaseInvoiceRevisionLine>().HasIndex(line => new { line.PurchaseInvoiceRevisionId, line.SortOrder })
+            .HasDatabaseName("UX_PurchaseInvoiceRevisionLines_Revision_SortOrder")
+            .IsUnique();
         builder.Entity<DeliveryAccountingCharge>().HasIndex(charge => new { charge.DeliveryScheduleId, charge.ChargeType }).IsUnique();
         builder.Entity<Lead>().HasIndex(lead => lead.VehicleId);
         builder.Entity<VehiclePhoto>().Property(photo => photo.Content).HasColumnType("bytea");

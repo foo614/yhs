@@ -18,6 +18,7 @@ import {
   createPayment,
   createPaymentVoucher,
   createPurchaseInvoice,
+  createPurchaseInvoiceRevision,
   createRepair,
   createStaffUser,
   createSettlementReminder,
@@ -72,10 +73,13 @@ import {
   getHrStaffUsers,
   getLoanDocumentCheck,
   getLoans,
+  getOperationsCalendar,
   getOwners,
   getPayments,
   getPaymentVouchers,
   getPurchaseInvoices,
+  getPurchaseInvoiceRevisionContent,
+  getPurchaseInvoiceRevisions,
   getRepairs,
   getSettlementReminders,
   getSupplierInvoiceAging,
@@ -92,6 +96,7 @@ import {
   getSalesWorkboard,
   humanizeApiError,
   issueFinanceInvoice,
+  generatePurchaseInvoice,
   vehicleDocumentContentUrl,
   officialReceiptContentUrl,
   vehiclePhotoContentUrl,
@@ -125,6 +130,7 @@ import {
   updatePaymentVoucher,
   updateCollectionFinancingStatus,
   updatePurchaseInvoice,
+  confirmPurchaseInvoiceAccounting,
   updateRepair,
   updateSettlementReminder,
   updateStaffUserRoles,
@@ -192,6 +198,10 @@ describe("backoffice api client", () => {
     expect(humanizeApiError(new Error("Failed to fetch"))).toBe("We could not connect to the server. Please check your connection and try again.");
     expect(humanizeApiError(new Error("Request failed with status (500)"))).toContain("The server could not complete this request.");
     expect(humanizeApiError(new Error("Request failed with status (403)"))).toBe("You do not have permission to perform this action.");
+    expect(humanizeApiError(new Error("Purchase invoice version is stale (409). Reload the reviewed version and try again."))).toBe("Purchase invoice version is stale (409). Reload the reviewed version and try again.");
+    expect(humanizeApiError(new Error("This formal invoice was revised after the reviewed version. Refresh and review the current revision."))).toBe("This formal invoice was revised after the reviewed version. Refresh and review the current revision.");
+    expect(humanizeApiError(new Error("SYNTHETIC correction conflict; review and retry."))).toBe("SYNTHETIC correction conflict; review and retry.");
+    expect(humanizeApiError(new Error("Request failed with status (409)"))).toBe("This record conflicts with existing data. Please check for duplicates and try again.");
     expect(humanizeApiError(new Error("Car plate is required."))).toBe("Car plate is required.");
   });
 
@@ -222,6 +232,18 @@ describe("backoffice api client", () => {
         credentials: "include"
       })
     );
+  });
+
+  it("does not describe a rejected signed-in workboard request as a bad password", async () => {
+    mockEmptyFetch(false, 401);
+
+    await expect(getSalesWorkboard()).rejects.toThrow("Your session could not be verified. Please sign in again.");
+  });
+
+  it("keeps credential guidance scoped to a failed login request", async () => {
+    mockEmptyFetch(false, 401);
+
+    await expect(login("staff@example.test", "invalid-test-password")).rejects.toThrow("Login failed. Please check your email and password.");
   });
 
   it("loads and logs out the current user through authenticated endpoints", async () => {
@@ -377,8 +399,9 @@ describe("backoffice api client", () => {
     };
     const fetchMock = mockFetch(input);
     const identityCard = new File(["nric-image"], "seller.png", { type: "image/png" });
+    const voc = new File(["%PDF-1.7"], "seller-voc.pdf", { type: "application/pdf" });
 
-    await createVehicleIntake(input, identityCard);
+    await createVehicleIntake(input, identityCard, voc);
 
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicle-intakes", {
       method: "POST",
@@ -388,6 +411,7 @@ describe("backoffice api client", () => {
     const requestBody = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     expect(requestBody.get("request")).toBe(JSON.stringify(input));
     expect(requestBody.get("identityCard")).toBe(identityCard);
+    expect(requestBody.get("voc")).toBe(voc);
   });
 
   it("creates operational records with authenticated JSON requests", async () => {
@@ -684,6 +708,51 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/purchase-invoices", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/purchase-invoices", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(invoice) }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/purchase-invoices/${invoice.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify({ ...invoice, amount: 51000 }) }));
+  });
+
+  it("generates owner purchase invoices and sends version-aware correction and accounting requests", async () => {
+    const invoice: PurchaseInvoice = {
+      id: "00000000-0000-0000-0000-000000000020",
+      vehicleId: "00000000-0000-0000-0000-000000000001",
+      ownerId: "00000000-0000-0000-0000-000000000011",
+      sourceType: "OwnerAcquisition",
+      invoiceNumber: "PI-20260906-0001",
+      amount: 50000,
+      currentRevisionNumber: 1
+    };
+    const requestBody = {
+      expectedRevision: 1,
+      reason: "Correct seller TIN",
+      invoiceDate: "2026-09-06",
+      purchaseDate: "2026-09-05",
+      seller: { name: "Previous Owner", phone: "0123456789" },
+      lines: [{ lineType: "VehiclePurchase" as const, description: "Vehicle purchase", amount: 50000, capitaliseIntoVehicleCost: true }]
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, text: vi.fn().mockResolvedValue(JSON.stringify(invoice)) })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: vi.fn().mockResolvedValue(JSON.stringify(invoice)) })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: vi.fn().mockResolvedValue(JSON.stringify([])) })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: vi.fn().mockResolvedValue(JSON.stringify(invoice)) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await generatePurchaseInvoice(invoice.vehicleId, { expectedOwnerId: invoice.ownerId!, expectedPurchasePrice: 50000, expectedIntakeDate: "2026-09-05" });
+    await createPurchaseInvoiceRevision(invoice.id, requestBody);
+    await getPurchaseInvoiceRevisions(invoice.id);
+    await confirmPurchaseInvoiceAccounting(invoice.id, 1);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `http://localhost:5000/api/vehicles/${invoice.vehicleId}/purchase-invoice/generate`, expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ expectedOwnerId: invoice.ownerId, expectedPurchasePrice: 50000, expectedIntakeDate: "2026-09-05" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://localhost:5000/api/purchase-invoices/${invoice.id}/revisions`, expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(requestBody) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/purchase-invoices/${invoice.id}/revisions`, { credentials: "include" });
+    expect(fetchMock).toHaveBeenNthCalledWith(4, `http://localhost:5000/api/purchase-invoices/${invoice.id}/confirm-accounting?expectedRevision=1`, expect.objectContaining({ method: "POST", credentials: "include" }));
+  });
+
+  it("downloads an exact purchase invoice version through the authenticated client", async () => {
+    const content = new Blob(["purchase-invoice"], { type: "application/pdf" });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, blob: vi.fn().mockResolvedValue(content) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getPurchaseInvoiceRevisionContent("invoice-1", 2)).resolves.toBe(content);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/purchase-invoices/invoice-1/revisions/2/content", { credentials: "include" });
   });
 
   it("loads and updates repair jobs for refurbishment checklist tracking", async () => {
@@ -1576,6 +1645,21 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/hr/attendance-networks", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(3, "http://localhost:5000/api/hr/attendance-networks", expect.objectContaining({ method: "POST", body: JSON.stringify(network) }));
     expect(fetchMock).toHaveBeenNthCalledWith(4, "http://localhost:5000/api/hr/attendance-networks/network-1", expect.objectContaining({ method: "PUT", body: JSON.stringify({ ...network, isActive: false }) }));
+  });
+
+  it("loads the operations calendar event contract with nullable status", async () => {
+    const response = [
+      { id: "delivery-1", kind: "Delivery", title: "VPK 1234", startDate: "2026-09-06", endDate: "2026-09-06", time: "10:00", status: "Scheduled" },
+      { id: "busy-1", kind: "Busy", title: "Staff", startDate: "2026-09-06", endDate: "2026-09-06", time: null, status: null }
+    ];
+    const fetchMock = mockFetch(response);
+
+    await expect(getOperationsCalendar("2026-09-01", "2026-09-30")).resolves.toEqual(response);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/operations-calendar?from=2026-09-01&to=2026-09-30",
+      { credentials: "include" }
+    );
   });
 
   it("falls back to demo data when HR endpoints return 404", async () => {

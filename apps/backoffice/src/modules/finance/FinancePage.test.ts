@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   canApproveFinanceAdjustment,
   canPrepareFinanceInvoice,
+  customerReceiptTargets,
   createUnpaidDailySpend,
   dailySpendMatchesDashboardAttention,
   FinancePriceAdjustmentSummary,
@@ -20,6 +21,7 @@ import {
   financeTabForUrl,
   financeVehicleDescription,
   InvoiceUpdateRequestQueue,
+  PurchaseInvoiceConfirmationError,
   payDailySpend,
   paymentFromEditableDetails,
   settlementDraftForVehicle,
@@ -120,6 +122,92 @@ describe("Finance V2 summary", () => {
     expect(markup).toContain("RM 10,000.00");
     expect(markup).toContain("RM 50,600.00");
     expect(markup).toContain("Partially paid");
+  });
+});
+
+describe("Purchase invoice accounting review", () => {
+  it("keeps a stale displayed-version explanation visible instead of relying on a transient message", () => {
+    const reason = "This formal invoice was revised after the reviewed version. Refresh and review the current revision.";
+    const markup = renderToStaticMarkup(createElement(PurchaseInvoiceConfirmationError, { error: reason, onClose: () => undefined }));
+
+    expect(markup).toContain(reason);
+    expect(markup).toContain("ant-alert-error");
+    expect(markup).toContain('role="alert"');
+  });
+});
+
+describe("Customer receipt targets", () => {
+  it("keeps the selected vehicle, payment, and pending collection linked without exposing reconciled or legacy rows", () => {
+    const invoice = {
+      id: "invoice-1",
+      paymentRecordId: "payment-1",
+      vehicleId: "vehicle-1",
+      customerId: "customer-1",
+      invoiceNumber: "INV-1001",
+      invoiceDate: "2026-09-06",
+      amount: 58_000,
+      salesPrice: 58_000,
+      interestAdditionalCharges: 0,
+      ncdAmount: 0,
+      windscreenCharges: 0,
+      contentMimeType: "application/pdf",
+      createdBy: "finance-1",
+      createdAt: "2026-09-06T00:00:00Z"
+    };
+    const collection = (id: string, status: "Pending" | "Reconciled" | "Reversed") => ({
+      id,
+      paymentRecordId: "payment-1",
+      amount: 10_000,
+      method: "BankTransfer" as const,
+      status,
+      financingStatus: "NotApplicable" as const,
+      receivedDate: "2026-09-06",
+      createdAt: "2026-09-06T00:00:00Z"
+    });
+
+    const targets = customerReceiptTargets([
+      {
+        id: "payment-1",
+        vehicleId: "vehicle-1",
+        nettPrice: 58_000,
+        status: "Pending",
+        bossChecked: false,
+        documentsPrepared: false,
+        checklistValidated: false,
+        financeWorkflowVersion: 2,
+        invoice,
+        collections: [collection("collection-pending", "Pending"), collection("collection-reconciled", "Reconciled"), collection("collection-reversed", "Reversed")],
+        createdAt: "2026-09-06T00:00:00Z"
+      },
+      {
+        id: "legacy-payment",
+        vehicleId: "vehicle-2",
+        nettPrice: 20_000,
+        status: "Pending",
+        bossChecked: false,
+        documentsPrepared: false,
+        checklistValidated: false,
+        collections: [collection("legacy-collection", "Pending")],
+        createdAt: "2026-09-06T00:00:00Z"
+      },
+      {
+        id: "v2-without-invoice",
+        vehicleId: "vehicle-3",
+        nettPrice: 30_000,
+        status: "Pending",
+        bossChecked: false,
+        documentsPrepared: false,
+        checklistValidated: false,
+        financeWorkflowVersion: 2,
+        collections: [collection("uninvoiced-collection", "Pending")],
+        createdAt: "2026-09-06T00:00:00Z"
+      }
+    ]);
+
+    expect(targets).toHaveLength(1);
+    expect(targets[0].payment.id).toBe("payment-1");
+    expect(targets[0].payment.vehicleId).toBe("vehicle-1");
+    expect(targets[0].collection).toMatchObject({ id: "collection-pending", paymentRecordId: "payment-1", amount: 10_000, status: "Pending" });
   });
 });
 

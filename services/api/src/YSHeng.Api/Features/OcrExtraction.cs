@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.Options;
+using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
 
 namespace YSHeng.Api.Features;
@@ -75,9 +76,10 @@ public sealed class GoogleDocumentAiClient(
 
     public async Task<GoogleDocumentAiRecognition> RecognizeAsync(DocumentBlob document, CancellationToken cancellationToken = default)
     {
-        if (!document.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(document.MimeType, "application/pdf", StringComparison.OrdinalIgnoreCase) &&
+            !document.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Google Document AI requires an uploaded image file for this backend flow.");
+            throw new InvalidOperationException("Google Document AI requires an uploaded image or PDF file for this backend flow.");
         }
 
         var processor = SelectProcessor(document.Category);
@@ -308,6 +310,17 @@ public static class GoogleDocumentAiEntityMapper
             return extraction with { Fields = fields, FieldConfidence = fieldConfidence, LineItems = lineItems };
         }
 
+        if (extraction.DocumentCategory == FileCategory.IdentityCard)
+        {
+            var address = FindFirst(entities, "address", "address_line", "residential_address");
+            var normalizedAddress = address is null ? null : OcrExtractionParser.NormalizeIdentityCardAddress(address.Value.Value);
+            if (!string.IsNullOrWhiteSpace(normalizedAddress) && address is not null)
+            {
+                fields["address"] = normalizedAddress;
+                fieldConfidence["address"] = address.Value.Confidence;
+            }
+        }
+
         return extraction with { Fields = fields, FieldConfidence = fieldConfidence };
     }
 
@@ -521,12 +534,28 @@ public static class OcrExtractionParser
 
         if (document.Category == FileCategory.Voc)
         {
-            fields["plateNumber"] = FindValue(text, "registration", "plate") ?? fields["plateNumber"];
-            fields["chassisNumber"] = FindValue(text, "chassis", "vin");
-            fields["engineNumber"] = FindValue(text, "engine");
-            fields["make"] = FindLabeledText(text, "make");
-            fields["model"] = FindLabeledText(text, "model");
-            fields["year"] = FindVehicleYear(text);
+            var jpjVoc = FindJpjVocFields(text);
+            if (jpjVoc.IsDetected)
+            {
+                // JPJ extracts label columns separately from their values. Do not
+                // let generic English-label fallbacks turn an unreadable JPJ value
+                // into a plausible-but-wrong draft; staff must review missing data.
+                fields["plateNumber"] = jpjVoc.PlateNumber;
+                fields["chassisNumber"] = jpjVoc.ChassisNumber;
+                fields["engineNumber"] = jpjVoc.EngineNumber;
+                fields["make"] = jpjVoc.Make;
+                fields["model"] = jpjVoc.Model;
+                fields["year"] = jpjVoc.Year;
+            }
+            else
+            {
+                fields["plateNumber"] = FindValue(text, "registration", "plate") ?? fields["plateNumber"];
+                fields["chassisNumber"] = FindValue(text, "chassis", "vin");
+                fields["engineNumber"] = FindValue(text, "engine");
+                fields["make"] = FindLabeledText(text, "make");
+                fields["model"] = FindLabeledText(text, "model");
+                fields["year"] = FindVehicleYear(text);
+            }
             fields["ownerName"] = FindLabeledText(text, "owner", "registered owner");
             fields["invoiceNumber"] = null;
             fields["receiptNumber"] = null;
@@ -599,6 +628,166 @@ public static class OcrExtractionParser
         return null;
     }
 
+    private sealed record JpjVocFields(
+        bool IsDetected,
+        string? PlateNumber,
+        string? ChassisNumber,
+        string? EngineNumber,
+        string? Make,
+        string? Model,
+        string? Year);
+
+    private static JpjVocFields FindJpjVocFields(string text)
+    {
+        var lines = TextLines(text);
+        var plateLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\bNO\.?\s*PENDAFTARAN\b", RegexOptions.IgnoreCase));
+        var chassisEngineLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\bNO\.?\s*(?:CHASIS|CHASSIS|CASIS)\b\s*/?\s*\bNO\.?\s*ENJIN\b", RegexOptions.IgnoreCase));
+        var makeModelLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\bBUATAN\b\s*/?\s*\bNAMA\s+MODEL\b", RegexOptions.IgnoreCase));
+        if (plateLabelIndex < 0 || chassisEngineLabelIndex < 0 || makeModelLabelIndex < 0)
+        {
+            return new JpjVocFields(false, null, null, null, null, null, null);
+        }
+
+        var plateNumber = plateLabelIndex > 0 ? FindJpjPlateNumber(lines[plateLabelIndex - 1]) : null;
+        var (chassisNumber, engineNumber, identifierPairIndex) = FindJpjIdentifierPair(lines, chassisEngineLabelIndex);
+        string? make = null;
+        string? model = null;
+        if (identifierPairIndex >= 0)
+        {
+            (make, model) = FindJpjMakeModelPair(lines, Math.Max(identifierPairIndex, makeModelLabelIndex));
+        }
+        var year = FindJpjYear(lines);
+        return new JpjVocFields(true, plateNumber, chassisNumber, engineNumber, make, model, year);
+    }
+
+    private static (string? ChassisNumber, string? EngineNumber, int Index) FindJpjIdentifierPair(IReadOnlyList<string> lines, int startIndex)
+    {
+        for (var index = startIndex + 1; index < lines.Count && index <= startIndex + 6; index++)
+        {
+            if (!TrySplitJpjPair(lines[index], out var left, out var right)) continue;
+            var chassisNumber = NormalizeJpjIdentifier(left);
+            var engineNumber = NormalizeJpjIdentifier(right);
+            if (Regex.IsMatch(chassisNumber, @"^[A-Z0-9-]{10,32}$", RegexOptions.IgnoreCase) &&
+                Regex.IsMatch(engineNumber, @"^[A-Z0-9-]{5,32}$", RegexOptions.IgnoreCase) &&
+                Regex.IsMatch(chassisNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
+                Regex.IsMatch(chassisNumber, @"\d") &&
+                Regex.IsMatch(engineNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
+                Regex.IsMatch(engineNumber, @"\d"))
+            {
+                return (chassisNumber, engineNumber, index);
+            }
+        }
+
+        return (null, null, -1);
+    }
+
+    private static (string? Make, string? Model) FindJpjMakeModelPair(IReadOnlyList<string> lines, int startIndex)
+    {
+        for (var index = startIndex + 1; index < lines.Count && index <= startIndex + 3; index++)
+        {
+            if (TrySplitJpjPair(lines[index], out var left, out var right))
+            {
+                var make = TrimJpjValuePrefix(left);
+                var model = TrimJpjValuePrefix(right);
+                if (IsJpjVehicleText(make) && IsJpjVehicleText(model))
+                {
+                    return (make, model);
+                }
+            }
+
+            if (TrySplitJpjMakeModelByCatalog(lines[index], out var catalogMake, out var catalogModel))
+            {
+                return (catalogMake, catalogModel);
+            }
+        }
+
+        return (null, null);
+    }
+
+    private static string? FindJpjYear(IReadOnlyList<string> lines)
+    {
+        var bodyYearLabelIndex = -1;
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (Regex.IsMatch(lines[index], @"\bJENIS\s+BADAN\b", RegexOptions.IgnoreCase))
+            {
+                bodyYearLabelIndex = index;
+                break;
+            }
+        }
+
+        if (bodyYearLabelIndex < 0) return null;
+
+        for (var index = bodyYearLabelIndex; index < lines.Count && index <= bodyYearLabelIndex + 5; index++)
+        {
+            var line = lines[index];
+            if (Regex.IsMatch(line, @"\bTARIKH\s+PENDAFTARAN\b", RegexOptions.IgnoreCase) ||
+                Regex.IsMatch(line, @"\b(?:\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2}|(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2})\b")) continue;
+            var year = Regex.Match(line, @"\b(?<year>(?:19|20)\d{2})\b");
+            if (year.Success) return year.Groups["year"].Value;
+        }
+
+        return null;
+    }
+
+    private static bool TrySplitJpjPair(string line, out string left, out string right)
+    {
+        var values = line.Split('/', StringSplitOptions.TrimEntries);
+        if (values.Length == 2)
+        {
+            left = values[0];
+            right = values[1];
+            return !string.IsNullOrWhiteSpace(left) && !string.IsNullOrWhiteSpace(right);
+        }
+
+        left = string.Empty;
+        right = string.Empty;
+        return false;
+    }
+
+    private static string NormalizeJpjIdentifier(string value) =>
+        Regex.Replace(TrimJpjValuePrefix(value), @"\s+", string.Empty).ToUpperInvariant();
+
+    private static string? FindJpjPlateNumber(string value)
+    {
+        var match = Regex.Match(value, @"^\s*:?\s*(?<plate>[A-Z]{1,3}\s?\d{1,4}(?:[A-Z](?=\s|$))?)", RegexOptions.IgnoreCase);
+        return match.Success
+            ? match.Groups["plate"].Value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant()
+            : null;
+    }
+
+    private static bool TrySplitJpjMakeModelByCatalog(string line, out string make, out string model)
+    {
+        var value = TrimJpjValuePrefix(line);
+        foreach (var catalogMake in MalaysiaVehicleCatalog.Models
+                     .Select(item => item.Make)
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .OrderByDescending(item => item.Length))
+        {
+            if (!value.StartsWith(catalogMake, StringComparison.OrdinalIgnoreCase) ||
+                value.Length <= catalogMake.Length ||
+                !char.IsWhiteSpace(value[catalogMake.Length])) continue;
+
+            var candidateModel = value[catalogMake.Length..].Trim();
+            if (!IsJpjVehicleText(candidateModel)) continue;
+
+            make = catalogMake;
+            model = candidateModel;
+            return true;
+        }
+
+        make = string.Empty;
+        model = string.Empty;
+        return false;
+    }
+
+    private static string TrimJpjValuePrefix(string value) =>
+        Regex.Replace(value.Trim(), @"^:\s*", string.Empty).Trim();
+
+    private static bool IsJpjVehicleText(string value) =>
+        Regex.IsMatch(value.Trim(), @"^[\p{L}\p{N}][\p{L}\p{N} .&()'/-]{0,60}$") &&
+        !Regex.IsMatch(value, @"\b(?:NO\.?|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT)\b", RegexOptions.IgnoreCase);
+
     private static string? FindIdentityCardNumber(string text)
     {
         var match = Regex.Match(text, @"\b\d{6}-?\d{2}-?\d{4}\b");
@@ -645,7 +834,11 @@ public static class OcrExtractionParser
     private static string? FindAddress(string text)
     {
         var match = Regex.Match(text, @"\baddress\s*[:#-]?\s*(?<value>[^\r\n]{3,200})", RegexOptions.IgnoreCase);
-        if (match.Success) return match.Groups["value"].Value.Trim();
+        if (match.Success)
+        {
+            var labeledAddress = NormalizeIdentityCardAddress(match.Groups["value"].Value);
+            if (!string.IsNullOrWhiteSpace(labeledAddress)) return labeledAddress;
+        }
 
         // MyKad has no Address label; collect the address block until the card's
         // trailing nationality/gender lines. Keep multiple OCR lines together.
@@ -653,10 +846,26 @@ public static class OcrExtractionParser
         var addressStart = lines.FindIndex(line => Regex.IsMatch(line, @"(?:^|\s)NO\.?\s*\d{1,4}\b", RegexOptions.IgnoreCase));
         var addressLines = (addressStart < 0 ? Enumerable.Empty<string>() : lines.Skip(addressStart))
             .TakeWhile(line => !Regex.IsMatch(line, @"^(WARGANEGARA|LELAKI|PEREMPUAN|ISLAM|MALAYSIA)\b", RegexOptions.IgnoreCase))
+            .Where(line => !IsIdentityCardNumberOnlyOrPrefixed(line))
             .Where(line => Regex.IsMatch(line, @"\d|JALAN|TAMAN|LORONG|KG\.?|BANDAR|KAMPUNG|JOHOR|SELANGOR|KEDAH|PERAK|PENANG|MELAKA|SABAH|SARAWAK", RegexOptions.IgnoreCase))
             .Select(line => Regex.Replace(line, @"^.*?(?=\bNO\.?\s*\d{1,4}\b)", "", RegexOptions.IgnoreCase))
             .ToList();
         if (addressLines.Count > 0) return string.Join(" ", addressLines);
+
+        // Some rural MyKad addresses begin with a locality marker instead of a
+        // house number. Only accept this form when it still carries both a
+        // Malaysian postcode and state, so names or headings cannot become an address.
+        var localityAddressStart = lines.FindIndex(line => Regex.IsMatch(line, @"^(?:GDW\s+)?(?:JALAN|LORONG|TAMAN|KAMPUNG|KG\.?|BANDAR)\b", RegexOptions.IgnoreCase));
+        var localityAddressLines = (localityAddressStart < 0 ? Enumerable.Empty<string>() : lines.Skip(localityAddressStart))
+            .TakeWhile(line => !Regex.IsMatch(line, @"^(WARGANEGARA|LELAKI|PEREMPUAN|ISLAM|MALAYSIA)\b", RegexOptions.IgnoreCase))
+            .Where(line => !IsIdentityCardNumberOnlyOrPrefixed(line))
+            .Where(line => Regex.IsMatch(line, @"\d|JALAN|TAMAN|LORONG|KG\.?|BANDAR|KAMPUNG|JOHOR|SELANGOR|KEDAH|PERAK|PENANG|MELAKA|SABAH|SARAWAK", RegexOptions.IgnoreCase))
+            .ToList();
+        if (localityAddressLines.Any(line => Regex.IsMatch(line, @"\b\d{5}\b")) &&
+            localityAddressLines.Any(line => Regex.IsMatch(line, @"\b(?:JOHOR|SELANGOR|KEDAH|PERAK|PENANG|MELAKA|SABAH|SARAWAK)\b", RegexOptions.IgnoreCase)))
+        {
+            return string.Join(" ", localityAddressLines);
+        }
 
         // The same card may arrive as a single line, so recognise the common
         // Malaysian address form without requiring an Address label or line breaks.
@@ -666,6 +875,31 @@ public static class OcrExtractionParser
             RegexOptions.IgnoreCase);
         return flattenedMatch.Success ? Regex.Replace(flattenedMatch.Value, @"\s+", " ").Trim() : null;
     }
+
+    public static string? NormalizeIdentityCardAddress(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var normalized = Regex.Replace(value.Trim(), @"\s+", " ");
+        var withoutIdentityLabel = Regex.Replace(
+            normalized,
+            @"^(?:(?:(?:MYKAD|KAD\s+PENGENALAN)\s+)?(?:(?:IC|NRIC)(?:\s*NO\.?)?|NO\.?)\s*[:#-]?\s*(?=\d{6}[-\s]?\d{2})|(?:MYKAD|KAD\s+PENGENALAN)\s*[:#-]?\s*)",
+            "",
+            RegexOptions.IgnoreCase);
+        if (IsIdentityCardNumberOnly(withoutIdentityLabel)) return null;
+
+        var withoutIdentityHeader = Regex.Replace(
+            withoutIdentityLabel,
+            @"^\d{6}(?:-|\s)?\d{2}(?:-|\s)?\d{4}\s+(?=(?:NO\.?\s*)?\d{1,4}[A-Z]?\b|JALAN\b|LORONG\b|TAMAN\b|KAMPUNG\b|KG\.?\b|BANDAR\b|POS\b)",
+            "",
+            RegexOptions.IgnoreCase);
+        return IsIdentityCardNumberOnly(withoutIdentityHeader) ? null : withoutIdentityHeader;
+    }
+
+    private static bool IsIdentityCardNumberOnly(string value) =>
+        Regex.IsMatch(value.Trim(), @"^\d{6}(?:-|\s)?\d{2}(?:-|\s)?\d{4}$");
+
+    private static bool IsIdentityCardNumberOnlyOrPrefixed(string value) =>
+        IsIdentityCardNumberOnly(value) || string.IsNullOrWhiteSpace(NormalizeIdentityCardAddress(value));
 
     private static List<string> TextLines(string text) => text
         .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)

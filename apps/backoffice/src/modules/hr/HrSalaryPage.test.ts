@@ -2,7 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import dayjs from "dayjs";
-import { HrRecordFilterControls, businessTripSearchText, datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodDefaults, payPeriodFromValues, shouldShowOptionalMcUpload, withHrRecordFilterValue } from "./HrSalaryPage";
+import type { HrAttendanceDashboardSummary } from "../../api";
+import { HrAttendanceDashboard, HrRecordFilterControls, HrSalaryPage, businessTripSearchText, datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodDefaults, payPeriodFromValues, shouldShowOptionalMcUpload, withHrRecordFilterValue } from "./HrSalaryPage";
 
 describe("HR record list helpers", () => {
   const records = [
@@ -99,5 +100,87 @@ describe("HR record list helpers", () => {
   it("shows the optional MC picker only for medical leave", () => {
     expect(shouldShowOptionalMcUpload("MedicalLeave")).toBe(true);
     expect(shouldShowOptionalMcUpload("AnnualLeave")).toBe(false);
+  });
+});
+
+describe("HR attendance dashboard", () => {
+  const zeroSummary = {
+    checkedInToday: null,
+    checkedOutToday: 0,
+    openSessionsToday: null,
+    officeQrSessionsToday: 0,
+    manualSessionsToday: null,
+    outstationSessionsToday: 0,
+    pendingBusinessTripRequests: null,
+    activeOutstationToday: 0,
+    upcomingApprovedTrips: null
+  } as unknown as HrAttendanceDashboardSummary;
+
+  it("groups today's state, check-in methods, and outstation workflow without percentages", () => {
+    const markup = renderToStaticMarkup(createElement(HrAttendanceDashboard, { summary: zeroSummary }));
+
+    expect(markup).toContain("Today attendance / 今日打卡");
+    expect(markup).toContain("Check-in method / 打卡方式");
+    expect(markup).toContain("Outstation workflow / 外勤流程");
+    expect(markup).toContain("Pending trip approvals / 待审批外勤");
+    expect(markup).toContain("Active outstation today / 今日进行中外勤");
+    expect(markup).toContain("Approved trips, next 7 days / 未来7天已批准");
+    expect(markup).toContain("None recorded today / 今天没有记录");
+    expect(markup).toContain("No requests waiting / 没有待审批申请");
+    expect(markup).not.toContain("%");
+  });
+
+  it("removes the attendance reminders card while retaining the page API compatibility props", () => {
+    const noOp = async () => {};
+    const props: Parameters<typeof HrSalaryPage>[0] = {
+      currentUser: { isAuthenticated: true, id: "staff-1", name: "Alicia Tan", roles: ["HrSalary"] },
+      staffUsers: [{ id: "staff-1", email: "alicia@example.com", displayName: "Alicia Tan", roles: ["HrSalary"], isActive: true }],
+      attendance: [],
+      attendanceDashboard: zeroSummary,
+      availabilityCalendar: [],
+      attendanceReminders: [],
+      attendanceReminderPolicies: [],
+      bossCalendar: [],
+      attendanceNetworks: [],
+      leaveRequests: [],
+      leaveBalances: [],
+      leavePolicies: [],
+      leaveAdjustments: [],
+      payrollProfiles: [],
+      payPeriods: [],
+      payslips: [],
+      attendanceQrChallenge: null,
+      businessTrips: [],
+      onClearAttendanceQrToken: noOp,
+      onCheckIn: noOp,
+      onCheckOut: noOp,
+      onCreateQrChallenge: noOp,
+      onRedeemQr: noOp,
+      onCreateBusinessTrip: noOp,
+      onDecideBusinessTrip: noOp,
+      onCancelBusinessTrip: noOp,
+      onStartOutstation: noOp,
+      onEndOutstation: noOp,
+      onUpdateReminderPolicy: noOp,
+      onUpdateAttendance: noOp,
+      onLoadBossCalendar: noOp,
+      onSaveAttendanceNetwork: noOp,
+      onCreateLeave: async (leave) => leave,
+      onDecideLeave: noOp,
+      onUploadMc: noOp,
+      mcContentUrl: () => "",
+      onUpdateBalance: noOp,
+      onUpdatePolicy: noOp,
+      onCreateAdjustment: noOp,
+      onUpdatePayrollProfile: noOp,
+      onCreatePayPeriod: noOp,
+      onGeneratePayslips: noOp
+    };
+
+    const markup = renderToStaticMarkup(createElement(HrSalaryPage, props));
+
+    expect(markup).not.toContain("Attendance Reminders / 打卡提醒");
+    expect(markup).not.toContain("Reminder settings / 提醒设置");
+    expect(markup).toContain("Attendance Dashboard / 打卡概览");
   });
 });

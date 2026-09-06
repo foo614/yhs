@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -218,12 +218,39 @@ export function canCorrectDeliveryBuyer(item: DeliveryWorkboardItem, vehicles: r
   return canCorrectBuyer && !item.terminal && !hasLockedDeliveryBuyer(item.customerId) && Boolean(vehicles.find((vehicle) => vehicle.id === item.vehicleId)?.customerId);
 }
 
+export function deliveryForExactDeepLink(items: readonly DeliveryWorkboardItem[], deliveryId?: string) {
+  return deliveryId ? items.find((item) => item.id === deliveryId) : undefined;
+}
+
+export function initialDeliveryFocusResolution({
+  items,
+  initialDeliveryId,
+  appliedDeliveryId,
+  loading,
+  loadError
+}: {
+  items: readonly DeliveryWorkboardItem[];
+  initialDeliveryId?: string;
+  appliedDeliveryId?: string;
+  loading: boolean;
+  loadError?: string;
+}) {
+  if (!initialDeliveryId) return { kind: "none" } as const;
+  if (appliedDeliveryId === initialDeliveryId) return { kind: "applied" } as const;
+
+  const delivery = deliveryForExactDeepLink(items, initialDeliveryId);
+  if (delivery) return { kind: "open", delivery } as const;
+  if (loading || loadError) return { kind: "waiting" } as const;
+  return { kind: "unavailable" } as const;
+}
+
 export function DeliveryWorkboardPage({
   vehicles,
   dashboardFocus,
   onClearDashboardFocus,
   onOpenCustomer,
   canCorrectBuyer = false,
+  initialDeliveryId,
   initialItems = [],
   initialPicOptions = [],
   autoLoad = true
@@ -233,6 +260,7 @@ export function DeliveryWorkboardPage({
   onClearDashboardFocus: () => void;
   onOpenCustomer: (customerId: string) => void;
   canCorrectBuyer?: boolean;
+  initialDeliveryId?: string;
   initialItems?: DeliveryWorkboardItem[];
   initialPicOptions?: DeliveryPicOption[];
   autoLoad?: boolean;
@@ -258,6 +286,8 @@ export function DeliveryWorkboardPage({
   const [rescheduleType, setRescheduleType] = useState<"Standard" | "Outstation">("Standard");
   const [rescheduleAddress, setRescheduleAddress] = useState("");
   const [rescheduleTransport, setRescheduleTransport] = useState("");
+  const [requestedDeliveryUnavailable, setRequestedDeliveryUnavailable] = useState(false);
+  const appliedDeliveryIdRef = useRef<string | undefined>(undefined);
   const [createForm] = Form.useForm<CreateDeliveryValues>();
   const createDeliveryType = Form.useWatch("deliveryType", createForm);
   const selected = items.find((item) => item.id === selectedId);
@@ -293,10 +323,43 @@ export function DeliveryWorkboardPage({
   }, [autoLoad, reload]);
 
   useEffect(() => {
+    if (initialDeliveryId) return;
     if (!dashboardFocus?.vehicleId) return;
     const focused = items.find((item) => item.vehicleId === dashboardFocus.vehicleId);
     if (focused) setSelectedId(focused.id);
-  }, [dashboardFocus?.vehicleId, items]);
+  }, [dashboardFocus?.vehicleId, initialDeliveryId, items]);
+
+  useEffect(() => {
+    if (!initialDeliveryId) {
+      appliedDeliveryIdRef.current = undefined;
+      setRequestedDeliveryUnavailable(false);
+      return;
+    }
+
+    const resolution = initialDeliveryFocusResolution({
+      items,
+      initialDeliveryId,
+      appliedDeliveryId: appliedDeliveryIdRef.current,
+      loading,
+      loadError
+    });
+    if (resolution.kind === "applied" || resolution.kind === "waiting") return;
+
+    appliedDeliveryIdRef.current = initialDeliveryId;
+    if (resolution.kind === "unavailable") {
+      setSelectedId(undefined);
+      setActivity([]);
+      setRequestedDeliveryUnavailable(true);
+      return;
+    }
+
+    const delivery = resolution.kind === "open" ? resolution.delivery : undefined;
+    if (!delivery) return;
+    setRequestedDeliveryUnavailable(false);
+    setSelectedId(delivery.id);
+    setActivity([]);
+    void loadActivity(delivery.id);
+  }, [initialDeliveryId, items, loadError, loading, loadActivity]);
 
   const eligibleVehicles = useMemo(() => eligibleDeliveryVehicles(vehicles, items), [vehicles, items]);
   const today = singaporeDateString();
@@ -439,7 +502,7 @@ export function DeliveryWorkboardPage({
           transportMethod: rescheduleType === "Outstation" ? rescheduleTransport.trim() : undefined,
           rescheduleReason: actionReason.trim()
         }));
-        message.success("Delivery rescheduled");
+        message.success("Delivery rescheduled. Reconfirm and save the 2-day customer notice before release.");
       }
       setSecondaryAction(undefined);
       await refreshSelected(selected.id);
@@ -542,6 +605,12 @@ export function DeliveryWorkboardPage({
           showIcon
           message="Showing the delivery selected from Dashboard"
           action={<Button size="small" onClick={onClearDashboardFocus}>Clear focus</Button>}
+        />}
+        {requestedDeliveryUnavailable && <Alert
+          type="info"
+          showIcon
+          message="Delivery record not found"
+          description="This exact delivery link is no longer available. Choose a record from the current workboard."
         />}
         {loadError && <Alert type="error" showIcon message={loadError} action={<Button size="small" onClick={() => void reload()}>Try again</Button>} />}
         {eligibleVehicles.length === 0 && !loading && <Alert type="info" showIcon message="No buyer-confirmed car is waiting for a new delivery." />}
@@ -839,7 +908,17 @@ export function DeliveryDrawerContent({
   const completedItems = completed.map((stage) => ({
     key: stage,
     label: <Space><CheckCircleOutlined className="deliveryStageCompleteIcon" />{stageMeta[stage].label}</Space>,
-    children: <StageSummary item={item} stage={stage} />
+    children: item.terminal ? <StageSummary item={item} stage={stage} /> : (
+      <CurrentStageForm
+        item={{ ...item, stage }}
+        picOptions={picOptions}
+        saving={saving}
+        onSave={onSave}
+        onUpload={onUpload}
+        onRelease={onRelease}
+        onRequestInvoice={onRequestInvoice}
+      />
+    )
   }));
 
   return (
@@ -853,6 +932,8 @@ export function DeliveryDrawerContent({
         {item.deliveryType === "Outstation" && <Descriptions.Item label="Address / 地址">{item.deliveryAddress || "Not provided"}</Descriptions.Item>}
         {item.deliveryType === "Outstation" && <Descriptions.Item label="Transport / 运输">{item.transportMethod || "Not provided"}</Descriptions.Item>}
       </Descriptions>
+
+      <HistoricalWindscreenEvidence item={item} />
 
       {item.blocker && !item.terminal && <Alert
         type="warning"
@@ -952,14 +1033,13 @@ export function CurrentStageForm({
       onFinish={(values) => void onSave(values, "Document checks saved")}
     >
       <div className="deliveryEvidenceGrid">
-        {(["DeliveryDocument", "Policy", "RoadTaxReceipt", "WindscreenPolicy"] as DocumentCategory[]).map((category) => (
+        {(["DeliveryDocument", "Policy", "RoadTaxReceipt"] as DocumentCategory[]).map((category) => (
           <EvidenceUpload key={category} item={item} category={category} saving={saving} onUpload={onUpload} />
         ))}
       </div>
       <div className="deliveryStageFormGrid">
         <Form.Item name="insuranceExpiryDate" label="Insurance expiry"><Input type="date" /></Form.Item>
         <Form.Item name="roadTaxExpiryDate" label="Road tax expiry"><Input type="date" /></Form.Item>
-        <Form.Item name="windscreenInsuranceExpiryDate" label="Windscreen expiry"><Input type="date" /></Form.Item>
       </div>
       <div className="deliveryEvidenceReviewIntro">
         <Typography.Text strong>Evidence reviewed and confirmed / 证据已审核确认</Typography.Text>
@@ -969,7 +1049,6 @@ export function CurrentStageForm({
         <Form.Item name="documentsPrepared" valuePropName="checked"><Checkbox>Delivery documents reviewed and confirmed</Checkbox></Form.Item>
         <Form.Item name="insuranceHandled" valuePropName="checked"><Checkbox>Insurance evidence reviewed and confirmed</Checkbox></Form.Item>
         <Form.Item name="roadTaxHandled" valuePropName="checked"><Checkbox>Road tax evidence reviewed and confirmed</Checkbox></Form.Item>
-        <Form.Item name="windscreenInsuranceHandled" valuePropName="checked"><Checkbox>Windscreen cover reviewed and confirmed</Checkbox></Form.Item>
       </div>
       <Form.Item name="twoDayNoticeSent" valuePropName="checked" className="deliveryNoticeCheck"><Checkbox>2-day customer notice sent</Checkbox></Form.Item>
       <div className="deliveryFinanceGate">
@@ -1051,6 +1130,28 @@ function EvidenceUpload({
       </Space>
     </div>
   );
+}
+
+function HistoricalWindscreenEvidence({ item }: { item: DeliveryWorkboardItem }) {
+  const evidence = item.evidence.find((entry) => entry.category === "WindscreenPolicy" && entry.isPresent);
+  if (!evidence?.documentId) return null;
+
+  return <section aria-label="Historical windscreen evidence">
+    <Typography.Text className="moduleEyebrow">Historical record / 历史记录</Typography.Text>
+    <div className="deliveryEvidenceItem">
+      <div>
+        <Typography.Text strong>{evidenceLabels.WindscreenPolicy}</Typography.Text>
+        <Typography.Text type="secondary">{evidence.fileName ?? "Historical file"}</Typography.Text>
+      </div>
+      <Button
+        size="small"
+        icon={<ExportOutlined />}
+        href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)}
+        target="_blank"
+        rel="noreferrer"
+      >Open historical file</Button>
+    </div>
+  </section>;
 }
 
 function StageSummary({ item, stage }: { item: DeliveryWorkboardItem; stage: DeliveryWorkboardStage }) {

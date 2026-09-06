@@ -1,6 +1,9 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
-import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, possibleOwnersForIdentityReview, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
-import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Vehicle, VehicleDocument } from "../../api";
+import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
   id: "vehicle-1",
@@ -289,6 +292,44 @@ describe("previous owner identity review", () => {
     });
   });
 
+  it("does not copy an IC-shaped OCR value into the owner address", () => {
+    for (const address of ["900101-01-1234", "IC: 900101-01-1234", "NRIC 900101-01-1234"]) {
+      expect(ownerFromIdentityCardReview({
+        name: "Lim Owner",
+        phone: "019-888 7777",
+        icNumber: "900101011234",
+        address
+      }, "owner-new").address).toBeUndefined();
+    }
+  });
+
+  it("keeps a real address even when its street and postcode digits total twelve", () => {
+    expect(ownerFromIdentityCardReview({
+      name: "Lim Owner",
+      phone: "019-888 7777",
+      icNumber: "900101011234",
+      address: "NO 12 JALAN 34 TAMAN 567 50000 KUALA LUMPUR"
+    }, "owner-new").address).toBe("NO 12 JALAN 34 TAMAN 567 50000 KUALA LUMPUR");
+  });
+
+  it("removes only an IC-only header from a multiline OCR address", () => {
+    expect(ownerFromIdentityCardReview({
+      name: "Lim Owner",
+      phone: "019-888 7777",
+      icNumber: "900101011234",
+      address: "900101-01-1234\nNO 12 JALAN 34 TAMAN 567\n50000 KUALA LUMPUR"
+    }, "owner-new").address).toBe("NO 12 JALAN 34 TAMAN 567\n50000 KUALA LUMPUR");
+  });
+
+  it("removes an IC label only when an actual address follows the ID", () => {
+    expect(ownerFromIdentityCardReview({
+      name: "Lim Owner",
+      phone: "019-888 7777",
+      icNumber: "900101011234",
+      address: "IC: 900101-01-1234\nNO 12 JALAN 34 TAMAN 567\n50000 KUALA LUMPUR"
+    }, "owner-new").address).toBe("NO 12 JALAN 34 TAMAN 567\n50000 KUALA LUMPUR");
+  });
+
   it("suggests exact normalized name matches for manual duplicate review", () => {
     const owners = [
       { id: "owner-1", name: "Lim   Owner", phone: "0198887777" },
@@ -339,13 +380,14 @@ describe("vehicle document ownership", () => {
     expect(vehicleDocumentOwnershipDefault("Policy")).toBe("Buyer");
     expect(vehicleDocumentOwnershipDefault("RepairInvoice")).toBe("Vehicle");
     expect(vehicleDocumentAllowsPersonSelection("IdentityCard")).toBe(true);
-    expect(vehicleDocumentAllowsPersonSelection("PurchaseInvoice")).toBe(true);
+    expect(vehicleDocumentAllowsPersonSelection("PurchaseInvoice")).toBe(false);
     expect(vehicleDocumentAllowsPersonSelection("LoanDocument")).toBe(true);
     expect(vehicleDocumentAllowsPersonSelection("RepairInvoice")).toBe(false);
   });
 
   it("keeps IdentityCard available in both person tabs without duplicating history", () => {
     const documents = [
+      { id: "historic-purchase-invoice", category: "PurchaseInvoice", ownershipType: "Seller" },
       { id: "seller-ic", category: "IdentityCard", ownershipType: "Seller" },
       { id: "buyer-ic", category: "IdentityCard", ownershipType: "Buyer" },
       { id: "repair", category: "RepairInvoice", ownershipType: "Vehicle" }
@@ -353,9 +395,84 @@ describe("vehicle document ownership", () => {
 
     expect(vehicleDocumentCategoriesForOwnership("Seller")).toEqual(["PurchaseInvoice", "Voc", "IdentityCard", "ApDocument"]);
     expect(vehicleDocumentCategoriesForOwnership("Buyer")).toEqual(["IdentityCard", "LoanDocument", "DeliveryDocument", "Policy"]);
+    expect(vehicleDocumentCategoriesForOwnership("Seller", documents)).toEqual(["PurchaseInvoice", "Voc", "IdentityCard", "ApDocument"]);
     expect(vehicleDocumentsForOwnership(documents, "Seller", "IdentityCard").map((document) => document.id)).toEqual(["seller-ic"]);
     expect(vehicleDocumentsForOwnership(documents, "Buyer", "IdentityCard").map((document) => document.id)).toEqual(["buyer-ic"]);
     expect(vehicleDocumentsForOwnership(documents, "Vehicle", "RepairInvoice").map((document) => document.id)).toEqual(["repair"]);
+  });
+});
+
+describe("structured purchase invoice entry", () => {
+  const approvedSupplier: Supplier = {
+    id: "supplier-approved",
+    companyName: "Approved Motors",
+    address: "Supplier address",
+    phone: "0123456789",
+    approvalStatus: "Approved"
+  };
+  const draftSupplier: Supplier = { ...approvedSupplier, id: "supplier-draft", companyName: "Draft Motors", approvalStatus: "Draft" };
+
+  it("renders the reachable formal-generation action and keeps legacy helper defaults available", () => {
+    const markup = renderToStaticMarkup(createElement(PurchaseInvoiceHistory, {
+      invoices: [],
+      columns: [],
+      pagination: { pageSize: 5 },
+      onGenerate: () => undefined
+    }));
+    const initialValues = purchaseInvoiceCreateInitialValues("vehicle-2", [draftSupplier, approvedSupplier]);
+
+    expect(markup).toContain("Generate Purchase Invoice");
+    expect(initialValues.vehicleId).toBe("vehicle-2");
+    expect(initialValues.supplierId).toBe("supplier-approved");
+    expect(initialValues.lines).toEqual([{ lineType: "VehiclePurchase", description: "Vehicle purchase", capitaliseIntoVehicleCost: true }]);
+  });
+
+  it("blocks formal owner generation until the approved intake has a previous owner, source data, and a positive price", () => {
+    expect(ownerPurchaseInvoiceGenerationBlockReason({ bossConfirmed: false, ownerId: "owner-1", purchasePrice: 42000, intakeDate: "2026-09-05" }, { id: "owner-1", name: "Owner", phone: "0123456789" })).toContain("approved");
+    expect(ownerPurchaseInvoiceGenerationBlockReason({ bossConfirmed: true, ownerId: undefined, purchasePrice: 42000, intakeDate: "2026-09-05" }, undefined)).toContain("previous owner");
+    expect(ownerPurchaseInvoiceGenerationBlockReason({ bossConfirmed: true, ownerId: "owner-1", purchasePrice: 0, intakeDate: "2026-09-05" }, { id: "owner-1", name: "Owner", phone: "0123456789" })).toContain("greater than zero");
+    expect(ownerPurchaseInvoiceGenerationBlockReason({ bossConfirmed: true, ownerId: "owner-1", purchasePrice: 42000, intakeDate: "2026-09-05" }, { id: "owner-1", name: "Owner", phone: "0123456789" })).toBeUndefined();
+  });
+
+  it("maps entered values into the structured record with GUID line ids", () => {
+    const invoiceId = "550e8400-e29b-41d4-a716-446655440000";
+    const lineId = "550e8400-e29b-41d4-a716-446655440001";
+    const invoice = purchaseInvoiceFromCreateValues({
+      vehicleId: "vehicle-2",
+      supplierId: "supplier-approved",
+      invoiceNumber: "INV-2002",
+      invoiceDate: dayjs("2026-09-06"),
+      purchaseDate: dayjs("2026-09-05"),
+      paymentReference: "PAY-2002",
+      lines: [{ lineType: "VehiclePurchase", description: "Honda City", amount: 42000, capitaliseIntoVehicleCost: true }]
+    }, invoiceId, () => lineId);
+
+    expect(invoice).toMatchObject({
+      id: invoiceId,
+      vehicleId: "vehicle-2",
+      supplierId: "supplier-approved",
+      invoiceNumber: "INV-2002",
+      invoiceDate: "2026-09-06",
+      purchaseDate: "2026-09-05",
+      paymentReference: "PAY-2002",
+      amount: 42000,
+      accountingStatus: "Draft"
+    });
+    expect(invoice.lines).toEqual([expect.objectContaining({ id: lineId, purchaseInvoiceId: invoiceId, description: "Honda City", amount: 42000 })]);
+    expect(invoice.lines?.every((line) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(line.id))).toBe(true);
+  });
+
+  it("keeps the create form open when the API rejects without leaking a rejected promise", async () => {
+    const invoice = purchaseInvoiceFromCreateValues({
+      vehicleId: "vehicle-2",
+      invoiceNumber: "INV-2002",
+      invoiceDate: dayjs("2026-09-06"),
+      lines: [{ lineType: "VehiclePurchase", description: "Honda City", amount: 42000 }]
+    }, "550e8400-e29b-41d4-a716-446655440000", () => "550e8400-e29b-41d4-a716-446655440001");
+
+    await expect(savePurchaseInvoiceRecord(invoice, async () => {
+      throw new Error("duplicate invoice");
+    })).resolves.toBe(false);
   });
 });
 

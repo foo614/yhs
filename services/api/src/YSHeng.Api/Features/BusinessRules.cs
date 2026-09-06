@@ -2612,6 +2612,43 @@ public static class UploadPolicy
         return (new ValidationResult([]), detectedMimeType);
     }
 
+    public static (ValidationResult Result, string? MimeType) ValidateVehicleIntakeVocContent(
+        string fileName,
+        string? declaredMimeType,
+        ReadOnlySpan<byte> bytes)
+    {
+        var detectedMimeType = DetectCollectionEvidenceMimeType(bytes);
+        if (detectedMimeType is not "application/pdf")
+        {
+            // Keep the existing, stricter image validation used by the new-intake OCR flow.
+            return ValidateOcrImageContent(fileName, declaredMimeType, bytes);
+        }
+
+        if (bytes.Length == 0 || bytes.Length > DocumentLimit)
+        {
+            return (new ValidationResult([new ValidationError(
+                "voc_size_invalid",
+                "VOC files must be between 1 byte and 10 MB.")]), null);
+        }
+
+        var normalizedDeclaredMimeType = declaredMimeType?.Split(';', 2)[0].Trim().ToLowerInvariant();
+        if (!string.Equals(normalizedDeclaredMimeType, detectedMimeType, StringComparison.Ordinal))
+        {
+            return (new ValidationResult([new ValidationError(
+                "voc_mime_mismatch",
+                "The uploaded VOC content does not match its declared file type.")]), null);
+        }
+
+        if (Path.GetExtension(fileName).ToLowerInvariant() != ".pdf")
+        {
+            return (new ValidationResult([new ValidationError(
+                "voc_extension_mismatch",
+                "The uploaded VOC filename does not match its verified PDF file type.")]), null);
+        }
+
+        return ValidateVehicleIntakeVocPdf(bytes);
+    }
+
     public static long LimitFor(FileCategory category) =>
         category == FileCategory.VehiclePhoto ? VehiclePhotoLimit : DocumentLimit;
 
@@ -2680,6 +2717,61 @@ public static class UploadPolicy
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             return false;
+        }
+    }
+
+    private static (ValidationResult Result, string? MimeType) ValidateVehicleIntakeVocPdf(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length < 8 || !bytes[..5].SequenceEqual("%PDF-"u8) ||
+            bytes[5] is < (byte)'1' or > (byte)'2' || bytes[6] != (byte)'.' || bytes[7] is < (byte)'0' or > (byte)'9')
+        {
+            return (new ValidationResult([new ValidationError(
+                "voc_pdf_malformed",
+                "The VOC PDF is malformed or unreadable.")]), null);
+        }
+
+        try
+        {
+            using var document = PdfDocument.Open(bytes.ToArray(), ParsingOptions.LenientParsingOff);
+            if (document.IsEncrypted)
+            {
+                return (new ValidationResult([new ValidationError(
+                    "voc_pdf_encrypted",
+                    "The VOC PDF is encrypted. Upload an unencrypted PDF instead.")]), null);
+            }
+
+            if (document.NumberOfPages == 0)
+            {
+                return (new ValidationResult([new ValidationError(
+                    "voc_pdf_page_count_invalid",
+                    "The VOC PDF must contain at least one page.")]), null);
+            }
+
+            if (document.NumberOfPages > 15)
+            {
+                return (new ValidationResult([new ValidationError(
+                    "voc_pdf_page_limit_exceeded",
+                    "The VOC PDF must not exceed 15 pages.")]), null);
+            }
+
+            for (var pageNumber = 1; pageNumber <= document.NumberOfPages; pageNumber++)
+            {
+                _ = document.GetPage(pageNumber);
+            }
+
+            return (new ValidationResult([]), "application/pdf");
+        }
+        catch (UglyToad.PdfPig.Exceptions.PdfDocumentEncryptedException)
+        {
+            return (new ValidationResult([new ValidationError(
+                "voc_pdf_encrypted",
+                "The VOC PDF is encrypted. Upload an unencrypted PDF instead.")]), null);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return (new ValidationResult([new ValidationError(
+                "voc_pdf_malformed",
+                "The VOC PDF is malformed or unreadable.")]), null);
         }
     }
 }
@@ -3095,7 +3187,6 @@ public static class DeliveryRules
         delivery.WashDone &&
         delivery.InsuranceHandled &&
         delivery.RoadTaxHandled &&
-        delivery.WindscreenInsuranceHandled &&
         delivery.TwoDayNoticeSent &&
         delivery.CustomerAcknowledged &&
         delivery.FinalChecklistConfirmed &&
@@ -3107,7 +3198,6 @@ public static class DeliveryRules
         var comparisonDate = releaseDate.HasValue && releaseDate.Value > delivery.ScheduledDate ? releaseDate.Value : delivery.ScheduledDate;
         AddExpiryIssue(issues, delivery.InsuranceExpiryDate, comparisonDate, "Insurance policy");
         AddExpiryIssue(issues, delivery.RoadTaxExpiryDate, comparisonDate, "Road tax");
-        AddExpiryIssue(issues, delivery.WindscreenInsuranceExpiryDate, comparisonDate, "Windscreen insurance");
         return issues;
     }
 
@@ -3202,8 +3292,8 @@ public static class DeliveryRules
         }
     }
 
-    public const string DeliveryNotReadyMessage = "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
-    public const string DeliveryReleaseBlockedMessage = "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, windscreen insurance, 2-day notice, release evidence, and current expiry dates are complete.";
+    public const string DeliveryNotReadyMessage = "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, 2-day notice, release evidence, and current expiry dates are complete.";
+    public const string DeliveryReleaseBlockedMessage = "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, 2-day notice, release evidence, and current expiry dates are complete.";
 }
 
 public static class DeliveryDocumentRules
@@ -3215,7 +3305,12 @@ public static class DeliveryDocumentRules
         FileCategory.HandoverPhoto,
         FileCategory.SignedHandover,
         FileCategory.Policy,
-        FileCategory.RoadTaxReceipt,
+        FileCategory.RoadTaxReceipt
+    ];
+
+    private static readonly FileCategory[] EvidenceCategories =
+    [
+        ..RequiredCategories,
         FileCategory.WindscreenPolicy
     ];
 
@@ -3227,7 +3322,7 @@ public static class DeliveryDocumentRules
                 document.DeliveryScheduleId == delivery.Id &&
                 document.CustomerId == delivery.CustomerId)
             .ToList();
-        var evidence = RequiredCategories
+        var evidence = EvidenceCategories
             .Select(category =>
             {
                 var document = deliveryDocuments
@@ -3245,7 +3340,10 @@ public static class DeliveryDocumentRules
                     document?.UploadedAt);
             })
             .ToList();
-        var missing = evidence.Where(item => !item.IsPresent).Select(item => item.Category).ToList();
+        var missing = evidence
+            .Where(item => RequiredCategories.Contains(item.Category) && !item.IsPresent)
+            .Select(item => item.Category)
+            .ToList();
         return new DeliveryDocumentCheck(missing.Count == 0, missing, evidence);
     }
 
@@ -3259,7 +3357,7 @@ public static class DeliveryDocumentRules
         var check = CheckCompleteness(delivery, documents);
         return check.IsComplete
             ? new ValidationResult([])
-            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires delivery documents, inspection report, handover evidence, insurance policy, road tax, and windscreen policy uploaded for this delivery and buyer before release.")]);
+            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires delivery documents, inspection report, handover evidence, insurance policy, and road tax uploaded for this delivery and buyer before release.")]);
     }
 }
 
