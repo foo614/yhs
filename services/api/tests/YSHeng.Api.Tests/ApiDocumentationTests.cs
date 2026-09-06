@@ -204,6 +204,26 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Vehicle_photo_delete_is_authorized_composite_scoped_audited_and_documented()
+    {
+        var root = FindRepositoryRoot();
+        var apiDocs = File.ReadAllText(Path.Combine(root, "docs", "API.md"));
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var routeStart = program.IndexOf("backOffice.MapDelete(\"/vehicles/{id:guid}/photos/{photoId:guid}\"", StringComparison.Ordinal);
+        var routeEnd = program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/photos\"", routeStart, StringComparison.Ordinal);
+        Assert.True(routeStart >= 0 && routeEnd > routeStart, "The scoped vehicle photo DELETE route must remain next to the photo routes.");
+        var route = program[routeStart..routeEnd];
+
+        Assert.Contains("item.VehicleId == id && item.Id == photoId", route);
+        Assert.Contains("RequireAuthorization(\"Vehicles\")", route);
+        Assert.Contains("db.VehiclePhotos.Remove(photo)", route);
+        Assert.Contains("ApiAudit.Add(db, context.User, \"vehicle.photo.deleted\", nameof(VehiclePhoto), photo.Id)", route);
+        Assert.Equal(1, route.Split("await db.SaveChangesAsync()", StringSplitOptions.None).Length - 1);
+        Assert.Contains("vehicle_photo_not_found", route);
+        Assert.Contains("| `DELETE` | `/api/vehicles/{id}/photos/{photoId}` | `Vehicles` |", apiDocs);
+    }
+
+    [Fact]
     public void Api_reference_enum_values_match_domain_models()
     {
         var root = FindRepositoryRoot();

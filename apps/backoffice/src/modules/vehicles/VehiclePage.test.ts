@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, possibleOwnersForIdentityReview, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, possibleOwnersForIdentityReview, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -356,5 +356,32 @@ describe("vehicle document ownership", () => {
     expect(vehicleDocumentsForOwnership(documents, "Seller", "IdentityCard").map((document) => document.id)).toEqual(["seller-ic"]);
     expect(vehicleDocumentsForOwnership(documents, "Buyer", "IdentityCard").map((document) => document.id)).toEqual(["buyer-ic"]);
     expect(vehicleDocumentsForOwnership(documents, "Vehicle", "RepairInvoice").map((document) => document.id)).toEqual(["repair"]);
+  });
+});
+
+describe("vehicle upload load generations", () => {
+  it("does not let an A upload completion invalidate a pending B load", () => {
+    let currentRequestId = 0;
+    const bRequestId = canStartVehicleUploadLoad("vehicle-b", "vehicle-b") ? ++currentRequestId : 0;
+
+    expect(canStartVehicleUploadLoad("vehicle-a", "vehicle-b")).toBe(false);
+    expect(canStartVehicleUploadLoad("", "vehicle-b")).toBe(false);
+    expect(currentRequestId).toBe(bRequestId);
+    expect(canApplyVehicleUploadLoad(bRequestId, currentRequestId, "vehicle-b", "vehicle-b")).toBe(true);
+  });
+
+  it("still rejects an older same-vehicle result after a newer request starts", () => {
+    expect(canApplyVehicleUploadLoad(1, 2, "vehicle-a", "vehicle-a")).toBe(false);
+    expect(canApplyVehicleUploadLoad(2, 2, "vehicle-a", "vehicle-a")).toBe(true);
+  });
+});
+
+describe("vehicle photo delete confirmation", () => {
+  it("names the selected file and explains permanent gallery removal", () => {
+    const text = vehiclePhotoDeleteConfirmationText("front-photo.png");
+
+    expect(text).toContain("front-photo.png");
+    expect(text).toContain("permanently");
+    expect(text).toContain("public gallery");
   });
 });

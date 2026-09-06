@@ -88,12 +88,14 @@ import {
   getVehicleDocumentContent,
   getVehicleOcrJobs,
   getVehiclePhotos,
+  getVehiclePhotosStrict,
   getSalesWorkboard,
   humanizeApiError,
   issueFinanceInvoice,
   vehicleDocumentContentUrl,
   officialReceiptContentUrl,
   vehiclePhotoContentUrl,
+  deleteVehiclePhoto,
   login,
   logout,
   mergeFinanceVehicleOptions,
@@ -1898,5 +1900,28 @@ describe("backoffice api client", () => {
     expect(result[0].checksum).toBe("FFEEDDCCBBAA0099");
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicles/vehicle-1/photos", { credentials: "include" });
     expect(vehiclePhotoContentUrl("vehicle-1", photos[0].id)).toBe("http://localhost:5000/api/vehicles/vehicle-1/photos/00000000-0000-0000-0000-000000000020/content");
+  });
+
+  it("deletes a saved vehicle photo with authenticated DELETE credentials", async () => {
+    const fetchMock = mockEmptyFetch(true, 204);
+
+    await deleteVehiclePhoto("vehicle-1", "photo-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/photos/photo-1",
+      expect.objectContaining({ method: "DELETE", credentials: "include" })
+    );
+  });
+
+  it("propagates the structured vehicle photo not-found error", async () => {
+    mockFetch({ errors: [{ code: "vehicle_photo_not_found", message: "Vehicle photo was not found for this vehicle." }] }, false, 404);
+
+    await expect(deleteVehiclePhoto("vehicle-1", "photo-1")).rejects.toThrow("Vehicle photo was not found for this vehicle.");
+  });
+
+  it("throws when strict vehicle photo verification cannot load", async () => {
+    mockFetch({ message: "Photo list unavailable" }, false, 503);
+
+    await expect(getVehiclePhotosStrict("vehicle-1")).rejects.toThrow("Photo list unavailable");
   });
 });

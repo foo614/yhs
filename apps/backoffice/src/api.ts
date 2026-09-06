@@ -2365,6 +2365,10 @@ export async function getVehiclePhotos(vehicleId: string): Promise<VehiclePhoto[
   return [];
 }
 
+export async function getVehiclePhotosStrict(vehicleId: string): Promise<VehiclePhoto[]> {
+  return request<VehiclePhoto[]>(`/api/vehicles/${vehicleId}/photos`, {}, "Unable to load vehicle photos");
+}
+
 export function vehicleDocumentContentUrl(vehicleId: string, documentId: string) {
   return `${apiBaseUrl}/api/vehicles/${vehicleId}/documents/${documentId}/content`;
 }
@@ -2389,6 +2393,10 @@ export async function uploadVehiclePhoto(vehicleId: string, file: File) {
   return uploadFile(`/api/vehicles/${vehicleId}/photos`, file, {
     isRepresentativeImage: "false"
   });
+}
+
+export async function deleteVehiclePhoto(vehicleId: string, photoId: string): Promise<void> {
+  await request<void>(`/api/vehicles/${vehicleId}/photos/${photoId}`, { method: "DELETE" }, "Unable to delete vehicle photo");
 }
 
 export async function uploadVehicleDocument(vehicleId: string, file: File, category: DocumentCategory, owner?: DocumentUploadOwner): Promise<VehicleDocument> {
