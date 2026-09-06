@@ -1,4 +1,8 @@
-import type { RepairJob, SupplierInvoice, VehicleLookup } from "./api";
+import type { RepairJob, Supplier, SupplierInvoice, VehicleLookup } from "./api";
+
+export function isSupplierUsable(supplier: Pick<Supplier, "approvalStatus"> | undefined) {
+  return supplier?.approvalStatus === "Active" || supplier?.approvalStatus === "Approved";
+}
 
 export const repairDocumentCategories = ["RepairInvoice"] as const;
 export const repairApprovalThreshold = 1000;

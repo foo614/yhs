@@ -139,6 +139,53 @@ public sealed class AutoCountExportTests
     }
 
     [Fact]
+    public void Export_distinguishes_calculated_seller_payment_collection_and_internal_offset_without_auto_posting()
+    {
+        var vehicle = new Vehicle { PlateNumber = "SETTLE1", IntakeDate = new DateOnly(2026, 8, 1) };
+        var deadline = new DateOnly(2026, 8, 14);
+        var settlements = new[]
+        {
+            new SettlementReminder { VehicleId = vehicle.Id, Direction = SettlementDirection.PaySeller, PurchasePriceSnapshot = 50_000m, BankDebtAmount = 20_000m, Amount = 30_000m, Deadline = deadline },
+            new SettlementReminder { VehicleId = vehicle.Id, Direction = SettlementDirection.CollectFromSeller, PurchasePriceSnapshot = 50_000m, BankDebtAmount = 60_000m, Amount = 10_000m, Deadline = deadline },
+            new SettlementReminder { VehicleId = vehicle.Id, Direction = SettlementDirection.InternalOffset, PurchasePriceSnapshot = 50_000m, BankDebtAmount = 50_000m, Amount = 0m, Deadline = deadline }
+        };
+
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(Input([vehicle]) with { Settlements = settlements })), ZipArchiveMode.Read);
+        var expenses = Read(archive, "xl/worksheets/sheet6.xml");
+
+        Assert.Contains("SettlementPaySeller", expenses);
+        Assert.Contains("Suggested Payment Voucher", expenses);
+        Assert.Contains("SettlementCollectFromSeller", expenses);
+        Assert.Contains("Suggested Official Receipt", expenses);
+        Assert.Contains("SettlementInternalOffset", expenses);
+        Assert.Contains("no cash action", expenses);
+        Assert.Contains("Purchase snapshot RM 50000.00", expenses);
+        Assert.Contains("Bank debt RM 60000.00", expenses);
+        Assert.Contains("Do not post automatically", expenses);
+        Assert.Contains("t=\"n\"><v>-10000</v>", expenses);
+    }
+
+    [Fact]
+    public void Export_marks_active_and_historical_supplier_statuses_without_claiming_an_auto_mapping()
+    {
+        var suppliers = new[]
+        {
+            new Supplier { CompanyName = "Active", Address = "A", Phone = "1", ApprovalStatus = SupplierApprovalStatus.Active },
+            new Supplier { CompanyName = "Approved", Address = "A", Phone = "1", ApprovalStatus = SupplierApprovalStatus.Approved },
+            new Supplier { CompanyName = "Draft", Address = "A", Phone = "1", ApprovalStatus = SupplierApprovalStatus.Draft },
+            new Supplier { CompanyName = "Inactive", Address = "A", Phone = "1", ApprovalStatus = SupplierApprovalStatus.Inactive }
+        };
+
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(Input() with { Suppliers = suppliers })), ZipArchiveMode.Read);
+        var supplierRows = Read(archive, "xl/worksheets/sheet9.xml");
+
+        Assert.Contains("manually map its AutoCount creditor code", supplierRows);
+        Assert.Contains("Approved supplier master.", supplierRows);
+        Assert.Contains("Draft supplier; do not import until Finance approval.", supplierRows);
+        Assert.Contains("Inactive supplier; do not import.", supplierRows);
+    }
+
+    [Fact]
     public void Payment_period_uses_Singapore_accounting_date_at_utc_month_boundary()
     {
         Assert.Equal(new DateOnly(2026, 7, 31), AutoCountDateRules.SingaporeAccountingDate(new DateTime(2026, 7, 31, 15, 59, 0, DateTimeKind.Utc)));

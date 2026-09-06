@@ -2,6 +2,22 @@
 
 This workspace contains the first implementation slice for the YS Heng digital platform.
 
+## Remaining operations completion batch
+
+The [remaining-operations plan](plans/2026-09-07-remaining-operations.md) tracks implementation, real-operation acceptance and release separately. Seller settlement uses server-calculated purchase-price minus bank-debt directions, separate term edits and state changes, expected-value conflict checks and preserved legacy amounts. New Repair suppliers are Active immediately; high-cost Repair and Finance payment approvals remain.
+
+Named Ant Design forms normalize newly edited allowlisted business text, including make/model, people names, addresses and operational references. Credentials, emails, URLs, opaque values, existing loaded records and public Markdown remain unchanged. Empty Vehicle Markdown starts with neutral information prompts; existing authored copy is replaced only after confirmation. Repair and Loan headers show role-authorized operational counts.
+
+The existing-vehicle VOC picker supports JPG, PNG, WebP and PDF through the shared review-first workflow. IC remains image-only. Empty OCR is not ready for use; IC/VOC do not expose receipt-item editing. Original evidence is saved before review. Confirmed values update a linked record only after explicit application; partial failures preserve locked reviewed input and retry only the unfinished step. Equivalent server-side OCR reviews and repair-receipt confirmations return the saved result without repeating writes or audits.
+
+Finance legacy forms await mutations before closing, retain entries and show the server reason after failure. Voucher approval/payment controls use their dedicated transition endpoints on desktop and mobile. Settlement, document and OCR-list load failures are visible and retryable rather than silently appearing empty; unavailable settlement totals are labelled unavailable. Manual Loan creation now requires Boss/Admin at both the page and API; normal Loan staff read, update, bank-decision and document-check access remains unchanged. Finance is not added to the exceptional manual-create entry. This batch does not implement Finance V2 physical-cash-to-custody linkage.
+
+The pinned Ant Design 5 and React 19 combination also needs the documented client-renderer compatibility registration in `apps/backoffice/src/antdReact19.ts`, loaded before the app root. Without it, static confirmation dialogs can do nothing even when their click handler runs. The registration reuses a client root for each container and unmounts it asynchronously; it adds no dependency and can be removed when the UI framework is migrated. See [Ant Design React 19 compatibility](https://5x.ant.design/docs/react/v5-for-19-cn/).
+
+Normal Loan updates now track the post-lock reload so successful responses match the persisted state. Advisory locking, identity and document checks, audit, and normal Loan permissions remain unchanged. Vehicle Details keeps all tab panes mounted without accumulating hidden-wrapper spacing. Vehicle intake shows persistent validation and failure feedback, prevents duplicate submission and navigation while saving, and treats a saved vehicle with a failed list refresh as saved rather than inviting another creation. Nested Leads filters fit mobile widths.
+
+Final local checks passed: 335 backend tests, 405 back-office tests, type checking and production build, 37 focused real Loan API/browser checks, and mounted Vehicle wizard/tab checks at four widths. Broader acceptance and known limitations are recorded separately in the plan; local acceptance is not deployment proof.
+
 ## Applications
 
 - `apps/frontoffice`: public Next.js vehicle inventory and lead capture.
@@ -93,10 +109,9 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - The Finance table also disables one-click reconciliation when the receipt or payment invoice reference is already used by another row.
 - The Finance payment entry form warns before submitting a new reconciled payment with duplicate receipt or payment invoice references.
 - The Finance payment entry form warns before submitting non-positive nett prices.
-- The Finance settlement form warns before submitting non-positive settlement amounts or blank settlement deadlines.
-- Finance settlement reminders can now link the settlement owner/previous owner alongside the car plate, amount, and deadline, and reject unknown owner links.
-- The Finance settlement table exposes a Reopen action so staff can correct a settlement that was marked paid by accident.
-- Finance settlement reminders can now be edited from the Finance screen so staff can correct car plate, previous owner, amount, deadline, and paid/due state without recreating the reminder.
+- Seller settlement uses canonical vehicle Owner and a positive purchase-price snapshot minus the reviewed bank debt. A positive difference is payable to the seller, a negative difference is collectible from the seller, and equality is an internal offset. Payment and collection totals/reminders are separate; offsets require explicit confirmation, not a cash payment.
+- Finance settlement creation and open-term edits preserve input on failure. Closed records must be reopened separately; immutable vehicle/Owner/purchase snapshots and historical amounts are not rewritten. Term edits and completion/reopen send expected amount, direction, bank debt, deadline and status; stale requests return a conflict instead of overwriting another user's work.
+- Settlement reads are strict and show a blocking retry error when records or source prices cannot load. Unavailable totals are not displayed as zero. Manual AutoCount export includes direction and source amounts for staff review and does not automatically post a payment, receipt or offset.
 - The Finance table exposes an Undo action for reconciled payments so staff can correct a final reconciliation back to Disbursed and trigger vehicle status recalculation.
 - The Finance screen now exposes finance-owned receipt and payment invoice uploads linked to the payment vehicle for audit and reconciliation evidence.
 - A staff login panel is included in the Ant Design Pro portal and uses ASP.NET Identity cookie login.
@@ -125,7 +140,7 @@ This workspace contains the first implementation slice for the YS Heng digital p
 - The Vehicle intake form top-aligns each responsive field row and validates Malaysian registration-number structure on both client and API: uppercase normalization, a JPJ-style series/index plus a 1-4 digit number, supported regional suffixes and special-series underscores, and duplicate matching across optional spacing. This is a format check; staff still confirm issuance against the JPJ registration document.
 - Vehicle intake now includes structured purchase invoice tracking linked to the car plate, alongside purchase invoice document upload.
 - Vehicle intake uses four focused steps: vehicle and parties, stock and pricing, seller settlement, and final review. Public-description Markdown remains editable after intake instead of occupying the create wizard.
-- Finance/Admin can atomically create an unpaid seller-settlement reminder with a new vehicle; the previous owner comes from intake, the amount follows the purchase price, and Sales-only intake cannot create the finance record.
+- Finance/Admin can atomically create an open seller settlement with a new vehicle. The previous owner and purchase price come from intake; reviewed bank debt determines payment, collection or offset. Sales-only intake cannot create the finance record. Missing/zero purchase price cannot create a settlement, but intake without a settlement still follows its existing rules.
 
 - Vehicle master profiles now include stock location and an auditable stock movement history for stock owner, status, and physical location changes.
 - OCR review now lets staff correct and save one final value set, preserving the original extraction, every changed field or line item, reviewer context, timestamps, and field-accuracy counts before values are applied to vehicle workflows.

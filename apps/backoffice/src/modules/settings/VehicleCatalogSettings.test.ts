@@ -23,6 +23,12 @@ describe("filterVehicleCatalogModels", () => {
     expect(markup).toContain('placeholder="Search make or model"');
   });
 
+  it("registers make and model editing with the shared business text provider", () => {
+    const markup = renderToStaticMarkup(createElement(VehicleCatalogSettings));
+
+    expect(markup).toContain('id="vehicleCatalog"');
+  });
+
   it("distinguishes a new catalogue from filters with no matches", () => {
     expect(vehicleCatalogEmptyText(0)).toBe("No catalogue options yet.");
     expect(vehicleCatalogEmptyText(3)).toBe("No catalogue options match the current filters.");

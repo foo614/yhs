@@ -1,10 +1,51 @@
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, createVehicleIntakeFromVehiclePage, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
+  it("keeps a successfully created vehicle saved when the follow-up refresh fails", async () => {
+    const record = { id: "saved-intake" };
+    const create = vi.fn().mockResolvedValue(record);
+    const saved = vi.fn();
+    const refreshError = new Error("Refresh unavailable");
+    const refresh = vi.fn().mockRejectedValue(refreshError);
+
+    await expect(createVehicleIntakeWithRefresh(create, saved, refresh)).resolves.toEqual({
+      record, refreshed: false, error: refreshError
+    });
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(saved).toHaveBeenCalledExactlyOnceWith(record);
+    expect(saved.mock.invocationCallOrder[0]).toBeLessThan(refresh.mock.invocationCallOrder[0]);
+  });
+
+  it("does not refresh or report a saved vehicle when creation fails", async () => {
+    const error = new Error("Vehicle could not be saved");
+    const create = vi.fn().mockRejectedValue(error);
+    const saved = vi.fn();
+    const refresh = vi.fn();
+
+    await expect(createVehicleIntakeWithRefresh(create, saved, refresh)).rejects.toBe(error);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(saved).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("reports a refreshed vehicle only after creation and refresh succeed", async () => {
+    const record = { id: "saved-intake" };
+    const saved = vi.fn();
+    const refresh = vi.fn().mockResolvedValue(undefined);
+
+    await expect(createVehicleIntakeWithRefresh(async () => record, saved, refresh)).resolves.toEqual({
+      record, refreshed: true
+    });
+    expect(saved).toHaveBeenCalledExactlyOnceWith(record);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("forwards the reviewed VOC file from Vehicle intake to the multipart client", async () => {
     const identityCard = new File(["identity"], "seller-ic.png", { type: "image/png" });
     const voc = new File(["voc"], "seller-voc.pdf", { type: "application/pdf" });
@@ -287,6 +328,18 @@ describe("supplier and refurbishment records", () => {
 });
 
 describe("module document lists", () => {
+  it("keeps repair and loan document failures visible with a retry action", () => {
+    const markup = renderToStaticMarkup(createElement(DocumentLoadFailureNotice, {
+      message: "Loan document checks could not be loaded",
+      description: "The server could not complete this request.",
+      onRetry: () => {}
+    }));
+
+    expect(markup).toContain("Loan document checks could not be loaded");
+    expect(markup).toContain("The server could not complete this request.");
+    expect(markup).toContain("Retry");
+  });
+
   it("can omit OCR results for manual Loan and Delivery evidence workflows", () => {
     const loanMarkup = renderToStaticMarkup(createElement(ModuleDocumentList, {
       vehicleId: "vehicle-1",

@@ -8,10 +8,10 @@ import type { ProColumns } from "@ant-design/pro-components";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import { Calendar, DatePicker } from "antd";
 import dayjs from "dayjs";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
-import { staffRoleValues } from "../../api";
+import { humanizeApiError, staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
 import "./HrSalaryPage.css";
@@ -91,6 +91,16 @@ type HrSalaryPageProps = {
   onCreatePayPeriod: (period: HrPayPeriod) => Promise<void>;
   onGeneratePayslips: (payPeriodId: string) => Promise<void>;
 };
+
+export async function submitHrDecision(action: () => Promise<void>, onError: (message: string) => void) {
+  try {
+    await action();
+    return true;
+  } catch (error) {
+    onError(humanizeApiError(error, "The decision could not be saved. Please try again."));
+    return false;
+  }
+}
 
 const leaveTypes: HrLeaveType[] = ["AnnualLeave", "MedicalLeave", "EmergencyLeave", "UnpaidLeave"];
 const adjustmentTypes = [
@@ -315,6 +325,9 @@ export function HrSalaryPage({
   const [payPeriodForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
   const [qrRedeeming, setQrRedeeming] = useState(false);
+  const [decisionSubmitting, setDecisionSubmitting] = useState<string | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  const decisionSubmittingRef = useRef(false);
   const [calendarMonth, setCalendarMonth] = useState(() => dayjs());
   const [activeTab, setActiveTab] = useState("attendance");
   const [recordFilters, setRecordFilters] = useState<Record<HrRecordListKey, HrRecordFilters>>(initialHrRecordFilters);
@@ -407,6 +420,35 @@ export function HrSalaryPage({
     setActiveTab(tab);
     setRecordPages(initialHrRecordPages);
   };
+  const runDecision = async (actionKey: string, action: () => Promise<void>) => {
+    if (decisionSubmittingRef.current) return;
+
+    decisionSubmittingRef.current = true;
+    setDecisionSubmitting(actionKey);
+    setDecisionError(null);
+    try {
+      await submitHrDecision(action, setDecisionError);
+    } finally {
+      decisionSubmittingRef.current = false;
+      setDecisionSubmitting(null);
+    }
+  };
+  const leaveDecisionButtons = (record: HrLeaveRequest, compact = false) => {
+    const approveAction = `leave:${record.id}:Approved`;
+    const rejectAction = `leave:${record.id}:Rejected`;
+    return <>
+      <Button size={compact ? "small" : undefined} type="primary" loading={decisionSubmitting === approveAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(approveAction, () => onDecideLeave(record.id, "Approved")); }}>Approve / 批准</Button>
+      <Button size={compact ? "small" : undefined} danger loading={decisionSubmitting === rejectAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(rejectAction, () => onDecideLeave(record.id, "Rejected")); }}>Reject / 拒绝</Button>
+    </>;
+  };
+  const businessTripDecisionButtons = (trip: HrBusinessTrip, compact = false) => {
+    const approveAction = `businessTrip:${trip.id}:Approved`;
+    const rejectAction = `businessTrip:${trip.id}:Rejected`;
+    return <>
+      <Button size={compact ? "small" : undefined} type="primary" loading={decisionSubmitting === approveAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(approveAction, () => onDecideBusinessTrip(trip.id, "Approved")); }}>Approve / 批准</Button>
+      <Button size={compact ? "small" : undefined} danger loading={decisionSubmitting === rejectAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(rejectAction, () => onDecideBusinessTrip(trip.id, "Rejected")); }}>Reject / 拒绝</Button>
+    </>;
+  };
 
   const attendanceColumns: ColumnsType<HrAttendanceRecord> = [
     { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
@@ -441,8 +483,7 @@ export function HrSalaryPage({
       width: 220,
       render: (_, record) => record.status === "Pending" ? (
         <Space className="tableActionGroup" wrap size={6}>
-          {isHrManager && <Button type="primary" onClick={() => onDecideLeave(record.id, "Approved")}>Approve / 批准</Button>}
-          {isHrManager && <Button danger onClick={() => onDecideLeave(record.id, "Rejected")}>Reject / 拒绝</Button>}
+          {isHrManager && leaveDecisionButtons(record)}
         </Space>
       ) : record.decisionNotes || "-"
     }
@@ -616,8 +657,7 @@ export function HrSalaryPage({
           <div className="mobileRecordFooter hrMobileActions">
             {trip.isUrgentException && <Tag color="red">Urgent / 紧急</Tag>}
             {trip.status === "Pending" && <>
-              <Button size="small" type="primary" onClick={() => onDecideBusinessTrip(trip.id, "Approved")}>Approve / 批准</Button>
-              <Button size="small" danger onClick={() => onDecideBusinessTrip(trip.id, "Rejected")}>Reject / 拒绝</Button>
+              {businessTripDecisionButtons(trip, true)}
             </>}
             {trip.status !== "Pending" && trip.decisionNotes && <Typography.Text type="secondary">{trip.decisionNotes}</Typography.Text>}
           </div>
@@ -658,8 +698,7 @@ export function HrSalaryPage({
             </Upload>
             {isHrManager && record.status === "Pending" && (
               <>
-                <Button size="small" type="primary" onClick={() => onDecideLeave(record.id, "Approved")}>Approve / 批准</Button>
-                <Button size="small" danger onClick={() => onDecideLeave(record.id, "Rejected")}>Reject / 拒绝</Button>
+                {leaveDecisionButtons(record, true)}
               </>
             )}
           </div>
@@ -756,6 +795,7 @@ export function HrSalaryPage({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
+      {decisionError && <Alert type="error" showIcon closable message="The HR decision was not saved" description={decisionError} onClose={() => setDecisionError(null)} />}
       <Alert
         className="operationalInfoAlert"
         type="info"
@@ -769,7 +809,7 @@ export function HrSalaryPage({
       <ProCard title="Business Trip / Outstation Duty / 出差外勤">
         <Space direction="vertical" size={14} className="fullWidth">
           <Typography.Text type="secondary">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</Typography.Text>
-          <Form form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: today, endDate: today, isUrgentException: false }}>
+          <Form name="hrBusinessTrip" form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: today, endDate: today, isUrgentException: false }}>
             <div className="leaveDetailsGrid">
               {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>}
               <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><Input type="date" /></Form.Item>
@@ -818,7 +858,7 @@ export function HrSalaryPage({
                 { title: "Location / 地点", dataIndex: "location" },
                 { title: "Purpose / 目的", dataIndex: "purpose" },
                 { title: "Status / 状态", dataIndex: "status", render: (status: HrBusinessTripStatus) => <Tag color={businessTripStatusColor(status)}>{businessTripStatusLabel(status)}</Tag> },
-                { title: "Action / 操作", fixed: "right", width: 220, render: (_: unknown, trip: HrBusinessTrip) => trip.status === "Pending" ? <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => onDecideBusinessTrip(trip.id, "Approved")}>Approve / 批准</Button><Button size="small" danger onClick={() => onDecideBusinessTrip(trip.id, "Rejected")}>Reject / 拒绝</Button></Space> : trip.decisionNotes || "-" }
+                { title: "Action / 操作", fixed: "right", width: 220, render: (_: unknown, trip: HrBusinessTrip) => trip.status === "Pending" ? <Space className="tableActionGroup" wrap size={6}>{businessTripDecisionButtons(trip, true)}</Space> : trip.decisionNotes || "-" }
               ]}
             />
           </>}
@@ -893,6 +933,7 @@ export function HrSalaryPage({
                 <Alert type="warning" showIcon message="Attendance is accepted only from an active office CIDR range." description="Configure production office ranges before staff use this check-in method. Raw client IP history is not retained." />
                 <ProCard title="Office network allow-list / 办公室网络白名单">
                   <Form
+                    name="hrAttendanceNetwork"
                     form={attendanceNetworkForm}
                     layout="vertical"
                     className="formGrid"
@@ -926,6 +967,7 @@ export function HrSalaryPage({
                 {isHrManager && (
                   <ProCard title="Attendance correction / 打卡更正" className="hrAttendanceCorrection">
                     <Form
+                      name="hrAttendanceCorrection"
                       form={attendanceCorrectionForm}
                       layout="vertical"
                       className="formGrid"
@@ -1002,6 +1044,7 @@ export function HrSalaryPage({
               <Space direction="vertical" size={16} className="fullWidth">
                 <ProCard title="Submit Leave Request / 提交请假申请" className="leaveRequestCard">
                   <Form
+                    name="hrLeaveRequest"
                     form={leaveForm}
                     layout="vertical"
                     className="leaveRequestForm"
@@ -1111,7 +1154,7 @@ export function HrSalaryPage({
                     </ProCard>
 
                     <ProCard title="Apply Default Balance / 套用默认假期">
-                      <Form layout="vertical" className="formGrid" onFinish={(values) => onUpdateBalance(balanceFromPolicyValues(values, leavePolicies, leaveBalances, visibleStaff))}>
+                      <Form name="hrLeaveBalance" layout="vertical" className="formGrid" onFinish={(values) => onUpdateBalance(balanceFromPolicyValues(values, leavePolicies, leaveBalances, visibleStaff))}>
                         <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>
                         <Form.Item name="role" label="Use Role Policy / 使用角色政策" rules={[{ required: true }]}><Select options={staffRoleValues.map((role) => ({ value: role, label: roleLabel(role) }))} /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Apply Default / 套用默认</Button></Form.Item>
@@ -1119,7 +1162,7 @@ export function HrSalaryPage({
                     </ProCard>
 
                     <ProCard title="Leave Adjustment / 假期调整">
-                      <Form layout="vertical" className="formGrid" onFinish={(values) => onCreateAdjustment(adjustmentFromValues(values))} initialValues={{ type: "AnnualLeave", direction: "Increase", days: 0.5 }}>
+                      <Form name="hrLeaveAdjustment" layout="vertical" className="formGrid" onFinish={(values) => onCreateAdjustment(adjustmentFromValues(values))} initialValues={{ type: "AnnualLeave", direction: "Increase", days: 0.5 }}>
                         <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>
                         <Form.Item name="type" label="Leave Type / 假期类型" rules={[{ required: true }]}><Select options={adjustmentTypes} /></Form.Item>
                         <Form.Item name="direction" label="Action / 操作" rules={[{ required: true }]}><Select options={adjustmentDirections} /></Form.Item>
@@ -1161,7 +1204,7 @@ export function HrSalaryPage({
                 {isHrManager && (
                   <>
                     <ProCard title="Payroll Profile / 薪资资料">
-                      <Form form={payrollProfileForm} layout="vertical" className="formGrid" onFinish={(values) => onUpdatePayrollProfile(profileFromValues(values))} initialValues={{ employmentType: "Monthly", monthlyBaseSalary: 0, hourlyRate: 0, overtimeHours: 0, overtimeRate: 0, allowances: 0, manualDeductions: 0 }}>
+                      <Form name="hrPayrollProfile" form={payrollProfileForm} layout="vertical" className="formGrid" onFinish={(values) => onUpdatePayrollProfile(profileFromValues(values))} initialValues={{ employmentType: "Monthly", monthlyBaseSalary: 0, hourlyRate: 0, overtimeHours: 0, overtimeRate: 0, allowances: 0, manualDeductions: 0 }}>
                         <Form.Item name="id" hidden><Input /></Form.Item>
                         <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>
                         <Form.Item name="employmentType" label="Employment type / 雇用类型" rules={[{ required: true }]}><Select options={[{ value: "Monthly", label: "Monthly / 月薪" }, { value: "Hourly", label: "Hourly / 时薪" }]} /></Form.Item>
@@ -1176,7 +1219,7 @@ export function HrSalaryPage({
                       <OperationsProTable className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
                     </ProCard>
                     <ProCard title="Working Day Pay Period / 薪资月份">
-                      <Form form={payPeriodForm} layout="vertical" className="formGrid" onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={payPeriodDefaults(dayjs(today))}>
+                      <Form name="hrPayPeriod" form={payPeriodForm} layout="vertical" className="formGrid" onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={payPeriodDefaults(dayjs(today))}>
                         <Form.Item name="payPeriod" label="Pay Period / 薪资月份" rules={[{ required: true }]}><DatePicker picker="month" className="fullWidth" format="MMMM YYYY" onChange={(value) => value && payPeriodForm.setFieldsValue(payPeriodDefaults(value))} /></Form.Item>
                         <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" disabled /></Form.Item>
                         <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" disabled /></Form.Item>

@@ -218,6 +218,22 @@ public static class SeedData
         await EnsureFinanceV2SchemaAsync(db);
     }
 
+    public static async Task EnsureFinanceRepairEnhancementSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureFinanceRepairEnhancementSchemaAsync(db);
+    }
+
+    public static async Task EnsureRepairReceiptSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureRepairReceiptSchemaAsync(db);
+    }
+
     public static async Task EnsureOwnerPurchaseInvoiceSchemaAsync(WebApplication app)
     {
         using var scope = app.Services.CreateScope();
@@ -708,6 +724,9 @@ public static class SeedData
             ALTER TABLE "SupplierInvoices" ADD COLUMN IF NOT EXISTS "CreatedAt" timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
             ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "Direction" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "PurchasePriceSnapshot" numeric NULL;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "BankDebtAmount" numeric NULL;
 
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsuranceExpiryDate" date NULL;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxExpiryDate" date NULL;

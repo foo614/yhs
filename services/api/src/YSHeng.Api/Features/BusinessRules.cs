@@ -49,7 +49,26 @@ public sealed record VehicleCatalogModelRequest(string Make, string Model, bool 
 public sealed record RepairApprovalRequest(string? Notes);
 public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId, decimal SellingPrice, decimal AdditionalCharges);
 public sealed record SettlementDraftResponse(Guid VehicleId, Guid? OwnerId, decimal PurchasePrice);
-public sealed record VehicleIntakeRequest(Vehicle Vehicle, SettlementReminder? Settlement, Owner? NewOwner = null);
+public sealed record VehicleIntakeSettlementRequest(decimal BankDebtAmount, decimal? ExpectedPurchasePrice = null, DateOnly? Deadline = null);
+public sealed record SettlementCreateRequest(Guid VehicleId, decimal BankDebtAmount, decimal? ExpectedPurchasePrice = null, DateOnly? Deadline = null);
+public sealed record SettlementUpdateRequest(
+    decimal? BankDebtAmount,
+    DateOnly? Deadline,
+    decimal ExpectedAmount,
+    SettlementDirection ExpectedDirection,
+    decimal? ExpectedBankDebtAmount,
+    DateOnly ExpectedDeadline,
+    bool ExpectedIsPaid,
+    Guid? Id = null);
+public sealed record SettlementStatusUpdateRequest(
+    bool IsPaid,
+    decimal ExpectedAmount,
+    SettlementDirection ExpectedDirection,
+    decimal? ExpectedBankDebtAmount,
+    DateOnly ExpectedDeadline,
+    bool ExpectedIsPaid,
+    Guid? Id = null);
+public sealed record VehicleIntakeRequest(Vehicle Vehicle, VehicleIntakeSettlementRequest? Settlement, Owner? NewOwner = null);
 public sealed record VehicleIntakeResponse(Vehicle Vehicle, SettlementReminder? Settlement, Owner? CreatedOwner = null);
 public sealed record OwnerIdentityCardPreviewResponse(OcrExtractionResult Result, Owner? ExistingOwner);
 public sealed record DashboardSummary(
@@ -486,6 +505,102 @@ public static class FinanceSettlementDraft
 {
     public static SettlementDraftResponse ToResponse(Vehicle vehicle) =>
         new(vehicle.Id, vehicle.OwnerId, vehicle.PurchasePrice);
+}
+
+public static class SettlementRules
+{
+    public static ValidationResult ValidateCreate(Vehicle vehicle, decimal bankDebtAmount, decimal? expectedPurchasePrice)
+    {
+        var errors = new List<ValidationError>();
+        if (!vehicle.OwnerId.HasValue)
+        {
+            errors.Add(new ValidationError("settlement_owner_required", "Select the previous owner before preparing a seller settlement."));
+        }
+
+        if (vehicle.PurchasePrice <= 0)
+        {
+            errors.Add(new ValidationError("settlement_purchase_price_required", "Set a positive purchase price before preparing a seller settlement."));
+        }
+
+        if (bankDebtAmount < 0)
+        {
+            errors.Add(new ValidationError("settlement_bank_debt_invalid", "Bank debt cannot be negative."));
+        }
+
+        if (expectedPurchasePrice.HasValue && expectedPurchasePrice.Value != vehicle.PurchasePrice)
+        {
+            errors.Add(new ValidationError("settlement_purchase_price_changed", "The purchase price changed. Review the settlement again before saving."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static SettlementReminder Create(Vehicle vehicle, decimal bankDebtAmount, DateOnly deadline)
+    {
+        var difference = vehicle.PurchasePrice - bankDebtAmount;
+        var direction = difference switch
+        {
+            > 0 => SettlementDirection.PaySeller,
+            < 0 => SettlementDirection.CollectFromSeller,
+            _ => SettlementDirection.InternalOffset
+        };
+
+        return new SettlementReminder
+        {
+            VehicleId = vehicle.Id,
+            OwnerId = vehicle.OwnerId,
+            Direction = direction,
+            PurchasePriceSnapshot = vehicle.PurchasePrice,
+            BankDebtAmount = bankDebtAmount,
+            Amount = decimal.Abs(difference),
+            Deadline = deadline,
+            IsPaid = false
+        };
+    }
+
+    public static bool IsLegacy(SettlementReminder reminder) => reminder.Direction == SettlementDirection.LegacyPaySeller;
+
+    public static bool RequiresReminder(SettlementReminder reminder) =>
+        reminder.Direction != SettlementDirection.InternalOffset;
+
+    public static bool IsPayable(SettlementReminder reminder) =>
+        reminder.Direction is SettlementDirection.LegacyPaySeller or SettlementDirection.PaySeller;
+
+    public static decimal SignedAmount(SettlementReminder reminder) => reminder.Direction switch
+    {
+        SettlementDirection.CollectFromSeller => -reminder.Amount,
+        SettlementDirection.InternalOffset => 0m,
+        _ => reminder.Amount
+    };
+
+    public static SettlementReminder Complete(SettlementReminder reminder) => reminder with { IsPaid = true };
+
+    public static bool MatchesExpectedSnapshot(
+        SettlementReminder existing,
+        decimal expectedAmount,
+        SettlementDirection expectedDirection,
+        decimal? expectedBankDebtAmount,
+        DateOnly expectedDeadline,
+        bool expectedIsPaid) =>
+        existing.Amount == expectedAmount &&
+        existing.Direction == expectedDirection &&
+        existing.BankDebtAmount == expectedBankDebtAmount &&
+        existing.Deadline == expectedDeadline &&
+        existing.IsPaid == expectedIsPaid;
+
+    public static bool CanUpdateClosedWithoutRecalculation(SettlementReminder existing, decimal? bankDebtAmount, DateOnly? deadline)
+    {
+        if (!existing.IsPaid || (deadline.HasValue && deadline.Value != existing.Deadline)) return false;
+        if (IsLegacy(existing)) return !bankDebtAmount.HasValue;
+        return !bankDebtAmount.HasValue || (existing.BankDebtAmount.HasValue && bankDebtAmount.Value == existing.BankDebtAmount.Value);
+    }
+
+    public static string UpdateAuditAction(SettlementReminder existing, SettlementReminder updated) =>
+        existing.IsPaid && !updated.IsPaid
+            ? "settlementReminder.reopened"
+            : existing.Direction == SettlementDirection.InternalOffset && !existing.IsPaid && updated.Direction == SettlementDirection.InternalOffset && updated.IsPaid
+                ? "settlementReminder.internalOffsetCompleted"
+                : "settlementReminder.updated";
 }
 
 public static class VehicleIntakeSettlementRules
@@ -1877,7 +1992,7 @@ public static class ReminderRules
         loan.SubmittedAt.Value.AddDays(3) <= today;
 
     public static bool IsSettlementDue(SettlementReminder reminder, DateOnly today) =>
-        !reminder.IsPaid && reminder.Deadline <= today;
+        !reminder.IsPaid && SettlementRules.RequiresReminder(reminder) && reminder.Deadline <= today;
 
     public static bool IsDailySpendDue(DailySpend spend, DateOnly today) =>
         !spend.IsPaid && spend.DueDate <= today;
@@ -1957,9 +2072,10 @@ public static class ReminderInbox
 
         foreach (var settlement in settlements.Where(settlement => ReminderRules.IsSettlementDue(settlement, today)))
         {
+            var isCollection = settlement.Direction == SettlementDirection.CollectFromSeller;
             reminders.Add(new ReminderItem(
-                "SettlementDue",
-                "Settlement deadline due",
+                isCollection ? "SettlementCollectionDue" : "SettlementDue",
+                isCollection ? "Seller collection deadline due" : "Settlement deadline due",
                 PlateFor(vehicleById, settlement.VehicleId),
                 settlement.VehicleId,
                 settlement.Deadline,
@@ -2208,9 +2324,44 @@ public static class FinanceRules
     public static ValidationResult ValidateSettlement(SettlementReminder settlement, IEnumerable<Owner> owners)
     {
         var errors = new List<ValidationError>();
-        if (settlement.Amount <= 0)
+        if (SettlementRules.IsLegacy(settlement))
         {
-            errors.Add(new ValidationError("invalid_settlement_amount", "Settlement amount must be greater than zero."));
+            if (settlement.Amount <= 0)
+            {
+                errors.Add(new ValidationError("invalid_settlement_amount", "Settlement amount must be greater than zero."));
+            }
+
+            if (settlement.Deadline == default)
+            {
+                errors.Add(new ValidationError("settlement_deadline_required", "Settlement deadline is required."));
+            }
+
+            if (settlement.OwnerId is { } legacyOwnerId && !owners.Any(owner => owner.Id == legacyOwnerId))
+            {
+                errors.Add(new ValidationError("unknown_settlement_owner", "Settlement owner must reference an existing previous owner."));
+            }
+
+            return new ValidationResult(errors);
+        }
+
+        if (!Enum.IsDefined(typeof(SettlementDirection), settlement.Direction))
+        {
+            errors.Add(new ValidationError("settlement_direction_invalid", "Settlement direction is invalid."));
+        }
+
+        if (!settlement.OwnerId.HasValue)
+        {
+            errors.Add(new ValidationError("settlement_owner_required", "Seller settlements must reference the selected previous owner."));
+        }
+
+        if (settlement.PurchasePriceSnapshot is null || settlement.PurchasePriceSnapshot.Value < 0)
+        {
+            errors.Add(new ValidationError("settlement_purchase_price_snapshot_required", "Settlement must retain a non-negative purchase price snapshot."));
+        }
+
+        if (settlement.BankDebtAmount is null || settlement.BankDebtAmount.Value < 0)
+        {
+            errors.Add(new ValidationError("settlement_bank_debt_snapshot_required", "Settlement must retain a non-negative bank debt snapshot."));
         }
 
         if (settlement.Deadline == default)
@@ -2221,6 +2372,18 @@ public static class FinanceRules
         if (settlement.OwnerId is { } ownerId && !owners.Any(owner => owner.Id == ownerId))
         {
             errors.Add(new ValidationError("unknown_settlement_owner", "Settlement owner must reference an existing previous owner."));
+        }
+
+        if (settlement.PurchasePriceSnapshot is { } purchasePrice && settlement.BankDebtAmount is { } bankDebt)
+        {
+            var calculated = SettlementRules.Create(
+                new Vehicle { Id = settlement.VehicleId, OwnerId = settlement.OwnerId, PurchasePrice = purchasePrice },
+                bankDebt,
+                settlement.Deadline);
+            if (settlement.Direction != calculated.Direction || settlement.Amount != calculated.Amount)
+            {
+                errors.Add(new ValidationError("settlement_calculation_mismatch", "Settlement amount and direction must match the saved purchase price and bank debt."));
+            }
         }
 
         return new ValidationResult(errors);
@@ -2419,7 +2582,7 @@ public static class PriorityActionQueue
 
         if (isBoss || roleSet.Contains("Loan")) AddReminders(reminders.Where(item => item.Type == "LoanFollowUp"), "Loans");
         if (isBoss || roleSet.Contains("Delivery")) AddReminders(reminders.Where(item => item.Type == "DeliveryPreparation"), "Delivery");
-        if (isBoss || roleSet.Contains("Finance")) AddReminders(reminders.Where(item => item.Type is "SettlementDue" or "PaymentBankFollowUp" or "PaymentStatusFollowUp" or "DailySpendDue" or "DebtRecoveryFollowUp" or "PaymentVoucherFollowUp"), "Finance");
+        if (isBoss || roleSet.Contains("Finance")) AddReminders(reminders.Where(item => item.Type is "SettlementDue" or "SettlementCollectionDue" or "PaymentBankFollowUp" or "PaymentStatusFollowUp" or "DailySpendDue" or "DebtRecoveryFollowUp" or "PaymentVoucherFollowUp"), "Finance");
         if (isBoss || roleSet.Contains("Finance"))
         {
             items.AddRange(deliveries
@@ -2893,6 +3056,89 @@ public static class RepairReceiptRules
 
         return new ValidationResult([]);
     }
+
+    public static bool MatchesSavedReceipt(
+        RepairReceipt saved,
+        IReadOnlyList<RepairReceiptItem> savedItems,
+        ConfirmRepairReceiptRequest retry)
+    {
+        if (saved.DocumentId != retry.DocumentId ||
+            !TextMatches(saved.SupplierName, retry.SupplierName) ||
+            !TextMatches(saved.InvoiceNumber, retry.InvoiceNumber) ||
+            saved.TotalAmount != retry.TotalAmount ||
+            retry.Items is null ||
+            savedItems.Count != retry.Items.Count)
+        {
+            return false;
+        }
+
+        var orderedSaved = savedItems
+            .OrderBy(item => item.SortOrder)
+            .ThenBy(item => Normalize(item.Description), StringComparer.Ordinal)
+            .ThenBy(item => Normalize(item.RepairPart), StringComparer.Ordinal)
+            .ToList();
+        var orderedRetry = retry.Items
+            .OrderBy(item => item.SortOrder)
+            .ThenBy(item => Normalize(item.Description), StringComparer.Ordinal)
+            .ThenBy(item => Normalize(item.RepairPart), StringComparer.Ordinal)
+            .ToList();
+
+        return orderedSaved.Zip(orderedRetry).All(pair =>
+            TextMatches(pair.First.Description, pair.Second.Description) &&
+            TextMatches(pair.First.RepairPart, pair.Second.RepairPart) &&
+            TextMatches(pair.First.Quantity, pair.Second.Quantity) &&
+            TextMatches(pair.First.Unit, pair.Second.Unit) &&
+            pair.First.UnitPrice == pair.Second.UnitPrice &&
+            pair.First.Amount == pair.Second.Amount &&
+            pair.First.SortOrder == pair.Second.SortOrder);
+    }
+
+    public static bool MatchesSavedCreate(
+        RepairJob savedRepair,
+        SupplierInvoice savedInvoice,
+        RepairReceipt savedReceipt,
+        IReadOnlyList<RepairReceiptItem> savedItems,
+        CreateRepairWithReceiptRequest retry)
+    {
+        var retryRepair = RepairApprovalRules.PrepareForCreate(retry.Repair);
+        return savedReceipt.RepairJobId == savedRepair.Id &&
+            RepairMatches(savedRepair, retryRepair) &&
+            InvoiceMatches(savedInvoice, retry.Invoice) &&
+            MatchesSavedReceipt(savedReceipt, savedItems, retry.Receipt);
+    }
+
+    private static bool RepairMatches(RepairJob saved, RepairJob retry) =>
+        saved.VehicleId == retry.VehicleId &&
+        TextMatches(saved.RepairPart, retry.RepairPart) &&
+        TextMatches(saved.WhatToDo, retry.WhatToDo) &&
+        saved.Cost == retry.Cost &&
+        saved.ChecklistDone == retry.ChecklistDone &&
+        TextMatches(saved.AssignedTo, retry.AssignedTo) &&
+        saved.StartedOn == retry.StartedOn &&
+        saved.ExpectedCompletionDate == retry.ExpectedCompletionDate &&
+        saved.ApprovalStatus == retry.ApprovalStatus &&
+        TextMatches(saved.ApprovalNotes, retry.ApprovalNotes) &&
+        TextMatches(saved.ApprovedBy, retry.ApprovedBy) &&
+        saved.ApprovedAt == retry.ApprovedAt;
+
+    private static bool InvoiceMatches(SupplierInvoice saved, SupplierInvoice retry) =>
+        saved.VehicleId == retry.VehicleId &&
+        saved.SupplierId == retry.SupplierId &&
+        TextMatches(saved.SupplierName, retry.SupplierName) &&
+        TextMatches(saved.InvoiceNumber, retry.InvoiceNumber) &&
+        TextMatches(saved.PlateNumberOnInvoice, retry.PlateNumberOnInvoice) &&
+        saved.InvoiceDate == retry.InvoiceDate &&
+        saved.Amount == retry.Amount &&
+        saved.DueDate == retry.DueDate &&
+        saved.PaidAt == retry.PaidAt;
+
+    private static bool TextMatches(string? left, string? right) =>
+        string.Equals(Normalize(left), Normalize(right), StringComparison.OrdinalIgnoreCase);
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? null
+            : string.Join(" ", value.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }
 
 public static class RepairApprovalRules
@@ -3017,6 +3263,9 @@ public static class SupplierRules
 {
     public static bool CanApprove(string createdBy, string actor, bool isBossAdmin) =>
         isBossAdmin || !string.Equals(createdBy, actor, StringComparison.Ordinal);
+
+    public static bool IsUsableForOperations(Supplier supplier) =>
+        supplier.ApprovalStatus is SupplierApprovalStatus.Active or SupplierApprovalStatus.Approved;
 
     public static ValidationResult Validate(Supplier incoming, IEnumerable<Supplier> existing)
     {
@@ -3455,6 +3704,74 @@ public static class OcrReviewAccuracy
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
+public static class OcrReviewRetryRules
+{
+    public static bool MatchesSavedReview(string? savedResultJson, string? savedNotes, OcrReviewedResult? retryResult, string? retryNotes)
+    {
+        if (retryResult is null || !TextMatches(savedNotes, retryNotes) || string.IsNullOrWhiteSpace(savedResultJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            var savedResult = JsonSerializer.Deserialize<OcrReviewedResult>(savedResultJson);
+            return savedResult is not null && FieldsMatch(savedResult.Fields, retryResult.Fields) && LinesMatch(savedResult.LineItems, retryResult.LineItems);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool FieldsMatch(IReadOnlyDictionary<string, string?>? left, IReadOnlyDictionary<string, string?>? right)
+    {
+        if (left is null || right is null) return false;
+
+        var canonicalLeft = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in left)
+        {
+            if (!canonicalLeft.TryAdd(Normalize(field.Key), Normalize(field.Value))) return false;
+        }
+        var canonicalRight = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in right)
+        {
+            if (!canonicalRight.TryAdd(Normalize(field.Key), Normalize(field.Value))) return false;
+        }
+
+        if (canonicalLeft.Count != canonicalRight.Count) return false;
+
+        foreach (var field in canonicalLeft)
+        {
+            if (!canonicalRight.TryGetValue(field.Key, out var retryValue) || !TextMatches(field.Value, retryValue)) return false;
+        }
+
+        return true;
+    }
+
+    private static bool LinesMatch(IReadOnlyList<OcrLineItem>? left, IReadOnlyList<OcrLineItem>? right)
+    {
+        var savedLines = left ?? [];
+        var retryLines = right ?? [];
+        if (savedLines.Count != retryLines.Count) return false;
+
+        return savedLines.Zip(retryLines).All(pair =>
+            TextMatches(pair.First.Description, pair.Second.Description) &&
+            TextMatches(pair.First.Quantity, pair.Second.Quantity) &&
+            TextMatches(pair.First.UnitPrice, pair.Second.UnitPrice) &&
+            TextMatches(pair.First.Amount, pair.Second.Amount) &&
+            pair.First.Confidence == pair.Second.Confidence &&
+            TextMatches(pair.First.RawText, pair.Second.RawText) &&
+            TextMatches(pair.First.Unit, pair.Second.Unit));
+    }
+
+    private static bool TextMatches(string? left, string? right) =>
+        string.Equals(Normalize(left), Normalize(right), StringComparison.OrdinalIgnoreCase);
+
+    private static string Normalize(string? value) =>
+        string.Join(" ", (value ?? "").Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+}
+
 public static class AiDocumentProcessingMetrics
 {
     private const decimal CheckCarefullyConfidenceThreshold = 0.75m;
@@ -3717,7 +4034,9 @@ public static class DashboardMetrics
             ? FinanceV2Rules.Balance(payment, collectionsByPayment.GetValueOrDefault(payment.Id) ?? [])
             : payment.Status != PaymentStatus.Reconciled ? payment.NettPrice : 0m);
         var openDebtRecovery = debtRecoveryList.Where(debt => debt.Status != DebtRecoveryStatus.Closed).Sum(debt => debt.BalanceAmount);
-        var dueSettlements = settlementList.Where(settlement => ReminderRules.IsSettlementDue(settlement, today)).ToArray();
+        var dueSettlements = settlementList
+            .Where(settlement => ReminderRules.IsSettlementDue(settlement, today) && SettlementRules.IsPayable(settlement))
+            .ToArray();
         var settlementDue = dueSettlements.Length;
         var settlementDueAmount = dueSettlements.Sum(settlement => settlement.Amount);
         var reminderItems = ReminderInbox.Create(
@@ -3739,7 +4058,7 @@ public static class DashboardMetrics
         var moneyRiskBreakdown = new[]
         {
             new DashboardAmountSlice("Outstanding Payment", outstandingPayment),
-            new DashboardAmountSlice("Unpaid Settlement", settlementList.Where(settlement => !settlement.IsPaid).Sum(settlement => settlement.Amount)),
+            new DashboardAmountSlice("Unpaid Settlement", settlementList.Where(settlement => !settlement.IsPaid && SettlementRules.IsPayable(settlement)).Sum(settlement => settlement.Amount)),
             new DashboardAmountSlice("Open Debt Recovery", openDebtRecovery),
             new DashboardAmountSlice("Unpaid Daily Spend", dailySpendList.Where(spend => !spend.IsPaid).Sum(spend => spend.Amount)),
             new DashboardAmountSlice("Open Payment Voucher", paymentVoucherList.Where(voucher => voucher.Status != PaymentVoucherStatus.Paid).Sum(voucher => voucher.Amount))

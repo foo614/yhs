@@ -1927,6 +1927,117 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Settlement_calculation_derives_pay_collect_and_internal_offset_from_canonical_purchase_price()
+    {
+        var ownerId = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = ownerId, PurchasePrice = 50_000m };
+        var deadline = new DateOnly(2026, 9, 7);
+
+        var paySeller = SettlementRules.Create(vehicle, 20_000m, deadline);
+        var collectSeller = SettlementRules.Create(vehicle, 60_000m, deadline);
+        var internalOffset = SettlementRules.Create(vehicle, 50_000m, deadline);
+
+        Assert.Equal(SettlementDirection.PaySeller, paySeller.Direction);
+        Assert.Equal(30_000m, paySeller.Amount);
+        Assert.Equal(SettlementDirection.CollectFromSeller, collectSeller.Direction);
+        Assert.Equal(10_000m, collectSeller.Amount);
+        Assert.Equal(SettlementDirection.InternalOffset, internalOffset.Direction);
+        Assert.Equal(0m, internalOffset.Amount);
+        Assert.Equal(50_000m, internalOffset.PurchasePriceSnapshot);
+        Assert.Equal(50_000m, internalOffset.BankDebtAmount);
+        Assert.False(internalOffset.IsPaid);
+        Assert.True(FinanceRules.ValidateSettlement(internalOffset, [new Owner { Id = ownerId, Name = "Owner", Phone = "0123456789" }]).IsValid);
+    }
+
+    [Fact]
+    public void Settlement_creation_rejects_a_missing_purchase_price_changed_preview_or_negative_bank_debt()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = Guid.NewGuid(), PurchasePrice = 50_000m };
+
+        var missingPurchasePrice = SettlementRules.ValidateCreate(vehicle with { PurchasePrice = 0m }, 0m, 0m);
+        var stalePreview = SettlementRules.ValidateCreate(vehicle, 20_000m, 49_999m);
+        var negativeDebt = SettlementRules.ValidateCreate(vehicle, -1m, 50_000m);
+
+        Assert.Contains(missingPurchasePrice.Errors, error => error.Code == "settlement_purchase_price_required");
+        Assert.Contains(stalePreview.Errors, error => error.Code == "settlement_purchase_price_changed");
+        Assert.Contains(negativeDebt.Errors, error => error.Code == "settlement_bank_debt_invalid");
+    }
+
+    [Fact]
+    public void Internal_offset_never_creates_a_reminder_but_requires_explicit_completion()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = Guid.NewGuid(), PurchasePrice = 50_000m };
+        var offset = SettlementRules.Create(vehicle, 50_000m, new DateOnly(2026, 9, 7));
+
+        Assert.False(ReminderRules.IsSettlementDue(offset, new DateOnly(2026, 9, 7)));
+        Assert.Equal(0m, SettlementRules.SignedAmount(offset));
+        Assert.False(offset.IsPaid);
+        Assert.True(SettlementRules.Complete(offset).IsPaid);
+    }
+
+    [Fact]
+    public void Completed_settlement_can_only_reopen_with_unchanged_server_owned_calculation_and_deadline()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = Guid.NewGuid(), PurchasePrice = 50_000m };
+        var closed = SettlementRules.Complete(SettlementRules.Create(vehicle, 20_000m, new DateOnly(2026, 9, 7)));
+        var reopened = closed with { IsPaid = false };
+
+        Assert.True(SettlementRules.CanUpdateClosedWithoutRecalculation(closed, null, null));
+        Assert.True(SettlementRules.CanUpdateClosedWithoutRecalculation(closed, 20_000m, closed.Deadline));
+        Assert.False(SettlementRules.CanUpdateClosedWithoutRecalculation(closed, 20_001m, closed.Deadline));
+        Assert.False(SettlementRules.CanUpdateClosedWithoutRecalculation(closed, 20_000m, closed.Deadline.AddDays(1)));
+        Assert.Equal("settlementReminder.reopened", SettlementRules.UpdateAuditAction(closed, reopened));
+
+        var offset = SettlementRules.Create(vehicle, 50_000m, new DateOnly(2026, 9, 7));
+        Assert.Equal("settlementReminder.internalOffsetCompleted", SettlementRules.UpdateAuditAction(offset, SettlementRules.Complete(offset)));
+    }
+
+    [Fact]
+    public void Settlement_status_transition_requires_the_complete_current_snapshot()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = Guid.NewGuid(), PurchasePrice = 50_000m };
+        var current = SettlementRules.Create(vehicle, 20_000m, new DateOnly(2026, 9, 7));
+
+        Assert.True(SettlementRules.MatchesExpectedSnapshot(
+            current,
+            expectedAmount: 30_000m,
+            expectedDirection: SettlementDirection.PaySeller,
+            expectedBankDebtAmount: 20_000m,
+            expectedDeadline: new DateOnly(2026, 9, 7),
+            expectedIsPaid: false));
+        Assert.False(SettlementRules.MatchesExpectedSnapshot(
+            current with { BankDebtAmount = 19_000m, Amount = 31_000m },
+            expectedAmount: 30_000m,
+            expectedDirection: SettlementDirection.PaySeller,
+            expectedBankDebtAmount: 20_000m,
+            expectedDeadline: new DateOnly(2026, 9, 7),
+            expectedIsPaid: false));
+        Assert.False(SettlementRules.MatchesExpectedSnapshot(
+            current with { IsPaid = true },
+            expectedAmount: 30_000m,
+            expectedDirection: SettlementDirection.PaySeller,
+            expectedBankDebtAmount: 20_000m,
+            expectedDeadline: new DateOnly(2026, 9, 7),
+            expectedIsPaid: false));
+    }
+
+    [Fact]
+    public void Calculated_nonzero_settlement_requires_a_deadline_and_collection_uses_a_distinct_reminder()
+    {
+        var ownerId = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = ownerId, PurchasePrice = 50_000m };
+        var collection = SettlementRules.Create(vehicle, 60_000m, default);
+        var owner = new Owner { Id = ownerId, Name = "Owner", Phone = "0123456789" };
+
+        var validation = FinanceRules.ValidateSettlement(collection, [owner]);
+
+        Assert.Contains(validation.Errors, error => error.Code == "settlement_deadline_required");
+        Assert.True(ReminderRules.IsSettlementDue(collection with { Deadline = new DateOnly(2026, 9, 7) }, new DateOnly(2026, 9, 7)));
+        var reminders = ReminderInbox.Create([], [], [collection with { Deadline = new DateOnly(2026, 9, 7) }], [], [], [], [], [vehicle], new DateOnly(2026, 9, 7));
+        Assert.Contains(reminders, reminder => reminder.Type == "SettlementCollectionDue" && reminder.Title == "Seller collection deadline due");
+    }
+
+    [Fact]
     public void Vehicle_intake_settlement_must_match_the_new_vehicle_and_previous_owner_and_remain_unpaid()
     {
         var ownerId = Guid.NewGuid();
@@ -2058,6 +2169,26 @@ public sealed class BusinessRulesTests
         Assert.Contains(actions, action => action.Type == "LoanFollowUp" && action.Target == "Loans");
         Assert.Contains(actions, action => action.Type == "LeaveApproval" && action.Target == "HrSalary");
         Assert.DoesNotContain(actions, action => action.Target is "Delivery" or "Finance" or "Leads" or "Repairs");
+    }
+
+    [Fact]
+    public void Finance_priority_actions_include_seller_collection_reminders()
+    {
+        var today = new DateOnly(2026, 9, 7);
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), PlateNumber = "COLLECT1" };
+        var collection = new SettlementReminder
+        {
+            VehicleId = vehicle.Id,
+            Direction = SettlementDirection.CollectFromSeller,
+            PurchasePriceSnapshot = 50_000m,
+            BankDebtAmount = 60_000m,
+            Amount = 10_000m,
+            Deadline = today
+        };
+
+        var actions = PriorityActionQueue.Create(["Finance"], [], [], [collection], [], [], [], [], [], [], [], [vehicle], today);
+
+        Assert.Contains(actions, action => action.Type == "SettlementCollectionDue" && action.Target == "Finance" && action.Amount == 10_000m);
     }
 
     [Fact]
@@ -2763,7 +2894,7 @@ public sealed class BusinessRulesTests
             [new PaymentRecord { VehicleId = soldInsidePeriodId, NettPrice = 15000m, Status = PaymentStatus.Pending }],
             [
                 new SettlementReminder { VehicleId = soldInsidePeriodId, Amount = 2000m, Deadline = today, IsPaid = false },
-                new SettlementReminder { VehicleId = soldOutsidePeriodId, Amount = 900m, Deadline = today.AddDays(1), IsPaid = false }
+                new SettlementReminder { VehicleId = soldOutsidePeriodId, Direction = SettlementDirection.CollectFromSeller, PurchasePriceSnapshot = 20_000m, BankDebtAmount = 20_900m, Amount = 900m, Deadline = today, IsPaid = false }
             ],
             [
                 new RepairJob { VehicleId = soldInsidePeriodId, WhatToDo = "Paint", Cost = 1000m, ChecklistDone = false, ExpectedCompletionDate = today.AddDays(-1), CreatedAt = new DateTime(2026, 6, 1, 2, 0, 0, DateTimeKind.Utc) },
@@ -2914,6 +3045,167 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Repair_receipt_retry_requires_the_same_saved_document_and_normalized_items()
+    {
+        var receipt = new RepairReceipt
+        {
+            RepairJobId = Guid.NewGuid(),
+            DocumentId = Guid.NewGuid(),
+            SupplierName = "Workshop",
+            InvoiceNumber = "INV-100",
+            TotalAmount = 125m
+        };
+        var items = new[]
+        {
+            new RepairReceiptItem
+            {
+                RepairReceiptId = receipt.Id,
+                Description = "Replace wiper",
+                RepairPart = "Wiper",
+                Quantity = "1",
+                Unit = "pc",
+                UnitPrice = 125m,
+                Amount = 125m,
+                SortOrder = 1
+            }
+        };
+        var equivalent = new ConfirmRepairReceiptRequest(
+            receipt.DocumentId,
+            " Workshop ",
+            " INV-100 ",
+            125m,
+            [new ConfirmRepairReceiptItemRequest(" Replace wiper ", " Wiper ", 125m, 1, " 1 ", " pc ", 125m)]);
+
+        Assert.True(RepairReceiptRules.MatchesSavedReceipt(receipt, items, equivalent));
+        Assert.False(RepairReceiptRules.MatchesSavedReceipt(receipt, items, equivalent with { TotalAmount = 126m }));
+        Assert.False(RepairReceiptRules.MatchesSavedReceipt(receipt, items, equivalent with
+        {
+            Items = [new ConfirmRepairReceiptItemRequest("Replace wiper", "Wiper", 126m, 1, "1", "pc", 125m)]
+        }));
+    }
+
+    [Fact]
+    public void Repair_receipt_create_retry_requires_the_same_saved_repair_invoice_receipt_and_items()
+    {
+        var vehicleId = Guid.NewGuid();
+        var repair = new RepairJob
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = vehicleId,
+            RepairPart = "Wiper",
+            WhatToDo = "Replace worn wiper",
+            Cost = 125m,
+            ChecklistDone = false,
+            AssignedTo = "Workshop A",
+            StartedOn = new DateOnly(2026, 9, 7),
+            ExpectedCompletionDate = new DateOnly(2026, 9, 8),
+            ApprovalStatus = RepairApprovalStatus.Pending
+        };
+        var invoice = new SupplierInvoice
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = vehicleId,
+            SupplierId = Guid.NewGuid(),
+            SupplierName = "Workshop A",
+            InvoiceNumber = "INV-100",
+            PlateNumberOnInvoice = "VAA 100",
+            InvoiceDate = new DateOnly(2026, 9, 7),
+            Amount = 125m,
+            DueDate = new DateOnly(2026, 9, 14)
+        };
+        var receipt = new RepairReceipt
+        {
+            RepairJobId = repair.Id,
+            DocumentId = Guid.NewGuid(),
+            SupplierName = "Workshop A",
+            InvoiceNumber = "INV-100",
+            TotalAmount = 125m
+        };
+        var items = new[]
+        {
+            new RepairReceiptItem
+            {
+                RepairReceiptId = receipt.Id,
+                Description = "Replace wiper",
+                RepairPart = "Wiper",
+                Quantity = "1",
+                Unit = "pc",
+                UnitPrice = 125m,
+                Amount = 125m,
+                SortOrder = 1
+            }
+        };
+        var retry = new CreateRepairWithReceiptRequest(
+            repair with { Id = Guid.NewGuid(), RepairPart = " Wiper " },
+            invoice with { Id = Guid.NewGuid(), SupplierName = " Workshop A ", InvoiceNumber = " INV-100 " },
+            new ConfirmRepairReceiptRequest(
+                receipt.DocumentId,
+                " Workshop A ",
+                " INV-100 ",
+                125m,
+                [new ConfirmRepairReceiptItemRequest(" Replace wiper ", " Wiper ", 125m, 1, " 1 ", " pc ", 125m)]));
+
+        Assert.True(RepairReceiptRules.MatchesSavedCreate(repair, invoice, receipt, items, retry));
+        Assert.False(RepairReceiptRules.MatchesSavedCreate(repair, invoice, receipt, items, retry with
+        {
+            Repair = retry.Repair with { Cost = 126m }
+        }));
+        Assert.False(RepairReceiptRules.MatchesSavedCreate(repair, invoice, receipt, items, retry with
+        {
+            Invoice = retry.Invoice with { Amount = 126m }
+        }));
+        Assert.False(RepairReceiptRules.MatchesSavedCreate(repair, invoice, receipt, items, retry with
+        {
+            Receipt = retry.Receipt with
+            {
+                Items = [new ConfirmRepairReceiptItemRequest("Replace wiper", "Wiper", 126m, 1, "1", "pc", 125m)]
+            }
+        }));
+    }
+
+    [Fact]
+    public void Reviewed_ocr_retry_compares_canonical_fields_items_and_notes_not_json_property_order()
+    {
+        var stored = new OcrReviewedResult(
+            new Dictionary<string, string?>
+            {
+                ["supplierName"] = "Workshop",
+                ["invoiceNumber"] = "INV-100"
+            },
+            [new OcrLineItem("Replace wiper", "1", "125.00", "125.00", 0.90m, "Replace wiper 1 125.00", "pc")]);
+        var retried = new OcrReviewedResult(
+            new Dictionary<string, string?>
+            {
+                ["invoiceNumber"] = " inv-100 ",
+                ["supplierName"] = " workshop "
+            },
+            [new OcrLineItem(" replace  wiper ", "1", "125.00", "125.00", 0.90m, " Replace wiper 1 125.00 ", "pc")]);
+
+        Assert.True(OcrReviewRetryRules.MatchesSavedReview(JsonSerializer.Serialize(stored), " Reviewed and applied ", retried, "reviewed AND applied"));
+        Assert.False(OcrReviewRetryRules.MatchesSavedReview(JsonSerializer.Serialize(stored), "Reviewed and applied", retried with
+        {
+            Fields = new Dictionary<string, string?> { ["supplierName"] = "Other workshop", ["invoiceNumber"] = "INV-100" }
+        }, "Reviewed and applied"));
+        Assert.False(OcrReviewRetryRules.MatchesSavedReview(JsonSerializer.Serialize(stored), "Reviewed and applied", retried, "Changed note"));
+        var duplicateSavedFields = stored with
+        {
+            Fields = new Dictionary<string, string?>
+            {
+                ["supplierName"] = "Workshop",
+                ["SUPPLIERNAME"] = "Workshop"
+            }
+        };
+        Assert.False(OcrReviewRetryRules.MatchesSavedReview(JsonSerializer.Serialize(duplicateSavedFields), "Reviewed and applied", retried with
+        {
+            Fields = new Dictionary<string, string?>
+            {
+                ["supplierName"] = "Workshop",
+                ["invoiceNumber"] = "INV-100"
+            }
+        }, "Reviewed and applied"));
+    }
+
+    [Fact]
     public void Repair_validation_requires_approval_before_high_cost_completion()
     {
         var repair = new RepairJob
@@ -2990,6 +3282,15 @@ public sealed class BusinessRulesTests
         Assert.True(SupplierRules.CanApprove("creator-user", "creator-user", isBossAdmin: true));
         Assert.False(SupplierRules.CanApprove("creator-user", "creator-user", isBossAdmin: false));
         Assert.True(SupplierRules.CanApprove("creator-user", "finance-user", isBossAdmin: false));
+    }
+
+    [Fact]
+    public void Active_suppliers_are_usable_without_reclassifying_historical_drafts()
+    {
+        Assert.True(SupplierRules.IsUsableForOperations(new Supplier { ApprovalStatus = SupplierApprovalStatus.Active }));
+        Assert.True(SupplierRules.IsUsableForOperations(new Supplier { ApprovalStatus = SupplierApprovalStatus.Approved }));
+        Assert.False(SupplierRules.IsUsableForOperations(new Supplier { ApprovalStatus = SupplierApprovalStatus.Draft }));
+        Assert.False(SupplierRules.IsUsableForOperations(new Supplier { ApprovalStatus = SupplierApprovalStatus.Inactive }));
     }
 
     [Fact]

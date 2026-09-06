@@ -323,6 +323,7 @@ export function CashCustodyPage({
         destroyOnClose
       >
         <Form
+          name="cashCustodyCreate"
           form={createForm}
           layout="vertical"
           onFinish={async (values) => {
@@ -366,6 +367,7 @@ export function CashCustodyPage({
         destroyOnClose
       >
         <Form
+          name="cashCustodyReject"
           form={rejectForm}
           layout="vertical"
           onFinish={async (values) => {

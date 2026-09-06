@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import dayjs from "dayjs";
 import type { HrAttendanceDashboardSummary } from "../../api";
-import { HrAttendanceDashboard, HrRecordFilterControls, HrSalaryPage, businessTripSearchText, datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodDefaults, payPeriodFromValues, shouldShowOptionalMcUpload, withHrRecordFilterValue } from "./HrSalaryPage";
+import { HrAttendanceDashboard, HrRecordFilterControls, HrSalaryPage, businessTripSearchText, datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodDefaults, payPeriodFromValues, shouldShowOptionalMcUpload, submitHrDecision, withHrRecordFilterValue } from "./HrSalaryPage";
 
 describe("HR record list helpers", () => {
   const records = [
@@ -100,6 +100,14 @@ describe("HR record list helpers", () => {
   it("shows the optional MC picker only for medical leave", () => {
     expect(shouldShowOptionalMcUpload("MedicalLeave")).toBe(true);
     expect(shouldShowOptionalMcUpload("AnnualLeave")).toBe(false);
+  });
+
+  it("contains a rejected parent decision and returns a staff-facing error", async () => {
+    const errors: string[] = [];
+
+    await expect(submitHrDecision(async () => { throw new Error("Request failed with status (500)"); }, (message) => errors.push(message))).resolves.toBe(false);
+
+    expect(errors).toEqual(["The server could not complete this request. Please try again. If the problem continues, contact an administrator."]);
   });
 });
 

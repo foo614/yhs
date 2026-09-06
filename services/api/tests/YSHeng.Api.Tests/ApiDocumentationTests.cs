@@ -85,6 +85,55 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Manual_loan_creation_is_boss_admin_only_while_normal_loan_workflow_stays_loans_authorized()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var apiDocumentation = File.ReadAllText(Path.Combine(root, "docs", "API.md"));
+
+        var createRoute = program[
+            program.IndexOf("backOffice.MapPost(\"/loans\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/loans/{id:guid}/decision\"", StringComparison.Ordinal)];
+        var decisionRoute = program[
+            program.IndexOf("backOffice.MapPost(\"/loans/{id:guid}/decision\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPut(\"/loans/{id:guid}\"", StringComparison.Ordinal)];
+        var updateRoute = program[
+            program.IndexOf("backOffice.MapPut(\"/loans/{id:guid}\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/deliveries\"", StringComparison.Ordinal)];
+        var documentCheckRoute = program[
+            program.IndexOf("backOffice.MapGet(\"/loans/{id:guid}/document-check\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/deliveries/{id:guid}/release-readiness\"", StringComparison.Ordinal)];
+
+        Assert.Contains("}).RequireAuthorization(\"BossAdmin\");", createRoute);
+        Assert.DoesNotContain("}).RequireAuthorization(\"Loans\");", createRoute);
+        Assert.Contains("}).RequireAuthorization(\"Loans\");", decisionRoute);
+        Assert.Contains("}).RequireAuthorization(\"Loans\");", updateRoute);
+        Assert.Contains("}).RequireAuthorization(\"Loans\");", documentCheckRoute);
+        Assert.Contains("| `POST` | `/api/loans` | `BossAdmin` |", apiDocumentation);
+    }
+
+    [Fact]
+    public void Loan_update_reloads_a_tracked_row_after_the_vehicle_advisory_lock()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var updateRoute = program[
+            program.IndexOf("backOffice.MapPut(\"/loans/{id:guid}\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/deliveries\"", StringComparison.Ordinal)];
+        const string advisoryLock = "await using var loanTransaction = await DeliveryConcurrencyLock.BeginVehiclesAsync";
+        const string trackedReload = "var existingLoan = await db.LoanApplications.FirstOrDefaultAsync(item => item.Id == id);";
+        const string applyUpdate = "db.Entry(existingLoan).CurrentValues.SetValues(loan);";
+
+        Assert.Contains(advisoryLock, updateRoute);
+        Assert.Contains(trackedReload, updateRoute);
+        Assert.DoesNotContain("var existingLoan = await db.LoanApplications.AsNoTracking()", updateRoute);
+        Assert.True(
+            updateRoute.IndexOf(advisoryLock, StringComparison.Ordinal) < updateRoute.IndexOf(trackedReload, StringComparison.Ordinal) &&
+            updateRoute.IndexOf(trackedReload, StringComparison.Ordinal) < updateRoute.IndexOf(applyUpdate, StringComparison.Ordinal),
+            "The row updated through CurrentValues must be tracked after the advisory lock so SaveChanges persists the requested transition.");
+    }
+
+    [Fact]
     public void Finance_v2_routes_are_server_owned_authorized_and_serialize_money_transitions()
     {
         var root = FindRepositoryRoot();
@@ -378,7 +427,7 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
-    public void Production_startup_ensures_finance_v2_schema_when_seed_data_is_disabled()
+    public void Production_startup_ensures_additive_finance_and_repair_receipt_schema_when_seed_data_is_disabled()
     {
         var root = FindRepositoryRoot();
         var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
@@ -389,9 +438,67 @@ public sealed class ApiDocumentationTests
 
         Assert.Contains("else", startup);
         Assert.Contains("await SeedData.EnsureFinanceV2SchemaAsync(app);", startup);
+        Assert.Contains("await SeedData.EnsureFinanceRepairEnhancementSchemaAsync(app);", startup);
+        Assert.Contains("await SeedData.EnsureRepairReceiptSchemaAsync(app);", startup);
         Assert.Contains("await SeedData.EnsureDeliveryWorkboardSchemaAsync(app);", startup);
         Assert.Contains("public static async Task EnsureFinanceV2SchemaAsync(WebApplication app)", seedData);
         Assert.Contains("await EnsureFinanceV2SchemaAsync(db);", seedData);
+        Assert.Contains("public static async Task EnsureFinanceRepairEnhancementSchemaAsync(WebApplication app)", seedData);
+        Assert.Contains("await EnsureFinanceRepairEnhancementSchemaAsync(db);", seedData);
+        Assert.Contains("public static async Task EnsureRepairReceiptSchemaAsync(WebApplication app)", seedData);
+        Assert.Contains("await EnsureRepairReceiptSchemaAsync(db);", seedData);
+        Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"Direction\"", seedData);
+        Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"PurchasePriceSnapshot\"", seedData);
+        Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"BankDebtAmount\"", seedData);
+    }
+
+    [Fact]
+    public void Settlement_status_and_ocr_repair_receipt_retries_are_snapshot_checked_and_idempotent_only_when_equivalent()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var businessRules = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "BusinessRules.cs"));
+
+        var settlementStatusRoute = program[
+            program.IndexOf("backOffice.MapPost(\"/settlement-reminders/{id:guid}/status\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPut(\"/settlement-reminders/{id:guid}\"", StringComparison.Ordinal)];
+        Assert.Contains("SettlementStatusUpdateRequest", settlementStatusRoute);
+        Assert.Contains("DeliveryConcurrencyLock.BeginVehiclesAsync", settlementStatusRoute);
+        Assert.Contains("SettlementRules.MatchesExpectedSnapshot", settlementStatusRoute);
+        Assert.Contains("request.ExpectedIsPaid", settlementStatusRoute);
+        Assert.Contains("request.IsPaid == existing.IsPaid", settlementStatusRoute);
+        Assert.DoesNotContain("request.BankDebtAmount", settlementStatusRoute);
+        Assert.DoesNotContain("request.Deadline", settlementStatusRoute);
+        Assert.Contains("public sealed record SettlementStatusUpdateRequest", businessRules);
+
+        var ocrReviewRoute = program[
+            program.IndexOf("backOffice.MapPut(\"/ocr-jobs/{jobId:guid}/review\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/ocr-jobs\"", StringComparison.Ordinal)];
+        Assert.Contains("DeliveryConcurrencyLock.BeginOcrJobAsync", ocrReviewRoute);
+        Assert.Contains("OcrReviewRetryRules.MatchesSavedReview", ocrReviewRoute);
+        Assert.True(
+            ocrReviewRoute.IndexOf("OcrReviewRetryRules.MatchesSavedReview", StringComparison.Ordinal) <
+            ocrReviewRoute.IndexOf("ApiAudit.Add(db, context.User, \"document.ocr.reviewed\"", StringComparison.Ordinal));
+
+        var receiptRoute = program[
+            program.IndexOf("backOffice.MapPost(\"/repairs/{id:guid}/receipts/confirm\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/suppliers\"", StringComparison.Ordinal)];
+        Assert.Contains("DeliveryConcurrencyLock.BeginVehiclesAsync", receiptRoute);
+        Assert.Contains("RepairReceiptRules.MatchesSavedReceipt", receiptRoute);
+        Assert.True(
+            receiptRoute.IndexOf("RepairReceiptRules.MatchesSavedReceipt", StringComparison.Ordinal) <
+            receiptRoute.IndexOf("ApiAudit.Add(db, context.User, \"repairReceipt.confirmed\"", StringComparison.Ordinal));
+        Assert.Contains("public static class OcrReviewRetryRules", businessRules);
+        Assert.Contains("public static bool MatchesSavedReceipt", businessRules);
+
+        var createFromReceiptRoute = program[
+            program.IndexOf("backOffice.MapPost(\"/repairs/from-receipt\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPut(\"/repairs/{id:guid}\"", StringComparison.Ordinal)];
+        Assert.Contains("DeliveryConcurrencyLock.BeginRepairReceiptAsync", createFromReceiptRoute);
+        Assert.Contains("RepairReceiptRules.MatchesSavedCreate", createFromReceiptRoute);
+        Assert.True(
+            createFromReceiptRoute.IndexOf("RepairReceiptRules.MatchesSavedCreate", StringComparison.Ordinal) <
+            createFromReceiptRoute.IndexOf("ApiAudit.Add(db, context.User, \"repair.created\"", StringComparison.Ordinal));
     }
 
     [Fact]

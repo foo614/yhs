@@ -232,20 +232,18 @@ describe("vehicleFromCreateIntakeValues", () => {
     });
   });
 
-  it("prepares an unpaid seller settlement from the intake owner and purchase price", () => {
+  it("sends bank debt and the reviewed price, leaving owner, direction and amount server-owned", () => {
     expect(settlementFromVehicleIntakeValues({
       ...intakeValues,
       ownerId: "owner-1",
       purchasePrice: 49_900,
+      bankDebtAmount: 35_000,
       prepareSettlement: true,
       settlementDeadline: "2026-09-01"
     }, "vehicle-new", "settlement-new")).toEqual({
-      id: "settlement-new",
-      vehicleId: "vehicle-new",
-      ownerId: "owner-1",
-      amount: 49_900,
-      deadline: "2026-09-01",
-      isPaid: false
+      bankDebtAmount: 35_000,
+      expectedPurchasePrice: 49_900,
+      deadline: "2026-09-01"
     });
   });
 

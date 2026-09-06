@@ -285,6 +285,7 @@ export function OwnerPurchaseInvoiceDetails({
           <Alert type="warning" showIcon message="A reason is required" description="Seller details below belong to this invoice snapshot only. They do not edit the previous Owner record." />
           <Form
             key={`${invoice.id}-${currentRevision.revisionNumber}`}
+            name={`ownerPurchaseInvoiceRevision-${invoice.id}`}
             layout="vertical"
             className="drawerForm purchaseInvoiceRevisionForm"
             initialValues={revisionInitialValues(currentRevision)}

@@ -13,7 +13,7 @@ export type FinancingStatus = "NotApplicable" | "Pending" | "Approved" | "Disbur
 export type ReceivableStatus = "Draft" | "WaitingForApproval" | "ReadyToCollect" | "PartiallyPaid" | "Paid" | "AttentionNeeded";
 export type PaymentVoucherStatus = "Pending" | "Approved" | "Paid";
 export type DisbursementMethod = "BankTransfer" | "Cheque" | "Cash" | "Other";
-export type SupplierApprovalStatus = "Draft" | "Approved" | "Inactive";
+export type SupplierApprovalStatus = "Draft" | "Approved" | "Active" | "Inactive";
 export type PurchaseInvoiceLineType = "VehiclePurchase" | "PurchaseProcessing" | "LatePaymentCharge" | "Parking" | "Transport" | "Refurbishment" | "Other";
 export type DeliveryAccountingChargeType = "Insurance" | "RoadTax";
 export type AccountingConfirmationStatus = "Draft" | "FinanceConfirmed";
@@ -731,11 +731,33 @@ export type SettlementReminder = {
   amount: number;
   deadline: string;
   isPaid: boolean;
+  direction?: "LegacyPaySeller" | "PaySeller" | "CollectFromSeller" | "InternalOffset";
+  purchasePriceSnapshot?: number;
+  bankDebtAmount?: number;
 };
+
+export type VehicleIntakeSettlementInput = {
+  bankDebtAmount: number;
+  expectedPurchasePrice?: number;
+  deadline?: string;
+};
+
+export type SettlementCreateInput = VehicleIntakeSettlementInput & { vehicleId: string };
+
+export type SettlementExpectedState = {
+  expectedAmount: number;
+  expectedDirection: NonNullable<SettlementReminder["direction"]>;
+  expectedBankDebtAmount: number | null;
+  expectedDeadline: string;
+  expectedIsPaid: boolean;
+};
+
+export type SettlementUpdateInput = SettlementExpectedState & { id: string; bankDebtAmount?: number; deadline?: string };
+export type SettlementStatusInput = SettlementExpectedState & { id: string; isPaid: boolean };
 
 export type VehicleIntakeCreateInput = {
   vehicle: Vehicle;
-  settlement?: SettlementReminder;
+  settlement?: VehicleIntakeSettlementInput;
   newOwner?: Owner;
 };
 
@@ -1471,6 +1493,10 @@ export async function getLoanDocumentCheck(loanId: string): Promise<LoanDocument
   return getWithNetworkFallback(`/api/loans/${loanId}/document-check`, { isComplete: false, missingCategories: [] });
 }
 
+export async function getLoanDocumentCheckStrict(loanId: string, errorMessage = "Unable to load loan document checks"): Promise<LoanDocumentCheck> {
+  return request<LoanDocumentCheck>(`/api/loans/${loanId}/document-check`, {}, errorMessage);
+}
+
 export async function getDeliveryReleaseReadiness(deliveryId: string): Promise<DeliveryReleaseReadiness> {
   return getWithNetworkFallback(`/api/deliveries/${deliveryId}/release-readiness`, { isReady: false, financeCleared: false, missingCategories: [], missingEvidence: [], expiredDocuments: [], evidence: [] });
 }
@@ -1622,11 +1648,11 @@ export async function exportAutoCountWorkbook(from?: string, to?: string): Promi
 }
 
 export async function getSettlementReminders(): Promise<SettlementReminder[]> {
-  return getWithNetworkFallback("/api/settlement-reminders", []);
+  return request("/api/settlement-reminders");
 }
 
 export async function getSettlementDrafts(): Promise<SettlementDraft[]> {
-  return getWithNetworkFallback("/api/settlement-drafts", []);
+  return request("/api/settlement-drafts");
 }
 
 export async function getDailySpends(): Promise<DailySpend[]> {
@@ -2347,14 +2373,14 @@ export async function rejectCashHandover(id: string, reason: string): Promise<Ca
   });
 }
 
-export async function createSettlementReminder(reminder: SettlementReminder): Promise<SettlementReminder> {
+export async function createSettlementReminder(reminder: SettlementCreateInput): Promise<SettlementReminder> {
   return request<SettlementReminder>("/api/settlement-reminders", {
     method: "POST",
     body: JSON.stringify(reminder)
   });
 }
 
-export async function updateSettlementReminder(reminder: SettlementReminder): Promise<SettlementReminder> {
+export async function updateSettlementReminder(reminder: SettlementUpdateInput): Promise<SettlementReminder> {
   return request<SettlementReminder>(`/api/settlement-reminders/${reminder.id}`, {
     method: "PUT",
     body: JSON.stringify(reminder)
@@ -2450,6 +2476,14 @@ export async function getVehicleOcrJobs(vehicleId: string): Promise<VehicleOcrJo
     return [];
   }
   return [];
+}
+
+export async function updateSettlementStatus(input: SettlementStatusInput): Promise<SettlementReminder> {
+  return request(`/api/settlement-reminders/${input.id}/status`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function getVehicleOcrJobsStrict(vehicleId: string): Promise<VehicleOcrJob[]> {
+  return request<VehicleOcrJob[]>(`/api/vehicles/${vehicleId}/ocr-jobs`, {}, "Unable to load OCR review history");
 }
 
 export async function getStockMovements(vehicleId: string): Promise<StockMovement[]> {

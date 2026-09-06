@@ -45,3 +45,11 @@
 .vehicleReapprovalNotice {
   grid-column: 1 / -1;
 }
+
+@media (max-width: 575px) {
+  #vehicle-leads-card .ant-pro-query-filter > .ant-row > .ant-col {
+    flex: 0 0 100%;
+    max-width: 100%;
+    margin-inline-start: 0;
+  }
+}
