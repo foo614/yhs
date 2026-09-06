@@ -2,6 +2,8 @@
 
 This trace maps the requested YS Heng front-office/back-office/API MVP to current workspace evidence. The original Word documents are cross-checked in `docs/SOURCE_REQUIREMENTS_CROSSCHECK.md`, and the Google Stitch visual reference status is tracked in `docs/STITCH_VISUAL_REFERENCE.md`. This file is a handoff aid, not a replacement for running verification.
 
+The current [remaining-operations acceptance ledger](plans/2026-09-07-remaining-operations.md) separately tracks seller-settlement directions, direct supplier creation, uppercase business inputs, Vehicle Markdown templates, shared VOC/OCR, approval controls, operational statistics and action feedback. Its pending decisions and real-operation results take precedence over broad historical module status labels below. Finance V2 physical-cash linking is not included in the supported non-cash verdict.
+
 ## Status Legend
 
 - Implemented: code and documentation exist in the workspace.

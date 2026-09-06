@@ -68,7 +68,7 @@ import {
 } from "./leads";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
 import { supplierApprovalBlockReason } from "./finance";
-import { filterRefurbishmentRecords, isRepairCostFinal, refurbishmentDetailsSelection, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
+import { filterRefurbishmentRecords, isRepairCostFinal, isSupplierUsable, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
 import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
@@ -161,7 +161,7 @@ import {
   getHrPayslips,
   getHrStaffUsers,
   getLeads,
-  getLoanDocumentCheck,
+  getLoanDocumentCheckStrict,
   getLoans,
   getOcrUsageLimit,
   getOwners,
@@ -219,6 +219,7 @@ import {
   updatePurchaseInvoice,
   updateRepair,
   updateSettlementReminder,
+  updateSettlementStatus,
   updateStaffUser,
   updateStaffUserRoles,
   updateStaffUserStatus,
@@ -315,7 +316,7 @@ const repairReceiptOcrSections = {
   supplier: {
     key: "supplier",
     title: "Supplier details / 供应商资料",
-    description: "Use this information to match an approved supplier master record."
+    description: "Use this information to match an active supplier master record."
   },
   receipt: {
     key: "receipt",
@@ -408,6 +409,21 @@ export function createVehicleIntakeFromVehiclePage<T>(
   return createIntake(input, identityCard, voc);
 }
 
+export async function createVehicleIntakeWithRefresh<T>(
+  create: () => Promise<T>,
+  onSaved: (record: T) => void,
+  refresh: () => Promise<void>
+): Promise<{ record: T; refreshed: true } | { record: T; refreshed: false; error: unknown }> {
+  const record = await create();
+  onSaved(record);
+  try {
+    await refresh();
+    return { record, refreshed: true };
+  } catch (error) {
+    return { record, refreshed: false, error };
+  }
+}
+
 export function activeLoanForVehicle(loans: LoanApplication[], vehicleId: string) {
   return loans.find((loan) => loan.vehicleId === vehicleId && ["Pending", "Approved", "Done"].includes(loan.status));
 }
@@ -465,6 +481,8 @@ export default function App() {
   const [cashHandoverPaymentLookup, setCashHandoverPaymentLookup] = useState<CashHandoverPaymentLookup[]>([]);
   const [settlements, setSettlements] = useState<SettlementReminder[]>([]);
   const [settlementDrafts, setSettlementDrafts] = useState<SettlementDraft[]>([]);
+  const [settlementLoadError, setSettlementLoadError] = useState<string | null>(null);
+  const [settlementRefreshing, setSettlementRefreshing] = useState(false);
   const [dailySpends, setDailySpends] = useState<DailySpend[]>([]);
   const [brokerCommissions, setBrokerCommissions] = useState<BrokerCommission[]>([]);
   const [debtRecoveries, setDebtRecoveries] = useState<DebtRecoveryCase[]>([]);
@@ -582,8 +600,14 @@ export default function App() {
         : Promise.resolve({ data: [] as PaymentRecord[], error: null as string | null }),
       canLoad("cashHandovers") ? getCashHandovers() : Promise.resolve([]),
       canLoad("cashHandoverPaymentLookup") ? getCashHandoverPaymentLookup() : Promise.resolve([]),
-      canLoad("settlements") ? getSettlementReminders() : Promise.resolve([]),
-      canLoad("settlements") ? getSettlementDrafts() : Promise.resolve([]),
+      canLoad("settlements") ? getSettlementReminders()
+        .then((data) => ({ data, error: null as string | null }))
+        .catch((error) => ({ data: [] as SettlementReminder[], error: humanizeApiError(error, "Settlements could not be loaded.") }))
+        : Promise.resolve({ data: [] as SettlementReminder[], error: null as string | null }),
+      canLoad("settlements") ? getSettlementDrafts()
+        .then((data) => ({ data, error: null as string | null }))
+        .catch((error) => ({ data: [] as SettlementDraft[], error: humanizeApiError(error, "Settlement source prices could not be loaded.") }))
+        : Promise.resolve({ data: [] as SettlementDraft[], error: null as string | null }),
       canLoad("dailySpends") ? getDailySpends() : Promise.resolve([]),
       canLoad("brokerCommissions") ? getBrokerCommissions() : Promise.resolve([]),
       canLoad("debtRecoveries") ? getDebtRecoveries() : Promise.resolve([]),
@@ -629,8 +653,9 @@ export default function App() {
     setPaymentLoadError(paymentResult.error);
     setCashHandovers(cashHandoverData);
     setCashHandoverPaymentLookup(cashHandoverPaymentLookupData);
-    setSettlements(settlementData);
-    setSettlementDrafts(settlementDraftData);
+    setSettlements(settlementData.data);
+    setSettlementDrafts(settlementDraftData.data);
+    setSettlementLoadError(settlementData.error ?? settlementDraftData.error);
     setDailySpends(dailySpendData);
     setBrokerCommissions(brokerCommissionData);
     setDebtRecoveries(debtRecoveryData);
@@ -854,6 +879,20 @@ export default function App() {
       setFinanceVehicleOptionLoadError(humanizeApiError(error, "Vehicle prices could not be loaded."));
     } finally {
       setFinanceVehicleOptionRefreshing(false);
+    }
+  }, []);
+
+  const refreshSettlements = useCallback(async () => {
+    setSettlementRefreshing(true);
+    try {
+      const [records, drafts] = await Promise.all([getSettlementReminders(), getSettlementDrafts()]);
+      setSettlements(records);
+      setSettlementDrafts(drafts);
+      setSettlementLoadError(null);
+    } catch (error) {
+      setSettlementLoadError(humanizeApiError(error, "Settlements could not be loaded. Retry before recording a settlement."));
+    } finally {
+      setSettlementRefreshing(false);
     }
   }, []);
 
@@ -1100,16 +1139,32 @@ export default function App() {
               dashboardFocus={dashboardDrilldown.vehicleFocus}
               dashboardAnalyticsPeriod={dashboardDrilldown.analyticsPeriod}
               onClearDashboardFocus={() => navigateTo("/vehicles")}
-              onCreate={(vehicle, settlement, newOwner, identityCard, voc) =>
-                runCreateWithResult(
-                  () => createVehicleIntakeFromVehiclePage(createVehicleIntake, { vehicle, settlement, newOwner }, identityCard, voc),
-                  (record) => {
-                    setVehicles((items) => [record.vehicle, ...items]);
-                    if (record.settlement) setSettlements((items) => [record.settlement!, ...items]);
-                    if (record.createdOwner) setOwners((items) => [record.createdOwner!, ...items]);
-                  },
-                  settlement ? "Vehicle and settlement reminder created" : "Vehicle created"
-                )}
+              onCreate={async (vehicle, settlement, newOwner, identityCard, voc) => {
+                try {
+                  const result = await createVehicleIntakeWithRefresh(
+                    () => createVehicleIntakeFromVehiclePage(createVehicleIntake, { vehicle, settlement, newOwner }, identityCard, voc),
+                    (record) => {
+                      setVehicles((items) => replaceByIdOrPrepend(items, record.vehicle));
+                      if (record.settlement) setSettlements((items) => replaceByIdOrPrepend(items, record.settlement!));
+                      if (record.createdOwner) setOwners((items) => replaceByIdOrPrepend(items, record.createdOwner!));
+                    },
+                    () => loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined)
+                  );
+                  if (result.refreshed) {
+                    notifySuccess(settlement ? "Vehicle and settlement reminder created" : "Vehicle created", "The record has been saved and synced.");
+                  } else {
+                    notificationApi.warning({
+                      message: "Vehicle saved; list refresh failed",
+                      description: `Do not create it again. Refresh the page to reload the latest records. ${humanizeApiError(result.error)}`,
+                      duration: 0
+                    });
+                  }
+                  return result.record;
+                } catch (error) {
+                  notifyError("Vehicle could not be saved", humanizeApiError(error));
+                  throw error;
+                }
+              }}
               onUpdate={(vehicle) => runUpdate(() => updateVehicle(vehicle), (record) => setVehicles((items) => replaceById(items, record)), "Vehicle updated")}
               onStartLoan={handleStartVehicleLoan}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
@@ -1194,6 +1249,9 @@ export default function App() {
               financeVehicleOptionRefreshing={financeVehicleOptionRefreshing}
               settlements={settlements}
               settlementDrafts={settlementDrafts}
+              settlementLoadError={settlementLoadError}
+              settlementRefreshing={settlementRefreshing}
+              onRetrySettlements={refreshSettlements}
               dailySpends={dailySpends}
               brokerCommissions={brokerCommissions}
               debtRecoveries={debtRecoveries}
@@ -1218,6 +1276,7 @@ export default function App() {
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
               onCreateSettlement={(settlement) => runCreate(() => createSettlementReminder(settlement), (record) => setSettlements((items) => [record, ...items]), "Settlement reminder created")}
               onUpdateSettlement={(settlement) => runUpdate(() => updateSettlementReminder(settlement), (record) => setSettlements((items) => replaceById(items, record)), "Settlement reminder updated")}
+              onUpdateSettlementStatus={(settlement) => runUpdate(() => updateSettlementStatus(settlement), (record) => setSettlements((items) => replaceById(items, record)), "Settlement status updated")}
               onCreateDailySpend={(spend) => runCreate(() => createDailySpend(spend), (record) => setDailySpends((items) => [record, ...items]), "Daily spend created")}
               onUpdateDailySpend={(spend) => runUpdate(() => updateDailySpend(spend), (record) => setDailySpends((items) => replaceById(items, record)), "Daily spend updated")}
               onCreateBrokerCommission={(commission) => runCreate(() => createBrokerCommission(commission), (record) => setBrokerCommissions((items) => [record, ...items]), "Broker commission created")}
@@ -1417,7 +1476,7 @@ function LoginHome({
               <img className="loginPanelLogo" src="/ys-heng-logo.png" alt="YS Heng" />
               <Typography.Title level={2}>YS Heng Portal</Typography.Title>
             </div>
-            <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
+            <Form name="loginDesktop" layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
               <Form.Item name="email" label="Work email" rules={[{ required: true, type: "email" }]}>
                 <Input prefix={<UserOutlined />} placeholder="admin@ysheng.local" autoComplete="email" />
               </Form.Item>
@@ -1489,7 +1548,7 @@ function LoginHomeLegacy({
               <Typography.Title level={2}>Welcome back</Typography.Title>
               <Typography.Text>Sign in to continue vehicle intake, delivery, finance, HR, and admin work.</Typography.Text>
             </div>
-            <Form layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
+            <Form name="loginMobile" layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
               <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
                 <Input prefix={<UserOutlined />} placeholder="admin@ysheng.local" />
               </Form.Item>
@@ -1728,6 +1787,18 @@ function moduleStats(pathname: string, data: {
         { label: "reminders", value: data.reminders.length }
       ];
   }
+}
+
+export function DocumentLoadFailureNotice({
+  message,
+  description,
+  onRetry
+}: {
+  message: string;
+  description: string;
+  onRetry: () => void;
+}) {
+  return <Alert type="error" showIcon message={message} description={description} action={<Button size="small" onClick={onRetry}>Retry</Button>} />;
 }
 
 export function ModuleDocumentList({
@@ -2836,6 +2907,27 @@ function DashboardRepairWorkList({ items }: { items: Array<{ label: string; coun
   );
 }
 
+export function repairHeaderStats(
+  repairs: Pick<RepairJob, "checklistDone" | "cost" | "expectedCompletionDate" | "approvalStatus">[],
+  todayIso = today()
+) {
+  return {
+    open: repairs.filter((repair) => !repair.checklistDone).length,
+    cost: repairs.filter((repair) => repair.cost < repairApprovalThreshold || repair.approvalStatus === "Approved").reduce((sum, repair) => sum + repair.cost, 0),
+    overdue: repairs.filter((repair) => !repair.checklistDone && Boolean(repair.expectedCompletionDate) && repair.expectedCompletionDate! < todayIso).length,
+    highCostPending: repairs.filter((repair) => repair.cost >= repairApprovalThreshold && repair.approvalStatus !== "Approved").length
+  };
+}
+
+export function loanHeaderStats(loans: Pick<LoanApplication, "status">[]) {
+  return {
+    approved: loans.filter((loan) => loan.status === "Approved").length,
+    inProgress: loans.filter((loan) => loan.status === "Draft" || loan.status === "Pending").length,
+    rejected: loans.filter((loan) => loan.status === "Rejected").length,
+    done: loans.filter((loan) => loan.status === "Done").length
+  };
+}
+
 function Metric({
   label,
   value,
@@ -3088,6 +3180,7 @@ function RepairPage({
   const [editSupplierInvoiceId, setEditSupplierInvoiceId] = useState("");
   const [repairCreateOpen, setRepairCreateOpen] = useState(false);
   const [supplierCreateOpen, setSupplierCreateOpen] = useState(false);
+  const [supplierSaving, setSupplierSaving] = useState(false);
   const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
   const [supplierKeyword, setSupplierKeyword] = useState("");
   const [supplierStatus, setSupplierStatus] = useState<Supplier["approvalStatus"] | "All">("All");
@@ -3104,6 +3197,8 @@ function RepairPage({
   const [creatingSupplierFromReceipt, setCreatingSupplierFromReceipt] = useState(false);
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [repairDocuments, setRepairDocuments] = useState<VehicleDocument[]>([]);
+  const [repairDocumentsLoading, setRepairDocumentsLoading] = useState(false);
+  const [repairDocumentsError, setRepairDocumentsError] = useState("");
   const [repairReceipts, setRepairReceipts] = useState<RepairReceiptWithItems[]>([]);
   const [refurbishmentFilters, setRefurbishmentFilters] = useState<RefurbishmentFilters>({});
   const [mobileRefurbishmentPage, setMobileRefurbishmentPage] = useState(1);
@@ -3156,14 +3251,28 @@ function RepairPage({
     let active = true;
     if (!selectedRepair) {
       setRepairDocuments([]);
+      setRepairDocumentsLoading(false);
+      setRepairDocumentsError("");
       return () => {
         active = false;
       };
     }
 
-    void getVehicleDocuments(selectedRepair.vehicleId).then((documents) => {
-      if (active) setRepairDocuments(documents.filter((document) => document.repairJobId === selectedRepair.id));
-    });
+    setRepairDocumentsLoading(true);
+    setRepairDocumentsError("");
+    void getVehicleDocumentsStrict(selectedRepair.vehicleId, "Unable to load repair documents")
+      .then((documents) => {
+        if (active) setRepairDocuments(documents.filter((document) => document.repairJobId === selectedRepair.id));
+      })
+      .catch((error) => {
+        if (active) {
+          setRepairDocuments([]);
+          setRepairDocumentsError(humanizeApiError(error, "Unable to load repair documents."));
+        }
+      })
+      .finally(() => {
+        if (active) setRepairDocumentsLoading(false);
+      });
 
     return () => {
       active = false;
@@ -3180,8 +3289,11 @@ function RepairPage({
     setEditSupplierInvoiceId(selection.supplierInvoiceId ?? "");
   };
 
-  const pendingRepairs = repairs.filter((repair) => !repair.checklistDone).length;
-  const repairTotal = repairs.filter(isRepairCostFinal).reduce((sum, repair) => sum + repair.cost, 0);
+  const repairStats = repairHeaderStats(repairs);
+  const pendingRepairs = repairStats.open;
+  const repairTotal = repairStats.cost;
+  const overdueRepairs = repairStats.overdue;
+  const highCostPendingRepairs = repairStats.highCostPending;
   const filteredSupplierMaster = filterSupplierMaster(supplierMaster, supplierKeyword, supplierStatus);
   const supplierFiltersActive = Boolean(supplierKeyword.trim()) || supplierStatus !== "All";
   const showRepairCompletionConfirmation = (repair: RepairJob, onConfirm: () => Promise<void> | void) => {
@@ -3336,6 +3448,7 @@ function RepairPage({
         </ProCard>
         <ProCard title="Repair Record / 整备资料">
           <Form
+            name="repairEdit"
             key={`${selectedRepair.id}-repair-record`}
             layout="vertical"
             className="formGrid"
@@ -3387,6 +3500,8 @@ function RepairPage({
         </ProCard>
         <ProCard title="Repair Documents / 整备文件">
           <Space direction="vertical" size={12} className="fullWidth">
+            {repairDocumentsError && <DocumentLoadFailureNotice message="Repair documents could not be loaded" description={repairDocumentsError} onRetry={() => setDocumentReloadKey((value) => value + 1)} />}
+            {repairDocumentsLoading && <Typography.Text type="secondary">Loading repair documents…</Typography.Text>}
             <DocumentUploadChecklist
               title="Required repair document / 必需整备文件"
               description="Attach the supplier invoice to this repair record before the refurbishment cost is finalised."
@@ -3419,8 +3534,7 @@ function RepairPage({
                       onApply={async (values, job) => {
                         const items = repairReceiptItemsFromOcr(job);
                         if (items.some((item) => !item.description)) {
-                          message.warning("Add a repair item description before confirming this receipt.");
-                          return;
+                          throw new Error("Add a repair item description before confirming this receipt.");
                         }
                         await onConfirmReceipt(selectedRepair.id, {
                           documentId: job.documentId,
@@ -3487,6 +3601,7 @@ function RepairPage({
         </ProCard>
         <ProCard title="Supplier Invoice Record / 供应商发票资料">
           <Form
+            name="supplierInvoiceEdit"
             key={selectedSupplierInvoice.id}
             layout="vertical"
             className="formGrid"
@@ -3515,7 +3630,7 @@ function RepairPage({
           >
             <Form.Item name="id" label="Selected Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
             <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="supplierId" label="Approved supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => supplier.approvalStatus === "Approved").map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
+            <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter(isSupplierUsable).map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
             <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="invoiceDate" label="Invoice date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
@@ -3535,12 +3650,14 @@ function RepairPage({
         <Metric label="Repair records / 整备记录" value={repairs.length} />
         <Metric label="Open repair work / 未完成整备" value={pendingRepairs} />
         <Metric label="Repair Cost / 整备费用" value={formatMoney(repairTotal)} />
+        <Metric label="Overdue repair work / 已逾期整备" value={overdueRepairs} tone="risk" />
+        <Metric label="High-cost pending approval / 高额待审批" value={highCostPendingRepairs} tone="work" />
       </div>
       <ProCard
         title="Supplier Master / 供应商资料"
         extra={<Button type="primary" onClick={openNewSupplier}>New Supplier</Button>}
       >
-        <Alert className="sectionIntroAlert" type="info" showIcon message="Repair creates the supplier draft. Finance uses a different approver; Boss/Admin may approve directly under Finance → Approvals & Vouchers." />
+        <Alert className="sectionIntroAlert" type="info" showIcon message="New suppliers are active and ready to use after creation. Supplier approval is not required; high-cost repair and Finance payment approvals are unchanged." />
         <Space className="toolbarForm workflowFilterBar pageFilterMobileOnly" wrap>
           <Input.Search
             allowClear
@@ -3559,6 +3676,7 @@ function RepairPage({
             options={[
               { value: "All", label: "All statuses" },
               { value: "Draft", label: "Draft" },
+              { value: "Active", label: "Active" },
               { value: "Approved", label: "Approved" },
               { value: "Inactive", label: "Inactive" }
             ]}
@@ -3578,6 +3696,7 @@ function RepairPage({
               { name: "creditor", label: "Creditor code" },
               { name: "status", label: "Status", options: [
                 { value: "Draft", label: "Draft" },
+                { value: "Active", label: "Active" },
                 { value: "Approved", label: "Approved" },
                 { value: "Inactive", label: "Inactive" }
               ] }
@@ -3599,7 +3718,7 @@ function RepairPage({
             { title: "Phone", dataIndex: "phone" },
             { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
             { title: "AutoCount creditor", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
-            { title: "Status", dataIndex: "approvalStatus", render: (value) => <Tag color={value === "Approved" ? "green" : "gold"}>{value}</Tag> },
+            { title: "Status", dataIndex: "approvalStatus", render: (value) => <Tag color={value === "Approved" || value === "Active" ? "green" : "gold"}>{value}</Tag> },
             { title: "Action", render: (_, supplier) => {
               if (!canApproveRepairs || supplier.approvalStatus !== "Draft") return null;
               const blockReason = supplierApprovalBlockReason(supplier, currentUserId, canApproveRepairs);
@@ -3754,13 +3873,14 @@ function RepairPage({
         />
       </ProCard>
       <Modal
-        title={creatingSupplierFromReceipt ? "Create supplier draft from receipt / 从收据建立供应商草稿" : "New Supplier / 新增供应商"}
+        title={creatingSupplierFromReceipt ? "Create supplier from receipt / 从收据建立供应商" : "New Supplier / 新增供应商"}
         open={supplierCreateOpen}
         onCancel={closeSupplierCreate}
         footer={null}
         destroyOnClose
       >
-        <Form form={supplierCreateForm} layout="vertical" onFinish={async (values) => {
+        <Form name="supplierCreate" form={supplierCreateForm} disabled={supplierSaving} layout="vertical" onFinish={async (values) => {
+          if (supplierSaving) return;
           const supplier: Supplier = {
             id: newId(),
             companyName: String(values.companyName ?? "").trim(),
@@ -3770,21 +3890,25 @@ function RepairPage({
             phone: String(values.phone ?? "").trim(),
             contactPerson: String(values.contactPerson ?? "").trim() || undefined,
             autoCountCreditorCode: String(values.autoCountCreditorCode ?? "").trim() || undefined,
-            approvalStatus: "Draft"
+            approvalStatus: "Active"
           };
+          setSupplierSaving(true);
           try {
             const createdSupplier = await createSupplier(supplier);
             await reloadSupplierMaster();
             if (creatingSupplierFromReceipt) {
-              setReceiptSupplierResolution({ kind: "draft", supplier: createdSupplier });
+              setReceiptSupplierResolution({ kind: "matched", supplier: createdSupplier });
               setUnmatchedReceiptSupplier(null);
-              message.success("Supplier draft created from the receipt. Boss/Admin must approve it before this repair can use the supplier.");
+              repairCreateForm.setFieldsValue({ supplierId: createdSupplier.id, supplierName: createdSupplier.companyName });
+              message.success("Supplier created and selected. You can finish the repair now.");
             } else {
-              message.success("Supplier draft created. Finance uses a different approver, while Boss/Admin may approve it directly under Finance → Approvals & Vouchers.");
+              message.success("Supplier created and ready to use.");
             }
             closeSupplierCreate();
           } catch (error) {
             message.error(humanizeApiError(error, "Unable to create supplier."));
+          } finally {
+            setSupplierSaving(false);
           }
         }}>
           {creatingSupplierFromReceipt && unmatchedReceiptSupplier ? (
@@ -3793,7 +3917,7 @@ function RepairPage({
               type="warning"
               showIcon
               message={`“${unmatchedReceiptSupplier.companyName}” was not found in Supplier Master.`}
-              description="Review the OCR details and complete the required fields. This creates a Draft only; Boss/Admin approval is still required before the repair can use it."
+              description="Review the OCR details and complete the required fields. The new supplier can be used immediately after creation."
             />
           ) : null}
           <Form.Item name="companyName" label="Company name" rules={[{ required: true }]}><Input /></Form.Item>
@@ -3802,8 +3926,8 @@ function RepairPage({
           <Form.Item name="address" label="Address" rules={[{ required: true }]}><Input.TextArea rows={3} /></Form.Item>
           <Form.Item name="phone" label="Phone" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="contactPerson" label="Contact person"><Input /></Form.Item>
-          <Form.Item name="autoCountCreditorCode" label="AutoCount creditor code" extra="Leave blank if AutoCount should auto-create the code."><Input /></Form.Item>
-          <Button type="primary" htmlType="submit">Create supplier draft</Button>
+          <Form.Item name="autoCountCreditorCode" label="AutoCount creditor code" extra="If left blank, Finance must confirm the creditor mapping before manual import."><Input /></Form.Item>
+          <Button type="primary" htmlType="submit" loading={supplierSaving}>Create supplier</Button>
         </Form>
       </Modal>
       <Modal
@@ -3822,7 +3946,7 @@ function RepairPage({
         destroyOnClose
         className="recordCreateModal"
       >
-        <Form form={repairCreateForm} layout="vertical" className="modalForm formGrid" onFinish={async (values) => {
+        <Form name="repairCreate" form={repairCreateForm} layout="vertical" className="modalForm formGrid" onFinish={async (values) => {
           if (repairCreateMode === "receipt") {
             if (!receiptDraft) {
               message.warning("Upload and review a receipt before creating this repair.");
@@ -3933,28 +4057,28 @@ function RepairPage({
               <Typography.Text strong>Car & supplier / 车辆与供应商</Typography.Text>
               <Typography.Text type="secondary">
                 {repairCreateMode === "receipt"
-                  ? "Choose the car first. We will match an approved supplier after you review the receipt."
-                  : "Choose the car and approved supplier for this repair."}
+                  ? "Choose the car first. We will match an active supplier after you review the receipt."
+                  : "Choose the car and supplier for this repair."}
               </Typography.Text>
             </div>
             <div className="repairCreateContextFields">
               <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
               <Form.Item
                 name="supplierId"
-                label="Approved supplier"
+                label="Supplier"
                 rules={[{ required: true }]}
                 extra={repairCreateMode === "receipt"
                   ? receiptDraft
-                    ? repairCreateSupplierId ? "Matched or selected after receipt review." : "Choose an approved supplier to continue."
+                    ? repairCreateSupplierId ? "Matched or selected after receipt review." : "Choose an active supplier to continue."
                     : "This will be matched after the receipt review."
                   : undefined}
               >
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  placeholder={repairCreateMode === "receipt" && !receiptDraft ? "Waiting for receipt match" : "Select an approved supplier"}
+                  placeholder={repairCreateMode === "receipt" && !receiptDraft ? "Waiting for receipt match" : "Select a supplier"}
                   disabled={repairCreateMode === "receipt" && !receiptDraft}
-                  options={supplierMaster.filter((supplier) => supplier.approvalStatus === "Approved").map((supplier) => ({ value: supplier.id, label: `${supplier.companyName} · ${supplier.phone}` }))}
+                  options={supplierMaster.filter(isSupplierUsable).map((supplier) => ({ value: supplier.id, label: `${supplier.companyName} · ${supplier.phone}` }))}
                   onChange={() => { setReceiptSupplierResolution(null); setUnmatchedReceiptSupplier(null); }}
                 />
               </Form.Item>
@@ -4019,7 +4143,7 @@ function RepairPage({
                     if (!supplierPrefill) {
                       setReceiptSupplierResolution({ kind: "missing" });
                       setUnmatchedReceiptSupplier(null);
-                    } else if (matchedSupplier?.approvalStatus === "Approved") {
+                    } else if (matchedSupplier && isSupplierUsable(matchedSupplier)) {
                       setReceiptSupplierResolution({ kind: "matched", supplier: matchedSupplier });
                       setUnmatchedReceiptSupplier(null);
                     } else if (matchedSupplier) {
@@ -4031,7 +4155,7 @@ function RepairPage({
                       openSupplierDraftFromReceipt(supplierPrefill);
                     }
                     repairCreateForm.setFieldsValue({
-                      supplierId: matchedSupplier?.approvalStatus === "Approved" ? matchedSupplier.id : undefined,
+                      supplierId: matchedSupplier && isSupplierUsable(matchedSupplier) ? matchedSupplier.id : undefined,
                       supplierName: String(values.supplierName ?? "").trim(),
                       invoiceNumber: String(values.invoiceNumber ?? "").trim(),
                       plateNumberOnInvoice: String(values.plateNumberOnInvoice ?? "").trim() || undefined,
@@ -4050,13 +4174,13 @@ function RepairPage({
                 <Alert className="operationalInfoAlert" type="warning" showIcon message={`Receipt plate ${receiptVehicleMatch.plate} is not in the current car list.`} description="Check the printed plate and selected car before creating the repair." />
               ) : null}
               {receiptSupplierResolution?.kind === "matched" ? (
-                <Alert className="operationalInfoAlert" type="success" showIcon message={`Receipt supplier matched approved master: ${receiptSupplierResolution.supplier.companyName}.`} />
+                <Alert className="operationalInfoAlert" type="success" showIcon message={`Receipt supplier matched: ${receiptSupplierResolution.supplier.companyName}.`} />
               ) : null}
               {receiptSupplierResolution?.kind === "draft" ? (
                 <Alert className="operationalInfoAlert" type="warning" showIcon message={`Supplier draft: ${receiptSupplierResolution.supplier.companyName}.`} description="Boss/Admin must approve the supplier before this repair can be created." />
               ) : null}
               {receiptSupplierResolution?.kind === "missing" ? (
-                <Alert className="operationalInfoAlert" type="warning" showIcon message="The receipt did not include a supplier name." description="Select an approved supplier manually before creating this repair." />
+                <Alert className="operationalInfoAlert" type="warning" showIcon message="The receipt did not include a supplier name." description="Select an active supplier manually before creating this repair." />
               ) : null}
               {unmatchedReceiptSupplier ? (
                 <Alert
@@ -4064,7 +4188,7 @@ function RepairPage({
                   type="warning"
                   showIcon
                   message={`“${unmatchedReceiptSupplier.companyName}” is not in Supplier Master.`}
-                  description={<Space wrap><span>Create a reviewed supplier draft, then ask Boss/Admin to approve it before creating the repair.</span><Button size="small" onClick={() => openSupplierDraftFromReceipt(unmatchedReceiptSupplier)}>Create supplier draft</Button></Space>}
+                  description={<Space wrap><span>Create the supplier from the reviewed details, then continue this repair.</span><Button size="small" onClick={() => openSupplierDraftFromReceipt(unmatchedReceiptSupplier)}>Create supplier</Button></Space>}
                 />
               ) : null}
               {receiptDraft ? (
@@ -4085,7 +4209,7 @@ function RepairPage({
               <div className="repairManualIntro">
                 <span className="repairManualEyebrow">Manual entry / 手动建立</span>
                 <Typography.Text strong>Add the supplier invoice / 填写供应商发票</Typography.Text>
-                <Typography.Text type="secondary">The approved supplier selected above will be used for this repair. Enter the printed invoice details and a short repair title.</Typography.Text>
+                <Typography.Text type="secondary">The selected supplier will be used for this repair. Enter the printed invoice details and a short repair title.</Typography.Text>
               </div>
               <div className="repairManualFields">
                 <Form.Item name="invoiceNumber" label="Receipt / Invoice reference" rules={[{ required: true }]}><Input /></Form.Item>
@@ -4136,6 +4260,8 @@ export function LoanPage({
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, onProgress: UploadProgressHandler) => Promise<void>;
 }) {
   const [documentChecks, setDocumentChecks] = useState<Record<string, LoanDocumentCheck>>({});
+  const [documentChecksLoading, setDocumentChecksLoading] = useState(false);
+  const [documentChecksError, setDocumentChecksError] = useState("");
   const [uploadLoanId, setUploadLoanId] = useState(initialLoanId ?? "");
   const [loanCreateOpen, setLoanCreateOpen] = useState(false);
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
@@ -4161,6 +4287,7 @@ export function LoanPage({
     setMobileLoanPage(1);
   };
   const loanEmptyText = loans.length > 0 ? "No loans match the current filters." : "No loan records yet.";
+  const loanStats = loanHeaderStats(loans);
 
   useEffect(() => {
     if (initialLoanId) setUploadLoanId(initialLoanId);
@@ -4180,13 +4307,26 @@ export function LoanPage({
   useEffect(() => {
     if (!loans.length) {
       setDocumentChecks({});
+      setDocumentChecksLoading(false);
+      setDocumentChecksError("");
       return;
     }
 
     let active = true;
-    void Promise.all(loans.map(async (loan) => [loan.id, await getLoanDocumentCheck(loan.id)] as const))
+    setDocumentChecksLoading(true);
+    setDocumentChecksError("");
+    void Promise.all(loans.map(async (loan) => [loan.id, await getLoanDocumentCheckStrict(loan.id)] as const))
       .then((items) => {
         if (active) setDocumentChecks(Object.fromEntries(items));
+      })
+      .catch((error) => {
+        if (active) {
+          setDocumentChecks({});
+          setDocumentChecksError(humanizeApiError(error, "Unable to load loan document checks."));
+        }
+      })
+      .finally(() => {
+        if (active) setDocumentChecksLoading(false);
       });
 
     return () => {
@@ -4203,6 +4343,7 @@ export function LoanPage({
   };
 
   const renderLoanDocumentSummary = (check?: LoanDocumentCheck) => {
+    if (documentChecksError) return <Tag color="warning">Check unavailable</Tag>;
     if (!check) return <Tag>Checking</Tag>;
     if (check.isComplete) return <Tag color="green">Complete</Tag>;
 
@@ -4215,6 +4356,7 @@ export function LoanPage({
   };
 
   const loanCompletionBlockReason = (loanId: string) => {
+    if (documentChecksError) return "The document check could not be loaded. Retry it before marking the loan done.";
     const check = documentChecks[loanId];
     if (!check) return "Document check is still loading.";
     if (check.isComplete) return "";
@@ -4403,6 +4545,8 @@ export function LoanPage({
     return (
       <Space direction="vertical" size={16} className="fullWidth">
         <Button onClick={() => { setUploadLoanId(""); onBackToList(); }}>Back to Loan List</Button>
+        {documentChecksError && <DocumentLoadFailureNotice message="Loan document checks could not be loaded" description={documentChecksError} onRetry={() => setDocumentReloadKey((value) => value + 1)} />}
+        {documentChecksLoading && <Typography.Text type="secondary">Checking loan documents…</Typography.Text>}
         <ProCard title={`Loan Details / 贷款详情 - ${plateFor(vehicles, selectedLoan.vehicleId)}`}>
           <Descriptions size="small" column={{ xs: 1, md: 3 }}>
             <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedLoan.vehicleId)}</Descriptions.Item>
@@ -4412,7 +4556,7 @@ export function LoanPage({
             <Descriptions.Item label="LOU approval recorded / LOU 已批准">{selectedLoan.louApproved ? "Yes" : "No"}</Descriptions.Item>
             <Descriptions.Item label="LOU completed / LOU 已完成">{selectedLoan.louDone ? "Yes" : "No"}</Descriptions.Item>
             <Descriptions.Item label="Document Check / 文件检查">
-              {check?.isComplete ? <Tag color="green">Complete</Tag> : <Tag color="red">Incomplete</Tag>}
+              {documentChecksError ? <Tag color="warning">Unavailable</Tag> : check?.isComplete ? <Tag color="green">Complete</Tag> : <Tag color="red">Incomplete</Tag>}
             </Descriptions.Item>
             {selectedLoan.decisionBy && <Descriptions.Item label="Decision by / 决定人">{selectedLoan.decisionBy}</Descriptions.Item>}
             {selectedLoan.decisionAt && <Descriptions.Item label="Decision time / 决定时间">{String(selectedLoan.decisionAt).replace("T", " ").slice(0, 16)}</Descriptions.Item>}
@@ -4487,6 +4631,12 @@ export function LoanPage({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
+      <div className="metricGrid">
+        <Metric label="Approved loans / 已批准贷款" value={loanStats.approved} tone="profit" />
+        <Metric label="In progress / 处理中" value={loanStats.inProgress} tone="work" />
+        <Metric label="Rejected / 已拒绝" value={loanStats.rejected} tone="risk" />
+        <Metric label="Done / 已完成" value={loanStats.done} />
+      </div>
       <ProCard
         title="Loan Workflow / 贷款流程"
         extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending").length} pending</Tag>{canCreateManually ? <Button onClick={() => setLoanCreateOpen(true)}>Manual loan record</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
@@ -4498,6 +4648,8 @@ export function LoanPage({
           message={dashboardFocus.vehicleId ? "Dashboard focus: loan follow-up for the selected vehicle" : "Dashboard focus: pending loan follow-up"}
           action={<Button size="small" onClick={onClearDashboardFocus}>Clear focus</Button>}
         />}
+        {documentChecksError && <DocumentLoadFailureNotice message="Loan document checks could not be loaded" description={documentChecksError} onRetry={() => setDocumentReloadKey((value) => value + 1)} />}
+        {documentChecksLoading && <Typography.Text type="secondary">Checking loan documents…</Typography.Text>}
         {/*
         <Space className="toolbarForm workflowFilterBar" wrap>
           <Input.Search
@@ -4543,6 +4695,7 @@ export function LoanPage({
         </Space>
         */}
         <Form
+          name="loanFilter"
           form={loanFilterForm}
           layout="inline"
           className="toolbarForm workflowFilterBar pageFilterMobileOnly"
@@ -4693,7 +4846,7 @@ export function LoanPage({
           description="For ordinary sales, start from Vehicle Details and confirm the buyer there. This route is for Boss/Admin corrections only."
           className="manualLoanRecordAlert"
         />
-        <Form layout="vertical" className="modalForm" onFinish={(values) => {
+        <Form name="loanCreate" layout="vertical" className="modalForm" onFinish={(values) => {
           const loan: LoanApplication = {
             id: newId(),
             vehicleId: values.vehicleId,
@@ -5169,6 +5322,7 @@ function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]
   return (
     <Space direction="vertical" size={12} className="fullWidth">
       <Form
+        name="auditFilter"
         form={form}
         layout="inline"
         className="toolbarForm pageFilterMobileOnly"
@@ -5572,6 +5726,7 @@ function AdminPage({
                   className="recordEditDrawer"
                 >
                   <Form
+                    name="staffEdit"
                     key={selectedEditStaffUser?.id ?? "staff-edit-drawer"}
                     layout="vertical"
                     className="drawerForm"
@@ -5634,6 +5789,7 @@ function AdminPage({
                   className="recordEditDrawer"
                 >
                   <Form
+                    name="staffPasswordReset"
                     key={`${selectedEditStaffUser?.id ?? "staff"}-password-drawer`}
                     layout="vertical"
                     className="drawerForm"
@@ -5686,6 +5842,7 @@ function AdminPage({
                   className="recordCreateModal"
                 >
                   <Form
+                  name="staffCreate"
                   layout="vertical"
                   className="modalForm formGrid"
                   initialValues={{ role: "Sales" }}
@@ -5732,7 +5889,7 @@ function AdminPage({
                     <Space direction="vertical" size={16} className="fullWidth">
                       <AiUsageSnapshotDescriptions snapshot={ocrLimitSnapshot} />
                       <OcrOperationalGuidance />
-                      <Form form={ocrLimitForm} layout="vertical" onFinish={saveOcrLimit}>
+                      <Form name="ocrLimit" form={ocrLimitForm} layout="vertical" onFinish={saveOcrLimit}>
                         <Form.Item name="isEnabled" label="OCR service" valuePropName="checked">
                           <Checkbox>Allow staff to run OCR</Checkbox>
                         </Form.Item>

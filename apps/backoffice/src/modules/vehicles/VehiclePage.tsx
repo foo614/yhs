@@ -14,22 +14,22 @@ import type { TablePaginationConfig } from "antd/es/table/interface";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { customerCreateBlockReason, normalizeIdentityCardNumber, ownerCreateBlockReason } from "../../contacts";
 import { singaporeTodayIsoDate, type DashboardVehicleFocus } from "../../dashboard";
-import { isRepairCostFinal } from "../../repairs";
+import { isRepairCostFinal, isSupplierUsable } from "../../repairs";
 import { isMalaysiaPlateFormat, malaysiaPlateFormatMessage, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
 import { isOcrImageMimeType, OcrUploadReview } from "../shared/OcrUploadReview";
 import { VehicleIntakeVocReview, type VehicleIntakeVocPatch } from "./VehicleIntakeVocReview";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
+import { settlementDirectionLabel, settlementPreview } from "../../settlements";
 import { OwnerPurchaseInvoiceDetails } from "./OwnerPurchaseInvoiceDetails";
 import "./VehicleDetails.css";
 import {
   customerSelectLabel,
   createVehicleCatalogModel,
-  getVehicleDocuments,
+  getVehicleDocumentsStrict,
   getVehicleCatalogModels,
-  getVehicleOcrJobs,
-  getVehiclePhotos,
+  getVehicleOcrJobsStrict,
   getVehiclePhotosStrict,
   deleteVehiclePhoto,
   getSupplierMaster,
@@ -53,7 +53,7 @@ import {
   type GeneratePurchaseInvoiceInput,
   type PurchaseInvoice,
   type RepairJob,
-  type SettlementReminder,
+  type VehicleIntakeSettlementInput,
   type Supplier,
   type Vehicle,
   type VehicleCatalogModel,
@@ -70,9 +70,11 @@ const receiptInvoiceDocumentCategories: DocumentCategory[] = ["PurchaseInvoice",
 const mobileVehiclePageSize = 8;
 const earliestVehicleYear = 1990;
 const latestVehicleYear = new Date().getFullYear() + 1;
+export const neutralVehicleDescriptionTemplate = "## Vehicle highlights\n\n- Year:\n- Make & model:\n- Engine:\n- Viewing:";
 export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id">> & {
   prepareSettlement?: boolean;
   settlementDeadline?: string;
+  bankDebtAmount?: number;
 };
 
 type SellerIdentityReviewValues = {
@@ -150,7 +152,7 @@ export type PurchaseInvoiceCreateValues = {
 export function purchaseInvoiceCreateInitialValues(selectedVehicleId: string | undefined, suppliers: Supplier[]) {
   return {
     vehicleId: selectedVehicleId ?? "",
-    supplierId: suppliers.find((supplier) => supplier.approvalStatus === "Approved")?.id,
+    supplierId: suppliers.find(isSupplierUsable)?.id,
     invoiceDate: dayjs(),
     lines: [{ lineType: "VehiclePurchase", description: "Vehicle purchase", capitaliseIntoVehicleCost: true }]
   };
@@ -409,15 +411,12 @@ export function vehicleFromEditValues(values: VehicleIntakeValues, currentVehicl
   }, currentVehicle.id);
 }
 
-export function settlementFromVehicleIntakeValues(values: VehicleIntakeDraft, vehicleId: string, settlementId: string): SettlementReminder | undefined {
+export function settlementFromVehicleIntakeValues(values: VehicleIntakeDraft, _vehicleId?: string, _settlementId?: string): VehicleIntakeSettlementInput | undefined {
   if (!values.prepareSettlement) return undefined;
   return {
-    id: settlementId,
-    vehicleId,
-    ownerId: values.ownerId,
-    amount: Number(values.purchasePrice ?? 0),
-    deadline: values.settlementDeadline ?? "",
-    isPaid: false
+    bankDebtAmount: Number(values.bankDebtAmount ?? 0),
+    expectedPurchasePrice: Number(values.purchasePrice ?? 0),
+    deadline: values.settlementDeadline || undefined
   };
 }
 
@@ -492,7 +491,8 @@ function VehicleIntakeReview({ draft, customers, owners, pendingOwner, hasSeller
         <ProDescriptions.Item label="Previous owner / 原车主">{owner ? `${owner.name} / ${owner.phone}` : "Not selected"}</ProDescriptions.Item>
         <ProDescriptions.Item label="Previous owner NRIC / 原车主身份证">{hasSellerNric ? "Reviewed and ready to upload" : "Not uploaded"}</ProDescriptions.Item>
         <ProDescriptions.Item label="VOC / 车辆登记证">{hasVoc ? "Reviewed and ready to upload" : "Not uploaded (optional)"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Settlement reminder / 结算提醒">{draft.prepareSettlement ? formatMoney(Number(draft.purchasePrice ?? 0)) : "Finance follow-up after intake"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Bank debt / 银行欠款">{draft.prepareSettlement ? formatMoney(Number(draft.bankDebtAmount ?? 0)) : "Not prepared"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Settlement / 结算">{draft.prepareSettlement ? `${settlementDirectionLabel(settlementPreview(Number(draft.purchasePrice ?? 0), Number(draft.bankDebtAmount ?? 0))?.direction)}: ${formatMoney(settlementPreview(Number(draft.purchasePrice ?? 0), Number(draft.bankDebtAmount ?? 0))?.amount ?? 0)}` : "Finance follow-up after intake"}</ProDescriptions.Item>
         <ProDescriptions.Item label="Settlement deadline / 结算期限">{draft.prepareSettlement ? displayValue(draft.settlementDeadline) : "Not prepared"}</ProDescriptions.Item>
       </ProDescriptions>
     </Space>
@@ -721,14 +721,14 @@ export function VehiclePage({
   dashboardFocus?: DashboardVehicleFocus;
   dashboardAnalyticsPeriod?: DashboardAnalyticsPeriod;
   onClearDashboardFocus: () => void;
-  onCreate: (vehicle: Vehicle, settlement: SettlementReminder | undefined, newOwner: Owner | undefined, identityCard: File, voc?: File) => Promise<VehicleIntakeCreateResponse>;
+  onCreate: (vehicle: Vehicle, settlement: VehicleIntakeSettlementInput | undefined, newOwner: Owner | undefined, identityCard: File, voc?: File) => Promise<VehicleIntakeCreateResponse>;
   onUpdate: (vehicle: Vehicle) => Promise<void>;
   onStartLoan: (vehicle: Vehicle) => Promise<void>;
   onOpenCustomer: (customerId: string) => void;
   onCreateCustomer: (customer: Customer) => Promise<void>;
-  onUpdateCustomer: (customer: Customer) => void;
+  onUpdateCustomer: (customer: Customer) => Promise<void>;
   onCreateOwner: (owner: Owner) => Promise<void>;
-  onUpdateOwner: (owner: Owner) => void;
+  onUpdateOwner: (owner: Owner) => Promise<void>;
   onUpdatePurchaseInvoice: (invoice: PurchaseInvoice) => Promise<void>;
   onGeneratePurchaseInvoice: (vehicleId: string, input: GeneratePurchaseInvoiceInput) => Promise<PurchaseInvoice>;
   onCreatePurchaseInvoiceRevision: (invoiceId: string, input: CreatePurchaseInvoiceRevisionInput) => Promise<PurchaseInvoice>;
@@ -748,6 +748,8 @@ export function VehiclePage({
   const [photoDeleteDialogSubmitting, setPhotoDeleteDialogSubmitting] = useState(false);
   const [photoDeleteError, setPhotoDeleteError] = useState<string | null>(null);
   const [photoGalleryWarning, setPhotoGalleryWarning] = useState<string | null>(null);
+  const [uploadsError, setUploadsError] = useState<string | null>(null);
+  const [uploadsLoading, setUploadsLoading] = useState(false);
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
   const [editVehicleId, setEditVehicleId] = useState(vehicles[0]?.id ?? "");
   const [editPurchaseInvoiceId, setEditPurchaseInvoiceId] = useState(purchaseInvoices[0]?.id ?? "");
@@ -763,6 +765,7 @@ export function VehiclePage({
   const [vehicleCreateOpen, setVehicleCreateOpen] = useState(false);
   const [vehicleIntakeDraft, setVehicleIntakeDraft] = useState<VehicleIntakeDraft>({});
   const [sellerIdentityReviewForm] = Form.useForm<SellerIdentityReviewValues>();
+  const [vehicleDetailForm] = Form.useForm<VehicleIntakeValues>();
   const [sellerIdentityPreview, setSellerIdentityPreview] = useState<OwnerIdentityCardPreview | null>(null);
   const [sellerIdentityReviewOpen, setSellerIdentityReviewOpen] = useState(false);
   const [sellerIdentityBusy, setSellerIdentityBusy] = useState(false);
@@ -770,6 +773,9 @@ export function VehiclePage({
   const [sellerNricFile, setSellerNricFile] = useState<File | null>(null);
   const [sellerVocFile, setSellerVocFile] = useState<File | null>(null);
   const [pendingOwnerDraft, setPendingOwnerDraft] = useState<Owner | null>(null);
+  const [vehicleCreateSaving, setVehicleCreateSaving] = useState(false);
+  const [vehicleCreateError, setVehicleCreateError] = useState<string | null>(null);
+  const vehicleCreateSavingRef = useRef(false);
   const sellerIdentityRequestId = useRef(0);
   const sellerIdentityName = Form.useWatch("name", sellerIdentityReviewForm);
   const sellerIdentityIcNumber = Form.useWatch("icNumber", sellerIdentityReviewForm);
@@ -795,7 +801,7 @@ export function VehiclePage({
   useEffect(() => {
     void getSupplierMaster()
       .then(setSupplierMaster)
-      .catch((error) => message.error(humanizeApiError(error, "Unable to load approved suppliers.")));
+      .catch((error) => message.error(humanizeApiError(error, "Unable to load suppliers.")));
   }, []);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const [customerCreateForLoanVehicleId, setCustomerCreateForLoanVehicleId] = useState("");
@@ -850,6 +856,28 @@ export function VehiclePage({
     void loadCatalogModels();
   }, [loadCatalogModels]);
   const selectedVehicle = vehicles.find((vehicle) => vehicle.id === editVehicleId) ?? vehicles[0];
+  useEffect(() => {
+    if (!selectedVehicle) return;
+    vehicleDetailForm.setFieldsValue(selectedVehicle);
+    if (selectedVehicle.publicDescriptionMarkdown?.trim()) return;
+    if (!String(vehicleDetailForm.getFieldValue("publicDescriptionMarkdown") ?? "").trim()) {
+      vehicleDetailForm.setFieldValue("publicDescriptionMarkdown", neutralVehicleDescriptionTemplate);
+    }
+  }, [selectedVehicle?.id, vehicleDetailForm]);
+  const useVehicleDescriptionTemplate = () => {
+    const applyTemplate = () => vehicleDetailForm.setFieldValue("publicDescriptionMarkdown", neutralVehicleDescriptionTemplate);
+    if (String(vehicleDetailForm.getFieldValue("publicDescriptionMarkdown") ?? "").trim()) {
+      Modal.confirm({
+        title: "Replace the public description?",
+        content: "This replaces the current Markdown with a neutral vehicle-highlights template. Existing copy will not be retained in the form.",
+        okText: "Use template",
+        cancelText: "Keep current copy",
+        onOk: applyTemplate
+      });
+      return;
+    }
+    applyTemplate();
+  };
   const selectedVehiclePricePolicy = vehicleSellingPriceEditPolicy(selectedVehicle, canApproveVehicles);
   const selectedVehicleCustomerPolicy = selectedVehicle ? vehicleCustomerEditPolicy(selectedVehicle, loans) : { locked: false, allowedCustomerIds: [] };
   const selectedVehicleCustomerOptions = selectedVehicleCustomerPolicy.allowedCustomerIds.length > 0
@@ -1104,10 +1132,18 @@ export function VehiclePage({
     return <Button size="small" onClick={() => handleStartLoan(vehicle)}>{workflow.nextLabel}</Button>;
   };
 
-  const approveVehicle = async (vehicle: Vehicle) => {
+  const approveVehicle = (vehicle: Vehicle) => {
     if (!canApproveVehicles || vehicle.bossConfirmed) return;
-    await onUpdate({ ...vehicle, bossConfirmed: true, isPublic: false });
-    message.success("Vehicle approved.");
+    Modal.confirm({
+      title: `Approve ${vehicle.plateNumber}?`,
+      content: "Confirm the vehicle and selling price have been checked. Approval is recorded for your account; the vehicle remains private until published separately.",
+      okText: "Approve vehicle",
+      cancelText: "Cancel",
+      onOk: async () => {
+        await onUpdate({ ...vehicle, bossConfirmed: true, isPublic: false });
+        message.success("Vehicle approved.");
+      }
+    });
   };
 
   const renderVehicleActions = (vehicle: Vehicle) => (
@@ -1144,7 +1180,7 @@ export function VehiclePage({
     }
   };
 
-  const loadUploads = useCallback(async (vehicleId = selectedVehicleId, strictPhotos = false) => {
+  const loadUploads = useCallback(async (vehicleId = selectedVehicleId, throwOnFailure = false) => {
     if (!canStartVehicleUploadLoad(vehicleId, selectedVehicleIdRef.current)) return;
     const requestId = ++uploadsRequestId.current;
     if (!vehicleId) {
@@ -1155,17 +1191,28 @@ export function VehiclePage({
       setPhotosVehicleId("");
       return;
     }
-    const [photoData, documentData, ocrJobData] = await Promise.all([
-      strictPhotos ? getVehiclePhotosStrict(vehicleId) : getVehiclePhotos(vehicleId),
-      getVehicleDocuments(vehicleId),
-      getVehicleOcrJobs(vehicleId)
-    ]);
-    if (!canApplyVehicleUploadLoad(requestId, uploadsRequestId.current, vehicleId, selectedVehicleIdRef.current)) return;
-    setPhotoGalleryWarning(null);
-    setPhotos(photoData);
-    setPhotosVehicleId(vehicleId);
-    setDocuments(documentData);
-    setOcrJobs(ocrJobData);
+    setUploadsError(null);
+    setUploadsLoading(true);
+    try {
+      const [photoData, documentData, ocrJobData] = await Promise.all([
+        getVehiclePhotosStrict(vehicleId),
+        getVehicleDocumentsStrict(vehicleId, "Unable to load vehicle documents"),
+        getVehicleOcrJobsStrict(vehicleId)
+      ]);
+      if (!canApplyVehicleUploadLoad(requestId, uploadsRequestId.current, vehicleId, selectedVehicleIdRef.current)) return;
+      setPhotoGalleryWarning(null);
+      setPhotos(photoData);
+      setPhotosVehicleId(vehicleId);
+      setDocuments(documentData);
+      setOcrJobs(ocrJobData);
+    } catch (error) {
+      if (canApplyVehicleUploadLoad(requestId, uploadsRequestId.current, vehicleId, selectedVehicleIdRef.current)) {
+        setUploadsError(humanizeApiError(error, "Documents could not be refreshed. Previously loaded files may be out of date."));
+      }
+      if (throwOnFailure) throw error;
+    } finally {
+      if (canApplyVehicleUploadLoad(requestId, uploadsRequestId.current, vehicleId, selectedVehicleIdRef.current)) setUploadsLoading(false);
+    }
   }, [selectedVehicleId]);
 
   const deleteSavedPhoto = async (vehicleId: string, photoId: string): Promise<boolean> => {
@@ -1756,13 +1803,16 @@ export function VehiclePage({
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectPurchaseInvoice(row.id)}>Details</Button></Space> }
   ];
   const captureVehicleIntakeStep = async (values: VehicleIntakeDraft) => {
+    setVehicleCreateError(null);
     setVehicleIntakeDraft((current) => ({ ...current, ...values }));
     return true;
   };
   const closeVehicleCreate = () => {
     sellerIdentityRequestId.current += 1;
+    vehicleCreateSavingRef.current = false;
     setVehicleCreateOpen(false);
     setVehicleIntakeDraft({});
+    setVehicleCreateError(null);
     setSellerIdentityPreview(null);
     setSellerIdentityReviewOpen(false);
     setSellerIdentityBusy(false);
@@ -1771,6 +1821,39 @@ export function VehiclePage({
     setSellerVocFile(null);
     setPendingOwnerDraft(null);
     sellerIdentityReviewForm.resetFields();
+  };
+
+  const submitVehicleIntake = async (values: VehicleIntakeDraft) => {
+    if (vehicleCreateSavingRef.current) return false;
+
+    setVehicleCreateError(null);
+    if (!sellerNricFile || !sellerIdentityConfirmed) {
+      setVehicleCreateError("Attach the previous owner NRIC and confirm the owner details before creating the vehicle.");
+      return false;
+    }
+
+    const vehicleId = newId();
+    const vehicle = vehicleFromCreateIntakeValues(values, canApproveVehicles, vehicleId);
+    const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
+    if (blockReason) {
+      setVehicleCreateError(blockReason);
+      return false;
+    }
+
+    vehicleCreateSavingRef.current = true;
+    setVehicleCreateSaving(true);
+    try {
+      const settlement = settlementFromVehicleIntakeValues(values, vehicleId, newId());
+      await onCreate(vehicle, settlement, pendingOwnerDraft ?? undefined, sellerNricFile, sellerVocFile ?? undefined);
+      closeVehicleCreate();
+      return true;
+    } catch (error) {
+      setVehicleCreateError(humanizeApiError(error, "Unable to create the vehicle. Please try again."));
+      return false;
+    } finally {
+      vehicleCreateSavingRef.current = false;
+      setVehicleCreateSaving(false);
+    }
   };
 
   const clearPreviousOwnerIdentity = () => {
@@ -1856,7 +1939,7 @@ export function VehiclePage({
     <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
       <ProCard
         title="Vehicle Inventory / 车辆库存"
-        extra={<Space><Tag color="green">{vehicles.length} vehicles</Tag><Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
+        extra={<Space><Tag color="green">{vehicles.length} vehicles</Tag><Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateError(null); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
       >
         {dashboardFocus && <Alert
           className="sectionIntroAlert"
@@ -2173,6 +2256,7 @@ export function VehiclePage({
               <Descriptions.Item label="Website / 网站"><Badge status={loanHandoffVehicle.isPublic ? "success" : "default"} text={loanHandoffVehicle.isPublic ? "Visible" : "Hidden"} /></Descriptions.Item>
             </Descriptions>
             <Form
+              name="loanHandoff"
               form={loanHandoffForm}
               layout="vertical"
               onFinish={(values) => void submitLoanHandoff(values)}
@@ -2242,7 +2326,7 @@ export function VehiclePage({
             { key: "documents", label: "Documents & photos" }
           ]}
         />
-        <Space direction="vertical" size={16} className="fullWidth">
+        <div className="fullWidth vehicleDetailTabContent">
           <div hidden={vehicleDetailTab !== "overview"}>
             <Space direction="vertical" size={16} className="fullWidth">
           {selectedVehicle ? (
@@ -2337,6 +2421,8 @@ export function VehiclePage({
             title="Vehicle Record / 收车资料"
           >
             <Form
+              form={vehicleDetailForm}
+              name="vehicleEdit"
               key={selectedVehicle
                 ? `${selectedVehicle.id}-${selectedVehicle.sellingPrice}-${Boolean(selectedVehicle.bossConfirmed)}-${selectedVehicle.isPublic}`
                 : "vehicle-detail-edit"}
@@ -2457,7 +2543,17 @@ export function VehiclePage({
                 <DatePicker className="fullWidth" showTime={{ format: "HH:mm", minuteStep: 5 }} format="DD MMM YYYY, HH:mm" placeholder="Select date and time" />
               </Form.Item>
               <Form.Item name="outstationPickupBookingSlip" label="Booking Slip Reference / 预约单参考编号"><Input placeholder="Booking slip no. or file ref" /></Form.Item>
-              <Form.Item className="vehicleMarkdownField" name="publicDescriptionMarkdown" label="Public Listing Description (Markdown)" extra="Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text.">
+              <Form.Item
+                className="vehicleMarkdownField"
+                name="publicDescriptionMarkdown"
+                label="Public Listing Description (Markdown)"
+                extra={(
+                  <Space direction="vertical" size={2}>
+                    <span>Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text.</span>
+                    <Button type="link" size="small" onClick={useVehicleDescriptionTemplate}>Use neutral template</Button>
+                  </Space>
+                )}
+              >
                 <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: "## Ready stock\n\n- Key feature\n- Viewing by appointment" }} />
               </Form.Item>
               <div className="vehicleMarkdownPreviewField">
@@ -2483,6 +2579,7 @@ export function VehiclePage({
             <OperationsProTable
               rowKey="id"
               size="small"
+              search={{ span: { xs: 24, sm: 12, md: 8, lg: 6, xl: 6, xxl: 6 } }}
               columns={[
                 { title: "Customer", dataIndex: "customerName" },
                 { title: "Phone", dataIndex: "phone" },
@@ -2500,6 +2597,7 @@ export function VehiclePage({
           </div>
           <div hidden={vehicleDetailTab !== "documents"}>
           <ProCard title="Photo & Document Upload / 照片与文件上传">
+            {uploadsError && <Alert type="error" showIcon message="Could not load the latest files" description={uploadsError} action={<Button loading={uploadsLoading} onClick={() => void loadUploads()}>Retry files</Button>} />}
             <Tabs
               activeKey={vehicleAssetTab}
               onChange={setVehicleAssetTab}
@@ -2508,7 +2606,7 @@ export function VehiclePage({
                 { key: "photos", label: "Website photos" }
               ]}
             />
-            <Form layout="vertical" className="formGrid vehicleUploadForm">
+            <Form name="vehicleUpload" layout="vertical" className="formGrid vehicleUploadForm">
               <div hidden={vehicleAssetTab !== "photos"}>
               <Form.Item className="vehiclePhotoDropField" label="Website Photos">
                 <Upload.Dragger
@@ -2557,7 +2655,7 @@ export function VehiclePage({
               <div hidden={vehicleAssetTab !== "documents"}>
               <div className="vehicleDocumentSection">
                 <Typography.Text className="moduleEyebrow">Add a vehicle document</Typography.Text>
-                <Typography.Text type="secondary">Choose a document type to add it and view its own history. IC and VOC photos open a review before anything is saved.</Typography.Text>
+                <Typography.Text type="secondary">Choose a document type to add it and view its history. IC images and VOC PDFs or images are saved as evidence; review and confirm extracted values before applying them to the linked record.</Typography.Text>
               </div>
               {selectedVehicleUploadReminders.length > 0 && (
                 <Alert
@@ -2659,7 +2757,7 @@ export function VehiclePage({
                     vehicleId={selectedVehicleId}
                     category={documentCategory}
                     disabled={uploadDisabled || !documentOwnershipReady}
-                    buttonLabel={documentCategory === "IdentityCard" ? "Add identity card photo" : "Add VOC photo"}
+                    buttonLabel={documentCategory === "IdentityCard" ? "Add identity card photo" : "Add VOC PDF or photo"}
                     applyLabel={documentCategory === "IdentityCard"
                       ? documentOwnershipTab === "Seller" ? "Use details in previous owner record" : "Use details in customer record"
                       : "Use details in vehicle record"}
@@ -2693,14 +2791,13 @@ export function VehiclePage({
                         ]
                       : []}
                     onUploaded={() => void loadUploads()}
-                    onApply={(values) => {
+                    onApply={async (values) => {
                       if (documentCategory === "IdentityCard") {
                         if (documentOwnershipTab === "Seller") {
                           if (!selectedVehicleOwner) {
-                            message.warning("Link a previous owner to this vehicle before applying IC values.");
-                            return;
+                            throw new Error("Link a previous owner to this vehicle before applying IC values.");
                           }
-                          onUpdateOwner({
+                          await onUpdateOwner({
                             ...selectedVehicleOwner,
                             name: ocrText(values.ownerName, selectedVehicleOwner.name),
                             icNumber: ocrOptionalText(values.icNumber, selectedVehicleOwner.icNumber),
@@ -2709,10 +2806,9 @@ export function VehiclePage({
                           message.success("Approved IC values were saved to the linked previous owner record.");
                         } else {
                           if (!selectedVehicleCustomer) {
-                            message.warning("Link a customer to this vehicle before applying approved IC values.");
-                            return;
+                            throw new Error("Link a customer to this vehicle before applying approved IC values.");
                           }
-                          onUpdateCustomer({
+                          await onUpdateCustomer({
                             ...selectedVehicleCustomer,
                             name: ocrText(values.customerName, selectedVehicleCustomer.name),
                             icNumber: ocrOptionalText(values.icNumber, selectedVehicleCustomer.icNumber),
@@ -2721,9 +2817,9 @@ export function VehiclePage({
                           message.success("Approved IC values were saved to the linked customer record.");
                         }
                       } else if (documentCategory === "Voc") {
-                        if (!selectedVehicle) return;
+                        if (!selectedVehicle) throw new Error("Open the vehicle record before applying VOC values.");
                         const ocrYear = Number(values.year);
-                        onUpdate({
+                        await onUpdate({
                           ...selectedVehicle,
                           plateNumber: ocrText(values.plateNumber, selectedVehicle.plateNumber),
                           chassisNumber: ocrOptionalText(values.chassisNumber, selectedVehicle.chassisNumber),
@@ -2767,15 +2863,20 @@ export function VehiclePage({
             </div>
           </ProCard>
           </div>
-        </Space>
+        </div>
       </Drawer>
       <Modal
         title="Create Vehicle / 新增车辆"
         width={860}
         open={vehicleCreateOpen}
-        onCancel={closeVehicleCreate}
+        onCancel={() => {
+          if (!vehicleCreateSaving) closeVehicleCreate();
+        }}
         footer={null}
         destroyOnClose
+        maskClosable={!vehicleCreateSaving}
+        closable={!vehicleCreateSaving}
+        keyboard={!vehicleCreateSaving}
         className="recordCreateModal"
       >
         <StepsForm
@@ -2783,7 +2884,9 @@ export function VehiclePage({
           stepsProps={{ responsive: true, size: "small" }}
           submitter={{
             render: ({ step }, dom) => dom.map((button) => {
-              if (!isValidElement<{ children?: ReactNode }>(button)) return button;
+              if (!isValidElement<{ children?: ReactNode; loading?: boolean; disabled?: boolean }>(button)) return button;
+              const isCreateButton = step === 3 && button.key !== "pre";
+              const isNavigationButton = button.key === "pre";
               const label = button.key === "next"
                 ? "Next / 下一步"
                 : button.key === "pre"
@@ -2791,28 +2894,14 @@ export function VehiclePage({
                   : step === 3
                     ? "Create Vehicle / 新增车辆"
                     : button.props.children;
-              return cloneElement(button, { children: label });
+              return cloneElement(button, {
+                children: label,
+                loading: isCreateButton ? vehicleCreateSaving : button.props.loading,
+                disabled: vehicleCreateSaving && (isCreateButton || isNavigationButton) ? true : button.props.disabled
+              });
             })
           }}
-          onFinish={async (values) => {
-            const intakeValues = values as VehicleIntakeDraft;
-            if (!sellerNricFile || !sellerIdentityConfirmed) {
-              message.warning("Attach the previous owner NRIC and confirm the owner details before creating the vehicle.");
-              return false;
-            }
-            const vehicleId = newId();
-            const vehicle = vehicleFromCreateIntakeValues(intakeValues, canApproveVehicles, vehicleId);
-            const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
-            if (blockReason) {
-              message.warning(blockReason);
-              return false;
-            }
-
-            const settlement = settlementFromVehicleIntakeValues(intakeValues, vehicleId, newId());
-            await onCreate(vehicle, settlement, pendingOwnerDraft ?? undefined, sellerNricFile, sellerVocFile ?? undefined);
-            closeVehicleCreate();
-            return true;
-          }}
+          onFinish={(values) => submitVehicleIntake(values as VehicleIntakeDraft)}
         >
           <StepsForm.StepForm
             name="identity"
@@ -2983,7 +3072,16 @@ export function VehiclePage({
             initialValues={{ contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
           >
             <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="sellingPrice" label="Selling / 售价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item
+              name="sellingPrice"
+              label="Selling / 售价"
+              rules={[
+                { required: true, message: "Enter the selling price." },
+                { type: "number", min: 0.01, message: "Selling price must be greater than zero." }
+              ]}
+            >
+              <InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+            </Form.Item>
             <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="refurbishmentTotal" label="Refurbishment Total / 整备预算"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
@@ -3004,32 +3102,38 @@ export function VehiclePage({
             title="Previous owner settlement / 原车主结算"
             onFinish={captureVehicleIntakeStep}
             className="vehicleIntakeStepForm"
-            initialValues={{ prepareSettlement: canPrepareSettlement, settlementDeadline: singaporeTodayIsoDate() }}
+            initialValues={{ prepareSettlement: canPrepareSettlement, bankDebtAmount: 0, settlementDeadline: singaporeTodayIsoDate() }}
           >
             {canPrepareSettlement ? <>
               <Alert
                 type="info"
                 showIcon
                 message="Prepare the previous owner settlement reminder"
-                description="The previous owner comes from Step 1 and the amount follows the purchase price from Step 2. This creates an unpaid Finance reminder; it does not approve or record payment."
+                description="Purchase price minus bank debt determines whether to pay the seller, collect the difference, or record an internal offset. The server calculates the final amount. Creating this record does not confirm payment or receipt."
               />
               <Form.Item name="prepareSettlement" label="Create settlement reminder / 建立结算提醒" valuePropName="checked">
                 <Switch checkedChildren="Yes" unCheckedChildren="No" />
               </Form.Item>
-              <Form.Item noStyle shouldUpdate={(previous, current) => previous.prepareSettlement !== current.prepareSettlement}>
+              <Form.Item noStyle shouldUpdate={(previous, current) => previous.prepareSettlement !== current.prepareSettlement || previous.bankDebtAmount !== current.bankDebtAmount}>
                 {({ getFieldValue }) => getFieldValue("prepareSettlement") ? <>
                   <Descriptions bordered size="small" column={1}>
                     <Descriptions.Item label="Previous owner / 原车主">
                       {(owners.find((owner) => owner.id === vehicleIntakeDraft.ownerId) ?? (pendingOwnerDraft?.id === vehicleIntakeDraft.ownerId ? pendingOwnerDraft : undefined))?.name ?? "Not selected"}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Settlement amount / 结算金额">
+                    <Descriptions.Item label="Purchase price / 收车价">
                       {formatMoney(Number(vehicleIntakeDraft.purchasePrice ?? 0))}
                     </Descriptions.Item>
+                    <Descriptions.Item label="Settlement / 结算">
+                      {settlementDirectionLabel(settlementPreview(Number(vehicleIntakeDraft.purchasePrice ?? 0), Number(getFieldValue("bankDebtAmount") ?? 0))?.direction)}: {formatMoney(settlementPreview(Number(vehicleIntakeDraft.purchasePrice ?? 0), Number(getFieldValue("bankDebtAmount") ?? 0))?.amount ?? 0)}
+                    </Descriptions.Item>
                   </Descriptions>
+                  <Form.Item name="bankDebtAmount" label="Outstanding bank debt / 银行欠款" rules={[{ required: true, message: "Enter the bank debt, or zero if none." }]}>
+                    <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
+                  </Form.Item>
                   <Form.Item
                     name="settlementDeadline"
                     label="Settlement deadline / 结算期限"
-                    rules={[{ required: true, message: "Choose the settlement deadline." }]}
+                    rules={[{ required: Number(vehicleIntakeDraft.purchasePrice ?? 0) !== Number(getFieldValue("bankDebtAmount") ?? 0), message: "Choose the settlement deadline." }]}
                     getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })}
                     normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}
                   >
@@ -3045,6 +3149,12 @@ export function VehiclePage({
             />}
           </StepsForm.StepForm>
           <StepsForm.StepForm name="review" title="Review / 核对">
+            {vehicleCreateError ? <Alert
+              type="error"
+              showIcon
+              message="Check the vehicle submission"
+              description={vehicleCreateError}
+            /> : null}
             <VehicleIntakeReview draft={vehicleIntakeDraft} customers={customers} owners={owners} pendingOwner={pendingOwnerDraft} hasSellerNric={Boolean(sellerNricFile)} hasVoc={Boolean(sellerVocFile)} />
           </StepsForm.StepForm>
         </StepsForm>
@@ -3108,7 +3218,7 @@ export function VehiclePage({
               </Space>
             </>
           ) : sellerIdentityPreview ? (
-            <Form form={sellerIdentityReviewForm} layout="vertical" onFinish={(values) => void confirmNewOwnerFromIdentityCard(values)}>
+            <Form name="sellerIdentityReview" form={sellerIdentityReviewForm} layout="vertical" onFinish={(values) => void confirmNewOwnerFromIdentityCard(values)}>
               <Alert
                 type="warning"
                 showIcon
@@ -3231,6 +3341,7 @@ export function VehiclePage({
         {selectedPurchaseInvoice?.sourceType === "OwnerAcquisition" ? (
           <OwnerPurchaseInvoiceDetails invoice={selectedPurchaseInvoice} onCreateRevision={onCreatePurchaseInvoiceRevision} />
         ) : <Form
+          name="purchaseInvoiceEdit"
           key={selectedPurchaseInvoice?.id ?? "purchase-invoice-edit"}
           layout="vertical"
           className="drawerForm"
@@ -3260,7 +3371,7 @@ export function VehiclePage({
         >
           <Form.Item name="id" label="Selected Purchase Invoice"><Select options={purchaseInvoices.map((invoice) => ({ value: invoice.id, label: `${plateFor(vehicles, invoice.vehicleId)} / ${invoice.invoiceNumber}` }))} onChange={selectPurchaseInvoice} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="supplierId" label="Approved supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => supplier.approvalStatus === "Approved").map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
+          <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter(isSupplierUsable).map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceDate" label="Invoice Date" rules={[{ required: true }]}><DatePicker className="fullWidth" /></Form.Item>
           <Form.Item name="purchaseDate" label="Purchase Date"><DatePicker className="fullWidth" /></Form.Item>
@@ -3291,7 +3402,7 @@ export function VehiclePage({
                     destroyOnClose
                     className="recordCreateModal"
                   >
-                  <Form layout="vertical" className="modalForm" onFinish={(values) => {
+                  <Form name="vehicleCustomerCreate" layout="vertical" className="modalForm" onFinish={(values) => {
                     const customer: Customer = {
                       id: newId(),
                       name: values.name,
@@ -3322,6 +3433,7 @@ export function VehiclePage({
                   </Form>
                   </Modal>
                   {false && <Form
+                    name="vehicleLegacyCustomerEdit"
                     key={selectedCustomer?.id ?? "customer-edit"}
                     layout="vertical"
                     className="formGrid"
@@ -3379,7 +3491,7 @@ export function VehiclePage({
                     destroyOnClose
                     className="recordCreateModal"
                   >
-                  <Form layout="vertical" className="modalForm" onFinish={(values) => {
+                  <Form name="vehicleOwnerCreate" layout="vertical" className="modalForm" onFinish={(values) => {
                     const owner: Owner = {
                       id: newId(),
                       name: values.name,
@@ -3400,6 +3512,7 @@ export function VehiclePage({
                   </Form>
                   </Modal>
                   {false && <Form
+                    name="vehicleLegacyOwnerEdit"
                     key={selectedOwner?.id ?? "owner-edit"}
                     layout="vertical"
                     className="formGrid"
@@ -3448,7 +3561,7 @@ export function VehiclePage({
         keyboard={!customerCreating}
         className="recordCreateModal"
       >
-        <Form layout="vertical" className="modalForm" onFinish={async (values) => {
+        <Form name="vehicleCustomerDetailsCreate" layout="vertical" className="modalForm" onFinish={async (values) => {
           const customer: Customer = {
             id: newId(),
             name: values.name,
@@ -3514,7 +3627,7 @@ export function VehiclePage({
         destroyOnClose
         className="recordCreateModal"
       >
-        <Form layout="vertical" className="modalForm" onFinish={async (values) => {
+        <Form name="vehicleOwnerDetailsCreate" layout="vertical" className="modalForm" onFinish={async (values) => {
           const owner: Owner = {
             id: newId(),
             name: values.name,
@@ -3554,6 +3667,7 @@ export function VehiclePage({
         className="recordEditDrawer"
       >
         <Form
+          name="vehicleCustomerEdit"
           key={selectedCustomer?.id ?? "customer-edit-drawer"}
           layout="vertical"
           className="drawerForm"
@@ -3600,6 +3714,7 @@ export function VehiclePage({
         className="recordEditDrawer"
       >
         <Form
+          name="vehicleOwnerEdit"
           key={selectedOwner?.id ?? "owner-edit-drawer"}
           layout="vertical"
           className="drawerForm"
@@ -3634,7 +3749,7 @@ export function VehiclePage({
         </Form>
       </Drawer>
       {false && <ProCard title="Photo & Document Upload / 照片与文件上传">
-        <Form layout="vertical" className="formGrid">
+        <Form name="vehicleLegacyUpload" layout="vertical" className="formGrid">
           <Form.Item label="Car Plate">
             <Select
               value={selectedVehicleId || undefined}

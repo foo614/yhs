@@ -135,7 +135,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `POST` | `/api/owners` | `Vehicles` | Create previous owner. Normalized phone and non-empty IC numbers must be unique. |
 | `PUT` | `/api/owners/{id}` | `Vehicles` | Update previous owner while preserving normalized phone and IC uniqueness. |
 | `GET` | `/api/purchase-invoices` | `PurchaseAccountingRead` | List purchase invoices with current classified lines. Owner-acquisition invoices additionally include source type, Owner ID, current revision number and the current revision snapshot; PDF bytes are excluded from JSON. |
-| `POST` | `/api/purchase-invoices` | `Vehicles` | Retained legacy supplier-record route. Requires an approved supplier and staff-provided number/dates; classified lines must equal the total. Does not generate a PDF or accept owner-acquisition or revision metadata. New Owner-based invoices use the generate route. |
+| `POST` | `/api/purchase-invoices` | `Vehicles` | Retained legacy supplier-record route. Requires an active or approved supplier and staff-provided number/dates; classified lines must equal the total. Does not generate a PDF or accept owner-acquisition or revision metadata. New Owner-based invoices use the generate route. |
 | `PUT` | `/api/purchase-invoices/{id}` | `Vehicles` | Update a legacy draft purchase invoice and replace its classified lines. Finance-confirmed legacy invoices remain immutable. Generated Owner invoices must use the revision route. |
 | `POST` | `/api/vehicles/{vehicleId}/purchase-invoice/generate` | `Vehicles` | Issue the vehicle's Owner-based formal invoice and revision 1 PDF atomically from canonical Owner/intake data. Requires a Boss-confirmed intake, positive purchase price and valid Owner name/phone. The request contains `expectedOwnerId`, `expectedPurchasePrice` and `expectedIntakeDate`; stale source review is rejected. Uses a separate server number and Singapore issue date. Returns the existing generated invoice on retry. |
 | `POST` | `/api/purchase-invoices/{id}/revisions` | `Vehicles` | Correct a generated invoice using `expectedRevision`, a mandatory `reason`, dates, seller display details and classified lines. Creates the next full snapshot and PDF, retains previous versions, and resets current Finance confirmation. Source vehicle/Owner IDs and official number stay fixed; master records are not changed. |
@@ -193,7 +193,7 @@ OCR runtime:
 - Google Document AI is the only runtime OCR provider. Configure `Ocr__GoogleDocumentAi__ProjectId`, `Location`, and `DefaultProcessorId`; the deployment environment uses the equivalent `GOOGLE_DOCUMENT_AI_*` values.
 - Configure `InvoiceProcessorId` for purchase, repair, and payment invoices and `ExpenseProcessorId` for payment receipts. When either specialized processor is absent, OCR falls back to `DefaultProcessorId` and adds a review warning.
 - Authentication uses Google Application Default Credentials and the `cloud-platform` OAuth scope. The production container reads a least-privilege credential from `/run/secrets/google-document-ai.json`; never store credential JSON in source control or an environment-file value.
-- The backend sends validated image bytes to Google Document AI; the optional intake-VOC path also accepts validated English PDFs and sends the original `application/pdf` raw document. It does not convert PDFs to images. Keep the explicit review step because schema-valid extraction can still be semantically wrong. Existing IC and post-create upload validation remains unchanged.
+- The backend sends validated image bytes to Google Document AI. VOC accepts JPG, PNG, WebP and validated English PDFs in both intake preview and existing-vehicle document review; PDFs are sent as the original `application/pdf` raw document, not converted to images. The shared existing-vehicle picker enforces the existing 10 MB document limit and the 1-15 readable, unencrypted page VOC contract. IC remains image-only. Keep explicit review because valid extraction can still be semantically wrong; uploading evidence does not itself apply or approve master data. Empty extraction is not presented as ready. Partial review/target-save failures retain the reviewed values and expose a retry of the remaining step.
 - Local and production OCR both require Google Document AI configuration and Application Default Credentials; there is no local/mock runtime fallback.
 - Before OCR calls an external provider, the API reserves one usage unit against the server-side OCR limits. Exhausted or disabled limits return `429` with a structured `message`; a provider-attempted request remains counted even if the provider later fails.
 
@@ -217,7 +217,7 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/loans` | `Loans` | List loan applications. |
-| `POST` | `/api/loans` | `Loans` | Create an exceptional/manual loan workflow record. An active loan establishes or verifies the vehicle's canonical customer. Manual `Rejected` records require a rejection reason; decision actor/time are server-owned. |
+| `POST` | `/api/loans` | `BossAdmin` | Create an exceptional/manual loan workflow record. An active loan establishes or verifies the vehicle's canonical customer. Manual `Rejected` records require a rejection reason; decision actor/time are server-owned. |
 | `POST` | `/api/loans/{id}/decision` | `Loans` | Record `Approved` or `Rejected` for a `Pending` loan. Rejection requires a reason. The server sets decision actor/time and normalizes LOU flags. |
 | `PUT` | `/api/loans/{id}` | `Loans` | Update non-decision loan workflow fields. Approval/rejection must use the decision action, terminal `Rejected`/`Done` records are review-only, and `Done` requires the current buyer's full vehicle-scoped document set. General updates and decisions lock the loan row so a stale update cannot overwrite a recorded decision. |
 | `GET` | `/api/loans/{id}/document-check` | `Loans` | Check VOC/AP/status receipt/loan document completeness. |
@@ -235,14 +235,14 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `POST` | `/api/deliveries/{id}/cancel` | `Deliveries` | Cancel an active delivery plan with a required reason. |
 | `GET` | `/api/repairs` | `Repairs` | List repair jobs. |
 | `POST` | `/api/repairs` | `Repairs` | Create repair job. |
-| `POST` | `/api/repairs/from-receipt` | `Repairs` | After OCR review, atomically create a repair job, supplier invoice, linked repair receipt, and its confirmed receipt items from an unlinked vehicle repair-invoice upload. |
+| `POST` | `/api/repairs/from-receipt` | `Repairs` | Accept nested `repair`, `invoice` and `receipt` commands after OCR review. Atomically create a repair job, supplier invoice, linked repair receipt and its confirmed receipt items from an unlinked vehicle repair-invoice upload. Vehicle/document locks serialize creation. An equivalent retry returns the existing records (200); changed confirmed details conflict (409). A new command returns 201. High-cost approval remains server-owned. |
 | `PUT` | `/api/repairs/{id}` | `Repairs` | Update repair job. |
 | `POST` | `/api/repairs/{id}/approval` | `BossAdmin` | Approve a repair with the authenticated Boss/Admin actor and server timestamp. Repair CRUD cannot supply an approval; material repair changes reset it. |
 | `GET` | `/api/repairs/{id}/receipts` | `Repairs` | List confirmed repair receipts and their child items. |
-| `POST` | `/api/repairs/{id}/receipts/confirm` | `Repairs` | Confirm one uploaded repair receipt and its reviewed child items for an existing repair job. |
+| `POST` | `/api/repairs/{id}/receipts/confirm` | `Repairs` | Confirm one uploaded repair receipt and its reviewed child items for an existing repair job. Equivalent retries return the saved receipt/items without repeated writes or audits; changed confirmed values conflict. |
 | `GET` | `/api/suppliers` | `Repairs` | Derived supplier master summary from supplier invoices. |
 | `GET` | `/api/supplier-master` | `SupplierRead` | List supplier master records with address, phone, TIN, AutoCount creditor code, and approval status. |
-| `POST` / `PUT` | `/api/supplier-master` | `Repairs` | Create or update a supplier draft. Approved suppliers are immutable. |
+| `POST` / `PUT` | `/api/supplier-master` | `Repairs` | Create an immediately usable `Active` supplier, or update an editable supplier. The server owns status and does not invent approver metadata. Historical `Draft` approval remains separate; legacy `Approved` suppliers are immutable and remain usable. `Inactive` suppliers remain unusable. Repair high-cost and Finance payment approval are unchanged. |
 | `POST` | `/api/supplier-master/{id}/approve` | `Finance` | Approve a supplier draft. Finance creators require another approver; Boss/Admin may self-approve as an audited override. |
 | `GET` | `/api/supplier-invoices` | `Repairs` | List supplier invoices. |
 | `GET` | `/api/supplier-invoices/aging` | `Repairs` | Supplier invoice aging view for unmatched, due-soon, overdue, and paid states. |
@@ -304,9 +304,10 @@ First-deploy assumptions: no pre-existing Finance V2 invoice can already have an
 | `POST` | `/api/collection-transactions/{id}/reverse` | Boss/Admin reverses a collection with a required reason; no collection row is deleted. |
 | `POST` | `/api/deliveries/{id}/resolve-invoice-update` | Finance closes a legacy pre-issuance Delivery invoice-update request after handling it; this records the Finance actor and server timestamp. Resolution is rejected after an immutable Finance V2 invoice exists. |
 | `GET` | `/api/finance-invoices/{invoiceId}/content` | Download the protected YS Heng sales-invoice PDF and record the authenticated Finance actor in the audit log before content is returned. |
-| `GET` / `POST` | `/api/settlement-reminders` | List/create settlement reminders. |
+| `GET` / `POST` | `/api/settlement-reminders` | List/create seller settlements. Create takes `vehicleId`, nonnegative `bankDebtAmount`, optional `expectedPurchasePrice` and `deadline`; canonical Owner and positive purchase price are read from the vehicle. The server snapshots purchase price and calculates direction and absolute difference. Client amount, owner and completion values cannot override it. |
 | `GET` | `/api/settlement-drafts` | Return Finance-only previous-owner and purchase-price intake values used to prefill settlement review. |
-| `PUT` | `/api/settlement-reminders/{id}` | Update settlement reminder. |
+| `PUT` | `/api/settlement-reminders/{id}` | Edit open settlement bank debt/deadline only, recomputing from the stored purchase-price snapshot. Historical settlement amount/Owner are preserved. Requires `expectedAmount`, `expectedDirection`, `expectedBankDebtAmount` (null for legacy), `expectedDeadline`, and `expectedIsPaid`; stale snapshots return 409. A completed record must be reopened separately. |
+| `POST` | `/api/settlement-reminders/{id}/status` | Confirm payment/receipt/offset or reopen, with `isPaid` and the same expected snapshot as term edits. Status changes do not accept new monetary terms. Stale or repeated transitions return 409; authenticated actor and transition are audited. No funds are transferred or posted to AutoCount. |
 | `GET` / `POST` | `/api/daily-spends` | List/create daily spend rows. |
 | `PUT` | `/api/daily-spends/{id}` | Update daily spend row. |
 | `GET` / `POST` | `/api/broker-commissions` | List/create broker commission rows. |
@@ -446,6 +447,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `PaymentVoucherStatus`: `Pending`, `Approved`, `Paid`
 - `CashHandoverStatus`: `ReceivedBySales`, `PendingHandover`, `HandedOver`, `Rejected`, `Receipted`
 - `DebtRecoveryStatus`: `Open`, `FollowedUp`, `Closed`
+- `SettlementDirection`: `LegacyPaySeller`, `PaySeller`, `CollectFromSeller`, `InternalOffset`
+- `SupplierApprovalStatus`: `Draft`, `Approved`, `Inactive`, `Active`
 - `RepairApprovalStatus`: `Pending`, `Approved`, `Rejected`
 - `SupplierInvoiceAgingStatus`: `Unmatched`, `DueSoon`, `Overdue`, `Paid`
 - `HrAttendanceStatus`: `Present`, `Late`, `HalfDay`, `Absent`

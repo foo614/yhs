@@ -1,5 +1,45 @@
-import { describe, expect, it } from "vitest";
-import { groupOcrFields, isOcrImageMimeType, ocrFailureMessage, ocrFieldConflicts, repairLineItemsFromRawText, type OcrReviewValues } from "./OcrUploadReview";
+import { describe, expect, it, vi } from "vitest";
+import type { OcrJob } from "../../api";
+import { groupOcrFields, isOcrImageMimeType, isOcrUploadMimeType, ocrFailureMessage, ocrFieldConflicts, ocrSupportsLineItems, repairLineItemsFromRawText, runOcrApplySteps, type OcrApplyProgress, type OcrReviewValues } from "./OcrUploadReview";
+
+describe("OCR partial-save recovery", () => {
+  const reviewedJob: OcrJob = { id: "reviewed-job", documentId: "document", category: "Voc", status: "Reviewed", progress: 100, warnings: [], createdAt: "2026-09-07T00:00:00Z", reviewDecision: "Reviewed" };
+
+  it("retries a failed target save without submitting the completed review again", async () => {
+    const progress: OcrApplyProgress = { targetApplied: false };
+    const applyTarget = vi.fn().mockRejectedValueOnce(new Error("Vehicle save failed")).mockResolvedValue(undefined);
+    const saveReview = vi.fn().mockResolvedValue(reviewedJob);
+    const changed = vi.fn();
+    await expect(runOcrApplySteps(progress, false, applyTarget, saveReview, changed)).rejects.toThrow("Vehicle save failed");
+    expect(progress).toEqual({ targetApplied: false, reviewedJob });
+    await runOcrApplySteps(progress, false, applyTarget, saveReview, changed);
+    expect(saveReview).toHaveBeenCalledTimes(1);
+    expect(applyTarget).toHaveBeenCalledTimes(2);
+    expect(applyTarget).toHaveBeenLastCalledWith(reviewedJob);
+    expect(progress.targetApplied).toBe(true);
+  });
+
+  it("retries review failure after a repair receipt save without creating another receipt", async () => {
+    const progress: OcrApplyProgress = { targetApplied: false };
+    const applyTarget = vi.fn().mockResolvedValue(undefined);
+    const saveReview = vi.fn().mockRejectedValueOnce(new Error("Review save failed")).mockResolvedValue(reviewedJob);
+    await expect(runOcrApplySteps(progress, true, applyTarget, saveReview, vi.fn())).rejects.toThrow("Review save failed");
+    expect(progress).toEqual({ targetApplied: true });
+    await runOcrApplySteps(progress, true, applyTarget, saveReview, vi.fn());
+    expect(applyTarget).toHaveBeenCalledTimes(1);
+    expect(saveReview).toHaveBeenCalledTimes(2);
+    expect(progress.reviewedJob).toBe(reviewedJob);
+  });
+
+  it("does not apply results when the selected record changes during review", async () => {
+    const progress: OcrApplyProgress = { targetApplied: false };
+    const applyTarget = vi.fn();
+    const changed = vi.fn();
+    await runOcrApplySteps(progress, false, applyTarget, async () => reviewedJob, changed, () => false);
+    expect(applyTarget).not.toHaveBeenCalled();
+    expect(changed).not.toHaveBeenCalled();
+  });
+});
 
 describe("OCR review conflicts", () => {
   it("accepts only OCR-supported image MIME types", () => {
@@ -8,6 +48,21 @@ describe("OCR review conflicts", () => {
     expect(isOcrImageMimeType("image/webp")).toBe(true);
     expect(isOcrImageMimeType("application/pdf")).toBe(false);
     expect(isOcrImageMimeType("image/gif")).toBe(false);
+  });
+
+  it("accepts VOC PDFs without broadening the identity-card or repair image contract", () => {
+    expect(isOcrUploadMimeType("Voc", "application/pdf")).toBe(true);
+    expect(isOcrUploadMimeType("Voc", "image/jpeg")).toBe(true);
+    expect(isOcrUploadMimeType("IdentityCard", "application/pdf")).toBe(false);
+    expect(isOcrUploadMimeType("RepairInvoice", "application/pdf")).toBe(false);
+    expect(isOcrUploadMimeType("Voc", "text/html")).toBe(false);
+  });
+
+  it("does not treat numbers in identity cards or VOCs as receipt line items", () => {
+    expect(ocrSupportsLineItems("IdentityCard")).toBe(false);
+    expect(ocrSupportsLineItems("Voc")).toBe(false);
+    expect(ocrSupportsLineItems("RepairInvoice")).toBe(true);
+    expect(ocrSupportsLineItems("PaymentReceipt")).toBe(true);
   });
 
   const fields = [
@@ -69,6 +124,6 @@ describe("OCR review conflicts", () => {
       result: null,
       warnings: ["Local OCR mock cannot read image files."]
     })).toBe("Local OCR mock cannot read image files.");
-    expect(ocrFailureMessage({ status: "NeedsReview", result: null, warnings: [] })).toBeUndefined();
+    expect(ocrFailureMessage({ status: "NeedsReview", result: null, warnings: [] })).toBe("OCR returned no usable values. Enter the details manually or try a clearer document.");
   });
 });

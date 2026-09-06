@@ -156,6 +156,7 @@ export function VehicleCatalogSettings() {
       />
       <Form
         form={catalogForm}
+        name="vehicleCatalog"
         layout="inline"
         initialValues={{ isActive: true }}
         onFinish={(values) => void saveCatalogModel(values)}

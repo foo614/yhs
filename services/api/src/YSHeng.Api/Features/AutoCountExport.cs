@@ -211,10 +211,18 @@ public static class AutoCountExcel
         rows.AddRange(suppliers.OrderBy(supplier => supplier.CompanyName).Select(supplier => new[] {
             supplier.Id.ToString(), supplier.CompanyName, supplier.RegistrationNumber ?? "", supplier.TinNumber ?? "", supplier.Address, supplier.Phone,
             supplier.ContactPerson ?? "", supplier.AutoCountCreditorCode ?? "", supplier.ApprovalStatus.ToString(),
-            supplier.ApprovalStatus == SupplierApprovalStatus.Approved ? "Approved supplier master." : "Draft supplier; do not import until Finance approval."
+            SupplierRemark(supplier.ApprovalStatus)
         }));
         return rows;
     }
+
+    private static string SupplierRemark(SupplierApprovalStatus status) => status switch
+    {
+        SupplierApprovalStatus.Approved => "Approved supplier master.",
+        SupplierApprovalStatus.Active => "Active supplier; manually map its AutoCount creditor code before import.",
+        SupplierApprovalStatus.Inactive => "Inactive supplier; do not import.",
+        _ => "Draft supplier; do not import until Finance approval."
+    };
 
     private static IReadOnlyList<IReadOnlyList<string>> PurchaseRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)
     {
@@ -267,10 +275,45 @@ public static class AutoCountExcel
         rows.AddRange(input.PaymentVouchers.Select(voucher => new[] {
             voucher.Id.ToString(), "PaymentVoucher", PlateFor(vehicles, voucher.VehicleId), $"{voucher.PayeeName}: {voucher.Purpose} | {voucher.PaymentMethod} | Source {voucher.SourceAccountCode} | Account {voucher.AccountingAccountCode} | Ref {voucher.ChequeNumber ?? voucher.PaymentReference ?? "-"} | Bank charge {Money(voucher.BankChargeAmount)} ({voucher.BankChargeAccountCode ?? "-"})", Money(voucher.Amount), EffectiveDateText(Present(voucher.IssuedDate), vehicles, voucher.VehicleId), voucher.Status.ToString(), voucher.Status == PaymentVoucherStatus.Paid ? "Paid with maker-checker evidence captured; TaxCode still needs Finance mapping." : "Do not post until the voucher is paid."
         }));
-        rows.AddRange(input.Settlements.Select(settlement => new[] {
-            settlement.Id.ToString(), "Settlement", PlateFor(vehicles, settlement.VehicleId), "Previous owner settlement", Money(settlement.Amount), EffectiveDateText(Present(settlement.Deadline), vehicles, settlement.VehicleId), settlement.IsPaid ? "Paid" : "Due", "Settlement account mapping is not verified."
-        }));
+        rows.AddRange(input.Settlements.Select(settlement => SettlementExportRow(settlement, vehicles)));
         return rows;
+    }
+
+    private static IReadOnlyList<string> SettlementExportRow(SettlementReminder settlement, IReadOnlyDictionary<Guid, Vehicle> vehicles)
+    {
+        if (SettlementRules.IsLegacy(settlement))
+        {
+            return [
+                settlement.Id.ToString(), "Settlement", PlateFor(vehicles, settlement.VehicleId), "Previous owner settlement", Money(settlement.Amount), EffectiveDateText(Present(settlement.Deadline), vehicles, settlement.VehicleId), settlement.IsPaid ? "Paid" : "Due", "Settlement account mapping is not verified."
+            ];
+        }
+
+        var absoluteDifference = Money(settlement.Amount);
+        var purchaseSnapshot = Money(settlement.PurchasePriceSnapshot ?? 0m);
+        var bankDebt = Money(settlement.BankDebtAmount ?? 0m);
+        var (category, action, exportedAmount, remark) = settlement.Direction switch
+        {
+            SettlementDirection.PaySeller => (
+                "SettlementPaySeller",
+                "Suggested Payment Voucher",
+                Money(settlement.Amount),
+                "Suggested Payment Voucher only; review seller and manual AutoCount account mapping. Do not post automatically."),
+            SettlementDirection.CollectFromSeller => (
+                "SettlementCollectFromSeller",
+                "Suggested Official Receipt",
+                Money(-settlement.Amount),
+                "Suggested Official Receipt only; review seller and manual AutoCount account mapping. Do not post automatically."),
+            SettlementDirection.InternalOffset => (
+                "SettlementInternalOffset",
+                "Internal offset",
+                Money(0m),
+                "Internal offset only; no cash action. Do not post automatically."),
+            _ => throw new InvalidOperationException("Calculated settlement direction is invalid.")
+        };
+        var description = $"{action} | Direction: {settlement.Direction} | Absolute difference RM {absoluteDifference} | Purchase snapshot RM {purchaseSnapshot} | Bank debt RM {bankDebt}";
+        return [
+            settlement.Id.ToString(), category, PlateFor(vehicles, settlement.VehicleId), description, exportedAmount, EffectiveDateText(Present(settlement.Deadline), vehicles, settlement.VehicleId), settlement.IsPaid ? "Completed" : "Open", remark
+        ];
     }
 
     private static IReadOnlyList<IReadOnlyList<string>> SalesInvoiceRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)

@@ -80,7 +80,7 @@ describe("Settlement dashboard drill-down", () => {
       vehicleId: "vehicle-1",
       ownerId: "owner-1",
       purchasePrice: 49_900
-    }], "vehicle-1")).toEqual({ ownerId: "owner-1", amount: 49_900 });
+    }], "vehicle-1")).toEqual({ ownerId: "owner-1", expectedPurchasePrice: 49_900, bankDebtAmount: 0 });
   });
 });
 

@@ -72,6 +72,7 @@ import {
   getHrPayslips,
   getHrStaffUsers,
   getLoanDocumentCheck,
+  getLoanDocumentCheckStrict,
   getLoans,
   getOperationsCalendar,
   getOwners,
@@ -82,6 +83,7 @@ import {
   getPurchaseInvoiceRevisions,
   getRepairs,
   getSettlementReminders,
+  getSettlementDrafts,
   getSupplierInvoiceAging,
   getSupplierInvoices,
   getSuppliers,
@@ -133,6 +135,7 @@ import {
   confirmPurchaseInvoiceAccounting,
   updateRepair,
   updateSettlementReminder,
+  updateSettlementStatus,
   updateStaffUserRoles,
   updateStaffUserStatus,
   updateSupplierInvoice,
@@ -383,12 +386,9 @@ describe("backoffice api client", () => {
         ownerId: "00000000-0000-0000-0000-000000000002"
       },
       settlement: {
-        id: "00000000-0000-0000-0000-000000000003",
-        vehicleId: "00000000-0000-0000-0000-000000000001",
-        ownerId: "00000000-0000-0000-0000-000000000002",
-        amount: 49_900,
-        deadline: "2026-09-01",
-        isPaid: false
+        bankDebtAmount: 35_000,
+        expectedPurchasePrice: 49_900,
+        deadline: "2026-09-01"
       },
       newOwner: {
         id: "00000000-0000-0000-0000-000000000002",
@@ -1325,6 +1325,12 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/loans/loan-1/document-check", { credentials: "include" });
   });
 
+  it("surfaces a failed loan document checklist request instead of treating it as incomplete", async () => {
+    mockFetch({ message: "Loan document check unavailable" }, false, 503);
+
+    await expect(getLoanDocumentCheckStrict("loan-1")).rejects.toThrow("Loan document check unavailable");
+  });
+
   it("loads delivery release readiness with missing handover document categories", async () => {
     const readiness: DeliveryReleaseReadiness = {
       isReady: false,
@@ -1764,12 +1770,27 @@ describe("backoffice api client", () => {
     const fetchMock = mockFetch([settlement]);
 
     expect(await getSettlementReminders()).toEqual([settlement]);
-    await createSettlementReminder(settlement);
-    await updateSettlementReminder({ ...settlement, isPaid: true });
+    const input = { vehicleId: settlement.vehicleId, bankDebtAmount: 5000, expectedPurchasePrice: 30000, deadline: settlement.deadline };
+    await createSettlementReminder(input);
+    const expectedState = { expectedAmount: 25000, expectedDirection: "LegacyPaySeller" as const, expectedBankDebtAmount: null, expectedDeadline: settlement.deadline, expectedIsPaid: false };
+    const update = { id: settlement.id, ...expectedState, deadline: "2026-06-02" };
+    const status = { id: settlement.id, ...expectedState, isPaid: true };
+    await updateSettlementReminder(update);
+    await updateSettlementStatus(status);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/settlement-reminders", { credentials: "include" });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/settlement-reminders", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(settlement) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/settlement-reminders/${settlement.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify({ ...settlement, isPaid: true }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/settlement-reminders", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(input) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/settlement-reminders/${settlement.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify(update) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, `http://localhost:5000/api/settlement-reminders/${settlement.id}/status`, expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(status) }));
+  });
+
+  it("does not turn failed settlement or source-price requests into an empty queue", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Network failed"));
+    await expect(getSettlementReminders()).rejects.toThrow();
+    await expect(getSettlementDrafts()).rejects.toThrow();
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ message: "Settlement access denied" }), { status: 403 }));
+    await expect(getSettlementReminders()).rejects.toThrow("Settlement access denied");
+    await expect(getSettlementDrafts()).rejects.toThrow("Settlement access denied");
   });
 
   it("loads, creates, and updates daily spends for finance tracking", async () => {

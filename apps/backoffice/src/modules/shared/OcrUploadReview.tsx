@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DeleteOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import type { ProColumns } from "@ant-design/pro-components";
 import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Select, Space, Tag, Typography, Upload, message } from "antd";
@@ -49,9 +49,21 @@ export function isOcrImageMimeType(mimeType: string) {
   return ocrImageMimeTypes.includes(mimeType as (typeof ocrImageMimeTypes)[number]);
 }
 
+export function isOcrUploadMimeType(category: DocumentCategory, mimeType: string) {
+  return isOcrImageMimeType(mimeType) || (category === "Voc" && mimeType === "application/pdf");
+}
+
+export function ocrSupportsLineItems(category: DocumentCategory) {
+  return ["RepairInvoice", "PurchaseInvoice", "PaymentInvoice", "PaymentReceipt"].includes(category);
+}
+
 export function ocrFailureMessage(job: Pick<OcrJob, "status" | "result" | "warnings"> | null | undefined) {
-  if (job?.status !== "Failed") return undefined;
-  return job.warnings.find((warning) => Boolean(warning.trim())) ?? "OCR could not read this document.";
+  if (!job) return undefined;
+  if (job.status === "Failed") return job.warnings.find((warning) => Boolean(warning.trim())) ?? "OCR could not read this document.";
+  if (!job.result || (!Object.values(job.result.fields).some((value) => Boolean(value?.trim())) && !job.result.lineItems?.length)) {
+    return "OCR returned no usable values. Enter the details manually or try a clearer document.";
+  }
+  return undefined;
 }
 
 export function ocrFieldConflicts(fields: OcrFieldConfig[], existingValues: OcrReviewValues | undefined, extractedValues: OcrReviewValues): OcrFieldConflict[] {
@@ -107,6 +119,35 @@ function OcrReviewShell({
   );
 }
 
+export type OcrApplyProgress = { targetApplied: boolean; reviewedJob?: OcrJob };
+
+export async function runOcrApplySteps(
+  progress: OcrApplyProgress,
+  targetFirst: boolean,
+  applyTarget: (reviewedJob?: OcrJob) => Promise<void>,
+  saveReview: () => Promise<OcrJob>,
+  onProgress: () => void,
+  isCurrent: () => boolean = () => true
+) {
+  if (targetFirst && !progress.targetApplied) {
+    await applyTarget();
+    progress.targetApplied = true;
+    if (!isCurrent()) return;
+    onProgress();
+  }
+  if (!progress.reviewedJob) {
+    progress.reviewedJob = await saveReview();
+    if (!isCurrent()) return;
+    onProgress();
+  }
+  if (!targetFirst && !progress.targetApplied) {
+    await applyTarget(progress.reviewedJob);
+    progress.targetApplied = true;
+    if (!isCurrent()) return;
+    onProgress();
+  }
+}
+
 export function OcrUploadReview({
   vehicleId,
   category,
@@ -143,6 +184,24 @@ export function OcrUploadReview({
   const [lineItems, setLineItems] = useState<OcrLineItem[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [savedStep, setSavedStep] = useState<"target" | "review" | undefined>();
+  const pendingApply = useRef<{ values: OcrReviewValues; result: OcrReviewedResult; localJob: OcrJob; progress: OcrApplyProgress } | undefined>(undefined);
+  const requestVersion = useRef(0);
+  const requestBusy = useRef(false);
+  useEffect(() => {
+    requestVersion.current += 1;
+    requestBusy.current = false;
+    setBusy(false);
+    setJob(null);
+    setSavedStep(undefined);
+    pendingApply.current = undefined;
+    setLineItems([]);
+    setReviewOpen(false);
+    setUploadProgress(0);
+    setAnalyzeProgress(0);
+    form.resetFields();
+    return () => { requestVersion.current += 1; };
+  }, [vehicleId, category, uploadOwner?.ownershipType, uploadOwner?.ownerId, uploadOwner?.customerId, uploadOwner?.repairJobId, uploadOwner?.paymentRecordId, uploadOwner?.collectionTransactionId, uploadOwner?.deliveryScheduleId, form]);
   const declaredAmount = Form.useWatch("amount", form) as string | number | undefined;
   const lineItemColumns = ocrLineItemColumns(updateLineItem, removeLineItem);
   const declaredAmountNumber = parseOcrAmount(declaredAmount);
@@ -160,8 +219,20 @@ export function OcrUploadReview({
   async function handleUpload(option: UploadRequestOption) {
     if (!vehicleId) {
       option.onError?.(new Error("Select a vehicle first."));
+      message.warning("Select a vehicle before uploading a document.");
       return;
     }
+    if (disabled || requestBusy.current || savedStep) return;
+    const file = option.file as File;
+    if (!isOcrUploadMimeType(category, file.type) || file.size > 10 * 1024 * 1024) {
+      const error = new Error(category === "Voc" ? "Use a VOC PDF, JPG, PNG, or WebP file, up to 10 MB." : "Use a JPG, PNG, or WebP image, up to 10 MB.");
+      option.onError?.(error);
+      message.error(error.message);
+      return;
+    }
+    const version = ++requestVersion.current;
+    const isCurrent = () => requestVersion.current === version;
+    requestBusy.current = true;
 
     try {
       setBusy(true);
@@ -169,14 +240,15 @@ export function OcrUploadReview({
       setLineItems([]);
       setUploadProgress(0);
       setAnalyzeProgress(0);
-      const file = option.file as File;
-      const document = await uploadVehicleDocumentWithProgress(vehicleId, file, category, setUploadProgress, uploadOwner);
+      const document = await uploadVehicleDocumentWithProgress(vehicleId, file, category, (progress) => { if (isCurrent()) setUploadProgress(progress); }, uploadOwner);
+      if (!isCurrent()) return;
       onUploaded?.();
       const loadedJob = await analyzeUploadedDocument(document.id, async (progress) => {
-        setAnalyzeProgress(progress);
+        if (isCurrent()) setAnalyzeProgress(progress);
       });
+      if (!isCurrent()) return;
       setJob(loadedJob);
-      const extractedLineItems = loadedJob.result?.lineItems?.length
+      const extractedLineItems = !ocrSupportsLineItems(category) ? [] : loadedJob.result?.lineItems?.length
         ? loadedJob.result.lineItems
         : repairLineItemsFromRawText(loadedJob.result?.rawText);
       setLineItems(extractedLineItems);
@@ -186,40 +258,64 @@ export function OcrUploadReview({
       setReviewOpen(true);
       option.onSuccess?.({ ok: true });
     } catch (error) {
+      if (!isCurrent()) return;
       option.onError?.(error instanceof Error ? error : new Error("OCR upload failed."));
       message.error(humanizeApiError(error, "OCR upload failed. Please check the file and try again."));
     } finally {
-      setBusy(false);
+      if (isCurrent()) {
+        requestBusy.current = false;
+        setBusy(false);
+      }
     }
   }
 
   async function applyResult() {
-    if (!job) return;
+    if (!job || requestBusy.current || disabled) return;
     if (!canApplyReview) {
       message.warning("Correct the receipt item amounts so they match the receipt total before saving this review.");
       return;
     }
+    const version = requestVersion.current;
+    const isCurrent = () => requestVersion.current === version;
+    requestBusy.current = true;
+    setBusy(true);
     try {
       const values = await form.validateFields();
+      if (!isCurrent()) return;
       const reviewedResult = reviewedResultFrom(job, values, lineItems);
       const localJob: OcrJob = job.result
         ? { ...job, result: { ...job.result, fields: reviewedResult.fields, lineItems } }
         : job;
-      if (commitAfterApply) {
-        await onApply(values, localJob);
-      }
-      const reviewedJob = await reviewOcrJob(job.id, reviewedResult, "Reviewed and applied by staff");
-      const mergedJob: OcrJob = reviewedJob.result && localJob.result
-        ? { ...reviewedJob, result: { ...reviewedJob.result, fields: reviewedResult.fields, lineItems } }
-        : reviewedJob;
-      setJob(mergedJob);
-      if (!commitAfterApply) {
-        await onApply(values, mergedJob);
-      }
+      const submission = pendingApply.current ?? { values, result: reviewedResult, localJob, progress: { targetApplied: false } };
+      pendingApply.current = submission;
+      await runOcrApplySteps(submission.progress, commitAfterApply,
+        async (reviewedJob) => {
+          const appliedJob = reviewedJob?.result && submission.localJob.result
+            ? { ...reviewedJob, result: { ...reviewedJob.result, fields: submission.result.fields, lineItems: submission.result.lineItems } }
+            : submission.localJob;
+          await onApply(submission.values, appliedJob);
+        },
+        () => reviewOcrJob(job.id, submission.result, "OCR values reviewed by staff; linked workflow save is recorded separately"),
+        () => {
+          setSavedStep(submission.progress.targetApplied ? "target" : "review");
+          if (submission.progress.reviewedJob) setJob(submission.progress.reviewedJob);
+        },
+        isCurrent
+      );
+      if (!isCurrent()) return;
+      pendingApply.current = undefined;
+      setSavedStep(undefined);
       setReviewOpen(false);
-      message.success("Reviewed OCR values saved. Confirm the target workflow result before continuing.");
+      message.success("OCR review complete. Check the linked form or record before continuing.");
     } catch (error) {
+      if (!isCurrent()) return;
+      if (!pendingApply.current?.progress.targetApplied && !pendingApply.current?.progress.reviewedJob) pendingApply.current = undefined;
       message.error(humanizeApiError(error, "Could not use these OCR values. Please correct the details and try again."));
+    } finally {
+      if (isCurrent()) {
+        requestBusy.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -230,27 +326,29 @@ export function OcrUploadReview({
           <div className="ocrUploadGuide">
             <span className="ocrStepLabel">Step 1 of 3</span>
             <div>
-              <Typography.Text strong>Choose a clear document photo</Typography.Text>
-              <Typography.Text type="secondary">JPG, PNG, or WebP. Use Document Upload for PDFs.</Typography.Text>
+              <Typography.Text strong>Choose a clear document</Typography.Text>
+              <Typography.Text type="secondary">{category === "Voc" ? "English VOC PDF (1–15 readable, unencrypted pages), JPG, PNG, or WebP, up to 10 MB." : "JPG, PNG, or WebP, up to 10 MB. Use Document Upload for PDFs."}</Typography.Text>
             </div>
           </div>
         )}
         <Upload
-          accept={ocrImageMimeTypes.join(",")}
+          accept={[...ocrImageMimeTypes, ...(category === "Voc" ? ["application/pdf"] : [])].join(",")}
+          disabled={disabled || busy || Boolean(savedStep)}
           maxCount={1}
           showUploadList={false}
           beforeUpload={(file) => {
-            if (isOcrImageMimeType(file.type)) return true;
-            message.error("OCR currently accepts JPG, PNG, or WebP images. Upload PDFs through Document Upload instead.");
+            if (isOcrUploadMimeType(category, file.type) && file.size <= 10 * 1024 * 1024) return true;
+            message.error(category === "Voc" ? "Choose a VOC PDF, JPG, PNG, or WebP file up to 10 MB." : "Choose a JPG, PNG, or WebP image up to 10 MB. Upload PDFs through Document Upload instead.");
             return Upload.LIST_IGNORE;
           }}
           customRequest={(option) => void handleUpload(option)}
         >
-          <Button type={compact ? "primary" : "default"} size={compact ? "small" : "middle"} icon={<UploadOutlined />} disabled={disabled || busy}>{buttonLabel}</Button>
+          <Button type={compact ? "primary" : "default"} size={compact ? "small" : "middle"} icon={<UploadOutlined />} disabled={disabled || busy || Boolean(savedStep)}>{buttonLabel}</Button>
         </Upload>
+        {savedStep && !reviewOpen && <Button onClick={() => setReviewOpen(true)}>Resume unfinished OCR save</Button>}
         {(busy || uploadProgress > 0 || analyzeProgress > 0) && (
           <div className="ocrProgressStack">
-            <Typography.Text type="secondary">Uploading photo</Typography.Text>
+            <Typography.Text type="secondary">Uploading document</Typography.Text>
             <Progress size="small" percent={uploadProgress} status={uploadProgress === 100 ? "success" : "active"} />
             <Typography.Text type="secondary">Reading document details</Typography.Text>
             <Progress size="small" percent={analyzeProgress} status={analyzeProgress === 100 ? "success" : "active"} />
@@ -262,16 +360,16 @@ export function OcrUploadReview({
         title={(
           <div className="ocrReviewDrawerTitle">
             <span className="ocrStepLabel">Step 2 of 3</span>
-            <span>{failureMessage ? "OCR could not read this photo" : "Check the details we found"}</span>
+            <span>{failureMessage ? "OCR could not read this document" : "Check the details we found"}</span>
           </div>
         )}
         open={reviewOpen}
-        onClose={() => setReviewOpen(false)}
+        onClose={() => { if (!busy) setReviewOpen(false); }}
         actions={(
           <div className="ocrReviewActions">
             {failureMessage
               ? <Button onClick={() => setReviewOpen(false)}>Close</Button>
-              : <Button type="primary" disabled={!canApplyReview} onClick={() => void applyResult()}>{applyLabel}</Button>}
+              : <Button type="primary" loading={busy} disabled={!canApplyReview || disabled} onClick={() => void applyResult()}>{savedStep ? "Retry remaining step" : applyLabel}</Button>}
           </div>
         )}
       >
@@ -280,15 +378,15 @@ export function OcrUploadReview({
             <Alert
               type="error"
               showIcon
-              message="No values were extracted from this photo."
-              description={<>{failureMessage}<br />Use the manual-entry path for this document, or ask an administrator to configure an image OCR provider for this environment.</>}
+              message="No usable values were extracted from this document."
+              description={<>{failureMessage}<br />The uploaded evidence is retained. Enter values manually or try a clearer document; an OCR failure does not change the vehicle or financial records.</>}
             />
           ) : (
             <Alert
               type="info"
               showIcon
-              message="Nothing has been saved yet."
-              description="Check the details below and correct anything that looks wrong. Saving the review records every difference from the original AI result."
+              message={savedStep === "target" ? "The linked record is saved. OCR review still needs to finish." : savedStep === "review" ? "OCR review is saved. The linked record still needs to finish." : "Document saved. Details have not been applied."}
+              description={savedStep ? "Retry the remaining step with the same reviewed values. Completed steps will not be submitted again. Do not upload another copy to retry." : "Check and correct the suggested values. Saving the review records the differences from the original OCR result; the linked record changes only after its save succeeds."}
             />
           )}
           {!failureMessage && job?.warnings?.length ? (
@@ -299,7 +397,7 @@ export function OcrUploadReview({
             <Tag color="green">Ready for your check</Tag>
             <Tag color={confidenceColor(job?.result?.confidence)}>Reading quality: {confidenceLabel(job?.result?.confidence)}</Tag>
           </Space> : null}
-          {!failureMessage ? <Form form={form} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
+          {!failureMessage ? <Form name={`ocrReview-${job?.id ?? category}`} form={form} disabled={busy || Boolean(savedStep)} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
             {reviewConflicts.length > 0 ? (
               <Form.Item label="Information already on file" extra="The current value is shown below. Edit it if this document proves it should change.">
                 <Space direction="vertical" size={8} className="fullWidth">
@@ -342,7 +440,7 @@ export function OcrUploadReview({
                 </div>
               </section>
             ))}
-            {job ? (
+            {job && ocrSupportsLineItems(category) ? (
               <Form.Item
                 label={(
                   <Space style={{ width: "100%", justifyContent: "space-between" }}>
@@ -391,16 +489,19 @@ export function OcrUploadReview({
   );
 
   function updateLineItem(index: number, field: keyof OcrLineItem, value: string | number | null) {
+    if (requestBusy.current || savedStep) return;
     setLineItems((current) => current.map((item, itemIndex) => (
       itemIndex === index ? { ...item, [field]: value === null ? undefined : String(value) } : item
     )));
   }
 
   function addLineItem() {
+    if (requestBusy.current || savedStep) return;
     setLineItems((current) => [...current, { description: "", quantity: "1", unit: "", unitPrice: "", amount: "", rawText: "Added manually" }]);
   }
 
   function removeLineItem(index: number) {
+    if (requestBusy.current || savedStep) return;
     setLineItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }
 }

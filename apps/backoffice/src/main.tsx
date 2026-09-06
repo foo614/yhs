@@ -3,7 +3,11 @@ import ReactDOM from "react-dom/client";
 import { ConfigProvider } from "antd";
 import enUS from "antd/locale/en_US";
 import App from "./App";
+import { BusinessTextFormProvider } from "./BusinessTextFormProvider";
+import { configureAntdReact19Rendering } from "./antdReact19";
 import "./styles.css";
+
+configureAntdReact19Rendering();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -17,7 +21,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         }
       }}
     >
-      <App />
+      <BusinessTextFormProvider>
+        <App />
+      </BusinessTextFormProvider>
     </ConfigProvider>
   </React.StrictMode>
 );

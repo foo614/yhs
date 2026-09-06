@@ -18,7 +18,8 @@ public enum FinancingStatus { NotApplicable, Pending, Approved, Disbursed }
 public enum ReceivableStatus { Draft, WaitingForApproval, ReadyToCollect, PartiallyPaid, Paid, AttentionNeeded }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum DisbursementMethod { BankTransfer, Cheque, Cash, Other }
-public enum SupplierApprovalStatus { Draft, Approved, Inactive }
+public enum SupplierApprovalStatus { Draft, Approved, Inactive, Active }
+public enum SettlementDirection { LegacyPaySeller, PaySeller, CollectFromSeller, InternalOffset }
 public enum PurchaseInvoiceLineType { VehiclePurchase, PurchaseProcessing, LatePaymentCharge, Parking, Transport, Refurbishment, Other }
 public enum PurchaseInvoiceSourceType { LegacySupplier, OwnerAcquisition }
 public enum DeliveryAccountingChargeType { Insurance, RoadTax }
@@ -494,6 +495,11 @@ public sealed record SettlementReminder
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
     public Guid? OwnerId { get; init; }
+    // Existing records remain LegacyPaySeller until explicitly replaced through
+    // their legacy update contract. New calculations always snapshot both inputs.
+    public SettlementDirection Direction { get; init; } = SettlementDirection.LegacyPaySeller;
+    public decimal? PurchasePriceSnapshot { get; init; }
+    public decimal? BankDebtAmount { get; init; }
     public decimal Amount { get; init; }
     public DateOnly Deadline { get; init; }
     public bool IsPaid { get; init; }
