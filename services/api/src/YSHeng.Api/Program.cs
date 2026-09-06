@@ -586,6 +586,28 @@ backOffice.MapPost("/vehicles/{id:guid}/photos", async (Guid id, [FromForm] IFor
     return Results.Created($"/api/vehicles/{id}/photos/{photo.Id}", new { photo.Id, photo.FileName, photo.MimeType, photo.Checksum, photo.UploadedBy });
 }).RequireAuthorization("Vehicles").DisableAntiforgery();
 
+backOffice.MapDelete("/vehicles/{id:guid}/photos/{photoId:guid}", async (Guid id, Guid photoId, AppDbContext db, HttpContext context) =>
+{
+    var photo = await db.VehiclePhotos.FirstOrDefaultAsync(item => item.VehicleId == id && item.Id == photoId);
+    if (photo is null)
+    {
+        return Results.NotFound(new ValidationResult([new ValidationError("vehicle_photo_not_found", "Vehicle photo was not found for this vehicle.")]));
+    }
+
+    db.VehiclePhotos.Remove(photo);
+    ApiAudit.Add(db, context.User, "vehicle.photo.deleted", nameof(VehiclePhoto), photo.Id);
+    try
+    {
+        await db.SaveChangesAsync();
+    }
+    catch (DbUpdateConcurrencyException)
+    {
+        return Results.NotFound(new ValidationResult([new ValidationError("vehicle_photo_not_found", "Vehicle photo was not found for this vehicle.")]));
+    }
+
+    return Results.NoContent();
+}).RequireAuthorization("Vehicles");
+
 backOffice.MapGet("/vehicles/{id:guid}/photos", async (Guid id, AppDbContext db) =>
     await db.VehiclePhotos.AsNoTracking()
         .Where(photo => photo.VehicleId == id)

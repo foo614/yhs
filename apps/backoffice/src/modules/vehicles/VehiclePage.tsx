@@ -1,7 +1,7 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { CheckCircleFilled, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
+import { CheckCircleFilled, DeleteOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard, ProDescriptions, ProConfigProvider, StepsForm } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { enUSIntl } from "@ant-design/pro-provider";
@@ -20,6 +20,7 @@ import { isOcrImageMimeType, OcrUploadReview, type OcrReviewValues } from "../sh
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
+import "./VehicleDetails.css";
 import {
   customerSelectLabel,
   createVehicleCatalogModel,
@@ -27,6 +28,8 @@ import {
   getVehicleCatalogModels,
   getVehicleOcrJobs,
   getVehiclePhotos,
+  getVehiclePhotosStrict,
+  deleteVehiclePhoto,
   getSupplierMaster,
   humanizeApiError,
   previewOwnerIdentityCard,
@@ -93,6 +96,18 @@ export function vehicleDocumentOwnershipDefault(category: DocumentCategory): Doc
 
 export function vehicleDocumentAllowsPersonSelection(category: DocumentCategory) {
   return ["PurchaseInvoice", "Voc", "IdentityCard", "ApDocument", "LoanDocument", "DeliveryDocument", "Policy"].includes(category);
+}
+
+export function canStartVehicleUploadLoad(requestedVehicleId: string, selectedVehicleId: string) {
+  return requestedVehicleId === selectedVehicleId || (!requestedVehicleId && !selectedVehicleId);
+}
+
+export function canApplyVehicleUploadLoad(requestId: number, currentRequestId: number, requestedVehicleId: string, selectedVehicleId: string) {
+  return requestId === currentRequestId && (requestedVehicleId === selectedVehicleId || (!requestedVehicleId && !selectedVehicleId));
+}
+
+export function vehiclePhotoDeleteConfirmationText(fileName: string) {
+  return `Photo "${fileName}" will be permanently removed from saved vehicle photos and the public gallery. If it is the cover, the newest remaining photo becomes the cover; if none remain, the existing fallback is used.`;
 }
 
 const vehicleDocumentCategoriesByOwnership: Record<DocumentOwnershipType, DocumentCategory[]> = {
@@ -605,6 +620,12 @@ export function VehiclePage({
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
   const [ocrJobs, setOcrJobs] = useState<VehicleOcrJob[]>([]);
   const [photos, setPhotos] = useState<VehiclePhoto[]>([]);
+  const [photosVehicleId, setPhotosVehicleId] = useState("");
+  const [deletingPhotoIds, setDeletingPhotoIds] = useState<Set<string>>(new Set());
+  const [photoDeleteConfirmation, setPhotoDeleteConfirmation] = useState<{ vehicleId: string; photo: VehiclePhoto } | null>(null);
+  const [photoDeleteDialogSubmitting, setPhotoDeleteDialogSubmitting] = useState(false);
+  const [photoDeleteError, setPhotoDeleteError] = useState<string | null>(null);
+  const [photoGalleryWarning, setPhotoGalleryWarning] = useState<string | null>(null);
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
   const [editVehicleId, setEditVehicleId] = useState(vehicles[0]?.id ?? "");
   const [editPurchaseInvoiceId, setEditPurchaseInvoiceId] = useState(purchaseInvoices[0]?.id ?? "");
@@ -669,7 +690,17 @@ export function VehiclePage({
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [mobileVehiclePage, setMobileVehiclePage] = useState(1);
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
+  const selectedVehicleIdRef = useRef(selectedVehicleId);
+  const photoDeleteBusyRef = useRef(new Set<string>());
+  const uploadsRequestId = useRef(0);
+  selectedVehicleIdRef.current = selectedVehicleId;
   const uploadDisabled = !selectedVehicleId;
+
+  useEffect(() => {
+    setPhotoDeleteConfirmation((current) => current && current.vehicleId === selectedVehicleId ? current : null);
+    setPhotoDeleteError(null);
+    setPhotoGalleryWarning(null);
+  }, [selectedVehicleId]);
 
   const loadCatalogModels = useCallback(async () => {
     try {
@@ -758,7 +789,8 @@ export function VehiclePage({
   const selectedVehicleDocumentCount = documents.length;
   const receiptInvoiceOcrJobs = ocrJobs.filter((job) => receiptInvoiceDocumentCategories.includes(job.category));
   const selectedVehicleCaptureCount = receiptInvoiceOcrJobs.length;
-  const selectedVehiclePhotoCount = photos.length;
+  const visiblePhotos = photosVehicleId === selectedVehicleId ? photos : [];
+  const selectedVehiclePhotoCount = visiblePhotos.length;
   const selectedVehicleMissingDocuments = vehicleIntakeDocumentCategories.filter((category) => !documents.some((document) => document.category === category));
   const selectedVehicleUploadReminders = [
     ...vehicleIntakeDocumentCategories.map((category) => ({
@@ -782,31 +814,48 @@ export function VehiclePage({
     : [];
   const photoPreviewGrid = (
     <div className="vehiclePhotoPreviewGrid">
-      {photos.length > 0 ? photos.map((photo) => (
-        <a
-          className="vehiclePhotoPreviewCard"
-          href={vehiclePhotoContentUrl(selectedVehicleId, photo.id)}
-          key={photo.id}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <div className="vehiclePhotoPreviewThumb">
-            <UploadOutlined />
-            <img
-              src={vehiclePhotoContentUrl(selectedVehicleId, photo.id)}
-              alt={photo.fileName}
-              loading="lazy"
-              onLoad={(event) => {
-                event.currentTarget.dataset.loaded = "true";
-              }}
-              onError={(event) => {
-                event.currentTarget.remove();
-              }}
-            />
+      {visiblePhotos.length > 0 ? visiblePhotos.map((photo) => {
+        const busyKey = `${selectedVehicleId}:${photo.id}`;
+        const isDeleting = deletingPhotoIds.has(busyKey);
+        return (
+          <div className="vehiclePhotoPreviewCard" key={photo.id}>
+            <a
+              className="vehiclePhotoPreviewLink"
+              href={vehiclePhotoContentUrl(selectedVehicleId, photo.id)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <div className="vehiclePhotoPreviewThumb">
+                <UploadOutlined />
+                <img
+                  src={vehiclePhotoContentUrl(selectedVehicleId, photo.id)}
+                  alt={photo.fileName}
+                  loading="lazy"
+                  onLoad={(event) => {
+                    event.currentTarget.dataset.loaded = "true";
+                  }}
+                  onError={(event) => {
+                    event.currentTarget.remove();
+                  }}
+                />
+              </div>
+              <span>{photo.fileName}</span>
+            </a>
+            <Button
+              className="vehiclePhotoDeleteAction"
+              danger
+              type="link"
+              size="small"
+              icon={<DeleteOutlined />}
+              loading={isDeleting}
+              disabled={isDeleting}
+              onClick={() => confirmDeletePhoto(photo)}
+            >
+              Delete
+            </Button>
           </div>
-          <span>{photo.fileName}</span>
-        </a>
-      )) : (
+        );
+      }) : (
         <div className="vehiclePhotoEmpty">
           <UploadOutlined />
           <span>No website photos uploaded yet.</span>
@@ -969,22 +1018,73 @@ export function VehiclePage({
     }
   };
 
-  const loadUploads = useCallback(async () => {
-    if (!selectedVehicleId) {
+  const loadUploads = useCallback(async (vehicleId = selectedVehicleId, strictPhotos = false) => {
+    if (!canStartVehicleUploadLoad(vehicleId, selectedVehicleIdRef.current)) return;
+    const requestId = ++uploadsRequestId.current;
+    if (!vehicleId) {
+      if (!canApplyVehicleUploadLoad(requestId, uploadsRequestId.current, vehicleId, selectedVehicleIdRef.current)) return;
       setDocuments([]);
       setOcrJobs([]);
       setPhotos([]);
+      setPhotosVehicleId("");
       return;
     }
     const [photoData, documentData, ocrJobData] = await Promise.all([
-      getVehiclePhotos(selectedVehicleId),
-      getVehicleDocuments(selectedVehicleId),
-      getVehicleOcrJobs(selectedVehicleId)
+      strictPhotos ? getVehiclePhotosStrict(vehicleId) : getVehiclePhotos(vehicleId),
+      getVehicleDocuments(vehicleId),
+      getVehicleOcrJobs(vehicleId)
     ]);
+    if (!canApplyVehicleUploadLoad(requestId, uploadsRequestId.current, vehicleId, selectedVehicleIdRef.current)) return;
+    setPhotoGalleryWarning(null);
     setPhotos(photoData);
+    setPhotosVehicleId(vehicleId);
     setDocuments(documentData);
     setOcrJobs(ocrJobData);
   }, [selectedVehicleId]);
+
+  const deleteSavedPhoto = async (vehicleId: string, photoId: string): Promise<boolean> => {
+    const busyKey = `${vehicleId}:${photoId}`;
+    if (photoDeleteBusyRef.current.has(busyKey)) return false;
+
+    photoDeleteBusyRef.current.add(busyKey);
+    setDeletingPhotoIds((current) => new Set(current).add(busyKey));
+    try {
+      await deleteVehiclePhoto(vehicleId, photoId);
+      if (selectedVehicleIdRef.current !== vehicleId) return true;
+
+      setPhotos((current) => current.filter((photo) => photo.id !== photoId));
+      try {
+        await loadUploads(vehicleId, true);
+      } catch (error) {
+        if (selectedVehicleIdRef.current === vehicleId) {
+          setPhotoGalleryWarning(`Photo deleted, but the latest photo list could not be refreshed. ${humanizeApiError(error, "Try refreshing this vehicle before making another change.")}`);
+        }
+      }
+      return true;
+    } catch (error) {
+      if (selectedVehicleIdRef.current === vehicleId) {
+        setPhotoDeleteError(humanizeApiError(error, "Unable to delete the saved vehicle photo."));
+      }
+      return false;
+    } finally {
+      photoDeleteBusyRef.current.delete(busyKey);
+      setDeletingPhotoIds((current) => {
+        const next = new Set(current);
+        next.delete(busyKey);
+        return next;
+      });
+    }
+  };
+
+  const confirmDeletePhoto = (photo: VehiclePhoto) => {
+    const vehicleId = selectedVehicleIdRef.current;
+    const photoId = photo.id;
+    const busyKey = `${vehicleId}:${photoId}`;
+    if (!vehicleId || photoDeleteBusyRef.current.has(busyKey)) return;
+
+    setPhotoDeleteError(null);
+    setPhotoDeleteConfirmation({ vehicleId, photo });
+  };
 
   useEffect(() => {
     if (!uploadVehicleId && vehicles[0]?.id) {
@@ -2331,9 +2431,10 @@ export function VehiclePage({
                     return true;
                   }}
                   customRequest={(option) => {
-                    void onUploadPhoto(selectedVehicleId, option.file as File)
+                    const vehicleId = selectedVehicleId;
+                    void onUploadPhoto(vehicleId, option.file as File)
                       .then(async () => {
-                        await loadUploads();
+                        await loadUploads(vehicleId);
                         option.onSuccess?.({}, option.file);
                       })
                       .catch((error: Error) => option.onError?.(error));
@@ -2345,6 +2446,16 @@ export function VehiclePage({
                 </Upload.Dragger>
               </Form.Item>
               <div className="vehiclePhotoSection">
+                {photoGalleryWarning ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    closable
+                    message="Photo gallery refresh warning"
+                    description={photoGalleryWarning}
+                    onClose={() => setPhotoGalleryWarning(null)}
+                  />
+                ) : null}
                 {photoPreviewGrid}
               </div>
               </div>
@@ -3505,6 +3616,57 @@ export function VehiclePage({
           scroll={{ x: 760 }}
         />
       </ProCard>}
+      <Modal
+        title="Delete saved vehicle photo?"
+        open={Boolean(photoDeleteConfirmation)}
+        onCancel={() => {
+          if (photoDeleteDialogSubmitting) return;
+          setPhotoDeleteConfirmation(null);
+          setPhotoDeleteError(null);
+        }}
+        onOk={async () => {
+          if (!photoDeleteConfirmation) return;
+          const pending = photoDeleteConfirmation;
+          setPhotoDeleteDialogSubmitting(true);
+          try {
+            const deleted = await deleteSavedPhoto(pending.vehicleId, pending.photo.id);
+            if (deleted) {
+              setPhotoDeleteConfirmation(null);
+              setPhotoDeleteError(null);
+            }
+          } finally {
+            setPhotoDeleteDialogSubmitting(false);
+          }
+        }}
+        okText="Delete photo"
+        okButtonProps={{ danger: true }}
+        cancelText="Keep photo"
+        confirmLoading={photoDeleteDialogSubmitting}
+        maskClosable={!photoDeleteDialogSubmitting}
+        closable={!photoDeleteDialogSubmitting}
+        keyboard={!photoDeleteDialogSubmitting}
+        destroyOnClose
+      >
+        {photoDeleteConfirmation ? (
+          <Space direction="vertical" size={12} className="fullWidth">
+            <Typography.Text strong>{photoDeleteConfirmation.photo.fileName}</Typography.Text>
+            <Alert
+              type="warning"
+              showIcon
+              message="Permanent removal"
+              description={vehiclePhotoDeleteConfirmationText(photoDeleteConfirmation.photo.fileName)}
+            />
+            {photoDeleteError ? (
+              <Alert
+                type="error"
+                showIcon
+                message="Photo was not deleted"
+                description={photoDeleteError}
+              />
+            ) : null}
+          </Space>
+        ) : null}
+      </Modal>
     </Space>
   );
 }
