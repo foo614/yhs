@@ -102,9 +102,8 @@ export default function ContactPageClient() {
       <section className="atelierServicePanel contactEnquiryPanel" id="enquiry">
         <div>
           <p className="atelierKicker">{t.formKicker}</p>
-          <h2>{t.formTitle}</h2>
+          <h2 id="contact-enquiry-title">{t.formTitle}</h2>
           <p>{t.formIntro}</p>
-          <p>{t.formPrivacy}</p>
         </div>
         <ContactEnquiryForm language={language} />
       </section>

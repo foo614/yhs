@@ -28,6 +28,7 @@ public static class SeedData
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
         await EnsureDeliveryWorkboardSchemaAsync(db);
         await EnsureAutoCountAccountingSchemaAsync(db);
+        await EnsureOwnerPurchaseInvoiceSchemaAsync(db);
         await EnsureLoanDecisionSchemaAsync(db);
 
         if (!await db.AiServiceLimits.AnyAsync(limit => limit.Service == AiService.Ocr))
@@ -215,6 +216,14 @@ public static class SeedData
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
         await EnsureFinanceV2SchemaAsync(db);
+    }
+
+    public static async Task EnsureOwnerPurchaseInvoiceSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureOwnerPurchaseInvoiceSchemaAsync(db);
     }
 
     private static async Task EnsureDeliveryWorkboardSchemaAsync(AppDbContext db)
@@ -1019,6 +1028,71 @@ public static class SeedData
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaidBy" text NULL;
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaidAt" timestamp with time zone NULL;
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaymentEvidenceReference" text NULL;
+        """);
+    }
+
+    private static async Task EnsureOwnerPurchaseInvoiceSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "SourceType" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "CurrentRevisionNumber" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AccountingConfirmedByUserId" text NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_PurchaseInvoices_OwnerAcquisitionVehicle"
+                ON "PurchaseInvoices" ("VehicleId") WHERE "SourceType" = 1;
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_PurchaseInvoices_OwnerAcquisitionNumber"
+                ON "PurchaseInvoices" ("InvoiceNumber") WHERE "SourceType" = 1;
+            CREATE SEQUENCE IF NOT EXISTS "OwnerPurchaseInvoiceNumberSequence" AS bigint START WITH 1 INCREMENT BY 1;
+
+            CREATE TABLE IF NOT EXISTS "PurchaseInvoiceRevisions" (
+                "Id" uuid NOT NULL,
+                "PurchaseInvoiceId" uuid NOT NULL,
+                "RevisionNumber" integer NOT NULL,
+                "InvoiceNumber" text NOT NULL,
+                "SourceVehicleId" uuid NOT NULL,
+                "SourceOwnerId" uuid NOT NULL,
+                "InvoiceDate" date NOT NULL,
+                "PurchaseDate" date NOT NULL,
+                "PaymentReference" text NULL,
+                "SellerName" text NOT NULL,
+                "SellerPhone" text NOT NULL,
+                "SellerIcNumber" text NULL,
+                "SellerTinNumber" text NULL,
+                "SellerAddress" text NULL,
+                "VehiclePlateNumber" text NOT NULL,
+                "VehicleDescription" text NOT NULL,
+                "Amount" numeric NOT NULL,
+                "AccountingStatus" integer NOT NULL DEFAULT 0,
+                "AccountingConfirmedBy" text NULL,
+                "AccountingConfirmedByUserId" text NULL,
+                "AccountingConfirmedAt" timestamp with time zone NULL,
+                "CreatedBy" text NOT NULL,
+                "CreatedByUserId" text NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "Reason" text NULL,
+                "Content" bytea NOT NULL DEFAULT '\x'::bytea,
+                "ContentMimeType" text NOT NULL DEFAULT 'application/pdf',
+                CONSTRAINT "PK_PurchaseInvoiceRevisions" PRIMARY KEY ("Id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_PurchaseInvoiceRevisions_Invoice_Revision"
+                ON "PurchaseInvoiceRevisions" ("PurchaseInvoiceId", "RevisionNumber");
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_PurchaseInvoiceRevisions_Number_Revision"
+                ON "PurchaseInvoiceRevisions" ("InvoiceNumber", "RevisionNumber");
+            ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "AccountingConfirmedByUserId" text NULL;
+            ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "CreatedByUserId" text NULL;
+
+            CREATE TABLE IF NOT EXISTS "PurchaseInvoiceRevisionLines" (
+                "Id" uuid NOT NULL,
+                "PurchaseInvoiceRevisionId" uuid NOT NULL,
+                "LineType" integer NOT NULL,
+                "Description" text NOT NULL,
+                "Amount" numeric NOT NULL,
+                "CapitaliseIntoVehicleCost" boolean NOT NULL,
+                "SortOrder" integer NOT NULL,
+                CONSTRAINT "PK_PurchaseInvoiceRevisionLines" PRIMARY KEY ("Id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_PurchaseInvoiceRevisionLines_Revision_SortOrder"
+                ON "PurchaseInvoiceRevisionLines" ("PurchaseInvoiceRevisionId", "SortOrder");
         """);
     }
 

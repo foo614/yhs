@@ -204,6 +204,24 @@ app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest requ
 
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
 
+// Shared staff calendar intentionally excludes customer, finance, leave reason and trip details.
+backOffice.MapGet("/operations-calendar", async (DateOnly from, DateOnly to, AppDbContext db, UserManager<AppUser> userManager) =>
+{
+    if (to < from || to.DayNumber - from.DayNumber > 92)
+        return Results.BadRequest(new ApiError("Calendar range must be valid and no longer than 93 days."));
+    var deliveries = await (from delivery in db.DeliverySchedules.AsNoTracking()
+                            join vehicle in db.Vehicles.AsNoTracking() on delivery.VehicleId equals vehicle.Id
+                            where delivery.ScheduledDate >= @from && delivery.ScheduledDate <= to && delivery.Status != DeliveryStatus.Cancelled
+                            select new { delivery.Id, vehicle.PlateNumber, delivery.ScheduledDate, delivery.ScheduledTime, delivery.Status }).ToListAsync();
+    var staff = await userManager.Users.AsNoTracking().ToDictionaryAsync(user => user.Id, user => user.DisplayName);
+    var leaves = await db.HrLeaveRequests.AsNoTracking().Where(item => item.Status == HrLeaveStatus.Approved && item.StartDate <= to && item.EndDate >= from).ToListAsync();
+    var trips = await db.HrBusinessTrips.AsNoTracking().Where(item => item.Status == HrBusinessTripStatus.Approved && item.StartDate <= to && item.EndDate >= from).ToListAsync();
+    var events = deliveries.Select(item => new { Id = item.Id.ToString(), Kind = "Delivery", Title = item.PlateNumber, StartDate = item.ScheduledDate, EndDate = item.ScheduledDate, Time = item.ScheduledTime?.ToString("HH:mm"), Status = (string?)item.Status.ToString() }).ToList();
+    events.AddRange(leaves.Select(item => new { Id = item.Id.ToString(), Kind = "Busy", Title = staff.GetValueOrDefault(item.StaffUserId, "Staff"), StartDate = item.StartDate < from ? from : item.StartDate, EndDate = item.EndDate > to ? to : item.EndDate, Time = (string?)null, Status = (string?)null }));
+    events.AddRange(trips.Select(item => new { Id = item.Id.ToString(), Kind = "Busy", Title = staff.GetValueOrDefault(item.StaffUserId, "Staff"), StartDate = item.StartDate < from ? from : item.StartDate, EndDate = item.EndDate > to ? to : item.EndDate, Time = (string?)null, Status = (string?)null }));
+    return Results.Ok(events.OrderBy(item => item.StartDate).ThenBy(item => item.Time).ThenBy(item => item.Title));
+});
+
 backOffice.MapGet("/vehicles", async (AppDbContext db) =>
 {
     var vehicles = await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync();
@@ -317,6 +335,66 @@ backOffice.MapPost("/owner-intakes/identity-card-preview", async (IFormFile file
         return Results.Ok(new OwnerIdentityCardPreviewResponse(fallback, null));
     }
 }).DisableAntiforgery().RequireAuthorization("Vehicles");
+backOffice.MapPost("/vehicle-intakes/voc-preview", async (IFormFile file, AppDbContext db, HttpContext context, IOcrExtractor extractor, AiUsageQuotaService aiUsageQuota, CancellationToken cancellationToken) =>
+{
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    if (!DepartmentAccess.CanUploadDocument(roles, FileCategory.Voc)) return Results.Forbid();
+    if (!UploadPolicy.IsAllowed(FileCategory.Voc, file.Length))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("voc_size_invalid", "VOC files must be between 1 byte and 10 MB.")]));
+    }
+
+    await using var stream = file.OpenReadStream();
+    using var memory = new MemoryStream();
+    await stream.CopyToAsync(memory, cancellationToken);
+    var bytes = memory.ToArray();
+    var contentValidation = UploadPolicy.ValidateVehicleIntakeVocContent(file.FileName, file.ContentType, bytes);
+    if (!contentValidation.Result.IsValid) return Results.BadRequest(contentValidation.Result);
+
+    var previewDocument = new DocumentBlob
+    {
+        Category = FileCategory.Voc,
+        OwnershipType = DocumentOwnershipType.Seller,
+        FileName = file.FileName,
+        MimeType = contentValidation.MimeType!,
+        Content = bytes,
+        Checksum = Convert.ToHexString(SHA256.HashData(bytes)),
+        UploadedBy = UploadMetadata.UploaderFrom(context.User)
+    };
+    var reservation = await aiUsageQuota.ReserveOcrAsync(previewDocument.Id, StaffIdentity.CurrentUserId(context), cancellationToken);
+    if (!reservation.IsAllowed)
+    {
+        return Results.Json(new ApiError(reservation.Message ?? "OCR is unavailable."), statusCode: StatusCodes.Status429TooManyRequests);
+    }
+
+    try
+    {
+        var extraction = await extractor.AnalyzeAsync(previewDocument, await db.Vehicles.AsNoTracking().ToListAsync(), cancellationToken);
+        await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, true, cancellationToken);
+        ApiAudit.Add(db, context.User, "vehicleIntake.voc.previewed", "VehicleIntakeVocPreview", previewDocument.Id);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new { result = extraction });
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, false, CancellationToken.None);
+        throw;
+    }
+    catch (Exception)
+    {
+        await aiUsageQuota.MarkCompletedAsync(reservation.UsageRecordId!.Value, false, cancellationToken);
+        var fallback = new OcrExtractionResult(
+            FileCategory.Voc,
+            0m,
+            [],
+            [],
+            "",
+            ["Automatic reading was unavailable. Enter or keep the vehicle details manually."]);
+        ApiAudit.Add(db, context.User, "vehicleIntake.voc.previewFailed", "VehicleIntakeVocPreview", previewDocument.Id);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new { result = fallback });
+    }
+}).DisableAntiforgery().RequireAuthorization("Vehicles");
 backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbContext db, HttpContext context, CancellationToken cancellationToken) =>
 {
     if (!httpRequest.HasFormContentType)
@@ -327,6 +405,7 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
     var form = await httpRequest.ReadFormAsync(cancellationToken);
     var requestPayload = form["request"].ToString();
     var identityCard = form.Files.GetFile("identityCard");
+    var voc = form.Files.GetFile("voc");
     if (string.IsNullOrWhiteSpace(requestPayload) || identityCard is null)
     {
         return Results.BadRequest(new ValidationResult([new ValidationError("seller_identity_card_required", "Upload and review the previous owner NRIC before creating the vehicle.")]));
@@ -349,7 +428,8 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
     }
 
     var roles = SeedData.Roles.Where(context.User.IsInRole);
-    if (!DepartmentAccess.CanUploadDocument(roles, FileCategory.IdentityCard)) return Results.Forbid();
+    if (!DepartmentAccess.CanUploadDocument(roles, FileCategory.IdentityCard)
+        || (voc is not null && !DepartmentAccess.CanUploadDocument(roles, FileCategory.Voc))) return Results.Forbid();
     if (!UploadPolicy.IsAllowed(FileCategory.IdentityCard, identityCard.Length))
     {
         return Results.BadRequest(new ValidationResult([new ValidationError("identity_card_size_invalid", "Identity card photo must be between 1 byte and 10 MB.")]));
@@ -360,6 +440,23 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
     var identityCardBytes = identityCardMemory.ToArray();
     var identityCardValidation = UploadPolicy.ValidateOcrImageContent(identityCard.FileName, identityCard.ContentType, identityCardBytes);
     if (!identityCardValidation.Result.IsValid) return Results.BadRequest(identityCardValidation.Result);
+
+    byte[]? vocBytes = null;
+    string? vocMimeType = null;
+    if (voc is not null)
+    {
+        if (!UploadPolicy.IsAllowed(FileCategory.Voc, voc.Length))
+        {
+            return Results.BadRequest(new ValidationResult([new ValidationError("voc_size_invalid", "VOC files must be between 1 byte and 10 MB.")]));
+        }
+        await using var vocStream = voc.OpenReadStream();
+        using var vocMemory = new MemoryStream();
+        await vocStream.CopyToAsync(vocMemory, cancellationToken);
+        vocBytes = vocMemory.ToArray();
+        var vocValidation = UploadPolicy.ValidateVehicleIntakeVocContent(voc.FileName, voc.ContentType, vocBytes);
+        if (!vocValidation.Result.IsValid) return Results.BadRequest(vocValidation.Result);
+        vocMimeType = vocValidation.MimeType;
+    }
 
     if (request.Settlement is not null && !context.User.IsInRole("BossAdmin") && !context.User.IsInRole("Finance"))
     {
@@ -431,6 +528,23 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
 
     db.DocumentBlobs.Add(identityCardDocument);
     ApiAudit.Add(db, context.User, "vehicle.document.uploadedFromVehicleIntake", nameof(DocumentBlob), identityCardDocument.Id);
+    if (voc is not null && vocBytes is not null && vocMimeType is not null)
+    {
+        var vocDocument = new DocumentBlob
+        {
+            VehicleId = vehicle.Id,
+            OwnerId = vehicle.OwnerId,
+            OwnershipType = DocumentOwnershipType.Seller,
+            Category = FileCategory.Voc,
+            FileName = voc.FileName,
+            MimeType = vocMimeType,
+            Content = vocBytes,
+            Checksum = Convert.ToHexString(SHA256.HashData(vocBytes)),
+            UploadedBy = UploadMetadata.UploaderFrom(context.User)
+        };
+        db.DocumentBlobs.Add(vocDocument);
+        ApiAudit.Add(db, context.User, "vehicle.document.uploadedFromVehicleIntake", nameof(DocumentBlob), vocDocument.Id);
+    }
     try
     {
         await db.SaveChangesAsync(cancellationToken);
@@ -773,6 +887,37 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         detectedMimeType = deliveryEvidenceValidation.MimeType;
     }
     if (!contentValidation.IsValid) return Results.BadRequest(contentValidation);
+
+    // Match collection mutations: vehicle advisory transaction, then collection and payment row locks.
+    await using var collectionUploadTransaction = collectionTransactionId.HasValue
+        ? await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [id])
+        : null;
+    if (collectionTransactionId.HasValue)
+    {
+        var lockedCollection = await FinanceApi.LockCollectionAsync(db, collectionTransactionId.Value);
+        if (lockedCollection is null)
+        {
+            return Results.Conflict(new ValidationResult([new ValidationError(
+                "collection_document_link_changed",
+                "The selected collection no longer belongs to the supplied payment and vehicle. Refresh and try again.")]));
+        }
+
+        var lockedPayment = await FinanceApi.LockPaymentAsync(db, lockedCollection.PaymentRecordId);
+        if (lockedPayment is null)
+        {
+            return Results.Conflict(new ValidationResult([new ValidationError(
+                "collection_document_link_changed",
+                "The selected collection no longer belongs to the supplied payment and vehicle. Refresh and try again.")]));
+        }
+
+        var collectionUploadValidation = FinanceV2Rules.ValidateCollectionDocumentUpload(
+            lockedPayment,
+            lockedCollection,
+            id,
+            paymentRecordId!.Value);
+        if (!collectionUploadValidation.IsValid) return Results.Conflict(collectionUploadValidation);
+    }
+
     var document = new DocumentBlob
     {
         VehicleId = id,
@@ -808,6 +953,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     ApiAudit.Add(db, context.User, "vehicle.document.uploaded", nameof(DocumentBlob), document.Id);
     await db.SaveChangesAsync();
     if (deliveryTransaction is not null) await deliveryTransaction.CommitAsync();
+    if (collectionUploadTransaction is not null) await collectionUploadTransaction.CommitAsync();
     return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.CollectionTransactionId, document.DeliveryScheduleId, document.Checksum, document.UploadedBy, document.UploadedAt });
 }).DisableAntiforgery();
 
@@ -1110,13 +1256,13 @@ backOffice.MapPut("/owners/{id:guid}", async (Guid id, Owner owner, AppDbContext
 backOffice.MapGet("/purchase-invoices", async (AppDbContext db) =>
 {
     var invoices = await db.PurchaseInvoices.AsNoTracking().OrderBy(invoice => invoice.InvoiceNumber).ToListAsync();
-    var invoiceIds = invoices.Select(invoice => invoice.Id).ToList();
-    var lines = await db.PurchaseInvoiceLines.AsNoTracking().Where(line => invoiceIds.Contains(line.PurchaseInvoiceId)).ToListAsync();
-    return invoices.Select(invoice => invoice with { Lines = lines.Where(line => line.PurchaseInvoiceId == invoice.Id).ToList() }).ToList();
+    return Results.Ok(await OwnerPurchaseInvoiceReader.HydrateAsync(db, invoices));
 }).RequireAuthorization("PurchaseAccountingRead");
 backOffice.MapPost("/purchase-invoices", async (PurchaseInvoice invoice, AppDbContext db, HttpContext context) =>
 {
-    invoice = invoice with { AccountingStatus = AccountingConfirmationStatus.Draft, AccountingConfirmedBy = null, AccountingConfirmedAt = null };
+    var workflowValidation = OwnerPurchaseInvoiceRules.ValidateLegacyWrite(invoice);
+    if (!workflowValidation.IsValid) return Results.BadRequest(workflowValidation);
+    invoice = invoice with { AccountingStatus = AccountingConfirmationStatus.Draft, AccountingConfirmedBy = null, AccountingConfirmedByUserId = null, AccountingConfirmedAt = null };
     var validation = PurchaseInvoiceRules.Validate(
         invoice,
         await db.PurchaseInvoices.AsNoTracking().ToListAsync(),
@@ -1136,8 +1282,12 @@ backOffice.MapPut("/purchase-invoices/{id:guid}", async (Guid id, PurchaseInvoic
     if (id != invoice.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("purchase invoice"));
     var existingInvoice = await db.PurchaseInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (existingInvoice is null) return Results.NotFound();
+    if (existingInvoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition)
+        return Results.Conflict(new ApiError("System-generated owner purchase invoices can only be corrected through a numbered revision."));
+    var workflowValidation = OwnerPurchaseInvoiceRules.ValidateLegacyWrite(invoice, existingInvoice.InvoiceNumber);
+    if (!workflowValidation.IsValid) return Results.BadRequest(workflowValidation);
     if (existingInvoice.AccountingStatus == AccountingConfirmationStatus.FinanceConfirmed) return Results.Conflict(new ApiError("Finance-confirmed purchase invoices cannot be edited."));
-    invoice = invoice with { AccountingStatus = AccountingConfirmationStatus.Draft, AccountingConfirmedBy = null, AccountingConfirmedAt = null };
+    invoice = invoice with { AccountingStatus = AccountingConfirmationStatus.Draft, AccountingConfirmedBy = null, AccountingConfirmedByUserId = null, AccountingConfirmedAt = null };
     var validation = PurchaseInvoiceRules.Validate(
         invoice,
         await db.PurchaseInvoices.AsNoTracking().ToListAsync(),
@@ -1154,15 +1304,147 @@ backOffice.MapPut("/purchase-invoices/{id:guid}", async (Guid id, PurchaseInvoic
     await db.SaveChangesAsync();
     return Results.Ok(invoice with { Lines = lines });
 }).RequireAuthorization("Vehicles");
-backOffice.MapPost("/purchase-invoices/{id:guid}/confirm-accounting", async (Guid id, AppDbContext db, HttpContext context) =>
+
+backOffice.MapPost("/vehicles/{vehicleId:guid}/purchase-invoice/generate", async (Guid vehicleId, GenerateOwnerPurchaseInvoiceRequest request, AppDbContext db, HttpContext context) =>
 {
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [vehicleId]);
+    var existing = await db.PurchaseInvoices.AsNoTracking()
+        .FirstOrDefaultAsync(invoice => invoice.VehicleId == vehicleId && invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition);
+    if (existing is not null)
+    {
+        var response = (await OwnerPurchaseInvoiceReader.HydrateAsync(db, [existing])).Single();
+        await transaction.CommitAsync();
+        return Results.Ok(response);
+    }
+
+    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == vehicleId);
+    var owner = vehicle?.OwnerId is { } ownerId
+        ? await db.Owners.AsNoTracking().FirstOrDefaultAsync(item => item.Id == ownerId)
+        : null;
+    var validation = OwnerPurchaseInvoiceRules.ValidateGeneration(request, vehicle, owner);
+    if (!validation.IsValid)
+        return OwnerPurchaseInvoiceRules.IsGenerationSourceStale(validation) ? Results.Conflict(validation) : Results.BadRequest(validation);
+
+    var now = DateTime.UtcNow;
+    var issueDate = BusinessClock.Today();
+    var draft = OwnerPurchaseInvoiceFactory.CreateInitial(
+        vehicle!,
+        owner!,
+        await OwnerPurchaseInvoiceNumbering.AllocateAsync(db, issueDate),
+        issueDate,
+        AuditTrail.ActorFrom(context.User),
+        now,
+        StaffIdentity.CurrentUserId(context));
+    db.PurchaseInvoices.Add(draft.Invoice);
+    db.PurchaseInvoiceRevisions.Add(draft.Revision);
+    db.PurchaseInvoiceRevisionLines.AddRange(draft.Lines);
+    ApiAudit.Add(db, context.User, "purchaseInvoice.ownerIssued", nameof(PurchaseInvoice), draft.Invoice.Id);
+    try
+    {
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception))
+    {
+        await transaction.RollbackAsync();
+        db.ChangeTracker.Clear();
+        var concurrentInvoice = await db.PurchaseInvoices.AsNoTracking()
+            .FirstOrDefaultAsync(invoice => invoice.VehicleId == vehicleId && invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition);
+        if (concurrentInvoice is not null)
+        {
+            return Results.Ok((await OwnerPurchaseInvoiceReader.HydrateAsync(db, [concurrentInvoice])).Single());
+        }
+        return Results.Conflict(new ApiError("A formal owner purchase invoice was created concurrently. Refresh and try again."));
+    }
+
+    return Results.Created($"/api/purchase-invoices/{draft.Invoice.Id}", (await OwnerPurchaseInvoiceReader.HydrateAsync(db, [draft.Invoice])).Single());
+}).RequireAuthorization("Vehicles");
+
+backOffice.MapPost("/purchase-invoices/{id:guid}/revisions", async (Guid id, CreatePurchaseInvoiceRevisionRequest request, AppDbContext db, HttpContext context) =>
+{
+    await using var transaction = await PurchaseInvoiceConcurrencyLock.BeginAsync(db, id);
     var invoice = await db.PurchaseInvoices.FirstOrDefaultAsync(item => item.Id == id);
     if (invoice is null) return Results.NotFound();
-    var updated = invoice with { AccountingStatus = AccountingConfirmationStatus.FinanceConfirmed, AccountingConfirmedBy = StaffIdentity.CurrentUserId(context), AccountingConfirmedAt = DateTime.UtcNow };
-    db.Entry(invoice).CurrentValues.SetValues(updated);
-    ApiAudit.Add(db, context.User, "purchaseInvoice.accountingConfirmed", nameof(PurchaseInvoice), id);
+    if (invoice.SourceType != PurchaseInvoiceSourceType.OwnerAcquisition || !invoice.OwnerId.HasValue)
+        return Results.Conflict(new ApiError("Only system-generated owner purchase invoices have formal revision history."));
+    if (request.ExpectedRevision != invoice.CurrentRevisionNumber)
+        return Results.Conflict(new ValidationResult([new ValidationError("purchase_invoice_revision_stale", "This invoice changed after you opened it. Refresh before recording a correction.")]));
+
+    var validation = OwnerPurchaseInvoiceRules.ValidateRevision(request);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    var currentRevision = await OwnerPurchaseInvoiceReader.FindRevisionSummaryAsync(db, id, invoice.CurrentRevisionNumber);
+    if (currentRevision is null)
+        return Results.Conflict(new ApiError("The current formal invoice snapshot is unavailable. Contact an administrator before making a correction."));
+
+    var draft = OwnerPurchaseInvoiceFactory.CreateRevision(
+        invoice,
+        currentRevision,
+        request,
+        AuditTrail.ActorFrom(context.User),
+        DateTime.UtcNow,
+        StaffIdentity.CurrentUserId(context));
+    db.Entry(invoice).CurrentValues.SetValues(draft.Invoice);
+    db.PurchaseInvoiceRevisions.Add(draft.Revision);
+    db.PurchaseInvoiceRevisionLines.AddRange(draft.Lines);
+    ApiAudit.Add(db, context.User, "purchaseInvoice.revised", nameof(PurchaseInvoice), id);
     await db.SaveChangesAsync();
-    return Results.Ok(updated);
+    await transaction.CommitAsync();
+    return Results.Ok((await OwnerPurchaseInvoiceReader.HydrateAsync(db, [draft.Invoice])).Single());
+}).RequireAuthorization("Vehicles");
+
+backOffice.MapGet("/purchase-invoices/{id:guid}/revisions", async (Guid id, AppDbContext db) =>
+{
+    var invoice = await db.PurchaseInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (invoice is null || invoice.SourceType != PurchaseInvoiceSourceType.OwnerAcquisition) return Results.NotFound();
+    return Results.Ok(await OwnerPurchaseInvoiceReader.HistoryAsync(db, id));
+}).RequireAuthorization("PurchaseAccountingRead");
+
+backOffice.MapGet("/purchase-invoices/{id:guid}/revisions/{revisionNumber:int}/content", async (Guid id, int revisionNumber, AppDbContext db, HttpContext context) =>
+{
+    var invoice = await db.PurchaseInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (invoice is null || invoice.SourceType != PurchaseInvoiceSourceType.OwnerAcquisition) return Results.NotFound();
+    var revision = await db.PurchaseInvoiceRevisions.FirstOrDefaultAsync(item => item.PurchaseInvoiceId == id && item.RevisionNumber == revisionNumber);
+    if (revision is null) return Results.NotFound();
+    ApiAudit.Add(db, context.User, "purchaseInvoiceRevision.contentDownloaded", nameof(PurchaseInvoiceRevision), revision.Id);
+    await db.SaveChangesAsync();
+    return Results.File(revision.Content, revision.ContentMimeType, $"{revision.InvoiceNumber}-r{revision.RevisionNumber}.pdf");
+}).RequireAuthorization("PurchaseAccountingRead");
+
+backOffice.MapPost("/purchase-invoices/{id:guid}/confirm-accounting", async (Guid id, int? expectedRevision, AppDbContext db, HttpContext context) =>
+{
+    await using var transaction = await PurchaseInvoiceConcurrencyLock.BeginAsync(db, id);
+    var invoice = await db.PurchaseInvoices.FirstOrDefaultAsync(item => item.Id == id);
+    if (invoice is null) return Results.NotFound();
+    if (invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition)
+    {
+        if (!expectedRevision.HasValue)
+            return Results.BadRequest(new ValidationResult([new ValidationError("purchase_invoice_revision_required", "Select the formal invoice revision that Finance reviewed.")]));
+        if (expectedRevision.Value != invoice.CurrentRevisionNumber)
+            return Results.Conflict(new ValidationResult([new ValidationError("purchase_invoice_revision_stale", "This formal invoice was revised after the reviewed version. Refresh and review the current revision.")]));
+        var revision = await db.PurchaseInvoiceRevisions.FirstOrDefaultAsync(item => item.PurchaseInvoiceId == id && item.RevisionNumber == expectedRevision.Value);
+        if (revision is null) return Results.Conflict(new ApiError("The reviewed formal invoice revision is unavailable."));
+        if (revision.AccountingStatus != AccountingConfirmationStatus.FinanceConfirmed)
+        {
+            var confirmedAt = DateTime.UtcNow;
+            var actor = AuditTrail.ActorFrom(context.User);
+            var actorUserId = StaffIdentity.CurrentUserId(context);
+            var confirmedRevision = revision with { AccountingStatus = AccountingConfirmationStatus.FinanceConfirmed, AccountingConfirmedBy = actor, AccountingConfirmedByUserId = actorUserId, AccountingConfirmedAt = confirmedAt };
+            var confirmedInvoice = invoice with { AccountingStatus = AccountingConfirmationStatus.FinanceConfirmed, AccountingConfirmedBy = actor, AccountingConfirmedByUserId = actorUserId, AccountingConfirmedAt = confirmedAt };
+            db.Entry(revision).CurrentValues.SetValues(confirmedRevision);
+            db.Entry(invoice).CurrentValues.SetValues(confirmedInvoice);
+            ApiAudit.Add(db, context.User, "purchaseInvoice.accountingConfirmed", nameof(PurchaseInvoice), id);
+        }
+    }
+    else
+    {
+        var updated = invoice with { AccountingStatus = AccountingConfirmationStatus.FinanceConfirmed, AccountingConfirmedBy = StaffIdentity.CurrentUserId(context), AccountingConfirmedByUserId = null, AccountingConfirmedAt = DateTime.UtcNow };
+        db.Entry(invoice).CurrentValues.SetValues(updated);
+        ApiAudit.Add(db, context.User, "purchaseInvoice.accountingConfirmed", nameof(PurchaseInvoice), id);
+    }
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+    var current = await db.PurchaseInvoices.AsNoTracking().FirstAsync(item => item.Id == id);
+    return Results.Ok((await OwnerPurchaseInvoiceReader.HydrateAsync(db, [current])).Single());
 }).RequireAuthorization("Finance");
 
 backOffice.MapGet("/loans", async (AppDbContext db) => await db.LoanApplications.AsNoTracking().ToListAsync()).RequireAuthorization("Loans");
@@ -1876,9 +2158,7 @@ backOffice.MapGet("/payments/export-autocount", async (DateOnly? from, DateOnly?
 
     var generatedAtUtc = DateTime.UtcNow;
     var purchaseInvoices = await db.PurchaseInvoices.AsNoTracking().ToListAsync();
-    var purchaseInvoiceIds = purchaseInvoices.Select(invoice => invoice.Id).ToList();
-    var purchaseInvoiceLines = await db.PurchaseInvoiceLines.AsNoTracking().Where(line => purchaseInvoiceIds.Contains(line.PurchaseInvoiceId)).ToListAsync();
-    purchaseInvoices = purchaseInvoices.Select(invoice => invoice with { Lines = purchaseInvoiceLines.Where(line => line.PurchaseInvoiceId == invoice.Id).ToList() }).ToList();
+    purchaseInvoices = (await OwnerPurchaseInvoiceReader.HydrateAsync(db, purchaseInvoices)).ToList();
     var workbook = AutoCountExcel.Export(new AutoCountExportInput(
         await db.Vehicles.AsNoTracking().ToListAsync(),
         await db.Customers.AsNoTracking().ToListAsync(),
@@ -3903,6 +4183,7 @@ else
 {
     await SeedData.EnsureFinanceV2SchemaAsync(app);
     await SeedData.EnsureDeliveryWorkboardSchemaAsync(app);
+    await SeedData.EnsureOwnerPurchaseInvoiceSchemaAsync(app);
 }
 
 app.Run();
@@ -4138,6 +4419,25 @@ internal static class FinanceApi
         db.Entry(vehicle).CurrentValues.SetValues(updatedVehicle);
 
         return ToResponse(updatedPayment, invoice, collections);
+    }
+}
+
+internal static class PurchaseInvoiceConcurrencyLock
+{
+    public static async Task<IDbContextTransaction> BeginAsync(AppDbContext db, Guid purchaseInvoiceId)
+    {
+        var transaction = await db.Database.BeginTransactionAsync();
+        try
+        {
+            var resourceKey = $"purchase-invoice:{purchaseInvoiceId:D}";
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({resourceKey}, 0))");
+            return transaction;
+        }
+        catch
+        {
+            await transaction.DisposeAsync();
+            throw;
+        }
     }
 }
 

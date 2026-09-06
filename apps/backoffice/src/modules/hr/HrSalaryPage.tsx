@@ -1,7 +1,8 @@
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
+import { OperationsCalendar } from "../shared/OperationsCalendar";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Statistic, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
@@ -13,6 +14,7 @@ import type { TablePaginationConfig } from "antd/es/table/interface";
 import { staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
+import "./HrSalaryPage.css";
 import type {
   CurrentUser,
   HrAttendanceAction,
@@ -63,6 +65,7 @@ type HrSalaryPageProps = {
   attendanceQrChallenge: HrAttendanceQrChallenge | null;
   attendanceQrToken?: string;
   businessTrips: HrBusinessTrip[];
+  onOpenDelivery?: (deliveryId: string) => void;
   onClearAttendanceQrToken: () => void;
   onCheckIn: () => Promise<void>;
   onCheckOut: () => Promise<void>;
@@ -179,6 +182,74 @@ export const leavePolicyTableConfig = {
   pagination: false
 } as const;
 
+type AttendanceDashboardMetricProps = {
+  label: string;
+  value: number | null | undefined;
+  detail: string;
+};
+
+export function attendanceDashboardMetricValue(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function AttendanceDashboardMetric({ label, value, detail }: AttendanceDashboardMetricProps) {
+  const normalizedValue = attendanceDashboardMetricValue(value);
+
+  return (
+    <div className="hrAttendanceMetric">
+      <div className="hrAttendanceMetricCopy">
+        <Typography.Text strong>{label}</Typography.Text>
+        <Typography.Text type="secondary">{detail}</Typography.Text>
+      </div>
+      <span className="hrAttendanceMetricValue" aria-label={`${label}: ${normalizedValue}`}>{normalizedValue}</span>
+    </div>
+  );
+}
+
+export function HrAttendanceDashboard({ summary }: { summary: HrAttendanceDashboardSummary | null }) {
+  if (!summary) return null;
+
+  const todayCountDetail = (value: number | null | undefined) => attendanceDashboardMetricValue(value) === 0
+    ? "None recorded today / 今天没有记录"
+    : "Sessions recorded today / 今天已记录";
+
+  return (
+    <ProCard className="hrAttendanceDashboard" title="Attendance Dashboard / 打卡概览">
+      <Typography.Text type="secondary" className="hrAttendanceDashboardIntro">
+        Counts are grouped by today’s attendance state, check-in method, and outstation workflow. They are session counts, not percentages. / 数字按今日打卡状态、打卡方式和外勤流程分组，均为次数，不是百分比。
+      </Typography.Text>
+      <div className="hrAttendanceDashboardGroups">
+        <section className="hrAttendanceSummaryGroup" aria-labelledby="hr-attendance-today-heading">
+          <Typography.Title level={5} id="hr-attendance-today-heading">Today attendance / 今日打卡</Typography.Title>
+          <div className="hrAttendanceMetricList">
+            <AttendanceDashboardMetric label="Checked in / 已上班" value={summary.checkedInToday} detail={todayCountDetail(summary.checkedInToday)} />
+            <AttendanceDashboardMetric label="Checked out / 已放工" value={summary.checkedOutToday} detail={todayCountDetail(summary.checkedOutToday)} />
+            <AttendanceDashboardMetric label="Open sessions / 未放工" value={summary.openSessionsToday} detail={attendanceDashboardMetricValue(summary.openSessionsToday) === 0 ? "No open sessions / 没有未完成打卡" : "Still awaiting check-out / 等待放工打卡"} />
+          </div>
+        </section>
+
+        <section className="hrAttendanceSummaryGroup" aria-labelledby="hr-attendance-method-heading">
+          <Typography.Title level={5} id="hr-attendance-method-heading">Check-in method / 打卡方式</Typography.Title>
+          <div className="hrAttendanceMetricList">
+            <AttendanceDashboardMetric label="Office QR / 办公室二维码" value={summary.officeQrSessionsToday} detail={todayCountDetail(summary.officeQrSessionsToday)} />
+            <AttendanceDashboardMetric label="Manual / 手动" value={summary.manualSessionsToday} detail={todayCountDetail(summary.manualSessionsToday)} />
+            <AttendanceDashboardMetric label="Outstation / 外勤" value={summary.outstationSessionsToday} detail={todayCountDetail(summary.outstationSessionsToday)} />
+          </div>
+        </section>
+
+        <section className="hrAttendanceSummaryGroup" aria-labelledby="hr-attendance-outstation-heading">
+          <Typography.Title level={5} id="hr-attendance-outstation-heading">Outstation workflow / 外勤流程</Typography.Title>
+          <div className="hrAttendanceMetricList">
+            <AttendanceDashboardMetric label="Pending trip approvals / 待审批外勤" value={summary.pendingBusinessTripRequests} detail={attendanceDashboardMetricValue(summary.pendingBusinessTripRequests) === 0 ? "No requests waiting / 没有待审批申请" : "Requests waiting for HR/Admin / 等待 HR/Admin 审批"} />
+            <AttendanceDashboardMetric label="Active outstation today / 今日进行中外勤" value={summary.activeOutstationToday} detail={attendanceDashboardMetricValue(summary.activeOutstationToday) === 0 ? "No active duties / 当前没有外勤" : "Approved duties in progress / 已批准并进行中"} />
+            <AttendanceDashboardMetric label="Approved trips, next 7 days / 未来7天已批准" value={summary.upcomingApprovedTrips} detail={attendanceDashboardMetricValue(summary.upcomingApprovedTrips) === 0 ? "No upcoming trips / 未来没有外勤安排" : "Upcoming approved plans / 即将进行的已批准安排"} />
+          </div>
+        </section>
+      </div>
+    </ProCard>
+  );
+}
+
 export function groupCalendarAvailabilityByDate(availability: HrCalendarAvailability[]) {
   const events = new Map<string, HrCalendarAvailability[]>();
   availability.forEach((item) => events.set(item.date, [...(events.get(item.date) ?? []), item]));
@@ -196,8 +267,6 @@ export function HrSalaryPage({
   attendance,
   attendanceDashboard,
   availabilityCalendar,
-  attendanceReminders,
-  attendanceReminderPolicies,
   bossCalendar,
   attendanceNetworks,
   leaveRequests,
@@ -210,6 +279,7 @@ export function HrSalaryPage({
   attendanceQrChallenge,
   attendanceQrToken,
   businessTrips,
+  onOpenDelivery,
   onClearAttendanceQrToken,
   onCheckIn,
   onCheckOut,
@@ -220,7 +290,6 @@ export function HrSalaryPage({
   onCancelBusinessTrip,
   onStartOutstation,
   onEndOutstation,
-  onUpdateReminderPolicy,
   onUpdateAttendance,
   onLoadBossCalendar,
   onSaveAttendanceNetwork,
@@ -695,34 +764,7 @@ export function HrSalaryPage({
         description="Attendance guide: Office staff — scan the office QR at both the start and end of the shift; use Manual Check In/Out only if QR is unavailable. Outstation staff follow their approved Business Trip / Outstation Duty flow on mobile. / 打卡说明：办公室员工——上班和放工都扫描办公室二维码，二维码不能用时才手动打卡；外勤员工按已批准的出差流程在手机上开始和结束打卡。"
       />
 
-      {attendanceDashboard && <ProCard title="Attendance Dashboard / 打卡概览">
-        <Space wrap size={[28, 18]}>
-          <Statistic title="Checked In / 已上班" value={attendanceDashboard.checkedInToday} />
-          <Statistic title="Checked Out / 已放工" value={attendanceDashboard.checkedOutToday} />
-          <Statistic title="Open Sessions / 未放工" value={attendanceDashboard.openSessionsToday} />
-          <Statistic title="Office QR / 办公室二维码" value={attendanceDashboard.officeQrSessionsToday} />
-          <Statistic title="Manual / 手动" value={attendanceDashboard.manualSessionsToday} />
-          <Statistic title="Outstation / 外勤" value={attendanceDashboard.outstationSessionsToday} />
-          <Statistic title="Pending Trips / 待审批外勤" value={attendanceDashboard.pendingBusinessTripRequests} />
-          <Statistic title="Active Outstation / 当前外勤" value={attendanceDashboard.activeOutstationToday} />
-          <Statistic title="Next 7 Days / 未来7天安排" value={attendanceDashboard.upcomingApprovedTrips} />
-        </Space>
-      </ProCard>}
-
-      <ProCard title="Attendance Reminders / 打卡提醒">
-        <Space direction="vertical" size={12} className="fullWidth">
-          {attendanceReminders.length === 0 ? <Typography.Text type="secondary">No active reminders / 暂无提醒</Typography.Text> : attendanceReminders.map((reminder) => <Alert key={`${reminder.type}-${reminder.staffUserId}-${reminder.dueDate}`} type="warning" showIcon message={`${attendanceReminderTypeLabel(reminder.type)} · ${reminder.dueDate}`} description={isHrManager ? `${staffName(reminder.staffUserId, visibleStaff)}: ${reminder.message}` : reminder.message} />)}
-          {isHrManager && <>
-            <Typography.Text strong>Reminder settings / 提醒设置</Typography.Text>
-            {attendanceReminderPolicies.map((policy) => <Form key={policy.type} layout="inline" initialValues={policy} onFinish={(values) => onUpdateReminderPolicy(policy.type, { isEnabled: Boolean(values.isEnabled), leadHours: Number(values.leadHours) })}>
-              <Typography.Text>{attendanceReminderTypeLabel(policy.type)}</Typography.Text>
-              <Form.Item name="isEnabled" valuePropName="checked"><Switch /></Form.Item>
-              <Form.Item name="leadHours" rules={[{ required: true, type: "number", min: 0, max: 720 }]}><InputNumber min={0} max={720} addonAfter="hours" /></Form.Item>
-              <Button htmlType="submit">Save / 保存</Button>
-            </Form>)}
-          </>}
-        </Space>
-      </ProCard>
+      <HrAttendanceDashboard summary={attendanceDashboard} />
 
       <ProCard title="Business Trip / Outstation Duty / 出差外勤">
         <Space direction="vertical" size={14} className="fullWidth">
@@ -934,8 +976,8 @@ export function HrSalaryPage({
             key: "availability",
             label: "Shared Calendar / 共享日历",
             children: (
-              <ProCard title="Team Availability / 团队可用时间">
-                <Space direction="vertical" size={12} className="fullWidth">
+              <Space direction="vertical" size={12} className="fullWidth">
+                <OperationsCalendar onOpenDelivery={onOpenDelivery} />
                   <Typography.Text type="secondary">Staff see only busy status for other people; HR/Admin can see approved trip details. This calendar does not track GPS or replace attendance. / 员工只能看到其他人的忙碌状态；HR/Admin 可看到已批准外勤详情。此日历不追踪 GPS，也不取代打卡。</Typography.Text>
                   <OperationsProTable
                     rowKey={(item) => `${item.staffUserId}-${item.kind}-${item.startDate}-${item.endDate}`}
@@ -950,8 +992,7 @@ export function HrSalaryPage({
                     ]}
                     locale={{ emptyText: "No approved leave or outstation plans / 暂无已批准请假或外勤安排" }}
                   />
-                </Space>
-              </ProCard>
+              </Space>
             )
           },
           {
@@ -1454,10 +1495,6 @@ function businessTripStatusLabel(status: HrBusinessTripStatus) {
 
 function businessTripStatusColor(status: HrBusinessTripStatus) {
   return status === "Approved" ? "green" : status === "Rejected" ? "red" : status === "Cancelled" ? "default" : "orange";
-}
-
-function attendanceReminderTypeLabel(type: HrAttendanceReminderType) {
-  return type === "PendingApproval" ? "Pending approval / 待审批" : type === "UpcomingOutstation" ? "Upcoming outstation / 即将外勤" : "Missing Check Out / 未放工打卡";
 }
 
 function businessTripFromValues(values: Record<string, unknown>, fallbackStaffUserId: string): HrBusinessTrip {

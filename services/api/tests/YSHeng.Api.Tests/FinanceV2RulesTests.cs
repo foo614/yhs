@@ -430,6 +430,24 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
+    public void Collection_document_upload_requires_the_locked_pending_collection_payment_and_vehicle()
+    {
+        var payment = V2Payment(100m);
+        var pending = CollectionFor(payment, 10m, CollectionStatus.Pending, "BANK-1");
+
+        Assert.True(FinanceV2Rules.ValidateCollectionDocumentUpload(payment, pending, payment.VehicleId, payment.Id).IsValid);
+        Assert.Contains(
+            FinanceV2Rules.ValidateCollectionDocumentUpload(payment, pending with { Status = CollectionStatus.Reconciled }, payment.VehicleId, payment.Id).Errors,
+            error => error.Code == "collection_document_not_pending");
+        Assert.Contains(
+            FinanceV2Rules.ValidateCollectionDocumentUpload(payment, pending with { PaymentRecordId = Guid.NewGuid() }, payment.VehicleId, payment.Id).Errors,
+            error => error.Code == "collection_document_link_changed");
+        Assert.Contains(
+            FinanceV2Rules.ValidateCollectionDocumentUpload(payment, pending, Guid.NewGuid(), payment.Id).Errors,
+            error => error.Code == "collection_document_link_changed");
+    }
+
+    [Fact]
     public void Collection_activity_requires_the_same_buyer_on_vehicle_receivable_and_invoice()
     {
         var payment = V2Payment(100m);

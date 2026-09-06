@@ -46,12 +46,7 @@ export function ContactEnquiryForm({ language }: { language: Language }) {
   }
 
   return (
-    <form action={submitEnquiry} className="leadForm contactEnquiryForm">
-      <div className="leadFormHeader">
-        <p className="atelierKicker">{t.formKicker}</p>
-        <h2>{t.formTitle}</h2>
-        <p>{t.formIntro}</p>
-      </div>
+    <form action={submitEnquiry} className="leadForm contactEnquiryForm" aria-labelledby="contact-enquiry-title">
       <label>
         {t.formName}
         <input name="customerName" required placeholder={t.formNamePlaceholder} />

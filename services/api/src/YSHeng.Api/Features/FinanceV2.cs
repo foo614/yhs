@@ -424,6 +424,20 @@ public static class FinanceV2Rules
         return new ValidationResult(errors);
     }
 
+    public static ValidationResult ValidateCollectionDocumentUpload(PaymentRecord payment, CollectionTransaction collection, Guid vehicleId, Guid paymentRecordId)
+    {
+        var errors = new List<ValidationError>();
+        if (payment.Id != paymentRecordId || collection.PaymentRecordId != paymentRecordId || payment.VehicleId != vehicleId)
+        {
+            errors.Add(new("collection_document_link_changed", "The selected collection no longer belongs to the supplied payment and vehicle. Refresh and try again."));
+        }
+        if (collection.Status != CollectionStatus.Pending)
+        {
+            errors.Add(new("collection_document_not_pending", "Collection-linked evidence can only be uploaded while the collection is pending."));
+        }
+        return new ValidationResult(errors);
+    }
+
     public static ValidationResult ValidateReverse(CollectionTransaction collection, string? reason)
     {
         var errors = new List<ValidationError>();

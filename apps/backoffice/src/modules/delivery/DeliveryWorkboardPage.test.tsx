@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { Children, createElement, isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DeliveryWorkboardItem } from "../../api";
@@ -8,6 +8,8 @@ import {
   DeliveryDrawerContent,
   DeliveryWorkboardPage,
   canCorrectDeliveryBuyer,
+  deliveryForExactDeepLink,
+  initialDeliveryFocusResolution,
   deliveryNeedsAction,
   eligibleDeliveryVehicles,
   filterDeliveryQueue,
@@ -115,6 +117,23 @@ describe("simple delivery workboard", () => {
     ];
 
     expect(eligibleDeliveryVehicles(vehicles, deliveries).map((vehicle) => vehicle.id)).toEqual(["cancelled", "fresh"]);
+  });
+
+  it("opens an exact delivery deep link instead of another historical schedule for the same vehicle", () => {
+    const historical = { ...baseItem, id: "delivery-historical" };
+    const current = { ...baseItem, id: "delivery-current" };
+
+    expect(deliveryForExactDeepLink([historical, current], "delivery-current")).toBe(current);
+    expect(deliveryForExactDeepLink([historical, current], "delivery-missing")).toBeUndefined();
+  });
+
+  it("consumes a delivery link once, while allowing a later URL target and exposing stale links", () => {
+    const current = { ...baseItem, id: "delivery-current" };
+
+    expect(initialDeliveryFocusResolution({ items: [current], initialDeliveryId: "delivery-current", loading: false })).toEqual({ kind: "open", delivery: current });
+    expect(initialDeliveryFocusResolution({ items: [current], initialDeliveryId: "delivery-current", appliedDeliveryId: "delivery-current", loading: false })).toEqual({ kind: "applied" });
+    expect(initialDeliveryFocusResolution({ items: [current], initialDeliveryId: "delivery-new", appliedDeliveryId: "delivery-current", loading: false })).toEqual({ kind: "unavailable" });
+    expect(initialDeliveryFocusResolution({ items: [], initialDeliveryId: "delivery-new", loading: true })).toEqual({ kind: "waiting" });
   });
 
   it("renders a single workboard without a raw delivery status control", () => {
@@ -226,6 +245,93 @@ describe("simple delivery workboard", () => {
     expect(markup).toContain("Waiting for Finance / 等待财务");
     expect(markup).toContain("Request sent to Finance");
     expect(markup).not.toContain("Invoice No");
+    expect(markup).not.toContain("Windscreen expiry");
+    expect(markup).not.toContain("Windscreen cover reviewed");
+    expect(markup).not.toContain("Historical windscreen evidence");
+  });
+
+  it("keeps existing windscreen evidence read-only in a separate history area", () => {
+    const markup = renderToStaticMarkup(createElement(DeliveryDrawerContent, {
+      item: {
+        ...baseItem,
+        evidence: [{
+          category: "WindscreenPolicy",
+          isPresent: true,
+          documentId: "historic-windscreen-1",
+          fileName: "windscreen-policy.pdf"
+        }]
+      },
+      picOptions: [],
+      activity: [],
+      activityLoading: false,
+      saving: false,
+      onSave: noOp,
+      onUpload: noOp,
+      onRelease: () => {},
+      onRequestInvoice: () => {}
+    }));
+
+    expect(markup).toContain("Historical record / 历史记录");
+    expect(markup).toContain("Windscreen insurance / 挡风玻璃保险");
+    expect(markup).toContain("windscreen-policy.pdf");
+    expect(markup).toContain("/api/vehicles/vehicle-1/documents/historic-windscreen-1/content");
+    expect(markup).toContain("Open historical file");
+    expect(markup).not.toContain("Replace");
+    expect(markup).not.toContain("Upload");
+  });
+
+  it("keeps earlier completed stages editable until release or cancellation", () => {
+    const activeDrawer = DeliveryDrawerContent({
+      item: {
+        ...baseItem,
+        stage: "Handover",
+        status: "ReadyForRelease",
+        blocker: null,
+        inspectionBookingReference: "BOOK-100"
+      },
+      picOptions: [{ id: "staff-1", displayName: "Ming Lee" }],
+      activity: [],
+      activityLoading: false,
+      saving: false,
+      onSave: noOp,
+      onUpload: noOp,
+      onRelease: () => {},
+      onRequestInvoice: () => {}
+    });
+    const terminalDrawer = DeliveryDrawerContent({
+      item: {
+        ...baseItem,
+        stage: "Completed",
+        status: "Released",
+        terminal: true,
+        blocker: null,
+        inspectionBookingReference: "BOOK-100"
+      },
+      picOptions: [{ id: "staff-1", displayName: "Ming Lee" }],
+      activity: [],
+      activityLoading: false,
+      saving: false,
+      onSave: noOp,
+      onUpload: noOp,
+      onRelease: () => {},
+      onRequestInvoice: () => {}
+    });
+    const getCompletedStageChildren = (drawer: typeof activeDrawer) => {
+      const collapse = Children.toArray(drawer.props.children).find((child) =>
+        isValidElement<{ items?: unknown }>(child) && Array.isArray(child.props.items));
+      if (!collapse || !isValidElement<{ items?: Array<{ children?: unknown }> }>(collapse)) {
+        throw new Error("Completed stages are missing from the delivery drawer.");
+      }
+      return collapse.props.items ?? [];
+    };
+    const activePanels = getCompletedStageChildren(activeDrawer);
+    const terminalPanels = getCompletedStageChildren(terminalDrawer);
+
+    expect(activePanels).toHaveLength(3);
+    expect(activePanels.map((panel) => (panel.children as { type?: unknown }).type)).toEqual([CurrentStageForm, CurrentStageForm, CurrentStageForm]);
+    expect(activePanels.map((panel) => (panel.children as { props: { item: DeliveryWorkboardItem } }).props.item.stage)).toEqual(["PlanDelivery", "PrepareCar", "ClearDocuments"]);
+    expect(terminalPanels).toHaveLength(4);
+    expect(terminalPanels.some((panel) => (panel.children as { type?: unknown }).type === CurrentStageForm)).toBe(false);
   });
 
   it("shows outstation logistics once in the drawer without repeating the next action", () => {

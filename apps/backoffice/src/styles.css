@@ -2915,15 +2915,9 @@ body {
   min-width: 156px;
 }
 
-.leadsPage > .ant-space-item:nth-child(2),
-.leadsPage > .ant-space-item:nth-child(3) {
-  display: inline-block;
-  vertical-align: top;
-  width: calc(50% - 8px);
-}
-
-.leadsPage > .ant-space-item:nth-child(2) {
-  margin-right: 16px;
+.leadsPage > .ant-space-item {
+  min-width: 0;
+  width: 100%;
 }
 
 .leadsPage > .ant-space-item:nth-child(2) .ant-pro-card,
@@ -5601,6 +5595,7 @@ body {
 
 .deliveryEvidenceItem {
   display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 86px;
   padding: 12px;
@@ -5614,6 +5609,7 @@ body {
 
 .deliveryEvidenceItem > div:first-child {
   display: flex;
+  width: 100%;
   min-width: 0;
   flex-direction: column;
   gap: 2px;
@@ -5621,6 +5617,43 @@ body {
 
 .deliveryEvidenceItem > div:first-child .ant-typography {
   overflow-wrap: anywhere;
+}
+
+.deliveryEvidenceItem > .ant-space {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.loanDecisionPanel .ant-steps .ant-steps-item-icon,
+.loanDecisionPanel .ant-steps .ant-steps-item-process .ant-steps-item-icon,
+.loanDecisionPanel .ant-steps .ant-steps-item-finish .ant-steps-item-icon,
+.loanDecisionPanel .ant-steps .ant-steps-item-error .ant-steps-item-icon,
+.loanDecisionPanel .ant-steps .ant-steps-item-wait .ant-steps-item-icon {
+  background: #fff !important;
+}
+
+.loanDecisionPanel .ant-steps .ant-steps-item-icon .ant-steps-icon,
+.loanDecisionPanel .ant-steps .ant-steps-item-icon .ant-steps-finish-icon {
+  color: #31544a !important;
+  font-weight: 780;
+}
+
+.loanDecisionPanel .ant-steps .ant-steps-item-process .ant-steps-item-icon {
+  border-color: #0b705c !important;
+}
+
+.loanDecisionPanel .ant-steps .ant-steps-item-process .ant-steps-item-icon .ant-steps-icon,
+.loanDecisionPanel .ant-steps .ant-steps-item-finish .ant-steps-item-icon .ant-steps-icon,
+.loanDecisionPanel .ant-steps .ant-steps-item-finish .ant-steps-item-icon .ant-steps-finish-icon {
+  color: #0b705c !important;
+}
+
+.loanDecisionPanel .ant-steps .ant-steps-item-error .ant-steps-item-icon {
+  border-color: #b4233b !important;
+}
+
+.loanDecisionPanel .ant-steps .ant-steps-item-error .ant-steps-item-icon .ant-steps-icon {
+  color: #b4233b !important;
 }
 
 .deliveryFinanceGate {
@@ -6052,5 +6085,108 @@ body {
 
   .financeToolbarForm .ant-select-selector {
     min-height: 44px;
+  }
+}
+.operationsCalendarLayout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(240px, 1fr);
+  gap: 24px;
+}
+
+.operationsCalendarLayout:focus-visible {
+  outline: 2px solid #0b705c;
+  outline-offset: 4px;
+}
+
+.operationsCalendarLayout > * {
+  min-width: 0;
+}
+
+.operationsCalendarToolbar {
+  padding: 8px 0 16px;
+}
+
+.operationsCalendarDot {
+  display: block;
+  color: #1677ff;
+  line-height: 8px;
+}
+
+.operationsCalendarEvent {
+  align-items: flex-start;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+
+.operationsCalendarEventBody {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 4px;
+}
+
+@media (max-width: 767px) {
+  .operationsCalendarLayout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .operationsCalendarDesktopAgenda {
+    display: none;
+  }
+
+  .operationsCalendarToolbar .ant-btn,
+  .operationsCalendarToolbar .ant-picker,
+  .operationsCalendarDayDrawer .ant-btn {
+    min-height: 44px;
+  }
+
+  .operationsCalendarToolbar .ant-btn {
+    min-width: 44px;
+  }
+
+  .operationsCalendarDayDrawer .ant-drawer-body {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+
+  .operationsCalendarDayDrawer .operationsCalendarEvent {
+    padding-block: 12px;
+  }
+}
+
+@media (max-width: 360px) {
+  .deliveryWorkboardDrawer .ant-drawer-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .deliveryWorkboardDrawer .ant-drawer-header-title,
+  .deliveryWorkboardDrawer .ant-drawer-extra {
+    min-width: 0;
+    margin-inline-start: 0;
+  }
+
+  .deliveryWorkboardDrawer .ant-drawer-title {
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+    white-space: normal;
+  }
+
+  .deliveryWorkboardDrawer .ant-drawer-extra .ant-space {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .deliveryWorkboardDrawer .ant-drawer-extra .ant-space-item,
+  .deliveryWorkboardDrawer .ant-drawer-extra .ant-space-item > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .deliveryWorkboardDrawer .ant-drawer-extra .ant-btn {
+    justify-content: center;
+    width: 100%;
   }
 }

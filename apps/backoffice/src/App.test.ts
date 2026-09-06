@@ -1,10 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, customerIdFromRouteUrl, DashboardPage, DeliveryPage, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, createVehicleIntakeFromVehiclePage, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
+  it("forwards the reviewed VOC file from Vehicle intake to the multipart client", async () => {
+    const identityCard = new File(["identity"], "seller-ic.png", { type: "image/png" });
+    const voc = new File(["voc"], "seller-voc.pdf", { type: "application/pdf" });
+    const createIntake = vi.fn().mockResolvedValue({ id: "intake-1" });
+    const input = { vehicle: {} as Vehicle };
+
+    await createVehicleIntakeFromVehiclePage(createIntake, input, identityCard, voc);
+
+    expect(createIntake).toHaveBeenCalledWith(input, identityCard, voc);
+  });
+
   it("formats workflow vehicle identity with plate, year, make, and model", () => {
     const vehicles: VehicleLookup[] = [{
       id: "vehicle-1", plateNumber: "BKC3003", year: 2018, make: "Honda", model: "City E 1.5", stockOwner: "YSHeng", status: "Available"
@@ -31,6 +42,11 @@ describe("browser route state", () => {
   it("keeps a direct loan handoff target in the route", () => {
     expect(loanIdFromRouteUrl("/loans?loanId=loan-123")).toBe("loan-123");
     expect(loanIdFromRouteUrl("/loans")).toBeUndefined();
+  });
+
+  it("keeps the exact delivery handoff target separate from vehicle-based dashboard focus", () => {
+    expect(deliveryIdFromRouteUrl("/delivery?deliveryId=delivery-123&vehicleId=vehicle-old")).toBe("delivery-123");
+    expect(deliveryIdFromRouteUrl("/delivery?vehicleId=vehicle-old")).toBeUndefined();
   });
 
   it("uses the existing loan buyer before requiring a vehicle-level buyer", () => {

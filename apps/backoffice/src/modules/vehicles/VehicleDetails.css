@@ -41,3 +41,7 @@
   text-overflow: clip;
   white-space: nowrap;
 }
+
+.vehicleReapprovalNotice {
+  grid-column: 1 / -1;
+}

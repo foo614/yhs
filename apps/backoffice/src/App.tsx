@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
 import {
   AuditOutlined,
   BankOutlined,
@@ -113,7 +114,7 @@ import {
   createOwner,
   createPayment,
   createPaymentVoucher,
-  createPurchaseInvoice,
+  createPurchaseInvoiceRevision,
   createRepair,
   createRepairWithReceipt,
   confirmRepairReceipt,
@@ -167,6 +168,7 @@ import {
   getPayments,
   getPaymentVouchers,
   getPurchaseInvoices,
+  generatePurchaseInvoice,
   getRepairs,
   getRepairReceipts,
   getSettlementDrafts,
@@ -292,6 +294,7 @@ import {
   type UpdateStaffUserStatusRequest,
   type UpdateAiServiceLimitRequest,
   type Vehicle,
+  type VehicleIntakeCreateInput,
   type VehicleLookup,
   type VehicleDocument,
   type VehicleOcrJob,
@@ -386,8 +389,23 @@ export function loanIdFromRouteUrl(routeUrl: string) {
   return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("loanId") ?? undefined;
 }
 
+export function deliveryIdFromRouteUrl(routeUrl: string) {
+  const queryIndex = routeUrl.indexOf("?");
+  return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("deliveryId") ?? undefined;
+}
+
 export function vehicleLoanCustomerId(vehicle: Pick<Vehicle, "customerId">, existingLoan?: Pick<LoanApplication, "customerId">) {
   return existingLoan?.customerId ?? vehicle.customerId;
+}
+
+/** Preserves the optional reviewed VOC file between the Vehicle intake workflow and multipart API client. */
+export function createVehicleIntakeFromVehiclePage<T>(
+  createIntake: (input: VehicleIntakeCreateInput, identityCard: File, voc?: File) => Promise<T>,
+  input: VehicleIntakeCreateInput,
+  identityCard: File,
+  voc?: File
+) {
+  return createIntake(input, identityCard, voc);
 }
 
 export function activeLoanForVehicle(loans: LoanApplication[], vehicleId: string) {
@@ -1065,7 +1083,7 @@ export default function App() {
             }}
           />
           <div ref={moduleContentRef}>
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={refreshDashboard} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} />}
+          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={refreshDashboard} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} />}
           {pathname === "/vehicles" && (
             <VehiclePage
               vehicles={vehicles}
@@ -1082,9 +1100,9 @@ export default function App() {
               dashboardFocus={dashboardDrilldown.vehicleFocus}
               dashboardAnalyticsPeriod={dashboardDrilldown.analyticsPeriod}
               onClearDashboardFocus={() => navigateTo("/vehicles")}
-              onCreate={(vehicle, settlement, newOwner, identityCard) =>
+              onCreate={(vehicle, settlement, newOwner, identityCard, voc) =>
                 runCreateWithResult(
-                  () => createVehicleIntake({ vehicle, settlement, newOwner }, identityCard),
+                  () => createVehicleIntakeFromVehiclePage(createVehicleIntake, { vehicle, settlement, newOwner }, identityCard, voc),
                   (record) => {
                     setVehicles((items) => [record.vehicle, ...items]);
                     if (record.settlement) setSettlements((items) => [record.settlement!, ...items]);
@@ -1099,8 +1117,9 @@ export default function App() {
               onUpdateCustomer={(customer) => runUpdate(() => updateCustomer(customer), (record) => setCustomers((items) => replaceById(items, record)), "Customer updated")}
               onCreateOwner={(owner) => runCreate(() => createOwner(owner), (record) => setOwners((items) => [record, ...items]), "Owner created")}
               onUpdateOwner={(owner) => runUpdate(() => updateOwner(owner), (record) => setOwners((items) => replaceById(items, record)), "Owner updated")}
-              onCreatePurchaseInvoice={(invoice) => runCreate(() => createPurchaseInvoice(invoice), (record) => setPurchaseInvoices((items) => [record, ...items]), "Purchase invoice created")}
               onUpdatePurchaseInvoice={(invoice) => runUpdate(() => updatePurchaseInvoice(invoice), (record) => setPurchaseInvoices((items) => replaceById(items, record)), "Purchase invoice updated")}
+              onGeneratePurchaseInvoice={(vehicleId, input) => runCreateWithResult(() => generatePurchaseInvoice(vehicleId, input), (record) => setPurchaseInvoices((items) => replaceByIdOrPrepend(items, record)), "Purchase invoice issued")}
+              onCreatePurchaseInvoiceRevision={(invoiceId, input) => runUpdateWithResult(() => createPurchaseInvoiceRevision(invoiceId, input), (record) => setPurchaseInvoices((items) => replaceByIdOrPrepend(items, record)), "Purchase invoice version created")}
               onUploadPhoto={(vehicleId, file) => runUpload(() => uploadVehiclePhoto(vehicleId, file), "Vehicle photo uploaded")}
               onUploadDocument={(vehicleId, file, category, owner) => runUpload(() => uploadVehicleDocument(vehicleId, file, category, owner), "Vehicle document uploaded")}
             />
@@ -1156,6 +1175,7 @@ export default function App() {
             <DeliveryPage
               vehicles={vehicleLookup}
               canCorrectBuyer={currentRoles.includes("BossAdmin")}
+              initialDeliveryId={deliveryIdFromRouteUrl(routeUrl)}
               dashboardFocus={dashboardDrilldown}
               onClearDashboardFocus={() => navigateTo("/delivery")}
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
@@ -1270,6 +1290,7 @@ export default function App() {
               attendanceQrChallenge={hrAttendanceQrChallenge}
               attendanceQrToken={attendanceQrToken}
               businessTrips={hrBusinessTrips}
+              onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined}
               onClearAttendanceQrToken={() => {
                 setAttendanceQrToken(undefined);
                 window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
@@ -1963,7 +1984,8 @@ export function DashboardPage({
   analyticsPeriod,
   analyticsRangePreset,
   onAnalyticsPeriodChange,
-  onNavigate
+  onNavigate,
+  onOpenDelivery
 }: {
   dashboard: DashboardSummary | null;
   dashboardLoadError: string | null;
@@ -1978,6 +2000,7 @@ export function DashboardPage({
   onRefresh: () => Promise<void>;
   onAnalyticsPeriodChange: (preset: DashboardAnalyticsRangePreset, period: DashboardAnalyticsPeriod) => Promise<void>;
   onNavigate: (path: string) => void;
+  onOpenDelivery?: (deliveryId: string) => void;
 }) {
   const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
   const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
@@ -2068,6 +2091,7 @@ export function DashboardPage({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
+      <OperationsCalendar onOpenDelivery={onOpenDelivery} />
       <div className="dashboardCommandBar">
         <div>
           <Typography.Text className="loginKicker">Management dashboard / 管理看板</Typography.Text>
@@ -4725,12 +4749,14 @@ export function LoanPage({
 export function DeliveryPage({
   vehicles,
   canCorrectBuyer = false,
+  initialDeliveryId,
   dashboardFocus,
   onClearDashboardFocus,
   onOpenCustomer
 }: {
   vehicles: VehicleLookup[];
   canCorrectBuyer?: boolean;
+  initialDeliveryId?: string;
   dashboardFocus: DashboardDrilldown;
   onClearDashboardFocus: () => void;
   onOpenCustomer: (customerId: string) => void;
@@ -4739,6 +4765,7 @@ export function DeliveryPage({
     <DeliveryWorkboardPage
       vehicles={vehicles}
       canCorrectBuyer={canCorrectBuyer}
+      initialDeliveryId={initialDeliveryId}
       dashboardFocus={dashboardFocus}
       onClearDashboardFocus={onClearDashboardFocus}
       onOpenCustomer={onOpenCustomer}

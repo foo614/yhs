@@ -20,6 +20,7 @@ public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum DisbursementMethod { BankTransfer, Cheque, Cash, Other }
 public enum SupplierApprovalStatus { Draft, Approved, Inactive }
 public enum PurchaseInvoiceLineType { VehiclePurchase, PurchaseProcessing, LatePaymentCharge, Parking, Transport, Refurbishment, Other }
+public enum PurchaseInvoiceSourceType { LegacySupplier, OwnerAcquisition }
 public enum DeliveryAccountingChargeType { Insurance, RoadTax }
 public enum AccountingConfirmationStatus { Draft, FinanceConfirmed }
 public enum CashHandoverStatus { ReceivedBySales, PendingHandover, HandedOver, Rejected, Receipted }
@@ -244,6 +245,9 @@ public sealed record PurchaseInvoice
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
     public Guid? SupplierId { get; init; }
+    public PurchaseInvoiceSourceType SourceType { get; init; } = PurchaseInvoiceSourceType.LegacySupplier;
+    public Guid? OwnerId { get; init; }
+    public int CurrentRevisionNumber { get; init; }
     public string InvoiceNumber { get; init; } = "";
     public DateOnly InvoiceDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
     public DateOnly? PurchaseDate { get; init; }
@@ -251,9 +255,12 @@ public sealed record PurchaseInvoice
     public decimal Amount { get; init; }
     public AccountingConfirmationStatus AccountingStatus { get; init; } = AccountingConfirmationStatus.Draft;
     public string? AccountingConfirmedBy { get; init; }
+    public string? AccountingConfirmedByUserId { get; init; }
     public DateTime? AccountingConfirmedAt { get; init; }
     [NotMapped]
     public IReadOnlyList<PurchaseInvoiceLine> Lines { get; init; } = [];
+    [NotMapped]
+    public PurchaseInvoiceRevision? CurrentRevision { get; init; }
 }
 
 public sealed record PurchaseInvoiceLine
@@ -264,6 +271,53 @@ public sealed record PurchaseInvoiceLine
     public string Description { get; init; } = "";
     public decimal Amount { get; init; }
     public bool CapitaliseIntoVehicleCost { get; init; }
+}
+
+public sealed record PurchaseInvoiceRevision
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid PurchaseInvoiceId { get; init; }
+    public int RevisionNumber { get; init; }
+    public string InvoiceNumber { get; init; } = "";
+    public Guid SourceVehicleId { get; init; }
+    public Guid SourceOwnerId { get; init; }
+    public DateOnly InvoiceDate { get; init; }
+    public DateOnly PurchaseDate { get; init; }
+    public string? PaymentReference { get; init; }
+    public string SellerName { get; init; } = "";
+    public string SellerPhone { get; init; } = "";
+    public string? SellerIcNumber { get; init; }
+    public string? SellerTinNumber { get; init; }
+    public string? SellerAddress { get; init; }
+    public string VehiclePlateNumber { get; init; } = "";
+    public string VehicleDescription { get; init; } = "";
+    public decimal Amount { get; init; }
+    public AccountingConfirmationStatus AccountingStatus { get; init; } = AccountingConfirmationStatus.Draft;
+    public string? AccountingConfirmedBy { get; init; }
+    public string? AccountingConfirmedByUserId { get; init; }
+    public DateTime? AccountingConfirmedAt { get; init; }
+    public string CreatedBy { get; init; } = "";
+    public string? CreatedByUserId { get; init; }
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public string? Reason { get; init; }
+    [JsonIgnore]
+    public byte[] Content { get; init; } = [];
+    public string ContentMimeType { get; init; } = "application/pdf";
+    [NotMapped]
+    public IReadOnlyList<PurchaseInvoiceRevisionLine> Lines { get; init; } = [];
+}
+
+public sealed record PurchaseInvoiceRevisionLine
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid PurchaseInvoiceRevisionId { get; init; }
+    [NotMapped]
+    public Guid PurchaseInvoiceId { get; init; }
+    public PurchaseInvoiceLineType LineType { get; init; }
+    public string Description { get; init; } = "";
+    public decimal Amount { get; init; }
+    public bool CapitaliseIntoVehicleCost { get; init; }
+    public int SortOrder { get; init; }
 }
 public sealed record RepairJob { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string RepairPart { get; init; } = ""; public string WhatToDo { get; init; } = ""; public decimal Cost { get; init; } public bool ChecklistDone { get; init; } public string? AssignedTo { get; init; } public DateOnly? StartedOn { get; init; } public DateOnly? ExpectedCompletionDate { get; init; } public RepairApprovalStatus ApprovalStatus { get; init; } = RepairApprovalStatus.Approved; public string? ApprovalNotes { get; init; } public string? ApprovedBy { get; init; } public DateTime? ApprovedAt { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
 public sealed record RepairReceipt { public Guid Id { get; init; } = Guid.NewGuid(); public Guid RepairJobId { get; init; } public Guid DocumentId { get; init; } public string? SupplierName { get; init; } public string? InvoiceNumber { get; init; } public decimal? TotalAmount { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
