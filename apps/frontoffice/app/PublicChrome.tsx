@@ -151,6 +151,7 @@ function BrandLogo({ language, footer = false }: { language: Language; footer?: 
 
 export function PublicMobileNav({ language, active = "home" }: { language: Language; active?: "home" | "vehicles" | "contact" }) {
   const t = frontofficeCopy[language].nav;
+  const [selectedKey, setSelectedKey] = useState<MobileNavKey>(() => getMobileNavKey(active, ""));
   const items = [
     { key: "home", href: hrefWithLanguage("/", language), icon: <Home size={18} />, label: t.home },
     { key: "vehicles", href: hrefWithLanguage("/vehicles", language), icon: <Car size={18} />, label: t.mobileCars },
@@ -159,13 +160,25 @@ export function PublicMobileNav({ language, active = "home" }: { language: Langu
     { key: "contact", href: hrefWithLanguage("/contact", language), icon: <MessageCircle size={18} />, label: t.mobileProfile }
   ];
 
+  useEffect(() => {
+    const readLocation = () => setSelectedKey(getMobileNavKey(active, window.location.hash));
+    readLocation();
+    window.addEventListener("hashchange", readLocation);
+    window.addEventListener("popstate", readLocation);
+    return () => {
+      window.removeEventListener("hashchange", readLocation);
+      window.removeEventListener("popstate", readLocation);
+    };
+  }, [active]);
+
   return (
     <nav className="atelierMobileNav" aria-label="Mobile navigation">
       {items.map((item) => (
         <Link
           href={item.href}
-          className={(item.key === active || (active === "contact" && item.key === "profile")) ? "active" : undefined}
-          aria-current={item.key === active ? "page" : undefined}
+          className={item.key === selectedKey ? "active" : undefined}
+          aria-current={item.key === selectedKey ? "page" : undefined}
+          onClick={() => setSelectedKey(item.key as MobileNavKey)}
           key={item.key}
         >
           {item.icon}
@@ -174,6 +187,17 @@ export function PublicMobileNav({ language, active = "home" }: { language: Langu
       ))}
     </nav>
   );
+}
+
+type MobileNavKey = "home" | "vehicles" | "sell" | "finance" | "contact";
+
+function getMobileNavKey(active: "home" | "vehicles" | "contact", hash: string): MobileNavKey {
+  if (active !== "contact") {
+    return active;
+  }
+
+  const section = hash.replace(/^#/, "").split("#")[0];
+  return section === "contact" ? "sell" : section === "services" ? "finance" : "contact";
 }
 
 function FooterLinks({ title, items, language }: { title: string; items: readonly FooterLink[]; language: Language }) {

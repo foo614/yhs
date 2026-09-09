@@ -43,7 +43,7 @@ export async function generateMetadata({ searchParams }: { searchParams?: Promis
   });
 }
 
-export const previewFeaturedVehicles: PublicVehicle[] = [
+const previewFeaturedVehicles: PublicVehicle[] = [
   {
     id: "9f5d6f16-9bb5-46b9-bb13-e8a8b3534737",
     plateNumber: "VPK1234",
