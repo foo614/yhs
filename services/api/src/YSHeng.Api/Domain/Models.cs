@@ -568,6 +568,7 @@ public sealed record CashHandover
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid PaymentRecordId { get; init; }
+    public Guid? CollectionTransactionId { get; init; }
     public Guid VehicleId { get; init; }
     public Guid CustomerId { get; init; }
     public decimal Amount { get; init; }
@@ -575,6 +576,7 @@ public sealed record CashHandover
     public string CollectedByUserId { get; init; } = "";
     public DateTime CollectedAt { get; init; } = DateTime.UtcNow;
     public DateTime? HandoverRequestedAt { get; init; }
+    public string? HandedOverByUserId { get; init; }
     public string? HandedOverToUserId { get; init; }
     public DateTime? HandedOverAt { get; init; }
     public string? AcceptedByUserId { get; init; }
@@ -585,6 +587,7 @@ public sealed record CashHandover
     public string? Notes { get; init; }
     public Guid? OfficialReceiptId { get; init; }
     public string? OfficialReceiptNumber { get; init; }
+    public long Version { get; init; }
 }
 
 public sealed record OfficialReceipt

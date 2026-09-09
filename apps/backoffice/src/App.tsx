@@ -479,6 +479,7 @@ export default function App() {
   const [paymentRefreshing, setPaymentRefreshing] = useState(false);
   const [cashHandovers, setCashHandovers] = useState<CashHandover[]>([]);
   const [cashHandoverPaymentLookup, setCashHandoverPaymentLookup] = useState<CashHandoverPaymentLookup[]>([]);
+  const [cashCustodyLoadError, setCashCustodyLoadError] = useState<string | null>(null);
   const [settlements, setSettlements] = useState<SettlementReminder[]>([]);
   const [settlementDrafts, setSettlementDrafts] = useState<SettlementDraft[]>([]);
   const [settlementLoadError, setSettlementLoadError] = useState<string | null>(null);
@@ -548,8 +549,8 @@ export default function App() {
       loanData,
       deliveryData,
       paymentResult,
-      cashHandoverData,
-      cashHandoverPaymentLookupData,
+      cashHandoverResult,
+      cashHandoverPaymentLookupResult,
       settlementData,
       settlementDraftData,
       dailySpendData,
@@ -598,8 +599,12 @@ export default function App() {
             .then((data) => ({ data, error: null as string | null }))
             .catch((error) => ({ data: [] as PaymentRecord[], error: humanizeApiError(error, "Finance records could not be loaded.") }))
         : Promise.resolve({ data: [] as PaymentRecord[], error: null as string | null }),
-      canLoad("cashHandovers") ? getCashHandovers() : Promise.resolve([]),
-      canLoad("cashHandoverPaymentLookup") ? getCashHandoverPaymentLookup() : Promise.resolve([]),
+      canLoad("cashHandovers")
+        ? getCashHandovers().then((data) => ({ data, error: null as string | null })).catch((error) => ({ data: [] as CashHandover[], error: humanizeApiError(error, "Cash custody records could not be loaded.") }))
+        : Promise.resolve({ data: [] as CashHandover[], error: null as string | null }),
+      canLoad("cashHandoverPaymentLookup")
+        ? getCashHandoverPaymentLookup().then((data) => ({ data, error: null as string | null })).catch((error) => ({ data: [] as CashHandoverPaymentLookup[], error: humanizeApiError(error, "Cash custody payment choices could not be loaded.") }))
+        : Promise.resolve({ data: [] as CashHandoverPaymentLookup[], error: null as string | null }),
       canLoad("settlements") ? getSettlementReminders()
         .then((data) => ({ data, error: null as string | null }))
         .catch((error) => ({ data: [] as SettlementReminder[], error: humanizeApiError(error, "Settlements could not be loaded.") }))
@@ -651,8 +656,9 @@ export default function App() {
     setDeliveries(deliveryData);
     setPayments(paymentResult.data);
     setPaymentLoadError(paymentResult.error);
-    setCashHandovers(cashHandoverData);
-    setCashHandoverPaymentLookup(cashHandoverPaymentLookupData);
+    setCashHandovers(cashHandoverResult.data);
+    setCashHandoverPaymentLookup(cashHandoverPaymentLookupResult.data);
+    setCashCustodyLoadError(cashHandoverResult.error ?? cashHandoverPaymentLookupResult.error);
     setSettlements(settlementData.data);
     setSettlementDrafts(settlementDraftData.data);
     setSettlementLoadError(settlementData.error ?? settlementDraftData.error);
@@ -879,6 +885,17 @@ export default function App() {
       setFinanceVehicleOptionLoadError(humanizeApiError(error, "Vehicle prices could not be loaded."));
     } finally {
       setFinanceVehicleOptionRefreshing(false);
+    }
+  }, []);
+
+  const refreshCashCustody = useCallback(async () => {
+    try {
+      const [handovers, lookup] = await Promise.all([getCashHandovers(), getCashHandoverPaymentLookup()]);
+      setCashHandovers(handovers);
+      setCashHandoverPaymentLookup(lookup);
+      setCashCustodyLoadError(null);
+    } catch (error) {
+      setCashCustodyLoadError(humanizeApiError(error, "Cash custody data could not be loaded. Retry before recording or changing custody."));
     }
   }, []);
 
@@ -1258,11 +1275,13 @@ export default function App() {
               paymentVouchers={paymentVouchers}
               currentUser={currentUser}
               dashboardFocus={dashboardDrilldown}
-              onClearDashboardFocus={(tab) => navigateTo(`/finance?tab=${encodeURIComponent(tab)}`)}
+              onClearDashboardFocus={(tab, cashCollectionId, cashPaymentId) => navigateTo(`/finance?tab=${encodeURIComponent(tab)}${cashCollectionId ? `&cashCollectionId=${encodeURIComponent(cashCollectionId)}` : ""}${cashPaymentId ? `&cashPaymentId=${encodeURIComponent(cashPaymentId)}` : ""}`)}
               onRetryPayments={refreshPayments}
               onRetryFinanceVehicleOptions={refreshFinanceVehicleOptions}
               cashHandovers={cashHandovers}
               cashHandoverPaymentLookup={cashHandoverPaymentLookup}
+              cashCustodyLoadError={cashCustodyLoadError}
+              onRetryCashCustody={refreshCashCustody}
               onCreate={(payment) => runCreate(() => createPayment(payment), (record) => setPayments((items) => [record, ...items]), "Payment record created")}
               onUpdate={(payment) => runUpdate(() => updatePayment(payment), (record) => setPayments((items) => replaceById(items, record)), "Payment updated")}
               onApproveManagementReview={(paymentId) => runUpdate(() => approvePaymentManagementReview(paymentId), (record) => setPayments((items) => replaceById(items, record)), "Management review approved")}
@@ -1290,7 +1309,7 @@ export default function App() {
               onExportPayments={() => exportPaymentsCsv()}
               onExportAutoCount={(from, to) => exportAutoCountWorkbook(from, to)}
               onUploadDocument={(vehicleId, file, category, owner?: DocumentUploadOwner) => runUpload(() => uploadVehicleDocument(vehicleId, file, category, owner), "Finance document uploaded")}
-              onCreateCashHandover={(paymentRecordId, amount, notes) => runCreate(() => createCashHandover(paymentRecordId, amount, notes), (record) => setCashHandovers((items) => [record, ...items]), "Cash received recorded")}
+              onCreateCashHandover={(paymentRecordId, amount, notes, idempotencyKey) => runCreate(() => createCashHandover(paymentRecordId, amount, notes, idempotencyKey), (record) => setCashHandovers((items) => [record, ...items.filter((item) => item.id !== record.id)]), "Cash received recorded")}
               onRequestCashHandover={(id) => runUpdate(() => requestCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash handover requested")}
               onRecordCashHandover={(id) => runUpdate(() => recordCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Cash receipt confirmed")}
               onAcceptCashHandover={(id) => runUpdate(() => acceptCashHandover(id), (record) => setCashHandovers((items) => replaceById(items, record)), "Official receipt issued")}

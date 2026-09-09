@@ -2417,11 +2417,38 @@ public sealed class BusinessRulesTests
 
         Assert.True(CashCustodyRules.ValidateCreate(request, payment, vehicle).IsValid);
         Assert.Contains(CashCustodyRules.ValidateCreate(request with { Amount = 57000m }, payment, vehicle).Errors, error => error.Code == "cash_handover_amount_mismatch");
+        Assert.Contains(CashCustodyRules.ValidateCreate(request with { Amount = 58000.001m }, payment, vehicle).Errors, error => error.Code == "cash_handover_amount_precision_invalid");
+        Assert.True(CashCustodyRules.ValidateResponsibleSales(payment, "any-sales-user").IsValid);
         Assert.True(CashCustodyRules.ValidateRequestHandover(handover, "sales-1").IsValid);
         Assert.Contains(CashCustodyRules.ValidateHandOver(handover with { Status = CashHandoverStatus.PendingHandover }, "sales-1").Errors, error => error.Code == "cash_handover_self_approval_forbidden");
         Assert.True(CashCustodyRules.ValidateHandOver(handover with { Status = CashHandoverStatus.PendingHandover }, "finance-1").IsValid);
-        Assert.True(CashCustodyRules.ValidateAccept(handover with { Status = CashHandoverStatus.HandedOver }, "finance-1").IsValid);
-        Assert.Contains(CashCustodyRules.ValidateReject(handover with { Status = CashHandoverStatus.HandedOver }, "finance-1", " ").Errors, error => error.Code == "cash_handover_rejection_reason_required");
+        var received = handover with { Status = CashHandoverStatus.HandedOver, HandedOverToUserId = "finance-1" };
+        Assert.Contains(CashCustodyRules.ValidateAccept(received, "finance-1").Errors, error => error.Code == "cash_handover_checker_required");
+        Assert.True(CashCustodyRules.ValidateAccept(received, "finance-2").IsValid);
+        Assert.Contains(CashCustodyRules.ValidateReject(received, "finance-2", " ").Errors, error => error.Code == "cash_handover_rejection_reason_required");
+        Assert.True(CashCustodyRules.ValidateRecordedTransaction(handover, payment, vehicle, null).IsValid);
+    }
+
+    [Fact]
+    public void Finance_v2_cash_is_scoped_to_the_assigned_sales_user_and_mismatched_details_can_still_be_safely_rejected()
+    {
+        var paymentId = Guid.NewGuid();
+        var collectionId = Guid.NewGuid();
+        var payment = new PaymentRecord { Id = paymentId, FinanceWorkflowVersion = 2, SalesAgentUserId = "sales-1" };
+        var handover = new CashHandover { PaymentRecordId = paymentId, CollectionTransactionId = collectionId, Amount = 500m };
+        var collection = new CollectionTransaction
+        {
+            Id = collectionId,
+            PaymentRecordId = paymentId,
+            Method = CollectionMethod.Cash,
+            Status = CollectionStatus.Pending,
+            Amount = 499m
+        };
+
+        Assert.True(CashCustodyRules.ValidateResponsibleSales(payment, "sales-1").IsValid);
+        Assert.Contains(CashCustodyRules.ValidateResponsibleSales(payment, "sales-2").Errors, error => error.Code == "cash_handover_responsible_sales_required");
+        Assert.True(CashCustodyRules.ValidateRejectTransaction(handover, payment, collection).IsValid);
+        Assert.Contains(CashCustodyRules.ValidateRejectTransaction(handover, payment, collection with { PaymentRecordId = Guid.NewGuid() }).Errors, error => error.Code == "cash_handover_collection_link_mismatch");
     }
 
     [Fact]

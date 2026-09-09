@@ -401,6 +401,10 @@ public static class FinanceV2Rules
     public static ValidationResult ValidateReconcile(PaymentRecord payment, CollectionTransaction collection, string actorUserId, bool hasLinkedEvidence)
     {
         var errors = new List<ValidationError>();
+        if (collection.Method == CollectionMethod.Cash)
+        {
+            errors.Add(new("finance_cash_custody_required", "Accept physical cash through Cash Custody so the handover and independent-checker controls cannot be bypassed."));
+        }
         if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Boss/Admin approval is required before reconciling a collection for an NCD or adjusted nett price."));
         if (!Enum.IsDefined(typeof(CollectionMethod), collection.Method)) errors.Add(new("collection_method_invalid", "The stored collection method is invalid and requires review."));
         if (!Enum.IsDefined(typeof(FinancingStatus), collection.FinancingStatus)) errors.Add(new("collection_financing_status_invalid", "The stored financing status is invalid and requires review."));
@@ -441,6 +445,10 @@ public static class FinanceV2Rules
     public static ValidationResult ValidateReverse(CollectionTransaction collection, string? reason)
     {
         var errors = new List<ValidationError>();
+        if (collection.Method == CollectionMethod.Cash)
+        {
+            errors.Add(new("finance_cash_custody_required", "Reject physical cash through Cash Custody so the handover and independent-checker controls cannot be bypassed."));
+        }
         if (collection.Status == CollectionStatus.Reversed) errors.Add(new("collection_already_reversed", "This collection is already reversed."));
         if (string.IsNullOrWhiteSpace(reason)) errors.Add(new("collection_reversal_reason_required", "A reversal reason is required."));
         if (reason?.Trim().Length > 500) errors.Add(new("collection_reversal_reason_too_long", "Reversal reason must be 500 characters or fewer."));

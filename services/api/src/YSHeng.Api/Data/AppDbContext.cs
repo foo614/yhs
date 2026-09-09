@@ -120,8 +120,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
             .HasDatabaseName("UX_CollectionTransactions_ActiveMethod_NormalizedReference")
             .HasFilter("\"NormalizedReference\" IS NOT NULL AND \"Status\" <> 2")
             .IsUnique();
-        builder.Entity<CashHandover>().HasIndex(handover => handover.PaymentRecordId).IsUnique();
+        builder.Entity<CashHandover>()
+            .HasIndex(handover => handover.PaymentRecordId)
+            .HasFilter("\"CollectionTransactionId\" IS NULL")
+            .IsUnique();
+        builder.Entity<CashHandover>()
+            .HasIndex(handover => handover.CollectionTransactionId)
+            .HasFilter("\"CollectionTransactionId\" IS NOT NULL")
+            .IsUnique();
         builder.Entity<CashHandover>().HasIndex(handover => new { handover.Status, handover.CollectedAt });
+        builder.Entity<CashHandover>().Property(handover => handover.Version).IsConcurrencyToken();
         builder.Entity<OfficialReceipt>().Property(receipt => receipt.Content).HasColumnType("bytea");
         builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.CashHandoverId).IsUnique();
         builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.ReceiptNumber).IsUnique();
