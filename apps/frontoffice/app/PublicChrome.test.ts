@@ -62,6 +62,17 @@ describe("public chrome mobile motion contract", () => {
     expect(styles).toContain(".mobileDrawerBackdrop.open");
   });
 
+  it("maps contact hashes to the mobile Sell, Finance, and Contact entries", () => {
+    const publicChrome = readFileSync(join(appRoot, "PublicChrome.tsx"), "utf8");
+
+    expect(publicChrome).toContain('section === "contact" ? "sell"');
+    expect(publicChrome).toContain('section === "services" ? "finance"');
+    expect(publicChrome).toContain('setSelectedKey(getMobileNavKey(active, window.location.hash))');
+    expect(publicChrome).toContain('window.addEventListener("hashchange", readLocation)');
+    expect(publicChrome).toContain('window.addEventListener("popstate", readLocation)');
+    expect(publicChrome).toContain('aria-current={item.key === selectedKey ? "page" : undefined}');
+  });
+
   it("keeps short landscape viewports compact and fully navigable", () => {
     const styles = readFileSync(join(appRoot, "styles.css"), "utf8");
     const landscapeQuery = "@media (orientation: landscape) and (max-height: 700px) and (max-width: 1120px)";
