@@ -670,7 +670,7 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
-    public void V2_cash_is_rejected_from_both_generic_collection_and_legacy_cash_custody()
+    public void V2_cash_uses_linked_custody_and_cannot_bypass_it()
     {
         var payment = V2Payment(100m);
         var invoice = InvoiceFor(payment);
@@ -678,7 +678,14 @@ public sealed class FinanceV2RulesTests
         Assert.Contains(FinanceV2Rules.ValidateCollectionCreate(payment, invoice, request, []).Errors, error => error.Code == "finance_cash_custody_required");
 
         var vehicle = new Vehicle { Id = payment.VehicleId, CustomerId = payment.CustomerId };
-        Assert.Contains(CashCustodyRules.ValidateCreate(new CashHandoverCreateRequest(payment.Id, 100m, null), payment, vehicle).Errors, error => error.Code == "finance_v2_cash_not_supported");
+        var custodyRequest = new CashHandoverCreateRequest(payment.Id, 40m, "Deposit", Guid.NewGuid());
+        Assert.True(CashCustodyRules.ValidateCreate(custodyRequest, payment, vehicle, invoice, []).IsValid);
+        var cashCollection = CashCustodyRules.CreateV2Collection(custodyRequest, "sales-1", DateTime.UtcNow);
+        Assert.Equal(CollectionMethod.Cash, cashCollection.Method);
+        Assert.Equal(CollectionStatus.Pending, cashCollection.Status);
+        Assert.Equal(40m, cashCollection.Amount);
+        Assert.Contains(FinanceV2Rules.ValidateReconcile(payment, cashCollection, "finance-2", hasLinkedEvidence: true).Errors, error => error.Code == "finance_cash_custody_required");
+        Assert.Contains(FinanceV2Rules.ValidateReverse(cashCollection with { Status = CollectionStatus.Reconciled }, "Incorrect cash").Errors, error => error.Code == "finance_cash_custody_required");
     }
 
     private static PaymentRecord V2Payment(decimal amount) => new()

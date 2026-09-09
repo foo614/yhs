@@ -329,24 +329,24 @@ The agreed nett price may differ from the calculation only with a reason and app
 
 Collection requests are serialized per receivable. Active collection references are normalized and unique per payment method across sales, and the database enforces this invariant for concurrent requests. Upload `PaymentReceipt` or `PaymentInvoice` evidence with both `paymentRecordId` and `collectionTransactionId`; the collection must belong to that payment and vehicle. Collection-linked evidence is accepted only while the locked collection is `Pending`. Uploads serialize with reconciliation and reversal using the vehicle advisory lock, then collection and payment row locks. A terminal-state upload returns HTTP 409 with `collection_document_not_pending`, without inserting a document or upload audit. Previously uploaded evidence remains readable under its existing permissions. Evidence MIME type and filename extension must match the detected content; PDFs are parsed strictly with PdfPig, while images are decoded and dimension-bounded before storage. Invoice issuance and collection mutations are audit logged.
 
-`PaymentRecord.OutstationDeliveryDate` is a compatibility field derived from the active outstation delivery schedule during legacy payment create/update. Client-supplied Finance values do not override the Delivery-owned schedule date. Finance V2 rows are excluded from legacy Cash Custody because that flow cannot yet link one handover to a partial collection safely.
+`PaymentRecord.OutstationDeliveryDate` is a compatibility field derived from the active outstation delivery schedule during legacy payment create/update. Client-supplied Finance values do not override the Delivery-owned schedule date. Finance V2 partial cash collections are created through Cash Custody with a retry key and a one-to-one collection link; a pending custody allocation reserves the available balance without counting as collected.
 
 ## Cash Custody And Official Receipts
 
-Cash custody has its own `CashCustody` policy. Sales can see and act on only their own handovers; Finance and BossAdmin can monitor all handovers. Sales records cash received and requests the handover. Finance records physical receipt, then accepts or rejects it. The collector cannot receive, accept, or reject their own handover, and the server derives the payment, vehicle, customer, collector, timestamps, and amount checks rather than trusting client-supplied values.
+Cash custody has its own `CashCustody` policy. Sales can see and act on only their own handovers; Finance and BossAdmin can monitor all handovers. Sales records cash received and requests the handover. Finance records physical receipt, then a different Finance or BossAdmin checker accepts or rejects it. The collector cannot receive, accept, or reject their own handover, and the Finance receiver cannot decide their own handover. The server derives and rechecks the payment, collection, vehicle, customer, actors, timestamps, and amount links rather than trusting client-supplied values.
 
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/cash-handovers` | `CashCustody` | List custody records; Sales receives only their own rows. |
 | `GET` | `/api/cash-handovers/payment-lookup` | `CashCustody` | Minimal payment, customer, and vehicle lookup for recording a cash handover. |
-| `POST` | `/api/cash-handovers` | `Sales` | Record cash received for one payment; amount must match the payment nett price. |
+| `POST` | `/api/cash-handovers` | `Sales` | Record cash received. Legacy cash must match the full nett price; Finance V2 accepts a positive partial amount up to the available invoice balance and requires an idempotency key. |
 | `POST` | `/api/cash-handovers/{id}/request-handover` | `Sales` | Recorded collector marks cash as pending handover. |
 | `POST` | `/api/cash-handovers/{id}/hand-over` | `Finance` | Finance records physical receipt from the salesperson. |
-| `POST` | `/api/cash-handovers/{id}/accept` | `Finance` | Accept custody and generate one idempotent official receipt PDF. |
-| `POST` | `/api/cash-handovers/{id}/reject` | `Finance` | Reject custody with a required reason. |
+| `POST` | `/api/cash-handovers/{id}/accept` | `Finance` | Independent checker accepts custody, generates one idempotent official receipt PDF, and atomically reconciles a linked Finance V2 collection. |
+| `POST` | `/api/cash-handovers/{id}/reject` | `Finance` | Independent checker rejects custody with a required reason and atomically reverses a linked Finance V2 allocation. |
 | `GET` | `/api/cash-handovers/{id}/official-receipt/content` | `CashCustody` | Download the official receipt for Finance/BossAdmin or the recorded salesperson. |
 
-Only one handover may exist per legacy payment and only one official receipt may exist per handover. Finance V2 rows are excluded from this legacy custody flow because it cannot yet link a handover to one partial collection. Receipt creation does not reconcile a legacy payment or bypass receipt, invoice-reference, document, or management-review controls. Authorized staff download the protected receipt and attach it to a customer email; WhatsApp dispatch is intentionally deferred to the notification engine in FOO-40.
+Only one handover may exist per legacy payment, each Finance V2 cash collection may have only one handover, and each handover may have only one official receipt. Multiple partial Finance V2 cash handovers may be recorded while an invoice has available balance. Generic collection reconcile, reverse, and evidence actions reject Cash so the custody workflow cannot be bypassed. Legacy receipt creation remains separate from legacy payment reconciliation. Authorized staff download the protected receipt and attach it to a customer email; WhatsApp dispatch is intentionally deferred to the notification engine in FOO-40.
 
 ## HR And Salary
 

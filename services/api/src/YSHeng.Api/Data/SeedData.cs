@@ -210,6 +210,14 @@ public static class SeedData
         await EnsureDeliveryWorkboardSchemaAsync(db);
     }
 
+    public static async Task EnsureCashCustodySchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureCashCustodySchemaAsync(db);
+    }
+
     public static async Task EnsureFinanceV2SchemaAsync(WebApplication app)
     {
         using var scope = app.Services.CreateScope();
@@ -648,6 +656,7 @@ public static class SeedData
             CREATE TABLE IF NOT EXISTS "CashHandovers" (
                 "Id" uuid NOT NULL,
                 "PaymentRecordId" uuid NOT NULL,
+                "CollectionTransactionId" uuid NULL,
                 "VehicleId" uuid NOT NULL,
                 "CustomerId" uuid NOT NULL,
                 "Amount" numeric NOT NULL,
@@ -655,6 +664,7 @@ public static class SeedData
                 "CollectedByUserId" text NOT NULL,
                 "CollectedAt" timestamp with time zone NOT NULL,
                 "HandoverRequestedAt" timestamp with time zone NULL,
+                "HandedOverByUserId" text NULL,
                 "HandedOverToUserId" text NULL,
                 "HandedOverAt" timestamp with time zone NULL,
                 "AcceptedByUserId" text NULL,
@@ -665,10 +675,27 @@ public static class SeedData
                 "Notes" text NULL,
                 "OfficialReceiptId" uuid NULL,
                 "OfficialReceiptNumber" text NULL,
+                "Version" bigint NOT NULL DEFAULT 0,
                 CONSTRAINT "PK_CashHandovers" PRIMARY KEY ("Id")
             );
 
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_CashHandovers_PaymentRecordId" ON "CashHandovers" ("PaymentRecordId");
+            ALTER TABLE "CashHandovers" ADD COLUMN IF NOT EXISTS "CollectionTransactionId" uuid NULL;
+            ALTER TABLE "CashHandovers" ADD COLUMN IF NOT EXISTS "HandedOverByUserId" text NULL;
+            ALTER TABLE "CashHandovers" ADD COLUMN IF NOT EXISTS "Version" bigint NOT NULL DEFAULT 0;
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM pg_indexes
+                    WHERE schemaname = current_schema()
+                      AND indexname = 'IX_CashHandovers_PaymentRecordId'
+                      AND indexdef NOT LIKE '%WHERE%'
+                ) THEN
+                    DROP INDEX "IX_CashHandovers_PaymentRecordId";
+                END IF;
+            END $$;
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_CashHandovers_PaymentRecordId" ON "CashHandovers" ("PaymentRecordId") WHERE "CollectionTransactionId" IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_CashHandovers_CollectionTransactionId" ON "CashHandovers" ("CollectionTransactionId") WHERE "CollectionTransactionId" IS NOT NULL;
             CREATE INDEX IF NOT EXISTS "IX_CashHandovers_Status_CollectedAt" ON "CashHandovers" ("Status", "CollectedAt");
 
             CREATE TABLE IF NOT EXISTS "OfficialReceipts" (

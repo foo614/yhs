@@ -324,6 +324,8 @@ export function FinancePage({
   onRetryFinanceVehicleOptions,
   cashHandovers,
   cashHandoverPaymentLookup,
+  cashCustodyLoadError,
+  onRetryCashCustody,
   onCreate,
   onUpdate,
   onApproveManagementReview,
@@ -377,11 +379,13 @@ export function FinancePage({
   paymentVouchers: PaymentVoucher[];
   currentUser: CurrentUser | null;
   dashboardFocus: DashboardDrilldown;
-  onClearDashboardFocus: (tab: string) => void;
+  onClearDashboardFocus: (tab: string, cashCollectionId?: string, cashPaymentId?: string) => void;
   onRetryPayments: () => Promise<void>;
   onRetryFinanceVehicleOptions: () => Promise<void>;
   cashHandovers: CashHandover[];
   cashHandoverPaymentLookup: CashHandoverPaymentLookup[];
+  cashCustodyLoadError: string | null;
+  onRetryCashCustody: () => Promise<void>;
   onCreate: (payment: PaymentRecord) => void;
   onUpdate: (payment: PaymentRecord) => void;
   onApproveManagementReview: (paymentId: string) => Promise<void>;
@@ -409,7 +413,7 @@ export function FinancePage({
   onExportPayments: () => Promise<string>;
   onExportAutoCount: (from?: string, to?: string) => Promise<Blob>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, owner?: DocumentUploadOwner) => Promise<void>;
-  onCreateCashHandover: (paymentRecordId: string, amount: number, notes?: string) => Promise<void>;
+  onCreateCashHandover: (paymentRecordId: string, amount: number, notes?: string, idempotencyKey?: string) => Promise<void>;
   onRequestCashHandover: (id: string) => Promise<void>;
   onRecordCashHandover: (id: string) => Promise<void>;
   onAcceptCashHandover: (id: string) => Promise<void>;
@@ -431,6 +435,8 @@ export function FinancePage({
   const [financeEditorOpen, setFinanceEditorOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [financeCreateOpen, setFinanceCreateOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [financeTab, setFinanceTab] = useState(() => financeTabFromLocation(canManageFinance));
+  const [cashCustodyFocusCollectionId, setCashCustodyFocusCollectionId] = useState(() => cashCollectionIdFromLocation());
+  const [cashCustodyPrefillPaymentId, setCashCustodyPrefillPaymentId] = useState(() => cashPaymentIdFromLocation());
   const [financeKeyword, setFinanceKeyword] = useState("");
   const [financeFieldFilters, setFinanceFieldFilters] = useState<Record<string, unknown>>({});
   const [financeStatus, setFinanceStatus] = useState<string>();
@@ -573,19 +579,25 @@ export function FinancePage({
   };
 
   useEffect(() => {
-    const syncFinanceTabFromLocation = () => setFinanceTab(financeTabFromLocation(canManageFinance));
+    const syncFinanceTabFromLocation = () => {
+      setFinanceTab(financeTabFromLocation(canManageFinance));
+      setCashCustodyFocusCollectionId(cashCollectionIdFromLocation());
+      setCashCustodyPrefillPaymentId(cashPaymentIdFromLocation());
+    };
     syncFinanceTabFromLocation();
     window.addEventListener("popstate", syncFinanceTabFromLocation);
     return () => window.removeEventListener("popstate", syncFinanceTabFromLocation);
   }, [canManageFinance]);
 
-  const changeFinanceTab = (nextTab: string) => {
+  const changeFinanceTab = (nextTab: string, cashCollectionId?: string, cashPaymentId?: string) => {
     setFinanceTab(nextTab);
+    setCashCustodyFocusCollectionId(cashCollectionId);
+    setCashCustodyPrefillPaymentId(cashPaymentId);
     setFinanceKeyword("");
     setFinanceFieldFilters({});
     setFinanceStatus(undefined);
     setFinancePage(1);
-    onClearDashboardFocus(nextTab);
+    onClearDashboardFocus(nextTab, cashCollectionId, cashPaymentId);
   };
 
   useEffect(() => {
@@ -1028,6 +1040,7 @@ export function FinancePage({
       {selectedPayment?.id === payment.id && paymentDocumentsLoadError && <Alert type="error" showIcon message="Payment evidence is unavailable" description={paymentDocumentsLoadError} action={<Button size="small" onClick={() => setDocumentReloadKey((value) => value + 1)}>Retry</Button>} />}
       {(payment.collections?.length ?? 0) === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No payments added yet." /> : payment.collections?.map((collection) => {
         const bankDisbursement = collection.method === "BankDisbursement";
+        const physicalCash = collection.method === "Cash";
         const evidence = paymentDocuments.filter((document) => document.collectionTransactionId === collection.id);
         const hasEvidence = evidence.length > 0;
         const evidenceUnavailable = selectedPayment?.id !== payment.id || paymentDocumentsLoading || Boolean(paymentDocumentsLoadError);
@@ -1043,7 +1056,7 @@ export function FinancePage({
           </dl>
           {collection.notes && <Typography.Paragraph type="secondary">{collection.notes}</Typography.Paragraph>}
           {collection.reversalReason && <Alert type="warning" showIcon message={`Reversed: ${collection.reversalReason}`} />}
-          <Space wrap size={6}>
+          {physicalCash ? <Alert type="info" showIcon message="Physical cash is controlled in Cash Custody" description="Finance reconciliation and reversal happen only through the linked custody acceptance or rejection." action={<Button size="small" onClick={() => changeFinanceTab("cash-custody", collection.id)}>Open linked custody record</Button>} /> : <Space wrap size={6}>
             <Tag color={evidenceUnavailable ? "red" : hasEvidence ? "green" : "gold"}>{evidenceUnavailable ? paymentDocumentsLoading ? "Loading evidence" : "Evidence unavailable" : hasEvidence ? `${evidence.length} evidence file${evidence.length === 1 ? "" : "s"}` : "Evidence needed"}</Tag>
             {collection.status === "Pending" && <Upload accept="image/*,.pdf" maxCount={1} showUploadList={false} customRequest={async (option) => {
               try {
@@ -1054,9 +1067,9 @@ export function FinancePage({
                 option.onError?.(error instanceof Error ? error : new Error("Evidence upload failed."));
               }
             }}><Button size="small">{hasEvidence ? "Add evidence" : "Attach evidence"}</Button></Upload>}
-          </Space>
+          </Space>}
           {evidence.length > 0 && <div className="financeCollectionEvidenceList">{evidence.map((document) => <div key={document.id}><Typography.Link href={vehicleDocumentContentUrl(payment.vehicleId, document.id)} target="_blank">{document.fileName}</Typography.Link><Typography.Text type="secondary">Uploaded {document.uploadedAt.slice(0, 10)} by {financeRequesterLabel(document.uploadedBy, currentUser?.id)}</Typography.Text></div>)}</div>}
-          {collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
+          {!physicalCash && collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => Modal.confirm({ title: "Record funds disbursed?", content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.", okText: "Record funds disbursed", cancelText: "Cancel", onOk: () => updateFinancing(collection, "Disbursed") })}>Record funds disbursed</Button>}
             {collection.status === "Pending" && <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : createdByCurrentUser ? "Another Finance user must reconcile a payment you recorded." : "Bank financing must be disbursed before reconciliation."}><span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({ title: "Reconcile this payment?", content: "Only reconcile after the amount is visible in the company account.", okText: "Reconcile", cancelText: "Cancel", onOk: () => reconcileV2Collection(collection) })}>Reconcile</Button></span></Tooltip>}
@@ -1396,7 +1409,7 @@ export function FinancePage({
         return [
           { label: "Open custody", value: cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length },
           { label: "Receipts", value: cashHandovers.filter((handover) => Boolean(handover.officialReceiptId)).length },
-          { label: "Cash value", value: formatMoney(cashHandovers.reduce((total, handover) => total + handover.amount, 0)) }
+          { label: "Open cash value", value: formatMoney(cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").reduce((total, handover) => total + handover.amount, 0)) }
         ];
       case "settlements":
         return [
@@ -1508,6 +1521,10 @@ export function FinancePage({
           customers={customers}
           handovers={cashHandovers}
           paymentLookup={cashHandoverPaymentLookup}
+          focusCollectionId={cashCustodyFocusCollectionId}
+          prefillPaymentId={cashCustodyPrefillPaymentId}
+          loadError={cashCustodyLoadError}
+          onRetry={onRetryCashCustody}
           onCreate={onCreateCashHandover}
           onRequestHandover={onRequestCashHandover}
           onRecordHandover={onRecordCashHandover}
@@ -1777,7 +1794,7 @@ export function FinancePage({
             <Form.Item name="receivedDate" label="Received date / 收款日期" rules={[{ required: true, message: "Choose the received date." }]}><DatePicker className="fullWidth" /></Form.Item>
             <Form.Item name="reference" label="Payment reference / 收款编号" rules={[{ required: true, whitespace: true, message: "Enter a bank, cheque, card, or agreement reference." }]}><Input maxLength={100} placeholder="Example: bank transaction or cheque number" /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
-            <Alert type="warning" showIcon message="Physical cash cannot be allocated to this V2 invoice yet. Existing cash records remain in Cash Custody." />
+            <Alert type="info" showIcon message="For physical cash, use Cash Custody" description="Cash Custody records the actual partial amount, physical handover, independent checker, and official receipt." action={<Button size="small" onClick={() => { setCollectionPaymentId(undefined); changeFinanceTab("cash-custody", undefined, selectedCollectionPayment.id); }}>Open Cash Custody</Button>} />
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === `collection-${selectedCollectionPayment.id}`}>Add payment</Button></Form.Item>
           </Form>
           {collectionHistory(selectedCollectionPayment)}
@@ -2762,6 +2779,16 @@ function shortformLabel(label: string, title: string) {
 function financeTabFromLocation(canManageFinance: boolean) {
   if (typeof window === "undefined") return canManageFinance ? "payments" : "cash-custody";
   return financeTabForUrl(window.location.pathname, window.location.search, canManageFinance);
+}
+
+function cashPaymentIdFromLocation() {
+  if (typeof window === "undefined") return undefined;
+  return new URLSearchParams(window.location.search).get("cashPaymentId") ?? undefined;
+}
+
+function cashCollectionIdFromLocation() {
+  if (typeof window === "undefined") return undefined;
+  return new URLSearchParams(window.location.search).get("cashCollectionId") ?? undefined;
 }
 
 export function financeTabForUrl(pathname: string, search: string, canManageFinance: boolean) {

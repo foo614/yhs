@@ -599,6 +599,9 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
     if (existingVehicle is null) return Results.NotFound();
     var existingSnapshot = existingVehicle with { };
+    var cashHandover = await db.CashHandovers.AsNoTracking().FirstOrDefaultAsync(item => item.VehicleId == id);
+    var cashCustomerLockValidation = CashCustodyRules.ValidateVehicleUpdate(existingSnapshot, update, cashHandover);
+    if (!cashCustomerLockValidation.IsValid) return Results.BadRequest(cashCustomerLockValidation);
     var sellingPriceChanged = VehicleApprovalRules.IsSellingPriceChange(existingSnapshot, update);
     var vehiclePayments = await db.PaymentRecords.AsNoTracking().Where(payment => payment.VehicleId == id).ToListAsync();
     var repricingLockValidation = VehicleApprovalRules.ValidateRepricingReceivableLock(existingSnapshot, update, vehiclePayments);
@@ -2354,6 +2357,10 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     }
     var identityValidation = PaymentManagementReviewRules.ValidateIdentity(existingPayment, payment);
     if (!identityValidation.IsValid) return Results.BadRequest(identityValidation);
+    var cashHandover = await db.CashHandovers.AsNoTracking()
+        .FirstOrDefaultAsync(item => item.PaymentRecordId == id && item.CollectionTransactionId == null);
+    var cashPaymentLockValidation = CashCustodyRules.ValidateLegacyPaymentUpdate(existingPayment, payment, cashHandover);
+    if (!cashPaymentLockValidation.IsValid) return Results.BadRequest(cashPaymentLockValidation);
     var legacyPriceValidation = FinanceRules.ValidateLegacyPricingUpdate(existingPayment, payment);
     if (!legacyPriceValidation.IsValid) return Results.BadRequest(legacyPriceValidation);
     var deliveries = await db.DeliverySchedules.AsNoTracking().ToListAsync();
@@ -2732,88 +2739,167 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reverse", async (Guid id,
 }).RequireAuthorization("BossAdmin");
 
 
-backOffice.MapGet("/cash-handovers", async (AppDbContext db, HttpContext context) =>
+backOffice.MapGet("/cash-handovers", async (AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
     var handovers = await db.CashHandovers.AsNoTracking().OrderByDescending(handover => handover.CollectedAt).ToListAsync();
-    if (context.User.IsInRole("BossAdmin") || context.User.IsInRole("Finance")) return Results.Ok(handovers);
-
-    var actorUserId = StaffIdentity.CurrentUserId(context);
-    return Results.Ok(handovers.Where(handover => handover.CollectedByUserId == actorUserId));
+    if (!context.User.IsInRole("BossAdmin") && !context.User.IsInRole("Finance"))
+    {
+        var actorUserId = StaffIdentity.CurrentUserId(context);
+        handovers = handovers.Where(handover => handover.CollectedByUserId == actorUserId).ToList();
+    }
+    return Results.Ok(await CashCustodyApi.ToRegisterItemsAsync(db, handovers, userManager));
 }).RequireAuthorization("CashCustody");
 
-backOffice.MapGet("/cash-handovers/payment-lookup", async (AppDbContext db) =>
+backOffice.MapGet("/cash-handovers/payment-lookup", async (AppDbContext db, HttpContext context) =>
 {
-    var handedOverPaymentIds = await db.CashHandovers.AsNoTracking().Select(handover => handover.PaymentRecordId).ToListAsync();
+    var legacyHandoverPaymentIds = await db.CashHandovers.AsNoTracking()
+        .Where(handover => handover.CollectionTransactionId == null)
+        .Select(handover => handover.PaymentRecordId)
+        .ToListAsync();
     var payments = await db.PaymentRecords.AsNoTracking()
-        .Where(payment => payment.FinanceWorkflowVersion != 2 && payment.Status != PaymentStatus.Reconciled && !handedOverPaymentIds.Contains(payment.Id))
+        .Where(payment => payment.Status != PaymentStatus.Reconciled &&
+            (payment.FinanceWorkflowVersion == 2 || !legacyHandoverPaymentIds.Contains(payment.Id)))
         .OrderByDescending(payment => payment.CreatedAt)
         .ToListAsync();
+    if (!context.User.IsInRole("BossAdmin") && !context.User.IsInRole("Finance"))
+    {
+        var actorUserId = StaffIdentity.CurrentUserId(context);
+        payments = payments.Where(payment => payment.FinanceWorkflowVersion != 2 || payment.SalesAgentUserId == actorUserId).ToList();
+    }
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
     var customers = await db.Customers.AsNoTracking().ToListAsync();
-    return Results.Ok(
+    var invoices = await db.FinanceInvoices.AsNoTracking().ToListAsync();
+    var collections = await db.CollectionTransactions.AsNoTracking().ToListAsync();
+    var lookup =
         from payment in payments
         join vehicle in vehicles on payment.VehicleId equals vehicle.Id
         where vehicle.CustomerId is not null
         join customer in customers on vehicle.CustomerId!.Value equals customer.Id
-        select new CashHandoverPaymentLookup(payment.Id, vehicle.Id, customer.Id, customer.Name, vehicle.PlateNumber, payment.InvoiceNumber, payment.NettPrice));
+        let invoice = invoices.FirstOrDefault(item => item.PaymentRecordId == payment.Id)
+        let paymentCollections = collections.Where(item => item.PaymentRecordId == payment.Id)
+        let availableAmount = payment.FinanceWorkflowVersion == 2
+            ? FinanceV2Rules.AvailableToAllocate(payment, paymentCollections)
+            : payment.NettPrice
+        where availableAmount > 0 &&
+            (payment.FinanceWorkflowVersion != 2 ||
+                invoice is not null &&
+                FinanceV2Rules.HasApprovedVariance(payment) &&
+                FinanceV2Rules.ValidateCanonicalBuyer(payment, invoice, vehicle).IsValid)
+        select new CashHandoverPaymentLookup(
+            payment.Id,
+            vehicle.Id,
+            customer.Id,
+            customer.Name,
+            vehicle.PlateNumber,
+            invoice?.InvoiceNumber ?? payment.InvoiceNumber,
+            payment.NettPrice,
+            availableAmount,
+            payment.FinanceWorkflowVersion);
+    return Results.Ok(lookup);
 }).RequireAuthorization("CashCustody");
 
-backOffice.MapPost("/cash-handovers", async (CashHandoverCreateRequest request, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/cash-handovers", async (CashHandoverCreateRequest request, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
-    var payment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.PaymentRecordId);
-    var vehicle = payment is null
-        ? null
-        : await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == payment.VehicleId);
-    var validation = CashCustodyRules.ValidateCreate(request, payment, vehicle);
+    var initialVehicleId = await db.PaymentRecords.AsNoTracking()
+        .Where(item => item.Id == request.PaymentRecordId)
+        .Select(item => (Guid?)item.VehicleId)
+        .FirstOrDefaultAsync();
+    if (!initialVehicleId.HasValue) return Results.BadRequest(new ValidationResult([new ValidationError("payment_not_found", "Cash handover must reference an existing payment.")]));
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [initialVehicleId.Value]);
+    var payment = await FinanceApi.LockPaymentAsync(db, request.PaymentRecordId);
+    if (payment is null) return Results.NotFound();
+    if (payment.VehicleId != initialVehicleId.Value) return Results.Conflict(new ApiError("The payment vehicle changed while cash custody was starting. Try again."));
+    var actorUserId = StaffIdentity.CurrentUserId(context);
+    var responsibleSalesValidation = CashCustodyRules.ValidateResponsibleSales(payment, actorUserId);
+    if (!responsibleSalesValidation.IsValid) return Results.Json(responsibleSalesValidation, statusCode: StatusCodes.Status403Forbidden);
+    var vehicle = await FinanceApi.LockVehicleAsync(db, payment.VehicleId);
+    var invoice = await db.FinanceInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.PaymentRecordId == payment.Id);
+    var collections = await db.CollectionTransactions.Where(item => item.PaymentRecordId == payment.Id).OrderByDescending(item => item.CreatedAt).ToListAsync();
+
+    if (payment.FinanceWorkflowVersion == 2 && request.IdempotencyKey is { } retryKey && retryKey != Guid.Empty)
+    {
+        var existingCollection = collections.SingleOrDefault(item => item.IdempotencyKey == retryKey);
+        if (existingCollection is not null)
+        {
+            if (!CashCustodyRules.IsExactV2Retry(existingCollection, request))
+            {
+                return Results.Conflict(new ValidationResult([new ValidationError("cash_handover_idempotency_key_reused", "This cash retry key was already used with different details.")]));
+            }
+            var existingHandover = await db.CashHandovers.AsNoTracking().SingleOrDefaultAsync(item => item.CollectionTransactionId == existingCollection.Id);
+            if (existingHandover is null) return Results.Conflict(new ApiError("The cash collection exists without its custody record. Finance review is required."));
+            await transaction.CommitAsync();
+            return Results.Ok(await CashCustodyApi.ToRegisterItemAsync(db, existingHandover, userManager));
+        }
+    }
+
+    var validation = CashCustodyRules.ValidateCreate(request, payment, vehicle, invoice, collections);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    if (await db.CashHandovers.AsNoTracking().AnyAsync(item => item.PaymentRecordId == request.PaymentRecordId))
+    if (payment.FinanceWorkflowVersion != 2 && await db.CashHandovers.AsNoTracking().AnyAsync(item => item.PaymentRecordId == request.PaymentRecordId && item.CollectionTransactionId == null))
     {
         return Results.Conflict(new ApiError("A cash handover already exists for this payment."));
     }
 
+    var now = DateTime.UtcNow;
+    CollectionTransaction? collection = null;
+    if (payment.FinanceWorkflowVersion == 2)
+    {
+        collection = CashCustodyRules.CreateV2Collection(request, actorUserId, now);
+        db.CollectionTransactions.Add(collection);
+    }
     var handover = new CashHandover
     {
         PaymentRecordId = payment!.Id,
+        CollectionTransactionId = collection?.Id,
         VehicleId = vehicle!.Id,
         CustomerId = vehicle.CustomerId!.Value,
         Amount = request.Amount,
-        CollectedByUserId = StaffIdentity.CurrentUserId(context),
+        CollectedByUserId = actorUserId,
         Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
-        CollectedAt = DateTime.UtcNow
+        CollectedAt = now
     };
 
     db.CashHandovers.Add(handover);
     ApiAudit.Add(db, context.User, "cashHandover.receivedBySales", nameof(CashHandover), handover.Id);
+    if (collection is not null) ApiAudit.Add(db, context.User, "finance.cashCollectionAllocated", nameof(CollectionTransaction), collection.Id);
     try
     {
         await db.SaveChangesAsync();
+        await transaction.CommitAsync();
     }
-    catch (DbUpdateException)
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception))
     {
+        await transaction.RollbackAsync();
         return Results.Conflict(new ApiError("A cash handover already exists for this payment."));
     }
 
-    return Results.Created($"/api/cash-handovers/{handover.Id}", handover);
+    return Results.Created($"/api/cash-handovers/{handover.Id}", await CashCustodyApi.ToRegisterItemAsync(db, handover, userManager));
 }).RequireAuthorization("Sales");
 
-backOffice.MapPost("/cash-handovers/{id:guid}/request-handover", async (Guid id, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/cash-handovers/{id:guid}/request-handover", async (Guid id, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
-    var handover = await db.CashHandovers.FirstOrDefaultAsync(item => item.Id == id);
-    if (handover is null) return Results.NotFound();
+    var vehicleId = await db.CashHandovers.AsNoTracking().Where(item => item.Id == id).Select(item => (Guid?)item.VehicleId).FirstOrDefaultAsync();
+    if (!vehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [vehicleId.Value]);
+    var handover = await FinanceApi.LockCashHandoverAsync(db, id);
+    if (handover is null || handover.VehicleId != vehicleId.Value) return Results.Conflict(new ApiError("Cash custody changed while the request was starting. Try again."));
     var validation = CashCustodyRules.ValidateRequestHandover(handover, StaffIdentity.CurrentUserId(context));
     if (!validation.IsValid) return Results.BadRequest(validation);
 
-    var updated = handover with { Status = CashHandoverStatus.PendingHandover, HandoverRequestedAt = DateTime.UtcNow };
+    var updated = handover with { Status = CashHandoverStatus.PendingHandover, HandoverRequestedAt = DateTime.UtcNow, Version = handover.Version + 1 };
     db.Entry(handover).CurrentValues.SetValues(updated);
     ApiAudit.Add(db, context.User, "cashHandover.requested", nameof(CashHandover), id);
     await db.SaveChangesAsync();
-    return Results.Ok(updated);
+    await transaction.CommitAsync();
+    return Results.Ok(await CashCustodyApi.ToRegisterItemAsync(db, updated, userManager));
 }).RequireAuthorization("Sales");
 
-backOffice.MapPost("/cash-handovers/{id:guid}/hand-over", async (Guid id, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/cash-handovers/{id:guid}/hand-over", async (Guid id, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
-    var handover = await db.CashHandovers.FirstOrDefaultAsync(item => item.Id == id);
-    if (handover is null) return Results.NotFound();
+    var vehicleId = await db.CashHandovers.AsNoTracking().Where(item => item.Id == id).Select(item => (Guid?)item.VehicleId).FirstOrDefaultAsync();
+    if (!vehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [vehicleId.Value]);
+    var handover = await FinanceApi.LockCashHandoverAsync(db, id);
+    if (handover is null || handover.VehicleId != vehicleId.Value) return Results.Conflict(new ApiError("Cash custody changed while receipt was starting. Try again."));
     var actorUserId = StaffIdentity.CurrentUserId(context);
     var validation = CashCustodyRules.ValidateHandOver(handover, actorUserId);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -2821,31 +2907,42 @@ backOffice.MapPost("/cash-handovers/{id:guid}/hand-over", async (Guid id, AppDbC
     var updated = handover with
     {
         Status = CashHandoverStatus.HandedOver,
+        HandedOverByUserId = handover.CollectedByUserId,
         HandedOverToUserId = actorUserId,
-        HandedOverAt = DateTime.UtcNow
+        HandedOverAt = DateTime.UtcNow,
+        Version = handover.Version + 1
     };
     db.Entry(handover).CurrentValues.SetValues(updated);
     ApiAudit.Add(db, context.User, "cashHandover.handedOver", nameof(CashHandover), id);
     await db.SaveChangesAsync();
-    return Results.Ok(updated);
+    await transaction.CommitAsync();
+    return Results.Ok(await CashCustodyApi.ToRegisterItemAsync(db, updated, userManager));
 }).RequireAuthorization("Finance");
 
-backOffice.MapPost("/cash-handovers/{id:guid}/accept", async (Guid id, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/cash-handovers/{id:guid}/accept", async (Guid id, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
-    var handover = await db.CashHandovers.FirstOrDefaultAsync(item => item.Id == id);
-    if (handover is null) return Results.NotFound();
-    if (handover.Status == CashHandoverStatus.Receipted) return Results.Ok(handover);
+    var vehicleId = await db.CashHandovers.AsNoTracking().Where(item => item.Id == id).Select(item => (Guid?)item.VehicleId).FirstOrDefaultAsync();
+    if (!vehicleId.HasValue) return Results.NotFound();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [vehicleId.Value]);
+    var handover = await FinanceApi.LockCashHandoverAsync(db, id);
+    if (handover is null || handover.VehicleId != vehicleId.Value) return Results.Conflict(new ApiError("Cash custody changed while acceptance was starting. Try again."));
+    if (handover.Status == CashHandoverStatus.Receipted)
+    {
+        await transaction.CommitAsync();
+        return Results.Ok(await CashCustodyApi.ToRegisterItemAsync(db, handover, userManager));
+    }
 
     var actorUserId = StaffIdentity.CurrentUserId(context);
     var validation = CashCustodyRules.ValidateAccept(handover, actorUserId);
     if (!validation.IsValid) return Results.BadRequest(validation);
 
-    var payment = await db.PaymentRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == handover.PaymentRecordId);
-    var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == handover.VehicleId);
+    var payment = await FinanceApi.LockPaymentAsync(db, handover.PaymentRecordId);
+    var vehicle = await FinanceApi.LockVehicleAsync(db, handover.VehicleId);
     var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == handover.CustomerId);
     if (payment is null || vehicle is null || customer is null) return Results.BadRequest(new ApiError("Cash handover references an unavailable payment, vehicle, or customer."));
-    var amountValidation = CashCustodyRules.ValidateRecordedAmount(handover, payment);
-    if (!amountValidation.IsValid) return Results.BadRequest(amountValidation);
+    var collection = handover.CollectionTransactionId is { } collectionId ? await FinanceApi.LockCollectionAsync(db, collectionId) : null;
+    var transactionValidation = CashCustodyRules.ValidateRecordedTransaction(handover, payment, vehicle, collection);
+    if (!transactionValidation.IsValid) return Results.BadRequest(transactionValidation);
 
     var now = DateTime.UtcNow;
     var receipt = OfficialReceiptFactory.Create(handover, vehicle, customer, actorUserId, now);
@@ -2855,9 +2952,17 @@ backOffice.MapPost("/cash-handovers/{id:guid}/accept", async (Guid id, AppDbCont
         AcceptedByUserId = actorUserId,
         AcceptedAt = now,
         OfficialReceiptId = receipt.Id,
-        OfficialReceiptNumber = receipt.ReceiptNumber
+        OfficialReceiptNumber = receipt.ReceiptNumber,
+        Version = handover.Version + 1
     };
 
+    if (collection is not null)
+    {
+        var reconciled = collection with { Status = CollectionStatus.Reconciled, ReconciledBy = actorUserId, ReconciledAt = now };
+        db.Entry(collection).CurrentValues.SetValues(reconciled);
+        await FinanceApi.ApplyCollectionMutationAsync(db, reconciled);
+        ApiAudit.Add(db, context.User, "finance.cashCollectionReconciled", nameof(CollectionTransaction), collection.Id);
+    }
     db.OfficialReceipts.Add(receipt);
     db.Entry(handover).CurrentValues.SetValues(updated);
     ApiAudit.Add(db, context.User, "cashHandover.accepted", nameof(CashHandover), id);
@@ -2865,38 +2970,61 @@ backOffice.MapPost("/cash-handovers/{id:guid}/accept", async (Guid id, AppDbCont
     try
     {
         await db.SaveChangesAsync();
+        await transaction.CommitAsync();
     }
-    catch (DbUpdateException)
+    catch (DbUpdateException exception) when (FinanceApi.IsUniqueViolation(exception))
     {
+        await transaction.RollbackAsync();
         db.ChangeTracker.Clear();
         var existing = await db.CashHandovers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
         return existing?.Status == CashHandoverStatus.Receipted
-            ? Results.Ok(existing)
+            ? Results.Ok(await CashCustodyApi.ToRegisterItemAsync(db, existing, userManager))
             : Results.Conflict(new ApiError("Official receipt creation conflicted with another request. Retry safely."));
     }
 
-    return Results.Ok(updated);
+    return Results.Ok(await CashCustodyApi.ToRegisterItemAsync(db, updated, userManager));
 }).RequireAuthorization("Finance");
 
-backOffice.MapPost("/cash-handovers/{id:guid}/reject", async (Guid id, CashHandoverRejectionRequest request, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/cash-handovers/{id:guid}/reject", async (Guid id, CashHandoverRejectionRequest request, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
-    var handover = await db.CashHandovers.FirstOrDefaultAsync(item => item.Id == id);
-    if (handover is null) return Results.NotFound();
+    var identity = await db.CashHandovers.AsNoTracking().Where(item => item.Id == id).Select(item => new { item.VehicleId, item.PaymentRecordId }).FirstOrDefaultAsync();
+    if (identity is null) return Results.NotFound();
+    var paymentVehicleId = await db.PaymentRecords.AsNoTracking().Where(item => item.Id == identity.PaymentRecordId).Select(item => (Guid?)item.VehicleId).FirstOrDefaultAsync();
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, paymentVehicleId.HasValue ? [identity.VehicleId, paymentVehicleId.Value] : [identity.VehicleId]);
+    var handover = await FinanceApi.LockCashHandoverAsync(db, id);
+    if (handover is null || handover.VehicleId != identity.VehicleId || handover.PaymentRecordId != identity.PaymentRecordId) return Results.Conflict(new ApiError("Cash custody changed while rejection was starting. Try again."));
     var actorUserId = StaffIdentity.CurrentUserId(context);
     var validation = CashCustodyRules.ValidateReject(handover, actorUserId, request.Reason);
     if (!validation.IsValid) return Results.BadRequest(validation);
 
+    var payment = await FinanceApi.LockPaymentAsync(db, handover.PaymentRecordId);
+    if (payment is null) return Results.BadRequest(new ApiError("Cash handover references an unavailable payment."));
+    await FinanceApi.LockVehicleAsync(db, payment.VehicleId);
+    var collection = handover.CollectionTransactionId is { } collectionId ? await FinanceApi.LockCollectionAsync(db, collectionId) : null;
+    var transactionValidation = CashCustodyRules.ValidateRejectTransaction(handover, payment, collection);
+    if (!transactionValidation.IsValid) return Results.BadRequest(transactionValidation);
+
+    var now = DateTime.UtcNow;
     var updated = handover with
     {
         Status = CashHandoverStatus.Rejected,
         RejectedByUserId = actorUserId,
-        RejectedAt = DateTime.UtcNow,
-        RejectionReason = request.Reason.Trim()
+        RejectedAt = now,
+        RejectionReason = request.Reason.Trim(),
+        Version = handover.Version + 1
     };
+    if (collection is not null)
+    {
+        var reversed = collection with { Status = CollectionStatus.Reversed, ReversedBy = actorUserId, ReversedAt = now, ReversalReason = request.Reason.Trim() };
+        db.Entry(collection).CurrentValues.SetValues(reversed);
+        await FinanceApi.ApplyCollectionMutationAsync(db, reversed);
+        ApiAudit.Add(db, context.User, "finance.cashCollectionReversed", nameof(CollectionTransaction), collection.Id);
+    }
     db.Entry(handover).CurrentValues.SetValues(updated);
     ApiAudit.Add(db, context.User, "cashHandover.rejected", nameof(CashHandover), id);
     await db.SaveChangesAsync();
-    return Results.Ok(updated);
+    await transaction.CommitAsync();
+    return Results.Ok(await CashCustodyApi.ToRegisterItemAsync(db, updated, userManager));
 }).RequireAuthorization("Finance");
 
 backOffice.MapGet("/cash-handovers/{id:guid}/official-receipt/content", async (Guid id, AppDbContext db, HttpContext context) =>
@@ -4365,6 +4493,7 @@ if (RuntimeMode.ShouldSeed(workerEnabled, seedDataEnabled))
 }
 else
 {
+    await SeedData.EnsureCashCustodySchemaAsync(app);
     await SeedData.EnsureFinanceRepairEnhancementSchemaAsync(app);
     await SeedData.EnsureFinanceV2SchemaAsync(app);
     await SeedData.EnsureRepairReceiptSchemaAsync(app);
@@ -4440,6 +4569,9 @@ internal static class FinanceApi
 
     public static Task<CollectionTransaction?> LockCollectionAsync(AppDbContext db, Guid collectionId) =>
         db.CollectionTransactions.FromSqlInterpolated($"SELECT * FROM \"CollectionTransactions\" WHERE \"Id\" = {collectionId} FOR UPDATE").SingleOrDefaultAsync();
+
+    public static Task<CashHandover?> LockCashHandoverAsync(AppDbContext db, Guid handoverId) =>
+        db.CashHandovers.FromSqlInterpolated($"SELECT * FROM \"CashHandovers\" WHERE \"Id\" = {handoverId} FOR UPDATE").SingleOrDefaultAsync();
 
     public static async Task LockCollectionReferenceAsync(AppDbContext db, CollectionMethod method, string normalizedReference)
     {
@@ -4605,6 +4737,56 @@ internal static class FinanceApi
         db.Entry(vehicle).CurrentValues.SetValues(updatedVehicle);
 
         return ToResponse(updatedPayment, invoice, collections);
+    }
+}
+
+internal static class CashCustodyApi
+{
+    public static async Task<CashHandoverRegisterItem> ToRegisterItemAsync(
+        AppDbContext db,
+        CashHandover handover,
+        UserManager<AppUser> userManager) =>
+        (await ToRegisterItemsAsync(db, [handover], userManager)).Single();
+
+    public static async Task<IReadOnlyList<CashHandoverRegisterItem>> ToRegisterItemsAsync(
+        AppDbContext db,
+        IReadOnlyList<CashHandover> handovers,
+        UserManager<AppUser> userManager)
+    {
+        if (handovers.Count == 0) return [];
+        var paymentIds = handovers.Select(item => item.PaymentRecordId).Distinct().ToList();
+        var collectionIds = handovers.Where(item => item.CollectionTransactionId.HasValue).Select(item => item.CollectionTransactionId!.Value).Distinct().ToList();
+        var vehicleIds = handovers.Select(item => item.VehicleId).Distinct().ToList();
+        var customerIds = handovers.Select(item => item.CustomerId).Distinct().ToList();
+        var payments = await db.PaymentRecords.AsNoTracking().Where(item => paymentIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id);
+        var collections = await db.CollectionTransactions.AsNoTracking().Where(item => collectionIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id);
+        var vehicles = await db.Vehicles.AsNoTracking().Where(item => vehicleIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id);
+        var customers = await db.Customers.AsNoTracking().Where(item => customerIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id);
+        var actorIds = handovers.SelectMany(item => new[]
+            {
+                item.CollectedByUserId,
+                item.HandedOverByUserId,
+                item.HandedOverToUserId,
+                item.AcceptedByUserId,
+                item.RejectedByUserId
+            })
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item!)
+            .Distinct()
+            .ToList();
+        var actors = await userManager.Users.AsNoTracking()
+            .Where(item => actorIds.Contains(item.Id))
+            .ToDictionaryAsync(
+                item => item.Id,
+                item => string.IsNullOrWhiteSpace(item.DisplayName) ? item.Email ?? item.UserName ?? item.Id : item.DisplayName.Trim());
+
+        return handovers.Select(handover => CashHandoverRegisterFactory.Create(
+            handover,
+            payments.GetValueOrDefault(handover.PaymentRecordId),
+            handover.CollectionTransactionId is { } collectionId ? collections.GetValueOrDefault(collectionId) : null,
+            vehicles.GetValueOrDefault(handover.VehicleId),
+            customers.GetValueOrDefault(handover.CustomerId),
+            actors)).ToList();
     }
 }
 

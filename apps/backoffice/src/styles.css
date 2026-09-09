@@ -4398,6 +4398,16 @@ body {
     line-height: 1.35;
   }
 
+  .cashCustodyReceiptActions,
+  .cashCustodyReceiptActions .ant-space-item,
+  .cashCustodyReceiptActions .ant-btn {
+    width: 100%;
+  }
+
+  .cashCustodyReceiptActions .ant-btn {
+    min-height: 44px;
+  }
+
   .mobileRecordFooter {
     min-width: 0;
     display: grid;

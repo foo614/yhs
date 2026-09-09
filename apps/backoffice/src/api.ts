@@ -1014,18 +1014,35 @@ export type CustomerProfile = {
 export type CashHandover = {
   id: string;
   paymentRecordId: string;
+  collectionTransactionId?: string;
   vehicleId: string;
   customerId: string;
   amount: number;
   status: CashHandoverStatus;
+  version: number;
+  plateNumber: string;
+  customerName: string;
+  paymentInvoiceNumber?: string;
+  paymentNettPrice?: number;
+  paymentStatus?: PaymentStatus;
+  collectionStatus?: CollectionStatus;
+  transactionMatches: boolean;
+  canRejectTransaction: boolean;
+  rejectBlockReason?: string;
   collectedByUserId: string;
+  collectedByName: string;
   collectedAt: string;
   handoverRequestedAt?: string;
+  handedOverByUserId?: string;
+  handedOverByName?: string;
   handedOverToUserId?: string;
+  handedOverToName?: string;
   handedOverAt?: string;
   acceptedByUserId?: string;
+  acceptedByName?: string;
   acceptedAt?: string;
   rejectedByUserId?: string;
+  rejectedByName?: string;
   rejectedAt?: string;
   rejectionReason?: string;
   notes?: string;
@@ -1041,6 +1058,8 @@ export type CashHandoverPaymentLookup = {
   plateNumber: string;
   invoiceNumber?: string;
   nettPrice: number;
+  availableAmount: number;
+  financeWorkflowVersion: number;
 };
 
 export type HrAttendanceRecord = {
@@ -1620,11 +1639,11 @@ export async function getPayments(): Promise<PaymentRecord[]> {
 }
 
 export async function getCashHandovers(): Promise<CashHandover[]> {
-  return getWithNetworkFallback("/api/cash-handovers", []);
+  return request<CashHandover[]>("/api/cash-handovers", {}, "Unable to load cash custody records");
 }
 
 export async function getCashHandoverPaymentLookup(): Promise<CashHandoverPaymentLookup[]> {
-  return getWithNetworkFallback("/api/cash-handovers/payment-lookup", []);
+  return request<CashHandoverPaymentLookup[]>("/api/cash-handovers/payment-lookup", {}, "Unable to load cash custody payment choices");
 }
 
 export async function exportPaymentsCsv(): Promise<string> {
@@ -2347,10 +2366,10 @@ export async function updateVehicleCatalogModel(id: string, model: VehicleCatalo
   });
 }
 
-export async function createCashHandover(paymentRecordId: string, amount: number, notes?: string): Promise<CashHandover> {
+export async function createCashHandover(paymentRecordId: string, amount: number, notes?: string, idempotencyKey?: string): Promise<CashHandover> {
   return request<CashHandover>("/api/cash-handovers", {
     method: "POST",
-    body: JSON.stringify({ paymentRecordId, amount, notes })
+    body: JSON.stringify({ paymentRecordId, amount, notes, idempotencyKey })
   });
 }
 
