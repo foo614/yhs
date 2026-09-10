@@ -224,13 +224,18 @@ export function PurchaseInvoiceHistory({
         </div>
         <Button type="primary" onClick={onGenerate}>{generatedOwnerInvoice ? "Open current purchase invoice" : "Generate Purchase Invoice"}</Button>
       </div>
-      <Alert
-        type="info"
-        showIcon
-        message="No new purchase invoice document uploads"
-        description="Finance reviews each official version separately. Existing uploaded invoice files and legacy supplier records remain available in the history below."
+      <OperationsProTable
+        rowKey="id"
+        columns={columns}
+        dataSource={invoices}
+        pagination={pagination}
+        search={{
+          defaultCollapsed: true,
+          span: { xs: 24, sm: 12, md: 12, lg: 8, xl: 8, xxl: 6 }
+        }}
+        scroll={{ x: 760 }}
+        locale={{ emptyText: "No purchase invoice linked to this vehicle yet." }}
       />
-      <OperationsProTable rowKey="id" columns={columns} dataSource={invoices} pagination={pagination} scroll={{ x: 560 }} locale={{ emptyText: "No purchase invoice linked to this vehicle yet." }} />
     </section>
   );
 }
@@ -912,9 +917,6 @@ export function VehiclePage({
   const loanHandoffCustomerOptions = loanHandoffBuyerPolicy.allowedCustomerIds.length > 0
     ? customers.filter((customer) => loanHandoffBuyerPolicy.allowedCustomerIds.includes(customer.id))
     : customers;
-  const availableVehicles = vehicles.filter((vehicle) => vehicle.status === "Available").length;
-  const publicVehicles = vehicles.filter((vehicle) => vehicle.isPublic).length;
-  const pendingBossConfirmation = vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
   const repairCostFor = (vehicle: Vehicle) => effectiveRepairCost(vehicle, repairs);
   const commissionCostFor = (vehicle: Vehicle) => effectiveCommissionCost(vehicle, brokerCommissions);
   const pickupAllowanceCostFor = (vehicle: Vehicle) => effectivePickupAllowanceCost(vehicle, paymentVouchers);
@@ -1061,6 +1063,11 @@ export function VehiclePage({
     setVehicleDetailTab("overview");
     setVehicleAssetTab("documents");
     setVehicleDetailOpen(true);
+  };
+
+  const openVehicleAssets = (assetTab: "documents" | "photos") => {
+    setVehicleDetailTab("documents");
+    setVehicleAssetTab(assetTab);
   };
 
   const closeLoanHandoff = () => {
@@ -1233,6 +1240,7 @@ export function VehiclePage({
           setPhotoGalleryWarning(`Photo deleted, but the latest photo list could not be refreshed. ${humanizeApiError(error, "Try refreshing this vehicle before making another change.")}`);
         }
       }
+      message.success("Website photo deleted.");
       return true;
     } catch (error) {
       if (selectedVehicleIdRef.current === vehicleId) {
@@ -1948,18 +1956,6 @@ export function VehiclePage({
           message={dashboardFocus === "stock" ? "Dashboard focus: current stock" : dashboardFocus === "sold" ? `Dashboard focus: sold vehicles${dashboardAnalyticsPeriod?.from && dashboardAnalyticsPeriod.to ? ` from ${dashboardAnalyticsPeriod.from} to ${dashboardAnalyticsPeriod.to}` : ""}` : dashboardFocus === "fresh" ? "Dashboard focus: stock aged 0-30 days" : dashboardFocus === "watch" ? "Dashboard focus: stock aged 31-60 days" : dashboardFocus === "aging" ? "Dashboard focus: stock aged more than 60 days" : "Dashboard focus: vehicles ordered by estimated profit"}
           action={<Button size="small" onClick={onClearDashboardFocus}>Clear focus</Button>}
         />}
-        <div className="vehicleInventoryHeader">
-          <div>
-            <Typography.Text className="moduleEyebrow">Inventory control</Typography.Text>
-            <Typography.Title level={3}>Vehicle list with approval state</Typography.Title>
-            <Typography.Text type="secondary">Open details to maintain the vehicle record, invoices, contacts, photos, and documents.</Typography.Text>
-          </div>
-          <div className="vehicleMiniStats">
-            <span><strong>{availableVehicles}</strong>Available</span>
-            <span><strong>{publicVehicles}</strong>Public</span>
-            <span><strong>{pendingBossConfirmation}</strong>Pending approval</span>
-          </div>
-        </div>
         <div className="vehicleSelectedSummary">
           {selectedVehicle ? (
             <>
@@ -2379,11 +2375,13 @@ export function VehiclePage({
                   <small>Documents</small>
                   <strong>{selectedVehicleDocumentCount}</strong>
                   <span>{selectedVehicleDocumentCount > 0 ? "Documents uploaded." : "Upload VOC, AP, or intake documents when available."}</span>
+                  <Button type="link" size="small" onClick={() => openVehicleAssets("documents")}>Open documents</Button>
                 </section>
                 <section className={selectedVehiclePhotoCount > 0 ? "ready" : "attention"}>
                   <small>Website photos</small>
                   <strong>{selectedVehiclePhotoCount}</strong>
                   <span>{selectedVehiclePhotoCount > 0 ? "Photo gallery started." : "Upload photos before publishing the car."}</span>
+                  <Button type="link" size="small" onClick={() => openVehicleAssets("photos")}>Open photos</Button>
                 </section>
                 <section className={selectedVehicleCaptureCount > 0 ? "ready" : "attention"}>
                   <small>Captured data</small>

@@ -3314,6 +3314,14 @@ body {
   line-height: 1.35;
 }
 
+.vehicleIntakeChecklist .ant-btn-link {
+  width: fit-content;
+  height: auto;
+  margin-top: 4px;
+  padding: 0;
+  font-weight: 650;
+}
+
 .loanHandoffImpact {
   margin-top: 4px;
   padding: 14px 16px;
@@ -3373,6 +3381,33 @@ body {
 .vehicleContactHeader h5.ant-typography {
   margin: 2px 0 0;
   color: #14251f;
+}
+
+.purchaseInvoiceHistory {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.purchaseInvoiceHistory .vehicleContactHeader > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.purchaseInvoiceHistory .vehicleContactHeader .ant-btn {
+  min-height: 40px;
+}
+
+@media (max-width: 767px) {
+  .purchaseInvoiceHistory .vehicleContactHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .purchaseInvoiceHistory .vehicleContactHeader .ant-btn {
+    width: 100%;
+  }
 }
 
 .vehicleContactBody {
