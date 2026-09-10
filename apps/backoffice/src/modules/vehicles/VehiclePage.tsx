@@ -77,6 +77,17 @@ export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id">> & {
   bankDebtAmount?: number;
 };
 
+export const vehicleDocumentInitialOwnershipTab: DocumentOwnershipType = "Seller";
+export const vehicleDocumentOwnershipLabels: Record<DocumentOwnershipType, string> = {
+  Seller: "Previous owner / 原车主",
+  Buyer: "Buyer / 买家",
+  Vehicle: "Vehicle / 车辆"
+};
+
+export function vehicleDocumentMissingLinkPrompt(ownershipType: DocumentOwnershipType) {
+  return `Link a ${ownershipType === "Seller" ? "previous owner / 原车主" : "buyer / 买家"} before uploading`;
+}
+
 type SellerIdentityReviewValues = {
   name?: string;
   phone?: string;
@@ -742,7 +753,7 @@ export function VehiclePage({
 }) {
   const [uploadVehicleId, setUploadVehicleId] = useState(vehicles[0]?.id ?? "");
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("IdentityCard");
-  const [documentOwnershipTab, setDocumentOwnershipTab] = useState<DocumentOwnershipType>("Buyer");
+  const [documentOwnershipTab, setDocumentOwnershipTab] = useState<DocumentOwnershipType>(vehicleDocumentInitialOwnershipTab);
   const [documentPersonId, setDocumentPersonId] = useState("");
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
   const [ocrJobs, setOcrJobs] = useState<VehicleOcrJob[]>([]);
@@ -1062,6 +1073,7 @@ export function VehiclePage({
     selectVehicle(vehicleId);
     setVehicleDetailTab("overview");
     setVehicleAssetTab("documents");
+    selectDocumentOwnershipTab(vehicleDocumentInitialOwnershipTab);
     setVehicleDetailOpen(true);
   };
 
@@ -2663,77 +2675,26 @@ export function VehiclePage({
                   description="VOC, IC, and AP documents can be added here when they are available."
                 />
               )}
-              <Tabs
-                activeKey={documentOwnershipTab}
-                onChange={(key) => selectDocumentOwnershipTab(key as DocumentOwnershipType)}
-                items={[
-                  { key: "Seller", label: "Previous owner / 原车主" },
-                  { key: "Buyer", label: "Buyer / Customer" },
-                  { key: "Vehicle", label: "Vehicle / 车辆" }
-                ]}
+              <VehicleDocumentOwnershipControls
+                documentOwnershipTab={documentOwnershipTab}
+                documentCategories={documentCategories}
+                documentCategory={documentCategory}
+                personOwnedDocument={personOwnedDocument}
+                documentPersonId={documentPersonId}
+                selectedVehicleOwner={selectedVehicleOwner}
+                selectedVehicleCustomer={selectedVehicleCustomer}
+                onOwnershipChange={selectDocumentOwnershipTab}
+                onCategoryChange={setDocumentCategory}
+                onPersonChange={setDocumentPersonId}
+                onAddOwner={() => {
+                  setOwnerCreateForVehicleDetails(true);
+                  setOwnerCreateOpen(true);
+                }}
+                onAddBuyer={() => {
+                  setCustomerCreateForVehicleDetails(true);
+                  setCustomerCreateOpen(true);
+                }}
               />
-              <Form.Item label="Document Type">
-                <Space wrap>
-                  {documentCategories.map((category) => (
-                    <Button key={category} type={documentCategory === category ? "primary" : "default"} onClick={() => setDocumentCategory(category)}>
-                      {category === "Voc" ? shortformLabel("VOC", "Vehicle ownership certificate") : category === "IdentityCard" ? shortformLabel("IC", "Identity card") : category === "ApDocument" ? shortformLabel("AP Document", "Approved permit document") : documentCategoryLabel(category)}
-                    </Button>
-                  ))}
-                </Space>
-              </Form.Item>
-              {personOwnedDocument ? (
-                <Space direction="vertical" size={0} className="fullWidth">
-                  <Form.Item
-                    label="Document owner / 文件归属"
-                    extra="The active ownership tab is saved with the document and is not changed by OCR review."
-                  >
-                    <Tag color={documentOwnershipTab === "Seller" ? "gold" : "blue"}>
-                      {documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / Customer"}
-                    </Tag>
-                  </Form.Item>
-                  <Form.Item label={documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / Customer"}>
-                    <Select
-                      value={documentPersonId || undefined}
-                      placeholder="Select the linked person"
-                      onChange={setDocumentPersonId}
-                      options={documentOwnershipTab === "Seller"
-                        ? selectedVehicleOwner ? [{ value: selectedVehicleOwner.id, label: `${selectedVehicleOwner.name} / ${selectedVehicleOwner.phone}` }] : []
-                        : selectedVehicleCustomer ? [{ value: selectedVehicleCustomer.id, label: `${selectedVehicleCustomer.name} / ${selectedVehicleCustomer.phone}` }] : []}
-                    />
-                  </Form.Item>
-                  {!selectedDocumentPerson && (
-                    <Alert
-                      type="info"
-                      showIcon
-                      message={`Link a ${documentOwnershipTab === "Seller" ? "previous owner" : "buyer / customer"} before uploading`}
-                      description="Only a person already linked to this vehicle can be selected for a person-owned document."
-                      action={(
-                        <Button
-                          size="small"
-                          onClick={() => {
-                            if (documentOwnershipTab === "Seller") {
-                              setOwnerCreateForVehicleDetails(true);
-                              setOwnerCreateOpen(true);
-                            } else {
-                              setCustomerCreateForVehicleDetails(true);
-                              setCustomerCreateOpen(true);
-                            }
-                          }}
-                        >
-                          Add person
-                        </Button>
-                      )}
-                    />
-                  )}
-                </Space>
-              ) : (
-                <Alert
-                  type="info"
-                  showIcon
-                  message="Ownership: Vehicle / 车辆"
-                  description="This document category is stored against the vehicle. No previous owner or buyer selection is required."
-                />
-              )}
               <div hidden={documentCategory !== "PurchaseInvoice"}>
               <PurchaseInvoiceHistory
                 invoices={selectedVehicleInvoices}
@@ -2757,7 +2718,7 @@ export function VehiclePage({
                     disabled={uploadDisabled || !documentOwnershipReady}
                     buttonLabel={documentCategory === "IdentityCard" ? "Add identity card photo" : "Add VOC PDF or photo"}
                     applyLabel={documentCategory === "IdentityCard"
-                      ? documentOwnershipTab === "Seller" ? "Use details in previous owner record" : "Use details in customer record"
+                      ? documentOwnershipTab === "Seller" ? "Use details in previous owner record" : "Use details in buyer record"
                       : "Use details in vehicle record"}
                     uploadOwner={documentUploadOwner}
                     existingValues={documentCategory === "IdentityCard"
@@ -2773,7 +2734,7 @@ export function VehiclePage({
                         : undefined}
                     fields={documentCategory === "IdentityCard"
                       ? [
-                        { name: documentOwnershipTab === "Seller" ? "ownerName" : "customerName", label: documentOwnershipTab === "Seller" ? "Previous Owner Name" : "Customer Name" },
+                        { name: documentOwnershipTab === "Seller" ? "ownerName" : "customerName", label: documentOwnershipTab === "Seller" ? "Previous Owner Name" : "Buyer Name" },
                         { name: "icNumber", label: "IC Number" },
                         { name: "address", label: "Address" }
                       ]
@@ -2804,7 +2765,7 @@ export function VehiclePage({
                           message.success("Approved IC values were saved to the linked previous owner record.");
                         } else {
                           if (!selectedVehicleCustomer) {
-                            throw new Error("Link a customer to this vehicle before applying approved IC values.");
+                            throw new Error("Link a buyer to this vehicle before applying approved IC values.");
                           }
                           await onUpdateCustomer({
                             ...selectedVehicleCustomer,
@@ -2812,7 +2773,7 @@ export function VehiclePage({
                             icNumber: ocrOptionalText(values.icNumber, selectedVehicleCustomer.icNumber),
                             address: ocrOptionalText(values.address, selectedVehicleCustomer.address)
                           });
-                          message.success("Approved IC values were saved to the linked customer record.");
+                          message.success("Approved IC values were saved to the linked buyer record.");
                         }
                       } else if (documentCategory === "Voc") {
                         if (!selectedVehicle) throw new Error("Open the vehicle record before applying VOC values.");
@@ -3882,6 +3843,103 @@ export function VehiclePage({
   );
 }
 
+type VehicleDocumentOwnershipControlsProps = {
+  documentOwnershipTab: DocumentOwnershipType;
+  documentCategories: DocumentCategory[];
+  documentCategory: DocumentCategory;
+  personOwnedDocument: boolean;
+  documentPersonId: string;
+  selectedVehicleOwner?: Owner;
+  selectedVehicleCustomer?: Customer;
+  onOwnershipChange: (ownershipType: DocumentOwnershipType) => void;
+  onCategoryChange: (category: DocumentCategory) => void;
+  onPersonChange: (personId: string) => void;
+  onAddOwner: () => void;
+  onAddBuyer: () => void;
+};
+
+export function VehicleDocumentOwnershipControls({
+  documentOwnershipTab,
+  documentCategories,
+  documentCategory,
+  personOwnedDocument,
+  documentPersonId,
+  selectedVehicleOwner,
+  selectedVehicleCustomer,
+  onOwnershipChange,
+  onCategoryChange,
+  onPersonChange,
+  onAddOwner,
+  onAddBuyer
+}: VehicleDocumentOwnershipControlsProps) {
+  const selectedDocumentPerson = documentOwnershipTab === "Seller" ? selectedVehicleOwner : documentOwnershipTab === "Buyer" ? selectedVehicleCustomer : undefined;
+
+  return (
+    <>
+      <Tabs
+        activeKey={documentOwnershipTab}
+        onChange={(key) => onOwnershipChange(key as DocumentOwnershipType)}
+        items={[
+          { key: "Seller", label: vehicleDocumentOwnershipLabels.Seller },
+          { key: "Buyer", label: vehicleDocumentOwnershipLabels.Buyer },
+          { key: "Vehicle", label: vehicleDocumentOwnershipLabels.Vehicle }
+        ]}
+      />
+      <Form.Item label="Document Type">
+        <Space wrap>
+          {documentCategories.map((category) => (
+            <Button key={category} type={documentCategory === category ? "primary" : "default"} onClick={() => onCategoryChange(category)}>
+              {category === "Voc" ? shortformLabel("VOC", "Vehicle ownership certificate") : category === "IdentityCard" ? shortformLabel("IC", "Identity card") : category === "ApDocument" ? shortformLabel("AP Document", "Approved permit document") : documentCategoryLabel(category)}
+            </Button>
+          ))}
+        </Space>
+      </Form.Item>
+      {personOwnedDocument ? (
+        <Space direction="vertical" size={0} className="fullWidth">
+          <Form.Item
+            label="Document owner / 文件归属"
+            extra="The active ownership tab is saved with the document and is not changed by OCR review."
+          >
+            <Tag color={documentOwnershipTab === "Seller" ? "gold" : "blue"}>
+              {vehicleDocumentOwnershipLabels[documentOwnershipTab]}
+            </Tag>
+          </Form.Item>
+          <Form.Item label={vehicleDocumentOwnershipLabels[documentOwnershipTab]}>
+            <Select
+              value={documentPersonId || undefined}
+              placeholder="Select the linked person"
+              onChange={onPersonChange}
+              options={documentOwnershipTab === "Seller"
+                ? selectedVehicleOwner ? [{ value: selectedVehicleOwner.id, label: `${selectedVehicleOwner.name} / ${selectedVehicleOwner.phone}` }] : []
+                : selectedVehicleCustomer ? [{ value: selectedVehicleCustomer.id, label: `${selectedVehicleCustomer.name} / ${selectedVehicleCustomer.phone}` }] : []}
+            />
+          </Form.Item>
+          {!selectedDocumentPerson && (
+            <Alert
+              type="info"
+              showIcon
+              message={vehicleDocumentMissingLinkPrompt(documentOwnershipTab)}
+              description="Only a person already linked to this vehicle can be selected for a person-owned document."
+              action={(
+                <Button size="small" onClick={documentOwnershipTab === "Seller" ? onAddOwner : onAddBuyer}>
+                  Add person
+                </Button>
+              )}
+            />
+          )}
+        </Space>
+      ) : (
+        <Alert
+          type="info"
+          showIcon
+          message="Ownership: Vehicle / 车辆"
+          description="This document category is stored against the vehicle. No previous owner or buyer selection is required."
+        />
+      )}
+    </>
+  );
+}
+
 function ocrText(value: string | number | undefined, fallback: string) {
   const normalized = value === undefined || value === null ? "" : String(value).trim();
   return normalized || fallback;
@@ -3925,10 +3983,10 @@ function contactFor<T extends { id: string; name: string; phone: string }>(conta
   return contact ? `${contact.name} / ${contact.phone}` : "-";
 }
 
-function documentOwnershipLabel(document: Pick<VehicleDocument, "ownershipType" | "customerId" | "ownerId"> | Pick<VehicleOcrJob["document"], "ownershipType" | "customerId" | "ownerId">, customers: Customer[], owners: Owner[]) {
-  if (document.ownershipType === "Seller") return `Previous owner / 原车主: ${contactFor(owners, document.ownerId)}`;
-  if (document.ownershipType === "Buyer") return `Buyer / Customer: ${contactFor(customers, document.customerId)}`;
-  return "Vehicle / 车辆";
+export function documentOwnershipLabel(document: Pick<VehicleDocument, "ownershipType" | "customerId" | "ownerId"> | Pick<VehicleOcrJob["document"], "ownershipType" | "customerId" | "ownerId">, customers: Customer[], owners: Owner[]) {
+  if (document.ownershipType === "Seller") return `${vehicleDocumentOwnershipLabels.Seller}: ${contactFor(owners, document.ownerId)}`;
+  if (document.ownershipType === "Buyer") return `${vehicleDocumentOwnershipLabels.Buyer}: ${contactFor(customers, document.customerId)}`;
+  return vehicleDocumentOwnershipLabels.Vehicle;
 }
 
 function ocrField(job: VehicleOcrJob, fieldName: string) {

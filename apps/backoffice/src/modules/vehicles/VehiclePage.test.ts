@@ -2,8 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
-import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
-import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument } from "../../api";
+import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, documentOwnershipLabel, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentInitialOwnershipTab, VehicleDocumentOwnershipControls, vehicleDocumentMissingLinkPrompt, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipLabels, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import type { BrokerCommission, Customer, Lead, LoanApplication, Owner, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
   id: "vehicle-1",
@@ -368,6 +368,57 @@ describe("previous owner identity review", () => {
 });
 
 describe("vehicle document ownership", () => {
+  it("renders the ownership controls for the default and Buyer states", () => {
+    let selectedTab = vehicleDocumentInitialOwnershipTab;
+    const owner: Owner = { id: "owner-1", name: "Previous Owner", phone: "0198765432" };
+    const activeTabMarkup = (markup: string) => markup.match(/<div[^>]*role="tab"[^>]*aria-selected="true"[^>]*>.*?(?=<div[^>]*role="tab"|$)/s)?.[0] ?? "";
+    const renderControls = () => renderToStaticMarkup(createElement(VehicleDocumentOwnershipControls, {
+      documentOwnershipTab: selectedTab,
+      documentCategories: ["IdentityCard"],
+      documentCategory: "IdentityCard",
+      personOwnedDocument: true,
+      documentPersonId: selectedTab === "Seller" ? owner.id : "",
+      selectedVehicleOwner: owner,
+      onOwnershipChange: (nextTab) => { selectedTab = nextTab; },
+      onCategoryChange: () => undefined,
+      onPersonChange: () => undefined,
+      onAddOwner: () => undefined,
+      onAddBuyer: () => undefined
+    }));
+
+    expect(activeTabMarkup(renderControls())).toContain("Previous owner / 原车主");
+    const controls = VehicleDocumentOwnershipControls({
+      documentOwnershipTab: selectedTab,
+      documentCategories: ["IdentityCard"],
+      documentCategory: "IdentityCard",
+      personOwnedDocument: true,
+      documentPersonId: owner.id,
+      selectedVehicleOwner: owner,
+      onOwnershipChange: (nextTab) => { selectedTab = nextTab; },
+      onCategoryChange: () => undefined,
+      onPersonChange: () => undefined,
+      onAddOwner: () => undefined,
+      onAddBuyer: () => undefined
+    });
+    const tabsElement = (controls.props.children as Array<{ props: { onChange: (key: string) => void } }>)[0];
+    tabsElement.props.onChange("Buyer");
+    const buyerMarkup = renderControls();
+    expect(activeTabMarkup(buyerMarkup)).toContain("Buyer / 买家");
+    expect(buyerMarkup).toContain("Link a buyer / 买家 before uploading");
+    expect(buyerMarkup).not.toContain("Buyer / Customer");
+  });
+
+  it("opens Documents on the previous owner and uses Buyer / 买家 copy for the linked customer path", () => {
+    const customer: Customer = { id: "customer-1", name: "Buyer Name", phone: "0123456789" };
+    const owner: Owner = { id: "owner-1", name: "Previous Owner", phone: "0198765432" };
+
+    expect(vehicleDocumentInitialOwnershipTab).toBe("Seller");
+    expect(vehicleDocumentOwnershipLabels.Buyer).toBe("Buyer / 买家");
+    expect(vehicleDocumentMissingLinkPrompt("Buyer")).toBe("Link a buyer / 买家 before uploading");
+    expect(documentOwnershipLabel({ ownershipType: "Buyer", customerId: customer.id }, [customer], [owner])).toBe("Buyer / 买家: Buyer Name / 0123456789");
+    expect(documentOwnershipLabel({ ownershipType: "Seller", ownerId: owner.id }, [customer], [owner])).toBe("Previous owner / 原车主: Previous Owner / 0198765432");
+  });
+
   it("uses the approved defaults and only offers person selection for person-owned categories", () => {
     expect(vehicleDocumentOwnershipDefault("IdentityCard")).toBe("Buyer");
     expect(vehicleDocumentOwnershipDefault("PurchaseInvoice")).toBe("Seller");

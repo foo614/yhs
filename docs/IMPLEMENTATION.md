@@ -20,6 +20,8 @@ Final local checks passed: 335 backend tests, 405 back-office tests, type checki
 
 ## Applications
 
+Vehicle Details Documents opens each details session with Previous owner / 原车主 selected. Staff can switch to Buyer / 买家; the buyer wording retains the existing customer linkage and document ownership storage.
+
 - `apps/frontoffice`: public Next.js vehicle inventory and lead capture.
 - `apps/backoffice`: Ant Design Pro-style operations portal for dashboard, vehicles, repair, loan, delivery, finance, leads, audit log, and admin roles.
 - `services/api`: .NET 10 Web API with PostgreSQL, ASP.NET Identity, EF Core models, public endpoints, back-office endpoints, upload limits, and dashboard business rules.

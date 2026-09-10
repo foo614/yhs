@@ -16,6 +16,13 @@ function vehicleDetailTabSection() {
 }
 
 describe("vehicle detail tab layout", () => {
+  it("starts each vehicle details session with previous-owner document copy and keeps Buyer / 买家 terminology", () => {
+    expect(vehiclePageSource).toContain('selectDocumentOwnershipTab(vehicleDocumentInitialOwnershipTab);');
+    expect(vehiclePageSource).toContain('Buyer: "Buyer / 买家"');
+    expect(vehiclePageSource).not.toContain("Buyer / Customer");
+    expect(vehiclePageSource).not.toContain("buyer / customer");
+  });
+
   it("keeps hidden detail panes out of Ant Design Space gap layout", () => {
     const section = vehicleDetailTabSection();
 
