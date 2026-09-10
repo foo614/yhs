@@ -1,4 +1,6 @@
-name: CI
+name: Build, test and deploy
+run-name: >-
+  ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.deploy_production && 'Production deployment' || 'Validation' }} | ${{ github.event.pull_request.title || github.event.head_commit.message || github.ref_name }}
 
 on:
   push:
