@@ -1741,6 +1741,7 @@ function moduleStats(pathname: string, data: {
 }) {
   const availableVehicles = data.vehicles.filter((vehicle) => vehicle.status === "Available").length;
   const publicVehicles = data.vehicles.filter((vehicle) => vehicle.isPublic).length;
+  const pendingVehicleApprovals = data.vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
   const pendingLoans = data.loans.filter((loan) => loan.status === "Pending").length;
   const openPayments = data.payments.filter((payment) => payment.status !== "Reconciled").length;
   const newLeads = data.leads.filter((lead) => lead.status === "New").length;
@@ -1751,9 +1752,10 @@ function moduleStats(pathname: string, data: {
   switch (pathname) {
     case "/vehicles":
       return [
-        { label: "stock rows", value: data.vehicles.length },
+        { label: "total stock", value: data.vehicles.length },
+        { label: "available", value: availableVehicles },
         { label: "public", value: publicVehicles },
-        { label: "contacts", value: data.customers.length }
+        { label: "pending approval", value: pendingVehicleApprovals }
       ];
     case "/repairs":
       return [
