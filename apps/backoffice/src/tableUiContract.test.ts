@@ -14,7 +14,7 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe("operational table UI contract", () => {
-  it("lets the Leads and My Cars panels use the full page width", () => {
+  it("lets the Leads and Cars I’m Handling panels use the full page width", () => {
     const styles = readFileSync(join(sourceRoot, "styles.css"), "utf8");
     const leadItemRules = Array.from(styles.matchAll(/([^{}]*\.leadsPage[^{}]*)\{([^{}]*)\}/g))
       .filter((match) => /\.ant-space-item/.test(match[1]) && !/\.ant-pro-card|\.formGrid/.test(match[1]));

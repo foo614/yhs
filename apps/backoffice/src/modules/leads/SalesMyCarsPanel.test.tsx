@@ -20,7 +20,7 @@ const workboard: SalesWorkboard = {
   }]
 };
 
-describe("Sales My Cars", () => {
+describe("Cars I’m Handling", () => {
   it("filters the loaded workboard by practical sales keywords", () => {
     const items = [
       workboard.items[0],
@@ -42,7 +42,7 @@ describe("Sales My Cars", () => {
     expect(markup).toContain("Sold this month");
     expect(markup).toContain("Cars in progress");
     expect(markup).toContain("Current process / 当前流程");
-    expect(markup).toContain("Search plate, model or next action");
+    expect(markup).toContain("Search cars I’m handling by plate, model or next action");
     expect(markup).toContain("salesMyCarsFilterBar");
     expect(markup).toContain("salesMyCarsTable");
     expect(markup.includes("ant-pro-query-filter")).toBe(false);

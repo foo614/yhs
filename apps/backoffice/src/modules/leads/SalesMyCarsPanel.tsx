@@ -80,7 +80,7 @@ export function SalesMyCarsPanel({
   ];
 
   return (
-    <ProCard title="My Cars / 我的车辆" className="salesMyCarsPanel">
+    <ProCard title="Cars I’m Handling / 我负责的车辆" className="salesMyCarsPanel">
       <div className="salesMyCarsHeader">
         <Typography.Text type="secondary">See the cars you sold or are following, their current process, and which team owns the next step.</Typography.Text>
       </div>
@@ -88,8 +88,8 @@ export function SalesMyCarsPanel({
         <Input.Search
           allowClear
           value={keyword}
-          placeholder="Search plate, model or next action"
-          aria-label="Search My Cars"
+          placeholder="Search cars I’m handling by plate, model or next action"
+          aria-label="Search Cars I’m Handling"
           onChange={(event) => setKeyword(event.target.value)}
         />
         {isBoss && <Select
@@ -103,7 +103,7 @@ export function SalesMyCarsPanel({
             { value: "All", label: "All agents" },
             ...(data?.availableAgents ?? []).map((agent) => ({ value: agent.id, label: agent.displayName }))
           ]}
-          aria-label="Filter My Cars by agent"
+          aria-label="Filter Cars I’m Handling by agent"
         />}
         <Tag color={keyword.trim() ? "blue" : undefined}>
           {keyword.trim() ? `${filteredItems.length} of ${data?.items.length ?? 0} matching` : `${data?.items.length ?? 0} cars`}
@@ -117,7 +117,7 @@ export function SalesMyCarsPanel({
       {loadError && <Alert type="error" showIcon message={loadError} action={<Button size="small" onClick={() => void load()}>Try again</Button>} />}
       {loading ? <Skeleton active paragraph={{ rows: 5 }} /> : <>
         <div className="salesMyCarsMobileList">
-          {filteredItems.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={keyword.trim() ? "No cars match this search." : "No cars are assigned to this sales view yet."} />}
+          {filteredItems.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={keyword.trim() ? "No cars you’re handling match this search." : "No cars are assigned to this view yet."} />}
           {mobileItems.map((item) => (
             <article className="salesMyCarsMobileCard" key={`${item.vehicleId}:${item.salesAgentUserId ?? "unassigned"}`}>
               <div><Typography.Title level={5}>{item.plateNumber}</Typography.Title><Typography.Text type="secondary">{item.vehicleLabel}</Typography.Text></div>
@@ -143,7 +143,7 @@ export function SalesMyCarsPanel({
           search={false}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           scroll={{ x: 880 }}
-          locale={{ emptyText: keyword.trim() ? "No cars match this search." : "No cars are assigned to this sales view yet." }}
+          locale={{ emptyText: keyword.trim() ? "No cars you’re handling match this search." : "No cars are assigned to this view yet." }}
         />
       </>}
     </ProCard>
