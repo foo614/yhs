@@ -3574,8 +3574,7 @@ public static class DeliveryDocumentRules
 
     private static readonly FileCategory[] EvidenceCategories =
     [
-        ..RequiredCategories,
-        FileCategory.WindscreenPolicy
+        ..RequiredCategories
     ];
 
     public static DeliveryDocumentCheck CheckCompleteness(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)

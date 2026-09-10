@@ -272,7 +272,7 @@ public sealed class ApiDocumentationTests
         Assert.Contains($"`{statusError.Code}`", apiDocs);
         Assert.Contains("Previously uploaded evidence remains readable", apiDocs);
         Assert.Contains("Windscreen expiry is not release-critical", apiDocs);
-        Assert.Contains("`WindscreenPolicy` is optional historical evidence", apiDocs);
+        Assert.Contains("`WindscreenPolicy` is retained in storage for compatibility", apiDocs);
         Assert.DoesNotContain("expiry blockers for insurance, road tax, or windscreen insurance", apiDocs);
     }
 

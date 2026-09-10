@@ -415,11 +415,6 @@ public static class DeliveryMutationRules
             !string.Equals(before.RoadTaxReceiptReference?.Trim(), after.RoadTaxReceiptReference?.Trim(), StringComparison.Ordinal),
             "road tax");
         AddChanged(changed,
-            before.WindscreenInsuranceHandled != after.WindscreenInsuranceHandled ||
-            before.WindscreenInsuranceExpiryDate != after.WindscreenInsuranceExpiryDate ||
-            !string.Equals(before.WindscreenPolicyReference?.Trim(), after.WindscreenPolicyReference?.Trim(), StringComparison.Ordinal),
-            "windscreen insurance");
-        AddChanged(changed,
             before.NotificationSent != after.NotificationSent || before.TwoDayNoticeSent != after.TwoDayNoticeSent,
             "customer notice");
         AddChanged(changed, before.CustomerAcknowledged, after.CustomerAcknowledged, "customer acknowledgement");
