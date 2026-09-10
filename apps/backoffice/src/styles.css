@@ -5786,6 +5786,44 @@ body {
   align-self: flex-start;
 }
 
+.salesMyCarsCarCell,
+.salesMyCarsHandoff {
+  min-width: 0;
+}
+
+.salesMyCarsCarCell .ant-typography,
+.salesMyCarsHandoff .ant-typography {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.salesMyCarsAgent {
+  font-size: 12px;
+}
+
+.salesMyCarsHandoff {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.salesMyCarsMobileField {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.salesMyCarsFieldLabel {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.salesMyCarsMobileField h5.ant-typography {
+  margin: 0;
+}
+
 @media (max-width: 900px) {
   .deliveryWorkboardToolbar {
     grid-template-columns: minmax(220px, 1fr) repeat(2, 160px);
@@ -5962,6 +6000,10 @@ body {
   .salesMyCarsStats {
     width: 100%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .salesMyCarsMobileField .ant-tag {
+    margin-inline-end: 0;
   }
 }
 

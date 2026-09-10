@@ -71,12 +71,21 @@ export function SalesMyCarsPanel({
     {
       title: "Car / 车辆",
       width: 220,
-      render: (_, item) => <Space direction="vertical" size={0}><Typography.Text strong>{item.plateNumber}</Typography.Text><Typography.Text type="secondary">{item.vehicleLabel}</Typography.Text></Space>
+      render: (_, item) => <Space className="salesMyCarsCarCell" direction="vertical" size={0}>
+        <Typography.Text strong>{item.plateNumber}</Typography.Text>
+        <Typography.Text type="secondary">{item.vehicleLabel}</Typography.Text>
+        {isBoss && <Typography.Text className="salesMyCarsAgent" type="secondary">Agent: {item.salesAgentName || "Unassigned"}</Typography.Text>}
+      </Space>
     },
     { title: "Current process / 当前流程", dataIndex: "process", width: 180, render: (value) => <Tag color={value === "Completed" ? "green" : "blue"}>{value}</Tag> },
-    { title: "Responsible team / 负责部门", dataIndex: "responsibleDepartment", width: 170 },
-    { title: "Next action / 下一步", dataIndex: "nextAction" },
-    ...(isBoss ? [{ title: "Agent / 销售员", dataIndex: "salesAgentName", width: 170, render: (value: string | null | undefined) => value || "Unassigned" } as ColumnsType<SalesWorkboardItem>[number]] : [])
+    {
+      title: "Current handoff / 当前跟进",
+      width: 300,
+      render: (_, item) => <div className="salesMyCarsHandoff">
+        <Typography.Text strong>{item.responsibleDepartment}</Typography.Text>
+        <Typography.Text>{item.nextAction}</Typography.Text>
+      </div>
+    }
   ];
 
   return (
@@ -120,10 +129,21 @@ export function SalesMyCarsPanel({
           {filteredItems.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={keyword.trim() ? "No cars you’re handling match this search." : "No cars are assigned to this view yet."} />}
           {mobileItems.map((item) => (
             <article className="salesMyCarsMobileCard" key={`${item.vehicleId}:${item.salesAgentUserId ?? "unassigned"}`}>
-              <div><Typography.Title level={5}>{item.plateNumber}</Typography.Title><Typography.Text type="secondary">{item.vehicleLabel}</Typography.Text></div>
-              <Space wrap><Tag color={item.process === "Completed" ? "green" : "blue"}>{item.process}</Tag><Tag>{item.responsibleDepartment}</Tag></Space>
-              <Typography.Text>{item.nextAction}</Typography.Text>
-              {isBoss && <Typography.Text type="secondary">Agent: {item.salesAgentName || "Unassigned"}</Typography.Text>}
+              <div className="salesMyCarsMobileField">
+                <Typography.Text className="salesMyCarsFieldLabel" type="secondary">Car / 车辆</Typography.Text>
+                <Typography.Title level={5}>{item.plateNumber}</Typography.Title>
+                <Typography.Text type="secondary">{item.vehicleLabel}</Typography.Text>
+                {isBoss && <Typography.Text className="salesMyCarsAgent" type="secondary">Agent: {item.salesAgentName || "Unassigned"}</Typography.Text>}
+              </div>
+              <div className="salesMyCarsMobileField">
+                <Typography.Text className="salesMyCarsFieldLabel" type="secondary">Current process / 当前流程</Typography.Text>
+                <Tag color={item.process === "Completed" ? "green" : "blue"}>{item.process}</Tag>
+              </div>
+              <div className="salesMyCarsMobileField salesMyCarsHandoff">
+                <Typography.Text className="salesMyCarsFieldLabel" type="secondary">Current handoff / 当前跟进</Typography.Text>
+                <Typography.Text strong>{item.responsibleDepartment}</Typography.Text>
+                <Typography.Text>{item.nextAction}</Typography.Text>
+              </div>
             </article>
           ))}
           {filteredItems.length > mobilePageSize && <Pagination
@@ -142,7 +162,7 @@ export function SalesMyCarsPanel({
           dataSource={filteredItems}
           search={false}
           pagination={{ pageSize: 10, showSizeChanger: false }}
-          scroll={{ x: 880 }}
+          scroll={{ x: 700 }}
           locale={{ emptyText: keyword.trim() ? "No cars you’re handling match this search." : "No cars are assigned to this view yet." }}
         />
       </>}

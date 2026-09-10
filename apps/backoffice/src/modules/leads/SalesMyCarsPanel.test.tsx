@@ -46,7 +46,12 @@ describe("Cars I’m Handling", () => {
     expect(markup).toContain("salesMyCarsFilterBar");
     expect(markup).toContain("salesMyCarsTable");
     expect(markup.includes("ant-pro-query-filter")).toBe(false);
-    expect(markup).toContain("Responsible team / 负责部门");
+    expect(markup.match(/<th\b/g) ?? []).toHaveLength(3);
+    expect(markup).toContain("Car / 车辆");
+    expect(markup).toContain("Current handoff / 当前跟进");
+    expect(markup).not.toContain("Responsible team / 负责部门");
+    expect(markup).not.toContain("Next action / 下一步");
+    expect(markup).toMatch(/salesMyCarsMobileField salesMyCarsHandoff[\s\S]*?Delivery[\s\S]*?Prepare the car/);
     expect(markup).toContain("Prepare the car");
     expect(markup).not.toContain("Invoice");
     expect(markup).not.toContain("Payment");
@@ -65,9 +70,10 @@ describe("Cars I’m Handling", () => {
     }));
 
     expect(bossMarkup).toContain("All agents");
-    expect(bossMarkup).toContain("Agent / 销售员");
+    expect(bossMarkup).toContain("Agent: Jason Tan");
+    expect(bossMarkup).not.toContain("Agent / 销售员");
     expect(salesMarkup).not.toContain("All agents");
-    expect(salesMarkup).not.toContain("Agent / 销售员");
+    expect(salesMarkup).not.toContain("Agent: Jason Tan");
   });
 
   it("paginates the Boss mobile all-agent view while keeping the desktop data source complete", () => {
