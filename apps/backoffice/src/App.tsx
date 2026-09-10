@@ -67,7 +67,6 @@ import {
   type LeadLinkFilter
 } from "./leads";
 import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
-import { supplierApprovalBlockReason } from "./finance";
 import { filterRefurbishmentRecords, isRepairCostFinal, isSupplierUsable, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
 import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
@@ -223,8 +222,8 @@ import {
   updateStaffUser,
   updateStaffUserRoles,
   updateStaffUserStatus,
+  updateSupplier,
   updateSupplierInvoice,
-  approveSupplier,
   updateVehicle,
   uploadHrMedicalCertificate,
   uploadVehicleDocument,
@@ -1202,7 +1201,6 @@ export default function App() {
               supplierInvoices={supplierInvoices}
               repairs={repairs}
               canApproveRepairs={currentRoles.includes("BossAdmin")}
-              currentUserId={currentUser?.id}
               onCreateInvoice={(invoice) => runCreate(() => createSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => [record, ...items]), "Supplier invoice created")}
               onUpdateInvoice={(invoice) => runUpdate(() => updateSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => replaceById(items, record)), "Supplier invoice updated")}
               onCreateRepair={(repair) => runCreate(() => createRepair(repair), (record) => setRepairs((items) => [record, ...items]), "Repair task created")}
@@ -3047,7 +3045,7 @@ type SupplierDraftPrefill = SupplierOcrMatchInput;
 
 type ReceiptSupplierResolution =
   | { kind: "matched"; supplier: Supplier }
-  | { kind: "draft"; supplier: Supplier }
+  | { kind: "inactive"; supplier: Supplier }
   | { kind: "missing" };
 
 function supplierDraftPrefillFromOcr(values: OcrReviewValues): SupplierDraftPrefill | undefined {
@@ -3087,7 +3085,7 @@ export function buildRefurbishmentTableRecords(
 }
 
 
-export function filterSupplierMaster(suppliers: Supplier[], keyword: string, status: Supplier["approvalStatus"] | "All") {
+export function filterSupplierMaster(suppliers: Supplier[], keyword: string, status: Supplier["status"] | "All") {
   return suppliers.filter((supplier) => matchesOperationalSearch(keyword, [
     supplier.companyName,
     supplier.registrationNumber,
@@ -3096,7 +3094,7 @@ export function filterSupplierMaster(suppliers: Supplier[], keyword: string, sta
     supplier.phone,
     supplier.contactPerson,
     supplier.autoCountCreditorCode
-  ]) && (status === "All" || supplier.approvalStatus === status));
+  ]) && (status === "All" || supplier.status === status));
 }
 
 export function supplierMasterMatchFromOcr(suppliers: Supplier[], source: SupplierOcrMatchInput | string | undefined): Supplier | undefined {
@@ -3173,7 +3171,6 @@ function RepairPage({
   supplierInvoices,
   repairs,
   canApproveRepairs,
-  currentUserId,
   onCreateInvoice,
   onUpdateInvoice,
   onCreateRepair,
@@ -3187,7 +3184,6 @@ function RepairPage({
   supplierInvoices: SupplierInvoice[];
   repairs: RepairJob[];
   canApproveRepairs: boolean;
-  currentUserId?: string;
   onCreateInvoice: (invoice: SupplierInvoice) => Promise<void>;
   onUpdateInvoice: (invoice: SupplierInvoice) => Promise<void>;
   onCreateRepair: (repair: RepairJob) => Promise<void>;
@@ -3204,7 +3200,7 @@ function RepairPage({
   const [supplierSaving, setSupplierSaving] = useState(false);
   const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
   const [supplierKeyword, setSupplierKeyword] = useState("");
-  const [supplierStatus, setSupplierStatus] = useState<Supplier["approvalStatus"] | "All">("All");
+  const [supplierStatus, setSupplierStatus] = useState<Supplier["status"] | "All">("All");
   const [repairCreateMode, setRepairCreateMode] = useState<"receipt" | "manual">("receipt");
   const [receiptDraft, setReceiptDraft] = useState<ConfirmRepairReceiptRequest | null>(null);
   const [repairCreateForm] = Form.useForm();
@@ -3252,6 +3248,19 @@ function RepairPage({
     supplierCreateForm.resetFields();
     supplierCreateForm.setFieldsValue(prefill);
     setSupplierCreateOpen(true);
+  };
+
+  const updateSupplierStatus = async (supplier: Supplier, status: Supplier["status"]) => {
+    setSupplierSaving(true);
+    try {
+      await updateSupplier({ ...supplier, status });
+      message.success(status === "Active" ? "Supplier reactivated." : "Supplier set to inactive. Historical records remain available.");
+      await reloadSupplierMaster();
+    } catch (error) {
+      message.error(humanizeApiError(error, "Unable to update supplier status."));
+    } finally {
+      setSupplierSaving(false);
+    }
   };
 
   useEffect(() => { void reloadSupplierMaster(); }, [reloadSupplierMaster]);
@@ -3651,7 +3660,7 @@ function RepairPage({
           >
             <Form.Item name="id" label="Selected Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
             <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter(isSupplierUsable).map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
+            <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => isSupplierUsable(supplier) || supplier.id === selectedSupplierInvoice.supplierId).map((supplier) => ({ value: supplier.id, label: supplier.status === "Inactive" ? `${supplier.companyName} (Inactive; retained record)` : supplier.companyName, disabled: supplier.status === "Inactive" }))} /></Form.Item>
             <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="invoiceDate" label="Invoice date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
@@ -3678,7 +3687,7 @@ function RepairPage({
         title="Supplier Master / 供应商资料"
         extra={<Button type="primary" onClick={openNewSupplier}>New Supplier</Button>}
       >
-        <Alert className="sectionIntroAlert" type="info" showIcon message="New suppliers are active and ready to use after creation. Supplier approval is not required; high-cost repair and Finance payment approvals are unchanged." />
+        <Alert className="sectionIntroAlert" type="info" showIcon message="New suppliers are Active immediately. Set a supplier Inactive when it should not be used for new purchase, repair, or supplier-invoice records; existing records remain available." />
         <Space className="toolbarForm workflowFilterBar pageFilterMobileOnly" wrap>
           <Input.Search
             allowClear
@@ -3690,15 +3699,13 @@ function RepairPage({
             style={{ width: 300 }}
           />
           <Select
-            aria-label="Filter supplier approval status"
+            aria-label="Filter supplier status"
             value={supplierStatus}
             onChange={setSupplierStatus}
             style={{ width: 170 }}
             options={[
               { value: "All", label: "All statuses" },
-              { value: "Draft", label: "Draft" },
               { value: "Active", label: "Active" },
-              { value: "Approved", label: "Approved" },
               { value: "Inactive", label: "Inactive" }
             ]}
           />
@@ -3716,16 +3723,14 @@ function RepairPage({
               { name: "tin", label: "TIN" },
               { name: "creditor", label: "Creditor code" },
               { name: "status", label: "Status", options: [
-                { value: "Draft", label: "Draft" },
                 { value: "Active", label: "Active" },
-                { value: "Approved", label: "Approved" },
                 { value: "Inactive", label: "Inactive" }
               ] }
             ],
             values: { status: supplierStatus === "All" ? undefined : supplierStatus },
             onSubmit: (values) => {
               setSupplierKeyword(operationsKeywordFromFields(values, ["company", "phone", "tin", "creditor"]));
-              setSupplierStatus((values.status as Supplier["approvalStatus"] | undefined) ?? "All");
+              setSupplierStatus((values.status as Supplier["status"] | undefined) ?? "All");
             },
             onReset: () => {
               setSupplierKeyword("");
@@ -3739,11 +3744,10 @@ function RepairPage({
             { title: "Phone", dataIndex: "phone" },
             { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
             { title: "AutoCount creditor", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
-            { title: "Status", dataIndex: "approvalStatus", render: (value) => <Tag color={value === "Approved" || value === "Active" ? "green" : "gold"}>{value}</Tag> },
+            { title: "Status", dataIndex: "status", render: (value) => <Tag color={value === "Active" ? "green" : "gold"}>{value}</Tag> },
             { title: "Action", render: (_, supplier) => {
-              if (!canApproveRepairs || supplier.approvalStatus !== "Draft") return null;
-              const blockReason = supplierApprovalBlockReason(supplier, currentUserId, canApproveRepairs);
-              return <Tooltip title={blockReason}><span><Button size="small" disabled={Boolean(blockReason)} onClick={async () => { try { await approveSupplier(supplier.id); message.success("Supplier approved."); await reloadSupplierMaster(); } catch (error) { message.error(humanizeApiError(error, "Unable to approve supplier.")); } }}>{blockReason ? "Needs another approver" : "Approve"}</Button></span></Tooltip>;
+              const nextStatus = supplier.status === "Active" ? "Inactive" : "Active";
+              return <Button size="small" danger={nextStatus === "Inactive"} loading={supplierSaving} onClick={() => { void updateSupplierStatus(supplier, nextStatus); }}>{nextStatus === "Inactive" ? "Set inactive" : "Reactivate"}</Button>;
             } }
           ]}
         />
@@ -3911,7 +3915,7 @@ function RepairPage({
             phone: String(values.phone ?? "").trim(),
             contactPerson: String(values.contactPerson ?? "").trim() || undefined,
             autoCountCreditorCode: String(values.autoCountCreditorCode ?? "").trim() || undefined,
-            approvalStatus: "Active"
+            status: "Active"
           };
           setSupplierSaving(true);
           try {
@@ -4168,7 +4172,7 @@ function RepairPage({
                       setReceiptSupplierResolution({ kind: "matched", supplier: matchedSupplier });
                       setUnmatchedReceiptSupplier(null);
                     } else if (matchedSupplier) {
-                      setReceiptSupplierResolution({ kind: "draft", supplier: matchedSupplier });
+                      setReceiptSupplierResolution({ kind: "inactive", supplier: matchedSupplier });
                       setUnmatchedReceiptSupplier(null);
                     } else {
                       setReceiptSupplierResolution(null);
@@ -4197,8 +4201,8 @@ function RepairPage({
               {receiptSupplierResolution?.kind === "matched" ? (
                 <Alert className="operationalInfoAlert" type="success" showIcon message={`Receipt supplier matched: ${receiptSupplierResolution.supplier.companyName}.`} />
               ) : null}
-              {receiptSupplierResolution?.kind === "draft" ? (
-                <Alert className="operationalInfoAlert" type="warning" showIcon message={`Supplier draft: ${receiptSupplierResolution.supplier.companyName}.`} description="Boss/Admin must approve the supplier before this repair can be created." />
+              {receiptSupplierResolution?.kind === "inactive" ? (
+                <Alert className="operationalInfoAlert" type="warning" showIcon message={`Supplier inactive: ${receiptSupplierResolution.supplier.companyName}.`} description="Reactivate this supplier or select another active supplier before creating this repair." />
               ) : null}
               {receiptSupplierResolution?.kind === "missing" ? (
                 <Alert className="operationalInfoAlert" type="warning" showIcon message="The receipt did not include a supplier name." description="Select an active supplier manually before creating this repair." />

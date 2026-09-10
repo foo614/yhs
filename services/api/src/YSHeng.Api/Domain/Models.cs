@@ -18,7 +18,7 @@ public enum FinancingStatus { NotApplicable, Pending, Approved, Disbursed }
 public enum ReceivableStatus { Draft, WaitingForApproval, ReadyToCollect, PartiallyPaid, Paid, AttentionNeeded }
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum DisbursementMethod { BankTransfer, Cheque, Cash, Other }
-public enum SupplierApprovalStatus { Draft, Approved, Inactive, Active }
+public enum SupplierStatus { Active, Inactive }
 public enum SettlementDirection { LegacyPaySeller, PaySeller, CollectFromSeller, InternalOffset }
 public enum PurchaseInvoiceLineType { VehiclePurchase, PurchaseProcessing, LatePaymentCharge, Parking, Transport, Refurbishment, Other }
 public enum PurchaseInvoiceSourceType { LegacySupplier, OwnerAcquisition }
@@ -234,9 +234,10 @@ public sealed record Supplier
     public string Phone { get; init; } = "";
     public string? ContactPerson { get; init; }
     public string? AutoCountCreditorCode { get; init; }
-    public SupplierApprovalStatus ApprovalStatus { get; init; } = SupplierApprovalStatus.Draft;
+    public SupplierStatus Status { get; init; } = SupplierStatus.Active;
     public string CreatedBy { get; init; } = "";
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    // Legacy maker-checker metadata is read-only history.
     public string? ApprovedBy { get; init; }
     public DateTime? ApprovedAt { get; init; }
 }

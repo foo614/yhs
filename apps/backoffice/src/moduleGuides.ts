@@ -250,8 +250,8 @@ const vehicleGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Sales enters; Finance confirms accounting",
       purpose: "Create a vehicle-linked, supplier-backed acquisition invoice with classified cost lines.",
-      actions: ["Enter manually or scan and review OCR.", "Select vehicle and approved supplier.", "Enter invoice number, date, and optional purchase date/reference.", "Add each classification, description, amount, and capitalisation choice.", "Confirm line total equals invoice total, then save."],
-      requiredItems: ["Approved supplier", "Unique invoice number", "Invoice date", "Amount greater than zero", "At least one classified line", "Line total equal to invoice total"],
+      actions: ["Enter manually or scan and review OCR.", "Select vehicle and active supplier.", "Enter invoice number, date, and optional purchase date/reference.", "Add each classification, description, amount, and capitalisation choice.", "Confirm line total equals invoice total, then save."],
+      requiredItems: ["Active supplier", "Unique invoice number", "Invoice date", "Amount greater than zero", "At least one classified line", "Line total equal to invoice total"],
       completeWhen: "A reviewed Draft purchase invoice is saved.",
       handoff: "Finance accounting confirmation.",
       warnings: ["Finance-confirmed purchase invoices are immutable.", "Tax code is mapped separately by Finance."]
@@ -288,11 +288,11 @@ const repairGuide: ModuleGuideDefinition = {
   path: "/repairs",
   title: "Repair / 整备",
   roleLabel: "Repair operations / 整备作业",
-  summary: "Control approved suppliers, repair work, supplier invoices, supporting evidence, cost, and completion.",
+  summary: "Control active suppliers, repair work, supplier invoices, supporting evidence, cost, and completion.",
   quickSteps: [
     {
       title: "Choose vehicle and supplier / 选择车辆与供应商",
-      description: "Use the correct car plate and approved supplier master; create a supplier draft when details are missing."
+      description: "Use the correct car plate and active supplier master; create an active supplier when details are missing."
     },
     {
       title: "Record work and cost / 记录工作与费用",
@@ -308,13 +308,13 @@ const repairGuide: ModuleGuideDefinition = {
       key: "supplier-master",
       label: "Supplier Master / 供应商资料",
       kind: "section",
-      audience: "Repair creates; Finance/Boss approves",
+      audience: "Repair operations",
       purpose: "Maintain a proper supplier identity before repair purchasing.",
-      actions: ["Search before creating another supplier.", "Select New Supplier.", "Enter company, registration number, TIN, address, phone, contact, and optional AutoCount creditor code.", "Create the Draft and wait for Finance/Boss approval."],
+      actions: ["Search before creating another supplier.", "Select New Supplier.", "Enter company, registration number, TIN, address, phone, contact, and optional AutoCount creditor code.", "Create the supplier; it is Active immediately."],
       requiredItems: ["Company", "Address", "Phone"],
-      completeWhen: "The supplier is Approved and available for purchasing.",
-      handoff: "New Repair or purchase accounting.",
-      warnings: ["The creator cannot approve their own supplier.", "Approved suppliers are immutable.", "Leave AutoCount creditor code blank when AutoCount should auto-create it."]
+      completeWhen: "The supplier is Active and available for new operational records.",
+      handoff: "Set the supplier Inactive when it should no longer be selected; linked historical records remain available.",
+      warnings: ["Only Active suppliers can be selected for new purchase, repair, supplier invoice, or delivery accounting records.", "Leave AutoCount creditor code blank when AutoCount should auto-create it."]
     },
     {
       key: "repair-list",
@@ -334,8 +334,8 @@ const repairGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Repair",
       purpose: "Create a repair and supporting supplier records from a reviewed receipt.",
-      actions: ["Select vehicle and approved supplier.", "Scan the receipt.", "Review supplier, reference, printed plate, amount, and every extracted item.", "Fill missing item descriptions.", "Enter Repair Part and What To Do separately.", "Create the repair."],
-      requiredItems: ["Reviewed receipt draft", "Approved supplier", "Repair Part", "What To Do"],
+      actions: ["Select vehicle and active supplier.", "Scan the receipt.", "Review supplier, reference, printed plate, amount, and every extracted item.", "Fill missing item descriptions.", "Enter Repair Part and What To Do separately.", "Create the repair."],
+      requiredItems: ["Reviewed receipt draft", "Active supplier", "Repair Part", "What To Do"],
       completeWhen: "The repair, supplier invoice, linked receipt, and confirmed receipt items are created together.",
       handoff: "Repair Details.",
       warnings: ["OCR receipt items do not replace the operational repair instructions."]
@@ -346,8 +346,8 @@ const repairGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Repair",
       purpose: "Create a repair and supplier invoice without OCR.",
-      actions: ["Select vehicle and approved supplier.", "Enter invoice reference, date, printed plate, amount, due date, and paid date.", "Enter Repair Part and What To Do.", "Save the repair."],
-      requiredItems: ["Approved supplier", "Invoice number", "Amount greater than zero", "Repair task"],
+      actions: ["Select vehicle and active supplier.", "Enter invoice reference, date, printed plate, amount, due date, and paid date.", "Enter Repair Part and What To Do.", "Save the repair."],
+      requiredItems: ["Active supplier", "Invoice number", "Amount greater than zero", "Repair task"],
       completeWhen: "The repair and supplier invoice are saved.",
       handoff: "Approval and Repair Details.",
       warnings: ["Supplier plus invoice number must be unique.", "A printed plate must match the selected vehicle.", "Required approval is a separate action."]
@@ -657,12 +657,12 @@ const financeManagementGuide: ModuleGuideDefinition = {
       label: "Approvals & Vouchers / 审核与付款凭证",
       kind: "tab",
       audience: "Finance and Boss/Admin",
-      purpose: "Use four nested workflows: approve supplier masters, confirm purchase-invoice accounting, confirm delivery accounting, and control outgoing payment vouchers.",
-      actions: ["Supplier Master approval: review the Draft legal/contact/TIN and AutoCount creditor code. Finance creators need another approver; Boss/Admin may approve their own draft as an audited override.", "Purchase Invoice accounting: review supplier, vehicle, invoice date/number, classified lines, capitalisation, and total before confirming; confirmation makes it immutable.", "Delivery accounting: review classification 006 insurance/road-tax provider, invoice date, reference, amount, and paid-on-behalf flag before confirming; confirmation makes it immutable.", "Outgoing voucher: maker enters payee, vehicle, purpose, amount, issued date, payment method, source account, reference, conditional cheque number, bank charge/account, and notes.", "A different approver approves the voucher.", "A different payer records Paid with payment evidence and paid date."],
-      requiredItems: ["Supplier approval: complete supplier master", "Purchase accounting: approved supplier, reconciled classified lines, amount and invoice date", "Delivery accounting: classification 006, provider, invoice date, amount, and source reference", "Voucher: payee, purpose, amount, issued date, payment method and account", "Cheque number when payment method is cheque", "Bank-charge account when bank charge is entered", "Payment evidence for Paid"],
+      purpose: "Use three nested workflows: confirm purchase-invoice accounting, confirm delivery accounting, and control outgoing payment vouchers.",
+      actions: ["Supplier Master status: ask Repair or Boss/Admin to maintain supplier details or deactivate a supplier that should not be used for new records.", "Purchase Invoice accounting: review supplier, vehicle, invoice date/number, classified lines, capitalisation, and total before confirming; confirmation makes it immutable.", "Delivery accounting: review classification 006 insurance/road-tax provider, invoice date, reference, amount, and paid-on-behalf flag before confirming; confirmation makes it immutable.", "Outgoing voucher: maker enters payee, vehicle, purpose, amount, issued date, payment method, source account, reference, conditional cheque number, bank charge/account, and notes.", "A different approver approves the voucher.", "A different payer records Paid with payment evidence and paid date."],
+      requiredItems: ["Active supplier for a new purchase or delivery record", "Purchase accounting: active supplier, reconciled classified lines, amount and invoice date", "Delivery accounting: classification 006, provider, invoice date, amount, and source reference", "Voucher: payee, purpose, amount, issued date, payment method and account", "Cheque number when payment method is cheque", "Bank-charge account when bank charge is entered", "Payment evidence for Paid"],
       completeWhen: "Each nested review is confirmed by the correct role and an outgoing voucher reaches Paid only after separate approval and payment evidence.",
       handoff: "Confirmed records are posting candidates and paid vouchers remain as disbursement evidence; the workbook may still include review-only rows that Finance must exclude or resolve.",
-      warnings: ["Finance users must not approve a supplier they created; Boss/Admin overrides are recorded in the audit log.", "Do not confirm accounting until source facts and totals match.", "Voucher maker, approver, and payer must be different users.", "Cheque and bank-charge fields are conditional and must match the payment method."]
+      warnings: ["Inactive suppliers remain visible on linked historical records but cannot be selected for a new record.", "Do not confirm accounting until source facts and totals match.", "Voucher maker, approver, and payer must be different users.", "Cheque and bank-charge fields are conditional and must match the payment method."]
     },
     {
       key: "daily",

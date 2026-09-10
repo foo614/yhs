@@ -1302,8 +1302,8 @@ backOffice.MapPost("/purchase-invoices", async (PurchaseInvoice invoice, AppDbCo
         await db.PurchaseInvoices.AsNoTracking().ToListAsync(),
         await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
-    if (!invoice.SupplierId.HasValue || !await db.Suppliers.AnyAsync(supplier => supplier.Id == invoice.SupplierId && (supplier.ApprovalStatus == SupplierApprovalStatus.Active || supplier.ApprovalStatus == SupplierApprovalStatus.Approved)))
-        return Results.BadRequest(new ApiError("Select an active or approved supplier for this purchase invoice."));
+    if (!invoice.SupplierId.HasValue || !await db.Suppliers.AnyAsync(supplier => supplier.Id == invoice.SupplierId && supplier.Status == SupplierStatus.Active))
+        return Results.BadRequest(new ApiError("Select an active supplier for this purchase invoice."));
     var lines = invoice.Lines.Select(line => line with { Id = Guid.NewGuid(), PurchaseInvoiceId = invoice.Id }).ToList();
     db.PurchaseInvoices.Add(invoice with { Lines = [] });
     db.PurchaseInvoiceLines.AddRange(lines);
@@ -1327,8 +1327,9 @@ backOffice.MapPut("/purchase-invoices/{id:guid}", async (Guid id, PurchaseInvoic
         await db.PurchaseInvoices.AsNoTracking().ToListAsync(),
         await db.Vehicles.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
-    if (!invoice.SupplierId.HasValue || !await db.Suppliers.AnyAsync(supplier => supplier.Id == invoice.SupplierId && (supplier.ApprovalStatus == SupplierApprovalStatus.Active || supplier.ApprovalStatus == SupplierApprovalStatus.Approved)))
-        return Results.BadRequest(new ApiError("Select an active or approved supplier for this purchase invoice."));
+    var supplier = invoice.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(supplier => supplier.Id == invoice.SupplierId) : null;
+    if (!SupplierRules.IsAllowedForOperationalWrite(supplier, invoice.SupplierId, existingInvoice.SupplierId))
+        return Results.BadRequest(new ApiError("Select an active supplier for this purchase invoice."));
     var existingLines = await db.PurchaseInvoiceLines.Where(line => line.PurchaseInvoiceId == id).ToListAsync();
     db.PurchaseInvoiceLines.RemoveRange(existingLines);
     var lines = invoice.Lines.Select(line => line with { Id = Guid.NewGuid(), PurchaseInvoiceId = invoice.Id }).ToList();
@@ -1919,6 +1920,8 @@ backOffice.MapPost("/delivery-accounting-charges", async (DeliveryAccountingChar
 {
     var delivery = await db.DeliverySchedules.AsNoTracking().FirstOrDefaultAsync(item => item.Id == charge.DeliveryScheduleId);
     var supplier = charge.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == charge.SupplierId) : null;
+    if (charge.SupplierId.HasValue && !SupplierRules.IsAllowedForOperationalWrite(supplier, charge.SupplierId))
+        return Results.BadRequest(new ApiError("Select an active supplier for this delivery accounting charge."));
     charge = charge with
     {
         AccountingStatus = AccountingConfirmationStatus.Draft,
@@ -1944,6 +1947,8 @@ backOffice.MapPut("/delivery-accounting-charges/{id:guid}", async (Guid id, Deli
     if (existing.AccountingStatus == AccountingConfirmationStatus.FinanceConfirmed) return Results.Conflict(new ApiError("Finance-confirmed delivery accounting charges cannot be edited."));
     var delivery = await db.DeliverySchedules.AsNoTracking().FirstOrDefaultAsync(item => item.Id == charge.DeliveryScheduleId);
     var supplier = charge.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == charge.SupplierId) : null;
+    if (charge.SupplierId.HasValue && !SupplierRules.IsAllowedForOperationalWrite(supplier, charge.SupplierId, existing.SupplierId))
+        return Results.BadRequest(new ApiError("Select an active supplier for this delivery accounting charge."));
     charge = charge with { AccountingStatus = AccountingConfirmationStatus.Draft, UpdatedBy = StaffIdentity.CurrentUserId(context), UpdatedAt = DateTime.UtcNow, AccountingConfirmedBy = null, AccountingConfirmedAt = null };
     var validation = DeliveryAccountingChargeRules.Validate(charge, delivery, supplier);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -2018,8 +2023,8 @@ backOffice.MapPost("/repairs/from-receipt", async (CreateRepairWithReceiptReques
     var repairValidation = RepairRules.Validate(repair);
     if (!repairValidation.IsValid) return Results.BadRequest(repairValidation);
     if (request.Invoice.VehicleId != repair.VehicleId) return Results.BadRequest(new ApiError("Supplier invoice and repair task must use the same vehicle."));
-    var supplier = request.Invoice.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.Invoice.SupplierId && (item.ApprovalStatus == SupplierApprovalStatus.Active || item.ApprovalStatus == SupplierApprovalStatus.Approved)) : null;
-    if (supplier is null) return Results.BadRequest(new ApiError("Select an active or approved supplier master record."));
+    var supplier = request.Invoice.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.Invoice.SupplierId && item.Status == SupplierStatus.Active) : null;
+    if (supplier is null) return Results.BadRequest(new ApiError("Select an active supplier master record."));
     request = request with { Invoice = request.Invoice with { SupplierName = supplier.CompanyName } };
     // A receipt plate mismatch is surfaced as an OCR review warning; it must not
     // block creating the repair after the operator explicitly confirms it.
@@ -2128,7 +2133,7 @@ backOffice.MapPost("/supplier-master", async (Supplier supplier, AppDbContext db
 {
     supplier = supplier with
     {
-        ApprovalStatus = SupplierApprovalStatus.Active,
+        Status = SupplierStatus.Active,
         CreatedBy = StaffIdentity.CurrentUserId(context),
         CreatedAt = DateTime.UtcNow,
         ApprovedBy = null,
@@ -2146,11 +2151,8 @@ backOffice.MapPut("/supplier-master/{id:guid}", async (Guid id, Supplier supplie
     if (id != supplier.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("supplier"));
     var existing = await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (existing is null) return Results.NotFound();
-    if (existing.ApprovalStatus == SupplierApprovalStatus.Approved) return Results.Conflict(new ApiError("Approved suppliers cannot be edited; create a replacement draft for Finance review."));
-    if (existing.ApprovalStatus == SupplierApprovalStatus.Inactive) return Results.Conflict(new ApiError("Inactive suppliers cannot be edited or reactivated. Create a new active supplier instead."));
     supplier = supplier with
     {
-        ApprovalStatus = existing.ApprovalStatus,
         CreatedBy = existing.CreatedBy,
         CreatedAt = existing.CreatedAt,
         ApprovedBy = existing.ApprovedBy,
@@ -2159,26 +2161,10 @@ backOffice.MapPut("/supplier-master/{id:guid}", async (Guid id, Supplier supplie
     var validation = SupplierRules.Validate(supplier, await db.Suppliers.AsNoTracking().ToListAsync());
     if (!validation.IsValid) return Results.BadRequest(validation);
     db.Suppliers.Update(supplier);
-    ApiAudit.Add(db, context.User, "supplier.updated", nameof(Supplier), id);
+    ApiAudit.Add(db, context.User, existing.Status == supplier.Status ? "supplier.updated" : supplier.Status == SupplierStatus.Active ? "supplier.activated" : "supplier.deactivated", nameof(Supplier), id);
     await db.SaveChangesAsync();
     return Results.Ok(supplier);
 }).RequireAuthorization("Repairs");
-backOffice.MapPost("/supplier-master/{id:guid}/approve", async (Guid id, AppDbContext db, HttpContext context) =>
-{
-    var supplier = await db.Suppliers.FirstOrDefaultAsync(item => item.Id == id);
-    if (supplier is null) return Results.NotFound();
-    if (supplier.ApprovalStatus != SupplierApprovalStatus.Draft) return Results.Conflict(new ApiError("Only a draft supplier can be approved."));
-    var actor = StaffIdentity.CurrentUserId(context);
-    var isBossAdmin = context.User.IsInRole("BossAdmin");
-    if (!SupplierRules.CanApprove(supplier.CreatedBy, actor, isBossAdmin)) return Results.Conflict(new ApiError("A Finance user cannot approve a supplier they created. Boss/Admin may override this rule."));
-    var isAdminOverride = isBossAdmin && string.Equals(supplier.CreatedBy, actor, StringComparison.Ordinal);
-    var updated = supplier with { ApprovalStatus = SupplierApprovalStatus.Approved, ApprovedBy = actor, ApprovedAt = DateTime.UtcNow };
-    db.Entry(supplier).CurrentValues.SetValues(updated);
-    ApiAudit.Add(db, context.User, isAdminOverride ? "supplier.approved.admin_override" : "supplier.approved", nameof(Supplier), id);
-    await db.SaveChangesAsync();
-    return Results.Ok(updated);
-}).RequireAuthorization("Finance");
-
 backOffice.MapGet("/supplier-invoices", async (AppDbContext db) => await db.SupplierInvoices.AsNoTracking().ToListAsync()).RequireAuthorization("Repairs");
 backOffice.MapGet("/supplier-invoices/aging", async (AppDbContext db) =>
 {
@@ -2191,9 +2177,9 @@ backOffice.MapGet("/supplier-invoices/aging", async (AppDbContext db) =>
 }).RequireAuthorization("Repairs");
 backOffice.MapPost("/supplier-invoices", async (SupplierInvoice invoice, AppDbContext db, HttpContext context) =>
 {
-    var supplier = invoice.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.SupplierId && (item.ApprovalStatus == SupplierApprovalStatus.Active || item.ApprovalStatus == SupplierApprovalStatus.Approved)) : null;
-    if (supplier is null) return Results.BadRequest(new ApiError("Select an active or approved supplier master record."));
-    invoice = invoice with { SupplierName = supplier.CompanyName };
+    var supplier = invoice.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.SupplierId && item.Status == SupplierStatus.Active) : null;
+    if (supplier is null) return Results.BadRequest(new ApiError("Select an active supplier master record."));
+    invoice = invoice with { SupplierName = supplier!.CompanyName };
     var result = SupplierInvoiceRules.Validate(
         invoice,
         await db.SupplierInvoices.AsNoTracking().ToListAsync(),
@@ -2207,10 +2193,11 @@ backOffice.MapPost("/supplier-invoices", async (SupplierInvoice invoice, AppDbCo
 backOffice.MapPut("/supplier-invoices/{id:guid}", async (Guid id, SupplierInvoice invoice, AppDbContext db, HttpContext context) =>
 {
     if (id != invoice.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("supplier invoice"));
-    if (!await db.SupplierInvoices.AnyAsync(item => item.Id == id)) return Results.NotFound();
-    var supplier = invoice.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.SupplierId && (item.ApprovalStatus == SupplierApprovalStatus.Active || item.ApprovalStatus == SupplierApprovalStatus.Approved)) : null;
-    if (supplier is null) return Results.BadRequest(new ApiError("Select an active or approved supplier master record."));
-    invoice = invoice with { SupplierName = supplier.CompanyName };
+    var existing = await db.SupplierInvoices.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (existing is null) return Results.NotFound();
+    var supplier = invoice.SupplierId.HasValue ? await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.SupplierId) : null;
+    if (!SupplierRules.IsAllowedForOperationalWrite(supplier, invoice.SupplierId, existing.SupplierId)) return Results.BadRequest(new ApiError("Select an active supplier master record."));
+    invoice = invoice with { SupplierName = supplier!.CompanyName };
     var result = SupplierInvoiceRules.Validate(
         invoice,
         await db.SupplierInvoices.AsNoTracking().ToListAsync(),
@@ -4498,6 +4485,7 @@ else
     await SeedData.EnsureFinanceV2SchemaAsync(app);
     await SeedData.EnsureRepairReceiptSchemaAsync(app);
     await SeedData.EnsureDeliveryWorkboardSchemaAsync(app);
+    await SeedData.EnsureSupplierOperationalStatusSchemaAsync(app);
     await SeedData.EnsureOwnerPurchaseInvoiceSchemaAsync(app);
 }
 

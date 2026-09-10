@@ -135,7 +135,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `POST` | `/api/owners` | `Vehicles` | Create previous owner. Normalized phone and non-empty IC numbers must be unique. |
 | `PUT` | `/api/owners/{id}` | `Vehicles` | Update previous owner while preserving normalized phone and IC uniqueness. |
 | `GET` | `/api/purchase-invoices` | `PurchaseAccountingRead` | List purchase invoices with current classified lines. Owner-acquisition invoices additionally include source type, Owner ID, current revision number and the current revision snapshot; PDF bytes are excluded from JSON. |
-| `POST` | `/api/purchase-invoices` | `Vehicles` | Retained legacy supplier-record route. Requires an active or approved supplier and staff-provided number/dates; classified lines must equal the total. Does not generate a PDF or accept owner-acquisition or revision metadata. New Owner-based invoices use the generate route. |
+| `POST` | `/api/purchase-invoices` | `Vehicles` | Retained legacy supplier-record route. Requires an active supplier and staff-provided number/dates; classified lines must equal the total. Does not generate a PDF or accept owner-acquisition or revision metadata. New Owner-based invoices use the generate route. |
 | `PUT` | `/api/purchase-invoices/{id}` | `Vehicles` | Update a legacy draft purchase invoice and replace its classified lines. Finance-confirmed legacy invoices remain immutable. Generated Owner invoices must use the revision route. |
 | `POST` | `/api/vehicles/{vehicleId}/purchase-invoice/generate` | `Vehicles` | Issue the vehicle's Owner-based formal invoice and revision 1 PDF atomically from canonical Owner/intake data. Requires a Boss-confirmed intake, positive purchase price and valid Owner name/phone. The request contains `expectedOwnerId`, `expectedPurchasePrice` and `expectedIntakeDate`; stale source review is rejected. Uses a separate server number and Singapore issue date. Returns the existing generated invoice on retry. |
 | `POST` | `/api/purchase-invoices/{id}/revisions` | `Vehicles` | Correct a generated invoice using `expectedRevision`, a mandatory `reason`, dates, seller display details and classified lines. Creates the next full snapshot and PDF, retains previous versions, and resets current Finance confirmation. Source vehicle/Owner IDs and official number stay fixed; master records are not changed. |
@@ -241,9 +241,8 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `GET` | `/api/repairs/{id}/receipts` | `Repairs` | List confirmed repair receipts and their child items. |
 | `POST` | `/api/repairs/{id}/receipts/confirm` | `Repairs` | Confirm one uploaded repair receipt and its reviewed child items for an existing repair job. Equivalent retries return the saved receipt/items without repeated writes or audits; changed confirmed values conflict. |
 | `GET` | `/api/suppliers` | `Repairs` | Derived supplier master summary from supplier invoices. |
-| `GET` | `/api/supplier-master` | `SupplierRead` | List supplier master records with address, phone, TIN, AutoCount creditor code, and approval status. |
-| `POST` / `PUT` | `/api/supplier-master` | `Repairs` | Create an immediately usable `Active` supplier, or update an editable supplier. The server owns status and does not invent approver metadata. Historical `Draft` approval remains separate; legacy `Approved` suppliers are immutable and remain usable. `Inactive` suppliers remain unusable. Repair high-cost and Finance payment approval are unchanged. |
-| `POST` | `/api/supplier-master/{id}/approve` | `Finance` | Approve a supplier draft. Finance creators require another approver; Boss/Admin may self-approve as an audited override. |
+| `GET` | `/api/supplier-master` | `SupplierRead` | List supplier master records with address, phone, TIN, AutoCount creditor code, and Active/Inactive operational status. |
+| `POST` / `PUT` | `/api/supplier-master` | `Repairs` | Create an immediately usable `Active` supplier, or edit an existing supplier and set `Active`/`Inactive` status. Activation and deactivation are audited. Historical approval metadata is preserved. Only Active suppliers may be newly selected; historical records retain inactive supplier references. Repair high-cost and Finance payment approval are unchanged. |
 | `GET` | `/api/supplier-invoices` | `Repairs` | List supplier invoices. |
 | `GET` | `/api/supplier-invoices/aging` | `Repairs` | Supplier invoice aging view for unmatched, due-soon, overdue, and paid states. |
 | `POST` | `/api/supplier-invoices` | `Repairs` | Create supplier invoice. |
@@ -448,7 +447,7 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `CashHandoverStatus`: `ReceivedBySales`, `PendingHandover`, `HandedOver`, `Rejected`, `Receipted`
 - `DebtRecoveryStatus`: `Open`, `FollowedUp`, `Closed`
 - `SettlementDirection`: `LegacyPaySeller`, `PaySeller`, `CollectFromSeller`, `InternalOffset`
-- `SupplierApprovalStatus`: `Draft`, `Approved`, `Inactive`, `Active`
+- `SupplierStatus`: `Active`, `Inactive`
 - `RepairApprovalStatus`: `Pending`, `Approved`, `Rejected`
 - `SupplierInvoiceAgingStatus`: `Unmatched`, `DueSoon`, `Overdue`, `Paid`
 - `HrAttendanceStatus`: `Present`, `Late`, `HalfDay`, `Absent`

@@ -170,18 +170,15 @@ public sealed class AutoCountExportTests
     {
         var suppliers = new[]
         {
-            new Supplier { CompanyName = "Active", Address = "A", Phone = "1", ApprovalStatus = SupplierApprovalStatus.Active },
-            new Supplier { CompanyName = "Approved", Address = "A", Phone = "1", ApprovalStatus = SupplierApprovalStatus.Approved },
-            new Supplier { CompanyName = "Draft", Address = "A", Phone = "1", ApprovalStatus = SupplierApprovalStatus.Draft },
-            new Supplier { CompanyName = "Inactive", Address = "A", Phone = "1", ApprovalStatus = SupplierApprovalStatus.Inactive }
+            new Supplier { CompanyName = "Active", Address = "A", Phone = "1", Status = SupplierStatus.Active },
+            new Supplier { CompanyName = "Inactive", Address = "A", Phone = "1", Status = SupplierStatus.Inactive }
         };
 
         using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(Input() with { Suppliers = suppliers })), ZipArchiveMode.Read);
         var supplierRows = Read(archive, "xl/worksheets/sheet9.xml");
 
         Assert.Contains("manually map its AutoCount creditor code", supplierRows);
-        Assert.Contains("Approved supplier master.", supplierRows);
-        Assert.Contains("Draft supplier; do not import until Finance approval.", supplierRows);
+        Assert.DoesNotContain("ApprovalStatus", supplierRows);
         Assert.Contains("Inactive supplier; do not import.", supplierRows);
     }
 

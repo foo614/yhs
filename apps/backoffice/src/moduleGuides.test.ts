@@ -104,7 +104,7 @@ describe("module guidance", () => {
     expect(financeGuide.sections.map((section) => section.label)).toEqual(expectedFinanceLabels);
     expect(financeGuide.sections.every((section) => section.kind === "tab")).toBe(true);
     expect(financeGuide.sections.find((section) => section.key === "vouchers")?.actions).toHaveLength(6);
-    expect(financeGuide.sections.find((section) => section.key === "vouchers")?.purpose).toContain("four nested workflows");
+    expect(financeGuide.sections.find((section) => section.key === "vouchers")?.purpose).toContain("three nested workflows");
     expect(financeGuide.sections.find((section) => section.key === "payments")?.warnings.join(" ")).toContain("review-only rows");
     const voucherTab = financeTabForUrl("/finance", "?tab=vouchers", true);
     expect(financeGuide.sections.some((section) => section.key === voucherTab)).toBe(true);
