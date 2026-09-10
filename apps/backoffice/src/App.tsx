@@ -5154,7 +5154,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
         onChange={(event) => setLeadView(event.target.value)}
         options={[
           { value: "Leads", label: "Leads / 客户询问" },
-          { value: "MyCars", label: "My Cars / 我的车辆" }
+          { value: "MyCars", label: "Cars I’m Handling / 我负责的车辆" }
         ]}
       />
       {leadView === "Leads" ? <>

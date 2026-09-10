@@ -46,6 +46,7 @@ export function SalesMyCarsPanel({
   const mobilePageCount = Math.max(1, Math.ceil(filteredItems.length / mobilePageSize));
   const clampedMobilePage = Math.min(mobilePage, mobilePageCount);
   const mobileItems = filteredItems.slice((clampedMobilePage - 1) * mobilePageSize, clampedMobilePage * mobilePageSize);
+  const showAgentColumn = isBoss;
 
   const load = useCallback(async (selectedAgent: string | "All" = agentUserId) => {
     setLoading(true);
@@ -53,7 +54,7 @@ export function SalesMyCarsPanel({
       setData(await getSalesWorkboard(isBoss && selectedAgent !== "All" ? selectedAgent : undefined));
       setLoadError(undefined);
     } catch (error) {
-      setLoadError(humanizeApiError(error, "Your sales cars could not be loaded."));
+      setLoadError(humanizeApiError(error, "Cars I’m Handling could not be loaded."));
     } finally {
       setLoading(false);
     }
@@ -74,13 +75,21 @@ export function SalesMyCarsPanel({
       render: (_, item) => <Space direction="vertical" size={0}><Typography.Text strong>{item.plateNumber}</Typography.Text><Typography.Text type="secondary">{item.vehicleLabel}</Typography.Text></Space>
     },
     { title: "Current process / 当前流程", dataIndex: "process", width: 180, render: (value) => <Tag color={value === "Completed" ? "green" : "blue"}>{value}</Tag> },
-    { title: "Responsible team / 负责部门", dataIndex: "responsibleDepartment", width: 170 },
-    { title: "Next action / 下一步", dataIndex: "nextAction" },
-    ...(isBoss ? [{ title: "Agent / 销售员", dataIndex: "salesAgentName", width: 170, render: (value: string | null | undefined) => value || "Unassigned" } as ColumnsType<SalesWorkboardItem>[number]] : [])
+    {
+      title: "Current handoff / 当前跟进",
+      width: 300,
+      render: (_, item) => (
+        <Space direction="vertical" size={0} style={{ whiteSpace: "normal" }}>
+          <Typography.Text strong>{item.responsibleDepartment}</Typography.Text>
+          <Typography.Text type="secondary">{item.nextAction}</Typography.Text>
+        </Space>
+      )
+    },
+    ...(showAgentColumn ? [{ title: "Agent / 销售员", dataIndex: "salesAgentName", width: 170, render: (value: string | null | undefined) => value || "Unassigned" } as ColumnsType<SalesWorkboardItem>[number]] : [])
   ];
 
   return (
-    <ProCard title="My Cars / 我的车辆" className="salesMyCarsPanel">
+    <ProCard title="Cars I’m Handling / 我负责的车辆" className="salesMyCarsPanel">
       <div className="salesMyCarsHeader">
         <Typography.Text type="secondary">See the cars you sold or are following, their current process, and which team owns the next step.</Typography.Text>
       </div>
@@ -88,8 +97,8 @@ export function SalesMyCarsPanel({
         <Input.Search
           allowClear
           value={keyword}
-          placeholder="Search plate, model or next action"
-          aria-label="Search My Cars"
+          placeholder="Plate, model or next action"
+          aria-label="Search Cars I’m Handling"
           onChange={(event) => setKeyword(event.target.value)}
         />
         {isBoss && <Select
@@ -103,7 +112,7 @@ export function SalesMyCarsPanel({
             { value: "All", label: "All agents" },
             ...(data?.availableAgents ?? []).map((agent) => ({ value: agent.id, label: agent.displayName }))
           ]}
-          aria-label="Filter My Cars by agent"
+          aria-label="Filter Cars I’m Handling by agent"
         />}
         <Tag color={keyword.trim() ? "blue" : undefined}>
           {keyword.trim() ? `${filteredItems.length} of ${data?.items.length ?? 0} matching` : `${data?.items.length ?? 0} cars`}
@@ -117,13 +126,20 @@ export function SalesMyCarsPanel({
       {loadError && <Alert type="error" showIcon message={loadError} action={<Button size="small" onClick={() => void load()}>Try again</Button>} />}
       {loading ? <Skeleton active paragraph={{ rows: 5 }} /> : <>
         <div className="salesMyCarsMobileList">
-          {filteredItems.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={keyword.trim() ? "No cars match this search." : "No cars are assigned to this sales view yet."} />}
+          {filteredItems.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={keyword.trim() ? "No cars match this search." : "No cars are assigned to your Cars I’m Handling view yet."} />}
           {mobileItems.map((item) => (
             <article className="salesMyCarsMobileCard" key={`${item.vehicleId}:${item.salesAgentUserId ?? "unassigned"}`}>
               <div><Typography.Title level={5}>{item.plateNumber}</Typography.Title><Typography.Text type="secondary">{item.vehicleLabel}</Typography.Text></div>
-              <Space wrap><Tag color={item.process === "Completed" ? "green" : "blue"}>{item.process}</Tag><Tag>{item.responsibleDepartment}</Tag></Space>
-              <Typography.Text>{item.nextAction}</Typography.Text>
-              {isBoss && <Typography.Text type="secondary">Agent: {item.salesAgentName || "Unassigned"}</Typography.Text>}
+              <div className="salesMyCarsMobileSection">
+                <Typography.Text className="mobileRecordLabel">Current process / 当前流程</Typography.Text>
+                <Tag color={item.process === "Completed" ? "green" : "blue"}>{item.process}</Tag>
+              </div>
+              <div className="salesMyCarsMobileSection">
+                <Typography.Text className="mobileRecordLabel">Current handoff / 当前跟进</Typography.Text>
+                <Typography.Text strong>{item.responsibleDepartment}</Typography.Text>
+                <Typography.Text type="secondary">{item.nextAction}</Typography.Text>
+              </div>
+              {showAgentColumn && <Typography.Text type="secondary">Agent: {item.salesAgentName || "Unassigned"}</Typography.Text>}
             </article>
           ))}
           {filteredItems.length > mobilePageSize && <Pagination
@@ -142,8 +158,8 @@ export function SalesMyCarsPanel({
           dataSource={filteredItems}
           search={false}
           pagination={{ pageSize: 10, showSizeChanger: false }}
-          scroll={{ x: 880 }}
-          locale={{ emptyText: keyword.trim() ? "No cars match this search." : "No cars are assigned to this sales view yet." }}
+          scroll={{ x: showAgentColumn ? 880 : 700 }}
+          locale={{ emptyText: keyword.trim() ? "No cars match this search." : "No cars are assigned to your Cars I’m Handling view yet." }}
         />
       </>}
     </ProCard>
