@@ -5866,6 +5866,13 @@ body {
     gap: 10px;
   }
 
+  .salesMyCarsMobileSection {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
   .deliveryWorkboardMobileHeader .ant-typography,
   .salesMyCarsMobileCard .ant-typography {
     margin-bottom: 0;
