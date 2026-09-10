@@ -2097,6 +2097,7 @@ export function DashboardPage({
   const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
   const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
   const [mobileReminderPage, setMobileReminderPage] = useState(1);
+  const [mobilePriorityPage, setMobilePriorityPage] = useState(1);
   const dashboardReminderTypes = Array.from(new Set(reminders.map((reminder) => reminder.type)));
   const safeStock = safeDashboardStockSummary(vehicles);
   const agingBuckets = dashboard?.agingBuckets ?? [];
@@ -2146,6 +2147,21 @@ export function DashboardPage({
   const dashboardToday = singaporeTodayIsoDate();
   const priorityEntries = dashboardPriorityEntries(reminders, priorityActions, dashboardToday);
   const priorityDueNowCount = priorityEntries.filter((entry) => entry.dueDate <= dashboardToday).length;
+  const priorityDueLabel = (entry: typeof priorityEntries[number]) => entry.dueDate < dashboardToday
+    ? "Overdue"
+    : entry.dueDate === dashboardToday
+      ? "Due today"
+      : entry.source === "reminder" && entry.type === "DailySpendDue"
+        ? "Due soon"
+        : "Action";
+  const priorityDueColor = (entry: typeof priorityEntries[number]) => {
+    const label = priorityDueLabel(entry);
+    return label === "Overdue" ? "red" : label === "Due today" ? "orange" : label === "Due soon" ? "blue" : "default";
+  };
+  const prioritySourceLabel = (source: typeof priorityEntries[number]["source"]) => source === "reminder" ? "Reminder / 提醒" : "Department action / 部门行动";
+  const mobilePriorityPageCount = Math.max(1, Math.ceil(priorityEntries.length / 8));
+  const clampedMobilePriorityPage = Math.min(mobilePriorityPage, mobilePriorityPageCount);
+  const mobilePriorityEntries = priorityEntries.slice((clampedMobilePriorityPage - 1) * 8, clampedMobilePriorityPage * 8);
   const priorityStatus = reminderLoadError
     ? { color: "orange", label: "Check incomplete" }
     : priorityDueNowCount > 0
@@ -2265,47 +2281,49 @@ export function DashboardPage({
             <Metric label="Sold / 已售" value={safeStock.sold} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
         */}
         <ProCard
-          title="Priority actions / 老板待办"
+          title="Act now / 立即处理"
           className="dashboardPriorityCard"
           extra={<Tag color={priorityStatus.color}>{priorityStatus.label}</Tag>}
         >
-          {priorityEntries.length > 0 ? (
-            <>
-              <Typography.Text type="secondary">Start here: overdue and due-today work comes first; upcoming department actions and Daily Spend due soon follow.</Typography.Text>
-              <div className="dashboardPriorityList">
-                {priorityEntries.map((entry) => {
-                  const dueLabel = entry.dueDate < dashboardToday
-                    ? "Overdue"
-                    : entry.dueDate === dashboardToday
-                      ? "Due today"
-                      : entry.source === "reminder" && entry.type === "DailySpendDue"
-                        ? "Due soon"
-                        : "Action";
-                  const dueColor = dueLabel === "Overdue" ? "red" : dueLabel === "Due today" ? "orange" : dueLabel === "Due soon" ? "blue" : "default";
-                  return (
-                    <article className="dashboardPriorityAction" key={entry.key}>
-                      <Tag className="dashboardStatusBadge" color={dueColor}>{dashboardLabel(dueLabel)}</Tag>
-                      <div className="dashboardPriorityDetails">
-                        <strong>{entry.title}</strong>
-                        <span>{dashboardLabel(entry.type)} · {entry.subject ?? "General"}</span>
-                      </div>
-                      <div className="dashboardPriorityDue">
-                        <small>Due / 到期</small>
-                        <strong>{entry.dueDate}</strong>
-                      </div>
-                      <div className="dashboardPriorityAmount">
-                        <small>Exposure / 金额</small>
-                        <strong>{entry.amount ? formatMoney(Number(entry.amount)) : "—"}</strong>
-                      </div>
-                      <Button type="primary" size="small" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button>
-                    </article>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "The action queue could not be checked completely." : "No overdue, due-today, due-soon, or department actions."} />
-          )}
+          <Typography.Text type="secondary">Start here: overdue and due-today work comes first; upcoming department actions and Daily Spend due soon follow. / 先处理逾期与今日到期工作，再处理即将到期的部门行动与 Daily Spend 提醒。</Typography.Text>
+          <div className="mobileRecordList dashboardPriorityMobileList">
+            {mobilePriorityEntries.map((entry) => (
+              <article className="mobileRecordCard" key={entry.key}>
+                <div className="mobileRecordHeader">
+                  <div>
+                    <Typography.Text className="mobileRecordEyebrow">{dashboardLabel(priorityDueLabel(entry))}</Typography.Text>
+                    <Typography.Title level={5}>{entry.title}</Typography.Title>
+                  </div>
+                  <Tag color={priorityDueColor(entry)}>{prioritySourceLabel(entry.source)}</Tag>
+                </div>
+                <div className="mobileRecordMeta">
+                  <span><small>Type / 类型</small><strong>{dashboardLabel(entry.type)} · {entry.subject ?? "General"}</strong></span>
+                  <span><small>Due / 到期</small><strong>{entry.dueDate}</strong></span>
+                  <span><small>Exposure / 金额</small><strong>{entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount))}</strong></span>
+                </div>
+                <div className="mobileRecordFooter"><Button type="primary" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button></div>
+              </article>
+            ))}
+            {priorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "The action queue could not be checked completely." : "No overdue, due-today, due-soon, or department actions."} />}
+            <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={8} total={priorityEntries.length} showSizeChanger={false} hideOnSinglePage onChange={setMobilePriorityPage} />
+          </div>
+          <Table
+            className="desktopDataTable dashboardPriorityTable"
+            rowKey="key"
+            search={false}
+            columns={[
+              { title: "Status / 状态", render: (_, entry) => <Tag className="dashboardStatusBadge" color={priorityDueColor(entry)}>{dashboardLabel(priorityDueLabel(entry))}</Tag> },
+              { title: "Action / 事项", dataIndex: "title" },
+              { title: "Source / 来源", render: (_, entry) => <Space direction="vertical" size={0}><span>{prioritySourceLabel(entry.source)}</span><Typography.Text type="secondary">{dashboardLabel(entry.type)} · {entry.subject ?? "General"}</Typography.Text></Space> },
+              { title: "Due / 到期", dataIndex: "dueDate" },
+              { title: "Exposure / 金额", dataIndex: "amount", render: (_, entry) => entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount)) },
+              { title: "Action / 操作", width: 140, fixed: "right", render: (_, entry) => <Button type="primary" size="small" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button> }
+            ]}
+            dataSource={priorityEntries}
+            pagination={tablePagination(8)}
+            scroll={{ x: 900 }}
+            locale={{ emptyText: reminderLoadError ? "The action queue could not be checked completely." : "No overdue, due-today, due-soon, or department actions." }}
+          />
           {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
           <div className="dashboardCashActions">
             <div className="dashboardCashActionsHeader">
@@ -2418,10 +2436,11 @@ export function DashboardPage({
       </ProCard>
       */}
         <ProCard
-          title="Reminder inbox / 提醒事项"
+          title="All reminders / 全部提醒"
           className="dashboardReminderCard"
           extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
         >
+          <Typography.Text type="secondary">This inbox contains every reminder. Act now shows only urgent reminders alongside department actions. / 此处显示全部提醒；立即处理只显示紧急提醒与部门行动。</Typography.Text>
           {reminderLoadError && <Alert type="warning" showIcon message="Reminder inbox could not be refreshed" description={reminderLoadError} />}
           <Space className="toolbarForm" wrap>
             <Select value={reminderTypeFilter} options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: dashboardLabel(type) }))]} onChange={(value) => { setReminderTypeFilter(value); setMobileReminderPage(1); }} style={{ width: 220 }} />

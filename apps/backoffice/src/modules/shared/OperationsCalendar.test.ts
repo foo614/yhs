@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { eventsOnDate, operationsCalendarEventDetail, SelectedDayEvents, shouldOpenCalendarDayDrawer } from "./OperationsCalendar";
+import { eventsOnDate, hasScheduledDeliveryTime, operationsCalendarCellKinds, operationsCalendarEventDetail, SelectedDayEvents, shouldOpenCalendarDayDrawer } from "./OperationsCalendar";
 import type { OperationsCalendarEvent } from "../../api";
 
 describe("shared operations calendar", () => {
@@ -16,6 +16,15 @@ describe("shared operations calendar", () => {
     expect(operationsCalendarEventDetail(events[0])).toEqual({ time: "10:00", status: "Scheduled" });
     expect(operationsCalendarEventDetail(events[1])).toEqual({ time: "2026-09-05 – 2026-09-07", status: undefined });
   });
+  it("returns aligned delivery and busy cues for dates with mixed events", () => {
+    expect(operationsCalendarCellKinds(events)).toEqual({ delivery: 1, busy: 1 });
+    expect(operationsCalendarCellKinds([events[1]])).toEqual({ delivery: 0, busy: 1 });
+  });
+  it("only marks a delivery as timed when it has an actual scheduled time", () => {
+    expect(hasScheduledDeliveryTime(events[0])).toBe(true);
+    expect(hasScheduledDeliveryTime(events[1])).toBe(false);
+    expect(hasScheduledDeliveryTime({ ...events[0], time: null })).toBe(false);
+  });
   it("opens the mobile drawer only after a date choice, not month or year navigation", () => {
     expect(shouldOpenCalendarDayDrawer("date", true)).toBe(true);
     expect(shouldOpenCalendarDayDrawer("month", true)).toBe(false);
@@ -28,5 +37,12 @@ describe("shared operations calendar", () => {
 
     expect(readonly).not.toContain("Open delivery");
     expect(authorized).toContain("Open delivery");
+  });
+  it("puts the clock icon immediately before an actual delivery time", () => {
+    const markup = renderToStaticMarkup(createElement(SelectedDayEvents, { events }));
+    const noTimeMarkup = renderToStaticMarkup(createElement(SelectedDayEvents, { events: [{ ...events[0], time: null }, events[1]] }));
+    expect(markup).toContain("operationsCalendarTimeIcon");
+    expect(markup.indexOf("operationsCalendarTimeIcon")).toBeLessThan(markup.indexOf("10:00"));
+    expect(noTimeMarkup).not.toContain("operationsCalendarTimeIcon");
   });
 });
