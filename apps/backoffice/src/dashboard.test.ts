@@ -69,6 +69,16 @@ describe("dashboard reminder helpers", () => {
     expect(entries[0].target).toBe("/leads");
   });
 
+  it("keeps one action when a backend priority action already represents the reminder", () => {
+    const entries = dashboardPriorityEntries(
+      [{ type: "SettlementDue", title: "Settlement due", vehiclePlate: "VPK1234", vehicleId: "vehicle-1", dueDate: "2026-05-31", amount: 1000 }],
+      [{ type: "SettlementDue", title: "Settlement due", target: "Finance", subject: "VPK 1234", dueDate: "2026-05-31", amount: 1000 }],
+      "2026-05-31"
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].source).toBe("action");
+  });
+
   it("parses supported dashboard drill-downs and uses the Singapore business day", () => {
     expect(dashboardDrilldownFromRouteUrl("/vehicles?dashboard=aging")).toMatchObject({ vehicleFocus: "aging" });
     expect(dashboardDrilldownFromRouteUrl("/vehicles?dashboard=fresh")).toMatchObject({ vehicleFocus: "fresh" });

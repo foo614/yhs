@@ -1798,6 +1798,9 @@ export type OperationsCalendarEvent = {
   endDate: string;
   time: string | null;
   status: DeliveryStatus | null;
+  customerName?: string | null;
+  customerContact?: string | null;
+  customerAccess?: "Full" | "Hidden" | "NotLinked" | null;
 };
 
 export async function getOperationsCalendar(from: string, to: string): Promise<OperationsCalendarEvent[]> {

@@ -129,6 +129,8 @@ export function urgentDashboardReminders(reminders: DashboardReminder[], today =
 }
 
 export function dashboardPriorityEntries(reminders: DashboardReminder[], priorityActions: PriorityActionItem[], today = todayIsoDate()): DashboardPriorityEntry[] {
+  const equivalenceKey = (entry: Pick<DashboardPriorityEntry, "type" | "subject" | "dueDate">) =>
+    `${entry.type}:${(entry.subject ?? "").toLocaleUpperCase().replace(/[^A-Z0-9]/g, "")}:${entry.dueDate}`;
   const reminderEntries = urgentDashboardReminders(reminders, today).map((reminder): DashboardPriorityEntry => ({
     source: "reminder",
     key: `reminder:${reminder.type}:${reminder.vehicleId}:${reminder.dueDate}`,
@@ -150,8 +152,8 @@ export function dashboardPriorityEntries(reminders: DashboardReminder[], priorit
     target: priorityActionTarget(action.target)
   }));
 
-  return [...reminderEntries, ...actionEntries]
-    .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.key === entry.key) === index)
+  return [...actionEntries, ...reminderEntries]
+    .filter((entry, index, entries) => entries.findIndex((candidate) => equivalenceKey(candidate) === equivalenceKey(entry)) === index)
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || (right.amount ?? 0) - (left.amount ?? 0));
 }
 
