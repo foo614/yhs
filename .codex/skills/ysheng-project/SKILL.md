@@ -55,6 +55,7 @@ When the user asks to get or implement a Linear ticket:
 - Use a lighter implementation model for focused UI changes, routine tests, and well-bounded fixes. Reserve Astra for complex cross-module design, finance or authorization behavior, difficult conflict resolution, and high-risk final review.
 - Before opening a pull request, run a read-only Codex CLI review against the local branch diff. Resolve every merge-blocking finding and rerun the relevant checks before creating the pull request. This local review must not require the Codex GitHub App or permission to comment, push, or merge.
 - After the pull request opens, require its repository CI and CodeQL checks to pass before merging to `main`; a successful local review does not replace these protected checks.
+- After a production deployment and its smoke checks succeed, create and push a date-based Git tag on the exact deployed `main` commit. Use the tag as the durable release and rollback reference, and never tag a branch commit, an unverified deployment, or a different revision from the one production is running.
 - Merge and deploy each completed feature through the repository branching strategy. Parallel work does not authorize combining unrelated tickets in one branch or deploying from a feature branch.
 
 ## Docker verification
