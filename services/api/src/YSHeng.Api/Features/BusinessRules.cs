@@ -158,6 +158,17 @@ public sealed record SupplierSummary(string SupplierName, int InvoiceCount, deci
 public sealed record SupplierInvoiceAgingView(Guid InvoiceId, string SupplierName, string InvoiceNumber, Guid VehicleId, SupplierInvoiceAgingStatus Status, DateOnly? DueDate, DateOnly? PaidAt, decimal Amount);
 public sealed record ReminderItem(string Type, string Title, string VehiclePlate, Guid VehicleId, DateOnly DueDate, decimal? Amount);
 public sealed record PriorityActionItem(string Type, string Title, string Target, DateOnly DueDate, string? Subject = null, decimal? Amount = null);
+public sealed record OperationsCalendarCustomerContext(string Name, string? Contact, string Access);
+
+public static class OperationsCalendarPrivacy
+{
+    public static OperationsCalendarCustomerContext CustomerContext(Customer? customer, IEnumerable<string> roles)
+    {
+        if (customer is null) return new("No customer linked", null, "NotLinked");
+        if (roles.Intersect(DepartmentAccess.CustomerReaders).Any()) return new(customer.Name, customer.Phone, "Full");
+        return new("Customer linked", null, "Hidden");
+    }
+}
 public sealed record ValidationError(string Code, string Message);
 public sealed record ApiError(string Message);
 public sealed record ValidationResult(IReadOnlyList<ValidationError> Errors)

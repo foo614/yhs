@@ -6,7 +6,7 @@ import type { OperationsCalendarEvent } from "../../api";
 
 describe("shared operations calendar", () => {
   const events: OperationsCalendarEvent[] = [
-    { id: "delivery", kind: "Delivery", title: "TEST 1", startDate: "2026-09-06", endDate: "2026-09-06", time: "10:00", status: "Scheduled" },
+    { id: "delivery", kind: "Delivery", title: "TEST 1", startDate: "2026-09-06", endDate: "2026-09-06", time: "10:00", status: "Scheduled", customerName: "Ali Tan", customerContact: "0123456789", customerAccess: "Full" },
     { id: "busy", kind: "Busy", title: "Staff", startDate: "2026-09-05", endDate: "2026-09-07", time: null, status: null }
   ];
   it("includes deliveries and availability on the selected day", () => { expect(eventsOnDate(events, "2026-09-06")).toEqual(events); });
@@ -44,5 +44,15 @@ describe("shared operations calendar", () => {
     expect(markup).toContain("operationsCalendarTimeIcon");
     expect(markup.indexOf("operationsCalendarTimeIcon")).toBeLessThan(markup.indexOf("10:00"));
     expect(noTimeMarkup).not.toContain("operationsCalendarTimeIcon");
+  });
+  it("shows the API-scoped customer context and a clear unlinked state", () => {
+    const full = renderToStaticMarkup(createElement(SelectedDayEvents, { events }));
+    const hidden = renderToStaticMarkup(createElement(SelectedDayEvents, { events: [{ ...events[0], customerName: "Customer linked", customerContact: null, customerAccess: "Hidden" }] }));
+    const unlinked = renderToStaticMarkup(createElement(SelectedDayEvents, { events: [{ ...events[0], customerName: "No customer linked", customerContact: null, customerAccess: "NotLinked" }] }));
+    expect(full).toContain("Ali Tan");
+    expect(full).toContain("0123456789");
+    expect(hidden).toContain("Customer linked");
+    expect(hidden).not.toContain("0123456789");
+    expect(unlinked).toContain("No customer linked");
   });
 });

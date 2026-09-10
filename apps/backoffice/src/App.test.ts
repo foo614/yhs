@@ -192,6 +192,9 @@ describe("management dashboard", () => {
     expect(markup).not.toContain("NaN");
     expect(markup).not.toContain("All clear");
     expect(markup).toContain("Management snapshot / 管理概览");
+    expect(markup).not.toContain("Business health and decisions at a glance");
+    expect(markup).not.toContain("Management dashboard / 管理看板");
+    expect(markup.indexOf("URGENT STOCK")).toBeGreaterThan(markup.indexOf("Vehicle aging / 库存车龄"));
     expect(markup).toContain("Business performance / 经营表现");
     expect(markup).toContain("Operational exposure / 运营风险");
     expect(markup.indexOf("Management snapshot / 管理概览")).toBeLessThan(markup.indexOf("Act now / 立即处理"));

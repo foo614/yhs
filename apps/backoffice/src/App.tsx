@@ -2109,7 +2109,6 @@ export function DashboardPage({
   const monthlyProfitTrend = dashboard?.monthlyProfitTrend ?? [];
   const leadStages = dashboard?.salesFunnel?.stages ?? [];
   const leadClosureRate = Math.min(100, Math.max(0, dashboard?.salesFunnel?.conversionRate ?? 0));
-  const topDemandVehicle = topEnquiredVehicles[0];
   const topSellingDisplayItems = topSellingModels;
   const topSellingModel = topSellingDisplayItems[0];
   const refurbishment = dashboard?.refurbishment;
@@ -2200,19 +2199,6 @@ export function DashboardPage({
   return (
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
       <OperationsCalendar onOpenDelivery={onOpenDelivery} />
-      <div className="dashboardCommandBar">
-        <div>
-          <Typography.Text className="loginKicker">Management dashboard / 管理看板</Typography.Text>
-          <Typography.Title level={2}>Business health and decisions at a glance</Typography.Title>
-          <Typography.Text>Review sales, profit, cash exposure, aging stock, and actions requiring attention.</Typography.Text>
-        </div>
-        <div className={topDemandVehicle ? "dashboardFocusQueue dashboardFocusQueueHot" : "dashboardFocusQueue"}>
-          <span>URGENT STOCK</span>
-          <strong>{dashboard.vehicleAging} vehicles over 60 days</strong>
-          <small>{dashboard.vehicleAging > 0 ? "Review price or clearance action now." : "No urgent aging stock."}</small>
-        </div>
-      </div>
-
       <ProCard
         title="Management snapshot / 管理概览"
         className="dashboardOverviewCard"
@@ -2555,6 +2541,11 @@ export function DashboardPage({
 
         <div className="dashboardSimpleGrid">
           <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard dashboardAgingCard">
+            <div className={dashboard.vehicleAging > 0 ? "dashboardFocusQueue dashboardFocusQueueHot" : "dashboardFocusQueue"}>
+              <span>URGENT STOCK</span>
+              <strong>{dashboard.vehicleAging} vehicles over 60 days</strong>
+              <small>{dashboard.vehicleAging > 0 ? "Review price or clearance action now." : "No urgent aging stock."}</small>
+            </div>
             <DashboardAgingActionBoard items={agingBuckets} onNavigate={onNavigate} />
           </ProCard>
         </div>

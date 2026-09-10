@@ -56,6 +56,11 @@ export function SelectedDayEvents({
                 {hasScheduledDeliveryTime(event) && <ClockCircleOutlined aria-hidden="true" className="operationsCalendarTimeIcon" />}
                 {detail.time}
               </Typography.Text>
+              {event.kind === "Delivery" && (
+                <Typography.Text type="secondary" className="operationsCalendarCustomer">
+                  Customer / 客户: {event.customerName ?? "No customer linked"}{event.customerContact ? ` · ${event.customerContact}` : ""}
+                </Typography.Text>
+              )}
             </div>
             {event.kind === "Delivery" && onOpenDelivery && <Button type="link" onClick={() => onOpenDelivery(event.id)}>Open delivery</Button>}
           </List.Item>
