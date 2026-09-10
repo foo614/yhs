@@ -33,4 +33,18 @@ describe("vehicle detail tab layout", () => {
     expect(leadsSection).toContain("search={{ span: { xs: 24, sm: 12, md: 8, lg: 6, xl: 6, xxl: 6 } }}");
     expect(leadsSection).toContain("scroll={{ x: 720 }}");
   });
+
+  it("uses bilingual buyer wording for every document-owner label", () => {
+    const section = vehicleDetailTabSection();
+    const buyerLabel = "Buyer / 买家";
+
+    expect(section.match(new RegExp(buyerLabel, "g"))).toHaveLength(4);
+    expect(section).toContain('{ key: "Buyer", label: "Buyer / 买家" }');
+    expect(section).toContain('{documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / 买家"}');
+    expect(section).toContain('<Form.Item label={documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / 买家"}>');
+    expect(section).toContain('message={`Link a ${documentOwnershipTab === "Seller" ? "previous owner" : "Buyer / 买家"} before uploading`}');
+    expect(section).not.toContain("Buyer / Customer");
+    expect(section).not.toContain("buyer / customer");
+    expect(vehiclePageSource).toContain("return `Buyer / 买家: ${contactFor(customers, document.customerId)}`;");
+  });
 });

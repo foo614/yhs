@@ -2668,7 +2668,7 @@ export function VehiclePage({
                 onChange={(key) => selectDocumentOwnershipTab(key as DocumentOwnershipType)}
                 items={[
                   { key: "Seller", label: "Previous owner / 原车主" },
-                  { key: "Buyer", label: "Buyer / Customer" },
+                  { key: "Buyer", label: "Buyer / 买家" },
                   { key: "Vehicle", label: "Vehicle / 车辆" }
                 ]}
               />
@@ -2688,10 +2688,10 @@ export function VehiclePage({
                     extra="The active ownership tab is saved with the document and is not changed by OCR review."
                   >
                     <Tag color={documentOwnershipTab === "Seller" ? "gold" : "blue"}>
-                      {documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / Customer"}
+                      {documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / 买家"}
                     </Tag>
                   </Form.Item>
-                  <Form.Item label={documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / Customer"}>
+                  <Form.Item label={documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / 买家"}>
                     <Select
                       value={documentPersonId || undefined}
                       placeholder="Select the linked person"
@@ -2705,7 +2705,7 @@ export function VehiclePage({
                     <Alert
                       type="info"
                       showIcon
-                      message={`Link a ${documentOwnershipTab === "Seller" ? "previous owner" : "buyer / customer"} before uploading`}
+                      message={`Link a ${documentOwnershipTab === "Seller" ? "previous owner" : "Buyer / 买家"} before uploading`}
                       description="Only a person already linked to this vehicle can be selected for a person-owned document."
                       action={(
                         <Button
@@ -3927,7 +3927,7 @@ function contactFor<T extends { id: string; name: string; phone: string }>(conta
 
 function documentOwnershipLabel(document: Pick<VehicleDocument, "ownershipType" | "customerId" | "ownerId"> | Pick<VehicleOcrJob["document"], "ownershipType" | "customerId" | "ownerId">, customers: Customer[], owners: Owner[]) {
   if (document.ownershipType === "Seller") return `Previous owner / 原车主: ${contactFor(owners, document.ownerId)}`;
-  if (document.ownershipType === "Buyer") return `Buyer / Customer: ${contactFor(customers, document.customerId)}`;
+  if (document.ownershipType === "Buyer") return `Buyer / 买家: ${contactFor(customers, document.customerId)}`;
   return "Vehicle / 车辆";
 }
 
