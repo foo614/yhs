@@ -78,8 +78,8 @@ Final local checks passed: 335 backend tests, 405 back-office tests, type checki
 - Finance payment records track Prepare Document and Checklist Validation as manual Bank workflow checklist states; staff export the bank-collection spreadsheet and submit it to AutoCount outside this system.
 - Finance payment records now also capture customer invoice detail fields from the portal requirement docs: sales price, interest/additional charges, NCD amount, windscreen charges, and outstation delivery date.
 - Customer and previous-owner records now capture TIN for AutoCount master-data review.
-- Purchase invoices now require an approved supplier, invoice date, and classified fee lines whose amounts equal the invoice total. Finance confirms the classification before export.
-- Repair maintains a proper supplier master with address, phone, TIN, optional AutoCount creditor code, and Finance approval; Finance creators require another approver, while Boss/Admin may self-approve through an explicit audited override.
+- Purchase invoices now require an active supplier, invoice date, and classified fee lines whose amounts equal the invoice total. Finance confirms the classification before export.
+- Supplier Master uses Active/Inactive operational status with address, phone, TIN and optional AutoCount creditor code. New suppliers are Active; activation and deactivation are audited. Existing Draft/Approved suppliers migrate to Active while retaining historical approval metadata and audit records. Inactive suppliers remain visible on historical records and cannot be newly selected. See [FOO-115](plans/2026-09-11-foo-115-supplier-status.md).
 - Delivery records insurance and road-tax provider, invoice date, amount, reference, and paid-on-behalf status as a Finance-review draft.
 - Finance sales now snapshot the responsible sales agent, optional loan-bank reference, and customer-paid-on-behalf insurance, road-tax, and advance lines.
 - Payment vouchers now capture payment method, source account, cheque or transfer reference, bank charge, accounting account, and separate creator, approver, and payer evidence.

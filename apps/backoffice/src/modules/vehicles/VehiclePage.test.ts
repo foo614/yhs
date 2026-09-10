@@ -401,14 +401,14 @@ describe("vehicle document ownership", () => {
 });
 
 describe("structured purchase invoice entry", () => {
-  const approvedSupplier: Supplier = {
-    id: "supplier-approved",
-    companyName: "Approved Motors",
+  const activeSupplier: Supplier = {
+    id: "supplier-active",
+    companyName: "Active Motors",
     address: "Supplier address",
     phone: "0123456789",
-    approvalStatus: "Approved"
+    status: "Active"
   };
-  const draftSupplier: Supplier = { ...approvedSupplier, id: "supplier-draft", companyName: "Draft Motors", approvalStatus: "Draft" };
+  const inactiveSupplier: Supplier = { ...activeSupplier, id: "supplier-inactive", companyName: "Inactive Motors", status: "Inactive" };
 
   it("renders the reachable formal-generation action and keeps legacy helper defaults available", () => {
     const markup = renderToStaticMarkup(createElement(PurchaseInvoiceHistory, {
@@ -417,11 +417,11 @@ describe("structured purchase invoice entry", () => {
       pagination: { pageSize: 5 },
       onGenerate: () => undefined
     }));
-    const initialValues = purchaseInvoiceCreateInitialValues("vehicle-2", [draftSupplier, approvedSupplier]);
+    const initialValues = purchaseInvoiceCreateInitialValues("vehicle-2", [inactiveSupplier, activeSupplier]);
 
     expect(markup).toContain("Generate Purchase Invoice");
     expect(initialValues.vehicleId).toBe("vehicle-2");
-    expect(initialValues.supplierId).toBe("supplier-approved");
+    expect(initialValues.supplierId).toBe("supplier-active");
     expect(initialValues.lines).toEqual([{ lineType: "VehiclePurchase", description: "Vehicle purchase", capitaliseIntoVehicleCost: true }]);
   });
 

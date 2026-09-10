@@ -1,14 +1,6 @@
-import type { BrokerCommission, CollectionCreateInput, Customer, DailySpend, DebtRecoveryCase, FinanceSaleInput, Owner, PaymentRecord, PaymentVoucher, ReceivableStatus, SettlementReminder, Supplier, VehicleLookup } from "./api";
+import type { BrokerCommission, CollectionCreateInput, Customer, DailySpend, DebtRecoveryCase, FinanceSaleInput, Owner, PaymentRecord, PaymentVoucher, ReceivableStatus, SettlementReminder, VehicleLookup } from "./api";
 
 export const financeDocumentCategories = ["PaymentReceipt", "PaymentInvoice"] as const;
-
-export function supplierApprovalBlockReason(supplier: Pick<Supplier, "approvalStatus" | "createdBy">, currentUserId?: string, isBossAdmin = false) {
-  if (supplier.approvalStatus !== "Draft") return "Only draft suppliers can be approved.";
-  if (!isBossAdmin && currentUserId && supplier.createdBy === currentUserId) {
-    return "You created this supplier. Another Finance user or Boss/Admin must approve it.";
-  }
-  return undefined;
-}
 
 export function isFinanceV2(payment: PaymentRecord) {
   return (payment.financeWorkflowVersion ?? 1) >= 2;

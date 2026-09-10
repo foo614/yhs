@@ -28,6 +28,7 @@ public static class SeedData
         await EnsureVehiclePhotoAttributionSchemaAsync(db);
         await EnsureDeliveryWorkboardSchemaAsync(db);
         await EnsureAutoCountAccountingSchemaAsync(db);
+        await EnsureSupplierOperationalStatusSchemaAsync(db);
         await EnsureOwnerPurchaseInvoiceSchemaAsync(db);
         await EnsureLoanDecisionSchemaAsync(db);
 
@@ -248,6 +249,14 @@ public static class SeedData
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
         await EnsureOwnerPurchaseInvoiceSchemaAsync(db);
+    }
+
+    public static async Task EnsureSupplierOperationalStatusSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureSupplierOperationalStatusSchemaAsync(db);
     }
 
     private static async Task EnsureDeliveryWorkboardSchemaAsync(AppDbContext db)
@@ -993,7 +1002,7 @@ public static class SeedData
                 "Phone" text NOT NULL,
                 "ContactPerson" text NULL,
                 "AutoCountCreditorCode" text NULL,
-                "ApprovalStatus" integer NOT NULL DEFAULT 0,
+                "Status" integer NOT NULL DEFAULT 0,
                 "CreatedBy" text NOT NULL,
                 "CreatedAt" timestamp with time zone NOT NULL,
                 "ApprovedBy" text NULL,
@@ -1074,6 +1083,29 @@ public static class SeedData
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaidBy" text NULL;
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaidAt" timestamp with time zone NULL;
             ALTER TABLE "PaymentVouchers" ADD COLUMN IF NOT EXISTS "PaymentEvidenceReference" text NULL;
+        """);
+    }
+
+    private static async Task EnsureSupplierOperationalStatusSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            DO $$
+            BEGIN
+                LOCK TABLE "Suppliers" IN ACCESS EXCLUSIVE MODE;
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'Suppliers'
+                      AND column_name = 'Status'
+                ) THEN
+                    ALTER TABLE "Suppliers" ADD COLUMN "Status" integer;
+                    UPDATE "Suppliers"
+                    SET "Status" = CASE WHEN "ApprovalStatus" = 2 THEN 1 ELSE 0 END;
+                    ALTER TABLE "Suppliers" ALTER COLUMN "Status" SET DEFAULT 0;
+                    ALTER TABLE "Suppliers" ALTER COLUMN "Status" SET NOT NULL;
+                END IF;
+            END $$;
         """);
     }
 
