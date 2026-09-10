@@ -17,14 +17,15 @@ This repository uses short-lived task branches and pull requests into `main`. A 
 2. Confirm the Linear ticket and create one short-lived task branch whose name contains that ticket key.
 3. Make narrow commits whose messages describe the user-visible or operational result.
 4. Run the focused tests for each behavior change, then the broader checks required by `codex-agent.md`.
-5. Push the branch and open a pull request targeting `main`. Put the Linear ticket key in the pull-request title or description so the branch, review, and delivery record are traceable.
-6. Resolve conflicts against the latest `origin/main`; rerun affected checks after conflict resolution.
-7. Obtain required review and wait for all required CI and security checks to pass.
-8. Merge the pull request into `main`.
-9. Verify the remote `main` contains the merged commit and the task branch has no intended commits left outside `main`.
-10. Deploy only from the verified `main` revision using the documented production workflow.
-11. Record separate evidence for merge, CI/security checks, deployment completion, public/readiness smoke checks, and protected-route behavior.
-12. Delete or archive the task branch and remove its worktree after the merge and release evidence are complete.
+5. Run a read-only Codex CLI review of the local branch diff without GitHub App, comment, push, merge, or deploy permissions. Resolve every merge-blocking finding and rerun affected checks.
+6. Push the reviewed branch and open a pull request targeting `main`. Put the Linear ticket key in the pull-request title or description so the branch, review, and delivery record are traceable.
+7. Resolve conflicts against the latest `origin/main`; rerun affected checks and the local diff review after conflict resolution.
+8. Obtain required review and wait for all required CI and security checks to pass. The local pre-PR review does not replace these protected checks.
+9. Merge the pull request into `main`.
+10. Verify the remote `main` contains the merged commit and the task branch has no intended commits left outside `main`.
+11. Deploy only from the verified `main` revision using the documented production workflow.
+12. Record separate evidence for merge, CI/security checks, deployment completion, public/readiness smoke checks, and protected-route behavior.
+13. Delete or archive the task branch and remove its worktree after the merge and release evidence are complete.
 
 ## Completion rule
 

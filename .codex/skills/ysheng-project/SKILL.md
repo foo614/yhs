@@ -48,6 +48,15 @@ When the user asks to get or implement a Linear ticket:
 - If label updates are supported, replace `codex-ready` with `codex-done`; do not create missing labels unless the user asks.
 - If the status update fails or a Linear permission prompt blocks it, report that blocker and the exact next action.
 
+## Model and task routing
+
+- Keep one implementation task, Linear ticket, branch, and worktree aligned. Use a user-visible Codex task when work is split into a separate feature so its progress remains easy to follow.
+- Run implementation tasks in parallel only when their ticket scopes and owned files do not overlap and neither depends on the other's result. Keep work serial when tasks touch the same files, share a contract change, or use the same merge and production deployment chain.
+- Use a lighter implementation model for focused UI changes, routine tests, and well-bounded fixes. Reserve Astra for complex cross-module design, finance or authorization behavior, difficult conflict resolution, and high-risk final review.
+- Before opening a pull request, run a read-only Codex CLI review against the local branch diff. Resolve every merge-blocking finding and rerun the relevant checks before creating the pull request. This local review must not require the Codex GitHub App or permission to comment, push, or merge.
+- After the pull request opens, require its repository CI and CodeQL checks to pass before merging to `main`; a successful local review does not replace these protected checks.
+- Merge and deploy each completed feature through the repository branching strategy. Parallel work does not authorize combining unrelated tickets in one branch or deploying from a feature branch.
+
 ## Docker verification
 
 Use from the workspace root when Docker Desktop is available with the Linux engine:
