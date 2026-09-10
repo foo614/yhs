@@ -13,7 +13,7 @@ export type FinancingStatus = "NotApplicable" | "Pending" | "Approved" | "Disbur
 export type ReceivableStatus = "Draft" | "WaitingForApproval" | "ReadyToCollect" | "PartiallyPaid" | "Paid" | "AttentionNeeded";
 export type PaymentVoucherStatus = "Pending" | "Approved" | "Paid";
 export type DisbursementMethod = "BankTransfer" | "Cheque" | "Cash" | "Other";
-export type SupplierApprovalStatus = "Draft" | "Approved" | "Active" | "Inactive";
+export type SupplierStatus = "Active" | "Inactive";
 export type PurchaseInvoiceLineType = "VehiclePurchase" | "PurchaseProcessing" | "LatePaymentCharge" | "Parking" | "Transport" | "Refurbishment" | "Other";
 export type DeliveryAccountingChargeType = "Insurance" | "RoadTax";
 export type AccountingConfirmationStatus = "Draft" | "FinanceConfirmed";
@@ -448,7 +448,7 @@ export type Supplier = {
   phone: string;
   contactPerson?: string;
   autoCountCreditorCode?: string;
-  approvalStatus: SupplierApprovalStatus;
+  status: SupplierStatus;
   createdBy?: string;
   createdAt?: string;
   approvedBy?: string;
@@ -2121,10 +2121,6 @@ export async function createSupplier(supplier: Supplier): Promise<Supplier> {
 
 export async function updateSupplier(supplier: Supplier): Promise<Supplier> {
   return request<Supplier>(`/api/supplier-master/${supplier.id}`, { method: "PUT", body: JSON.stringify(supplier) });
-}
-
-export async function approveSupplier(supplierId: string): Promise<Supplier> {
-  return request<Supplier>(`/api/supplier-master/${supplierId}/approve`, { method: "POST" });
 }
 
 export async function createRepair(repair: RepairJob): Promise<RepairJob> {

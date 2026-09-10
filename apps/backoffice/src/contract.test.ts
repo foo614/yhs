@@ -12,6 +12,7 @@ const apiTypeByDomainEnum = {
   PaymentStatus: "PaymentStatus",
   PaymentVoucherStatus: "PaymentVoucherStatus",
   DebtRecoveryStatus: "DebtRecoveryStatus",
+  SupplierStatus: "SupplierStatus",
   RepairApprovalStatus: "RepairApprovalStatus",
   SupplierInvoiceAgingStatus: "SupplierInvoiceAgingStatus",
   HrAttendanceStatus: "HrAttendanceStatus",

@@ -28,12 +28,10 @@ import {
   paymentReconcileBlockReason,
   paymentVoucherCreateBlockReason,
   receivableStatusColor,
-  receivableStatusLabel,
-  supplierApprovalBlockReason
+  receivableStatusLabel
 } from "../../finance";
 import {
   customerSelectLabel,
-  approveSupplier,
   confirmDeliveryAccountingCharge,
   confirmPurchaseInvoiceAccounting,
   financeInvoiceContentUrl,
@@ -41,7 +39,6 @@ import {
   getDeliveryInvoiceUpdateRequests,
   getPurchaseInvoices,
   getSalesAgents,
-  getSupplierMaster,
   getVehicleDocumentsStrict,
   humanizeApiError,
   paymentVoucherPdfUrl,
@@ -74,7 +71,6 @@ import {
   type SettlementStatusInput,
   type SettlementReminder,
   type StaffUser,
-  type Supplier,
   type VehicleDocument,
   type VehicleLookup
 } from "../../api";
@@ -464,7 +460,6 @@ export function FinancePage({
   const [purchaseInvoiceDetailsId, setPurchaseInvoiceDetailsId] = useState<string>();
   const [confirmingPurchaseInvoiceId, setConfirmingPurchaseInvoiceId] = useState<string>();
   const [purchaseInvoiceConfirmationError, setPurchaseInvoiceConfirmationError] = useState<{ invoiceId: string; message: string }>();
-  const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
   const [adjustInvoicePrice, setAdjustInvoicePrice] = useState(false);
   const [collectionPaymentId, setCollectionPaymentId] = useState<string>();
   const [collectionIdempotencyKey, setCollectionIdempotencyKey] = useState<string>();
@@ -550,12 +545,6 @@ export function FinancePage({
     catch (error) { message.error(humanizeApiError(error, "Unable to load purchase invoices for accounting review.")); }
   };
   useEffect(() => { void reloadPurchaseInvoices(); }, []);
-
-  const reloadSupplierMaster = async () => {
-    try { setSupplierMaster(await getSupplierMaster()); }
-    catch (error) { message.error(humanizeApiError(error, "Unable to load supplier drafts.")); }
-  };
-  useEffect(() => { void reloadSupplierMaster(); }, []);
 
   const confirmInvoiceRequestResolved = (requestItem: DeliveryInvoiceUpdateRequestItem) => {
     setInvoiceRequestResolveError(undefined);
@@ -2382,28 +2371,6 @@ export function FinancePage({
             <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDebtRecovery}>Update Debt Case</Button></Form.Item>
           </Form>
       </Drawer>
-      {financeTab === "vouchers" && supplierMaster.some((supplier) => supplier.approvalStatus === "Draft") && <ProCard title="Historical supplier drafts / 历史供应商草稿">
-        <Alert className="sectionIntroAlert" type="info" showIcon message="New suppliers are immediately active and need no approval. These older drafts retain their original approval history and controls." />
-        <OperationsProTable<Supplier>
-          rowKey="id"
-          dataSource={supplierMaster.filter((supplier) => supplier.approvalStatus === "Draft")}
-          pagination={false}
-          columns={[
-            { title: "Company", dataIndex: "companyName" },
-            { title: "Phone", dataIndex: "phone" },
-            { title: "Address", dataIndex: "address" },
-            { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
-            { title: "Creditor code", dataIndex: "autoCountCreditorCode", render: (value) => value || "Finance mapping required" },
-            { title: "Created by", render: (_, supplier) => supplier.createdBy === currentUser?.id ? <Tag>You</Tag> : "Another staff member" },
-            { title: "Status", dataIndex: "approvalStatus", render: (value) => <Tag color={value === "Approved" ? "green" : "gold"}>{value}</Tag> },
-            { title: "Action", render: (_, supplier) => {
-              if (supplier.approvalStatus !== "Draft") return null;
-              const blockReason = supplierApprovalBlockReason(supplier, currentUser?.id, Boolean(currentUser?.roles.includes("BossAdmin")));
-              return <Tooltip title={blockReason}><span><Button size="small" type="primary" disabled={Boolean(blockReason)} onClick={async () => { try { await approveSupplier(supplier.id); message.success("Supplier approved."); await reloadSupplierMaster(); } catch (error) { message.error(humanizeApiError(error, "Unable to approve supplier.")); } }}>{blockReason ? "Needs another approver" : "Approve"}</Button></span></Tooltip>;
-            } }
-          ]}
-        />
-      </ProCard>}
       {financeTab === "vouchers" && <ProCard title="Purchase invoice accounting review / 收车发票审核">
         <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm the displayed official version, invoice date and classified fee lines before AutoCount export." description="Owner-acquisition corrections reset Finance confirmation. An issued official invoice and a pending Finance review are different states." />
         <OperationsProTable<PurchaseInvoice>

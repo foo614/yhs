@@ -3369,7 +3369,7 @@ export function VehiclePage({
         >
           <Form.Item name="id" label="Selected Purchase Invoice"><Select options={purchaseInvoices.map((invoice) => ({ value: invoice.id, label: `${plateFor(vehicles, invoice.vehicleId)} / ${invoice.invoiceNumber}` }))} onChange={selectPurchaseInvoice} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter(isSupplierUsable).map((supplier) => ({ value: supplier.id, label: supplier.companyName }))} /></Form.Item>
+          <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => isSupplierUsable(supplier) || supplier.id === selectedPurchaseInvoice?.supplierId).map((supplier) => ({ value: supplier.id, label: supplier.status === "Inactive" ? `${supplier.companyName} (Inactive; retained record)` : supplier.companyName, disabled: supplier.status === "Inactive" }))} /></Form.Item>
           <Form.Item name="invoiceNumber" label="Invoice Number" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="invoiceDate" label="Invoice Date" rules={[{ required: true }]}><DatePicker className="fullWidth" /></Form.Item>
           <Form.Item name="purchaseDate" label="Purchase Date"><DatePicker className="fullWidth" /></Form.Item>

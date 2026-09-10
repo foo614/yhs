@@ -22,6 +22,7 @@ import {
   createRepair,
   createStaffUser,
   createSettlementReminder,
+  createSupplier,
   createSupplierInvoice,
   createVehicle,
   createVehicleIntake,
@@ -139,6 +140,7 @@ import {
   updateStaffUserRoles,
   updateStaffUserStatus,
   updateSupplierInvoice,
+  updateSupplier,
   updateVehicle,
   startOcrJob,
   reviewOcrJob,
@@ -168,6 +170,7 @@ import {
   type RepairJob,
   type SettlementReminder,
   type StaffUser,
+  type Supplier,
   type SupplierInvoice,
   type Vehicle,
   type VehicleLookup,
@@ -800,6 +803,23 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/supplier-invoices", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/supplier-invoices", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(invoice) }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/supplier-invoices/${invoice.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify({ ...invoice, amount: 700 }) }));
+  });
+
+  it("creates suppliers as active records and updates their operational status through the master PUT route", async () => {
+    const supplier: Supplier = {
+      id: "00000000-0000-0000-0000-000000000022",
+      companyName: "Demo Workshop",
+      address: "Johor",
+      phone: "0123456789",
+      status: "Active"
+    };
+    const fetchMock = mockFetch([supplier, { ...supplier, status: "Inactive" }]);
+
+    await createSupplier(supplier);
+    await updateSupplier({ ...supplier, status: "Inactive" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/supplier-master", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(supplier) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://localhost:5000/api/supplier-master/${supplier.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify({ ...supplier, status: "Inactive" }) }));
   });
 
   it("loads supplier summaries and invoice aging views", async () => {

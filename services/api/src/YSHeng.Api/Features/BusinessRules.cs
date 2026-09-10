@@ -3272,15 +3272,19 @@ public static class SupplierInvoiceRules
 
 public static class SupplierRules
 {
-    public static bool CanApprove(string createdBy, string actor, bool isBossAdmin) =>
-        isBossAdmin || !string.Equals(createdBy, actor, StringComparison.Ordinal);
+    public static bool IsUsableForOperations(Supplier? supplier) =>
+        supplier?.Status == SupplierStatus.Active;
 
-    public static bool IsUsableForOperations(Supplier supplier) =>
-        supplier.ApprovalStatus is SupplierApprovalStatus.Active or SupplierApprovalStatus.Approved;
+    public static bool IsAllowedForOperationalWrite(Supplier? supplier, Guid? incomingSupplierId, Guid? existingSupplierId = null) =>
+        supplier is not null &&
+        incomingSupplierId.HasValue &&
+        supplier.Id == incomingSupplierId.Value &&
+        (IsUsableForOperations(supplier) || incomingSupplierId == existingSupplierId);
 
     public static ValidationResult Validate(Supplier incoming, IEnumerable<Supplier> existing)
     {
         var errors = new List<ValidationError>();
+        if (!Enum.IsDefined(incoming.Status)) errors.Add(new ValidationError("supplier_status_invalid", "Supplier status must be Active or Inactive."));
         if (string.IsNullOrWhiteSpace(incoming.CompanyName)) errors.Add(new ValidationError("supplier_company_name_required", "Supplier company name is required."));
         if (string.IsNullOrWhiteSpace(incoming.Address)) errors.Add(new ValidationError("supplier_address_required", "Supplier address is required."));
         if (string.IsNullOrWhiteSpace(incoming.Phone)) errors.Add(new ValidationError("supplier_phone_required", "Supplier phone is required."));

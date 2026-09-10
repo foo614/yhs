@@ -207,21 +207,20 @@ public static class AutoCountExcel
 
     private static IReadOnlyList<IReadOnlyList<string>> SupplierRows(IReadOnlyList<Supplier> suppliers)
     {
-        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "CompanyName", "RegistrationNumber", "TinNumber", "Address", "Phone", "ContactPerson", "AutoCountCreditorCode", "ApprovalStatus", RemarkHeader } };
+        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "CompanyName", "RegistrationNumber", "TinNumber", "Address", "Phone", "ContactPerson", "AutoCountCreditorCode", "Status", RemarkHeader } };
         rows.AddRange(suppliers.OrderBy(supplier => supplier.CompanyName).Select(supplier => new[] {
             supplier.Id.ToString(), supplier.CompanyName, supplier.RegistrationNumber ?? "", supplier.TinNumber ?? "", supplier.Address, supplier.Phone,
-            supplier.ContactPerson ?? "", supplier.AutoCountCreditorCode ?? "", supplier.ApprovalStatus.ToString(),
-            SupplierRemark(supplier.ApprovalStatus)
+            supplier.ContactPerson ?? "", supplier.AutoCountCreditorCode ?? "", supplier.Status.ToString(),
+            SupplierRemark(supplier.Status)
         }));
         return rows;
     }
 
-    private static string SupplierRemark(SupplierApprovalStatus status) => status switch
+    private static string SupplierRemark(SupplierStatus status) => status switch
     {
-        SupplierApprovalStatus.Approved => "Approved supplier master.",
-        SupplierApprovalStatus.Active => "Active supplier; manually map its AutoCount creditor code before import.",
-        SupplierApprovalStatus.Inactive => "Inactive supplier; do not import.",
-        _ => "Draft supplier; do not import until Finance approval."
+        SupplierStatus.Active => "Active supplier; manually map its AutoCount creditor code before import.",
+        SupplierStatus.Inactive => "Inactive supplier; do not import.",
+        _ => "Supplier status is unavailable."
     };
 
     private static IReadOnlyList<IReadOnlyList<string>> PurchaseRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles)

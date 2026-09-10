@@ -3314,20 +3314,16 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Supplier_approval_allows_admin_override_but_keeps_finance_maker_checker()
+    public void Active_suppliers_are_usable_for_new_operational_records()
     {
-        Assert.True(SupplierRules.CanApprove("creator-user", "creator-user", isBossAdmin: true));
-        Assert.False(SupplierRules.CanApprove("creator-user", "creator-user", isBossAdmin: false));
-        Assert.True(SupplierRules.CanApprove("creator-user", "finance-user", isBossAdmin: false));
-    }
-
-    [Fact]
-    public void Active_suppliers_are_usable_without_reclassifying_historical_drafts()
-    {
-        Assert.True(SupplierRules.IsUsableForOperations(new Supplier { ApprovalStatus = SupplierApprovalStatus.Active }));
-        Assert.True(SupplierRules.IsUsableForOperations(new Supplier { ApprovalStatus = SupplierApprovalStatus.Approved }));
-        Assert.False(SupplierRules.IsUsableForOperations(new Supplier { ApprovalStatus = SupplierApprovalStatus.Draft }));
-        Assert.False(SupplierRules.IsUsableForOperations(new Supplier { ApprovalStatus = SupplierApprovalStatus.Inactive }));
+        Assert.True(SupplierRules.IsUsableForOperations(new Supplier { Status = SupplierStatus.Active }));
+        Assert.False(SupplierRules.IsUsableForOperations(new Supplier { Status = SupplierStatus.Inactive }));
+        Assert.False(SupplierRules.IsUsableForOperations(null));
+        var inactiveSupplier = new Supplier { Id = Guid.NewGuid(), Status = SupplierStatus.Inactive };
+        Assert.True(SupplierRules.IsAllowedForOperationalWrite(inactiveSupplier, inactiveSupplier.Id, inactiveSupplier.Id));
+        Assert.False(SupplierRules.IsAllowedForOperationalWrite(inactiveSupplier, inactiveSupplier.Id));
+        Assert.False(SupplierRules.IsAllowedForOperationalWrite(inactiveSupplier, Guid.NewGuid(), inactiveSupplier.Id));
+        Assert.Contains(SupplierRules.Validate(new Supplier { Status = (SupplierStatus)99 }, []).Errors, error => error.Code == "supplier_status_invalid");
     }
 
     [Fact]

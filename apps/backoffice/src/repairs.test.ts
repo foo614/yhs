@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RepairJob, SupplierInvoice } from "./api";
-import { filterRefurbishmentRecords, isRepairCostFinal, refurbishmentDetailsSelection, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
+import type { RepairJob, Supplier, SupplierInvoice } from "./api";
+import { filterRefurbishmentRecords, isRepairCostFinal, isSupplierUsable, refurbishmentDetailsSelection, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
 
 const baseInvoice: SupplierInvoice = {
   id: "supplier-1",
@@ -25,6 +25,14 @@ const baseRepair: RepairJob = {
 };
 
 describe("repair supplier invoice helpers", () => {
+  it("offers only active suppliers for new operational selections", () => {
+    const active: Supplier = { id: "supplier-active", companyName: "Active", address: "A", phone: "1", status: "Active" };
+    const inactive: Supplier = { ...active, id: "supplier-inactive", status: "Inactive" };
+
+    expect(isSupplierUsable(active)).toBe(true);
+    expect(isSupplierUsable(inactive)).toBe(false);
+  });
+
   it("opens both refurbishment record types through the page detail selection", () => {
     expect(refurbishmentDetailsSelection({ key: "repair-repair-1", kind: "repair", repair: baseRepair }))
       .toEqual({ repairId: "repair-1", supplierInvoiceId: undefined });

@@ -1,5 +1,7 @@
 # Remaining operations completion
 
+Supplier status update: [FOO-115](2026-09-11-foo-115-supplier-status.md) supersedes the historical supplier-draft approval behavior recorded below. Supplier Master now uses Active/Inactive; the old approval metadata and audit entries remain historical evidence.
+
 Date: 2026-09-07
 
 ## Outcome and authority

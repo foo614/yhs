@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brokerCommissionCreateBlockReason, calculateFinanceNettPrice, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, collectionCreateBlockReason, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, financeSaleBlockReason, financeSaleNeedsApproval, isFinanceV2, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, receivableStatusLabel, settlementCreateBlockReason, supplierApprovalBlockReason } from "./finance";
+import { brokerCommissionCreateBlockReason, calculateFinanceNettPrice, canCorrectReconciledPayment, canReconcilePayment, canReopenPaidDailySpend, canReopenPaidSettlement, collectionCreateBlockReason, dailySpendCreateBlockReason, debtRecoveryCreateBlockReason, financeDocumentCategories, financeSaleBlockReason, financeSaleNeedsApproval, isFinanceV2, paymentCreateBlockReason, paymentReconcileBlockReason, paymentVoucherCreateBlockReason, receivableStatusLabel, settlementCreateBlockReason } from "./finance";
 import type { BrokerCommission, Customer, DailySpend, DebtRecoveryCase, Owner, PaymentRecord, PaymentVoucher, SettlementReminder, VehicleLookup } from "./api";
 
 const basePayment: PaymentRecord = {
@@ -40,25 +40,6 @@ const customers: Customer[] = [
 const owners: Owner[] = [
   { id: "owner-1", name: "Previous Owner", phone: "0198887777" }
 ];
-
-describe("supplier approval maker-checker", () => {
-  const draftSupplier = { approvalStatus: "Draft" as const, createdBy: "repair-user" };
-
-  it("blocks a Finance creator while allowing another authorized approver", () => {
-    expect(supplierApprovalBlockReason(draftSupplier, "repair-user"))
-      .toBe("You created this supplier. Another Finance user or Boss/Admin must approve it.");
-    expect(supplierApprovalBlockReason(draftSupplier, "finance-user")).toBeUndefined();
-  });
-
-  it("allows Boss/Admin to approve a supplier they created", () => {
-    expect(supplierApprovalBlockReason(draftSupplier, "repair-user", true)).toBeUndefined();
-  });
-
-  it("does not offer approval for a completed supplier", () => {
-    expect(supplierApprovalBlockReason({ ...draftSupplier, approvalStatus: "Approved" }, "finance-user"))
-      .toBe("Only draft suppliers can be approved.");
-  });
-});
 
 const baseBrokerCommission: BrokerCommission = {
   id: "commission-1",

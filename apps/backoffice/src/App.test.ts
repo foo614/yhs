@@ -405,19 +405,19 @@ describe("supplier and refurbishment search records", () => {
     ]);
   });
 
-  it("searches supplier master values and approval status", () => {
+  it("searches supplier master values and operational status", () => {
     const suppliers: Supplier[] = [{
-      id: "supplier-1", companyName: "ABC Auto Parts", registrationNumber: "REG-1001", tinNumber: "TIN-2002", address: "Johor", phone: "012-3456789", autoCountCreditorCode: "CRED-001", approvalStatus: "Approved"
+      id: "supplier-1", companyName: "ABC Auto Parts", registrationNumber: "REG-1001", tinNumber: "TIN-2002", address: "Johor", phone: "012-3456789", autoCountCreditorCode: "CRED-001", status: "Active"
     }];
 
     expect(filterSupplierMaster(suppliers, "0123456789", "All")).toEqual(suppliers);
-    expect(filterSupplierMaster(suppliers, "CRED001", "Approved")).toEqual(suppliers);
-    expect(filterSupplierMaster(suppliers, "ABC", "Draft")).toEqual([]);
+    expect(filterSupplierMaster(suppliers, "CRED001", "Active")).toEqual(suppliers);
+    expect(filterSupplierMaster(suppliers, "ABC", "Inactive")).toEqual([]);
   });
 
   it("matches an OCR supplier by a unique master identifier or exact normalized company name", () => {
     const suppliers: Supplier[] = [{
-      id: "supplier-1", companyName: "LK Tint & Car Accessories Sdn. Bhd.", registrationNumber: "201901234567", tinNumber: "C1234567890", address: "Johor", phone: "016-7334699", approvalStatus: "Approved"
+      id: "supplier-1", companyName: "LK Tint & Car Accessories Sdn. Bhd.", registrationNumber: "201901234567", tinNumber: "C1234567890", address: "Johor", phone: "016-7334699", status: "Active"
     }];
 
     expect(supplierMasterMatchFromOcr(suppliers, "LK TINT CAR ACCESSORIES SDN BHD")).toEqual(suppliers[0]);
@@ -431,8 +431,8 @@ describe("supplier and refurbishment search records", () => {
 
   it("does not auto-match a receipt supplier when its OCR identifiers point to different master records", () => {
     const suppliers: Supplier[] = [
-      { id: "supplier-1", companyName: "LK Tint", address: "Johor", phone: "016-7334699", approvalStatus: "Approved" },
-      { id: "supplier-2", companyName: "LK Accessories", address: "Johor", tinNumber: "C1234567890", phone: "012-3333333", approvalStatus: "Approved" }
+      { id: "supplier-1", companyName: "LK Tint", address: "Johor", phone: "016-7334699", status: "Active" },
+      { id: "supplier-2", companyName: "LK Accessories", address: "Johor", tinNumber: "C1234567890", phone: "012-3333333", status: "Active" }
     ];
 
     expect(supplierMasterMatchFromOcr(suppliers, {

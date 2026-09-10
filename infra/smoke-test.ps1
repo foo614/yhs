@@ -932,11 +932,10 @@ $purchaseSupplier = Invoke-WebRequest -Uri "$ApiBaseUrl/api/supplier-master" -Me
 if ($purchaseSupplier.StatusCode -lt 200 -or $purchaseSupplier.StatusCode -ge 300) {
   throw "Purchase supplier creation returned HTTP $($purchaseSupplier.StatusCode)"
 }
-$approvedPurchaseSupplier = Invoke-WebRequest -Uri "$ApiBaseUrl/api/supplier-master/$purchaseSupplierId/approve" -Method Post -WebSession $financeSession -UseBasicParsing
-if ($approvedPurchaseSupplier.StatusCode -lt 200 -or $approvedPurchaseSupplier.StatusCode -ge 300) {
-  throw "Purchase supplier approval returned HTTP $($approvedPurchaseSupplier.StatusCode)"
+if (($purchaseSupplier.Content | ConvertFrom-Json).status -ne "Active") {
+  throw "New purchase supplier must be Active"
 }
-Write-Host "Purchase supplier maker-checker approval OK"
+Write-Host "Purchase supplier active after creation OK"
 
 $purchaseInvoiceBody = @{
   id = [guid]::NewGuid().ToString()
