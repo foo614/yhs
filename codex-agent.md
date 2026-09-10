@@ -239,6 +239,8 @@ Use `.codex/skills/ysheng-frontoffice/SKILL.md` for front-office tasks.
 
 Use `.codex/skills/ysheng-project/SKILL.md` for cross-stack and deployment tasks.
 
+Follow `docs/BRANCHING_STRATEGY.md` for every branch, commit, pull request, merge, and production release. Work remaining only in a worktree or task branch is not complete and must be reported as unmerged and undeployed.
+
 - Keep Docker Compose services aligned across PostgreSQL, API, worker, front office, and back office.
 - Keep local default ports aligned with documented URLs unless the user requests alternate ports.
 - Preserve healthcheck behavior for PostgreSQL, API readiness, front office, and back office.

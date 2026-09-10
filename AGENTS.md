@@ -2,6 +2,8 @@
 
 Codex must read and follow `codex-agent.md` before planning, editing, reviewing, or running commands in this repository.
 
+Codex must also follow `docs/BRANCHING_STRATEGY.md` for branch creation, commits, pull requests, merges, and production releases.
+
 ## Project guidance
 
 - Treat this repository as the shared project directory layer for all teammates.
