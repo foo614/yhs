@@ -164,9 +164,9 @@ Final local checks passed: 335 backend tests, 405 back-office tests, type checki
 - Delivery now uses one scannable workboard with four server-derived active stages: Plan delivery, Prepare car, Clear documents, and Handover. Completed and cancelled records remain visible as read-only history.
 - New delivery entry asks only for the car, an active staff PIC, date/time, and showroom or outstation details. The server locks the car's canonical buyer, starts the internal workflow state, and refuses a second active delivery for the same vehicle.
 - The workboard exposes one next action and one blocker per row. Opening a delivery expands the current stage; earlier stages remain collapsed summaries so staff do not face one long form.
-- Delivery keeps inspection booking, inspection completion, polish, tint, car wash, delivery-document preparation, insurance, road tax, windscreen insurance, customer notice, handover, and final-checklist data without exposing raw status editing.
+- Delivery keeps inspection booking, inspection completion, polish, tint, car wash, delivery-document preparation, insurance, road tax, customer notice, handover, and final-checklist data without exposing raw status editing.
 - Delivery evidence must be uploaded against the exact delivery schedule and locked buyer. Vehicle-only files or files from an older delivery do not satisfy the current plan.
-- Required delivery categories are `DeliveryDocument`, `InspectionReport`, `Policy`, `RoadTaxReceipt`, `WindscreenPolicy`, `HandoverPhoto`, and `SignedHandover`. The API detects PDF/image content before storing evidence instead of trusting the declared MIME type.
+- Required delivery categories are `DeliveryDocument`, `InspectionReport`, `Policy`, `RoadTaxReceipt`, `HandoverPhoto`, and `SignedHandover`. The API detects PDF/image content before storing evidence instead of trusting the declared MIME type.
 - Historical delivery rows without a locked buyer are not guessed or backfilled. Customer 360 may retain a conservative read-only association, while workboard update, evidence upload, and release stay blocked until Boss/Admin locks the vehicle's current canonical buyer with a reason; the server rejects correction after conflicting evidence exists. Ordinary vehicle edits cannot replace the canonical buyer once non-cancelled delivery history exists.
 - The Clear documents stage shows Finance only as Waiting or Cleared. Delivery may send a reasoned invoice-update request, but only Finance can edit invoice and payment records; an unresolved request blocks handover and release.
 - The release action requires the complete schedule-bound checklist and evidence, current coverage on the delivery date, customer notice, final handover confirmation, no open invoice-update request, and a reconciled Finance payment. Release identity and time are server-owned.
@@ -366,3 +366,5 @@ Change this before production.
 
 The project targets `.NET 10` as requested. Backend tests have been verified with the .NET 10 SDK resolved by the local toolchain.
 Docker Compose verification requires Docker Desktop with the Linux engine responding, plus free ports `3000`, `3001`, `5000`, and `5432` before `docker compose up -d` and `.\infra\smoke-test.ps1`.
+
+Delivery scheduling, rescheduling, and insurance/road-tax expiry controls use Ant Design date/time pickers while retaining `YYYY-MM-DD` dates and `HH:mm` times. Historical windscreen fields remain stored for compatibility and are not shown or required by Delivery.

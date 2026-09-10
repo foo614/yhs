@@ -41,7 +41,7 @@ foreach ($term in @(
   "Loan edit, submit, follow-up, 3-day reminder, LOU, upload document",
   "Delivery booking inspection, schedule, PIC, notification, inspection, prepare document, report",
   "Polish, tinted, wash, final checklist",
-  "Insurance, road tax, windscreen insurance",
+  "Insurance and road tax",
   "Bank prepare document, checklist, invoice generation, payment follow-up, Pending/Approve/Disbursed, accounting export, nett price",
   "Car settlement owner, deadline, amount reminder",
   "Supplier/refurbishment duplicate invoice, wrong plate, supplier multi-invoice checks, costs by plate, profit deduction",

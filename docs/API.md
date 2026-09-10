@@ -262,7 +262,7 @@ Delivery release-readiness responses include:
 - `missingCategories`: required release document categories still missing.
 - `missingEvidence`: required handover-photo or signed-handover uploads still missing.
 - `expiredDocuments`: delivery-critical expiry blockers for insurance and road tax. Windscreen expiry is not release-critical.
-- `evidence`: one item for each required release document category (`DeliveryDocument`, `InspectionReport`, `HandoverPhoto`, `SignedHandover`, `Policy`, and `RoadTaxReceipt`), with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`. `WindscreenPolicy` is optional historical evidence and does not block release.
+- `evidence`: one item for each required release document category (`DeliveryDocument`, `InspectionReport`, `HandoverPhoto`, `SignedHandover`, `Policy`, and `RoadTaxReceipt`), with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`. `WindscreenPolicy` is retained in storage for compatibility and is excluded from Delivery evidence and release requirements.
 
 For delivery release, upload every required file against the exact delivery schedule. Evidence linked only to the vehicle, another buyer, or an older delivery does not satisfy readiness. The files retain checksum, uploader, detected MIME type, timestamp, and protected download behavior; vehicle inventory photos remain separate media.
 
