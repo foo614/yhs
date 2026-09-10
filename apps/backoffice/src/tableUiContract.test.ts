@@ -83,7 +83,10 @@ describe("operational table UI contract", () => {
     const nestedLeadMarker = appSource.indexOf("dataSource={group.leads}");
     const nestedLeadTable = appSource.slice(appSource.lastIndexOf("<Table", nestedLeadMarker), appSource.indexOf("/>", nestedLeadMarker));
     expect(nestedLeadTable, "nested lead rows must rely on their parent table search").toContain("search={false}");
-    expect(appSource.match(/search=\{false\}/g), "only the parent-filtered nested lead table may disable its own query form").toHaveLength(1);
+    const priorityMarker = appSource.indexOf("dataSource={priorityEntries}");
+    const priorityTable = appSource.slice(appSource.lastIndexOf("<Table", priorityMarker), appSource.indexOf("/>", priorityMarker));
+    expect(priorityTable, "the paginated Act now queue does not need a duplicate query form").toContain("search={false}");
+    expect(appSource.match(/search=\{false\}/g), "only the parent-filtered nested lead table and paginated Act now queue may disable their own query forms").toHaveLength(2);
 
     const vehicleSource = readFileSync(join(sourceRoot, "modules/vehicles/VehiclePage.tsx"), "utf8");
     const vehicleMarker = vehicleSource.indexOf("dataSource={filteredVehicles}");

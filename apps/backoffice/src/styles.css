@@ -6151,10 +6151,43 @@ body {
   padding: 8px 0 16px;
 }
 
-.operationsCalendarDot {
-  display: block;
+.operationsCalendar .ant-picker-cell {
+  position: relative;
+}
+
+.operationsCalendar .ant-picker-cell:not(.ant-picker-cell-selected):not(.ant-picker-cell-today) .ant-picker-cell-inner:has(.operationsCalendarCellState) {
+  background: #f2f7ff;
+  box-shadow: inset 0 0 0 2px rgba(22, 119, 255, .24);
+}
+
+.operationsCalendar .ant-picker-cell-selected .ant-picker-cell-inner:has(.operationsCalendarCellState),
+.operationsCalendar .ant-picker-cell-today .ant-picker-cell-inner:has(.operationsCalendarCellState) {
+  box-shadow: inset 0 0 0 2px rgba(22, 119, 255, .3);
+}
+
+.operationsCalendar .ant-picker-cell-inner:has(.operationsCalendarCellCueBusy) {
+  outline: 1px dashed #d46b08;
+  outline-offset: -3px;
+}
+
+.operationsCalendarCellState {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.operationsCalendarCellCue {
+  display: none;
+}
+
+.operationsCalendarTimeIcon {
+  margin-inline-end: 5px;
   color: #1677ff;
-  line-height: 8px;
+  font-size: 12px;
 }
 
 .operationsCalendarEvent {
@@ -6168,6 +6201,10 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   gap: 4px;
+}
+
+.operationsCalendarEventBody > .ant-typography-secondary {
+  color: #595959;
 }
 
 @media (max-width: 767px) {

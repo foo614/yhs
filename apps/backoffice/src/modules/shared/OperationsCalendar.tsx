@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Calendar, DatePicker, Drawer, Empty, Grid, List, Space, Spin, Tag, Typography } from "antd";
+import { ClockCircleOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
 import dayjs from "dayjs";
 import { getOperationsCalendar, type OperationsCalendarEvent } from "../../api";
@@ -13,6 +14,17 @@ export function operationsCalendarEventDetail(event: OperationsCalendarEvent) {
     time: event.kind === "Delivery" ? event.time ?? "Time not set" : `${event.startDate} – ${event.endDate}`,
     status: event.kind === "Delivery" ? event.status ?? "Status unavailable" : undefined
   };
+}
+
+export function operationsCalendarCellKinds(events: OperationsCalendarEvent[]) {
+  return {
+    delivery: events.filter(event => event.kind === "Delivery").length,
+    busy: events.filter(event => event.kind === "Busy").length
+  };
+}
+
+export function hasScheduledDeliveryTime(event: OperationsCalendarEvent) {
+  return event.kind === "Delivery" && Boolean(event.time);
 }
 
 export function shouldOpenCalendarDayDrawer(source: string, isMobile: boolean) {
@@ -40,7 +52,15 @@ export function SelectedDayEvents({
                 {detail.status && <Tag>{detail.status}</Tag>}
               </Space>
               <Typography.Text strong>{event.title}</Typography.Text>
-              <Typography.Text type="secondary">{detail.time}</Typography.Text>
+              <Typography.Text type="secondary">
+                {hasScheduledDeliveryTime(event) && <ClockCircleOutlined aria-hidden="true" className="operationsCalendarTimeIcon" />}
+                {detail.time}
+              </Typography.Text>
+              {event.kind === "Delivery" && (
+                <Typography.Text type="secondary" className="operationsCalendarCustomer">
+                  Customer / 客户: {event.customerName ?? "No customer linked"}{event.customerContact ? ` · ${event.customerContact}` : ""}
+                </Typography.Text>
+              )}
             </div>
             {event.kind === "Delivery" && onOpenDelivery && <Button type="link" onClick={() => onOpenDelivery(event.id)}>Open delivery</Button>}
           </List.Item>
@@ -93,7 +113,16 @@ export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliv
     {error && <Alert type="error" showIcon message="Calendar unavailable" description={error} />}
     <Spin spinning={loading}>
       <div className="operationsCalendarLayout" ref={calendarRegionRef} tabIndex={-1} aria-label="Operations calendar">
-        <Calendar fullscreen={false} value={date} onSelect={(nextDate, info) => { setDate(nextDate); if (shouldOpenCalendarDayDrawer(info.source, isMobile)) setMobileDayDrawerOpen(true); }} headerRender={() => <Space wrap className="operationsCalendarToolbar"><Button aria-label="Previous month" onClick={() => navigateMonth(-1)}>‹</Button><DatePicker picker="month" allowClear={false} value={date} onChange={value => { if (value) { setDate(value); setMobileDayDrawerOpen(false); } }} /><Button aria-label="Next month" onClick={() => navigateMonth(1)}>›</Button><Button onClick={() => { setDate(dayjs()); setMobileDayDrawerOpen(false); }}>Today</Button></Space>} cellRender={(value, info) => info.type === "date" && eventsOnDate(events, value.format("YYYY-MM-DD")).length > 0 ? <span className="operationsCalendarDot" aria-label={`${eventsOnDate(events, value.format("YYYY-MM-DD")).length} events`}>•</span> : null} />
+        <Calendar fullscreen={false} value={date} onSelect={(nextDate, info) => { setDate(nextDate); if (shouldOpenCalendarDayDrawer(info.source, isMobile)) setMobileDayDrawerOpen(true); }} headerRender={() => <Space wrap className="operationsCalendarToolbar"><Button aria-label="Previous month" onClick={() => navigateMonth(-1)}>‹</Button><DatePicker picker="month" allowClear={false} value={date} onChange={value => { if (value) { setDate(value); setMobileDayDrawerOpen(false); } }} /><Button aria-label="Next month" onClick={() => navigateMonth(1)}>›</Button><Button onClick={() => { setDate(dayjs()); setMobileDayDrawerOpen(false); }}>Today</Button></Space>} cellRender={(value, info) => {
+          if (info.type !== "date") return null;
+          const dateEvents = eventsOnDate(events, value.format("YYYY-MM-DD"));
+          if (dateEvents.length === 0) return null;
+          const kinds = operationsCalendarCellKinds(dateEvents);
+          return <span className="operationsCalendarCellState" role="img" aria-label={`${dateEvents.length} events`}>
+            {kinds.delivery > 0 && <span className="operationsCalendarCellCue operationsCalendarCellCueDelivery" aria-hidden="true" />}
+            {kinds.busy > 0 && <span className="operationsCalendarCellCue operationsCalendarCellCueBusy" aria-hidden="true" />}
+          </span>;
+        }} />
         <section className="operationsCalendarDesktopAgenda" aria-label="Selected day events">
           <Typography.Title level={5}>{date.format("ddd, D MMM YYYY")}</Typography.Title>
           {!error && <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}

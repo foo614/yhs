@@ -262,6 +262,8 @@ public sealed class ApiDocumentationTests
         Assert.Contains("at most 93 days", calendar);
         Assert.Contains("`status`", calendar);
         Assert.Contains("Busy events have null time and status", calendar);
+        Assert.Contains("Staff with `CustomerRead` receive the linked customer's name and contact", calendar);
+        Assert.Contains("Other authenticated staff receive only `Customer linked` with no contact", calendar);
         Assert.Contains("Delivery API authorization is unchanged", calendar);
         Assert.Contains("locked collection is `Pending`", apiDocs);
         var payment = new PaymentRecord { VehicleId = Guid.NewGuid() };

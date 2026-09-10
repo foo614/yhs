@@ -16,6 +16,16 @@ namespace YSHeng.Api.Tests;
 public sealed class BusinessRulesTests
 {
     [Fact]
+    public void Operations_calendar_customer_context_obeys_customer_read_access()
+    {
+        var customer = new Customer { Name = "Ali Tan", Phone = "0123456789" };
+
+        Assert.Equal(new OperationsCalendarCustomerContext("Ali Tan", "0123456789", "Full"), OperationsCalendarPrivacy.CustomerContext(customer, ["Sales"]));
+        Assert.Equal(new OperationsCalendarCustomerContext("Customer linked", null, "Hidden"), OperationsCalendarPrivacy.CustomerContext(customer, ["Repair"]));
+        Assert.Equal(new OperationsCalendarCustomerContext("No customer linked", null, "NotLinked"), OperationsCalendarPrivacy.CustomerContext(null, ["Sales"]));
+    }
+
+    [Fact]
     public void Ai_usage_limit_validation_allows_zero_as_a_hard_stop_and_rejects_invalid_limits()
     {
         Assert.Empty(AiUsageLimitRules.Validate(new UpdateAiServiceLimitRequest(true, 0, 0)));

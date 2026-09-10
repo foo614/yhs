@@ -204,21 +204,24 @@ app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest requ
 
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
 
-// Shared staff calendar intentionally excludes customer, finance, leave reason and trip details.
-backOffice.MapGet("/operations-calendar", async (DateOnly from, DateOnly to, AppDbContext db, UserManager<AppUser> userManager) =>
+// Shared staff calendar excludes finance, leave reason and trip details; customer contact remains role-scoped.
+backOffice.MapGet("/operations-calendar", async (DateOnly from, DateOnly to, AppDbContext db, UserManager<AppUser> userManager, HttpContext context) =>
 {
     if (to < from || to.DayNumber - from.DayNumber > 92)
         return Results.BadRequest(new ApiError("Calendar range must be valid and no longer than 93 days."));
     var deliveries = await (from delivery in db.DeliverySchedules.AsNoTracking()
                             join vehicle in db.Vehicles.AsNoTracking() on delivery.VehicleId equals vehicle.Id
                             where delivery.ScheduledDate >= @from && delivery.ScheduledDate <= to && delivery.Status != DeliveryStatus.Cancelled
-                            select new { delivery.Id, vehicle.PlateNumber, delivery.ScheduledDate, delivery.ScheduledTime, delivery.Status }).ToListAsync();
+                            select new { delivery.Id, delivery.CustomerId, vehicle.PlateNumber, delivery.ScheduledDate, delivery.ScheduledTime, delivery.Status }).ToListAsync();
+    var customerIds = deliveries.Where(item => item.CustomerId.HasValue).Select(item => item.CustomerId!.Value).Distinct().ToList();
+    var customers = await db.Customers.AsNoTracking().Where(customer => customerIds.Contains(customer.Id)).ToDictionaryAsync(customer => customer.Id);
+    var roles = SeedData.Roles.Where(context.User.IsInRole).ToArray();
     var staff = await userManager.Users.AsNoTracking().ToDictionaryAsync(user => user.Id, user => user.DisplayName);
     var leaves = await db.HrLeaveRequests.AsNoTracking().Where(item => item.Status == HrLeaveStatus.Approved && item.StartDate <= to && item.EndDate >= from).ToListAsync();
     var trips = await db.HrBusinessTrips.AsNoTracking().Where(item => item.Status == HrBusinessTripStatus.Approved && item.StartDate <= to && item.EndDate >= from).ToListAsync();
-    var events = deliveries.Select(item => new { Id = item.Id.ToString(), Kind = "Delivery", Title = item.PlateNumber, StartDate = item.ScheduledDate, EndDate = item.ScheduledDate, Time = item.ScheduledTime?.ToString("HH:mm"), Status = (string?)item.Status.ToString() }).ToList();
-    events.AddRange(leaves.Select(item => new { Id = item.Id.ToString(), Kind = "Busy", Title = staff.GetValueOrDefault(item.StaffUserId, "Staff"), StartDate = item.StartDate < from ? from : item.StartDate, EndDate = item.EndDate > to ? to : item.EndDate, Time = (string?)null, Status = (string?)null }));
-    events.AddRange(trips.Select(item => new { Id = item.Id.ToString(), Kind = "Busy", Title = staff.GetValueOrDefault(item.StaffUserId, "Staff"), StartDate = item.StartDate < from ? from : item.StartDate, EndDate = item.EndDate > to ? to : item.EndDate, Time = (string?)null, Status = (string?)null }));
+    var events = deliveries.Select(item => { var customer = OperationsCalendarPrivacy.CustomerContext(item.CustomerId.HasValue ? customers.GetValueOrDefault(item.CustomerId.Value) : null, roles); return new { Id = item.Id.ToString(), Kind = "Delivery", Title = item.PlateNumber, StartDate = item.ScheduledDate, EndDate = item.ScheduledDate, Time = item.ScheduledTime?.ToString("HH:mm"), Status = (string?)item.Status.ToString(), CustomerName = (string?)customer.Name, CustomerContact = customer.Contact, CustomerAccess = (string?)customer.Access }; }).ToList();
+    events.AddRange(leaves.Select(item => new { Id = item.Id.ToString(), Kind = "Busy", Title = staff.GetValueOrDefault(item.StaffUserId, "Staff"), StartDate = item.StartDate < from ? from : item.StartDate, EndDate = item.EndDate > to ? to : item.EndDate, Time = (string?)null, Status = (string?)null, CustomerName = (string?)null, CustomerContact = (string?)null, CustomerAccess = (string?)null }));
+    events.AddRange(trips.Select(item => new { Id = item.Id.ToString(), Kind = "Busy", Title = staff.GetValueOrDefault(item.StaffUserId, "Staff"), StartDate = item.StartDate < from ? from : item.StartDate, EndDate = item.EndDate > to ? to : item.EndDate, Time = (string?)null, Status = (string?)null, CustomerName = (string?)null, CustomerContact = (string?)null, CustomerAccess = (string?)null }));
     return Results.Ok(events.OrderBy(item => item.StartDate).ThenBy(item => item.Time).ThenBy(item => item.Title));
 });
 
