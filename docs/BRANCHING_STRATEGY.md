@@ -7,15 +7,17 @@ This repository uses short-lived task branches and pull requests into `main`. A 
 - `origin/main` is the only integration and production-release source of truth.
 - Never deploy a task branch or a dirty working tree to production.
 - Keep every task branch focused on one coherent change. Split unrelated work before review.
-- Use the `codex/` prefix for Codex-created branches, followed by the ticket or purpose, for example `codex/foo-123-finance-filter-spacing`.
+- Every feature, fix, refactor, and operational change must have a real Linear ticket before implementation begins.
+- Bind the branch to that ticket by using the `codex/<linear-ticket>-<purpose>` format, for example `codex/foo-123-finance-filter-spacing`. Use the ticket key exactly as Linear provides it, normalized to lowercase in the branch name.
+- Documentation-only emergency corrections may omit a Linear ticket only when the user explicitly authorizes the exception; record the reason in the pull request.
 
 ## Required workflow
 
 1. Start from a current `origin/main` in a clean, isolated worktree.
-2. Create one short-lived task branch.
+2. Confirm the Linear ticket and create one short-lived task branch whose name contains that ticket key.
 3. Make narrow commits whose messages describe the user-visible or operational result.
 4. Run the focused tests for each behavior change, then the broader checks required by `codex-agent.md`.
-5. Push the branch and open a pull request targeting `main`.
+5. Push the branch and open a pull request targeting `main`. Put the Linear ticket key in the pull-request title or description so the branch, review, and delivery record are traceable.
 6. Resolve conflicts against the latest `origin/main`; rerun affected checks after conflict resolution.
 7. Obtain required review and wait for all required CI and security checks to pass.
 8. Merge the pull request into `main`.
@@ -29,6 +31,7 @@ This repository uses short-lived task branches and pull requests into `main`. A 
 A requested production change is complete only when all applicable items below are true:
 
 - the intended files are committed;
+- the branch and pull request are linked to the correct Linear ticket;
 - no requested change remains only in a dirty worktree;
 - the task branch is pushed;
 - the pull request is merged into `main`;
