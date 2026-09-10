@@ -245,8 +245,8 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `POST` / `PUT` | `/api/supplier-master` | `Repairs` | Create an immediately usable `Active` supplier, or edit an existing supplier and set `Active`/`Inactive` status. Activation and deactivation are audited. Historical approval metadata is preserved. Only Active suppliers may be newly selected; historical records retain inactive supplier references. Repair high-cost and Finance payment approval are unchanged. |
 | `GET` | `/api/supplier-invoices` | `Repairs` | List supplier invoices. |
 | `GET` | `/api/supplier-invoices/aging` | `Repairs` | Supplier invoice aging view for unmatched, due-soon, overdue, and paid states. |
-| `POST` | `/api/supplier-invoices` | `Repairs` | Create supplier invoice. |
-| `PUT` | `/api/supplier-invoices/{id}` | `Repairs` | Update supplier invoice. |
+| `POST` | `/api/supplier-invoices` | `Repairs` | Create supplier invoice. Amount must be positive with no more than two decimal places; when supplied, due and paid dates cannot precede the invoice date. |
+| `PUT` | `/api/supplier-invoices/{id}` | `Repairs` | Update supplier invoice with the same amount and date validation. Legacy records may retain no invoice date. |
 | `GET` | `/api/leads` | `Sales` | List public and back-office leads. |
 | `PUT` | `/api/leads/{id}` | `Sales` | Update lead/customer link/status. |
 | `GET` | `/api/sales/workboard?agentUserId={id}` | `Sales` | Return `Sold this month` and assigned cars for the `Cars I’m Handling` view, with the current process and combined current handoff (responsible department plus next action). Sales is server-scoped to the signed-in agent; Boss/Admin may select an agent. |

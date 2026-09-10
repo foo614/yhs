@@ -147,9 +147,10 @@ Final local checks passed: 335 backend tests, 405 back-office tests, type checki
 - Purchase invoices can now be edited from the Vehicles screen so staff can correct purchase amount, invoice number, or car-plate linkage without duplicate invoice records.
 - Purchase invoices reject duplicate invoice numbers with normalized spacing/case before purchase costs are recorded twice.
 - The Vehicles purchase invoice form warns before submitting duplicate invoice numbers, blank invoice numbers, or non-positive purchase amounts.
-- Supplier invoices reject blank supplier names or invoice numbers, duplicate supplier/invoice pairs with normalized spacing/case, and unknown vehicle links before repair costs enter the workflow.
+- Supplier invoices reject blank supplier names or invoice numbers, duplicate supplier/invoice pairs with normalized spacing/case, unknown vehicle links, amounts that are non-positive or have more than two decimal places, and due/paid dates earlier than the invoice date.
 - Supplier invoices can capture the plate printed on the supplier invoice and reject wrong-plate mismatches against the selected car plate.
-- Supplier invoices can now be edited from the Repair screen so staff can correct supplier, invoice, printed-plate, or amount mistakes while preserving duplicate and wrong-plate validation.
+- Supplier invoices can now be edited from the Repair screen so staff can correct supplier, invoice, printed-plate, amount, or optional dates while preserving duplicate, wrong-plate, amount, and date validation; legacy records with no invoice date remain valid.
+- Manual Repair creation and supplier-invoice editing use a strict RM amount input and calendar date pickers that retain the `YYYY-MM-DD` API format. Vehicle selectors show the plate above year/make/model and search by plate, make, or model.
 - The Repair task entry form warns before submitting duplicate supplier/invoice pairs, blank supplier invoice fields, wrong invoice plates, or non-positive repair amounts.
 - The Repair task entry form also warns before creating a repair row with a blank task description or negative repair cost.
 - The Repair task entry form captures Repair Part / Spare Part separately from the task action so refurbishment records match the original Repair Part, What To Do, and Checklist workflow.

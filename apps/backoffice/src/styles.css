@@ -2762,6 +2762,32 @@ body {
   margin-bottom: 0;
 }
 
+.repairVehicleOption {
+  display: grid;
+  gap: 1px;
+  line-height: 1.35;
+}
+
+.repairVehicleOption span {
+  color: #687c75;
+  font-size: 12px;
+}
+
+.repairVehicleSelect.ant-select-single {
+  height: 46px;
+}
+
+.repairVehicleSelect .ant-select-selector {
+  height: auto !important;
+  min-height: 42px;
+  align-items: center;
+}
+
+.repairVehicleSelect .ant-select-selection-item {
+  display: grid;
+  line-height: 1.35;
+}
+
 .repairReceiptStart {
   display: grid;
   gap: 8px;

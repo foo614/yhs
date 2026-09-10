@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
 import {
   AuditOutlined,
@@ -19,7 +19,7 @@ import {
   UserOutlined
 } from "@ant-design/icons";
 import { PageContainer, ProCard, ProLayout } from "@ant-design/pro-components";
-import dayjs from "dayjs";
+import dayjs, { type Dayjs } from "dayjs";
 import {
   Alert,
   Badge,
@@ -50,6 +50,7 @@ import {
   message,
   notification
 } from "antd";
+import type { InputProps, InputRef } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
@@ -66,8 +67,8 @@ import {
   type LeadVehicleGroup,
   type LeadLinkFilter
 } from "./leads";
-import { customerCreateBlockReason, ownerCreateBlockReason } from "./contacts";
-import { filterRefurbishmentRecords, isRepairCostFinal, isSupplierUsable, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
+import { supplierApprovalBlockReason } from "./finance";
+import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
 import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
@@ -3176,6 +3177,94 @@ function matchesOperationalSearch(keyword: string, values: Array<string | undefi
   });
 }
 
+function receiptTotalText(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? String(value) : "";
+}
+
+type ReceiptTotalInputProps = Omit<InputProps, "value" | "onChange"> & {
+  value?: number | null;
+  onChange?: (amount?: number) => void;
+};
+
+const ReceiptTotalInput = forwardRef<InputRef, ReceiptTotalInputProps>(function ReceiptTotalInput({ value, onChange, className, ...inputProps }, ref) {
+  const [inputValue, setInputValue] = useState(() => receiptTotalText(value));
+  const lastEmittedValue = useRef<number | undefined>(receiptTotalFromInput(receiptTotalText(value)));
+
+  useEffect(() => {
+    const nextValue = receiptTotalFromInput(receiptTotalText(value));
+    if (nextValue === lastEmittedValue.current) return;
+    lastEmittedValue.current = nextValue;
+    setInputValue(receiptTotalText(value));
+  }, [value]);
+
+  return (
+    <Input
+      {...inputProps}
+      ref={ref}
+      className={["fullWidth", className].filter(Boolean).join(" ")}
+      prefix="RM"
+      inputMode="decimal"
+      autoComplete="off"
+      value={inputValue}
+      onChange={(event) => {
+        const nextInput = event.target.value;
+        if (!isReceiptTotalInputText(nextInput)) return;
+        const nextAmount = receiptTotalFromInput(nextInput);
+        setInputValue(nextInput);
+        lastEmittedValue.current = nextAmount;
+        onChange?.(nextAmount);
+      }}
+    />
+  );
+});
+
+function supplierInvoiceDateValue(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const date = dayjs(value);
+  return date.isValid() && date.format("YYYY-MM-DD") === value ? value : undefined;
+}
+
+function supplierInvoiceDatePickerProps(value: unknown) {
+  const date = supplierInvoiceDateValue(value);
+  return { value: date ? dayjs(date) : null };
+}
+
+function supplierInvoiceDateFromPicker(value: Dayjs | null) {
+  return value?.isValid() ? value.format("YYYY-MM-DD") : undefined;
+}
+
+function handleInvoiceDateKeyDown(event: { key: string; preventDefault: () => void }) {
+  // Enter confirms the calendar value without submitting the surrounding form.
+  if (event.key === "Enter") event.preventDefault();
+}
+
+function supplierInvoiceDateRule(field: "dueDate" | "paidAt") {
+  return ({ getFieldValue }: { getFieldValue: (name: string) => unknown }) => ({
+    validator: async (_: unknown, value?: string) => {
+      const invoiceDate = supplierInvoiceDateValue(getFieldValue("invoiceDate"));
+      const blockReason = field === "dueDate"
+        ? supplierInvoiceDateBlockReason({ invoiceDate, dueDate: supplierInvoiceDateValue(value) })
+        : supplierInvoiceDateBlockReason({ invoiceDate, paidAt: supplierInvoiceDateValue(value) });
+      if (blockReason) throw new Error(blockReason);
+    }
+  });
+}
+
+const supplierInvoiceAmountRules = [{
+  validator: async (_: unknown, value?: number) => {
+    if (value === undefined || !Number.isFinite(value) || value <= 0) {
+      throw new Error("Supplier invoice amount must be greater than RM 0.00.");
+    }
+    if (!hasAtMostTwoDecimalPlaces(value)) {
+      throw new Error("Supplier invoice amount cannot have more than two decimal places.");
+    }
+  }
+}];
+
+function repairVehicleDescription(vehicle: VehicleLookup) {
+  return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
+}
+
 function RepairPage({
   vehicles,
   supplierInvoices,
@@ -3232,6 +3321,12 @@ function RepairPage({
   const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId);
   const selectedSupplierInvoice = supplierInvoices.find((invoice) => invoice.id === editSupplierInvoiceId);
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
+  const repairVehicleOptions = vehicles.map((vehicle) => ({
+    value: vehicle.id,
+    label: `${vehicle.plateNumber} · ${repairVehicleDescription(vehicle)}`,
+    plateNumber: vehicle.plateNumber,
+    vehicleDescription: repairVehicleDescription(vehicle)
+  }));
 
   const reloadSupplierMaster = useCallback(async () => {
     try {
@@ -3654,10 +3749,10 @@ function RepairPage({
                 supplierName: supplierMaster.find((supplier) => supplier.id === values.supplierId)?.companyName ?? values.supplierName,
                 invoiceNumber: values.invoiceNumber,
                 plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined,
-                invoiceDate: values.invoiceDate?.trim() || undefined,
+                invoiceDate: supplierInvoiceDateValue(values.invoiceDate),
                 amount: Number(values.amount ?? 0),
-                dueDate: values.dueDate?.trim() || undefined,
-                paidAt: values.paidAt?.trim() || undefined
+                dueDate: supplierInvoiceDateValue(values.dueDate),
+                paidAt: supplierInvoiceDateValue(values.paidAt)
               };
               const blockReason = supplierInvoiceCreateBlockReason(invoice, supplierInvoices, vehicles);
               if (blockReason) {
@@ -3669,14 +3764,17 @@ function RepairPage({
             }}
           >
             <Form.Item name="id" label="Selected Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+            <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select className="repairVehicleSelect" showSearch optionFilterProp="label" options={repairVehicleOptions} optionRender={(option) => <div className="repairVehicleOption"><strong>{option.data.plateNumber}</strong><span>{option.data.vehicleDescription}</span></div>} labelRender={(selected) => {
+               const vehicle = vehicles.find((item) => item.id === selected.value);
+               return vehicle ? <div className="repairVehicleOption"><strong>{vehicle.plateNumber}</strong><span>{repairVehicleDescription(vehicle)}</span></div> : selected.label;
+             }} /></Form.Item>
             <Form.Item name="supplierId" label="Supplier" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierMaster.filter((supplier) => isSupplierUsable(supplier) || supplier.id === selectedSupplierInvoice.supplierId).map((supplier) => ({ value: supplier.id, label: supplier.status === "Inactive" ? `${supplier.companyName} (Inactive; retained record)` : supplier.companyName, disabled: supplier.status === "Inactive" }))} /></Form.Item>
             <Form.Item name="invoiceNumber" label="Invoice" rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="invoiceDate" label="Invoice date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="invoiceDate" label="Invoice date" getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
             <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
-            <Form.Item name="amount" label="Amount"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="dueDate" label="Due Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="paidAt" label="Paid Date"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="amount" label="Amount / 金额 (RM)" rules={supplierInvoiceAmountRules}><ReceiptTotalInput /></Form.Item>
+            <Form.Item name="dueDate" label="Due Date" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("dueDate")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
+            <Form.Item name="paidAt" label="Paid Date" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("paidAt")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Supplier Invoice</Button></Form.Item>
           </Form>
         </ProCard>
@@ -3997,8 +4095,8 @@ function RepairPage({
               plateNumberOnInvoice: String(values.plateNumberOnInvoice ?? "").trim() || undefined,
               invoiceDate: dayjs().format("YYYY-MM-DD"),
               amount: Number(values.amount ?? 0),
-              dueDate: String(values.dueDate ?? "").trim() || undefined,
-              paidAt: String(values.paidAt ?? "").trim() || undefined
+              dueDate: supplierInvoiceDateValue(values.dueDate),
+              paidAt: supplierInvoiceDateValue(values.paidAt)
             };
             const invoiceBlockReason = supplierInvoiceCreateBlockReason({ ...invoice, plateNumberOnInvoice: undefined }, supplierInvoices, vehicles);
             if (invoiceBlockReason) {
@@ -4046,10 +4144,10 @@ function RepairPage({
             supplierName: supplierMaster.find((supplier) => supplier.id === values.supplierId)?.companyName ?? values.supplierName,
             invoiceNumber: values.invoiceNumber,
             plateNumberOnInvoice: values.plateNumberOnInvoice?.trim() || undefined,
-            invoiceDate: values.invoiceDate?.trim() || dayjs().format("YYYY-MM-DD"),
+            invoiceDate: supplierInvoiceDateValue(values.invoiceDate) ?? dayjs().format("YYYY-MM-DD"),
             amount: Number(values.amount ?? 0),
-            dueDate: values.dueDate?.trim() || undefined,
-            paidAt: values.paidAt?.trim() || undefined
+            dueDate: supplierInvoiceDateValue(values.dueDate),
+            paidAt: supplierInvoiceDateValue(values.paidAt)
           };
           const blockReason = supplierInvoiceCreateBlockReason(invoice, supplierInvoices, vehicles);
           if (blockReason) {
@@ -4086,7 +4184,7 @@ function RepairPage({
           }
 
           await saveRepair();
-        }} initialValues={{ vehicleId: vehicles[0]?.id, checklistDone: "pending" }}>
+        }} initialValues={{ vehicleId: vehicles[0]?.id, checklistDone: "pending", invoiceDate: dayjs().format("YYYY-MM-DD") }}>
           <div className="repairCreateContext">
             <div className="repairCreateContextHeading">
               <Typography.Text strong>Car & supplier / 车辆与供应商</Typography.Text>
@@ -4097,7 +4195,10 @@ function RepairPage({
               </Typography.Text>
             </div>
             <div className="repairCreateContextFields">
-              <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+              <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select className="repairVehicleSelect" showSearch optionFilterProp="label" options={repairVehicleOptions} optionRender={(option) => <div className="repairVehicleOption"><strong>{option.data.plateNumber}</strong><span>{option.data.vehicleDescription}</span></div>} labelRender={(selected) => {
+                const vehicle = vehicles.find((item) => item.id === selected.value);
+                return vehicle ? <div className="repairVehicleOption"><strong>{vehicle.plateNumber}</strong><span>{repairVehicleDescription(vehicle)}</span></div> : selected.label;
+              }} /></Form.Item>
               <Form.Item
                 name="supplierId"
                 label="Supplier"
@@ -4248,10 +4349,10 @@ function RepairPage({
               </div>
               <div className="repairManualFields">
                 <Form.Item name="invoiceNumber" label="Receipt / Invoice reference" rules={[{ required: true }]}><Input /></Form.Item>
-                <Form.Item name="amount" label="Receipt total / 收据总额 (RM)"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-                <Form.Item name="invoiceDate" label="Invoice date / 发票日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-                <Form.Item name="dueDate" label="Payment due date / 付款到期日"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-                <Form.Item name="paidAt" label="Paid date / 付款日期"><Input placeholder="YYYY-MM-DD" /></Form.Item>
+                <Form.Item name="amount" label="Receipt total / 收据总额 (RM)" rules={supplierInvoiceAmountRules}><ReceiptTotalInput /></Form.Item>
+                <Form.Item name="invoiceDate" label="Invoice date / 发票日期" getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
+                <Form.Item name="dueDate" label="Payment due date / 付款到期日" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("dueDate")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
+                <Form.Item name="paidAt" label="Paid date / 付款日期" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("paidAt")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
                 <Form.Item className="repairManualFieldFullWidth" name="plateNumberOnInvoice" label="Plate on receipt / invoice / 发票车牌"><Input placeholder="Plate number printed on the receipt or invoice" /></Form.Item>
                 <Form.Item className="repairManualFieldFullWidth" name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement" /></Form.Item>
               </div>
