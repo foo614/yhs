@@ -2489,6 +2489,10 @@ export async function getVehicleDocumentsStrict(vehicleId: string, errorMessage 
   return request<VehicleDocument[]>(`/api/vehicles/${vehicleId}/documents`, {}, errorMessage);
 }
 
+export async function deleteLoanDocument(vehicleId: string, documentId: string): Promise<void> {
+  await request<void>(`/api/vehicles/${vehicleId}/loan-documents/${documentId}`, { method: "DELETE" }, "Unable to remove loan document");
+}
+
 export async function getVehicleOcrJobs(vehicleId: string): Promise<VehicleOcrJob[]> {
   try {
     const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/ocr-jobs`, { credentials: "include" });

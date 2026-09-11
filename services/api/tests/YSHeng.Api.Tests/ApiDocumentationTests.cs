@@ -297,6 +297,26 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Loan_document_delete_is_category_authorized_composite_scoped_audited_and_documented()
+    {
+        var root = FindRepositoryRoot();
+        var apiDocs = File.ReadAllText(Path.Combine(root, "docs", "API.md"));
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var routeStart = program.IndexOf("backOffice.MapDelete(\"/vehicles/{id:guid}/loan-documents/{documentId:guid}\"", StringComparison.Ordinal);
+        var routeEnd = program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/documents/{documentId:guid}/content\"", routeStart, StringComparison.Ordinal);
+        Assert.True(routeStart >= 0 && routeEnd > routeStart);
+        var route = program[routeStart..routeEnd];
+
+        Assert.Contains("item.Id == documentId && item.VehicleId == id", route);
+        Assert.Contains("FileCategory.Voc", route);
+        Assert.Contains("DepartmentAccess.CanUploadDocument(roles, document.Category)", route);
+        Assert.Contains("db.OcrJobs.RemoveRange(ocrJobs)", route);
+        Assert.Contains("db.DocumentBlobs.Remove(document)", route);
+        Assert.Contains("ApiAudit.Add(db, context.User, \"loan.document.deleted\", nameof(DocumentBlob), document.Id)", route);
+        Assert.Contains("| `DELETE` | `/api/vehicles/{id}/loan-documents/{documentId}` | Category-specific role |", apiDocs);
+    }
+
+    [Fact]
     public void Api_reference_enum_values_match_domain_models()
     {
         var root = FindRepositoryRoot();
