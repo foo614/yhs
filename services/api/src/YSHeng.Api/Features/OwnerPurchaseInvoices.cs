@@ -608,7 +608,7 @@ public static class OwnerPurchaseInvoicePdf
         FillRectangle(page, 0, 752, PageWidth, 90, "0.055 0.18 0.16");
         DrawText(page, "YS HENG | FINANCE OPERATIONS", "/F2", 9, LeftMargin, 816, "1 1 1");
         DrawText(page, pageNumber == 1 ? "PURCHASE INVOICE / 收车发票" : "PURCHASE INVOICE / 收车发票 — CONTINUED", "/F2", 19, LeftMargin, 786, "1 1 1");
-        DrawText(page, invoiceNumber, "/F2", 10, 365, 816, "1 1 1");
+        DrawText(page, $"INVOICE {invoiceNumber}", "/F2", 9, LeftMargin, 761, "1 1 1");
         FillRectangle(page, 433, 774, 112, 24, "0.12 0.43 0.36");
         DrawText(page, $"VERSION {revisionNumber}", "/F2", 9, 459, 781, "1 1 1");
 
