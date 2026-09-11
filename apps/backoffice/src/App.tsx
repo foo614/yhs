@@ -6065,34 +6065,46 @@ function SystemFlowReference() {
       detail: "Public enquiry or walk-in customer is captured, qualified, and linked to a customer record."
     },
     {
-      title: "2. Vehicle Intake",
+      title: "2. Vehicle Intake & Cost",
       owner: "Sales + Admin",
-      records: ["Vehicle", "Purchase Invoice", "Owner"],
-      detail: "Stock is created with plate, owner, purchase cost, selling price, management approval, and website visibility."
+      records: ["Vehicle", "Previous Owner", "VOC", "Purchase Invoice"],
+      detail: "Create the stock record, verify the previous owner and VOC, record real and modified purchase cost, then obtain management price approval before publishing."
     },
     {
       title: "3. Refurbishment",
       owner: "Repair",
       records: ["Repair Job", "Supplier Invoice"],
-      detail: "Repair checklist, parts, supplier invoice checks, and refurbishment cost are linked to the car plate."
+      detail: "Active suppliers, repair work, receipts, classified costs, and completion evidence stay linked to the car plate."
     },
     {
-      title: "4. Loan Workflow",
-      owner: "Loan",
-      records: ["Loan Application", "Loan Documents"],
-      detail: "Loan documents, LOU approve/done status, and follow-up reminders move the vehicle out of ready stock."
+      title: "4. Confirm Buyer & Sale",
+      owner: "Sales + Finance",
+      records: ["Buyer", "Sales Agent", "Sales Invoice"],
+      detail: "Confirm the canonical buyer and sales agent, then Finance reviews the approved sale amounts before issuing the formal sales invoice."
     },
     {
-      title: "5. Delivery Prep",
-      owner: "Delivery",
-      records: ["Delivery Schedule", "Policy", "Road Tax"],
-      detail: "Inspection, documents, polish, tinted, wash, insurance, road tax, and 2-day release notification are tracked."
+      title: "5. Finance Path",
+      owner: "Loan or Finance",
+      records: ["Loan Application", "Customer Receipt", "Bank Follow-up"],
+      detail: "Use the Loan workflow only for financed sales. Cash sales go directly to Finance collection. Record receipts against the issued invoice and reconcile the actual money received."
     },
     {
-      title: "6. Finance Close",
+      title: "6. Previous Owner Settlement",
       owner: "Finance",
-      records: ["Payment", "Settlement", "Voucher"],
-      detail: "Receipts, invoices, bank follow-up, settlement reminders, profit estimate, and payment status are reconciled."
+      records: ["Settlement", "Payment Voucher", "Payment Evidence"],
+      detail: "Review the real purchase amount and bank debt, then collect or pay the difference with maker, approver, and payer controls."
+    },
+    {
+      title: "7. Delivery & Handover",
+      owner: "Delivery",
+      records: ["Delivery Schedule", "Inspection", "Policy", "Road Tax", "Handover"],
+      detail: "Complete the vehicle, document, customer-notice, and handover gates. Release only after Finance reconciliation and required evidence are complete."
+    },
+    {
+      title: "8. Final Close",
+      owner: "Finance + Admin",
+      records: ["Finance Clearance", "Audit Log", "Customer 360"],
+      detail: "Confirm delivery release and money reconciliation, close remaining exceptions, and retain the full customer, vehicle, document, and audit history."
     }
   ];
 
@@ -6104,8 +6116,8 @@ function SystemFlowReference() {
     },
     {
       role: "Sales" as StaffRole,
-      owns: "Leads, customer follow-up, vehicle intake, website stock visibility.",
-      handoff: "Hands confirmed buyer to Loan and closes sales notes before Delivery/Finance."
+      owns: "Leads, customer follow-up, vehicle intake, buyer confirmation, sales-agent ownership, and website stock visibility.",
+      handoff: "Hands the confirmed buyer to Loan for financed sales or directly to Finance for cash collection."
     },
     {
       role: "Repair" as StaffRole,
@@ -6115,17 +6127,17 @@ function SystemFlowReference() {
     {
       role: "Loan" as StaffRole,
       owns: "Loan submission, document checklist, LOU approve/done, 3-day follow-up.",
-      handoff: "Moves approved buyer to Delivery preparation."
+      handoff: "Handles financed sales only, then hands the approved buyer to Finance collection and Delivery preparation."
     },
     {
       role: "Delivery" as StaffRole,
       owns: "Inspection booking, release schedule, document prep, road tax, policy, final cleaning checklist.",
-      handoff: "Sends 2-day notice and marks release readiness before Finance final close."
+      handoff: "Sends the customer notice and completes handover only after operational evidence and Finance clearance are ready."
     },
     {
       role: "Finance" as StaffRole,
-      owns: "Payment receipts/invoices, bank follow-up, settlement deadline/amount, vouchers.",
-      handoff: "Reconciles money movement and flags overdue settlement."
+      owns: "Sales invoices, customer receipts, bank follow-up, previous-owner settlement, vouchers, and reconciliation.",
+      handoff: "Clears money movement for Delivery release and flags unresolved collection or settlement exceptions."
     },
     {
       role: "HrSalary" as StaffRole,
@@ -6167,10 +6179,11 @@ function SystemFlowReference() {
           direction="vertical"
           size="small"
           items={[
-            { title: "Vehicle record created", description: "Sales creates the stock record and uploads purchase/VOC/AP documents where available." },
-            { title: "Management approves economics", description: "Admin confirms stock owner, purchase cost, selling price, and publish readiness." },
-            { title: "Department modules update same vehicle", description: "Repair, Loan, Delivery, and Finance update their own records against the same car plate." },
-            { title: "Finance closes and Audit Log records", description: "Payment, settlement, and status changes are visible in dashboard/audit trail for management review." }
+            { title: "Intake and price approval", description: "Sales records the vehicle, previous owner, VOC, real purchase cost, modified cost, and selling price; management approves before publishing." },
+            { title: "Buyer and invoice confirmed", description: "Sales confirms the buyer and sales agent. Finance reviews the approved amounts and issues the formal sales invoice." },
+            { title: "Cash or loan path completed", description: "Financed sales complete the Loan workflow; cash sales proceed directly to collection. Finance records receipts and reconciles cleared money." },
+            { title: "Settlement and delivery cleared", description: "Finance completes the previous-owner settlement and payment controls. Delivery releases only after operational evidence and Finance clearance are complete." },
+            { title: "Final close retained", description: "Customer 360 and the Audit Log retain the complete sale, finance, document, and handover history." }
           ]}
         />
       </ProCard>
@@ -6219,7 +6232,7 @@ function SystemFlowReference() {
         className="operationalInfoAlert"
         type="info"
         showIcon
-        message="CP58 is a planned extension owned by HR Payroll or Finance, with Admin checks and management approval."
+        message="Loan is optional. Cash sales move from confirmed buyer and sales invoice directly to Finance collection; financed sales pass through Loan first."
       />
     </Space>
   );
