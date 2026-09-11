@@ -237,6 +237,8 @@ public sealed class OwnerPurchaseInvoiceTests
         Assert.True(System.Text.RegularExpressions.Regex.Matches(pdf, "/Type /Page /Parent").Count > 1);
         Assert.Contains(Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes("末尾说明")), pdf);
         Assert.Contains("/BaseFont /Helvetica", pdf);
+        Assert.Contains("0.055 0.18 0.16 rg", pdf);
+        Assert.Contains("0.91 0.96 0.95 rg", pdf);
         Assert.Contains("Invoice YSH-PINV-2026-000099  |  Version 2  |  Page 1 of", pdf);
         using var document = PdfDocument.Open(content, ParsingOptions.LenientParsingOff);
         Assert.True(document.NumberOfPages > 1);

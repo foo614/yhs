@@ -420,6 +420,8 @@ describe("structured purchase invoice entry", () => {
     const initialValues = purchaseInvoiceCreateInitialValues("vehicle-2", [inactiveSupplier, activeSupplier]);
 
     expect(markup).toContain("Generate Purchase Invoice");
+    expect(markup).not.toContain("Reset");
+    expect(markup).not.toContain("Search");
     expect(initialValues.vehicleId).toBe("vehicle-2");
     expect(initialValues.supplierId).toBe("supplier-active");
     expect(initialValues.lines).toEqual([{ lineType: "VehiclePurchase", description: "Vehicle purchase", capitaliseIntoVehicleCost: true }]);

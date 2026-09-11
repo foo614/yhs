@@ -456,8 +456,8 @@ public static class OwnerPurchaseInvoicePdf
     private const int LeftMargin = 50;
     private const int RightMargin = 50;
     private const int BodyFontSize = 10;
-    private const int BodyLineHeight = 15;
-    private const int FirstBodyBaseline = 766;
+    private const int BodyLineHeight = 14;
+    private const int FirstBodyBaseline = 708;
     private const int FooterBaseline = 35;
     private const int MaximumBodyLinesPerPage = 45;
 
@@ -489,7 +489,11 @@ public static class OwnerPurchaseInvoicePdf
             throw new ArgumentException("Formal purchase invoice contains unsupported PDF text.", nameof(revision));
 
         var pages = Paginate(text);
-        var allText = pages.SelectMany(page => page).Append("YS HENG | OWNER PURCHASE INVOICE").ToList();
+        var allText = pages.SelectMany(page => page)
+            .Append("YS HENG | FINANCE OPERATIONS")
+            .Append("PURCHASE INVOICE / 收车发票")
+            .Append("PURCHASE DETAILS / 收车明细")
+            .ToList();
         return BuildPdf(pages, allText, revision.InvoiceNumber, revision.RevisionNumber);
     }
 
@@ -601,18 +605,57 @@ public static class OwnerPurchaseInvoicePdf
     private static string PageContent(IReadOnlyList<string> lines, int pageNumber, int pageCount, string invoiceNumber, int revisionNumber)
     {
         var page = new StringBuilder();
-        page.AppendLine("BT");
-        AppendText(page, pageNumber == 1 ? "YS HENG | OWNER PURCHASE INVOICE" : "YS HENG | OWNER PURCHASE INVOICE — CONTINUED", "/F2", 16, LeftMargin, 800);
-        AppendText(page, $"FORMAL PURCHASE INVOICE  •  {invoiceNumber}  •  VERSION {revisionNumber}", "/F1", 9, LeftMargin, 782);
+        FillRectangle(page, 0, 752, PageWidth, 90, "0.055 0.18 0.16");
+        DrawText(page, "YS HENG | FINANCE OPERATIONS", "/F2", 9, LeftMargin, 816, "1 1 1");
+        DrawText(page, pageNumber == 1 ? "PURCHASE INVOICE / 收车发票" : "PURCHASE INVOICE / 收车发票 — CONTINUED", "/F2", 19, LeftMargin, 786, "1 1 1");
+        DrawText(page, $"INVOICE {invoiceNumber}", "/F2", 9, LeftMargin, 761, "1 1 1");
+        FillRectangle(page, 433, 774, 112, 24, "0.12 0.43 0.36");
+        DrawText(page, $"VERSION {revisionNumber}", "/F2", 9, 459, 781, "1 1 1");
+
+        DrawText(page, pageNumber == 1 ? "Owner acquisition record" : "Invoice details continued", "/F2", 11, LeftMargin, 730, "0.055 0.18 0.16");
+        StrokeLine(page, LeftMargin, 722, PageWidth - RightMargin, 722, "0.76 0.82 0.80");
         var baseline = FirstBodyBaseline;
         foreach (var line in lines)
         {
-            AppendText(page, line, "/F1", BodyFontSize, LeftMargin, baseline);
+            if (line.StartsWith("Purchase lines:", StringComparison.Ordinal))
+            {
+                StrokeLine(page, LeftMargin, baseline + 9, PageWidth - RightMargin, baseline + 9, "0.76 0.82 0.80");
+                DrawText(page, "PURCHASE DETAILS / 收车明细", "/F2", 10, LeftMargin, baseline, "0.055 0.35 0.30");
+            }
+            else if (line.StartsWith("Total:", StringComparison.Ordinal))
+            {
+                FillRectangle(page, LeftMargin - 8, baseline - 5, PageWidth - LeftMargin - RightMargin + 16, 22, "0.91 0.96 0.95");
+                DrawText(page, line, "/F2", 11, LeftMargin, baseline, "0.02 0.39 0.32");
+            }
+            else
+            {
+                DrawText(page, line, line.StartsWith("Invoice number:", StringComparison.Ordinal) ? "/F2" : "/F1", BodyFontSize, LeftMargin, baseline, "0.12 0.16 0.15");
+            }
             baseline -= BodyLineHeight;
         }
-        AppendText(page, $"Invoice {invoiceNumber}  |  Version {revisionNumber}  |  Page {pageNumber} of {pageCount}", "/F1", 9, LeftMargin, FooterBaseline);
-        page.AppendLine("ET");
+        StrokeLine(page, LeftMargin, 52, PageWidth - RightMargin, 52, "0.76 0.82 0.80");
+        DrawText(page, $"Invoice {invoiceNumber}  |  Version {revisionNumber}  |  Page {pageNumber} of {pageCount}", "/F1", 9, LeftMargin, FooterBaseline, "0.34 0.41 0.39");
         return page.ToString();
+    }
+
+    private static void FillRectangle(StringBuilder page, int x, int y, int width, int height, string colour)
+    {
+        page.Append(colour).AppendLine(" rg");
+        page.Append(x).Append(' ').Append(y).Append(' ').Append(width).Append(' ').Append(height).AppendLine(" re f");
+    }
+
+    private static void StrokeLine(StringBuilder page, int x1, int y1, int x2, int y2, string colour)
+    {
+        page.Append(colour).AppendLine(" RG");
+        page.Append("0.7 w ").Append(x1).Append(' ').Append(y1).Append(" m ").Append(x2).Append(' ').Append(y2).AppendLine(" l S");
+    }
+
+    private static void DrawText(StringBuilder page, string value, string latinFont, int fontSize, int x, int y, string colour)
+    {
+        page.AppendLine("BT");
+        page.Append(colour).AppendLine(" rg");
+        AppendText(page, value, latinFont, fontSize, x, y);
+        page.AppendLine("ET");
     }
 
     private static void AppendText(StringBuilder page, string value, string latinFont, int fontSize, int x, int y)
