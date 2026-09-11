@@ -1,12 +1,12 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { eventsOnDate, hasScheduledDeliveryTime, operationsCalendarCellKinds, operationsCalendarEventDetail, SelectedDayEvents, shouldOpenCalendarDayDrawer } from "./OperationsCalendar";
+import { eventsOnDate, hasScheduledDeliveryTime, operationsCalendarCellKinds, operationsCalendarEventDetail, operationsCalendarVehicleLabel, SelectedDayEvents, shouldOpenCalendarDayDrawer } from "./OperationsCalendar";
 import type { OperationsCalendarEvent } from "../../api";
 
 describe("shared operations calendar", () => {
   const events: OperationsCalendarEvent[] = [
-    { id: "delivery", kind: "Delivery", title: "TEST 1", startDate: "2026-09-06", endDate: "2026-09-06", time: "10:00", status: "Scheduled", customerName: "Ali Tan", customerContact: "0123456789", customerAccess: "Full" },
+    { id: "delivery", kind: "Delivery", title: "TEST 1", vehicleYear: 2024, vehicleMake: "Honda", vehicleModel: "Civic", startDate: "2026-09-06", endDate: "2026-09-06", time: "10:00", status: "Scheduled", customerName: "Ali Tan", customerContact: "0123456789", customerAccess: "Full" },
     { id: "busy", kind: "Busy", title: "Staff", startDate: "2026-09-05", endDate: "2026-09-07", time: null, status: null }
   ];
   it("includes deliveries and availability on the selected day", () => { expect(eventsOnDate(events, "2026-09-06")).toEqual(events); });
@@ -54,5 +54,10 @@ describe("shared operations calendar", () => {
     expect(hidden).toContain("Customer linked");
     expect(hidden).not.toContain("0123456789");
     expect(unlinked).toContain("No customer linked");
+  });
+  it("shows the vehicle year, make, and model beside the delivery plate", () => {
+    expect(operationsCalendarVehicleLabel(events[0])).toBe("2024 Honda Civic");
+    const markup = renderToStaticMarkup(createElement(SelectedDayEvents, { events }));
+    expect(markup.indexOf("TEST 1")).toBeLessThan(markup.indexOf("2024 Honda Civic"));
   });
 });
