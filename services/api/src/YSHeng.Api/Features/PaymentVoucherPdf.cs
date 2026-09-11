@@ -35,7 +35,7 @@ public static class PaymentVoucherPdfFactory
         Fill(page, 414, 677, 145, 30, voucher.Status == PaymentVoucherStatus.Pending ? "0.99 0.92 0.79" : paleBlue);
         Text(page, 426, 688, 11, statusLine.ToUpperInvariant(), bold: true, color: voucher.Status == PaymentVoucherStatus.Pending ? "0.55 0.31 0.02" : blue);
 
-        Fill(page, 36, 582, 523, 76, paleGray);
+        Fill(page, 36, 568, 523, 90, paleGray);
         Field(page, 56, 632, "VOUCHER NUMBER", voucherNumber, dark);
         Field(page, 315, 632, "ISSUED DATE", voucher.IssuedDate.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture), dark);
         Field(page, 56, 596, "VEHICLE", TextValue($"{vehicle.PlateNumber} {vehicle.Make} {vehicle.Model} {vehicle.Year}".Trim()), dark);
