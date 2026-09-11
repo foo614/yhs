@@ -2596,19 +2596,20 @@ body {
   grid-column: 1 / -1;
 }
 
-.vehicleIntakeStepTitle {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-  line-height: 1.2;
-}
-
-.vehicleIntakeStepTitle small {
+.recordCreateModal .ant-steps-item-title::after {
+  display: block;
   color: #60746e;
+  content: "";
   font-size: 11px;
   font-weight: 500;
+  line-height: 1.2;
   white-space: normal;
 }
+
+.recordCreateModal .ant-steps-item:nth-child(1) .ant-steps-item-title::after { content: "车辆与相关人员"; }
+.recordCreateModal .ant-steps-item:nth-child(2) .ant-steps-item-title::after { content: "库存与价格"; }
+.recordCreateModal .ant-steps-item:nth-child(3) .ant-steps-item-title::after { content: "原车主结算"; }
+.recordCreateModal .ant-steps-item:nth-child(4) .ant-steps-item-title::after { content: "核对"; }
 
 .vehicleIntakeVocWarnings {
   margin: 0;

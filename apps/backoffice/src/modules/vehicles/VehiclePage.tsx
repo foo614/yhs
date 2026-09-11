@@ -2911,7 +2911,7 @@ export function VehiclePage({
         >
           <StepsForm.StepForm
             name="identity"
-            title={<span className="vehicleIntakeStepTitle"><span>Vehicle & parties</span><small>车辆与相关人员</small></span>}
+            title="Vehicle & parties"
             formRef={vehicleIntakeIdentityFormRef}
             onFinish={captureVehicleIntakeStep}
             onValuesChange={(_, values: VehicleIntakeDraft) => setVehicleIntakeDraft((current) => ({ ...current, ...values }))}
@@ -3072,7 +3072,7 @@ export function VehiclePage({
           </StepsForm.StepForm>
           <StepsForm.StepForm
             name="stock"
-            title={<span className="vehicleIntakeStepTitle"><span>Stock & pricing</span><small>库存与价格</small></span>}
+            title="Stock & pricing"
             onFinish={captureVehicleIntakeStep}
             className="formGrid vehicleIntakeStepForm"
             initialValues={{ contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
@@ -3105,7 +3105,7 @@ export function VehiclePage({
           </StepsForm.StepForm>
           <StepsForm.StepForm
             name="settlement"
-            title={<span className="vehicleIntakeStepTitle"><span>Previous owner settlement</span><small>原车主结算</small></span>}
+            title="Previous owner settlement"
             onFinish={captureVehicleIntakeStep}
             className="vehicleIntakeStepForm"
             initialValues={{ prepareSettlement: canPrepareSettlement, bankDebtAmount: 0, settlementDeadline: singaporeTodayIsoDate() }}
@@ -3154,7 +3154,7 @@ export function VehiclePage({
               description="Your access can create the vehicle intake, but only Finance or Admin can create the settlement reminder."
             />}
           </StepsForm.StepForm>
-          <StepsForm.StepForm name="review" title={<span className="vehicleIntakeStepTitle"><span>Review</span><small>核对</small></span>}>
+          <StepsForm.StepForm name="review" title="Review">
             {vehicleCreateError ? <Alert
               type="error"
               showIcon
