@@ -6,6 +6,7 @@ import {
   CalendarOutlined,
   CarOutlined,
   DashboardOutlined,
+  DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
   FileDoneOutlined,
@@ -125,6 +126,7 @@ import {
   customerFromLead,
   customerSelectLabel,
   decideHrLeaveRequest,
+  deleteLoanDocument,
   exportAutoCountWorkbook,
   exportPaymentsCsv,
   generateHrPayslips,
@@ -1826,7 +1828,8 @@ export function ModuleDocumentList({
   paymentRecordId,
   reloadKey = 0,
   showOcrResults = true,
-  enablePreview = false
+  enablePreview = false,
+  onDelete
 }: {
   vehicleId?: string;
   categories: readonly DocumentCategory[];
@@ -1835,6 +1838,7 @@ export function ModuleDocumentList({
   reloadKey?: number;
   showOcrResults?: boolean;
   enablePreview?: boolean;
+  onDelete?: (document: VehicleDocument) => Promise<void>;
 }) {
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
   const [ocrJobs, setOcrJobs] = useState<VehicleOcrJob[]>([]);
@@ -1968,12 +1972,24 @@ export function ModuleDocumentList({
     {
       title: enablePreview ? "Actions / 操作" : "Open / 查看",
       fixed: "right",
-      width: enablePreview ? 210 : 100,
+      width: enablePreview ? (onDelete ? 300 : 210) : 100,
       render: (_, row) => vehicleId ? (
         enablePreview ? (
           <Space className="tableActionGroup" size={6} wrap>
             <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => void openDocumentPreview(row)}>Preview</Button>
             <Button size="small" icon={<DownloadOutlined />} href={vehicleDocumentContentUrl(vehicleId, row.id)} target="_blank">Download</Button>
+            {onDelete && (
+              <Popconfirm
+                title="Remove this loan document?"
+                description="The file will be removed and the required-document checklist will update immediately."
+                okText="Remove"
+                cancelText="Keep file"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => onDelete(row)}
+              >
+                <Button size="small" danger icon={<DeleteOutlined />}>Remove</Button>
+              </Popconfirm>
+            )}
           </Space>
         ) : (
           <Button size="small" icon={<DownloadOutlined />} href={vehicleDocumentContentUrl(vehicleId, row.id)} target="_blank">Open</Button>
@@ -4663,6 +4679,16 @@ export function LoanPage({
       await onUploadDocument(selectedLoan.vehicleId, file, category, onProgress);
       setDocumentReloadKey((value) => value + 1);
     };
+    const removeLoanDocument = async (document: VehicleDocument) => {
+      try {
+        await deleteLoanDocument(selectedLoan.vehicleId, document.id);
+        message.success("Loan document removed. The checklist has been updated.");
+        setDocumentReloadKey((value) => value + 1);
+      } catch (error) {
+        message.error(humanizeApiError(error, "The loan document could not be removed."));
+        throw error;
+      }
+    };
     const progressStep = selectedLoan.status === "Done" ? 3 : selectedLoan.status === "Approved" ? 2 : selectedLoan.status === "Draft" ? 0 : 1;
     const progressStatus = selectedLoan.status === "Rejected" ? "error" : selectedLoan.status === "Done" ? "finish" : "process";
     const progressMessage = selectedLoan.status === "Draft"
@@ -4755,6 +4781,7 @@ export function LoanPage({
               reloadKey={documentReloadKey}
               showOcrResults={false}
               enablePreview
+              onDelete={selectedLoan.status !== "Rejected" ? removeLoanDocument : undefined}
             />
           </Space>
         </ProCard>

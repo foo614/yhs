@@ -104,6 +104,7 @@ import {
   officialReceiptContentUrl,
   vehiclePhotoContentUrl,
   deleteVehiclePhoto,
+  deleteLoanDocument,
   login,
   logout,
   mergeFinanceVehicleOptions,
@@ -2034,6 +2035,17 @@ describe("backoffice api client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:5000/api/vehicles/vehicle-1/photos/photo-1",
+      expect.objectContaining({ method: "DELETE", credentials: "include" })
+    );
+  });
+
+  it("deletes a Loan document through the selected vehicle route", async () => {
+    const fetchMock = mockEmptyFetch(true, 204);
+
+    await deleteLoanDocument("vehicle-1", "document-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/loan-documents/document-1",
       expect.objectContaining({ method: "DELETE", credentials: "include" })
     );
   });

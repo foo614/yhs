@@ -984,6 +984,31 @@ backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext 
         .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.CollectionTransactionId, document.DeliveryScheduleId, document.Checksum, document.UploadedBy, document.UploadedAt }));
 });
 
+backOffice.MapDelete("/vehicles/{id:guid}/loan-documents/{documentId:guid}", async (Guid id, Guid documentId, AppDbContext db, HttpContext context) =>
+{
+    var document = await db.DocumentBlobs.FirstOrDefaultAsync(item => item.Id == documentId && item.VehicleId == id);
+    if (document is null)
+    {
+        return Results.NotFound(new ValidationResult([new ValidationError("loan_document_not_found", "Loan document was not found for this vehicle.")]));
+    }
+
+    FileCategory[] loanCategories = [FileCategory.Voc, FileCategory.ApDocument, FileCategory.StatusReceipt, FileCategory.LoanDocument];
+    if (!loanCategories.Contains(document.Category))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("loan_document_category_required", "Only files from the Loan document checklist can be removed here.")]));
+    }
+
+    var roles = SeedData.Roles.Where(context.User.IsInRole);
+    if (!DepartmentAccess.CanUploadDocument(roles, document.Category)) return Results.Forbid();
+
+    var ocrJobs = await db.OcrJobs.Where(job => job.DocumentId == document.Id).ToListAsync();
+    db.OcrJobs.RemoveRange(ocrJobs);
+    db.DocumentBlobs.Remove(document);
+    ApiAudit.Add(db, context.User, "loan.document.deleted", nameof(DocumentBlob), document.Id);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
+
 backOffice.MapGet("/vehicles/{id:guid}/documents/{documentId:guid}/content", async (Guid id, Guid documentId, AppDbContext db, HttpContext context) =>
 {
     var document = await db.DocumentBlobs.AsNoTracking().FirstOrDefaultAsync(item => item.Id == documentId && item.VehicleId == id);
