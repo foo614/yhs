@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
+import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, priorityActionTarget, reminderDueLabel, reminderDueTagColor, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
 import type { DashboardReminder } from "./api";
 
 describe("dashboard reminder helpers", () => {
@@ -44,6 +44,9 @@ describe("dashboard reminder helpers", () => {
       vehicleId: "vehicle 1"
     })).toBe("/finance?tab=debt&vehicleId=vehicle%201&attention=open");
     expect(dashboardReminderTarget({ type: "DailySpendDue", vehicleId: "vehicle-1" })).toBe("/finance?tab=daily&attention=dueSoon");
+    expect(priorityActionTarget({ type: "SettlementDue", target: "Finance" })).toBe("/finance?tab=settlements&attention=due");
+    expect(priorityActionTarget({ type: "PaymentVoucherFollowUp", target: "Finance" })).toBe("/finance?tab=vouchers&attention=open");
+    expect(priorityActionTarget({ type: "DailySpendDue", target: "Finance" })).toBe("/finance?tab=daily&attention=dueSoon");
   });
 
   it("puts overdue reminders first in the boss priority queue", () => {
