@@ -17,9 +17,9 @@ This repository uses short-lived task branches and pull requests into `main`. A 
 2. Confirm the Linear ticket and create one short-lived task branch whose name contains that ticket key.
 3. Make narrow commits whose messages describe the user-visible or operational result.
 4. Run the focused tests for each behavior change, then the broader checks required by `codex-agent.md`.
-5. Run a read-only Codex CLI review of the local branch diff without GitHub App, comment, push, merge, or deploy permissions. Resolve every merge-blocking finding and rerun affected checks.
+5. Normally run a read-only Codex CLI review of the local branch diff without GitHub App, comment, push, merge, or deploy permissions. Resolve every merge-blocking finding and rerun affected checks. An explicit user instruction may temporarily pause model review to conserve usage; repository CI and security checks remain required.
 6. Push the reviewed branch and open a pull request targeting `main`. Put the Linear ticket key in the pull-request title or description so the branch, review, and delivery record are traceable.
-7. Resolve conflicts against the latest `origin/main`; rerun affected checks and the local diff review after conflict resolution.
+7. Resolve conflicts against the latest `origin/main`; rerun affected checks and, unless explicitly paused by the user, the local diff review after conflict resolution.
 8. Obtain required review and wait for all required CI and security checks to pass. The local pre-PR review does not replace these protected checks.
 9. Merge the pull request into `main`.
 10. Verify the remote `main` contains the merged commit and the task branch has no intended commits left outside `main`.
