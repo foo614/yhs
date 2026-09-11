@@ -58,8 +58,17 @@ export function supplierInvoiceCreateBlockReason(invoice: SupplierInvoice, exist
     return "Supplier invoice number is required.";
   }
 
-  if (invoice.amount <= 0) {
+  if (!Number.isFinite(invoice.amount) || invoice.amount <= 0) {
     return "Supplier invoice amount must be greater than zero.";
+  }
+
+  if (!hasAtMostTwoDecimalPlaces(invoice.amount)) {
+    return "Supplier invoice amount cannot have more than two decimal places.";
+  }
+
+  const dateBlockReason = supplierInvoiceDateBlockReason(invoice);
+  if (dateBlockReason) {
+    return dateBlockReason;
   }
 
   const vehicle = vehicles.find((item) => item.id === invoice.vehicleId);
@@ -75,6 +84,32 @@ export function supplierInvoiceCreateBlockReason(invoice: SupplierInvoice, exist
     return "Supplier invoice number is already used for this supplier.";
   }
 
+  return undefined;
+}
+
+export function isReceiptTotalInputText(value: string) {
+  return /^\d*(?:\.\d{0,2})?$/.test(value);
+}
+
+export function receiptTotalFromInput(value: string) {
+  if (!isReceiptTotalInputText(value) || !value || value === ".") return undefined;
+
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : undefined;
+}
+
+export function hasAtMostTwoDecimalPlaces(value: number) {
+  return Number.isFinite(value) && Math.round(value * 100) / 100 === value;
+}
+
+export function supplierInvoiceDateBlockReason(invoice: Pick<SupplierInvoice, "invoiceDate" | "dueDate" | "paidAt">) {
+  if (!invoice.invoiceDate) return undefined;
+  if (invoice.dueDate && invoice.dueDate < invoice.invoiceDate) {
+    return "Payment due date cannot be before the invoice date.";
+  }
+  if (invoice.paidAt && invoice.paidAt < invoice.invoiceDate) {
+    return "Paid date cannot be before the invoice date.";
+  }
   return undefined;
 }
 

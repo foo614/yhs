@@ -3228,6 +3228,21 @@ public static class SupplierInvoiceRules
             errors.Add(new ValidationError("invalid_amount", "Supplier invoice amount must be greater than zero."));
         }
 
+        if (decimal.Round(incoming.Amount, 2, MidpointRounding.AwayFromZero) != incoming.Amount)
+        {
+            errors.Add(new ValidationError("invalid_amount_precision", "Supplier invoice amount cannot have more than two decimal places."));
+        }
+
+        if (incoming.InvoiceDate is not null && incoming.DueDate is not null && incoming.DueDate < incoming.InvoiceDate)
+        {
+            errors.Add(new ValidationError("due_date_before_invoice_date", "Payment due date cannot be before the invoice date."));
+        }
+
+        if (incoming.InvoiceDate is not null && incoming.PaidAt is not null && incoming.PaidAt < incoming.InvoiceDate)
+        {
+            errors.Add(new ValidationError("paid_date_before_invoice_date", "Paid date cannot be before the invoice date."));
+        }
+
         if (linkedVehicle is not null &&
             !string.IsNullOrWhiteSpace(incoming.PlateNumberOnInvoice) &&
             !NormalizePlate(incoming.PlateNumberOnInvoice).Equals(NormalizePlate(linkedVehicle.PlateNumber), StringComparison.OrdinalIgnoreCase))

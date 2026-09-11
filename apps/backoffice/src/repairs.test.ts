@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepairJob, Supplier, SupplierInvoice } from "./api";
-import { filterRefurbishmentRecords, isRepairCostFinal, isSupplierUsable, refurbishmentDetailsSelection, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason } from "./repairs";
+import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason } from "./repairs";
 
 const baseInvoice: SupplierInvoice = {
   id: "supplier-1",
@@ -31,6 +31,34 @@ describe("repair supplier invoice helpers", () => {
 
     expect(isSupplierUsable(active)).toBe(true);
     expect(isSupplierUsable(inactive)).toBe(false);
+  });
+
+  it("accepts only a nonnegative MYR amount with at most two decimal places", () => {
+    expect(isReceiptTotalInputText("12.34")).toBe(true);
+    expect(isReceiptTotalInputText("12a")).toBe(false);
+    expect(isReceiptTotalInputText("12.345")).toBe(false);
+    expect(receiptTotalFromInput("")).toBeUndefined();
+    expect(receiptTotalFromInput(".")).toBeUndefined();
+    expect(receiptTotalFromInput("0")).toBe(0);
+    expect(receiptTotalFromInput(".5")).toBe(0.5);
+    expect(receiptTotalFromInput("123.45")).toBe(123.45);
+    expect(receiptTotalFromInput("12a")).toBeUndefined();
+    expect(receiptTotalFromInput("12.345")).toBeUndefined();
+    expect(receiptTotalFromInput("-1")).toBeUndefined();
+    expect(receiptTotalFromInput("1e3")).toBeUndefined();
+    expect(receiptTotalFromInput("12,345")).toBeUndefined();
+    expect(hasAtMostTwoDecimalPlaces(12.34)).toBe(true);
+    expect(hasAtMostTwoDecimalPlaces(12.345)).toBe(false);
+    expect(supplierInvoiceCreateBlockReason({ ...baseInvoice, amount: Number.NaN })).toBe("Supplier invoice amount must be greater than zero.");
+    expect(supplierInvoiceCreateBlockReason({ ...baseInvoice, amount: 12.345 })).toBe("Supplier invoice amount cannot have more than two decimal places.");
+  });
+
+  it("blocks due and paid dates before the saved invoice date without changing legacy invoices", () => {
+    expect(supplierInvoiceDateBlockReason({ invoiceDate: "2026-09-10", dueDate: "2026-09-09" })).toBe("Payment due date cannot be before the invoice date.");
+    expect(supplierInvoiceDateBlockReason({ invoiceDate: "2026-09-10", paidAt: "2026-09-09" })).toBe("Paid date cannot be before the invoice date.");
+    expect(supplierInvoiceDateBlockReason({ invoiceDate: "2026-09-10", dueDate: "2026-09-10", paidAt: "2026-09-11" })).toBeUndefined();
+    expect(supplierInvoiceDateBlockReason({ dueDate: "2020-01-01", paidAt: "2020-01-01" })).toBeUndefined();
+    expect(supplierInvoiceCreateBlockReason({ ...baseInvoice, invoiceDate: "2026-09-10", dueDate: "2026-09-09" })).toBe("Payment due date cannot be before the invoice date.");
   });
 
   it("opens both refurbishment record types through the page detail selection", () => {

@@ -3415,6 +3415,36 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Supplier_invoice_validation_rejects_more_than_two_decimal_places_and_dates_before_the_invoice()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: true);
+        var incoming = new SupplierInvoice
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = vehicle.Id,
+            SupplierName = "Tint Shop",
+            InvoiceNumber = "T-201",
+            InvoiceDate = new DateOnly(2026, 9, 10),
+            DueDate = new DateOnly(2026, 9, 9),
+            PaidAt = new DateOnly(2026, 9, 8),
+            Amount = 650.001m
+        };
+
+        var result = SupplierInvoiceRules.Validate(incoming, [], [vehicle]);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "invalid_amount_precision");
+        Assert.Contains(result.Errors, error => error.Code == "due_date_before_invoice_date");
+        Assert.Contains(result.Errors, error => error.Code == "paid_date_before_invoice_date");
+
+        var legacyInvoice = incoming with { InvoiceDate = null, Amount = 650m };
+        Assert.True(SupplierInvoiceRules.Validate(legacyInvoice, [], [vehicle]).IsValid);
+        var sameDayInvoice = incoming with { DueDate = incoming.InvoiceDate, PaidAt = incoming.InvoiceDate, Amount = 650.01m };
+        Assert.True(SupplierInvoiceRules.Validate(sameDayInvoice, [], [vehicle]).IsValid);
+        Assert.True(SupplierInvoiceRules.Validate(sameDayInvoice with { DueDate = null, PaidAt = null }, [], [vehicle]).IsValid);
+    }
+
+    [Fact]
     public void Supplier_invoice_helpers_create_master_summary_and_aging_view()
     {
         var vehicleId = Guid.NewGuid();
