@@ -2911,13 +2911,13 @@ export function VehiclePage({
         >
           <StepsForm.StepForm
             name="identity"
-            title="Vehicle & parties / 车辆与相关人员"
+            title="Vehicle & parties"
             formRef={vehicleIntakeIdentityFormRef}
             onFinish={captureVehicleIntakeStep}
             onValuesChange={(_, values: VehicleIntakeDraft) => setVehicleIntakeDraft((current) => ({ ...current, ...values }))}
             className="formGrid vehicleIntakeStepForm"
           >
-            <Form.Item className="fullWidth" label="Vehicle ownership certificate / 车辆登记证">
+            <Form.Item className="vehicleIntakeVocFormItem" label="Vehicle ownership certificate / 车辆登记证">
               <VehicleIntakeVocReview
                 draft={vehicleIntakeDraft}
                 onApply={(patch: VehicleIntakeVocPatch, file) => {
@@ -3072,7 +3072,7 @@ export function VehiclePage({
           </StepsForm.StepForm>
           <StepsForm.StepForm
             name="stock"
-            title="Stock & pricing / 库存与价格"
+            title="Stock & pricing"
             onFinish={captureVehicleIntakeStep}
             className="formGrid vehicleIntakeStepForm"
             initialValues={{ contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
@@ -3105,7 +3105,7 @@ export function VehiclePage({
           </StepsForm.StepForm>
           <StepsForm.StepForm
             name="settlement"
-            title="Previous owner settlement / 原车主结算"
+            title="Previous owner settlement"
             onFinish={captureVehicleIntakeStep}
             className="vehicleIntakeStepForm"
             initialValues={{ prepareSettlement: canPrepareSettlement, bankDebtAmount: 0, settlementDeadline: singaporeTodayIsoDate() }}
@@ -3154,7 +3154,7 @@ export function VehiclePage({
               description="Your access can create the vehicle intake, but only Finance or Admin can create the settlement reminder."
             />}
           </StepsForm.StepForm>
-          <StepsForm.StepForm name="review" title="Review / 核对">
+          <StepsForm.StepForm name="review" title="Review">
             {vehicleCreateError ? <Alert
               type="error"
               showIcon

@@ -6,7 +6,7 @@ import { previewVehicleIntakeVoc, type OcrExtractionResult } from "../../api";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
 
 const vocFields = [
-  { name: "plateNumber", label: "Registration number / 车牌" },
+  { name: "plateNumber", label: "Plate / 车牌" },
   { name: "chassisNumber", label: "Chassis number / 车架号码" },
   { name: "engineNumber", label: "Engine number / 发动机号码" },
   { name: "make", label: "Make / 品牌" },
@@ -28,6 +28,10 @@ export type VehicleIntakeVocDecision = "keep" | "replace";
 
 export function isVehicleIntakeVocMimeType(mimeType: string) {
   return mimeType === "application/pdf" || isOcrImageMimeType(mimeType);
+}
+
+export function vocReviewWarnings(warnings: readonly string[]) {
+  return warnings.filter((warning) => !/^(Google Document AI|Baidu Unlimited-OCR) result\. Review extracted values before saving\.$/i.test(warning.trim()));
 }
 
 export function createVehicleIntakeVocPreviewRequestGate() {
@@ -91,6 +95,7 @@ export function VehicleIntakeVocReview({
   const [reviewedValues, setReviewedValues] = useState<Record<string, string | null | undefined>>({});
   const [decisions, setDecisions] = useState<Partial<Record<VehicleIntakeVocField, VehicleIntakeVocDecision>>>({});
   const [busy, setBusy] = useState(false);
+  const visibleWarnings = vocReviewWarnings(result?.warnings ?? []);
   const previewRequestGate = useRef<ReturnType<typeof createVehicleIntakeVocPreviewRequestGate> | null>(null);
   const previewInFlight = useRef(false);
 
@@ -175,7 +180,14 @@ export function VehicleIntakeVocReview({
               ? "Blank vehicle fields can be filled after Apply. Existing different values stay unchanged unless you select Replace for that field."
               : "Keep or enter the vehicle details manually. You can choose another clear VOC file."}
           />
-          {result.warnings.map((warning) => <Typography.Text key={warning} type="secondary">{warning}</Typography.Text>)}
+          {visibleWarnings.length ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={`${visibleWarnings.length} item${visibleWarnings.length === 1 ? "" : "s"} need manual confirmation`}
+              description={<ul className="vehicleIntakeVocWarnings">{visibleWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+            />
+          ) : null}
           <Descriptions size="small" bordered column={1}>
             <Descriptions.Item label="Registered owner / 注册车主">
               {normalized(reviewedValues.ownerName) || "Not detected"} <Tag>Reference only</Tag>
