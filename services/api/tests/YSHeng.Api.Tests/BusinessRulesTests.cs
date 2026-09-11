@@ -4912,6 +4912,35 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Ocr_parser_maps_jpj_voc_when_labels_and_values_share_each_row()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "jpj-voc-same-line-layout.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "No. Pendaftaran : VMW9796\n" +
+                    "No. ID : 971211055039\n" +
+                    "Nama Pemunya Berdaftar : CHEONG WEN ZHE\n" +
+                    "No. Chasis / No. Enjin : PMHFE1650RD401993 / L15BG2102023\n" +
+                    "Buatan / Nama Model : HONDA / CIVIC 1.5L V\n" +
+                    "Jenis Badan / Tahun Dibuat : MOTOKAR / 2024\n" +
+                    "Tarikh Pendaftaran : 26/08/2024")
+            },
+            []);
+
+        Assert.Equal("VMW9796", result.Fields["plateNumber"]);
+        Assert.Equal("PMHFE1650RD401993", result.Fields["chassisNumber"]);
+        Assert.Equal("L15BG2102023", result.Fields["engineNumber"]);
+        Assert.Equal("HONDA", result.Fields["make"]);
+        Assert.Equal("CIVIC 1.5L V", result.Fields["model"]);
+        Assert.Equal("2024", result.Fields["year"]);
+        Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Ocr_parser_keeps_unreadable_jpj_voc_values_for_manual_review()
     {
         var document = new DocumentBlob

@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocPatch } from "./VehicleIntakeVocReview";
+import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocPatch, vocReviewWarnings } from "./VehicleIntakeVocReview";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -57,6 +57,13 @@ describe("vehicle intake VOC review", () => {
     expect(isVehicleIntakeVocMimeType("application/pdf")).toBe(true);
     expect(isVehicleIntakeVocMimeType("image/jpeg")).toBe(true);
     expect(isVehicleIntakeVocMimeType("text/plain")).toBe(false);
+  });
+
+  it("keeps actionable OCR warnings while removing the repeated provider explanation", () => {
+    expect(vocReviewWarnings([
+      "Google Document AI result. Review extracted values before saving.",
+      "No chassis number was detected. Confirm the VOC manually before saving vehicle details."
+    ])).toEqual(["No chassis number was detected. Confirm the VOC manually before saving vehicle details."]);
   });
 
   it("disables the initial scan control when the intake is disabled", () => {

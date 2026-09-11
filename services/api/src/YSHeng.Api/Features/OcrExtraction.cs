@@ -648,11 +648,21 @@ public static class OcrExtractionParser
             return new JpjVocFields(false, null, null, null, null, null, null);
         }
 
-        var plateNumber = plateLabelIndex > 0 ? FindJpjPlateNumber(lines[plateLabelIndex - 1]) : null;
-        var (chassisNumber, engineNumber, identifierPairIndex) = FindJpjIdentifierPair(lines, chassisEngineLabelIndex);
+        var plateNumber = FindJpjLabeledPlate(lines[plateLabelIndex])
+            ?? (plateLabelIndex > 0 ? FindJpjPlateNumber(lines[plateLabelIndex - 1]) : null)
+            ?? (plateLabelIndex + 1 < lines.Count ? FindJpjPlateNumber(lines[plateLabelIndex + 1]) : null);
+        var labeledIdentifiers = FindJpjLabeledIdentifierPair(lines[chassisEngineLabelIndex]);
+        var (chassisNumber, engineNumber, identifierPairIndex) = labeledIdentifiers is not null
+            ? (labeledIdentifiers.Value.ChassisNumber, labeledIdentifiers.Value.EngineNumber, chassisEngineLabelIndex)
+            : FindJpjIdentifierPair(lines, chassisEngineLabelIndex);
         string? make = null;
         string? model = null;
-        if (identifierPairIndex >= 0)
+        var labeledMakeModel = FindJpjLabeledMakeModel(lines[makeModelLabelIndex]);
+        if (labeledMakeModel is not null)
+        {
+            (make, model) = labeledMakeModel.Value;
+        }
+        else if (identifierPairIndex >= 0)
         {
             (make, model) = FindJpjMakeModelPair(lines, Math.Max(identifierPairIndex, makeModelLabelIndex));
         }
@@ -721,6 +731,8 @@ public static class OcrExtractionParser
         for (var index = bodyYearLabelIndex; index < lines.Count && index <= bodyYearLabelIndex + 5; index++)
         {
             var line = lines[index];
+            var labeledYear = Regex.Match(line, @"\bJENIS\s+BADAN\b\s*/?\s*\bTAHUN\s+DIBUAT\b\s*:?\s*[^/\r\n]+/\s*(?<year>(?:19|20)\d{2})\b", RegexOptions.IgnoreCase);
+            if (labeledYear.Success) return labeledYear.Groups["year"].Value;
             if (Regex.IsMatch(line, @"\bTARIKH\s+PENDAFTARAN\b", RegexOptions.IgnoreCase) ||
                 Regex.IsMatch(line, @"\b(?:\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2}|(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2})\b")) continue;
             var year = Regex.Match(line, @"\b(?<year>(?:19|20)\d{2})\b");
@@ -754,6 +766,37 @@ public static class OcrExtractionParser
         return match.Success
             ? match.Groups["plate"].Value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant()
             : null;
+    }
+
+    private static string? FindJpjLabeledPlate(string line)
+    {
+        var match = Regex.Match(line, @"\bNO\.?\s*PENDAFTARAN\b\s*:?\s*(?<plate>[A-Z]{1,3}\s?\d{1,4}(?:[A-Z])?)\b", RegexOptions.IgnoreCase);
+        return match.Success
+            ? match.Groups["plate"].Value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant()
+            : null;
+    }
+
+    private static (string ChassisNumber, string EngineNumber)? FindJpjLabeledIdentifierPair(string line)
+    {
+        var match = Regex.Match(
+            line,
+            @"\bNO\.?\s*(?:CHASIS|CHASSIS|CASIS)\b\s*/?\s*\bNO\.?\s*ENJIN\b\s*:?\s*(?<chassis>[A-Z0-9-]{10,32})\s*/\s*(?<engine>[A-Z0-9-]{5,32})\b",
+            RegexOptions.IgnoreCase);
+        return match.Success
+            ? (NormalizeJpjIdentifier(match.Groups["chassis"].Value), NormalizeJpjIdentifier(match.Groups["engine"].Value))
+            : null;
+    }
+
+    private static (string Make, string Model)? FindJpjLabeledMakeModel(string line)
+    {
+        var match = Regex.Match(
+            line,
+            @"\bBUATAN\b\s*/?\s*\bNAMA\s+MODEL\b\s*:?\s*(?<make>[A-Z][A-Z0-9 .&()'-]{1,30}?)\s*/\s*(?<model>[A-Z0-9][A-Z0-9 .&()'/-]{0,60})$",
+            RegexOptions.IgnoreCase);
+        if (!match.Success) return null;
+        var make = match.Groups["make"].Value.Trim();
+        var model = match.Groups["model"].Value.Trim();
+        return IsJpjVehicleText(make) && IsJpjVehicleText(model) ? (make, model) : null;
     }
 
     private static bool TrySplitJpjMakeModelByCatalog(string line, out string make, out string model)
