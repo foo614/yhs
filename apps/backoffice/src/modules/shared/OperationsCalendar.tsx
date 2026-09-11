@@ -27,6 +27,10 @@ export function hasScheduledDeliveryTime(event: OperationsCalendarEvent) {
   return event.kind === "Delivery" && Boolean(event.time);
 }
 
+export function operationsCalendarVehicleLabel(event: OperationsCalendarEvent) {
+  return [event.vehicleYear, event.vehicleMake, event.vehicleModel].filter(Boolean).join(" ");
+}
+
 export function shouldOpenCalendarDayDrawer(source: string, isMobile: boolean) {
   return isMobile && source === "date";
 }
@@ -51,7 +55,10 @@ export function SelectedDayEvents({
                 <Tag color={event.kind === "Delivery" ? "blue" : "orange"}>{event.kind === "Delivery" ? "Delivery / 出车" : "Busy / 忙碌"}</Tag>
                 {detail.status && <Tag>{detail.status}</Tag>}
               </Space>
-              <Typography.Text strong>{event.title}</Typography.Text>
+              <Space size={6} wrap>
+                <Typography.Text strong>{event.title}</Typography.Text>
+                {event.kind === "Delivery" && operationsCalendarVehicleLabel(event) ? <Typography.Text type="secondary">{operationsCalendarVehicleLabel(event)}</Typography.Text> : null}
+              </Space>
               <Typography.Text type="secondary">
                 {hasScheduledDeliveryTime(event) && <ClockCircleOutlined aria-hidden="true" className="operationsCalendarTimeIcon" />}
                 {detail.time}

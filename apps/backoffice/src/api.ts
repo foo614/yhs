@@ -1794,6 +1794,9 @@ export type OperationsCalendarEvent = {
   id: string;
   kind: "Delivery" | "Busy";
   title: string;
+  vehicleYear?: number | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
   startDate: string;
   endDate: string;
   time: string | null;
