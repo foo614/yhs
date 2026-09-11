@@ -1,6 +1,5 @@
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
-import { OperationsCalendar } from "../shared/OperationsCalendar";
 import { QRCodeSVG } from "qrcode.react";
 import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard } from "@ant-design/pro-components";
@@ -65,7 +64,6 @@ type HrSalaryPageProps = {
   attendanceQrChallenge: HrAttendanceQrChallenge | null;
   attendanceQrToken?: string;
   businessTrips: HrBusinessTrip[];
-  onOpenDelivery?: (deliveryId: string) => void;
   onClearAttendanceQrToken: () => void;
   onCheckIn: () => Promise<void>;
   onCheckOut: () => Promise<void>;
@@ -289,7 +287,6 @@ export function HrSalaryPage({
   attendanceQrChallenge,
   attendanceQrToken,
   businessTrips,
-  onOpenDelivery,
   onClearAttendanceQrToken,
   onCheckIn,
   onCheckOut,
@@ -1016,11 +1013,10 @@ export function HrSalaryPage({
           }] : []),
           {
             key: "availability",
-            label: "Shared Calendar / 共享日历",
+            label: "Staff Availability / 员工忙碌安排",
             children: (
               <Space direction="vertical" size={12} className="fullWidth">
-                <OperationsCalendar onOpenDelivery={onOpenDelivery} />
-                  <Typography.Text type="secondary">Staff see only busy status for other people; HR/Admin can see approved trip details. This calendar does not track GPS or replace attendance. / 员工只能看到其他人的忙碌状态；HR/Admin 可看到已批准外勤详情。此日历不追踪 GPS，也不取代打卡。</Typography.Text>
+                  <Typography.Text type="secondary">The shared Operations Calendar is on Dashboard. This HR list keeps approved staff availability details without duplicating the delivery calendar. / 共享工作日历已放在 Dashboard；这里仅保留已批准的员工忙碌安排，不重复显示出车日历。</Typography.Text>
                   <OperationsProTable
                     rowKey={(item) => `${item.staffUserId}-${item.kind}-${item.startDate}-${item.endDate}`}
                     dataSource={availabilityCalendar}

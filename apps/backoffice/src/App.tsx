@@ -1366,7 +1366,6 @@ export default function App() {
               attendanceQrChallenge={hrAttendanceQrChallenge}
               attendanceQrToken={attendanceQrToken}
               businessTrips={hrBusinessTrips}
-              onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined}
               onClearAttendanceQrToken={() => {
                 setAttendanceQrToken(undefined);
                 window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
