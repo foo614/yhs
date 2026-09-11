@@ -225,15 +225,14 @@ export function PurchaseInvoiceHistory({
         <Button type="primary" onClick={onGenerate}>{generatedOwnerInvoice ? "Open current purchase invoice" : "Generate Purchase Invoice"}</Button>
       </div>
       <OperationsProTable
+        className="purchaseInvoiceTable"
         rowKey="id"
         columns={columns}
         dataSource={invoices}
         pagination={pagination}
-        search={{
-          defaultCollapsed: true,
-          span: { xs: 24, sm: 12, md: 12, lg: 8, xl: 8, xxl: 6 }
-        }}
-        scroll={{ x: 760 }}
+        search={false}
+        size="small"
+        scroll={{ x: 980 }}
         locale={{ emptyText: "No purchase invoice linked to this vehicle yet." }}
       />
     </section>
@@ -1801,13 +1800,13 @@ export function VehiclePage({
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectOwner(row.id)}>Details</Button></Space> }
   ];
   const purchaseInvoiceColumns: ColumnsType<PurchaseInvoice> = [
-    { title: "Car Plate", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Invoice", dataIndex: "invoiceNumber" },
-    { title: "Source", dataIndex: "sourceType", render: (value) => value === "OwnerAcquisition" ? <Tag color="blue">Previous owner</Tag> : <Tag>Legacy supplier</Tag> },
-    { title: "Version", render: (_, row) => row.sourceType === "OwnerAcquisition" ? `V${row.currentRevisionNumber ?? row.currentRevision?.revisionNumber ?? 1}` : "Legacy" },
-    { title: "Invoice Date", dataIndex: "invoiceDate", render: (value) => value || "-" },
-    { title: "Finance", dataIndex: "accountingStatus", render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}</Tag> },
-    { title: "Amount", dataIndex: "amount", render: (value) => formatMoney(value) },
+    { title: "Car Plate", dataIndex: "vehicleId", width: 110, render: (vehicleId) => plateFor(vehicles, vehicleId) },
+    { title: "Invoice", dataIndex: "invoiceNumber", width: 190 },
+    { title: "Source", dataIndex: "sourceType", width: 130, render: (value) => value === "OwnerAcquisition" ? <Tag color="blue">Previous owner</Tag> : <Tag>Legacy supplier</Tag> },
+    { title: "Version", width: 80, render: (_, row) => row.sourceType === "OwnerAcquisition" ? `V${row.currentRevisionNumber ?? row.currentRevision?.revisionNumber ?? 1}` : "Legacy" },
+    { title: "Invoice Date", dataIndex: "invoiceDate", width: 120, render: (value) => value || "-" },
+    { title: "Finance", dataIndex: "accountingStatus", width: 175, render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}</Tag> },
+    { title: "Amount", dataIndex: "amount", width: 140, align: "right", render: (value) => <span className="purchaseInvoiceAmount">{formatMoney(value)}</span> },
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectPurchaseInvoice(row.id)}>Details</Button></Space> }
   ];
   const captureVehicleIntakeStep = async (values: VehicleIntakeDraft) => {
@@ -2681,7 +2680,14 @@ export function VehiclePage({
                   ))}
                 </Space>
               </Form.Item>
-              {personOwnedDocument ? (
+              {documentCategory === "PurchaseInvoice" ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="Previous owner purchase invoice / 原车主收车发票"
+                  description="This formal invoice is generated from the approved vehicle intake and linked previous owner. Finance reviews every generated version before accounting export."
+                />
+              ) : personOwnedDocument ? (
                 <Space direction="vertical" size={0} className="fullWidth">
                   <Form.Item
                     label="Document owner / 文件归属"
@@ -2854,11 +2860,13 @@ export function VehiclePage({
               </div>
               </div>
             </Form>
-            <div hidden={vehicleAssetTab !== "documents"}>
-            <Typography.Text className="moduleEyebrow">{shortformLabel(documentCategory, "Upload history")}</Typography.Text>
-            {documentMobileCards}
-            <OperationsProTable className="vehicleDocumentTable desktopDataTable" rowKey="id" columns={documentColumns} dataSource={selectedDocumentHistory} pagination={tablePagination(5)} scroll={{ x: 760 }} locale={{ emptyText: "No documents of this type uploaded yet." }} />
-            </div>
+            {vehicleAssetTab === "documents" && documentCategory !== "PurchaseInvoice" ? (
+              <div className="vehicleDocumentHistory">
+                <Typography.Text className="moduleEyebrow">Upload history / 上传记录</Typography.Text>
+                {documentMobileCards}
+                <OperationsProTable className="vehicleDocumentTable desktopDataTable" rowKey="id" columns={documentColumns} dataSource={selectedDocumentHistory} pagination={tablePagination(5)} scroll={{ x: 760 }} locale={{ emptyText: "No documents of this type uploaded yet." }} />
+              </div>
+            ) : null}
           </ProCard>
           </div>
         </div>
