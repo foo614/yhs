@@ -3787,7 +3787,7 @@ public sealed class BusinessRulesTests
 
         Assert.True(check.IsComplete);
         Assert.DoesNotContain(FileCategory.WindscreenPolicy, check.MissingCategories);
-        Assert.False(check.Evidence.Single(item => item.Category == FileCategory.WindscreenPolicy).IsPresent);
+        Assert.DoesNotContain(FileCategory.WindscreenPolicy, check.Evidence.Select(item => item.Category));
         Assert.True(DeliveryWorkboardRules.CanRelease(delivery, true, check, new DateOnly(2026, 8, 27)));
     }
 

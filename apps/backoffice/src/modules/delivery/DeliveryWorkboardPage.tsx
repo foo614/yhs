@@ -8,6 +8,7 @@ import {
   UserOutlined
 } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
+import dayjs, { type Dayjs } from "dayjs";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import {
   Alert,
@@ -15,6 +16,7 @@ import {
   Checkbox,
   Collapse,
   Descriptions,
+  DatePicker,
   Drawer,
   Dropdown,
   Empty,
@@ -26,6 +28,7 @@ import {
   Skeleton,
   Space,
   Tag,
+  TimePicker,
   Timeline,
   Typography,
   Upload,
@@ -71,7 +74,6 @@ const evidenceLabels: Partial<Record<DocumentCategory, string>> = {
   DeliveryDocument: "Delivery documents / 交车文件",
   Policy: "Insurance policy / 保险保单",
   RoadTaxReceipt: "Road tax / 路税",
-  WindscreenPolicy: "Windscreen insurance / 挡风玻璃保险",
   HandoverPhoto: "Handover photo / 交车照片",
   SignedHandover: "Signed handover / 签署交车单"
 };
@@ -207,6 +209,11 @@ type CreateDeliveryValues = {
 };
 
 type SecondaryAction = "reschedule" | "cancel" | "invoice" | "buyer";
+
+export function deliveryDatePickerValue(value?: string) { return value ? dayjs(value) : null; }
+export function deliveryTimePickerValue(value?: string) { return value ? dayjs(`2000-01-01T${value}`) : null; }
+export function deliveryDateString(value: Dayjs | null) { return value?.format("YYYY-MM-DD") ?? ""; }
+export function deliveryTimeString(value: Dayjs | null) { return value?.format("HH:mm") ?? ""; }
 
 const emptyGuid = "00000000-0000-0000-0000-000000000000";
 
@@ -810,8 +817,8 @@ export function DeliveryWorkboardPage({
         {secondaryAction === "invoice" && <Alert type="info" showIcon message="Finance will receive the request. Delivery staff cannot edit invoice details." />}
         {secondaryAction === "buyer" && <Alert type="warning" showIcon message="This locks delivery to the confirmed buyer already linked on the vehicle. It does not change or select a different customer." />}
         {secondaryAction === "reschedule" && <div className="deliveryActionDateGrid">
-          <label><span>New date</span><Input type="date" value={rescheduleDate} onChange={(event) => setRescheduleDate(event.target.value)} /></label>
-          <label><span>Time</span><Input type="time" value={rescheduleTime} onChange={(event) => setRescheduleTime(event.target.value)} /></label>
+          <label><span>New date</span><DatePicker format="YYYY-MM-DD" value={deliveryDatePickerValue(rescheduleDate)} onChange={(value) => setRescheduleDate(deliveryDateString(value))} /></label>
+          <label><span>Time</span><TimePicker format="HH:mm" value={deliveryTimePickerValue(rescheduleTime)} onChange={(value) => setRescheduleTime(deliveryTimeString(value))} /></label>
           <label><span>Location</span><Select value={rescheduleType} onChange={setRescheduleType} options={[{ value: "Standard", label: "Showroom / 展厅" }, { value: "Outstation", label: "Outstation / 外坡" }]} /></label>
           {rescheduleType === "Outstation" && <>
             <label><span>Delivery address</span><Input value={rescheduleAddress} onChange={(event) => setRescheduleAddress(event.target.value)} /></label>
@@ -864,8 +871,8 @@ function CreateDeliveryModal({
           <Select showSearch optionFilterProp="label" options={picOptions.map((pic) => ({ value: pic.id, label: pic.displayName }))} />
         </Form.Item>
         <div className="deliveryCreateGrid">
-          <Form.Item name="scheduledDate" label="Delivery date / 交车日期" rules={[{ required: true, message: "Choose a date." }]}><Input type="date" /></Form.Item>
-          <Form.Item name="scheduledTime" label="Time / 时间" rules={[{ required: true, message: "Choose a time." }]}><Input type="time" /></Form.Item>
+          <Form.Item name="scheduledDate" label="Delivery date / 交车日期" rules={[{ required: true, message: "Choose a date." }]} getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+          <Form.Item name="scheduledTime" label="Time / 时间" rules={[{ required: true, message: "Choose a time." }]} getValueProps={(value?: string) => ({ value: deliveryTimePickerValue(value) })} normalize={deliveryTimeString}><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
         </div>
         <Form.Item name="deliveryType" label="Location / 地点" rules={[{ required: true }]}>
           <Select options={[{ value: "Standard", label: "Showroom / 展厅" }, { value: "Outstation", label: "Outstation / 外坡" }]} />
@@ -932,8 +939,6 @@ export function DeliveryDrawerContent({
         {item.deliveryType === "Outstation" && <Descriptions.Item label="Address / 地址">{item.deliveryAddress || "Not provided"}</Descriptions.Item>}
         {item.deliveryType === "Outstation" && <Descriptions.Item label="Transport / 运输">{item.transportMethod || "Not provided"}</Descriptions.Item>}
       </Descriptions>
-
-      <HistoricalWindscreenEvidence item={item} />
 
       {item.blocker && !item.terminal && <Alert
         type="warning"
@@ -1038,8 +1043,8 @@ export function CurrentStageForm({
         ))}
       </div>
       <div className="deliveryStageFormGrid">
-        <Form.Item name="insuranceExpiryDate" label="Insurance expiry"><Input type="date" /></Form.Item>
-        <Form.Item name="roadTaxExpiryDate" label="Road tax expiry"><Input type="date" /></Form.Item>
+        <Form.Item name="insuranceExpiryDate" label="Insurance expiry" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+        <Form.Item name="roadTaxExpiryDate" label="Road tax expiry" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
       </div>
       <div className="deliveryEvidenceReviewIntro">
         <Typography.Text strong>Evidence reviewed and confirmed / 证据已审核确认</Typography.Text>
@@ -1130,28 +1135,6 @@ function EvidenceUpload({
       </Space>
     </div>
   );
-}
-
-function HistoricalWindscreenEvidence({ item }: { item: DeliveryWorkboardItem }) {
-  const evidence = item.evidence.find((entry) => entry.category === "WindscreenPolicy" && entry.isPresent);
-  if (!evidence?.documentId) return null;
-
-  return <section aria-label="Historical windscreen evidence">
-    <Typography.Text className="moduleEyebrow">Historical record / 历史记录</Typography.Text>
-    <div className="deliveryEvidenceItem">
-      <div>
-        <Typography.Text strong>{evidenceLabels.WindscreenPolicy}</Typography.Text>
-        <Typography.Text type="secondary">{evidence.fileName ?? "Historical file"}</Typography.Text>
-      </div>
-      <Button
-        size="small"
-        icon={<ExportOutlined />}
-        href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)}
-        target="_blank"
-        rel="noreferrer"
-      >Open historical file</Button>
-    </div>
-  </section>;
 }
 
 function StageSummary({ item, stage }: { item: DeliveryWorkboardItem; stage: DeliveryWorkboardStage }) {

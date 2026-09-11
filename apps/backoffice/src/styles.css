@@ -3397,6 +3397,21 @@ body {
 
 .purchaseInvoiceHistory .vehicleContactHeader .ant-btn {
   min-height: 40px;
+  flex: 0 0 auto;
+}
+
+.purchaseInvoiceHistory .purchaseInvoiceTable,
+.vehicleDocumentHistory {
+  min-width: 0;
+}
+
+.purchaseInvoiceHistory .ant-table-cell {
+  vertical-align: middle;
+}
+
+.purchaseInvoiceAmount {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 767px) {

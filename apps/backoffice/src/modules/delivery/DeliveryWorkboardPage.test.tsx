@@ -16,8 +16,13 @@ import {
   hasLockedDeliveryBuyer,
   singaporeDateString,
   deliveryStageLabel,
-  filterDeliveryWorkboard
+  filterDeliveryWorkboard,
+  deliveryDatePickerValue,
+  deliveryDateString,
+  deliveryTimePickerValue,
+  deliveryTimeString
 } from "./DeliveryWorkboardPage";
+import dayjs from "dayjs";
 
 const baseItem: DeliveryWorkboardItem = {
   id: "delivery-1",
@@ -56,6 +61,18 @@ const baseItem: DeliveryWorkboardItem = {
   missingCategories: ["InspectionReport"],
   evidence: []
 };
+
+describe("Delivery picker adapters", () => {
+  it("round trips stored date/time strings and clears to empty payload values", () => {
+    expect(deliveryDateString(deliveryDatePickerValue("2026-08-30"))).toBe("2026-08-30");
+    expect(deliveryTimeString(deliveryTimePickerValue("10:30"))).toBe("10:30");
+    expect(deliveryDatePickerValue("2026-08-30")?.format("YYYY-MM-DD")).toBe("2026-08-30");
+    expect(deliveryTimePickerValue("10:30")?.format("HH:mm")).toBe("10:30");
+    expect(deliveryDateString(null)).toBe("");
+    expect(deliveryTimeString(null)).toBe("");
+    expect(dayjs(deliveryTimePickerValue("10:30")).format("YYYY-MM-DD")).toBe("2000-01-01");
+  });
+});
 
 const noOp = async () => {};
 
@@ -250,7 +267,7 @@ describe("simple delivery workboard", () => {
     expect(markup).not.toContain("Historical windscreen evidence");
   });
 
-  it("keeps existing windscreen evidence read-only in a separate history area", () => {
+  it("does not expose historical windscreen evidence in Delivery UI", () => {
     const markup = renderToStaticMarkup(createElement(DeliveryDrawerContent, {
       item: {
         ...baseItem,
@@ -271,13 +288,10 @@ describe("simple delivery workboard", () => {
       onRequestInvoice: () => {}
     }));
 
-    expect(markup).toContain("Historical record / 历史记录");
-    expect(markup).toContain("Windscreen insurance / 挡风玻璃保险");
-    expect(markup).toContain("windscreen-policy.pdf");
-    expect(markup).toContain("/api/vehicles/vehicle-1/documents/historic-windscreen-1/content");
-    expect(markup).toContain("Open historical file");
-    expect(markup).not.toContain("Replace");
-    expect(markup).not.toContain("Upload");
+    expect(markup).not.toContain("Historical record / 历史记录");
+    expect(markup).not.toContain("Windscreen insurance / 挡风玻璃保险");
+    expect(markup).not.toContain("windscreen-policy.pdf");
+    expect(markup).not.toContain("historic-windscreen-1");
   });
 
   it("keeps earlier completed stages editable until release or cancellation", () => {
