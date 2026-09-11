@@ -2246,6 +2246,7 @@ public sealed class BusinessRulesTests
         Assert.Contains("PAYEE", content);
         Assert.Contains("Ah Ming", content);
         Assert.Contains("VPK1234", content);
+        Assert.Contains("0.96 0.97 0.98 rg 36 568 523 90 re f", content);
         Assert.Contains("RM 180.50", content);
         Assert.Contains("Ringgit Malaysia", content);
         Assert.Contains("Fifty Only", content);
