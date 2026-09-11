@@ -3803,8 +3803,8 @@ textarea:focus-visible {
 
   .heroMedia {
     top: 62px;
-    right: 0;
-    width: min(62vw, 1200px);
+    right: max(40px, calc((100vw - 1680px) / 2));
+    width: min(58vw, 1040px);
   }
 
   .heroCopy {

@@ -62,7 +62,8 @@ describe("frontoffice motion enhancer contract", () => {
     expect(styles).toContain(".loadingSkeleton");
     expect(styles).toContain("@keyframes loadingPulse");
     expect(styles).toContain("@media (min-width: 1600px)");
-    expect(styles).toContain("width: min(62vw, 1200px)");
+    expect(styles).toContain("right: max(40px, calc((100vw - 1680px) / 2))");
+    expect(styles).toContain("width: min(58vw, 1040px)");
     expect(styles).not.toContain(".motionReady .motionReveal");
     expect(styles).not.toContain(".motionReveal.isVisible");
     expect(styles).not.toMatch(/@keyframes motionRise\s*{\s*from\s*{\s*opacity:\s*0;/);
