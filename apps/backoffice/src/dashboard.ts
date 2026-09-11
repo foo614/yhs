@@ -149,7 +149,7 @@ export function dashboardPriorityEntries(reminders: DashboardReminder[], priorit
     subject: action.subject,
     dueDate: action.dueDate,
     amount: action.amount,
-    target: priorityActionTarget(action.target)
+    target: priorityActionTarget(action)
   }));
 
   return [...actionEntries, ...reminderEntries]
@@ -185,15 +185,42 @@ export function financeRiskTarget(label: string) {
   return "/finance?tab=payments&attention=open";
 }
 
-function priorityActionTarget(target: PriorityActionItem["target"]) {
-  return {
-    Loans: "/loans?status=Pending",
-    Delivery: "/delivery",
-    Finance: "/finance",
-    Leads: "/leads",
-    Repairs: "/repairs",
-    HrSalary: "/hr-salary"
-  }[target];
+export function priorityActionTarget(action: Pick<PriorityActionItem, "type" | "target">) {
+  switch (action.type) {
+    case "LoanFollowUp":
+      return "/loans?status=Pending";
+    case "DeliveryPreparation":
+      return "/delivery";
+    case "SettlementDue":
+    case "SettlementCollectionDue":
+      return "/finance?tab=settlements&attention=due";
+    case "PaymentBankFollowUp":
+    case "PaymentStatusFollowUp":
+      return "/finance?tab=payments&attention=open";
+    case "DailySpendDue":
+      return "/finance?tab=daily&attention=dueSoon";
+    case "DebtRecoveryFollowUp":
+      return "/finance?tab=debt&attention=open";
+    case "PaymentVoucherFollowUp":
+      return "/finance?tab=vouchers&attention=open";
+    case "DeliveryInvoiceUpdate":
+      return "/finance?tab=payments&attention=open";
+    case "LeadFollowUp":
+      return "/leads";
+    case "RepairWorkInProgress":
+      return "/repairs";
+    case "LeaveApproval":
+      return "/hr-salary";
+    default:
+      return {
+        Loans: "/loans?status=Pending",
+        Delivery: "/delivery",
+        Finance: "/finance?tab=payments&attention=open",
+        Leads: "/leads",
+        Repairs: "/repairs",
+        HrSalary: "/hr-salary"
+      }[action.target];
+  }
 }
 
 export function dashboardDrilldownFromRouteUrl(routeUrl: string): DashboardDrilldown {

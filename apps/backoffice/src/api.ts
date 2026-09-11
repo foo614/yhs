@@ -249,7 +249,7 @@ export type DashboardReminderFilters = {
 };
 
 export type PriorityActionItem = {
-  type: "LoanFollowUp" | "DeliveryPreparation" | "SettlementDue" | "PaymentBankFollowUp" | "PaymentStatusFollowUp" | "DailySpendDue" | "DebtRecoveryFollowUp" | "PaymentVoucherFollowUp" | "LeadFollowUp" | "RepairWorkInProgress" | "LeaveApproval";
+  type: "LoanFollowUp" | "DeliveryPreparation" | "SettlementDue" | "SettlementCollectionDue" | "PaymentBankFollowUp" | "PaymentStatusFollowUp" | "DailySpendDue" | "DebtRecoveryFollowUp" | "PaymentVoucherFollowUp" | "DeliveryInvoiceUpdate" | "LeadFollowUp" | "RepairWorkInProgress" | "LeaveApproval";
   title: string;
   target: "Loans" | "Delivery" | "Finance" | "Leads" | "Repairs" | "HrSalary";
   dueDate: string;
