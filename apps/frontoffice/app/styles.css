@@ -3780,6 +3780,17 @@ textarea:focus-visible {
 /* Preserve the approved compact desktop composition, but let the price bay use
    the available canvas on wide monitors instead of remaining at a 960px cap. */
 @media (min-width: 1600px) {
+  .atelierHeader,
+  .marqueBand,
+  .personaSection,
+  .featuredInventorySection,
+  .ecosystemSection,
+  .conciergeSection,
+  .workshopSection,
+  .trustEvidenceSection {
+    width: min(1680px, calc(100% - 80px));
+  }
+
   .atelierHero,
   .atelierHeroInner {
     min-height: 840px;
@@ -3812,6 +3823,16 @@ textarea:focus-visible {
 
   .atelierSearch {
     bottom: 28px;
+  }
+
+  .featuredHomeGrid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  .featuredHomeGrid .vehicleCard {
+    margin-bottom: 0;
   }
 }
 
