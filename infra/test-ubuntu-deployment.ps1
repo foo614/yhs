@@ -183,6 +183,9 @@ Assert-Contains -Name "Backup service" -Text $backupService -Expected "User=__DE
 Assert-Contains -Name "Backup timer" -Text $backupTimer -Expected "OnCalendar=*-*-* 02:15:00 UTC"
 
 foreach ($expected in @(
+  "name: Build, test and deploy",
+  "run-name: >-",
+  "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.deploy_production && 'Production deployment' || 'Validation'",
   "workflow_dispatch:",
   "deploy-production:",
   "github.event_name == 'workflow_dispatch'",
