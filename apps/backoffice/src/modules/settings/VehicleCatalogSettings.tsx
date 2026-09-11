@@ -13,6 +13,8 @@ import {
 
 const mobileCatalogPageSize = 8;
 const malaysiaCatalogSourceUrl = "https://data.gov.my/data-catalogue/registration_transactions_car";
+const addNewMakeValue = "__add_new_make__";
+type VehicleCatalogFormValues = Omit<VehicleCatalogModelInput, "make"> & { makeChoice: string; newMake?: string };
 
 export type VehicleCatalogFilters = {
   keyword?: string;
@@ -37,12 +39,17 @@ export function vehicleCatalogEmptyText(totalModels: number) {
     : "No catalogue options match the current filters.";
 }
 
+export function vehicleCatalogMakes(models: VehicleCatalogModel[]) {
+  return [...new Set(models.map((item) => item.make.trim().toLocaleUpperCase()))].sort();
+}
+
 export function VehicleCatalogSettings() {
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
   const [catalogFilters, setCatalogFilters] = useState<VehicleCatalogFilters>({});
   const [mobileCatalogPage, setMobileCatalogPage] = useState(1);
   const [catalogEditingId, setCatalogEditingId] = useState<string | null>(null);
-  const [catalogForm] = Form.useForm<VehicleCatalogModelInput>();
+  const [catalogForm] = Form.useForm<VehicleCatalogFormValues>();
+  const selectedMake = Form.useWatch("makeChoice", catalogForm);
   const filteredCatalogModels = useMemo(
     () => filterVehicleCatalogModels(catalogModels, catalogFilters),
     [catalogFilters, catalogModels]
@@ -76,13 +83,16 @@ export function VehicleCatalogSettings() {
     }
   }, [clampedMobileCatalogPage, mobileCatalogPage]);
 
-  async function saveCatalogModel(values: VehicleCatalogModelInput) {
+  async function saveCatalogModel(values: VehicleCatalogFormValues) {
+    const make = (values.makeChoice === addNewMakeValue ? values.newMake : values.makeChoice)?.trim().toLocaleUpperCase();
+    if (!make) return;
+    const input: VehicleCatalogModelInput = { make, model: values.model.trim(), isActive: values.isActive };
     try {
       if (catalogEditingId) {
-        await updateVehicleCatalogModel(catalogEditingId, values);
+        await updateVehicleCatalogModel(catalogEditingId, input);
         message.success("Vehicle catalogue option updated.");
       } else {
-        await createVehicleCatalogModel(values);
+        await createVehicleCatalogModel(input);
         message.success("Vehicle catalogue option added.");
       }
       setCatalogEditingId(null);
@@ -106,7 +116,7 @@ export function VehicleCatalogSettings() {
 
   function editCatalogModel(item: VehicleCatalogModel) {
     setCatalogEditingId(item.id);
-    catalogForm.setFieldsValue({ make: item.make, model: item.model, isActive: item.isActive });
+    catalogForm.setFieldsValue({ makeChoice: item.make.toLocaleUpperCase(), newMake: undefined, model: item.model, isActive: item.isActive });
   }
 
   function updateCatalogFilter<K extends keyof VehicleCatalogFilters>(key: K, value: VehicleCatalogFilters[K] | undefined) {
@@ -161,9 +171,23 @@ export function VehicleCatalogSettings() {
         initialValues={{ isActive: true }}
         onFinish={(values) => void saveCatalogModel(values)}
       >
-        <Form.Item name="make" label="Make / 品牌" rules={[{ required: true, message: "Make is required" }]}>
-          <Input placeholder="Toyota" maxLength={80} />
+        <Form.Item name="makeChoice" label="Make / 品牌" rules={[{ required: true, message: "Select an existing make or add a new one" }]}>
+          <Select
+            showSearch
+            optionFilterProp="label"
+            placeholder="Select existing make"
+            options={[
+              ...vehicleCatalogMakes(catalogModels).map((make) => ({ value: make, label: make })),
+              { value: addNewMakeValue, label: "+ Add new make / 新增品牌" }
+            ]}
+            onChange={(value) => { if (value !== addNewMakeValue) catalogForm.setFieldValue("newMake", undefined); }}
+          />
         </Form.Item>
+        {selectedMake === addNewMakeValue ? (
+          <Form.Item name="newMake" label="New make / 新品牌" rules={[{ required: true, message: "Enter the new make" }]}>
+            <Input placeholder="BYD" maxLength={80} style={{ textTransform: "uppercase" }} />
+          </Form.Item>
+        ) : null}
         <Form.Item name="model" label="Model / 车型" rules={[{ required: true, message: "Model is required" }]}>
           <Input placeholder="Vios" maxLength={80} />
         </Form.Item>

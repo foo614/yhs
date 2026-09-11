@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { VehicleCatalogModel } from "../../api";
-import { VehicleCatalogSettings, filterVehicleCatalogModels, vehicleCatalogEmptyText } from "./VehicleCatalogSettings";
+import { VehicleCatalogSettings, filterVehicleCatalogModels, vehicleCatalogEmptyText, vehicleCatalogMakes } from "./VehicleCatalogSettings";
 
 describe("filterVehicleCatalogModels", () => {
   const catalogModels: VehicleCatalogModel[] = [
@@ -10,6 +10,13 @@ describe("filterVehicleCatalogModels", () => {
     { id: "catalog-2", make: "Honda", model: "City", isActive: false },
     { id: "catalog-3", make: "Toyota", model: "Yaris", isActive: true }
   ];
+
+  it("offers each existing make once in uppercase", () => {
+    expect(vehicleCatalogMakes([
+      ...catalogModels,
+      { id: "catalog-4", make: "TOYOTA", model: "Camry", isActive: true }
+    ])).toEqual(["HONDA", "TOYOTA"]);
+  });
 
   it("filters catalogue models by keyword and website visibility", () => {
     expect(filterVehicleCatalogModels(catalogModels, { keyword: "toyota" }).map((model) => model.id)).toEqual(["catalog-1", "catalog-3"]);
