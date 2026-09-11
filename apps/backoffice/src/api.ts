@@ -235,9 +235,6 @@ export type DashboardSalesFunnel = {
 export type DashboardReminder = {
   type: "LoanFollowUp" | "DeliveryPreparation" | "SettlementDue" | "PaymentBankFollowUp" | "PaymentStatusFollowUp" | "DailySpendDue" | "DebtRecoveryFollowUp" | "PaymentVoucherFollowUp";
   title: string;
-  vehicleYear?: number | null;
-  vehicleMake?: string | null;
-  vehicleModel?: string | null;
   vehiclePlate: string;
   vehicleId: string;
   dueDate: string;
@@ -1797,6 +1794,9 @@ export type OperationsCalendarEvent = {
   id: string;
   kind: "Delivery" | "Busy";
   title: string;
+  vehicleYear?: number | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
   startDate: string;
   endDate: string;
   time: string | null;
