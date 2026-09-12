@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, consumeExpiredSessionNotice, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, LoginHome, loanIdFromRouteUrl, LoanPage, markExpiredSession, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
@@ -12,6 +12,47 @@ describe("browser route state", () => {
     expect(restoredSessionRoute("/admin", ["Finance"])).toBe("/finance");
     expect(restoredSessionRoute("//evil.example/finance", ["Finance"])).toBe("/finance");
     expect(restoredSessionRoute("/unknown?next=/finance", ["Finance"])).toBe("/finance");
+  });
+
+  it("stores a non-sensitive one-time notice for an established-session expiry", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key)
+    };
+
+    markExpiredSession(storage, "/loans?loanId=synthetic-loan");
+
+    expect([...values.values()]).toEqual(["/loans?loanId=synthetic-loan", "expired"]);
+    expect(consumeExpiredSessionNotice(storage)).toBe(true);
+    expect(consumeExpiredSessionNotice(storage)).toBe(false);
+  });
+
+  it("does not show an expiry notice without the established-session marker", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key)
+    };
+
+    for (const ordinaryLoginCause of ["manual logout", "startup auth check", "login failure", "permission denied"]) {
+      expect(consumeExpiredSessionNotice(storage), ordinaryLoginCause).toBe(false);
+    }
+  });
+
+  it("renders the session-expired guidance only when the one-time notice was consumed", () => {
+    const expired = renderToStaticMarkup(createElement(LoginHome, {
+      onLogin: async () => undefined,
+      sessionExpiredNotice: true
+    }));
+    const ordinary = renderToStaticMarkup(createElement(LoginHome, {
+      onLogin: async () => undefined
+    }));
+
+    expect(expired).toContain("Your session has expired. Please sign in again.");
+    expect(ordinary).not.toContain("Your session has expired. Please sign in again.");
   });
 
   it("keeps a successfully created vehicle saved when the follow-up refresh fails", async () => {
