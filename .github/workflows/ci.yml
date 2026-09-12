@@ -99,6 +99,10 @@ jobs:
         shell: pwsh
         run: ./infra/test-aspire-production-compose.ps1
 
+      - name: Check OpenTelemetry Collector fan-out
+        shell: pwsh
+        run: ./infra/test-otel-collector.ps1
+
       - name: Check Aspire /ops login proxy
         shell: pwsh
         run: ./infra/test-ops-dashboard-proxy.ps1

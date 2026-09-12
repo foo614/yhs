@@ -1,0 +1,87 @@
+extensions:
+  bearertokenauth/ingest:
+    token: ${env:OTEL_COLLECTOR_INGEST_TOKEN}
+  basicauth/grafana_cloud:
+    client_auth:
+      username: ${env:GRAFANA_CLOUD_OTLP_INSTANCE_ID}
+      password: ${env:GRAFANA_CLOUD_OTLP_API_TOKEN}
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: bearertokenauth/ingest
+  prometheus/collector:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          scrape_interval: 30s
+          static_configs:
+            - targets: [127.0.0.1:8888]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 192
+    spike_limit_mib: 64
+  resource/production:
+    attributes:
+      - key: deployment.environment.name
+        action: upsert
+        value: production
+      - key: service.namespace
+        action: upsert
+        value: ysheng
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  otlp/aspire:
+    endpoint: production-dashboard:18889
+    tls:
+      insecure: true
+    headers:
+      x-otlp-api-key: ${env:ASPIRE_DASHBOARD_OTLP_API_KEY}
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 2048
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 60s
+  otlphttp/grafana_cloud:
+    endpoint: ${env:GRAFANA_CLOUD_OTLP_ENDPOINT}
+    auth:
+      authenticator: basicauth/grafana_cloud
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 2048
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+service:
+  extensions: [bearertokenauth/ingest, basicauth/grafana_cloud, health_check]
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/production, batch]
+      exporters: [otlp/aspire, otlphttp/grafana_cloud]
+    metrics:
+      receivers: [otlp, prometheus/collector]
+      processors: [memory_limiter, resource/production, batch]
+      exporters: [otlp/aspire, otlphttp/grafana_cloud]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/production, batch]
+      exporters: [otlp/aspire, otlphttp/grafana_cloud]

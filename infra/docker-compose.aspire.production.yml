@@ -14,9 +14,9 @@ services:
     restart: unless-stopped
     environment:
       OTEL_SERVICE_NAME: ysheng-api
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
-      OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}
+      OTEL_EXPORTER_OTLP_HEADERS: Authorization=Bearer ${OTEL_COLLECTOR_INGEST_TOKEN}
       Ocr__GoogleDocumentAi__ProjectId: ${GOOGLE_DOCUMENT_AI_PROJECT_ID}
       Ocr__GoogleDocumentAi__Location: ${GOOGLE_DOCUMENT_AI_LOCATION}
       Ocr__GoogleDocumentAi__DefaultProcessorId: ${GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID}
@@ -28,8 +28,15 @@ services:
         source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH}
         target: /run/secrets/google-document-ai.json
         read_only: true
+    networks:
+      - aspire
+      - telemetry
     depends_on:
       postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      otel-collector-health:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health/ready"]
@@ -43,18 +50,63 @@ services:
       context: ..
       dockerfile: services/api/src/YSHeng.Api/Dockerfile
     restart: unless-stopped
+    environment:
+      OTEL_SERVICE_NAME: ysheng-worker
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_HEADERS: Authorization=Bearer ${OTEL_COLLECTOR_INGEST_TOKEN}
+    networks:
+      - aspire
+      - telemetry
     depends_on:
       postgres:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
+      otel-collector-health:
+        condition: service_healthy
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0@sha256:5b66b0dc6921f2a439cf50b942ccb9e2a4375f136239a9fdf709ef33e4bfc668
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    restart: unless-stopped
     environment:
-      OTEL_SERVICE_NAME: ysheng-worker
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889
-      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
-      OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}
+      ASPIRE_DASHBOARD_OTLP_API_KEY: ${ASPIRE_DASHBOARD_OTLP_API_KEY}
+      OTEL_COLLECTOR_INGEST_TOKEN: ${OTEL_COLLECTOR_INGEST_TOKEN}
+      GRAFANA_CLOUD_OTLP_ENDPOINT: ${GRAFANA_CLOUD_OTLP_ENDPOINT}
+      GRAFANA_CLOUD_OTLP_INSTANCE_ID: ${GRAFANA_CLOUD_OTLP_INSTANCE_ID}
+      GRAFANA_CLOUD_OTLP_API_TOKEN: ${GRAFANA_CLOUD_OTLP_API_TOKEN}
+    volumes:
+      - ./otel-collector.production.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks:
+      - telemetry
+      - telemetry-egress
+    depends_on:
+      production-dashboard:
+        condition: service_started
+  otel-collector-health:
+    image: curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["while true; do sleep 3600; done"]
+    restart: unless-stopped
+    networks:
+      - telemetry
+    depends_on:
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://otel-collector:13133/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   production-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:13.4.2@sha256:583b33ffe6cf016115bb55dee00d682ab388832eeb6dd55b6df137e8cae1c1ab
     restart: unless-stopped
+    networks:
+      - aspire
+      - telemetry
     environment:
       ASPNETCORE_URLS: http://+:18888
       ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL: http://+:18889
@@ -148,3 +200,8 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+
+networks:
+  telemetry:
+    internal: true
+  telemetry-egress:

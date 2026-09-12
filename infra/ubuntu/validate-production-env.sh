@@ -34,22 +34,29 @@ require_value() {
 for key in \
   POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD \
   SEED_ADMIN_EMAIL SEED_ADMIN_PASSWORD SEED_DATA_ENABLED ASPNETCORE_ENVIRONMENT \
-  ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY \
+  ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY OTEL_COLLECTOR_INGEST_TOKEN \
+  GRAFANA_CLOUD_OTLP_ENDPOINT GRAFANA_CLOUD_OTLP_INSTANCE_ID GRAFANA_CLOUD_OTLP_API_TOKEN \
   PUBLIC_API_BASE_URL FRONTOFFICE_ORIGIN BACKOFFICE_ORIGIN \
   API_DOMAIN FRONTOFFICE_DOMAIN BACKOFFICE_DOMAIN TLS_EMAIL; do
   require_value "$key"
 done
 
-for key in POSTGRES_PASSWORD SEED_ADMIN_PASSWORD ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY; do
+for key in POSTGRES_PASSWORD SEED_ADMIN_PASSWORD ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY OTEL_COLLECTOR_INGEST_TOKEN GRAFANA_CLOUD_OTLP_API_TOKEN; do
   value="$(read_env "$key")"
   case "$value" in
-    change-this-database-password|change-this-admin-password|change-this-dashboard-browser-token|change-this-dashboard-otlp-api-key|ChangeMe123\!|ysheng_dev)
+    change-this-database-password|change-this-admin-password|change-this-dashboard-browser-token|change-this-dashboard-otlp-api-key|change-this-collector-ingest-token|replace-with-grafana-cloud-api-token|ChangeMe123\!|ysheng_dev)
       failures+=("$key still uses an example/default value.")
       ;;
   esac
 done
 
-for key in ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY; do
+grafana_endpoint="$(read_env GRAFANA_CLOUD_OTLP_ENDPOINT)"
+[[ "$grafana_endpoint" =~ ^https://otlp-gateway-prod-[a-z0-9-]+\.grafana\.net/otlp/?$ ]] || failures+=("GRAFANA_CLOUD_OTLP_ENDPOINT must use a Grafana Cloud production OTLP gateway ending in /otlp.")
+[[ "$(read_env GRAFANA_CLOUD_OTLP_INSTANCE_ID)" =~ ^[0-9]+$ ]] || failures+=("GRAFANA_CLOUD_OTLP_INSTANCE_ID must be numeric.")
+grafana_token="$(read_env GRAFANA_CLOUD_OTLP_API_TOKEN)"
+(( ${#grafana_token} >= 20 )) || failures+=("GRAFANA_CLOUD_OTLP_API_TOKEN must be at least 20 characters long.")
+
+for key in ASPIRE_DASHBOARD_BROWSER_TOKEN ASPIRE_DASHBOARD_OTLP_API_KEY OTEL_COLLECTOR_INGEST_TOKEN; do
   value="$(read_env "$key")"
   (( ${#value} >= 32 )) || failures+=("$key must be at least 32 characters long.")
 done

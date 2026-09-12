@@ -30,6 +30,10 @@ function New-TestEnvFile {
     GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH = "/opt/ysheng/shared/google-document-ai.json"
     ASPIRE_DASHBOARD_BROWSER_TOKEN = "dashboard-browser-token-with-32-characters"
     ASPIRE_DASHBOARD_OTLP_API_KEY = "dashboard-otlp-key-with-32-characters"
+    OTEL_COLLECTOR_INGEST_TOKEN = "collector-ingest-token-with-32-characters"
+    GRAFANA_CLOUD_OTLP_ENDPOINT = "https://otlp-gateway-prod-test.grafana.net/otlp"
+    GRAFANA_CLOUD_OTLP_INSTANCE_ID = "123456"
+    GRAFANA_CLOUD_OTLP_API_TOKEN = "grafana-cloud-token-with-32-characters"
     PUBLIC_API_BASE_URL = "https://portal.ysheng.example.my"
     FRONTOFFICE_ORIGIN = "https://www.ysheng.example.my"
     BACKOFFICE_ORIGIN = "https://portal.ysheng.example.my"
@@ -123,6 +127,28 @@ $shortDashboardToken = New-TestEnvFile -Name "short-dashboard-token" -Overrides 
   ASPIRE_DASHBOARD_BROWSER_TOKEN = "short-dashboard-token"
 }
 Assert-ValidationFails -Name "Short dashboard token" -Path $shortDashboardToken -ExpectedMessage "ASPIRE_DASHBOARD_BROWSER_TOKEN must be at least 32 characters long."
+
+$shortCollectorToken = New-TestEnvFile -Name "short-collector-token" -Overrides @{ OTEL_COLLECTOR_INGEST_TOKEN = "short" }
+Assert-ValidationFails -Name "Short Collector token" -Path $shortCollectorToken -ExpectedMessage "OTEL_COLLECTOR_INGEST_TOKEN must be at least 32 characters long."
+
+$missingGrafanaToken = New-TestEnvFile -Name "missing-grafana-token" -Overrides @{ GRAFANA_CLOUD_OTLP_API_TOKEN = $null }
+Assert-ValidationFails -Name "Missing Grafana token" -Path $missingGrafanaToken -ExpectedMessage "GRAFANA_CLOUD_OTLP_API_TOKEN is required."
+
+$invalidGrafanaEndpoint = New-TestEnvFile -Name "invalid-grafana-endpoint" -Overrides @{ GRAFANA_CLOUD_OTLP_ENDPOINT = "http://localhost:4318" }
+Assert-ValidationFails -Name "Invalid Grafana endpoint" -Path $invalidGrafanaEndpoint -ExpectedMessage "GRAFANA_CLOUD_OTLP_ENDPOINT must be an absolute https URL."
+
+foreach ($case in @(
+  @{ Name = "untrusted-grafana-host"; Value = "https://telemetry.example.com/otlp" },
+  @{ Name = "grafana-userinfo"; Value = "https://name@otlp-gateway-prod-test.grafana.net/otlp" },
+  @{ Name = "grafana-query"; Value = "https://otlp-gateway-prod-test.grafana.net/otlp?forward=1" },
+  @{ Name = "grafana-fragment"; Value = "https://otlp-gateway-prod-test.grafana.net/otlp#fragment" }
+)) {
+  $path = New-TestEnvFile -Name $case.Name -Overrides @{ GRAFANA_CLOUD_OTLP_ENDPOINT = $case.Value }
+  Assert-ValidationFails -Name $case.Name -Path $path -ExpectedMessage "GRAFANA_CLOUD_OTLP_ENDPOINT must use a Grafana Cloud production OTLP gateway without userinfo, query, or fragment."
+}
+
+$invalidGrafanaInstance = New-TestEnvFile -Name "invalid-grafana-instance" -Overrides @{ GRAFANA_CLOUD_OTLP_INSTANCE_ID = "stack-name" }
+Assert-ValidationFails -Name "Invalid Grafana instance" -Path $invalidGrafanaInstance -ExpectedMessage "GRAFANA_CLOUD_OTLP_INSTANCE_ID must be numeric."
 
 $localUrls = New-TestEnvFile -Name "local-urls" -Overrides @{
   PUBLIC_API_BASE_URL = "http://localhost:5000"
