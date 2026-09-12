@@ -3461,6 +3461,19 @@ body {
   background: #f8fbfa;
 }
 
+.vehicleIntakeChecklistCard {
+  cursor: pointer;
+}
+
+.vehicleIntakeChecklistCard:hover {
+  border-color: rgba(13, 107, 87, .42);
+}
+
+.vehicleIntakeChecklistCard:focus-visible {
+  outline: 3px solid rgba(13, 107, 87, .28);
+  outline-offset: 2px;
+}
+
 .vehicleIntakeChecklist section.ready {
   border-color: rgba(18, 128, 87, .18);
   background: #f3fbf6;
@@ -3494,11 +3507,10 @@ body {
   line-height: 1.35;
 }
 
-.vehicleIntakeChecklist .ant-btn-link {
+.vehicleIntakeChecklistAction {
   width: fit-content;
-  height: auto;
   margin-top: 4px;
-  padding: 0;
+  color: #0d6b57 !important;
   font-weight: 650;
 }
 

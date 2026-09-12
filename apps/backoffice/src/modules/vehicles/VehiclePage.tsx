@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import { CheckCircleFilled, DeleteOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard, ProDescriptions, ProConfigProvider, StepsForm } from "@ant-design/pro-components";
@@ -637,6 +637,26 @@ export function vehicleIntakeChecklistTab(destination: VehicleIntakeChecklistDes
   if (destination === "sales-leads") return "people";
   if (destination === "purchase-invoice" || destination === "captured-data") return "documents";
   return "vehicle";
+}
+
+export function IntakeChecklistCard({ className, actionLabel, onActivate, children }: {
+  className: string;
+  actionLabel: ReactNode;
+  onActivate: () => void;
+  children: ReactNode;
+}) {
+  const activateFromKeyboard = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onActivate();
+  };
+
+  return (
+    <section className={`${className} vehicleIntakeChecklistCard`} role="button" tabIndex={0} onClick={onActivate} onKeyDown={activateFromKeyboard}>
+      {children}
+      <span className="vehicleIntakeChecklistAction">{actionLabel}</span>
+    </section>
+  );
 }
 
 export function filterOperationIntakeVehicles(
@@ -2405,60 +2425,51 @@ export function VehiclePage({
               extra={<Tag color={selectedApprovalGaps.length > 0 ? "gold" : "green"}>{selectedApprovalGaps.length > 0 ? `${selectedApprovalGaps.length} attention` : "Ready"}</Tag>}
             >
               <div className="vehicleIntakeChecklist">
-                <section className={selectedVehicle.ownerId ? "ready" : "attention"}>
+                <IntakeChecklistCard className={selectedVehicle.ownerId ? "ready" : "attention"} actionLabel="Open owner / 查看原车主" onActivate={() => openIntakeChecklistDestination("owner")}>
                   <small>Owner handoff</small>
                   <strong>{selectedVehicleOwner ? selectedVehicleOwner.name : "Owner missing"}</strong>
                   <span>{selectedVehicleOwner ? selectedVehicleOwner.phone : "Link previous owner before intake is complete."}</span>
-                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("owner")}>Open owner / 查看原车主</Button>
-                </section>
-                <section className={selectedVehicleInvoiceCount > 0 ? "ready" : "attention"}>
+                </IntakeChecklistCard>
+                <IntakeChecklistCard className={selectedVehicleInvoiceCount > 0 ? "ready" : "attention"} actionLabel="Open invoice / 查看收车发票" onActivate={() => openIntakeChecklistDestination("purchase-invoice")}>
                   <small>Purchase invoice</small>
                   <strong>{selectedVehicleInvoiceCount > 0 ? `${selectedVehicleInvoiceCount} linked` : "Missing"}</strong>
                   <span>{selectedVehicleInvoiceCount > 0 ? "Invoice is linked to this vehicle." : "Create or link the purchase invoice."}</span>
-                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("purchase-invoice")}>Open invoice / 查看收车发票</Button>
-                </section>
-                <section className={selectedVehicleDocumentCount > 0 ? "ready" : "attention"}>
+                </IntakeChecklistCard>
+                <IntakeChecklistCard className={selectedVehicleDocumentCount > 0 ? "ready" : "attention"} actionLabel="Open documents" onActivate={() => openVehicleAssets("documents")}>
                   <small>Documents</small>
                   <strong>{selectedVehicleDocumentCount}</strong>
                   <span>{selectedVehicleDocumentCount > 0 ? "Documents uploaded." : "Upload VOC, AP, or intake documents when available."}</span>
-                  <Button type="link" size="small" onClick={() => openVehicleAssets("documents")}>Open documents</Button>
-                </section>
-                <section className={selectedVehiclePhotoCount > 0 ? "ready" : "attention"}>
+                </IntakeChecklistCard>
+                <IntakeChecklistCard className={selectedVehiclePhotoCount > 0 ? "ready" : "attention"} actionLabel="Open photos" onActivate={() => openVehicleAssets("photos")}>
                   <small>Website photos</small>
                   <strong>{selectedVehiclePhotoCount}</strong>
                   <span>{selectedVehiclePhotoCount > 0 ? "Photo gallery started." : "Upload photos before publishing the car."}</span>
-                  <Button type="link" size="small" onClick={() => openVehicleAssets("photos")}>Open photos</Button>
-                </section>
-                <section className={selectedVehicleCaptureCount > 0 ? "ready" : "attention"}>
+                </IntakeChecklistCard>
+                <IntakeChecklistCard className={selectedVehicleCaptureCount > 0 ? "ready" : "attention"} actionLabel="Open captured data / 查看识别资料" onActivate={() => openIntakeChecklistDestination("captured-data")}>
                   <small>Captured data</small>
                   <strong>{selectedVehicleCaptureCount}</strong>
                   <span>{selectedVehicleCaptureCount > 0 ? "OCR captured fields are ready to review." : "Upload and OCR invoices or receipts to capture fields."}</span>
-                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("captured-data")}>Open captured data / 查看识别资料</Button>
-                </section>
-                <section className={selectedVehicle.bossConfirmed ? "ready" : "attention"}>
+                </IntakeChecklistCard>
+                <IntakeChecklistCard className={selectedVehicle.bossConfirmed ? "ready" : "attention"} actionLabel="Open approval / 查看审批" onActivate={() => openIntakeChecklistDestination("management-approval")}>
                   <small>Management approval</small>
                   <strong>{selectedVehicle.bossConfirmed ? "Confirmed" : "Pending"}</strong>
-                <span>{selectedVehicle.contraRangePrice ? `Contra ${formatMoney(selectedVehicle.contraRangePrice)}` : "Set contra range and confirm approval."}</span>
-                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("management-approval")}>Open approval / 查看审批</Button>
-                </section>
-                <section className={selectedVehicle.ucdStatus ? "ready" : "attention"}>
+                  <span>{selectedVehicle.contraRangePrice ? `Contra ${formatMoney(selectedVehicle.contraRangePrice)}` : "Set contra range and confirm approval."}</span>
+                </IntakeChecklistCard>
+                <IntakeChecklistCard className={selectedVehicle.ucdStatus ? "ready" : "attention"} actionLabel="Open UCD / 查看二手车部状态" onActivate={() => openIntakeChecklistDestination("ucd")}>
                   <small>{shortformLabel("UCD", "Used car department status tracking")}</small>
                   <strong>{selectedVehicle.ucdStatus || "Not tracked"}</strong>
                   <span>{selectedVehicle.ucdStatus ? "Used car department status recorded." : "Add UCD status for intake visibility."}</span>
-                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("ucd")}>Open UCD / 查看二手车部状态</Button>
-                </section>
-                <section className={selectedVehicleHasOutstationPickup ? "ready" : "neutral"}>
+                </IntakeChecklistCard>
+                <IntakeChecklistCard className={selectedVehicleHasOutstationPickup ? "ready" : "neutral"} actionLabel="Open pickup / 查看外地收车" onActivate={() => openIntakeChecklistDestination("outstation-pickup")}>
                   <small>Outstation pickup</small>
                   <strong>{selectedVehicleHasOutstationPickup ? "Scheduled" : "None"}</strong>
                   <span>{selectedVehicle.outstationPickupScheduledAt ? String(selectedVehicle.outstationPickupScheduledAt).replace("T", " ").slice(0, 16) : selectedVehicle.outstationPickupBookingSlip || "No outstation pickup recorded."}</span>
-                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("outstation-pickup")}>Open pickup / 查看外地收车</Button>
-                </section>
-                <section className={selectedVehicleActiveLeads.length > 0 ? "ready" : "neutral"}>
+                </IntakeChecklistCard>
+                <IntakeChecklistCard className={selectedVehicleActiveLeads.length > 0 ? "ready" : "neutral"} actionLabel="Open leads / 查看销售线索" onActivate={() => openIntakeChecklistDestination("sales-leads")}>
                   <small>Sales leads</small>
                   <strong>{selectedVehicleActiveLeads.length} active</strong>
                   <span>{selectedVehicleCustomer ? `Buyer: ${selectedVehicleCustomer.name}` : "No confirmed buyer linked yet."}</span>
-                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("sales-leads")}>Open leads / 查看销售线索</Button>
-                </section>
+                </IntakeChecklistCard>
               </div>
             </ProCard>
           ) : null}
