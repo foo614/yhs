@@ -55,6 +55,7 @@ import {
   type DeliveryWorkboardItem,
   type DeliveryWorkboardStage,
   type DocumentCategory,
+  type LoanApplication,
   type VehicleLookup
 } from "../../api";
 
@@ -106,11 +107,14 @@ export function filterDeliveryQueue(items: readonly DeliveryWorkboardItem[], que
   return [...items];
 }
 
-export function eligibleDeliveryVehicles(vehicles: readonly VehicleLookup[], deliveries: readonly DeliveryWorkboardItem[]) {
+export function eligibleDeliveryVehicles(vehicles: readonly VehicleLookup[], deliveries: readonly DeliveryWorkboardItem[], loans: readonly LoanApplication[]) {
   const unavailableVehicleIds = new Set(deliveries
     .filter((delivery) => !delivery.terminal || delivery.stage === "Completed" || delivery.status === "Released")
     .map((delivery) => delivery.vehicleId));
-  return vehicles.filter((vehicle) => vehicle.customerId && vehicle.status !== "Sold" && !unavailableVehicleIds.has(vehicle.id));
+  const approvedLoanVehicleIds = new Set(loans
+    .filter((loan) => loan.louApproved && (loan.status === "Approved" || loan.status === "Done"))
+    .map((loan) => loan.vehicleId));
+  return vehicles.filter((vehicle) => vehicle.customerId && vehicle.status !== "Sold" && approvedLoanVehicleIds.has(vehicle.id) && !unavailableVehicleIds.has(vehicle.id));
 }
 
 export function deliveryStageLabel(stage: DeliveryWorkboardStage) {
@@ -253,6 +257,7 @@ export function initialDeliveryFocusResolution({
 
 export function DeliveryWorkboardPage({
   vehicles,
+  loans,
   dashboardFocus,
   onClearDashboardFocus,
   onOpenCustomer,
@@ -263,6 +268,7 @@ export function DeliveryWorkboardPage({
   autoLoad = true
 }: {
   vehicles: VehicleLookup[];
+  loans: LoanApplication[];
   dashboardFocus?: { vehicleId?: string };
   onClearDashboardFocus: () => void;
   onOpenCustomer: (customerId: string) => void;
@@ -368,7 +374,7 @@ export function DeliveryWorkboardPage({
     void loadActivity(delivery.id);
   }, [initialDeliveryId, items, loadError, loading, loadActivity]);
 
-  const eligibleVehicles = useMemo(() => eligibleDeliveryVehicles(vehicles, items), [vehicles, items]);
+  const eligibleVehicles = useMemo(() => eligibleDeliveryVehicles(vehicles, items, loans), [vehicles, items, loans]);
   const today = singaporeDateString();
   const weekEndDate = addCalendarDays(today, 7);
   const filteredItems = useMemo(() => filterDeliveryQueue(filterDeliveryWorkboard(items, {
@@ -620,7 +626,7 @@ export function DeliveryWorkboardPage({
           description="This exact delivery link is no longer available. Choose a record from the current workboard."
         />}
         {loadError && <Alert type="error" showIcon message={loadError} action={<Button size="small" onClick={() => void reload()}>Try again</Button>} />}
-        {eligibleVehicles.length === 0 && !loading && <Alert type="info" showIcon message="No buyer-confirmed car is waiting for a new delivery." />}
+        {eligibleVehicles.length === 0 && !loading && <Alert type="info" showIcon message="No Loan Approved car is waiting for a new delivery." />}
         {picOptions.length === 0 && !loading && <Alert type="warning" showIcon message="No active Delivery PIC is available. Ask Admin to assign Delivery access." />}
 
         <div className="deliveryWorkboardToolbar pageFilterMobileOnly">

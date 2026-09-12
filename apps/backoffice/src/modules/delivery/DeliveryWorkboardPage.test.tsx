@@ -133,7 +133,21 @@ describe("simple delivery workboard", () => {
       { ...baseItem, id: "delivery-released", vehicleId: "released", status: "Released", stage: "Completed", terminal: true }
     ];
 
-    expect(eligibleDeliveryVehicles(vehicles, deliveries).map((vehicle) => vehicle.id)).toEqual(["cancelled", "fresh"]);
+    const loans = [
+      { id: "loan-active", vehicleId: "active", customerId: "customer-1", status: "Approved" as const, louApproved: true, louDone: false },
+      { id: "loan-cancelled", vehicleId: "cancelled", customerId: "customer-2", status: "Approved" as const, louApproved: true, louDone: false },
+      { id: "loan-released", vehicleId: "released", customerId: "customer-3", status: "Done" as const, louApproved: true, louDone: true },
+      { id: "loan-fresh", vehicleId: "fresh", customerId: "customer-4", status: "Done" as const, louApproved: true, louDone: true }
+    ];
+
+    expect(eligibleDeliveryVehicles(vehicles, deliveries, loans).map((vehicle) => vehicle.id)).toEqual(["cancelled", "fresh"]);
+  });
+
+  it("excludes cars whose loan is not approved", () => {
+    const vehicles = [{ id: "pending", plateNumber: "AAA 1", make: "Toyota", model: "Vios", stockOwner: "YSHeng" as const, status: "LoanProcessing" as const, customerId: "customer-1" }];
+    const loans = [{ id: "loan-pending", vehicleId: "pending", customerId: "customer-1", status: "Pending" as const, louApproved: false, louDone: false }];
+
+    expect(eligibleDeliveryVehicles(vehicles, [], loans)).toEqual([]);
   });
 
   it("opens an exact delivery deep link instead of another historical schedule for the same vehicle", () => {

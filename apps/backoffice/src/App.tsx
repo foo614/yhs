@@ -1247,6 +1247,7 @@ export default function App() {
           {pathname === "/delivery" && (
             <DeliveryPage
               vehicles={vehicleLookup}
+              loans={loans}
               canCorrectBuyer={currentRoles.includes("BossAdmin")}
               initialDeliveryId={deliveryIdFromRouteUrl(routeUrl)}
               dashboardFocus={dashboardDrilldown}
@@ -5063,6 +5064,7 @@ export function LoanPage({
 
 export function DeliveryPage({
   vehicles,
+  loans,
   canCorrectBuyer = false,
   initialDeliveryId,
   dashboardFocus,
@@ -5070,6 +5072,7 @@ export function DeliveryPage({
   onOpenCustomer
 }: {
   vehicles: VehicleLookup[];
+  loans: LoanApplication[];
   canCorrectBuyer?: boolean;
   initialDeliveryId?: string;
   dashboardFocus: DashboardDrilldown;
@@ -5079,6 +5082,7 @@ export function DeliveryPage({
   return (
     <DeliveryWorkboardPage
       vehicles={vehicles}
+      loans={loans}
       canCorrectBuyer={canCorrectBuyer}
       initialDeliveryId={initialDeliveryId}
       dashboardFocus={dashboardFocus}
