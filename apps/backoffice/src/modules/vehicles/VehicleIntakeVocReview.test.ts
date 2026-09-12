@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocDetectedFields, vehicleIntakeVocPatch, vocReviewWarnings } from "./VehicleIntakeVocReview";
+import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocDetectedFields, vehicleIntakeVocFieldState, vehicleIntakeVocPatch, vocReviewWarnings } from "./VehicleIntakeVocReview";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -57,6 +57,9 @@ describe("vehicle intake VOC review", () => {
 
   it("distinguishes OCR-filled fields from fields that still need manual entry", () => {
     expect(vehicleIntakeVocDetectedFields({ plateNumber: "VAB1234", chassisNumber: null, year: "2024" })).toEqual(["plateNumber", "year"]);
+    expect(vehicleIntakeVocFieldState({}, reviewedValues, "make")).toBe("OCR-filled");
+    expect(vehicleIntakeVocFieldState({ make: "Honda" }, reviewedValues, "make")).toBe("Existing entry kept");
+    expect(vehicleIntakeVocFieldState({}, { chassisNumber: null }, "chassisNumber")).toBe("Enter manually");
   });
 
   it("keeps the compact extraction summary wrapping across desktop, tablet, and mobile widths", () => {

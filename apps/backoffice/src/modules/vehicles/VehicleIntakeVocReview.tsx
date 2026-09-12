@@ -85,6 +85,17 @@ export function vehicleIntakeVocDetectedFields(reviewedValues: Record<string, st
     .map((field) => field.name);
 }
 
+export function vehicleIntakeVocFieldState(
+  draft: VehicleIntakeVocDraft,
+  reviewedValues: Record<string, string | null | undefined>,
+  field: VehicleIntakeVocField
+) {
+  const extracted = normalized(reviewedValues[field]);
+  const detected = Boolean(extracted) && (field !== "year" || validYear(extracted));
+  if (!detected) return "Enter manually";
+  return normalized(draft[field]) ? "Existing entry kept" : "OCR-filled";
+}
+
 export function VehicleIntakeVocReview({
   draft,
   disabled,
@@ -186,9 +197,8 @@ export function VehicleIntakeVocReview({
           ) : null}
           <div className="vehicleIntakeVocSummary" aria-label="VOC extraction summary">
             {vocFields.map((field) => {
-              const extracted = normalized(reviewedValues[field.name]);
-              const detected = Boolean(extracted) && (field.name !== "year" || validYear(extracted));
-              return <Tag key={field.name} color={detected ? "blue" : "default"}>{field.label}: {detected ? "OCR-filled" : "Enter manually"}</Tag>;
+              const state = vehicleIntakeVocFieldState(draft, reviewedValues, field.name);
+              return <Tag key={field.name} color={state === "OCR-filled" ? "blue" : state === "Existing entry kept" ? "green" : "default"}>{field.label}: {state}</Tag>;
             })}
             <Tag color={normalized(reviewedValues.ownerName) ? "green" : "default"}>Registered owner: {normalized(reviewedValues.ownerName) ? "Detected for reference" : "Not detected"}</Tag>
           </div>
