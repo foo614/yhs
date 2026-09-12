@@ -2622,6 +2622,43 @@ function DashboardAiDocumentProcessingPanel({
         <Metric label="Pending staff check / 待员工核对" value={processing.pendingReviewCount} meta="Live backlog" tone={processing.pendingReviewCount > 0 ? "work" : "neutral"} />
         <Metric label="OCR capacity / OCR 容量" value={`${processing.remainingThisMonth} left`} meta={`${processing.usedThisMonth} of ${processing.monthlyRequestLimit} used this month`} tone={processing.remainingThisMonth === 0 ? "risk" : "neutral"} />
       </div>
+      <div className="dashboardAiCharts">
+        <section className="dashboardAiChart" aria-labelledby="ai-review-outcomes-title">
+          <div className="dashboardAiChartHeading">
+            <strong id="ai-review-outcomes-title">Staff-reviewed field outcomes / 员工复核结果</strong>
+            <span>{processing.comparedFieldCount} compared fields</span>
+          </div>
+          {processing.comparedFieldCount > 0 ? (
+            <div className="dashboardAiOutcomeTrack" role="img" aria-label={`${processing.correctFieldCount} fields unchanged after staff review and ${processing.correctedFieldCount} fields corrected by staff`}>
+              <span className="dashboardAiOutcomeUnchanged" style={{ width: `${(processing.correctFieldCount / processing.comparedFieldCount) * 100}%` }} />
+              <span className="dashboardAiOutcomeCorrected" style={{ width: `${(processing.correctedFieldCount / processing.comparedFieldCount) * 100}%` }} />
+            </div>
+          ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No staff-reviewed field comparisons yet." />}
+          <div className="dashboardAiLegend" aria-label="Staff-reviewed outcome totals">
+            <span><i className="dashboardAiLegendUnchanged" />Unchanged after review <strong>{processing.correctFieldCount}</strong></span>
+            <span><i className="dashboardAiLegendCorrected" />Corrected by staff <strong>{processing.correctedFieldCount}</strong></span>
+          </div>
+        </section>
+        <section className="dashboardAiChart" aria-labelledby="ai-operational-signals-title">
+          <div className="dashboardAiChartHeading">
+            <strong id="ai-operational-signals-title">Review workload / 复核工作量</strong>
+            <span>Independent operational signals</span>
+          </div>
+          {[
+            { label: "Pending staff check", value: processing.pendingReviewCount, tone: "pending" },
+            { label: "Need careful checking", value: processing.lowConfidenceCount, tone: "caution" },
+            { label: "Failed scans", value: processing.failedCount, tone: "failed" }
+          ].map((item) => {
+            const maximum = Math.max(processing.pendingReviewCount, processing.lowConfidenceCount, processing.failedCount, 1);
+            return (
+              <div className="dashboardAiSignal" key={item.label}>
+                <div><span>{item.label}</span><strong>{item.value}</strong></div>
+                <div className="dashboardAiSignalTrack" aria-hidden><span className={`dashboardAiSignal-${item.tone}`} style={{ width: `${(item.value / maximum) * 100}%` }} /></div>
+              </div>
+            );
+          })}
+        </section>
+      </div>
       <Table
         rowKey="category"
         size="small"

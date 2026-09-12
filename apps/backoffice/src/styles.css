@@ -1798,6 +1798,94 @@ body {
   box-shadow: none;
 }
 
+.dashboardAiCharts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.dashboardAiChart {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #dfe9e5;
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.dashboardAiChartHeading,
+.dashboardAiSignal > div:first-child,
+.dashboardAiLegend span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dashboardAiChartHeading span,
+.dashboardAiSignal span {
+  color: #60746e;
+  font-size: 12px;
+}
+
+.dashboardAiOutcomeTrack,
+.dashboardAiSignalTrack {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  margin-top: 16px;
+  border-radius: 6px;
+  background: #e8efec;
+}
+
+.dashboardAiOutcomeTrack span,
+.dashboardAiSignalTrack span {
+  display: block;
+  height: 100%;
+}
+
+.dashboardAiOutcomeUnchanged,
+.dashboardAiLegendUnchanged { background: #0b705c; }
+.dashboardAiOutcomeCorrected,
+.dashboardAiLegendCorrected { background: #d18a22; }
+.dashboardAiSignal-pending { background: #d18a22; }
+.dashboardAiSignal-caution { background: #8d6b2a; }
+.dashboardAiSignal-failed { background: #b03a48; }
+
+.dashboardAiLegend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dashboardAiLegend i {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+}
+
+.dashboardAiLegend span {
+  justify-content: flex-start;
+  color: #52645f;
+  font-size: 12px;
+}
+
+.dashboardAiLegend strong { margin-left: auto; color: #14251f; }
+.dashboardAiSignal { margin-top: 12px; }
+.dashboardAiSignalTrack { height: 8px; margin-top: 5px; }
+
+@media (max-width: 1024px) {
+  .dashboardAiCharts { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .dashboardAiChart { padding: 12px; }
+  .dashboardAiLegend { grid-template-columns: minmax(0, 1fr); }
+  .dashboardAiChartHeading { align-items: flex-start; flex-direction: column; }
+}
+
 .dashboardPriorityList {
   display: grid;
   gap: 8px;
