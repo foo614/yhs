@@ -5677,6 +5677,52 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Google_document_ai_voc_diagnostic_reports_identifier_geometry_shape_without_values()
+    {
+        const string privateChassis = "PRIVATECHASSIS12345";
+        const string privateEngine = "PRIVATEENGINE67890";
+        var recognition = new GoogleDocumentAiRecognition(
+            "No. Chasis / No. Enjin",
+            0.9m,
+            [],
+            [],
+            [
+                new("No. Chasis / No. Enjin", 1, .10, .20, .42, .23),
+                new(privateChassis, 1, .44, .20, .64, .23),
+                new(privateEngine, 1, .66, .20, .84, .23),
+                new("UNRELATED99", 1, .11, .30, .24, .33)
+            ],
+            [
+                new("No.", 1, .10, .20, .14, .23),
+                new("Chasis", 1, .15, .20, .23, .23),
+                new("/", 1, .24, .20, .25, .23),
+                new("No.", 1, .26, .20, .30, .23),
+                new("Enjin", 1, .31, .20, .38, .23),
+                new(privateChassis, 1, .44, .20, .64, .23),
+                new(privateEngine, 1, .66, .20, .84, .23),
+                new("UNRELATED99", 1, .11, .30, .24, .33)
+            ]);
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], recognition.RawText, recognition.Confidence, []);
+
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, extraction);
+
+        Assert.Equal(0, diagnostic.IdentifierLayout.LabelTokenCount);
+        Assert.Equal("slash", diagnostic.IdentifierLayout.LabelDelimiter);
+        Assert.Equal(2, diagnostic.IdentifierLayout.SameBandCount);
+        Assert.Equal("18-32,18-32", diagnostic.IdentifierLayout.SameBandTokenBuckets);
+        Assert.Equal(1, diagnostic.IdentifierLayout.BelowBandCount);
+        Assert.Equal("10-17", diagnostic.IdentifierLayout.BelowBandTokenBuckets);
+        Assert.Equal(2, diagnostic.IdentifierLayout.WordSameBandCount);
+        Assert.Equal("18-32,18-32", diagnostic.IdentifierLayout.WordSameBandBuckets);
+        Assert.Equal(1, diagnostic.IdentifierLayout.WordBelowBandCount);
+        Assert.Equal("10-17", diagnostic.IdentifierLayout.WordBelowBandBuckets);
+        Assert.DoesNotContain(privateChassis, diagnostic.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(privateEngine, diagnostic.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("UNRELATED99", diagnostic.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Google_document_ai_voc_success_log_contains_only_bounded_diagnostic_metadata()
     {
         const string privateCandidate = "PRIVATECHASSIS12345";
@@ -5709,6 +5755,9 @@ public sealed class BusinessRulesTests
         Assert.Contains("ChassisLengthBucket=18-32", entry.Message, StringComparison.Ordinal);
         Assert.Contains("ChassisAllowedCharacters=False", entry.Message, StringComparison.Ordinal);
         Assert.Contains("VehicleLabelBlockCount=5", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("IdentifierLabelTokenCount=0", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("IdentifierSameBandTokenBuckets=none", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("IdentifierWordSameBandBuckets=none", entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(privateCandidate, entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(privateMake, entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("PRIVATE MODEL", entry.Message, StringComparison.Ordinal);
@@ -5734,6 +5783,7 @@ public sealed class BusinessRulesTests
                 pages = new[] { new
                 {
                     lines = new[] { new { layout = Layout("0", "7", .1, .2) }, new { layout = Layout("7", "14", .3, .4) } },
+                    tokens = new[] { new { layout = Layout("0", "7", .1, .2) }, new { layout = Layout("7", "14", .3, .4) } },
                     tables = new[] { new
                     {
                         headerRows = Array.Empty<object>(),
@@ -5762,9 +5812,45 @@ public sealed class BusinessRulesTests
                 Assert.Equal(.2, label.Right);
             },
             value => Assert.Equal("PROTON", value.Text));
+        Assert.Collection(recognition.LayoutTokens!,
+            token => Assert.Equal("BUATAN", token.Text),
+            token => Assert.Equal("PROTON", token.Text));
         var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], providerText, recognition.Confidence, []);
         var mapped = GoogleDocumentAiVocLayoutMapper.Apply(extraction, recognition.LayoutLines!);
         Assert.Equal("PROTON", mapped.Fields["make"]);
+    }
+
+    [Fact]
+    public async Task Google_document_ai_client_caps_examined_layout_tokens_even_when_tokens_are_rejected()
+    {
+        const string providerText = "SAFE";
+        static object ValidLayout() => new
+        {
+            textAnchor = new { textSegments = new[] { new { startIndex = "0", endIndex = "4" } } },
+            boundingPoly = new { normalizedVertices = new[] { new { x = .1, y = .2 }, new { x = .2, y = .2 }, new { x = .2, y = .23 }, new { x = .1, y = .23 } } }
+        };
+        var rejected = Enumerable.Range(0, 2_000).Select(_ => new { layout = new { } }).Cast<object>().ToList();
+        rejected.Add(new { layout = ValidLayout() });
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            document = new
+            {
+                text = providerText,
+                entities = Array.Empty<object>(),
+                pages = new[] { new { lines = Array.Empty<object>(), tables = Array.Empty<object>(), tokens = rejected } }
+            }
+        });
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+            }))),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions { ProjectId = "ysheng-ocr", DefaultProcessorId = "general-processor" }));
+
+        var recognition = await client.RecognizeAsync(new DocumentBlob { Category = FileCategory.Voc, MimeType = "application/pdf", Content = [1] });
+
+        Assert.Empty(recognition.LayoutTokens!);
     }
 
     [Fact]
