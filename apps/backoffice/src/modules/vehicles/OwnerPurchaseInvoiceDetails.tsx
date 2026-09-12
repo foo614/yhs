@@ -169,13 +169,13 @@ function RevisionLineFields() {
   );
 }
 
-function SnapshotDetails({ revision }: { revision: PurchaseInvoiceRevision }) {
+function SnapshotDetails({ revision, simplified = false }: { revision: PurchaseInvoiceRevision; simplified?: boolean }) {
   return (
     <Descriptions size="small" column={1} className="purchaseInvoiceSnapshot">
-      <Descriptions.Item label="Invoice number">{revision.invoiceNumber} · Version {revision.revisionNumber}</Descriptions.Item>
-      <Descriptions.Item label="Official status"><Tag className="purchaseInvoiceStatusTag" color="blue">Issued official version</Tag></Descriptions.Item>
-      <Descriptions.Item label="Finance status">{revisionAccountingTag(revision.accountingStatus)}</Descriptions.Item>
-      <Descriptions.Item label="Finance review evidence">{financeReviewEvidence(revision)}</Descriptions.Item>
+      <Descriptions.Item label="Invoice number">{revision.invoiceNumber}{simplified ? "" : ` · Version ${revision.revisionNumber}`}</Descriptions.Item>
+      {!simplified && <Descriptions.Item label="Official status"><Tag className="purchaseInvoiceStatusTag" color="blue">Issued official version</Tag></Descriptions.Item>}
+      {!simplified && <Descriptions.Item label="Finance status">{revisionAccountingTag(revision.accountingStatus)}</Descriptions.Item>}
+      {!simplified && <Descriptions.Item label="Finance review evidence">{financeReviewEvidence(revision)}</Descriptions.Item>}
       <Descriptions.Item label="Invoice date">{revision.invoiceDate}</Descriptions.Item>
       <Descriptions.Item label="Purchase date">{revision.purchaseDate}</Descriptions.Item>
       <Descriptions.Item label="Payment reference">{displayValue(revision.paymentReference)}</Descriptions.Item>
@@ -271,18 +271,18 @@ export function OwnerPurchaseInvoiceDetails({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth purchaseInvoiceRevisionPanel">
-      <Alert type="info" showIcon message="Formal owner-acquisition invoice" description="This number is already issued. Corrections create a new numbered version; they never overwrite the previous official PDF or the Owner master record." />
+      <Alert type="info" showIcon message={allowCorrections ? "Previous-owner purchase invoice / 原车主收车发票" : "Formal owner-acquisition invoice"} description={allowCorrections ? "Review the invoice details below. Editing this invoice does not change the previous Owner master record." : "This number is already issued. Finance review and exact-version history remain read-only here."} />
       <ProCard
         size="small"
-        title={`Current version / 当前版本 · V${currentRevision.revisionNumber}`}
-        extra={<Space wrap><Button icon={<DownloadOutlined />} onClick={() => void download(currentRevision)} loading={downloadingRevision === currentRevision.revisionNumber}>Download current PDF</Button>{allowCorrections && <Button type="primary" icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>{editing ? "Cancel correction" : "Correct with new version"}</Button>}</Space>}
+        title={allowCorrections ? "Purchase invoice / 收车发票" : `Current version / 当前版本 · V${currentRevision.revisionNumber}`}
+        extra={<Space wrap><Button icon={<DownloadOutlined />} onClick={() => void download(currentRevision)} loading={downloadingRevision === currentRevision.revisionNumber}>{allowCorrections ? "Download PDF" : "Download current PDF"}</Button>{allowCorrections && <Button type="primary" icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>{editing ? "Cancel edit" : "Edit"}</Button>}</Space>}
       >
-        <SnapshotDetails revision={currentRevision} />
+        <SnapshotDetails revision={currentRevision} simplified={allowCorrections} />
       </ProCard>
 
       {allowCorrections && editing && (
-        <ProCard size="small" title={`Create version ${currentRevision.revisionNumber + 1}`} className="purchaseInvoiceCorrectionCard">
-          <Alert type="warning" showIcon message="A reason is required" description="Seller details below belong to this invoice snapshot only. They do not edit the previous Owner record." />
+        <ProCard size="small" title="Edit purchase invoice / 编辑收车发票" className="purchaseInvoiceCorrectionCard">
+          <Alert type="warning" showIcon message="A reason for the change is required" description="Seller details below belong to this invoice only. They do not edit the previous Owner record." />
           <Form
             key={`${invoice.id}-${currentRevision.revisionNumber}`}
             name={`ownerPurchaseInvoiceRevision-${invoice.id}`}
@@ -322,7 +322,7 @@ export function OwnerPurchaseInvoiceDetails({
               }
             }}
           >
-            <Form.Item name="reason" label="Correction reason" rules={[{ required: true, whitespace: true, message: "Explain why this official invoice needs a new version." }]}><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
+            <Form.Item name="reason" label="Reason for change" rules={[{ required: true, whitespace: true, message: "Explain why this purchase invoice needs to change." }]}><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
             <div className="purchaseInvoiceRevisionFormGrid">
               <Form.Item name="invoiceDate" label="Invoice date" rules={[{ required: true }]}><DatePicker className="fullWidth" /></Form.Item>
               <Form.Item name="purchaseDate" label="Purchase date" rules={[{ required: true, message: "Purchase date is required for every official version." }]}><DatePicker className="fullWidth" /></Form.Item>
@@ -334,12 +334,12 @@ export function OwnerPurchaseInvoiceDetails({
               <Form.Item name="sellerAddress" label="Seller address (optional)" className="purchaseInvoiceRevisionWide"><Input.TextArea rows={2} /></Form.Item>
             </div>
             <RevisionLineFields />
-            <Form.Item className="formActions"><Space wrap><Button onClick={() => setEditing(false)} disabled={submitting}>Cancel</Button><Button type="primary" htmlType="submit" loading={submitting}>Create new official version</Button></Space></Form.Item>
+            <Form.Item className="formActions"><Space wrap><Button onClick={() => setEditing(false)} disabled={submitting}>Cancel</Button><Button type="primary" htmlType="submit" loading={submitting}>Save changes</Button></Space></Form.Item>
           </Form>
         </ProCard>
       )}
 
-      <ProCard size="small" title="Version history / 版本记录" extra={<Button size="small" onClick={() => void reloadHistory()} loading={historyLoading}>Refresh</Button>}>
+      {!allowCorrections && <ProCard size="small" title="Version history / 版本记录" extra={<Button size="small" onClick={() => void reloadHistory()} loading={historyLoading}>Refresh</Button>}>
         {historyError && <Alert type="warning" showIcon message="Version history could not be refreshed" description={historyError} />}
         {historyLoading && historyWithCurrent.length === 0 ? <Spin /> : null}
         {!historyLoading && historyWithCurrent.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No historical versions are available yet." /> : null}
@@ -359,7 +359,7 @@ export function OwnerPurchaseInvoiceDetails({
             );
           })}
         </Space>
-      </ProCard>
+      </ProCard>}
     </Space>
   );
 }
