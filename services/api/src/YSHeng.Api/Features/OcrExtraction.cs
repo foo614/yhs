@@ -273,7 +273,7 @@ public sealed class GoogleDocumentAiExtractor(
         {
             var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction);
             logger.LogInformation(
-                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}",
+                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}, ChassisLengthBucket={ChassisLengthBucket}, ChassisAllowedCharacters={ChassisAllowedCharacters}, ChassisHasLetter={ChassisHasLetter}, ChassisHasDigit={ChassisHasDigit}, EngineLengthBucket={EngineLengthBucket}, EngineAllowedCharacters={EngineAllowedCharacters}, EngineHasLetter={EngineHasLetter}, EngineHasDigit={EngineHasDigit}, VehicleLabelBlockCount={VehicleLabelBlockCount}, VehicleValueBlockCount={VehicleValueBlockCount}, YearPositionValid={YearPositionValid}, RegistrationDatePositionValid={RegistrationDatePositionValid}",
                 diagnostic.LineCount,
                 diagnostic.EntityCount,
                 diagnostic.EntityTypeCount,
@@ -288,7 +288,19 @@ public sealed class GoogleDocumentAiExtractor(
                 diagnostic.EngineMapped,
                 diagnostic.MakeMapped,
                 diagnostic.ModelMapped,
-                diagnostic.YearMapped);
+                diagnostic.YearMapped,
+                diagnostic.ChassisCandidate.LengthBucket,
+                diagnostic.ChassisCandidate.AllowedCharacters,
+                diagnostic.ChassisCandidate.HasLetter,
+                diagnostic.ChassisCandidate.HasDigit,
+                diagnostic.EngineCandidate.LengthBucket,
+                diagnostic.EngineCandidate.AllowedCharacters,
+                diagnostic.EngineCandidate.HasLetter,
+                diagnostic.EngineCandidate.HasDigit,
+                diagnostic.VehicleColumn.LabelBlockCount,
+                diagnostic.VehicleColumn.ValueBlockCount,
+                diagnostic.VehicleColumn.YearPositionValid,
+                diagnostic.VehicleColumn.RegistrationDatePositionValid);
         }
 
         return mappedExtraction;
@@ -310,7 +322,10 @@ public sealed record GoogleDocumentAiVocDiagnostic(
     bool EngineMapped,
     bool MakeMapped,
     bool ModelMapped,
-    bool YearMapped)
+    bool YearMapped,
+    VocIdentifierCandidateDiagnostic ChassisCandidate,
+    VocIdentifierCandidateDiagnostic EngineCandidate,
+    VocVehicleColumnDiagnostic VehicleColumn)
 {
     public static GoogleDocumentAiVocDiagnostic Create(
         GoogleDocumentAiRecognition recognition,
@@ -320,6 +335,7 @@ public sealed record GoogleDocumentAiVocDiagnostic(
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n')
             .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var identifierCandidates = FindIdentifierCandidates(lines);
 
         return new GoogleDocumentAiVocDiagnostic(
             lines.Length,
@@ -336,8 +352,122 @@ public sealed record GoogleDocumentAiVocDiagnostic(
             HasField(extraction, "engineNumber"),
             HasField(extraction, "make"),
             HasField(extraction, "model"),
-            HasField(extraction, "year"));
+            HasField(extraction, "year"),
+            IdentifierCandidate(identifierCandidates.Chassis),
+            IdentifierCandidate(identifierCandidates.Engine),
+            AnalyzeVehicleColumn(lines));
     }
+
+    private static VocIdentifierCandidateDiagnostic IdentifierCandidate(string candidate)
+    {
+        var normalized = Regex.Replace(candidate, @"\s+", string.Empty).ToUpperInvariant();
+        return new VocIdentifierCandidateDiagnostic(
+            LengthBucket(normalized.Length),
+            normalized.Length > 0 && Regex.IsMatch(normalized, @"^[A-Z0-9-]+$", RegexOptions.IgnoreCase),
+            Regex.IsMatch(normalized, @"[A-Z]", RegexOptions.IgnoreCase),
+            Regex.IsMatch(normalized, @"\d"));
+    }
+
+    private static (string Chassis, string Engine) FindIdentifierCandidates(IReadOnlyList<string> lines)
+    {
+        var interleavedPattern = @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*(?<chassis>[^/]+?)\s*/?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*(?<engine>.+)$";
+        foreach (var line in lines)
+        {
+            var interleaved = Regex.Match(line, interleavedPattern, RegexOptions.IgnoreCase);
+            if (interleaved.Success)
+                return (CleanCandidate(interleaved.Groups["chassis"].Value), CleanCandidate(interleaved.Groups["engine"].Value));
+        }
+
+        var combinedIndex = -1;
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (Regex.IsMatch(lines[index], @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b", RegexOptions.IgnoreCase) &&
+                Regex.IsMatch(lines[index], @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase))
+            {
+                combinedIndex = index;
+                break;
+            }
+        }
+        if (combinedIndex >= 0 && combinedIndex + 1 < lines.Count)
+        {
+            var pair = lines[combinedIndex + 1].Split('/', 2, StringSplitOptions.TrimEntries);
+            if (pair.Length == 2) return (CleanCandidate(pair[0]), CleanCandidate(pair[1]));
+        }
+
+        return (
+            FindStandaloneCandidate(lines, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b"),
+            FindStandaloneCandidate(lines, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b"));
+    }
+
+    private static string FindStandaloneCandidate(IReadOnlyList<string> lines, string labelPattern)
+    {
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var match = Regex.Match(lines[index], labelPattern, RegexOptions.IgnoreCase);
+            if (!match.Success) continue;
+            var candidate = CleanCandidate(lines[index][(match.Index + match.Length)..]);
+            return !string.IsNullOrWhiteSpace(candidate) || index + 1 >= lines.Count || IsKnownLabel(lines[index + 1])
+                ? candidate
+                : CleanCandidate(lines[index + 1]);
+        }
+        return "";
+    }
+
+    private static string CleanCandidate(string value) => value.Trim().TrimStart(':', '-', '/', '|').Trim();
+
+    private static VocVehicleColumnDiagnostic AnalyzeVehicleColumn(IReadOnlyList<string> lines)
+    {
+        var makeIndex = Array.FindIndex(lines.ToArray(), line => Regex.IsMatch(line, @"^\s*BUATAN\s*$", RegexOptions.IgnoreCase));
+        if (makeIndex < 0) return new VocVehicleColumnDiagnostic(0, 0, false, false);
+        var start = makeIndex;
+        while (start > 0 && IsLabelOnly(lines[start - 1])) start--;
+        var end = makeIndex;
+        while (end + 1 < lines.Count && IsLabelOnly(lines[end + 1])) end++;
+        var labelCount = Math.Min(end - start + 1, 20);
+        var valueStart = end + 1;
+        var valueCount = 0;
+        while (valueStart + valueCount < lines.Count && valueCount < 20 && !IsKnownLabel(lines[valueStart + valueCount])) valueCount++;
+        var yearLabelOffset = FindOffset(lines, start, end, @"^\s*TAHUN\s+DIBUAT\s*$");
+        var dateLabelOffset = FindOffset(lines, start, end, @"^\s*TARIKH\s+PENDAFTARAN\s*$");
+        return new VocVehicleColumnDiagnostic(
+            labelCount,
+            valueCount,
+            PositionMatches(lines, valueStart, valueCount, yearLabelOffset, @"^(?:19|20)\d{2}$"),
+            PositionMatches(lines, valueStart, valueCount, dateLabelOffset, @"^(?:\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2}|(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2})$"));
+    }
+
+    private static int FindOffset(IReadOnlyList<string> lines, int start, int end, string pattern)
+    {
+        for (var index = start; index <= end; index++)
+            if (Regex.IsMatch(lines[index], pattern, RegexOptions.IgnoreCase)) return index - start;
+        return -1;
+    }
+
+    private static bool PositionMatches(IReadOnlyList<string> lines, int valueStart, int valueCount, int offset, string pattern) =>
+        offset >= 0 && offset < valueCount && Regex.IsMatch(lines[valueStart + offset].Trim().TrimStart(':', '-', '/', '|').Trim(), pattern, RegexOptions.IgnoreCase);
+
+    private static bool IsKnownLabel(string value) =>
+        Regex.IsMatch(value, @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b", RegexOptions.IgnoreCase);
+
+    private static bool IsLabelOnly(string value)
+    {
+        var withoutLabels = Regex.Replace(
+            value,
+            @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b",
+            "",
+            RegexOptions.IgnoreCase);
+        return IsKnownLabel(value) && string.IsNullOrWhiteSpace(withoutLabels.Trim(' ', ':', '-', '/', '|'));
+    }
+
+    private static string LengthBucket(int length) => length switch
+    {
+        0 => "none",
+        <= 4 => "1-4",
+        <= 9 => "5-9",
+        <= 17 => "10-17",
+        <= 32 => "18-32",
+        _ => "33-plus"
+    };
 
     private static string ClassifyLayout(IReadOnlyList<string> lines, string labelPattern)
     {
@@ -366,6 +496,9 @@ public sealed record GoogleDocumentAiVocDiagnostic(
     private static bool HasField(OcrExtractionResult extraction, string field) =>
         extraction.Fields.TryGetValue(field, out var value) && !string.IsNullOrWhiteSpace(value);
 }
+
+public sealed record VocIdentifierCandidateDiagnostic(string LengthBucket, bool AllowedCharacters, bool HasLetter, bool HasDigit);
+public sealed record VocVehicleColumnDiagnostic(int LabelBlockCount, int ValueBlockCount, bool YearPositionValid, bool RegistrationDatePositionValid);
 
 public static class GoogleDocumentAiEntityMapper
 {

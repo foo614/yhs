@@ -5279,6 +5279,14 @@ public sealed class BusinessRulesTests
         Assert.Equal("next-line-content", diagnostic.EngineLayout);
         Assert.Equal("next-line-content", diagnostic.MakeLayout);
         Assert.Equal("next-line-content", diagnostic.ModelLayout);
+        Assert.Equal("10-17", diagnostic.ChassisCandidate.LengthBucket);
+        Assert.True(diagnostic.ChassisCandidate.AllowedCharacters);
+        Assert.True(diagnostic.ChassisCandidate.HasLetter);
+        Assert.True(diagnostic.ChassisCandidate.HasDigit);
+        Assert.Equal("10-17", diagnostic.EngineCandidate.LengthBucket);
+        Assert.True(diagnostic.EngineCandidate.AllowedCharacters);
+        Assert.True(diagnostic.EngineCandidate.HasLetter);
+        Assert.True(diagnostic.EngineCandidate.HasDigit);
         Assert.Equal("next-line-content", diagnostic.YearLayout);
         Assert.True(diagnostic.PlateMapped);
         Assert.True(diagnostic.ChassisMapped);
@@ -5286,10 +5294,113 @@ public sealed class BusinessRulesTests
         Assert.True(diagnostic.MakeMapped);
         Assert.True(diagnostic.ModelMapped);
         Assert.True(diagnostic.YearMapped);
+        Assert.Equal("10-17", diagnostic.ChassisCandidate.LengthBucket);
+        Assert.True(diagnostic.ChassisCandidate.AllowedCharacters);
+        Assert.True(diagnostic.ChassisCandidate.HasLetter);
+        Assert.True(diagnostic.ChassisCandidate.HasDigit);
+        Assert.Equal("10-17", diagnostic.EngineCandidate.LengthBucket);
+        Assert.True(diagnostic.EngineCandidate.AllowedCharacters);
+        Assert.Equal(1, diagnostic.VehicleColumn.LabelBlockCount);
+        Assert.Equal(1, diagnostic.VehicleColumn.ValueBlockCount);
         var renderedDiagnostic = diagnostic.ToString();
         Assert.DoesNotContain(syntheticChassis, renderedDiagnostic, StringComparison.Ordinal);
         Assert.DoesNotContain(syntheticEngine, renderedDiagnostic, StringComparison.Ordinal);
         Assert.DoesNotContain("PRIVATE PROVIDER VALUE", renderedDiagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Google_document_ai_voc_rejection_diagnostic_is_bounded_and_contains_no_candidate_value()
+    {
+        const string privateCandidate = "PRIVATE-CHASSIS-VALUE-WITH-UNSUPPORTED-PUNCTUATION!123456789";
+        var rawText =
+            $"No. Chasis : {privateCandidate}\n" +
+            "No. Enjin : !!!!\n" +
+            "Keupayaan Enjin\nBuatan\nNama Model\nJenis Badan\nTahun Dibuat\nTarikh Pendaftaran\n" +
+            "1498 cc\nPROTON\nS70 PREMIUM\nMOTOKAR\nYEAR UNKNOWN\nDATE UNKNOWN";
+        var recognition = new GoogleDocumentAiRecognition(rawText, 0.9m, [], []);
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc },
+            [],
+            rawText,
+            recognition.Confidence,
+            recognition.Warnings);
+
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, extraction);
+
+        Assert.Equal("33-plus", diagnostic.ChassisCandidate.LengthBucket);
+        Assert.False(diagnostic.ChassisCandidate.AllowedCharacters);
+        Assert.True(diagnostic.ChassisCandidate.HasLetter);
+        Assert.True(diagnostic.ChassisCandidate.HasDigit);
+        Assert.Equal("1-4", diagnostic.EngineCandidate.LengthBucket);
+        Assert.False(diagnostic.EngineCandidate.AllowedCharacters);
+        Assert.False(diagnostic.EngineCandidate.HasLetter);
+        Assert.False(diagnostic.EngineCandidate.HasDigit);
+        Assert.Equal(6, diagnostic.VehicleColumn.LabelBlockCount);
+        Assert.Equal(6, diagnostic.VehicleColumn.ValueBlockCount);
+        Assert.False(diagnostic.VehicleColumn.YearPositionValid);
+        Assert.False(diagnostic.VehicleColumn.RegistrationDatePositionValid);
+        var rendered = diagnostic.ToString();
+        Assert.DoesNotContain(privateCandidate, rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROTON", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("S70 PREMIUM", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("YEAR UNKNOWN", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("DATE UNKNOWN", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Google_document_ai_voc_rejection_diagnostic_caps_block_counts()
+    {
+        var labels = string.Join('\n', Enumerable.Repeat("Buatan", 25));
+        var values = string.Join('\n', Enumerable.Repeat("PRIVATE VALUE", 25));
+        var rawText = $"{labels}\n{values}";
+        var recognition = new GoogleDocumentAiRecognition(rawText, 0.9m, [], []);
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], rawText, recognition.Confidence, []);
+
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, extraction);
+
+        Assert.Equal(20, diagnostic.VehicleColumn.LabelBlockCount);
+        Assert.Equal(20, diagnostic.VehicleColumn.ValueBlockCount);
+        Assert.DoesNotContain("PRIVATE VALUE", diagnostic.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Google_document_ai_voc_success_log_contains_only_bounded_diagnostic_metadata()
+    {
+        const string privateCandidate = "PRIVATECHASSIS12345";
+        const string privateMake = "PRIVATE MAKE";
+        var providerText = $"No. Pendaftaran\nQAA1234\nNo. Chasis : {privateCandidate}!\nNo. Enjin : !!!!\nBuatan\nNama Model\nJenis Badan\nTahun Dibuat\nTarikh Pendaftaran\n{privateMake}\nPRIVATE MODEL\nMOTOKAR\nUNKNOWN YEAR\nUNKNOWN DATE";
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            document = new
+            {
+                text = providerText,
+                entities = Array.Empty<object>(),
+                pages = Array.Empty<object>()
+            }
+        });
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+        }));
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions { ProjectId = "ysheng-ocr", DefaultProcessorId = "general-processor" }));
+        var logger = new CapturingLogger<GoogleDocumentAiExtractor>();
+        var extractor = new GoogleDocumentAiExtractor(client, logger);
+
+        await extractor.AnalyzeAsync(new DocumentBlob { Category = FileCategory.Voc, FileName = "private-voc.pdf", MimeType = "application/pdf", Content = [1] }, []);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains("ChassisLengthBucket=18-32", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("ChassisAllowedCharacters=False", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("VehicleLabelBlockCount=5", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(privateCandidate, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(privateMake, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRIVATE MODEL", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-voc.pdf", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("test-access-token", entry.Message, StringComparison.Ordinal);
     }
 
     [Fact]
