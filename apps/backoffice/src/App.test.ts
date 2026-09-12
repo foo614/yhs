@@ -1,10 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
 describe("browser route state", () => {
+  it("restores only local routes accessible to the signed-in role", () => {
+    expect(restoredSessionRoute("/finance?tab=daily", ["Finance"])).toBe("/finance?tab=daily");
+    expect(restoredSessionRoute("/admin", ["Finance"])).toBe("/finance");
+    expect(restoredSessionRoute("//evil.example/finance", ["Finance"])).toBe("/finance");
+    expect(restoredSessionRoute("/unknown?next=/finance", ["Finance"])).toBe("/finance");
+  });
+
   it("keeps a successfully created vehicle saved when the follow-up refresh fails", async () => {
     const record = { id: "saved-intake" };
     const create = vi.fn().mockResolvedValue(record);

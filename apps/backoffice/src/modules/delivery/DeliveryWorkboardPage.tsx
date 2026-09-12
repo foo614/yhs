@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
+  EyeOutlined,
   ExportOutlined,
   MoreOutlined,
   UploadOutlined,
@@ -10,6 +11,7 @@ import {
 import { ProCard } from "@ant-design/pro-components";
 import dayjs, { type Dayjs } from "dayjs";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
+import { DocumentPreviewDrawer, documentPreviewKind } from "../shared/DocumentPreviewDrawer";
 import {
   Alert,
   Button,
@@ -43,6 +45,7 @@ import {
   getDeliveryActivity,
   getDeliveryPicOptions,
   getDeliveryWorkboard,
+  getVehicleDocumentContent,
   humanizeApiError,
   releaseDelivery,
   requestDeliveryInvoiceUpdate,
@@ -489,7 +492,7 @@ export function DeliveryWorkboardPage({
         message.success("Delivery cancelled");
       } else if (secondaryAction === "invoice") {
         await requestDeliveryInvoiceUpdate(selected.id, actionReason.trim());
-        message.success("Invoice update requested from Finance");
+        message.success("Sales Invoice update requested from Finance");
       } else if (secondaryAction === "buyer") {
         const canonicalCustomerId = vehicles.find((vehicle) => vehicle.id === selected.vehicleId)?.customerId;
         if (!canonicalCustomerId) {
@@ -813,14 +816,14 @@ export function DeliveryWorkboardPage({
 
       <Modal
         open={Boolean(secondaryAction)}
-        title={secondaryAction === "cancel" ? "Cancel delivery?" : secondaryAction === "invoice" ? "Request invoice update" : secondaryAction === "buyer" ? "Lock confirmed buyer?" : "Reschedule delivery"}
-        okText={secondaryAction === "cancel" ? "Cancel delivery" : secondaryAction === "invoice" ? "Send request" : secondaryAction === "buyer" ? "Confirm buyer lock" : "Save new schedule"}
+        title={secondaryAction === "cancel" ? "Cancel delivery?" : secondaryAction === "invoice" ? "Request Sales Invoice Update" : secondaryAction === "buyer" ? "Lock confirmed buyer?" : "Reschedule delivery"}
+        okText={secondaryAction === "cancel" ? "Cancel delivery" : secondaryAction === "invoice" ? "Send to Finance" : secondaryAction === "buyer" ? "Confirm buyer lock" : "Save new schedule"}
         okButtonProps={{ danger: secondaryAction === "cancel", loading: saving }}
         onCancel={() => setSecondaryAction(undefined)}
         onOk={() => void runSecondaryAction()}
       >
         {secondaryAction === "cancel" && <Alert type="warning" showIcon message="This closes the delivery record. Start a new delivery if the sale continues later." />}
-        {secondaryAction === "invoice" && <Alert type="info" showIcon message="Finance will receive the request. Delivery staff cannot edit invoice details." />}
+        {secondaryAction === "invoice" && <Alert type="info" showIcon message="Finance will update the existing Sales Invoice" description="Tell Finance what must change. Delivery staff cannot edit invoice details or create a separate invoice." />}
         {secondaryAction === "buyer" && <Alert type="warning" showIcon message="This locks delivery to the confirmed buyer already linked on the vehicle. It does not change or select a different customer." />}
         {secondaryAction === "reschedule" && <div className="deliveryActionDateGrid">
           <label><span>New date</span><DatePicker format="YYYY-MM-DD" value={deliveryDatePickerValue(rescheduleDate)} onChange={(value) => setRescheduleDate(deliveryDateString(value))} /></label>
@@ -832,7 +835,7 @@ export function DeliveryWorkboardPage({
           </>}
         </div>}
         <label className="deliveryActionReason">
-          <span>{secondaryAction === "invoice" ? "What needs updating?" : secondaryAction === "buyer" ? "Why is this correction needed?" : "Reason"}</span>
+          <span>{secondaryAction === "invoice" ? "Sales Invoice update reason" : secondaryAction === "buyer" ? "Why is this correction needed?" : "Reason"}</span>
           <Input.TextArea rows={3} value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder="Add a short, clear reason" />
         </label>
       </Modal>
@@ -921,7 +924,10 @@ export function DeliveryDrawerContent({
   const completedItems = completed.map((stage) => ({
     key: stage,
     label: <Space><CheckCircleOutlined className="deliveryStageCompleteIcon" />{stageMeta[stage].label}</Space>,
-    children: item.terminal ? <StageSummary item={item} stage={stage} /> : (
+    children: item.terminal || stage === "ClearDocuments" ? <Space direction="vertical" className="fullWidth">
+      {stage === "ClearDocuments" ? <DocumentChecksSavedSummary item={item} /> : <StageSummary item={item} stage={stage} />}
+      {!item.terminal && stage === "ClearDocuments" && <Collapse ghost items={[{ key: "edit-document-checks", label: "Edit document checks / 编辑文件确认", children: <CurrentStageForm item={{ ...item, stage }} picOptions={picOptions} saving={saving} onSave={onSave} onUpload={onUpload} onRelease={onRelease} onRequestInvoice={onRequestInvoice} /> }]} />}
+    </Space> : (
       <CurrentStageForm
         item={{ ...item, stage }}
         picOptions={picOptions}
@@ -1069,7 +1075,13 @@ export function CurrentStageForm({
           message={item.financeCleared ? "Finance cleared / 财务已确认" : "Waiting for Finance / 等待财务"}
           description="Delivery can see clearance only. Invoice amounts and payment details stay with Finance."
         />
-        <Button disabled={item.invoiceUpdateRequested} onClick={onRequestInvoice}>{item.invoiceUpdateRequested ? "Request sent to Finance / 已通知财务" : "Request invoice update / 要求更新发票"}</Button>
+        <Alert
+          type={item.invoiceUpdateRequested ? "info" : "success"}
+          showIcon
+          message={item.invoiceUpdateRequested ? "Sales Invoice update pending with Finance / 销售发票更新处理中" : "Sales Invoice is owned by Finance / 销售发票由财务负责"}
+          description={item.invoiceUpdateRequested ? "Finance has received the request. Another request cannot be sent until Finance resolves it." : "Delivery uses the existing Sales Invoice. Request an update only when its details need correction."}
+          action={<Button disabled={item.invoiceUpdateRequested} onClick={onRequestInvoice}>{item.invoiceUpdateRequested ? "Request pending / 请求处理中" : "Request Sales Invoice Update / 要求更新销售发票"}</Button>}
+        />
       </div>
       <Button type="primary" htmlType="submit" loading={saving}>Save document checks / 保存文件确认</Button>
     </Form>;
@@ -1110,6 +1122,26 @@ function EvidenceUpload({
   onUpload: (file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const evidence = item.evidence.find((entry) => entry.category === category && entry.isPresent);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  const openPreview = async () => {
+    if (!evidence?.documentId) return;
+    setPreviewOpen(true);
+    setPreviewError("");
+    if (documentPreviewKind(evidence.mimeType ?? "") === "unsupported") return;
+    setPreviewLoading(true);
+    try {
+      const nextUrl = URL.createObjectURL(await getVehicleDocumentContent(item.vehicleId, evidence.documentId));
+      setPreviewUrl((current) => { if (current) URL.revokeObjectURL(current); return nextUrl; });
+    } catch (error) {
+      setPreviewError(humanizeApiError(error, "Unable to load this document preview."));
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
   const accept = category === "HandoverPhoto" ? "image/jpeg,image/png,image/webp" : "application/pdf,image/jpeg,image/png";
   return (
     <div className="deliveryEvidenceItem">
@@ -1120,13 +1152,7 @@ function EvidenceUpload({
       </div>
       <Space>
         <Tag color={evidence ? "green" : "orange"}>{evidence ? "Received" : "Needed"}</Tag>
-        {evidence?.documentId && <Button
-          size="small"
-          icon={<ExportOutlined />}
-          href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)}
-          target="_blank"
-          rel="noreferrer"
-        >Open</Button>}
+        {evidence?.documentId && <><Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => void openPreview()}>Preview</Button><Button size="small" icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)} target="_blank" rel="noreferrer">Download</Button></>}
         <Upload
           accept={accept}
           showUploadList={false}
@@ -1139,6 +1165,7 @@ function EvidenceUpload({
           <Button size="small" icon={<UploadOutlined />}>{evidence ? "Replace" : "Upload"}</Button>
         </Upload>
       </Space>
+      <DocumentPreviewDrawer open={previewOpen} title={`${evidenceLabels[category] ?? category} preview`} source={evidence ? { fileName: evidence.fileName ?? "Document", mimeType: evidence.mimeType ?? "", url: previewUrl } : undefined} loading={previewLoading} error={previewError} onClose={() => setPreviewOpen(false)} footer={evidence?.documentId ? <Button icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)} target="_blank">Download original</Button> : undefined} />
     </div>
   );
 }
@@ -1154,4 +1181,17 @@ function StageSummary({ item, stage }: { item: DeliveryWorkboardItem; stage: Del
     return <Typography.Text type="secondary">Coverage, documents, customer notice, and Finance clearance checked.</Typography.Text>;
   }
   return <Typography.Text type="secondary">Handover evidence and final confirmation recorded.</Typography.Text>;
+}
+
+function DocumentChecksSavedSummary({ item }: { item: DeliveryWorkboardItem }) {
+  const checks = [
+    ["Delivery documents", item.documentsPrepared],
+    ["Insurance evidence", item.insuranceHandled],
+    ["Road tax evidence", item.roadTaxHandled],
+    ["2-day customer notice", item.twoDayNoticeSent]
+  ] as const;
+  return <Space direction="vertical" className="fullWidth">
+    <Alert type="success" showIcon message="Document checks saved / 文件确认已保存" description={item.financeCleared ? "Finance clearance is complete. Continue with the current delivery step." : "Next: waiting for Finance clearance before vehicle release."} />
+    <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered items={checks.map(([label, checked]) => ({ key: label, label, children: <Tag color={checked ? "green" : "orange"}>{checked ? "Confirmed" : "Not confirmed"}</Tag> }))} />
+  </Space>;
 }

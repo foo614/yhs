@@ -197,6 +197,7 @@ import {
   resetStaffUserPassword,
   recordCashHandover,
   reconcileCollection,
+  sessionExpiredEventName,
   rejectCashHandover,
   reverseCollection,
   requestCashHandover,
@@ -380,6 +381,17 @@ function normalizeRoutePath(path?: string): AppRoutePath {
 
 export function browserRouteUrl(location: Pick<Location, "pathname" | "search">) {
   return `${location.pathname}${location.search}`;
+}
+
+const expiredSessionRouteKey = "ysheng:expired-session-route";
+
+export function restoredSessionRoute(storedRoute: string | null, roles: string[]) {
+  if (!storedRoute?.startsWith("/") || storedRoute.startsWith("//") || storedRoute.includes("\\")) return firstAccessiblePath(roles);
+  const pathname = normalizeRoutePath(storedRoute);
+  if (!canAccessRoute(roles, pathname)) return firstAccessiblePath(roles);
+  return storedRoute.startsWith(pathname) && ["", "?", "#"].includes(storedRoute.charAt(pathname.length))
+    ? storedRoute
+    : firstAccessiblePath(roles);
 }
 
 export function customerIdFromRouteUrl(routeUrl: string) {
@@ -716,6 +728,15 @@ export default function App() {
   }, [loadBackOfficeData]);
 
   useEffect(() => {
+    const expireSession = () => {
+      sessionStorage.setItem(expiredSessionRouteKey, browserRouteUrl(window.location));
+      window.location.reload();
+    };
+    window.addEventListener(sessionExpiredEventName, expireSession);
+    return () => window.removeEventListener(sessionExpiredEventName, expireSession);
+  }, []);
+
+  useEffect(() => {
     if (currentUser?.isAuthenticated && !canAccessRoute(currentRoles, pathname)) {
       const fallbackPath = firstAccessiblePath(currentRoles);
       setPathname(fallbackPath);
@@ -824,10 +845,12 @@ export default function App() {
       const user = await getCurrentUser();
       setCurrentUser(user);
       setLogoutSucceeded(false);
-      const nextPath = firstAccessiblePath(user.roles);
+      const nextRoute = restoredSessionRoute(sessionStorage.getItem(expiredSessionRouteKey), user.roles);
+      sessionStorage.removeItem(expiredSessionRouteKey);
+      const nextPath = normalizeRoutePath(nextRoute);
       setPathname(nextPath);
-      setRouteUrl(nextPath);
-      window.history.replaceState(null, "", nextPath);
+      setRouteUrl(nextRoute);
+      window.history.replaceState(null, "", nextRoute);
       await loadBackOfficeData(user.roles);
       notifySuccess("Login successful", `Signed in as ${user.name ?? values.email}`);
     } catch (error) {

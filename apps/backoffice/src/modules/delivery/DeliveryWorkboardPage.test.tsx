@@ -1,4 +1,5 @@
 import { Children, createElement, isValidElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DeliveryWorkboardItem } from "../../api";
@@ -252,6 +253,7 @@ describe("simple delivery workboard", () => {
         isPresent: true,
         documentId: "document-1",
         fileName: "handover.pdf",
+        mimeType: "application/pdf",
         uploadedBy: "Ming Lee",
         uploadedAt: "2026-08-27T08:30:00Z"
       }]
@@ -274,9 +276,14 @@ describe("simple delivery workboard", () => {
     expect(markup).toContain("交车文件已审核确认");
     expect(markup).not.toContain("Delivery documents checked");
     expect(markup).toContain("/api/vehicles/vehicle-1/documents/document-1/content");
+    expect(markup).toContain("Preview");
+    expect(markup).toContain("Download");
     expect(markup).not.toContain("checksum");
     expect(markup).toContain("Waiting for Finance / 等待财务");
-    expect(markup).toContain("Request sent to Finance");
+    expect(markup).toContain("Sales Invoice update pending with Finance");
+    expect(markup).toContain("Finance has received the request");
+    expect(markup).toContain("Request pending");
+    expect(markup).not.toContain("Request invoice update");
     expect(markup).not.toContain("Invoice No");
     expect(markup).not.toContain("Windscreen expiry");
     expect(markup).not.toContain("Windscreen cover reviewed");
@@ -356,10 +363,15 @@ describe("simple delivery workboard", () => {
     };
     const activePanels = getCompletedStageChildren(activeDrawer);
     const terminalPanels = getCompletedStageChildren(terminalDrawer);
+    const clearDocumentsPanel = activePanels[2].children as { props: { children: ReactNode } };
+    const clearDocumentsChildren = Children.toArray(clearDocumentsPanel.props.children);
+    const savedSummaryMarkup = renderToStaticMarkup(clearDocumentsChildren[0] as ReactElement);
 
     expect(activePanels).toHaveLength(3);
-    expect(activePanels.map((panel) => (panel.children as { type?: unknown }).type)).toEqual([CurrentStageForm, CurrentStageForm, CurrentStageForm]);
-    expect(activePanels.map((panel) => (panel.children as { props: { item: DeliveryWorkboardItem } }).props.item.stage)).toEqual(["PlanDelivery", "PrepareCar", "ClearDocuments"]);
+    expect(activePanels.slice(0, 2).map((panel) => (panel.children as { type?: unknown }).type)).toEqual([CurrentStageForm, CurrentStageForm]);
+    expect(savedSummaryMarkup).toContain("Document checks saved / 文件确认已保存");
+    expect(savedSummaryMarkup).toContain("Next: waiting for Finance clearance before vehicle release.");
+    expect((clearDocumentsChildren[1] as { props: { items: Array<{ label: string }> } }).props.items[0].label).toContain("Edit document checks");
     expect(terminalPanels).toHaveLength(4);
     expect(terminalPanels.some((panel) => (panel.children as { type?: unknown }).type === CurrentStageForm)).toBe(false);
   });
