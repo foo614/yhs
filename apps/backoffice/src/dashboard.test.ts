@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, priorityActionTarget, reminderDueLabel, reminderDueTagColor, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
+import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, priorityActionTarget, reminderDueLabel, reminderDueTagColor, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
 import type { DashboardReminder } from "./api";
 
 describe("dashboard reminder helpers", () => {
+  it("groups actionable items into sidebar module badges and preserves a filtered target", () => {
+    const badges = sidebarActionBadges(
+      [{ type: "LoanFollowUp", title: "Loan", vehiclePlate: "AAA1", vehicleId: "vehicle-1", dueDate: "2026-05-30" }],
+      [{ type: "LeadFollowUp", title: "Lead", target: "Leads", dueDate: "2026-06-02" }],
+      "2026-05-31"
+    );
+    expect(badges["/loans"]).toEqual({ count: 1, urgent: true, target: "/loans?vehicleId=vehicle-1" });
+    expect(badges["/leads"]).toEqual({ count: 1, urgent: false, target: "/leads" });
+  });
+
   it("labels Daily Spend through the ten-day due-soon boundary without changing other reminders", () => {
     expect(reminderDueLabel({ type: "DailySpendDue", dueDate: "2026-05-30" }, "2026-05-31")).toBe("Overdue");
     expect(reminderDueLabel({ type: "DailySpendDue", dueDate: "2026-05-31" }, "2026-05-31")).toBe("Due today");

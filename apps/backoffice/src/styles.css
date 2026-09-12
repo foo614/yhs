@@ -19,6 +19,14 @@ body {
   color: inherit;
 }
 
+.sidebarActionLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
 .ant-pro-layout .ant-pro-layout-bg-list {
   background:
     radial-gradient(circle at 12% 12%, rgba(18, 104, 86, .14), transparent 28%),

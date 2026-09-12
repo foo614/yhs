@@ -71,7 +71,7 @@ import {
 } from "./leads";
 import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
-import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
+import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
@@ -750,6 +750,11 @@ export default function App() {
       .filter((item) => !currentUser?.isAuthenticated || canAccessRoute(currentRoles, item.path))
       .map((item) => ({ ...item, name: routeDisplayName(item.path, currentRoles) }))
   }), [currentUser?.isAuthenticated, currentRoles]);
+  const menuActionBadges = useMemo(() => sidebarActionBadges(reminders, priorityActions), [priorityActions, reminders]);
+  const menuLabel = (item: { path?: string; name?: ReactNode }, dom: ReactNode) => {
+    const action = item.path ? menuActionBadges[item.path] : undefined;
+    return action ? <span className="sidebarActionLabel">{dom}<Badge count={action.count} overflowCount={99} color={action.urgent ? "red" : "blue"} /></span> : dom;
+  };
   const pageTitle = routeDisplayName(pathname, currentRoles);
   const activeModuleGuide = useMemo(() => moduleGuideForPath(pathname, currentRoles), [currentRoles, pathname]);
   const activeModuleGuideSectionKey = useMemo(() => {
@@ -1087,10 +1092,11 @@ export default function App() {
             <button
               key={item.path}
               className={item.path === pathname ? "mobileNavItem active" : "mobileNavItem"}
-              onClick={() => navigateTo(item.path)}
+              onClick={() => navigateTo(menuActionBadges[item.path]?.target ?? item.path)}
             >
               <span className="mobileNavIcon">{item.icon}</span>
               <span>{item.name}</span>
+              {menuActionBadges[item.path] ? <Badge count={menuActionBadges[item.path].count} overflowCount={99} color={menuActionBadges[item.path].urgent ? "red" : "blue"} /> : null}
             </button>
           ))}
         </Space>
@@ -1100,7 +1106,7 @@ export default function App() {
         logo={false}
         route={route}
         location={{ pathname }}
-        menuItemRender={(item, dom) => <button className="menuButton" onClick={() => navigateTo(item.path ?? "/dashboard")}>{dom}</button>}
+        menuItemRender={(item, dom) => <button className="menuButton" onClick={() => navigateTo(menuActionBadges[item.path ?? ""]?.target ?? item.path ?? "/dashboard")}>{menuLabel(item, dom)}</button>}
         layout="mix"
         actionsRender={() => [
           <div className="headerSession" key="session">
