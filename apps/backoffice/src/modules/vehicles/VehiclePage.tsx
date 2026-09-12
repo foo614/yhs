@@ -35,6 +35,7 @@ import {
   getSupplierMaster,
   humanizeApiError,
   previewOwnerIdentityCard,
+  reorderVehiclePhotos,
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
@@ -625,6 +626,15 @@ export function getVehicleWorkflowState(vehicle: Pick<Vehicle, "status" | "bossC
   };
 }
 
+export type VehicleIntakeChecklistDestination = "owner" | "purchase-invoice" | "captured-data" | "management-approval" | "ucd" | "outstation-pickup" | "sales-leads";
+
+export function vehicleIntakeChecklistTab(destination: VehicleIntakeChecklistDestination) {
+  if (destination === "owner") return "overview";
+  if (destination === "sales-leads") return "people";
+  if (destination === "purchase-invoice" || destination === "captured-data") return "documents";
+  return "vehicle";
+}
+
 export function filterOperationIntakeVehicles(
   vehicles: Vehicle[],
   purchaseInvoices: PurchaseInvoice[],
@@ -752,6 +762,7 @@ export function VehiclePage({
   const [photoDeleteDialogSubmitting, setPhotoDeleteDialogSubmitting] = useState(false);
   const [photoDeleteError, setPhotoDeleteError] = useState<string | null>(null);
   const [photoGalleryWarning, setPhotoGalleryWarning] = useState<string | null>(null);
+  const [draggedPhotoId, setDraggedPhotoId] = useState<string | null>(null);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
   const [uploadsLoading, setUploadsLoading] = useState(false);
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
@@ -973,7 +984,28 @@ export function VehiclePage({
         const busyKey = `${selectedVehicleId}:${photo.id}`;
         const isDeleting = deletingPhotoIds.has(busyKey);
         return (
-          <div className="vehiclePhotoPreviewCard" key={photo.id}>
+          <div
+            className="vehiclePhotoPreviewCard"
+            key={photo.id}
+            draggable
+            onDragStart={() => setDraggedPhotoId(photo.id)}
+            onDragEnd={() => setDraggedPhotoId(null)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (!draggedPhotoId || draggedPhotoId === photo.id) return;
+              const reordered = [...visiblePhotos];
+              const from = reordered.findIndex((item) => item.id === draggedPhotoId);
+              const to = reordered.findIndex((item) => item.id === photo.id);
+              if (from < 0 || to < 0) return;
+              const [moved] = reordered.splice(from, 1);
+              reordered.splice(to, 0, moved);
+              setPhotos(reordered);
+              void reorderVehiclePhotos(selectedVehicleId, reordered.map((item) => item.id)).catch((error) => {
+                setPhotoGalleryWarning(humanizeApiError(error, "Photo order could not be saved."));
+                void loadUploads(selectedVehicleId, true);
+              });
+            }}
+          >
             <a
               className="vehiclePhotoPreviewLink"
               href={vehiclePhotoContentUrl(selectedVehicleId, photo.id)}
@@ -1067,6 +1099,15 @@ export function VehiclePage({
   const openVehicleAssets = (assetTab: "documents" | "photos") => {
     setVehicleDetailTab("documents");
     setVehicleAssetTab(assetTab);
+  };
+
+  const openIntakeChecklistDestination = (destination: VehicleIntakeChecklistDestination) => {
+    setVehicleDetailTab(vehicleIntakeChecklistTab(destination));
+    if (destination === "purchase-invoice" || destination === "captured-data") setVehicleAssetTab("documents");
+    if (destination === "purchase-invoice") {
+      setDocumentOwnershipTab("Seller");
+      setDocumentCategory("PurchaseInvoice");
+    }
   };
 
   const closeLoanHandoff = () => {
@@ -2364,11 +2405,13 @@ export function VehiclePage({
                   <small>Owner handoff</small>
                   <strong>{selectedVehicleOwner ? selectedVehicleOwner.name : "Owner missing"}</strong>
                   <span>{selectedVehicleOwner ? selectedVehicleOwner.phone : "Link previous owner before intake is complete."}</span>
+                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("owner")}>Open owner / 查看原车主</Button>
                 </section>
                 <section className={selectedVehicleInvoiceCount > 0 ? "ready" : "attention"}>
                   <small>Purchase invoice</small>
                   <strong>{selectedVehicleInvoiceCount > 0 ? `${selectedVehicleInvoiceCount} linked` : "Missing"}</strong>
                   <span>{selectedVehicleInvoiceCount > 0 ? "Invoice is linked to this vehicle." : "Create or link the purchase invoice."}</span>
+                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("purchase-invoice")}>Open invoice / 查看收车发票</Button>
                 </section>
                 <section className={selectedVehicleDocumentCount > 0 ? "ready" : "attention"}>
                   <small>Documents</small>
@@ -2386,26 +2429,31 @@ export function VehiclePage({
                   <small>Captured data</small>
                   <strong>{selectedVehicleCaptureCount}</strong>
                   <span>{selectedVehicleCaptureCount > 0 ? "OCR captured fields are ready to review." : "Upload and OCR invoices or receipts to capture fields."}</span>
+                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("captured-data")}>Open captured data / 查看识别资料</Button>
                 </section>
                 <section className={selectedVehicle.bossConfirmed ? "ready" : "attention"}>
                   <small>Management approval</small>
                   <strong>{selectedVehicle.bossConfirmed ? "Confirmed" : "Pending"}</strong>
                 <span>{selectedVehicle.contraRangePrice ? `Contra ${formatMoney(selectedVehicle.contraRangePrice)}` : "Set contra range and confirm approval."}</span>
+                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("management-approval")}>Open approval / 查看审批</Button>
                 </section>
                 <section className={selectedVehicle.ucdStatus ? "ready" : "attention"}>
                   <small>{shortformLabel("UCD", "Used car department status tracking")}</small>
                   <strong>{selectedVehicle.ucdStatus || "Not tracked"}</strong>
                   <span>{selectedVehicle.ucdStatus ? "Used car department status recorded." : "Add UCD status for intake visibility."}</span>
+                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("ucd")}>Open UCD / 查看二手车部状态</Button>
                 </section>
                 <section className={selectedVehicleHasOutstationPickup ? "ready" : "neutral"}>
                   <small>Outstation pickup</small>
                   <strong>{selectedVehicleHasOutstationPickup ? "Scheduled" : "None"}</strong>
                   <span>{selectedVehicle.outstationPickupScheduledAt ? String(selectedVehicle.outstationPickupScheduledAt).replace("T", " ").slice(0, 16) : selectedVehicle.outstationPickupBookingSlip || "No outstation pickup recorded."}</span>
+                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("outstation-pickup")}>Open pickup / 查看外地收车</Button>
                 </section>
                 <section className={selectedVehicleActiveLeads.length > 0 ? "ready" : "neutral"}>
                   <small>Sales leads</small>
                   <strong>{selectedVehicleActiveLeads.length} active</strong>
                   <span>{selectedVehicleCustomer ? `Buyer: ${selectedVehicleCustomer.name}` : "No confirmed buyer linked yet."}</span>
+                  <Button type="link" size="small" onClick={() => openIntakeChecklistDestination("sales-leads")}>Open leads / 查看销售线索</Button>
                 </section>
               </div>
             </ProCard>

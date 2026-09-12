@@ -72,7 +72,7 @@ export function filterLeadsForTriage(leads: Lead[], filters: LeadTriageFilters, 
       lead.sourcePage,
       lead.sourceCampaign,
       lead.sourceReferrer,
-      leadSourceSummary(lead),
+      leadSourceSummary(lead, vehicles),
       leadVehicleLabel(lead, vehicles)
     ]);
     const matchesStatus = !filters.status || filters.status === "All" || lead.status === filters.status;
@@ -89,15 +89,30 @@ export function findLeadVehicle(lead: Lead, vehicles: LeadVehicleInfo[]) {
   return vehicles.find((vehicle) => vehicle.id === lead.vehicleId);
 }
 
+export const expandLeadGroupsByDefault = false;
 
-export function leadSourceSummary(lead: Lead) {
-  const parts = [
-    lead.sourcePage ? `Page: ${lead.sourcePage}` : undefined,
-    lead.sourceCampaign ? `Campaign: ${lead.sourceCampaign}` : undefined,
-    lead.sourceReferrer ? `Referrer: ${lead.sourceReferrer}` : undefined
-  ].filter(Boolean);
 
-  return parts.length > 0 ? parts.join(" | ") : "No public source captured";
+export function leadSourceSummary(lead: Lead, vehicles: LeadVehicleInfo[] = []) {
+  if (!lead.sourcePage && !lead.sourceCampaign && !lead.sourceReferrer) return "No public source captured";
+
+  let sourcePath = lead.sourcePage?.trim() ?? "";
+  try {
+    sourcePath = new URL(sourcePath, "https://ysheng.local").pathname;
+  } catch {
+    sourcePath = sourcePath.split(/[?#]/, 1)[0];
+  }
+
+  if (lead.sourceCampaign?.trim().toLowerCase() === "in-store-qr" || sourcePath === "/showroom-enquiry") {
+    return "In-store QR";
+  }
+  if (/^\/vehicles\/[^/]+$/.test(sourcePath)) {
+    const vehicle = findLeadVehicle(lead, vehicles);
+    if (!vehicle) return "Vehicle page";
+    const vehicleName = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
+    return `Vehicle page - ${vehicle.plateNumber}${vehicleName ? ` - ${vehicleName}` : ""}`;
+  }
+  if (sourcePath === "/vehicles") return "Vehicle listing";
+  return "Other website";
 }
 
 export function leadVehicleLabel(lead: Lead, vehicles: LeadVehicleInfo[]) {

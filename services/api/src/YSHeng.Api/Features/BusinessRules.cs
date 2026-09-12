@@ -671,7 +671,8 @@ public static class PublicVehiclePhotos
     public static IReadOnlyList<PublicPhotoSummary> SelectGallery(Guid vehicleId, IEnumerable<VehiclePhoto> photos) =>
         photos
             .Where(item => item.VehicleId == vehicleId)
-            .OrderByDescending(item => item.UploadedAt)
+            .OrderBy(item => item.SortOrder ?? int.MaxValue)
+            .ThenByDescending(item => item.UploadedAt)
             .Select(item => new PublicPhotoSummary(item.Id, item.FileName, item.MimeType, item.UploadedAt, item.IsRepresentativeImage, item.SourceName, item.SourceUrl, item.CreatorAttribution, item.LicenseName, item.LicenseUrl))
             .ToList();
 
@@ -679,7 +680,8 @@ public static class PublicVehiclePhotos
     {
         var photo = photos
             .Where(item => item.VehicleId == vehicleId)
-            .OrderByDescending(item => item.UploadedAt)
+            .OrderBy(item => item.SortOrder ?? int.MaxValue)
+            .ThenByDescending(item => item.UploadedAt)
             .FirstOrDefault();
         if (photo is null) return null;
 

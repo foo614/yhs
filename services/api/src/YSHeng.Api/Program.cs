@@ -696,6 +696,7 @@ backOffice.MapPost("/vehicles/{id:guid}/photos", async (Guid id, [FromForm] IFor
         Thumbnail = thumbnail.Thumbnail!,
         Checksum = Convert.ToHexString(SHA256.HashData(bytes)),
         UploadedBy = UploadMetadata.UploaderFrom(context.User),
+        SortOrder = (await db.VehiclePhotos.Where(item => item.VehicleId == id).MaxAsync(item => (int?)item.SortOrder) ?? -1) + 1,
         IsRepresentativeImage = isRepresentativeImage,
         SourceName = sourceName?.Trim(),
         SourceUrl = sourceUrl?.Trim(),
@@ -734,9 +735,25 @@ backOffice.MapDelete("/vehicles/{id:guid}/photos/{photoId:guid}", async (Guid id
 backOffice.MapGet("/vehicles/{id:guid}/photos", async (Guid id, AppDbContext db) =>
     await db.VehiclePhotos.AsNoTracking()
         .Where(photo => photo.VehicleId == id)
-        .OrderByDescending(photo => photo.UploadedAt)
-        .Select(photo => new { photo.Id, photo.FileName, photo.MimeType, photo.Checksum, photo.UploadedBy, photo.UploadedAt })
+        .OrderBy(photo => photo.SortOrder ?? int.MaxValue)
+        .ThenByDescending(photo => photo.UploadedAt)
+        .Select(photo => new { photo.Id, photo.FileName, photo.MimeType, photo.Checksum, photo.UploadedBy, photo.UploadedAt, photo.SortOrder })
         .ToListAsync());
+
+backOffice.MapPut("/vehicles/{id:guid}/photos/order", async (Guid id, VehiclePhotoOrderRequest request, AppDbContext db, HttpContext context) =>
+{
+    var photos = await db.VehiclePhotos.Where(photo => photo.VehicleId == id).ToListAsync();
+    if (request.PhotoIds is null || request.PhotoIds.Length != photos.Count || request.PhotoIds.Distinct().Count() != photos.Count || photos.Any(photo => !request.PhotoIds.Contains(photo.Id)))
+        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_photo_order_invalid", "Photo order must include every saved photo exactly once.")]));
+    for (var index = 0; index < request.PhotoIds.Length; index++)
+    {
+        var photo = photos.Single(item => item.Id == request.PhotoIds[index]);
+        db.Entry(photo).Property(item => item.SortOrder).CurrentValue = index;
+    }
+    ApiAudit.Add(db, context.User, "vehicle.photos.reordered", nameof(VehiclePhoto), id);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("Vehicles");
 
 backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Guid id, Guid photoId, AppDbContext db) =>
 {
@@ -4716,7 +4733,7 @@ internal static class FinanceApi
         var sequence = await db.Database.SqlQueryRaw<long>("SELECT nextval('\"FinanceInvoiceNumberSequence\"') AS \"Value\"").SingleAsync();
         var invoiceNumber = FinanceInvoiceFactory.NumberFor(now, sequence);
         var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, invoiceNumber, actorUserId, now);
-        var updatedPayment = payment with { InvoiceNumber = invoiceNumber, DocumentsPrepared = true };
+        var updatedPayment = FinanceV2Rules.MarkInvoiceGenerated(payment, invoiceNumber);
         db.Entry(payment).CurrentValues.SetValues(updatedPayment);
         db.FinanceInvoices.Add(invoice);
         return new FinanceInvoiceIssueResult(updatedPayment, invoice, validation);

@@ -623,6 +623,7 @@ public static class SeedData
             ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "CreatorAttribution" text NULL;
             ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "LicenseName" text NULL;
             ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "LicenseUrl" text NULL;
+            ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "SortOrder" integer NULL;
         """);
     }
 
@@ -849,6 +850,7 @@ public static class SeedData
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "NettPriceOverrideApprovedAt" timestamp with time zone NULL;
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "FormulaVersion" text NOT NULL DEFAULT 'legacy';
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "FinanceWorkflowVersion" integer NOT NULL DEFAULT 1;
+            ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "InvoiceGenerated" boolean NOT NULL DEFAULT false;
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_PaymentRecords_VehicleId_FinanceV2" ON "PaymentRecords" ("VehicleId") WHERE "FinanceWorkflowVersion" = 2;
 
             WITH "UnambiguousLoanCustomers" AS (

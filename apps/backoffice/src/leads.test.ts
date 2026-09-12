@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeLeadCountByVehicle,
   activeLeadCountForVehicle,
+  expandLeadGroupsByDefault,
   filterLeadsForTriage,
   findCustomerForLead,
   groupLeadsByVehicle,
@@ -23,6 +24,12 @@ const baseLead: Lead = {
   status: "New",
   createdAt: "2026-05-30T00:00:00Z"
 };
+
+describe("lead group disclosure", () => {
+  it("keeps sub-records collapsed on initial load", () => {
+    expect(expandLeadGroupsByDefault).toBe(false);
+  });
+});
 
 const vehicles: Vehicle[] = [
   {
@@ -152,13 +159,12 @@ describe("lead customer link display", () => {
     expect(leadPriorityLabel(leads[0], leads, vehicles)).toBe("Follow up");
   });
 
-  it("summarizes public source attribution for sales triage", () => {
-    expect(leadSourceSummary({
-      ...baseLead,
-      sourcePage: "/vehicles/vehicle-1?utm_source=facebook",
-      sourceCampaign: "utm_source=facebook",
-      sourceReferrer: "https://facebook.com/"
-    })).toBe("Page: /vehicles/vehicle-1?utm_source=facebook | Campaign: utm_source=facebook | Referrer: https://facebook.com/");
+  it("uses plain-English public source labels for sales triage", () => {
+    expect(leadSourceSummary({ ...baseLead, sourcePage: "/showroom-enquiry" }, vehicles)).toBe("In-store QR");
+    expect(leadSourceSummary({ ...baseLead, sourcePage: "/vehicles/vehicle-1?utm_source=facebook" }, vehicles)).toBe("Vehicle page - VAA1001 - 2022 Toyota Vios");
+    expect(leadSourceSummary({ ...baseLead, sourcePage: "/vehicles" }, vehicles)).toBe("Vehicle listing");
+    expect(leadSourceSummary({ ...baseLead, sourcePage: "/contact" }, vehicles)).toBe("Other website");
+    expect(leadSourceSummary({ ...baseLead, sourceCampaign: "in-store-qr" }, vehicles)).toBe("In-store QR");
     expect(leadSourceSummary(baseLead)).toBe("No public source captured");
   });
 

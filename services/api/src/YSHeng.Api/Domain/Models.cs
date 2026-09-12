@@ -158,8 +158,11 @@ public sealed record VehiclePhoto
     public string? CreatorAttribution { get; init; }
     public string? LicenseName { get; init; }
     public string? LicenseUrl { get; init; }
+    public int? SortOrder { get; init; }
     public DateTime UploadedAt { get; init; } = DateTime.UtcNow;
 }
+
+public sealed record VehiclePhotoOrderRequest(Guid[]? PhotoIds);
 
 public sealed record DocumentBlob
 {
@@ -444,6 +447,7 @@ public sealed record PaymentRecord
     public bool BossChecked { get; init; }
     public bool DocumentsPrepared { get; init; }
     public bool ChecklistValidated { get; init; }
+    public bool InvoiceGenerated { get; init; }
     public decimal SalesPrice { get; init; }
     public decimal InterestAdditionalCharges { get; init; }
     public decimal NcdAmount { get; init; }

@@ -58,6 +58,7 @@ import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canAp
 import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanDone, type LoanFilters } from "./loan";
 import {
   activeLeadCountByVehicle,
+  expandLeadGroupsByDefault,
   filterLeadsForTriage,
   findCustomerForLead,
   groupLeadsByVehicle,
@@ -70,7 +71,7 @@ import {
 } from "./leads";
 import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
-import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
+import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
@@ -749,6 +750,11 @@ export default function App() {
       .filter((item) => !currentUser?.isAuthenticated || canAccessRoute(currentRoles, item.path))
       .map((item) => ({ ...item, name: routeDisplayName(item.path, currentRoles) }))
   }), [currentUser?.isAuthenticated, currentRoles]);
+  const menuActionBadges = useMemo(() => sidebarActionBadges(reminders, priorityActions), [priorityActions, reminders]);
+  const menuLabel = (item: { path?: string; name?: ReactNode }, dom: ReactNode) => {
+    const action = item.path ? menuActionBadges[item.path] : undefined;
+    return action ? <span className="sidebarActionLabel">{dom}<Badge count={action.count} overflowCount={99} color={action.urgent ? "red" : "blue"} /></span> : dom;
+  };
   const pageTitle = routeDisplayName(pathname, currentRoles);
   const activeModuleGuide = useMemo(() => moduleGuideForPath(pathname, currentRoles), [currentRoles, pathname]);
   const activeModuleGuideSectionKey = useMemo(() => {
@@ -1086,10 +1092,11 @@ export default function App() {
             <button
               key={item.path}
               className={item.path === pathname ? "mobileNavItem active" : "mobileNavItem"}
-              onClick={() => navigateTo(item.path)}
+              onClick={() => navigateTo(menuActionBadges[item.path]?.target ?? item.path)}
             >
               <span className="mobileNavIcon">{item.icon}</span>
               <span>{item.name}</span>
+              {menuActionBadges[item.path] ? <Badge count={menuActionBadges[item.path].count} overflowCount={99} color={menuActionBadges[item.path].urgent ? "red" : "blue"} /> : null}
             </button>
           ))}
         </Space>
@@ -1099,7 +1106,7 @@ export default function App() {
         logo={false}
         route={route}
         location={{ pathname }}
-        menuItemRender={(item, dom) => <button className="menuButton" onClick={() => navigateTo(item.path ?? "/dashboard")}>{dom}</button>}
+        menuItemRender={(item, dom) => <button className="menuButton" onClick={() => navigateTo(menuActionBadges[item.path ?? ""]?.target ?? item.path ?? "/dashboard")}>{menuLabel(item, dom)}</button>}
         layout="mix"
         actionsRender={() => [
           <div className="headerSession" key="session">
@@ -1246,6 +1253,7 @@ export default function App() {
           {pathname === "/delivery" && (
             <DeliveryPage
               vehicles={vehicleLookup}
+              loans={loans}
               canCorrectBuyer={currentRoles.includes("BossAdmin")}
               initialDeliveryId={deliveryIdFromRouteUrl(routeUrl)}
               dashboardFocus={dashboardDrilldown}
@@ -3579,23 +3587,12 @@ function RepairPage({
         <Button onClick={() => setUploadRepairId("")}>Back to Repair List</Button>
         <ProCard title={`Repair Details / 整备详情 - ${plateFor(vehicles, selectedRepair.vehicleId)}`}>
           <Descriptions size="small" column={{ xs: 1, md: 3 }}>
-            <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedRepair.vehicleId)}</Descriptions.Item>
-            <Descriptions.Item label="Repair title / 整备标题">{selectedRepair.whatToDo || selectedRepair.repairPart || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Cost / 费用 (RM)">{formatMoney(selectedRepair.cost)}</Descriptions.Item>
-            <Descriptions.Item label="Work status / 工作状态">
-              <Tag color={selectedRepair.checklistDone ? "green" : "orange"}>{selectedRepair.checklistDone ? "Completed" : "In progress"}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Started on / 开始日期">{selectedRepair.startedOn || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Expected completion / 预计完成">{selectedRepair.expectedCompletionDate || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Approval / 审批">
-              <Tag color={selectedRepair.approvalStatus === "Rejected" ? "red" : selectedRepair.approvalStatus === "Pending" ? "gold" : "blue"}>{selectedRepair.approvalStatus ?? "Approved"}</Tag>
-            </Descriptions.Item>
+            <Descriptions.Item label="Work status / 工作状态"><Tag color={selectedRepair.checklistDone ? "green" : "orange"}>{selectedRepair.checklistDone ? "Completed" : "In progress"}</Tag></Descriptions.Item>
+            <Descriptions.Item label="Approval / 审批"><Tag color={selectedRepair.approvalStatus === "Rejected" ? "red" : selectedRepair.approvalStatus === "Pending" ? "gold" : "blue"}>{selectedRepair.approvalStatus ?? "Approved"}</Tag></Descriptions.Item>
             <Descriptions.Item label="Approved By / 审批人">{selectedRepair.approvedBy || "Not approved"}</Descriptions.Item>
             <Descriptions.Item label="Approved At / 审批时间">{selectedRepair.approvedAt ? new Date(selectedRepair.approvedAt).toLocaleString() : "-"}</Descriptions.Item>
           </Descriptions>
           {canApproveRepairs && selectedRepair.approvalStatus !== "Approved" && <Button type="primary" onClick={() => confirmRepairApproval(selectedRepair)}>Approve Repair</Button>}
-        </ProCard>
-        <ProCard title="Repair Record / 整备资料">
           <Form
             name="repairEdit"
             key={`${selectedRepair.id}-repair-record`}
@@ -5062,6 +5059,7 @@ export function LoanPage({
 
 export function DeliveryPage({
   vehicles,
+  loans = [],
   canCorrectBuyer = false,
   initialDeliveryId,
   dashboardFocus,
@@ -5069,6 +5067,7 @@ export function DeliveryPage({
   onOpenCustomer
 }: {
   vehicles: VehicleLookup[];
+  loans?: LoanApplication[];
   canCorrectBuyer?: boolean;
   initialDeliveryId?: string;
   dashboardFocus: DashboardDrilldown;
@@ -5078,6 +5077,7 @@ export function DeliveryPage({
   return (
     <DeliveryWorkboardPage
       vehicles={vehicles}
+      loans={loans}
       canCorrectBuyer={canCorrectBuyer}
       initialDeliveryId={initialDeliveryId}
       dashboardFocus={dashboardFocus}
@@ -5199,8 +5199,8 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
       title: "Source / 来源",
       width: 260,
       render: (_, row) => (
-        <Tooltip title={leadSourceSummary(row)}>
-          <Typography.Text className="leadSourceText">{leadSourceSummary(row)}</Typography.Text>
+        <Tooltip title={leadSourceSummary(row, vehicles)}>
+          <Typography.Text className="leadSourceText">{leadSourceSummary(row, vehicles)}</Typography.Text>
         </Tooltip>
       )
     },
@@ -5357,7 +5357,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
                         <strong>{lead.customerName}</strong>
                         <span>{lead.phone}</span>
                         <small>{lead.message || "No message"}</small>
-                        <small>{leadSourceSummary(lead)}</small>
+                        <small>{leadSourceSummary(lead, vehicles)}</small>
                         {leadOwnerLabel(lead) ? <small>{leadOwnerLabel(lead)}</small> : null}
                       </div>
                       <Space wrap size={4}>
@@ -5410,7 +5410,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
           pagination={tablePagination(8)}
           scroll={{ x: 930 }}
           expandable={{
-            defaultExpandAllRows: groupedLeadRows.length <= 3,
+            defaultExpandAllRows: expandLeadGroupsByDefault,
             expandedRowRender: (group) => (
               <Table
                 className="nativeSearchDesktopOnly"

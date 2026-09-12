@@ -25,6 +25,16 @@ const revisionOne: PurchaseInvoiceRevision = {
 };
 
 describe("OwnerPurchaseInvoiceDetails", () => {
+  it("keeps the Vehicle Details view simple while retaining Edit and the current PDF", () => {
+    const invoice: PurchaseInvoice = { id: "invoice-1", vehicleId: "vehicle-1", ownerId: "owner-1", sourceType: "OwnerAcquisition", invoiceNumber: revisionOne.invoiceNumber, amount: revisionOne.amount, accountingStatus: "Draft", currentRevisionNumber: 1, currentRevision: revisionOne };
+    const markup = renderToStaticMarkup(createElement(OwnerPurchaseInvoiceDetails, { invoice, onCreateRevision: async () => invoice }));
+    expect(markup).toContain(">Edit<");
+    expect(markup).toContain("Download PDF");
+    expect(markup).not.toContain("Version history");
+    expect(markup).not.toContain("Finance status");
+    expect(markup).not.toContain("Issued official version");
+  });
+
   it("ignores a deferred invoice A history response after the drawer switches to invoice B", async () => {
     let resolveA!: (value: PurchaseInvoiceRevision[]) => void;
     let resolveB!: (value: PurchaseInvoiceRevision[]) => void;

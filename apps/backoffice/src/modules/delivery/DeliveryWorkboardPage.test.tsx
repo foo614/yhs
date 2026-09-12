@@ -133,7 +133,21 @@ describe("simple delivery workboard", () => {
       { ...baseItem, id: "delivery-released", vehicleId: "released", status: "Released", stage: "Completed", terminal: true }
     ];
 
-    expect(eligibleDeliveryVehicles(vehicles, deliveries).map((vehicle) => vehicle.id)).toEqual(["cancelled", "fresh"]);
+    const loans = [
+      { id: "loan-active", vehicleId: "active", customerId: "customer-1", status: "Approved" as const, louApproved: true, louDone: false },
+      { id: "loan-cancelled", vehicleId: "cancelled", customerId: "customer-2", status: "Approved" as const, louApproved: true, louDone: false },
+      { id: "loan-released", vehicleId: "released", customerId: "customer-3", status: "Done" as const, louApproved: true, louDone: true },
+      { id: "loan-fresh", vehicleId: "fresh", customerId: "customer-4", status: "Done" as const, louApproved: true, louDone: true }
+    ];
+
+    expect(eligibleDeliveryVehicles(vehicles, deliveries, loans).map((vehicle) => vehicle.id)).toEqual(["cancelled", "fresh"]);
+  });
+
+  it("excludes cars whose loan is not approved", () => {
+    const vehicles = [{ id: "pending", plateNumber: "AAA 1", make: "Toyota", model: "Vios", stockOwner: "YSHeng" as const, status: "LoanProcessing" as const, customerId: "customer-1" }];
+    const loans = [{ id: "loan-pending", vehicleId: "pending", customerId: "customer-1", status: "Pending" as const, louApproved: false, louDone: false }];
+
+    expect(eligibleDeliveryVehicles(vehicles, [], loans)).toEqual([]);
   });
 
   it("opens an exact delivery deep link instead of another historical schedule for the same vehicle", () => {
@@ -253,9 +267,11 @@ describe("simple delivery workboard", () => {
     }));
 
     expect(markup).toContain("2-day customer notice sent");
+    expect(markup).toContain("已提前两天通知客户");
     expect(markup).not.toContain("Customer notified");
     expect(markup).toContain("Evidence reviewed and confirmed / 证据已审核确认");
     expect(markup).toContain("Delivery documents reviewed and confirmed");
+    expect(markup).toContain("交车文件已审核确认");
     expect(markup).not.toContain("Delivery documents checked");
     expect(markup).toContain("/api/vehicles/vehicle-1/documents/document-1/content");
     expect(markup).not.toContain("checksum");

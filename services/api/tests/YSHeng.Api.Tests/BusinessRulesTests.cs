@@ -4394,7 +4394,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Public_photo_selection_uses_latest_thumbnail_for_vehicle()
+    public void Public_photo_selection_uses_saved_order_before_upload_time()
     {
         var vehicleId = Guid.NewGuid();
         var older = new VehiclePhoto
@@ -4405,7 +4405,8 @@ public sealed class BusinessRulesTests
             MimeType = "image/jpeg",
             Content = [1],
             Thumbnail = [9],
-            UploadedAt = new DateTime(2026, 5, 29, 8, 0, 0, DateTimeKind.Utc)
+            UploadedAt = new DateTime(2026, 5, 29, 8, 0, 0, DateTimeKind.Utc),
+            SortOrder = 0
         };
         var newer = older with
         {
@@ -4413,19 +4414,20 @@ public sealed class BusinessRulesTests
             FileName = "newer.jpg",
             Content = [2],
             Thumbnail = [8],
-            UploadedAt = new DateTime(2026, 5, 30, 8, 0, 0, DateTimeKind.Utc)
+            UploadedAt = new DateTime(2026, 5, 30, 8, 0, 0, DateTimeKind.Utc),
+            SortOrder = 1
         };
 
         var selected = PublicVehiclePhotos.SelectPrimary(vehicleId, [older, newer]);
 
         Assert.NotNull(selected);
-        Assert.Equal(newer.Id, selected.Id);
-        Assert.Equal([8], selected.Bytes);
+        Assert.Equal(older.Id, selected.Id);
+        Assert.Equal([9], selected.Bytes);
         Assert.Equal("image/jpeg", selected.MimeType);
     }
 
     [Fact]
-    public void Public_photo_gallery_returns_vehicle_photos_newest_first()
+    public void Public_photo_gallery_uses_saved_order_and_keeps_legacy_photos_stable()
     {
         var vehicleId = Guid.NewGuid();
         var otherVehicleId = Guid.NewGuid();
@@ -4446,7 +4448,9 @@ public sealed class BusinessRulesTests
         };
         var unrelated = older with { Id = Guid.NewGuid(), VehicleId = otherVehicleId, FileName = "other.jpg" };
 
-        var gallery = PublicVehiclePhotos.SelectGallery(vehicleId, [older, unrelated, newer]);
+        var orderedNewer = newer with { SortOrder = 0 };
+        var orderedOlder = older with { SortOrder = 1 };
+        var gallery = PublicVehiclePhotos.SelectGallery(vehicleId, [orderedOlder, unrelated, orderedNewer]);
 
         Assert.Equal([newer.Id, older.Id], gallery.Select(photo => photo.Id).ToArray());
         Assert.Equal(["newer.jpg", "older.jpg"], gallery.Select(photo => photo.FileName).ToArray());
