@@ -1049,19 +1049,19 @@ export function CurrentStageForm({
         ))}
       </div>
       <div className="deliveryStageFormGrid">
-        <Form.Item name="insuranceExpiryDate" label="Insurance expiry" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-        <Form.Item name="roadTaxExpiryDate" label="Road tax expiry" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+        <Form.Item name="insuranceExpiryDate" label="Insurance expiry / 保险到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+        <Form.Item name="roadTaxExpiryDate" label="Road tax expiry / 路税到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
       </div>
       <div className="deliveryEvidenceReviewIntro">
         <Typography.Text strong>Evidence reviewed and confirmed / 证据已审核确认</Typography.Text>
         <Typography.Paragraph type="secondary">Received means a file is on record. Open each file and confirm it is correct before checking the matching item below.</Typography.Paragraph>
       </div>
       <div className="deliveryCheckGrid">
-        <Form.Item name="documentsPrepared" valuePropName="checked"><Checkbox>Delivery documents reviewed and confirmed</Checkbox></Form.Item>
-        <Form.Item name="insuranceHandled" valuePropName="checked"><Checkbox>Insurance evidence reviewed and confirmed</Checkbox></Form.Item>
-        <Form.Item name="roadTaxHandled" valuePropName="checked"><Checkbox>Road tax evidence reviewed and confirmed</Checkbox></Form.Item>
+        <Form.Item name="documentsPrepared" valuePropName="checked"><Checkbox>Delivery documents reviewed and confirmed / 交车文件已审核确认</Checkbox></Form.Item>
+        <Form.Item name="insuranceHandled" valuePropName="checked"><Checkbox>Insurance evidence reviewed and confirmed / 保险文件已审核确认</Checkbox></Form.Item>
+        <Form.Item name="roadTaxHandled" valuePropName="checked"><Checkbox>Road tax evidence reviewed and confirmed / 路税文件已审核确认</Checkbox></Form.Item>
       </div>
-      <Form.Item name="twoDayNoticeSent" valuePropName="checked" className="deliveryNoticeCheck"><Checkbox>2-day customer notice sent</Checkbox></Form.Item>
+      <Form.Item name="twoDayNoticeSent" valuePropName="checked" className="deliveryNoticeCheck"><Checkbox>2-day customer notice sent / 已提前两天通知客户</Checkbox></Form.Item>
       <div className="deliveryFinanceGate">
         <Alert
           type={item.financeCleared ? "success" : "warning"}
@@ -1069,7 +1069,7 @@ export function CurrentStageForm({
           message={item.financeCleared ? "Finance cleared / 财务已确认" : "Waiting for Finance / 等待财务"}
           description="Delivery can see clearance only. Invoice amounts and payment details stay with Finance."
         />
-        <Button disabled={item.invoiceUpdateRequested} onClick={onRequestInvoice}>{item.invoiceUpdateRequested ? "Request sent to Finance" : "Request invoice update"}</Button>
+        <Button disabled={item.invoiceUpdateRequested} onClick={onRequestInvoice}>{item.invoiceUpdateRequested ? "Request sent to Finance / 已通知财务" : "Request invoice update / 要求更新发票"}</Button>
       </div>
       <Button type="primary" htmlType="submit" loading={saving}>Save document checks / 保存文件确认</Button>
     </Form>;
@@ -1086,13 +1086,13 @@ export function CurrentStageForm({
       <EvidenceUpload item={item} category="SignedHandover" saving={saving} onUpload={onUpload} />
     </div>
     <div className="deliveryCheckGrid">
-      <Form.Item name="customerAcknowledged" valuePropName="checked"><Checkbox>Customer acknowledged handover</Checkbox></Form.Item>
-      <Form.Item name="finalChecklistConfirmed" valuePropName="checked"><Checkbox>Final checklist confirmed</Checkbox></Form.Item>
+      <Form.Item name="customerAcknowledged" valuePropName="checked"><Checkbox>Customer acknowledged handover / 客户已确认交车</Checkbox></Form.Item>
+      <Form.Item name="finalChecklistConfirmed" valuePropName="checked"><Checkbox>Final checklist confirmed / 最终清单已确认</Checkbox></Form.Item>
     </div>
     <Alert
       type={item.financeCleared ? "success" : "warning"}
       showIcon
-      message={item.financeCleared ? "Finance cleared" : "Release blocked: waiting for Finance"}
+      message={item.financeCleared ? "Finance cleared / 财务已确认" : "Release blocked: waiting for Finance / 等待财务，暂不能交车"}
     />
     {item.canRelease ? <Button type="primary" onClick={onRelease} loading={saving}>Confirm vehicle release / 确认交车</Button> : <Button type="primary" htmlType="submit" loading={saving}>Save handover checks / 保存交车确认</Button>}
   </Form>;

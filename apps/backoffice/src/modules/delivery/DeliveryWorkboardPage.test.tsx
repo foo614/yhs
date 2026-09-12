@@ -267,9 +267,11 @@ describe("simple delivery workboard", () => {
     }));
 
     expect(markup).toContain("2-day customer notice sent");
+    expect(markup).toContain("已提前两天通知客户");
     expect(markup).not.toContain("Customer notified");
     expect(markup).toContain("Evidence reviewed and confirmed / 证据已审核确认");
     expect(markup).toContain("Delivery documents reviewed and confirmed");
+    expect(markup).toContain("交车文件已审核确认");
     expect(markup).not.toContain("Delivery documents checked");
     expect(markup).toContain("/api/vehicles/vehicle-1/documents/document-1/content");
     expect(markup).not.toContain("checksum");
