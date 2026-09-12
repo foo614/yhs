@@ -297,6 +297,24 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Collection_reconciliation_allows_only_finance_and_boss_admin_roles()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var policy = program[
+            program.IndexOf("options.AddPolicy(\"Finance\"", StringComparison.Ordinal)..
+            program.IndexOf("options.AddPolicy(\"HrSalary\"", StringComparison.Ordinal)];
+        var reconcile = program[
+            program.IndexOf("backOffice.MapPost(\"/collection-transactions/{id:guid}/reconcile\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapPost(\"/collection-transactions/{id:guid}/reverse\"", StringComparison.Ordinal)];
+
+        Assert.Contains("RequireRole(\"BossAdmin\", \"Finance\")", policy);
+        Assert.DoesNotContain("Sales", policy);
+        Assert.DoesNotContain("Delivery", policy);
+        Assert.Contains("RequireAuthorization(\"Finance\")", reconcile);
+    }
+
+    [Fact]
     public void Vehicle_photo_order_is_authorized_scoped_audited_null_safe_and_documented()
     {
         var root = FindRepositoryRoot();
