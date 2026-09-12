@@ -68,6 +68,18 @@ describe("vehicle intake VOC review", () => {
     expect(styles).not.toMatch(/\.vehicleIntakeVocSummary\s*\{[^}]*width:\s*\d+px;/s);
   });
 
+  it("keeps OCR guidance compact and separated from the following control at every width", () => {
+    const styles = readFileSync(fileURLToPath(new URL("../../styles.css", import.meta.url)), "utf8");
+    const reviewSource = readFileSync(fileURLToPath(new URL("./VehicleIntakeVocReview.tsx", import.meta.url)), "utf8");
+    const vehiclePageSource = readFileSync(fileURLToPath(new URL("./VehiclePage.tsx", import.meta.url)), "utf8");
+    expect(styles).toMatch(/\.vehicleIntakeVocReview\s*\{[^}]*display:\s*grid;[^}]*gap:\s*12px;/s);
+    expect(styles).toMatch(/\.compactOcrGuidanceAlert\.ant-alert\s*\{[^}]*padding:\s*8px 12px;/s);
+    expect(styles).toMatch(/\.vehicleIntakeOwnerReviewAlert\.ant-alert\s*\{[^}]*margin-bottom:\s*16px;/s);
+    expect(styles).not.toMatch(/@media[^}]*\.compactOcrGuidanceAlert[^}]*padding:\s*0/s);
+    expect(reviewSource).toContain('className="compactOcrGuidanceAlert"');
+    expect(vehiclePageSource).toContain('className="compactOcrGuidanceAlert vehicleIntakeOwnerReviewAlert"');
+  });
+
   it("accepts the intake VOC file types without broadening the NRIC image-only rule", () => {
     expect(isVehicleIntakeVocMimeType("application/pdf")).toBe(true);
     expect(isVehicleIntakeVocMimeType("image/jpeg")).toBe(true);

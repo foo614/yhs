@@ -168,10 +168,11 @@ export function VehicleIntakeVocReview({
   return (
     <div className="vehicleIntakeVocReview">
       <Alert
+        className="compactOcrGuidanceAlert"
         type="info"
         showIcon
         message="Optional VOC check / 可选 VOC 核对"
-        description="Choose an English VOC PDF, JPG, PNG, or WebP file (PDF: 1–15 readable, unencrypted pages; maximum 10 MB). Detected values fill only empty fields in the vehicle form below. Review or edit them before the final Create Vehicle confirmation."
+        description="Upload an English VOC (PDF: 1–15 readable, unencrypted pages; JPG, PNG, or WebP; maximum 10 MB). Suggestions fill empty fields only. Review them before Create Vehicle."
       />
       {!result ? (
         <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>
@@ -180,6 +181,7 @@ export function VehicleIntakeVocReview({
       ) : (
         <Space direction="vertical" size={12} className="fullWidth">
           <Alert
+            className="compactOcrGuidanceAlert"
             type={result.confidence > 0 ? "warning" : "error"}
             showIcon
             message={result.confidence > 0 ? "VOC draft prepared — review the vehicle fields below" : "VOC could not be read automatically"}
@@ -189,6 +191,7 @@ export function VehicleIntakeVocReview({
           />
           {visibleWarnings.length ? (
             <Alert
+              className="compactOcrGuidanceAlert"
               type="warning"
               showIcon
               message={`${visibleWarnings.length} item${visibleWarnings.length === 1 ? "" : "s"} need manual confirmation`}
