@@ -89,6 +89,8 @@ export function findLeadVehicle(lead: Lead, vehicles: LeadVehicleInfo[]) {
   return vehicles.find((vehicle) => vehicle.id === lead.vehicleId);
 }
 
+export const expandLeadGroupsByDefault = false;
+
 
 export function leadSourceSummary(lead: Lead) {
   const parts = [

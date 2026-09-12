@@ -58,6 +58,7 @@ import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canAp
 import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanDone, type LoanFilters } from "./loan";
 import {
   activeLeadCountByVehicle,
+  expandLeadGroupsByDefault,
   filterLeadsForTriage,
   findCustomerForLead,
   groupLeadsByVehicle,
@@ -5410,7 +5411,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
           pagination={tablePagination(8)}
           scroll={{ x: 930 }}
           expandable={{
-            defaultExpandAllRows: groupedLeadRows.length <= 3,
+            defaultExpandAllRows: expandLeadGroupsByDefault,
             expandedRowRender: (group) => (
               <Table
                 className="nativeSearchDesktopOnly"

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeLeadCountByVehicle,
   activeLeadCountForVehicle,
+  expandLeadGroupsByDefault,
   filterLeadsForTriage,
   findCustomerForLead,
   groupLeadsByVehicle,
@@ -23,6 +24,12 @@ const baseLead: Lead = {
   status: "New",
   createdAt: "2026-05-30T00:00:00Z"
 };
+
+describe("lead group disclosure", () => {
+  it("keeps sub-records collapsed on initial load", () => {
+    expect(expandLeadGroupsByDefault).toBe(false);
+  });
+});
 
 const vehicles: Vehicle[] = [
   {
