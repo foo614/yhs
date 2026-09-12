@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
+  EyeOutlined,
   ExportOutlined,
   MoreOutlined,
   UploadOutlined,
@@ -10,6 +11,7 @@ import {
 import { ProCard } from "@ant-design/pro-components";
 import dayjs, { type Dayjs } from "dayjs";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
+import { DocumentPreviewDrawer, documentPreviewKind } from "../shared/DocumentPreviewDrawer";
 import {
   Alert,
   Button,
@@ -43,6 +45,7 @@ import {
   getDeliveryActivity,
   getDeliveryPicOptions,
   getDeliveryWorkboard,
+  getVehicleDocumentContent,
   humanizeApiError,
   releaseDelivery,
   requestDeliveryInvoiceUpdate,
@@ -1110,6 +1113,26 @@ function EvidenceUpload({
   onUpload: (file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const evidence = item.evidence.find((entry) => entry.category === category && entry.isPresent);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  const openPreview = async () => {
+    if (!evidence?.documentId) return;
+    setPreviewOpen(true);
+    setPreviewError("");
+    if (documentPreviewKind(evidence.mimeType ?? "") === "unsupported") return;
+    setPreviewLoading(true);
+    try {
+      const nextUrl = URL.createObjectURL(await getVehicleDocumentContent(item.vehicleId, evidence.documentId));
+      setPreviewUrl((current) => { if (current) URL.revokeObjectURL(current); return nextUrl; });
+    } catch (error) {
+      setPreviewError(humanizeApiError(error, "Unable to load this document preview."));
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
   const accept = category === "HandoverPhoto" ? "image/jpeg,image/png,image/webp" : "application/pdf,image/jpeg,image/png";
   return (
     <div className="deliveryEvidenceItem">
@@ -1120,13 +1143,7 @@ function EvidenceUpload({
       </div>
       <Space>
         <Tag color={evidence ? "green" : "orange"}>{evidence ? "Received" : "Needed"}</Tag>
-        {evidence?.documentId && <Button
-          size="small"
-          icon={<ExportOutlined />}
-          href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)}
-          target="_blank"
-          rel="noreferrer"
-        >Open</Button>}
+        {evidence?.documentId && <><Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => void openPreview()}>Preview</Button><Button size="small" icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)} target="_blank" rel="noreferrer">Download</Button></>}
         <Upload
           accept={accept}
           showUploadList={false}
@@ -1139,6 +1156,7 @@ function EvidenceUpload({
           <Button size="small" icon={<UploadOutlined />}>{evidence ? "Replace" : "Upload"}</Button>
         </Upload>
       </Space>
+      <DocumentPreviewDrawer open={previewOpen} title={`${evidenceLabels[category] ?? category} preview`} source={evidence ? { fileName: evidence.fileName ?? "Document", mimeType: evidence.mimeType ?? "", url: previewUrl } : undefined} loading={previewLoading} error={previewError} onClose={() => setPreviewOpen(false)} footer={evidence?.documentId ? <Button icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)} target="_blank">Download original</Button> : undefined} />
     </div>
   );
 }

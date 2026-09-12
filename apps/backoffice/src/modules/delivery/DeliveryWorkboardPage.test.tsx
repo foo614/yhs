@@ -252,6 +252,7 @@ describe("simple delivery workboard", () => {
         isPresent: true,
         documentId: "document-1",
         fileName: "handover.pdf",
+        mimeType: "application/pdf",
         uploadedBy: "Ming Lee",
         uploadedAt: "2026-08-27T08:30:00Z"
       }]
@@ -274,6 +275,8 @@ describe("simple delivery workboard", () => {
     expect(markup).toContain("交车文件已审核确认");
     expect(markup).not.toContain("Delivery documents checked");
     expect(markup).toContain("/api/vehicles/vehicle-1/documents/document-1/content");
+    expect(markup).toContain("Preview");
+    expect(markup).toContain("Download");
     expect(markup).not.toContain("checksum");
     expect(markup).toContain("Waiting for Finance / 等待财务");
     expect(markup).toContain("Request sent to Finance");
