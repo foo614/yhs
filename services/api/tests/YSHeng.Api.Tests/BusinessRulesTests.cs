@@ -5230,6 +5230,99 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_validated_values_from_label_relative_cells()
+    {
+        const string flattenedProviderText =
+            "No. Pendaftaran\nQAA1234\nNo. Chasis / No. Enjin / SYNTHCHASSIS12345 SYNTHENGINE67890\n" +
+            "Buatan Nama Model Tahun Dibuat\nPROTON S70 PREMIUM 2025";
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], flattenedProviderText, 0.9m, []);
+        var layout = new GoogleDocumentAiLayoutLine[]
+        {
+            new("No. Pendaftaran", 1, .10, .10, .28, .13), new("QAA1234", 1, .32, .10, .42, .13),
+            new("No. Chasis", 1, .10, .20, .24, .23), new("SYNTHCHASSIS12345", 1, .27, .20, .48, .23),
+            new("No. Enjin", 1, .52, .20, .64, .23), new("SYNTHENGINE67890", 1, .68, .20, .89, .23),
+            new("Buatan", 1, .10, .30, .24, .33), new("PROTON", 1, .27, .30, .40, .33),
+            new("Nama Model", 1, .10, .40, .24, .43), new("S70 PREMIUM", 1, .27, .40, .45, .43),
+            new("Tahun Dibuat", 1, .10, .50, .24, .53), new("2025", 1, .27, .50, .34, .53)
+        };
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, layout);
+
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("S70 PREMIUM", result.Fields["model"]);
+        Assert.Equal("2025", result.Fields["year"]);
+        Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No chassis number", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No engine number", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_rejects_invalid_nearby_values()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "No. Enjin 1498 cc unrelated", 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Enjin", 1, .10, .20, .24, .23),
+            new("1498 cc", 1, .27, .20, .35, .23),
+            new("UNRELATED", 1, .40, .20, .52, .23)
+        ]);
+
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_does_not_borrow_engine_value_for_missing_chassis()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "No. Chasis / No. Enjin", 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Chasis", 1, .10, .20, .22, .23),
+            new("No. Enjin", 1, .45, .20, .56, .23),
+            new("ENGINE123", 1, .60, .20, .72, .23)
+        ]);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Equal("ENGINE123", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_below_cell_and_short_valid_engine()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "Buatan Proton No. Enjin A12B3", 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("Buatan", 1, .10, .20, .24, .23),
+            new("PROTON", 1, .11, .25, .23, .28),
+            new("No. Enjin", 1, .50, .20, .64, .23),
+            new("A12B3", 1, .68, .20, .76, .23)
+        ]);
+
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("A12B3", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_removes_resolved_plate_warning()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "No. Pendaftaran", 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Pendaftaran", 1, .10, .10, .28, .13),
+            new("QAA1234", 1, .32, .10, .42, .13)
+        ]);
+
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No car plate", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Ocr_parser_does_not_cross_map_ambiguous_provider_identifier_tokens_or_incomplete_punctuated_columns()
     {
         var result = AnalyzeOcrFixture(
@@ -5498,6 +5591,57 @@ public sealed class BusinessRulesTests
         Assert.DoesNotContain("PRIVATE MODEL", entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("private-voc.pdf", entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("test-access-token", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Google_document_ai_client_preserves_page_line_geometry_for_fixed_voc_mapping()
+    {
+        const string providerText = "BUATAN\nPROTON\n";
+        static object Layout(string start, string end, double left, double right) => new
+        {
+            textAnchor = new { textSegments = new[] { new { startIndex = start, endIndex = end } } },
+            boundingPoly = new { normalizedVertices = new[] { new { x = left, y = .2 }, new { x = right, y = .2 }, new { x = right, y = .23 }, new { x = left, y = .23 } } }
+        };
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            document = new
+            {
+                text = providerText,
+                entities = Array.Empty<object>(),
+                pages = new[] { new
+                {
+                    lines = new[] { new { layout = Layout("0", "7", .1, .2) }, new { layout = Layout("7", "14", .3, .4) } },
+                    tables = new[] { new
+                    {
+                        headerRows = Array.Empty<object>(),
+                        bodyRows = new[] { new { cells = new[] { new { layout = Layout("0", "7", .1, .2) }, new { layout = Layout("7", "14", .3, .4) } } } }
+                    } }
+                } }
+            }
+        });
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+        }));
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions { ProjectId = "ysheng-ocr", DefaultProcessorId = "general-processor" }));
+
+        var recognition = await client.RecognizeAsync(new DocumentBlob { Category = FileCategory.Voc, MimeType = "application/pdf", Content = [1] });
+
+        Assert.Collection(recognition.LayoutLines!,
+            label =>
+            {
+                Assert.Equal("BUATAN", label.Text);
+                Assert.Equal(1, label.Page);
+                Assert.Equal(.1, label.Left);
+                Assert.Equal(.2, label.Right);
+            },
+            value => Assert.Equal("PROTON", value.Text));
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], providerText, recognition.Confidence, []);
+        var mapped = GoogleDocumentAiVocLayoutMapper.Apply(extraction, recognition.LayoutLines!);
+        Assert.Equal("PROTON", mapped.Fields["make"]);
     }
 
     [Fact]

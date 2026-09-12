@@ -65,7 +65,10 @@ public sealed record GoogleDocumentAiRecognition(
     string RawText,
     decimal Confidence,
     IReadOnlyList<GoogleDocumentAiEntity> Entities,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<GoogleDocumentAiLayoutLine>? LayoutLines = null);
+
+public sealed record GoogleDocumentAiLayoutLine(string Text, int Page, double Left, double Top, double Right, double Bottom);
 
 public sealed class GoogleDocumentAiClient(
     HttpClient httpClient,
@@ -135,7 +138,133 @@ public sealed class GoogleDocumentAiClient(
             warnings.Add("Google Document AI did not return confidence values for this result.");
         }
 
-        return new GoogleDocumentAiRecognition(rawText.Trim(), confidence, entities, warnings);
+        return new GoogleDocumentAiRecognition(
+            rawText.Trim(),
+            confidence,
+            entities,
+            warnings,
+            ReadLayoutLines(analyzedDocument, rawText));
+    }
+
+    private static IReadOnlyList<GoogleDocumentAiLayoutLine> ReadLayoutLines(JsonElement document, string rawText)
+    {
+        const int maxPages = 15;
+        const int maxLayoutItems = 1_000;
+        const int maxExaminedItems = 2_000;
+        if (!document.TryGetProperty("pages", out var pages) || pages.ValueKind != JsonValueKind.Array) return [];
+        var result = new List<GoogleDocumentAiLayoutLine>();
+        var seen = new HashSet<GoogleDocumentAiLayoutLine>();
+        var pageNumber = 0;
+        var examinedItems = 0;
+        foreach (var page in pages.EnumerateArray())
+        {
+            pageNumber++;
+            if (pageNumber > maxPages || result.Count >= maxLayoutItems) break;
+            if (page.TryGetProperty("tables", out var tables) && tables.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var table in tables.EnumerateArray())
+                {
+                    if (++examinedItems > maxExaminedItems) break;
+                    ReadTableRows(table, "headerRows", pageNumber, rawText, result, seen, maxLayoutItems, ref examinedItems, maxExaminedItems);
+                    ReadTableRows(table, "bodyRows", pageNumber, rawText, result, seen, maxLayoutItems, ref examinedItems, maxExaminedItems);
+                    if (result.Count >= maxLayoutItems || examinedItems >= maxExaminedItems) break;
+                }
+            }
+            if (examinedItems >= maxExaminedItems) break;
+            if (!page.TryGetProperty("lines", out var lines) || lines.ValueKind != JsonValueKind.Array) continue;
+            foreach (var line in lines.EnumerateArray())
+            {
+                if (++examinedItems > maxExaminedItems || result.Count >= maxLayoutItems) break;
+                if (!line.TryGetProperty("layout", out var layout)
+                    || !TryReadTextAnchor(layout, rawText, out var text)
+                    || !TryReadBounds(layout, out var left, out var top, out var right, out var bottom)) continue;
+                AddLayoutLine(result, seen, new GoogleDocumentAiLayoutLine(text.Trim(), pageNumber, left, top, right, bottom));
+            }
+        }
+        return result;
+    }
+
+    private static void ReadTableRows(
+        JsonElement table,
+        string property,
+        int pageNumber,
+        string rawText,
+        List<GoogleDocumentAiLayoutLine> result,
+        HashSet<GoogleDocumentAiLayoutLine> seen,
+        int maxLayoutItems,
+        ref int examinedItems,
+        int maxExaminedItems)
+    {
+        if (!table.TryGetProperty(property, out var rows) || rows.ValueKind != JsonValueKind.Array) return;
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (++examinedItems > maxExaminedItems || result.Count >= maxLayoutItems) break;
+            if (!row.TryGetProperty("cells", out var cells) || cells.ValueKind != JsonValueKind.Array) continue;
+            foreach (var cell in cells.EnumerateArray())
+            {
+                if (++examinedItems > maxExaminedItems || result.Count >= maxLayoutItems) break;
+                if (!cell.TryGetProperty("layout", out var layout)
+                    || !TryReadTextAnchor(layout, rawText, out var text)
+                    || !TryReadBounds(layout, out var left, out var top, out var right, out var bottom)) continue;
+                AddLayoutLine(result, seen, new GoogleDocumentAiLayoutLine(text.Trim(), pageNumber, left, top, right, bottom));
+            }
+        }
+    }
+
+    private static void AddLayoutLine(List<GoogleDocumentAiLayoutLine> result, HashSet<GoogleDocumentAiLayoutLine> seen, GoogleDocumentAiLayoutLine line)
+    {
+        if (seen.Add(line)) result.Add(line);
+    }
+
+    private static bool TryReadTextAnchor(JsonElement layout, string rawText, out string text)
+    {
+        text = "";
+        if (!layout.TryGetProperty("textAnchor", out var anchor)
+            || !anchor.TryGetProperty("textSegments", out var segments)
+            || segments.ValueKind != JsonValueKind.Array) return false;
+        var builder = new StringBuilder();
+        var segmentCount = 0;
+        foreach (var segment in segments.EnumerateArray())
+        {
+            if (++segmentCount > 16 || builder.Length >= 512) break;
+            var start = ReadIndex(segment, "startIndex");
+            var end = ReadIndex(segment, "endIndex");
+            if (start < 0 || end <= start || end > rawText.Length) continue;
+            builder.Append(rawText.AsSpan(start, Math.Min(end - start, 512 - builder.Length)));
+        }
+        text = builder.ToString();
+        return !string.IsNullOrWhiteSpace(text);
+    }
+
+    private static int ReadIndex(JsonElement segment, string property)
+    {
+        if (!segment.TryGetProperty(property, out var value)) return property == "startIndex" ? 0 : -1;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)) return number;
+        return value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number) ? number : -1;
+    }
+
+    private static bool TryReadBounds(JsonElement layout, out double left, out double top, out double right, out double bottom)
+    {
+        left = top = double.MaxValue;
+        right = bottom = double.MinValue;
+        if (!layout.TryGetProperty("boundingPoly", out var poly)
+            || !poly.TryGetProperty("normalizedVertices", out var vertices)
+            || vertices.ValueKind != JsonValueKind.Array) return false;
+        var found = false;
+        var vertexCount = 0;
+        foreach (var vertex in vertices.EnumerateArray())
+        {
+            if (++vertexCount > 16) return false;
+            var x = vertex.TryGetProperty("x", out var xValue) && xValue.TryGetDouble(out var parsedX) ? parsedX : 0;
+            var y = vertex.TryGetProperty("y", out var yValue) && yValue.TryGetDouble(out var parsedY) ? parsedY : 0;
+            if (!double.IsFinite(x) || !double.IsFinite(y) || x is < 0 or > 1 || y is < 0 or > 1) return false;
+            left = Math.Min(left, x);
+            top = Math.Min(top, y);
+            right = Math.Max(right, x);
+            bottom = Math.Max(bottom, y);
+            found = true;
+        }
+        return found && right > left && bottom > top;
     }
 
     private (string ProcessorId, bool UsedDefaultFallback, string SpecializedProcessorName) SelectProcessor(FileCategory category)
@@ -269,6 +398,10 @@ public sealed class GoogleDocumentAiExtractor(
             recognition.Confidence,
             recognition.Warnings);
         var mappedExtraction = GoogleDocumentAiEntityMapper.Apply(extraction, recognition.Entities);
+        if (document.Category == FileCategory.Voc)
+        {
+            mappedExtraction = GoogleDocumentAiVocLayoutMapper.Apply(mappedExtraction, recognition.LayoutLines ?? []);
+        }
         if (document.Category == FileCategory.Voc)
         {
             var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction);
@@ -501,6 +634,179 @@ public sealed record GoogleDocumentAiVocDiagnostic(
 
 public sealed record VocIdentifierCandidateDiagnostic(string LengthBucket, bool AllowedCharacters, bool HasLetter, bool HasDigit);
 public sealed record VocVehicleColumnDiagnostic(int LabelBlockCount, int ValueBlockCount, bool YearPositionValid, bool RegistrationDatePositionValid);
+
+public static class GoogleDocumentAiVocLayoutMapper
+{
+    private sealed record FieldSpec(string Field, string[] Labels, Func<string, string?> Validate);
+
+    private static readonly FieldSpec[] Fields =
+    [
+        new("plateNumber", ["NO PENDAFTARAN", "NOMBOR PENDAFTARAN"], ValidatePlate),
+        new("chassisNumber", ["NO CHASIS", "NO CHASSIS", "NOMBOR CASIS", "NOMBOR CHASIS"], value => ValidateIdentifier(value, 10)),
+        new("engineNumber", ["NO ENJIN", "NOMBOR ENJIN"], value => ValidateIdentifier(value, 5)),
+        new("make", ["BUATAN"], ValidateDescription),
+        new("model", ["NAMA MODEL"], ValidateDescription),
+        new("year", ["TAHUN DIBUAT"], ValidateYear)
+    ];
+
+    public static OcrExtractionResult Apply(OcrExtractionResult extraction, IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines)
+    {
+        if (layoutLines.Count == 0) return extraction;
+        var fields = new Dictionary<string, string?>(extraction.Fields, StringComparer.OrdinalIgnoreCase);
+        var confidence = new Dictionary<string, decimal>(extraction.FieldConfidence, StringComparer.OrdinalIgnoreCase);
+        var consumed = new HashSet<GoogleDocumentAiLayoutLine>();
+        foreach (var spec in Fields)
+        {
+            if (fields.TryGetValue(spec.Field, out var existing) && !string.IsNullOrWhiteSpace(existing)) continue;
+            var match = FindRelativeValue(layoutLines, spec, consumed);
+            if (match is null) continue;
+            fields[spec.Field] = match.Value.Value;
+            confidence[spec.Field] = extraction.Confidence;
+            consumed.Add(match.Value.Line);
+        }
+        var warnings = extraction.Warnings
+            .Where(warning => !Fields.Any(spec => fields.TryGetValue(spec.Field, out var value)
+                && !string.IsNullOrWhiteSpace(value)
+                && warning.StartsWith($"No {WarningFieldName(spec.Field)} was detected.", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        return extraction with { Fields = fields, FieldConfidence = confidence, Warnings = warnings };
+    }
+
+    private static (string Value, GoogleDocumentAiLayoutLine Line)? FindRelativeValue(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        FieldSpec spec,
+        HashSet<GoogleDocumentAiLayoutLine> consumed)
+    {
+        var label = lines
+            .Where(line => spec.Labels.Any(candidate => IsLabel(line.Text, candidate)))
+            .OrderBy(LineArea)
+            .FirstOrDefault();
+        if (label is null) return null;
+
+        var candidates = lines
+            .Where(line => !ReferenceEquals(line, label)
+                && line.Page == label.Page
+                && !consumed.Contains(line)
+                && !IsKnownLabel(line.Text))
+            .Select(line => new { Line = line, Score = RelativeScore(label, line, lines) })
+            .Where(candidate => candidate.Score is not null)
+            .OrderBy(candidate => candidate.Score)
+            .ThenBy(candidate => LineArea(candidate.Line));
+        foreach (var candidate in candidates)
+        {
+            var validated = spec.Validate(candidate.Line.Text);
+            if (validated is not null) return (validated, candidate.Line);
+        }
+        return null;
+    }
+
+    private static double? RelativeScore(
+        GoogleDocumentAiLayoutLine label,
+        GoogleDocumentAiLayoutLine candidate,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines)
+    {
+        var overlapY = Math.Max(0, Math.Min(label.Bottom, candidate.Bottom) - Math.Max(label.Top, candidate.Top));
+        var minHeight = Math.Max(0.001, Math.Min(label.Bottom - label.Top, candidate.Bottom - candidate.Top));
+        if (overlapY / minHeight >= 0.45
+            && candidate.Left >= label.Right - 0.01
+            && candidate.Left - label.Right <= 0.25
+            && !lines.Any(other => IsInterveningRightLabel(label, candidate, other)))
+            return Math.Max(0, candidate.Left - label.Right) * 10 + Math.Abs(CenterY(candidate) - CenterY(label));
+
+        var overlapX = Math.Max(0, Math.Min(label.Right, candidate.Right) - Math.Max(label.Left, candidate.Left));
+        var minWidth = Math.Max(0.001, Math.Min(label.Right - label.Left, candidate.Right - candidate.Left));
+        var verticalGap = candidate.Top - label.Bottom;
+        if (verticalGap >= -0.01 && verticalGap <= 0.12
+            && (overlapX / minWidth >= 0.35 || Math.Abs(CenterX(candidate) - CenterX(label)) <= 0.08)
+            && !lines.Any(other => IsInterveningBelowLabel(label, candidate, other)))
+            return 1 + Math.Max(0, verticalGap) * 10 + Math.Abs(CenterX(candidate) - CenterX(label));
+        return null;
+    }
+
+    private static bool IsInterveningRightLabel(
+        GoogleDocumentAiLayoutLine label,
+        GoogleDocumentAiLayoutLine candidate,
+        GoogleDocumentAiLayoutLine other) =>
+        other.Page == label.Page
+        && !ReferenceEquals(other, label)
+        && IsKnownLabel(other.Text)
+        && CenterX(other) > CenterX(label)
+        && CenterX(other) < CenterX(candidate)
+        && CenterY(other) >= Math.Min(label.Top, candidate.Top) - 0.02
+        && CenterY(other) <= Math.Max(label.Bottom, candidate.Bottom) + 0.02;
+
+    private static bool IsInterveningBelowLabel(
+        GoogleDocumentAiLayoutLine label,
+        GoogleDocumentAiLayoutLine candidate,
+        GoogleDocumentAiLayoutLine other) =>
+        other.Page == label.Page
+        && !ReferenceEquals(other, label)
+        && IsKnownLabel(other.Text)
+        && CenterY(other) > CenterY(label)
+        && CenterY(other) < CenterY(candidate)
+        && CenterX(other) >= Math.Min(label.Left, candidate.Left) - 0.05
+        && CenterX(other) <= Math.Max(label.Right, candidate.Right) + 0.05;
+
+    private static bool IsLabel(string text, string label)
+    {
+        var normalized = NormalizeWords(text);
+        return normalized == label || normalized.StartsWith(label + " ", StringComparison.Ordinal);
+    }
+
+    private static bool IsKnownLabel(string text) => Fields.Any(spec => spec.Labels.Any(label => IsLabel(text, label)))
+        || IsLabel(text, "KEUPAYAAN ENJIN")
+        || IsLabel(text, "JENIS BADAN")
+        || IsLabel(text, "TARIKH PENDAFTARAN");
+
+    private static string NormalizeWords(string value) => Regex.Replace(value.ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim();
+
+    private static string? ValidatePlate(string value)
+    {
+        var normalized = Regex.Replace(value.ToUpperInvariant(), @"[\s-]+", "");
+        return Regex.IsMatch(normalized, @"^[A-Z]{1,3}[A-Z0-9]{1,8}$") && Regex.IsMatch(normalized, @"\d") ? normalized : null;
+    }
+
+    private static string? ValidateIdentifier(string value, int minimumLength)
+    {
+        var normalized = Regex.Replace(value.ToUpperInvariant(), @"\s+", "").Trim(':', '-', '/', '|');
+        return normalized.Length >= minimumLength
+            && Regex.IsMatch(normalized, @"^[A-Z0-9-]{5,32}$")
+            && !Regex.IsMatch(normalized, @"^\d{3,5}CC$")
+            && Regex.IsMatch(normalized, @"[A-Z]")
+            && Regex.IsMatch(normalized, @"\d") ? normalized : null;
+    }
+
+    private static string? ValidateDescription(string value)
+    {
+        var normalized = Regex.Replace(value.Trim(), @"\s+", " ");
+        return normalized.Length is > 0 and <= 80
+            && !IsKnownLabel(normalized)
+            && !Regex.IsMatch(normalized, @"^(?:19|20)\d{2}$") ? normalized : null;
+    }
+
+    private static string? ValidateYear(string value)
+    {
+        var normalized = value.Trim();
+        return Regex.IsMatch(normalized, @"^(?:19|20)\d{2}$")
+            && int.TryParse(normalized, out var year)
+            && year <= DateTime.UtcNow.Year + 1 ? normalized : null;
+    }
+
+    private static double LineArea(GoogleDocumentAiLayoutLine line) => Math.Max(0, line.Right - line.Left) * Math.Max(0, line.Bottom - line.Top);
+    private static double CenterX(GoogleDocumentAiLayoutLine line) => (line.Left + line.Right) / 2;
+    private static double CenterY(GoogleDocumentAiLayoutLine line) => (line.Top + line.Bottom) / 2;
+
+    private static string WarningFieldName(string field) => field switch
+    {
+        "plateNumber" => "car plate",
+        "chassisNumber" => "chassis number",
+        "engineNumber" => "engine number",
+        "make" => "vehicle make",
+        "model" => "vehicle model",
+        "year" => "manufacture year",
+        _ => field
+    };
+}
 
 public static class GoogleDocumentAiEntityMapper
 {
