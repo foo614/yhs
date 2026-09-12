@@ -643,7 +643,21 @@ public static class OcrExtractionParser
         var plateLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*PENDAFTARAN\b", RegexOptions.IgnoreCase));
         var chassisEngineLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*/?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase));
         var makeModelLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\bBUATAN\b\s*/?\s*\bNAMA\s+MODEL\b", RegexOptions.IgnoreCase));
-        if (plateLabelIndex < 0 || chassisEngineLabelIndex < 0 || makeModelLabelIndex < 0)
+        var chassisLabelIndex = lines.FindIndex(line =>
+            Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b", RegexOptions.IgnoreCase) &&
+            !Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase));
+        var engineLabelIndex = lines.FindIndex(line =>
+            Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase) &&
+            !Regex.IsMatch(line, @"\b(?:CHASIS|CHASSIS|CASIS)\b", RegexOptions.IgnoreCase));
+        var makeLabelIndex = lines.FindIndex(line =>
+            Regex.IsMatch(line, @"\bBUATAN\b", RegexOptions.IgnoreCase) &&
+            !Regex.IsMatch(line, @"\bNAMA\s+MODEL\b", RegexOptions.IgnoreCase));
+        var modelLabelIndex = lines.FindIndex(line =>
+            Regex.IsMatch(line, @"\bNAMA\s+MODEL\b", RegexOptions.IgnoreCase) &&
+            !Regex.IsMatch(line, @"\bBUATAN\b", RegexOptions.IgnoreCase));
+        if (plateLabelIndex < 0 ||
+            (chassisEngineLabelIndex < 0 && (chassisLabelIndex < 0 || engineLabelIndex < 0)) ||
+            (makeModelLabelIndex < 0 && (makeLabelIndex < 0 || modelLabelIndex < 0)))
         {
             return new JpjVocFields(false, null, null, null, null, null, null);
         }
@@ -651,13 +665,19 @@ public static class OcrExtractionParser
         var plateNumber = FindJpjLabeledPlate(lines[plateLabelIndex])
             ?? (plateLabelIndex > 0 ? FindJpjPlateNumber(lines[plateLabelIndex - 1]) : null)
             ?? (plateLabelIndex + 1 < lines.Count ? FindJpjPlateNumber(lines[plateLabelIndex + 1]) : null);
-        var labeledIdentifiers = FindJpjLabeledIdentifierPair(lines[chassisEngineLabelIndex]);
+        var labeledIdentifiers = chassisEngineLabelIndex >= 0
+            ? FindJpjLabeledIdentifierPair(lines[chassisEngineLabelIndex])
+            : null;
         var (chassisNumber, engineNumber, identifierPairIndex) = labeledIdentifiers is not null
             ? (labeledIdentifiers.Value.ChassisNumber, labeledIdentifiers.Value.EngineNumber, chassisEngineLabelIndex)
             : FindJpjIdentifierPair(lines, chassisEngineLabelIndex);
+        chassisNumber ??= FindJpjStandaloneIdentifier(lines, chassisLabelIndex, minimumLength: 10);
+        engineNumber ??= FindJpjStandaloneIdentifier(lines, engineLabelIndex, minimumLength: 5);
         string? make = null;
         string? model = null;
-        var labeledMakeModel = FindJpjLabeledMakeModel(lines[makeModelLabelIndex]);
+        var labeledMakeModel = makeModelLabelIndex >= 0
+            ? FindJpjLabeledMakeModel(lines[makeModelLabelIndex])
+            : null;
         if (labeledMakeModel is not null)
         {
             (make, model) = labeledMakeModel.Value;
@@ -666,9 +686,39 @@ public static class OcrExtractionParser
         {
             (make, model) = FindJpjMakeModelPair(lines, Math.Max(identifierPairIndex, makeModelLabelIndex));
         }
+        make ??= FindJpjStandaloneVehicleText(lines, makeLabelIndex);
+        model ??= FindJpjStandaloneVehicleText(lines, modelLabelIndex);
         var year = FindJpjYear(lines);
         return new JpjVocFields(true, plateNumber, chassisNumber, engineNumber, make, model, year);
     }
+
+    private static string? FindJpjStandaloneIdentifier(IReadOnlyList<string> lines, int labelIndex, int minimumLength)
+    {
+        var value = FindJpjNextRowValue(lines, labelIndex);
+        if (value is null) return null;
+        var identifier = NormalizeJpjIdentifier(value);
+        return Regex.IsMatch(identifier, $@"^[A-Z0-9-]{{{minimumLength},32}}$", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(identifier, @"[A-Z]", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(identifier, @"\d")
+            ? identifier
+            : null;
+    }
+
+    private static string? FindJpjStandaloneVehicleText(IReadOnlyList<string> lines, int labelIndex)
+    {
+        var value = FindJpjNextRowValue(lines, labelIndex);
+        return value is not null && IsJpjVehicleText(value) ? value : null;
+    }
+
+    private static string? FindJpjNextRowValue(IReadOnlyList<string> lines, int labelIndex)
+    {
+        if (labelIndex < 0 || labelIndex + 1 >= lines.Count) return null;
+        var candidate = TrimJpjValuePrefix(lines[labelIndex + 1]);
+        return IsJpjLabelLine(candidate) ? null : candidate;
+    }
+
+    private static bool IsJpjLabelLine(string value) =>
+        Regex.IsMatch(value, @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b", RegexOptions.IgnoreCase);
 
     private static (string? ChassisNumber, string? EngineNumber, int Index) FindJpjIdentifierPair(IReadOnlyList<string> lines, int startIndex)
     {
