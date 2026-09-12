@@ -5180,6 +5180,103 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Ocr_parser_maps_redacted_provider_grid_with_prefixed_identifier_separator_and_punctuated_labels()
+    {
+        const string rawText =
+            "JABATAN PENGANGKUTAN JALAN\n" +
+            "SIJIL PEMILIKAN KENDERAAN\n" +
+            "No. Pendaftaran\n" +
+            "QAA1234\n" +
+            "No. Chasis / No. Enjin\n" +
+            "/ SYNTHCHASSIS12345 SYNTHENGINE67890 !\n" +
+            "Keupayaan Enjin :\n" +
+            "Buatan :\n" +
+            "Nama Model :\n" +
+            "Jenis Badan :\n" +
+            "Tahun Dibuat :\n" +
+            "Tarikh Pendaftaran :\n" +
+            "1498 cc\n" +
+            "PROTON\n" +
+            "S70 PREMIUM\n" +
+            "MOTOKAR\n" +
+            "2025\n" +
+            "10/01/2025\n" +
+            "STATUS\nAKTIF\nKATEGORI\nPERSENDIRIAN\nWARNA\nMERAH\n" +
+            "BAHAN BAKAR\nPETROL\nNEGARA PEMBUAT\nMALAYSIA\nKELAS KEGUNAAN\n" +
+            "MOTOKAR INDIVIDU\nNO. RUJUKAN\nSYNTHREF123\nTARIKH CETAK\n" +
+            "01/01/2026\nSALINAN UJIAN\nDOKUMEN UJIAN\nTAMAT";
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "redacted-provider-grid.txt",
+                MimeType = "text/plain",
+                Content = Encoding.UTF8.GetBytes(rawText)
+            },
+            []);
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(
+            new GoogleDocumentAiRecognition(rawText, 0.9m, [], []),
+            result);
+
+        Assert.Equal(37, diagnostic.LineCount);
+        Assert.Equal("none", diagnostic.ChassisCandidate.LengthBucket);
+        Assert.Equal("33-plus", diagnostic.EngineCandidate.LengthBucket);
+        Assert.False(diagnostic.EngineCandidate.AllowedCharacters);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("S70 PREMIUM", result.Fields["model"]);
+        Assert.Equal("2025", result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_does_not_cross_map_ambiguous_provider_identifier_tokens_or_incomplete_punctuated_columns()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "redacted-ambiguous-provider-grid.txt",
+                MimeType = "text/plain",
+                Content = Encoding.UTF8.GetBytes(
+                    "No. Pendaftaran\nQAA1234\n" +
+                    "No. Chasis / No. Enjin\n/ SYNTHCHASSIS12345 SYNTHENGINE67890 OTHERREF12345\n" +
+                    "UNRELATEDREF12345 OTHERCODE67890\n" +
+                    "Buatan :\nNama Model :\nJenis Badan :\nTahun Dibuat :\nTarikh Pendaftaran :\n" +
+                    "PROTON\nMOTOKAR\n2025\n10/01/2025")
+            },
+            []);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Null(result.Fields["make"]);
+        Assert.Null(result.Fields["model"]);
+        Assert.Null(result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_does_not_replace_standalone_identifiers_with_unrelated_header_codes()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "redacted-standalone-identifiers.txt",
+                MimeType = "text/plain",
+                Content = Encoding.UTF8.GetBytes(
+                    "DOCREFERENCE12345 CASE2026\n" +
+                    "No. Pendaftaran\nQAA1234\n" +
+                    "No. Chasis\nSYNTHCHASSIS12345\n" +
+                    "No. Enjin\nSYNTHENGINE67890\n" +
+                    "Buatan\nPROTON\nNama Model\nS70 PREMIUM")
+            },
+            []);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
     public void Ocr_parser_maps_google_document_ai_interleaved_identifier_row()
     {
         var result = AnalyzeOcrFixture(

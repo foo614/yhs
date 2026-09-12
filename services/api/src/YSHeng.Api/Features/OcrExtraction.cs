@@ -417,7 +417,7 @@ public sealed record GoogleDocumentAiVocDiagnostic(
 
     private static VocVehicleColumnDiagnostic AnalyzeVehicleColumn(IReadOnlyList<string> lines)
     {
-        var makeIndex = Array.FindIndex(lines.ToArray(), line => Regex.IsMatch(line, @"^\s*BUATAN\s*$", RegexOptions.IgnoreCase));
+        var makeIndex = Array.FindIndex(lines.ToArray(), line => Regex.IsMatch(line, LabelOnlyPattern("BUATAN"), RegexOptions.IgnoreCase));
         if (makeIndex < 0) return new VocVehicleColumnDiagnostic(0, 0, false, false);
         var start = makeIndex;
         while (start > 0 && IsLabelOnly(lines[start - 1])) start--;
@@ -427,8 +427,8 @@ public sealed record GoogleDocumentAiVocDiagnostic(
         var valueStart = end + 1;
         var valueCount = 0;
         while (valueStart + valueCount < lines.Count && valueCount < 20 && !IsKnownLabel(lines[valueStart + valueCount])) valueCount++;
-        var yearLabelOffset = FindOffset(lines, start, end, @"^\s*TAHUN\s+DIBUAT\s*$");
-        var dateLabelOffset = FindOffset(lines, start, end, @"^\s*TARIKH\s+PENDAFTARAN\s*$");
+        var yearLabelOffset = FindOffset(lines, start, end, LabelOnlyPattern(@"TAHUN\s+DIBUAT"));
+        var dateLabelOffset = FindOffset(lines, start, end, LabelOnlyPattern(@"TARIKH\s+PENDAFTARAN"));
         return new VocVehicleColumnDiagnostic(
             labelCount,
             valueCount,
@@ -458,6 +458,8 @@ public sealed record GoogleDocumentAiVocDiagnostic(
             RegexOptions.IgnoreCase);
         return IsKnownLabel(value) && string.IsNullOrWhiteSpace(withoutLabels.Trim(' ', ':', '-', '/', '|'));
     }
+
+    private static string LabelOnlyPattern(string labelPattern) => $@"^\s*{labelPattern}\s*[:|/-]?\s*$";
 
     private static string LengthBucket(int length) => length switch
     {
@@ -1006,14 +1008,17 @@ public static class OcrExtractionParser
         var labelBlockEnd = labelIndex;
         while (labelBlockEnd + 1 < lines.Count && IsJpjLabelLine(lines[labelBlockEnd + 1])) labelBlockEnd++;
 
-        var labelPatterns = new[]
+        var vehicleLabelPatterns = new[]
         {
-            @"^\s*BUATAN\s*$",
-            @"^\s*NAMA\s+MODEL\s*$",
-            @"^\s*JENIS\s+BADAN\s*$",
-            @"^\s*TAHUN\s+DIBUAT\s*$",
-            @"^\s*TARIKH\s+PENDAFTARAN\s*$"
+            JpjLabelOnlyPattern("BUATAN"),
+            JpjLabelOnlyPattern(@"NAMA\s+MODEL"),
+            JpjLabelOnlyPattern(@"JENIS\s+BADAN"),
+            JpjLabelOnlyPattern(@"TAHUN\s+DIBUAT"),
+            JpjLabelOnlyPattern(@"TARIKH\s+PENDAFTARAN")
         };
+        var labelPatterns = labelBlockEnd - labelBlockStart + 1 == vehicleLabelPatterns.Length + 1
+            ? new[] { JpjLabelOnlyPattern(@"KEUPAYAAN\s+ENJIN") }.Concat(vehicleLabelPatterns).ToArray()
+            : vehicleLabelPatterns;
         if (labelBlockEnd - labelBlockStart + 1 != labelPatterns.Length) return null;
         for (var offset = 0; offset < labelPatterns.Length; offset++)
         {
@@ -1025,9 +1030,12 @@ public static class OcrExtractionParser
         var values = Enumerable.Range(valueBlockStart, labelPatterns.Length)
             .Select(index => TrimJpjValuePrefix(lines[index]))
             .ToArray();
+        var yearOffset = Array.FindIndex(labelPatterns, pattern => pattern.Contains("TAHUN", StringComparison.Ordinal));
+        var registrationDateOffset = Array.FindIndex(labelPatterns, pattern => pattern.Contains("TARIKH", StringComparison.Ordinal));
         if (values.Any(value => IsJpjLabelLine(value)) ||
-            !Regex.IsMatch(values[3], @"^(?:19|20)\d{2}$") ||
-            !Regex.IsMatch(values[4], @"^(?:\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2}|(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2})$"))
+            yearOffset < 0 || registrationDateOffset < 0 ||
+            !Regex.IsMatch(values[yearOffset], @"^(?:19|20)\d{2}$") ||
+            !Regex.IsMatch(values[registrationDateOffset], @"^(?:\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2}|(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2})$"))
         {
             return null;
         }
@@ -1038,25 +1046,57 @@ public static class OcrExtractionParser
     private static bool IsJpjLabelLine(string value) =>
         Regex.IsMatch(value, @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b", RegexOptions.IgnoreCase);
 
+    private static string JpjLabelOnlyPattern(string labelPattern) => $@"^\s*{labelPattern}\s*[:|/-]?\s*$";
+
     private static (string? ChassisNumber, string? EngineNumber, int Index) FindJpjIdentifierPair(IReadOnlyList<string> lines, int startIndex)
     {
         for (var index = startIndex + 1; index < lines.Count && index <= startIndex + 6; index++)
         {
-            if (!TrySplitJpjPair(lines[index], out var left, out var right)) continue;
-            var chassisNumber = NormalizeJpjIdentifier(left);
-            var engineNumber = NormalizeJpjIdentifier(right);
-            if (Regex.IsMatch(chassisNumber, @"^[A-Z0-9-]{10,32}$", RegexOptions.IgnoreCase) &&
-                Regex.IsMatch(engineNumber, @"^[A-Z0-9-]{5,32}$", RegexOptions.IgnoreCase) &&
-                Regex.IsMatch(chassisNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
-                Regex.IsMatch(chassisNumber, @"\d") &&
-                Regex.IsMatch(engineNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
-                Regex.IsMatch(engineNumber, @"\d"))
-            {
+            if (TrySplitJpjPair(lines[index], out var left, out var right) &&
+                TryValidateJpjIdentifierPair(left, right, out var chassisNumber, out var engineNumber))
                 return (chassisNumber, engineNumber, index);
-            }
+
+            if (startIndex >= 0 && index == startIndex + 1 &&
+                TrySplitJpjIdentifierTokens(lines[index], out left, out right) &&
+                TryValidateJpjIdentifierPair(left, right, out chassisNumber, out engineNumber))
+                return (chassisNumber, engineNumber, index);
         }
 
         return (null, null, -1);
+    }
+
+    private static bool TryValidateJpjIdentifierPair(
+        string left,
+        string right,
+        out string chassisNumber,
+        out string engineNumber)
+    {
+        chassisNumber = NormalizeJpjIdentifier(left);
+        engineNumber = NormalizeJpjIdentifier(right);
+        return Regex.IsMatch(chassisNumber, @"^[A-Z0-9-]{10,32}$", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(engineNumber, @"^[A-Z0-9-]{5,32}$", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(chassisNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(chassisNumber, @"\d") &&
+               Regex.IsMatch(engineNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(engineNumber, @"\d");
+    }
+
+    private static bool TrySplitJpjIdentifierTokens(string line, out string left, out string right)
+    {
+        var candidates = Regex.Matches(line, @"(?<![\p{L}\p{N}-])[A-Z0-9-]{5,32}(?![\p{L}\p{N}-])", RegexOptions.IgnoreCase)
+            .Select(match => match.Value)
+            .Where(candidate => Regex.IsMatch(candidate, @"[A-Z]", RegexOptions.IgnoreCase) && Regex.IsMatch(candidate, @"\d"))
+            .ToArray();
+        if (candidates.Length == 2)
+        {
+            left = candidates[0];
+            right = candidates[1];
+            return true;
+        }
+
+        left = string.Empty;
+        right = string.Empty;
+        return false;
     }
 
     private static (string? Make, string? Model) FindJpjMakeModelPair(IReadOnlyList<string> lines, int startIndex)
@@ -1092,7 +1132,7 @@ public static class OcrExtractionParser
             if (fieldYear.Success) return fieldYear.Groups["year"].Value;
         }
         if (yearLabelIndex >= 0 &&
-            Regex.IsMatch(lines[yearLabelIndex], @"^\s*TAHUN\s+DIBUAT\s*$", RegexOptions.IgnoreCase) &&
+            Regex.IsMatch(lines[yearLabelIndex], JpjLabelOnlyPattern(@"TAHUN\s+DIBUAT"), RegexOptions.IgnoreCase) &&
             yearLabelIndex + 1 < lines.Count &&
             IsJpjLabelLine(lines[yearLabelIndex + 1]))
         {
