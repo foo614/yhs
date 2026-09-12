@@ -743,7 +743,7 @@ backOffice.MapGet("/vehicles/{id:guid}/photos", async (Guid id, AppDbContext db)
 backOffice.MapPut("/vehicles/{id:guid}/photos/order", async (Guid id, VehiclePhotoOrderRequest request, AppDbContext db, HttpContext context) =>
 {
     var photos = await db.VehiclePhotos.Where(photo => photo.VehicleId == id).ToListAsync();
-    if (request.PhotoIds.Length != photos.Count || request.PhotoIds.Distinct().Count() != photos.Count || photos.Any(photo => !request.PhotoIds.Contains(photo.Id)))
+    if (request.PhotoIds is null || request.PhotoIds.Length != photos.Count || request.PhotoIds.Distinct().Count() != photos.Count || photos.Any(photo => !request.PhotoIds.Contains(photo.Id)))
         return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_photo_order_invalid", "Photo order must include every saved photo exactly once.")]));
     for (var index = 0; index < request.PhotoIds.Length; index++)
     {

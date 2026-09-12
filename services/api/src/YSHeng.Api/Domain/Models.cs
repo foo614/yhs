@@ -162,7 +162,7 @@ public sealed record VehiclePhoto
     public DateTime UploadedAt { get; init; } = DateTime.UtcNow;
 }
 
-public sealed record VehiclePhotoOrderRequest(Guid[] PhotoIds);
+public sealed record VehiclePhotoOrderRequest(Guid[]? PhotoIds);
 
 public sealed record DocumentBlob
 {

@@ -297,6 +297,25 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Vehicle_photo_order_is_authorized_scoped_audited_null_safe_and_documented()
+    {
+        var root = FindRepositoryRoot();
+        var apiDocs = File.ReadAllText(Path.Combine(root, "docs", "API.md"));
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var routeStart = program.IndexOf("backOffice.MapPut(\"/vehicles/{id:guid}/photos/order\"", StringComparison.Ordinal);
+        var routeEnd = program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/photos/{photoId:guid}/content\"", routeStart, StringComparison.Ordinal);
+        Assert.True(routeStart >= 0 && routeEnd > routeStart);
+        var route = program[routeStart..routeEnd];
+
+        Assert.Contains("request.PhotoIds is null", route);
+        Assert.Contains("photo.VehicleId == id", route);
+        Assert.Contains("vehicle_photo_order_invalid", route);
+        Assert.Contains("ApiAudit.Add(db, context.User, \"vehicle.photos.reordered\"", route);
+        Assert.Contains("RequireAuthorization(\"Vehicles\")", route);
+        Assert.Contains("| `PUT` | `/api/vehicles/{id}/photos/order` | `Vehicles` |", apiDocs);
+    }
+
+    [Fact]
     public void Loan_document_delete_is_category_authorized_composite_scoped_audited_and_documented()
     {
         var root = FindRepositoryRoot();
@@ -377,6 +396,7 @@ public sealed class ApiDocumentationTests
     {
         var root = FindRepositoryRoot();
         var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var seedData = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Data", "SeedData.cs"));
 
         var vehicleUpdateRoute = program[
             program.IndexOf("backOffice.MapPut(\"/vehicles/{id:guid}\"", StringComparison.Ordinal)..
@@ -423,6 +443,7 @@ public sealed class ApiDocumentationTests
         var deliveryGuardIndex = invoiceIssueMethod.IndexOf("ValidateInvoiceIssuanceDeliveryState", StringComparison.Ordinal);
         var existingInvoiceReturnIndex = invoiceIssueMethod.IndexOf("if (existingInvoice is not null)", StringComparison.Ordinal);
         Assert.True(deliveryGuardIndex >= 0 && deliveryGuardIndex < existingInvoiceReturnIndex);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"InvoiceGenerated\" boolean NOT NULL DEFAULT false", seedData);
     }
 
     [Fact]

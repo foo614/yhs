@@ -176,6 +176,7 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `POST` | `/api/vehicles/{id}/photos` | `Vehicles` | Upload vehicle photo, max 5 MB. |
 | `DELETE` | `/api/vehicles/{id}/photos/{photoId}` | `Vehicles` | Permanently delete a saved vehicle photo and its thumbnail. |
 | `GET` | `/api/vehicles/{id}/photos` | `BackOffice` | List photo metadata. |
+| `PUT` | `/api/vehicles/{id}/photos/order` | `Vehicles` | Save the complete display order for the vehicle's website photos. |
 | `GET` | `/api/vehicles/{id}/photos/{photoId}/content` | `BackOffice` | Download original photo content. |
 | `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}&collectionTransactionId={id}&deliveryScheduleId={id}` | Category-specific role | Upload document, max 10 MB. Repair and delivery workflow links are exclusive. Collection evidence requires both `paymentRecordId` and `collectionTransactionId`; delivery categories require `deliveryScheduleId`. The server verifies each linked record, route vehicle, and locked customer before storing the evidence. |
 | `GET` | `/api/vehicles/{id}/documents` | Category-specific role | List document metadata visible to the signed-in department. |
