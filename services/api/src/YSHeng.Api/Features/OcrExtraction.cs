@@ -783,11 +783,12 @@ public static class GoogleDocumentAiVocLayoutMapper
         var fields = new Dictionary<string, string?>(extraction.Fields, StringComparer.OrdinalIgnoreCase);
         var confidence = new Dictionary<string, decimal>(extraction.FieldConfidence, StringComparer.OrdinalIgnoreCase);
         var consumed = new HashSet<GoogleDocumentAiLayoutLine>();
-        ApplyCompositeIdentifierPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
+        var suppressStandaloneIdentifiers = ApplyCompositeIdentifierPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
         ApplyCompositeTextPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
         ApplyCompositeYear(layoutLines, fields, confidence, consumed, extraction.Confidence);
         foreach (var spec in Fields)
         {
+            if (suppressStandaloneIdentifiers && spec.Field is "chassisNumber" or "engineNumber") continue;
             if (fields.TryGetValue(spec.Field, out var existing) && !string.IsNullOrWhiteSpace(existing)) continue;
             var match = FindRelativeValue(layoutLines, spec, consumed);
             if (match is null) continue;
@@ -803,19 +804,32 @@ public static class GoogleDocumentAiVocLayoutMapper
         return extraction with { Fields = fields, FieldConfidence = confidence, Warnings = warnings };
     }
 
-    private static void ApplyCompositeIdentifierPair(
+    private static bool ApplyCompositeIdentifierPair(
         IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
         Dictionary<string, string?> fields,
         Dictionary<string, decimal> confidence,
         HashSet<GoogleDocumentAiLayoutLine> consumed,
         decimal documentConfidence)
     {
-        var match = FindCompositeRelativeLine(lines, "CHAS", "ENJIN", consumed);
-        if (match is null || !TrySplitIdentifierPair(match.Text, out var chassis, out var engine)) return;
-        if (!CanFillCompositePair(fields, "chassisNumber", chassis, "engineNumber", engine)) return;
+        var label = lines
+            .Where(line => Regex.IsMatch(line.Text, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b", RegexOptions.IgnoreCase)
+                && Regex.IsMatch(line.Text, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase))
+            .OrderBy(LineArea)
+            .FirstOrDefault();
+        var match = label;
+        var chassis = "";
+        var engine = "";
+        var hasInlineContent = match is not null && HasInlineIdentifierContent(match.Text);
+        var hasInlinePair = hasInlineContent && TrySplitInlineIdentifierPair(match!.Text, out chassis, out engine);
+        if (hasInlineContent && !hasInlinePair) return true;
+        if (!hasInlineContent)
+            match = label is null ? null : FindCompositeRelativeLineFromLabel(lines, label, consumed);
+        if (!hasInlinePair && (match is null || !TrySplitIdentifierPair(match.Text, out chassis, out engine))) return false;
+        if (!CanFillCompositePair(fields, "chassisNumber", chassis, "engineNumber", engine)) return hasInlineContent;
         FillMissingCompositeField(fields, confidence, "chassisNumber", chassis, documentConfidence);
         FillMissingCompositeField(fields, confidence, "engineNumber", engine, documentConfidence);
-        consumed.Add(match);
+        if (match is not null && !ReferenceEquals(match, label)) consumed.Add(match);
+        return hasInlineContent;
     }
 
     private static void ApplyCompositeTextPair(
@@ -913,12 +927,16 @@ public static class GoogleDocumentAiVocLayoutMapper
         string secondLabel,
         HashSet<GoogleDocumentAiLayoutLine> consumed)
     {
-        var label = lines
-            .Where(line => NormalizeWords(line.Text).Contains(firstLabel, StringComparison.Ordinal)
-                && NormalizeWords(line.Text).Contains(secondLabel, StringComparison.Ordinal))
-            .OrderBy(LineArea)
-            .FirstOrDefault();
+        var label = FindCompositeLabel(lines, firstLabel, secondLabel);
         if (label is null) return null;
+        return FindCompositeRelativeLineFromLabel(lines, label, consumed);
+    }
+
+    private static GoogleDocumentAiLayoutLine? FindCompositeRelativeLineFromLabel(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        GoogleDocumentAiLayoutLine label,
+        HashSet<GoogleDocumentAiLayoutLine> consumed)
+    {
         return lines
             .Where(line => line.Page == label.Page && !ReferenceEquals(line, label) && !consumed.Contains(line) && !IsKnownLabel(line.Text))
             .Select(line => new { Line = line, Score = RelativeScore(label, line, lines) })
@@ -928,6 +946,15 @@ public static class GoogleDocumentAiVocLayoutMapper
             .Select(candidate => candidate.Line)
             .FirstOrDefault();
     }
+
+    private static GoogleDocumentAiLayoutLine? FindCompositeLabel(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        string firstLabel,
+        string secondLabel) => lines
+        .Where(line => NormalizeWords(line.Text).Contains(firstLabel, StringComparison.Ordinal)
+            && NormalizeWords(line.Text).Contains(secondLabel, StringComparison.Ordinal))
+        .OrderBy(LineArea)
+        .FirstOrDefault();
 
     private static bool TrySplitIdentifierPair(string value, out string chassis, out string engine)
     {
@@ -947,6 +974,37 @@ public static class GoogleDocumentAiVocLayoutMapper
         chassis = ValidateIdentifier(tokens[0], 10) ?? "";
         engine = ValidateIdentifier(tokens[1], 5) ?? "";
         return chassis.Length > 0 && engine.Length > 0;
+    }
+
+    private static bool TrySplitInlineIdentifierPair(string value, out string chassis, out string engine)
+    {
+        chassis = engine = "";
+        var match = Regex.Match(
+            value,
+            @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*(?<chassis>.*?)\s*[/|]?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*(?<engine>.+)$",
+            RegexOptions.IgnoreCase);
+        if (!match.Success) return false;
+        chassis = ValidateInlineIdentifier(match.Groups["chassis"].Value, 10) ?? "";
+        engine = ValidateInlineIdentifier(match.Groups["engine"].Value, 5) ?? "";
+        return chassis.Length > 0 && engine.Length > 0;
+    }
+
+    private static bool HasInlineIdentifierContent(string value)
+    {
+        var withoutLabels = Regex.Replace(
+            value,
+            @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS|ENJIN)\b",
+            " ",
+            RegexOptions.IgnoreCase);
+        return !string.IsNullOrWhiteSpace(withoutLabels.Trim(' ', ':', '#', '-', '/', '|'));
+    }
+
+    private static string? ValidateInlineIdentifier(string value, int minimumLength)
+    {
+        var trimmed = value.Trim().Trim(':', '-', '/', '|').Trim();
+        return Regex.IsMatch(trimmed, @"^[A-Z0-9-]+$", RegexOptions.IgnoreCase)
+            ? ValidateIdentifier(trimmed, minimumLength)
+            : null;
     }
 
     private static (string Value, GoogleDocumentAiLayoutLine Line)? FindRelativeValue(

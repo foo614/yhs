@@ -273,7 +273,7 @@ function PurchaseInvoiceLineFields() {
   );
 }
 
-function VehicleMakeModelFields({
+export function VehicleMakeModelFields({
   catalogModels,
   onCreateCatalogModel,
   legacySelection

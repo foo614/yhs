@@ -5386,6 +5386,57 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_identifiers_interleaved_with_the_combined_label()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [],
+            "No. Chasis SYNTHCHASSIS12345 / No. Enjin SYNTHENGINE67890", 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            // Faithful redacted geometry: Document AI returns the two identifiers in
+            // the same layout line as the combined labels, with a slash between them.
+            new("No. Chasis SYNTHCHASSIS12345 / No. Enjin SYNTHENGINE67890", 1, .10, .20, .90, .23),
+            new("1498 cc MOTOKAR", 1, .11, .25, .39, .28),
+            new("10/01/2024", 1, .41, .25, .55, .28)
+        ]);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+    }
+
+    [Theory]
+    [InlineData("No. Chasis 1498CC / No. Enjin 10/01/2024")]
+    [InlineData("No. Chasis SYNTHCHASSIS12345 OTHER12345 / No. Enjin SYNTHENGINE67890")]
+    [InlineData("CHASREF123456 / ENJINREF67890")]
+    [InlineData("DOCREFERENCE12345 No. Chasis / No. Enjin SYNTHENGINE67890")]
+    public void Google_document_ai_fixed_voc_layout_rejects_ambiguous_or_non_identifier_inline_pairs(string label)
+    {
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], label, 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [new(label, 1, .10, .20, .90, .23)]);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_does_not_fall_back_from_an_ambiguous_inline_pair()
+    {
+        const string label = "No. Chasis SYNTHCHASSIS12345 OTHER12345 / No. Enjin SYNTHENGINE67890";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], label, 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new(label, 1, .10, .20, .90, .23),
+            new("UNRELATEDREF12345 OTHERCODE67890", 1, .11, .25, .39, .28)
+        ]);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
     public void Google_document_ai_fixed_voc_layout_preserves_conflicting_prepopulated_values()
     {
         var extraction = OcrExtractionParser.Analyze(
