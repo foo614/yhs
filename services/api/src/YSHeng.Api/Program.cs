@@ -4733,7 +4733,7 @@ internal static class FinanceApi
         var sequence = await db.Database.SqlQueryRaw<long>("SELECT nextval('\"FinanceInvoiceNumberSequence\"') AS \"Value\"").SingleAsync();
         var invoiceNumber = FinanceInvoiceFactory.NumberFor(now, sequence);
         var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, invoiceNumber, actorUserId, now);
-        var updatedPayment = payment with { InvoiceNumber = invoiceNumber, DocumentsPrepared = true };
+        var updatedPayment = FinanceV2Rules.MarkInvoiceGenerated(payment, invoiceNumber);
         db.Entry(payment).CurrentValues.SetValues(updatedPayment);
         db.FinanceInvoices.Add(invoice);
         return new FinanceInvoiceIssueResult(updatedPayment, invoice, validation);

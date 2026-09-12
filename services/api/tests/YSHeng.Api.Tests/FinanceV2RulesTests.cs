@@ -47,6 +47,24 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
+    public void Zero_adjustment_finance_sale_persists_an_explicit_invoice_generation_state()
+    {
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 150_000m, BossConfirmed = true };
+        var request = new FinanceSaleRequest(vehicle.Id, 150_000m, 0, 0, 0, null, null, "sales-1");
+
+        var payment = FinanceV2Rules.CreatePayment(request, vehicle, Guid.NewGuid(), "finance-1", DateTime.UtcNow);
+
+        Assert.False(payment.InvoiceGenerated);
+        Assert.False(FinanceV2Rules.RequiresNettPriceApproval(payment));
+
+        var issued = FinanceV2Rules.MarkInvoiceGenerated(payment, "SI-202609-000001");
+
+        Assert.True(issued.InvoiceGenerated);
+        Assert.True(issued.DocumentsPrepared);
+        Assert.Equal("SI-202609-000001", issued.InvoiceNumber);
+    }
+
+    [Fact]
     public void Finance_sale_rejects_an_unapproved_vehicle()
     {
         var vehicle = new Vehicle { Id = Guid.NewGuid(), SellingPrice = 15_000m, BossConfirmed = false };

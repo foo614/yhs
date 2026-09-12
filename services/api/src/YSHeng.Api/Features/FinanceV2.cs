@@ -88,6 +88,7 @@ public static class FinanceV2Rules
             NettPriceOverrideRequestedAt = requiresApproval ? now : null,
             FormulaVersion = FormulaVersion,
             FinanceWorkflowVersion = 2,
+            InvoiceGenerated = false,
             SalesPrice = vehicle.SellingPrice,
             InterestAdditionalCharges = request.InterestAdditionalCharges,
             NcdAmount = request.NcdAmount,
@@ -113,8 +114,12 @@ public static class FinanceV2Rules
             NettPriceOverrideApprovedBy = existing.NettPriceOverrideApprovedBy,
             NettPriceOverrideApprovedAt = existing.NettPriceOverrideApprovedAt,
             FormulaVersion = existing.FormulaVersion,
-            FinanceWorkflowVersion = existing.FinanceWorkflowVersion
+            FinanceWorkflowVersion = existing.FinanceWorkflowVersion,
+            InvoiceGenerated = existing.InvoiceGenerated
         };
+
+    public static PaymentRecord MarkInvoiceGenerated(PaymentRecord payment, string invoiceNumber) =>
+        payment with { InvoiceNumber = invoiceNumber, DocumentsPrepared = true, InvoiceGenerated = true };
 
     public static ValidationResult ValidateSale(FinanceSaleRequest request, PaymentRecord payment, Vehicle vehicle)
     {
