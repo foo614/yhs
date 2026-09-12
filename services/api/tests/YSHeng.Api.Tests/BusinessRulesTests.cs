@@ -4722,6 +4722,18 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void MyKad_parser_rejects_the_english_card_header_as_a_name()
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var text = "IDENTITY CARD\nSAMPLE USER\n900101-01-1234\nNO 12 JALAN DEMO\n50000 KUALA LUMPUR\nWARGANEGARA";
+
+        var result = OcrExtractionParser.Analyze(document, [], text, 0.9m, []);
+
+        Assert.Equal("SAMPLE USER", result.Fields["customerName"]);
+        Assert.NotEqual("IDENTITY CARD", result.Fields["customerName"]);
+    }
+
+    [Fact]
     public void MyKad_parser_preserves_clean_multiline_name_and_accepts_postcode_verified_gdw_kampung_address()
     {
         var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
@@ -4971,6 +4983,34 @@ public sealed class BusinessRulesTests
         Assert.Equal("CIVIC 1.5L V", result.Fields["model"]);
         Assert.Equal("2024", result.Fields["year"]);
         Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Ocr_parser_maps_full_malay_jpj_labels_without_treating_engine_capacity_as_engine_number()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "synthetic-full-malay-voc.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "Nombor Pendaftaran : ABC1234\n" +
+                    "Keupayaan Enjin : 1498 cc\n" +
+                    "Nombor Casis / Nombor Enjin : SYNTHCHASSIS12345 / SYNTHENG12345\n" +
+                    "Buatan / Nama Model : PROTON / S70\n" +
+                    "Jenis Badan / Tahun Dibuat : MOTOKAR / 2025\n" +
+                    "Tarikh Pendaftaran : 10/01/2025")
+            },
+            []);
+
+        Assert.Equal("ABC1234", result.Fields["plateNumber"]);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENG12345", result.Fields["engineNumber"]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("S70", result.Fields["model"]);
+        Assert.Equal("2025", result.Fields["year"]);
+        Assert.NotEqual("1498", result.Fields["engineNumber"]);
     }
 
     [Fact]
