@@ -733,6 +733,117 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
+    public void Sales_invoice_pdf_uses_branded_customer_layout_and_omits_internal_calculation_details()
+    {
+        var payment = V2Payment(50_600m) with
+        {
+            CalculatedNettPrice = 51_000m,
+            FormulaVersion = "internal-formula-v99",
+            SalesPrice = 50_000m,
+            InterestAdditionalCharges = 800m,
+            NcdAmount = 500m,
+            WindscreenCharges = 100m,
+            InsurancePaidOnBehalfAmount = 100m,
+            RoadTaxPaidOnBehalfAmount = 50m,
+            AdvancePaidOnBehalfAmount = 50m,
+            SalesAgentName = "Sales One",
+            LoanBankReference = "BANK-42"
+        };
+        var vehicle = new Vehicle { Id = payment.VehicleId, PlateNumber = "ABC1234", Make = "Mercedes Benz", Model = "Extra Long Executive Edition", Year = 2022, CustomerId = payment.CustomerId };
+        var customer = new Customer { Id = payment.CustomerId!.Value, Name = "王小明 Tan Wei Ming Christopher Alexander bin Abdullah", Phone = "0123", Address = "No 123 Jalan Damai Perdana Taman Bukit Indah Kuala Lumpur Malaysia", TinNumber = "TIN-42" };
+
+        var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, "YSH-INV-2026-000042", "finance-1", new DateTime(2026, 8, 27, 1, 2, 3, DateTimeKind.Utc));
+        var pdf = System.Text.Encoding.ASCII.GetString(invoice.Content);
+
+        Assert.Contains("YS HENG", pdf);
+        Assert.Contains("FINANCE OPERATIONS", pdf);
+        Assert.Contains("SALES INVOICE", pdf);
+        Assert.Contains("YSH-INV-2026-000042", pdf);
+        Assert.Contains("Vehicle: ABC1234 Mercedes Benz Extra Long", pdf);
+        Assert.Contains("Executive Edition 2022", pdf);
+        Assert.DoesNotContain("(Vehicle: ABC1234 Mercedes Benz Extra Long Executive Edition 2022) Tj", pdf);
+        Assert.Contains("Tan Wei Ming Christopher", pdf);
+        Assert.Contains("Alexander bin Abdullah", pdf);
+        Assert.DoesNotContain("(Tan Wei Ming Christopher Alexander bin Abdullah) Tj", pdf);
+        Assert.Contains("No 123 Jalan Damai Perdana Taman", pdf);
+        Assert.Contains("Kuala Lumpur Malaysia", pdf);
+        Assert.DoesNotContain("(No 123 Jalan Damai Perdana Taman Bukit Indah Kuala Lumpur Malaysia) Tj", pdf);
+        Assert.Contains("TIN-42", pdf);
+        Assert.Contains("BANK-42", pdf);
+        Assert.Contains("Vehicle sales price", pdf);
+        Assert.Contains("Less: No Claim Discount", pdf);
+        Assert.Contains("RM 50,600.00", pdf);
+        Assert.Contains("Customer copy", pdf);
+        Assert.Contains(Convert.ToHexString(System.Text.Encoding.BigEndianUnicode.GetBytes("王小明")), pdf);
+        Assert.Contains("/UniGB-UCS2-H", pdf);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(pdf, "/Type /Page /Parent").Cast<System.Text.RegularExpressions.Match>());
+        using var document = UglyToad.PdfPig.PdfDocument.Open(invoice.Content, UglyToad.PdfPig.ParsingOptions.LenientParsingOff);
+        Assert.Equal(1, document.NumberOfPages);
+        _ = document.GetPage(1);
+        Assert.DoesNotContain("Calculated Nett Price", pdf);
+        Assert.DoesNotContain("internal-formula-v99", pdf);
+        Assert.DoesNotContain("Formula:", pdf);
+        Assert.DoesNotContain("finance-1", pdf);
+    }
+
+    [Theory]
+    [InlineData(120, "20.00")]
+    [InlineData(80, "-20.00")]
+    public void Sales_invoice_pdf_reconciles_both_signs_of_agreed_price_adjustment(int agreedTotal, string expectedAdjustment)
+    {
+        var payment = V2Payment(agreedTotal) with { SalesPrice = 100m };
+        var vehicle = new Vehicle { Id = payment.VehicleId, PlateNumber = "ABC1234", Make = "Toyota", Model = "Vios", Year = 2022, CustomerId = payment.CustomerId };
+        var customer = new Customer { Id = payment.CustomerId!.Value, Name = "Customer One" };
+
+        var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, "YSH-INV-2026-000043", "finance-user-id", DateTime.UtcNow);
+        var pdf = System.Text.Encoding.ASCII.GetString(invoice.Content);
+
+        Assert.Contains("Agreed price adjustment", pdf);
+        Assert.Contains($"({expectedAdjustment}) Tj", pdf);
+        Assert.Contains($"RM {agreedTotal:N2}", pdf);
+        Assert.DoesNotContain("finance-user-id", pdf);
+    }
+
+    [Fact]
+    public void Sales_invoice_pdf_rejects_unsupported_supplementary_unicode_instead_of_corrupting_it()
+    {
+        var payment = V2Payment(100m);
+        var vehicle = new Vehicle { Id = payment.VehicleId, PlateNumber = "ABC1234", Make = "Toyota", Model = "Vios", Year = 2022, CustomerId = payment.CustomerId };
+        var customer = new Customer { Id = payment.CustomerId!.Value, Name = "Customer 🙂" };
+
+        var error = Assert.Throws<ArgumentException>(() => FinanceInvoiceFactory.Create(payment, vehicle, customer, "YSH-INV-2026-000044", "finance-1", DateTime.UtcNow));
+
+        Assert.Contains("Latin and Chinese", error.Message);
+    }
+
+    [Theory]
+    [InlineData("customer-name-unbroken")]
+    [InlineData("customer-address-multiline")]
+    [InlineData("customer-tin")]
+    [InlineData("sales-agent")]
+    [InlineData("loan-reference")]
+    public void Sales_invoice_pdf_fails_closed_when_official_text_cannot_fit_its_allocated_area(string field)
+    {
+        var payment = V2Payment(100m) with
+        {
+            SalesAgentName = field == "sales-agent" ? new string('A', 100) : "Sales One",
+            LoanBankReference = field == "loan-reference" ? new string('B', 100) : "BANK-1"
+        };
+        var vehicle = new Vehicle { Id = payment.VehicleId, PlateNumber = "ABC1234", Make = "Toyota", Model = "Vios", Year = 2022, CustomerId = payment.CustomerId };
+        var customer = new Customer
+        {
+            Id = payment.CustomerId!.Value,
+            Name = field == "customer-name-unbroken" ? new string('N', 120) : "Customer One",
+            Address = field == "customer-address-multiline" ? string.Join(' ', Enumerable.Repeat("LongAddressSegment", 20)) : "Kuala Lumpur",
+            TinNumber = field == "customer-tin" ? new string('T', 100) : "TIN-1"
+        };
+
+        var error = Assert.Throws<ArgumentException>(() => FinanceInvoiceFactory.Create(payment, vehicle, customer, "YSH-INV-2026-000045", "finance-1", DateTime.UtcNow));
+
+        Assert.Contains("allocated area", error.Message);
+    }
+
+    [Fact]
     public void V2_cash_uses_linked_custody_and_cannot_bypass_it()
     {
         var payment = V2Payment(100m);
