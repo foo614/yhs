@@ -116,6 +116,7 @@ import {
   rejectCashHandover,
   reverseCollection,
   releaseDelivery,
+  sessionExpiredEventName,
   requestCashHandover,
   requestDeliveryInvoiceUpdate,
   resolveDeliveryInvoiceUpdate,
@@ -252,6 +253,28 @@ describe("backoffice api client", () => {
     mockEmptyFetch(false, 401);
 
     await expect(login("staff@example.test", "invalid-test-password")).rejects.toThrow("Login failed. Please check your email and password.");
+  });
+
+  it("emits session expiry only for an established-session 401", async () => {
+    const browserWindow = new EventTarget();
+    let expiryEvents = 0;
+    browserWindow.addEventListener(sessionExpiredEventName, () => expiryEvents++);
+    vi.stubGlobal("window", browserWindow);
+
+    mockEmptyFetch(false, 401);
+    await expect(getSalesWorkboard()).rejects.toThrow();
+    expect(expiryEvents).toBe(1);
+
+    mockEmptyFetch(false, 401);
+    await expect(getCurrentUser()).rejects.toThrow();
+    await expect(login("staff@example.test", "invalid-test-password")).rejects.toThrow();
+    mockEmptyFetch(false, 403);
+    await expect(getSalesWorkboard()).rejects.toThrow();
+    mockEmptyFetch();
+    await logout();
+
+    expect(expiryEvents).toBe(1);
+    vi.unstubAllGlobals();
   });
 
   it("loads and logs out the current user through authenticated endpoints", async () => {

@@ -384,6 +384,21 @@ export function browserRouteUrl(location: Pick<Location, "pathname" | "search">)
 }
 
 const expiredSessionRouteKey = "ysheng:expired-session-route";
+const expiredSessionNoticeKey = "ysheng:expired-session-notice";
+const expiredSessionNoticeValue = "expired";
+
+type SessionStorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+export function markExpiredSession(storage: SessionStorageLike, routeUrl: string) {
+  storage.setItem(expiredSessionRouteKey, routeUrl);
+  storage.setItem(expiredSessionNoticeKey, expiredSessionNoticeValue);
+}
+
+export function consumeExpiredSessionNotice(storage: SessionStorageLike) {
+  const shouldShow = storage.getItem(expiredSessionNoticeKey) === expiredSessionNoticeValue;
+  storage.removeItem(expiredSessionNoticeKey);
+  return shouldShow;
+}
 
 export function restoredSessionRoute(storedRoute: string | null, roles: string[]) {
   if (!storedRoute?.startsWith("/") || storedRoute.startsWith("//") || storedRoute.includes("\\")) return firstAccessiblePath(roles);
@@ -531,6 +546,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [logoutSucceeded, setLogoutSucceeded] = useState(false);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(() => consumeExpiredSessionNotice(sessionStorage));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -729,7 +745,7 @@ export default function App() {
 
   useEffect(() => {
     const expireSession = () => {
-      sessionStorage.setItem(expiredSessionRouteKey, browserRouteUrl(window.location));
+      markExpiredSession(sessionStorage, browserRouteUrl(window.location));
       window.location.reload();
     };
     window.addEventListener(sessionExpiredEventName, expireSession);
@@ -845,8 +861,10 @@ export default function App() {
       const user = await getCurrentUser();
       setCurrentUser(user);
       setLogoutSucceeded(false);
+      setSessionExpiredNotice(false);
       const nextRoute = restoredSessionRoute(sessionStorage.getItem(expiredSessionRouteKey), user.roles);
       sessionStorage.removeItem(expiredSessionRouteKey);
+      sessionStorage.removeItem(expiredSessionNoticeKey);
       const nextPath = normalizeRoutePath(nextRoute);
       setPathname(nextPath);
       setRouteUrl(nextRoute);
@@ -1079,6 +1097,7 @@ export default function App() {
           onLogin={handleLogin}
           loginLoading={loginLoading}
           loginError={loginError}
+          sessionExpiredNotice={sessionExpiredNotice}
           logoutSucceeded={logoutSucceeded}
           onDismissLogoutResult={() => setLogoutSucceeded(false)}
         />
@@ -1493,16 +1512,18 @@ function SessionLoading() {
   );
 }
 
-function LoginHome({
+export function LoginHome({
   onLogin,
   loginLoading,
   loginError,
+  sessionExpiredNotice,
   logoutSucceeded,
   onDismissLogoutResult
 }: {
   onLogin: (values: { email: string; password: string }) => Promise<void>;
   loginLoading?: boolean;
   loginError?: string | null;
+  sessionExpiredNotice?: boolean;
   logoutSucceeded?: boolean;
   onDismissLogoutResult?: () => void;
 }) {
@@ -1525,6 +1546,7 @@ function LoginHome({
               <img className="loginPanelLogo" src="/ys-heng-logo.png" alt="YS Heng" />
               <Typography.Title level={2}>YS Heng Portal</Typography.Title>
             </div>
+            {sessionExpiredNotice && <Alert className="loginError" message="Your session has expired. Please sign in again." type="warning" showIcon />}
             <Form name="loginDesktop" layout="vertical" onFinish={onLogin} initialValues={{ email: "admin@ysheng.local" }}>
               <Form.Item name="email" label="Work email" rules={[{ required: true, type: "email" }]}>
                 <Input prefix={<UserOutlined />} placeholder="admin@ysheng.local" autoComplete="email" />
