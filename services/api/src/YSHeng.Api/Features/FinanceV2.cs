@@ -89,6 +89,8 @@ public static class FinanceV2Rules
             FormulaVersion = FormulaVersion,
             FinanceWorkflowVersion = 2,
             InvoiceGenerated = false,
+            AutoCountKeyed = false,
+            ExternalSyncStatus = 0,
             SalesPrice = vehicle.SellingPrice,
             InterestAdditionalCharges = request.InterestAdditionalCharges,
             NcdAmount = request.NcdAmount,
@@ -115,7 +117,9 @@ public static class FinanceV2Rules
             NettPriceOverrideApprovedAt = existing.NettPriceOverrideApprovedAt,
             FormulaVersion = existing.FormulaVersion,
             FinanceWorkflowVersion = existing.FinanceWorkflowVersion,
-            InvoiceGenerated = existing.InvoiceGenerated
+            InvoiceGenerated = existing.InvoiceGenerated,
+            AutoCountKeyed = existing.AutoCountKeyed,
+            ExternalSyncStatus = existing.ExternalSyncStatus
         };
 
     public static PaymentRecord MarkInvoiceGenerated(PaymentRecord payment, string invoiceNumber) =>
