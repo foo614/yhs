@@ -5061,19 +5061,19 @@ public sealed class BusinessRulesTests
                 FileName = "jpj-voc-same-line-layout.txt",
                 MimeType = "text/plain",
                 Content = System.Text.Encoding.UTF8.GetBytes(
-                    "No. Pendaftaran : VMW9796\n" +
-                    "No. ID : 971211055039\n" +
-                    "Nama Pemunya Berdaftar : CHEONG WEN ZHE\n" +
-                    "No. Chasis / No. Enjin : PMHFE1650RD401993 / L15BG2102023\n" +
+                    "No. Pendaftaran : QAA1234\n" +
+                    "No. ID : 900101010101\n" +
+                    "Nama Pemunya Berdaftar : SYNTHETIC OWNER\n" +
+                    "No. Chasis / No. Enjin : SYNTHCHASSIS12345 / SYNTHENGINE67890\n" +
                     "Buatan / Nama Model : HONDA / CIVIC 1.5L V\n" +
                     "Jenis Badan / Tahun Dibuat : MOTOKAR / 2024\n" +
                     "Tarikh Pendaftaran : 26/08/2024")
             },
             []);
 
-        Assert.Equal("VMW9796", result.Fields["plateNumber"]);
-        Assert.Equal("PMHFE1650RD401993", result.Fields["chassisNumber"]);
-        Assert.Equal("L15BG2102023", result.Fields["engineNumber"]);
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
         Assert.Equal("HONDA", result.Fields["make"]);
         Assert.Equal("CIVIC 1.5L V", result.Fields["model"]);
         Assert.Equal("2024", result.Fields["year"]);
@@ -5376,13 +5376,14 @@ public sealed class BusinessRulesTests
             new("HONDA / CIVIC 1.5L V", 1, .11, .40, .39, .43),
             new("Jenis Badan / Tahun Dibuat", 1, .10, .50, .40, .53),
             new("MOTOKAR / 2024", 1, .11, .55, .39, .58)
-        ]);
+        ], out var identifierMappingReason);
 
         Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
         Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
         Assert.Equal("HONDA", result.Fields["make"]);
         Assert.Equal("CIVIC 1.5L V", result.Fields["model"]);
         Assert.Equal("2024", result.Fields["year"]);
+        Assert.Equal("mapped-relative-pair", identifierMappingReason);
     }
 
     [Fact]
@@ -5406,7 +5407,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Google_document_ai_fixed_voc_layout_maps_identifiers_after_the_combined_labels()
+    public void Google_document_ai_fixed_voc_layout_rejects_unstructured_tokens_after_the_combined_labels()
     {
         const string combinedRow = "No. Chasis / No. Enjin / No: SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan";
         var extraction = OcrExtractionParser.Analyze(
@@ -5414,15 +5415,38 @@ public sealed class BusinessRulesTests
 
         var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
         [
-            // Production-shaped redaction: both labels precede the two identifier
-            // tokens; short/word noise remains non-identifying and is ignored.
             new(combinedRow, 1, .10, .20, .90, .23),
             new("1498 cc MOTOKAR", 1, .11, .25, .39, .28),
             new("10/01/2024", 1, .41, .25, .55, .28)
         ]);
 
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_the_jpj_labels_first_delimited_row()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin : SYNTHCHASSIS12345 / SYNTHENGINE67890";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(
+            extraction,
+            [new(combinedRow, 1, .10, .20, .90, .23)],
+            out var identifierMappingReason);
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(
+            new GoogleDocumentAiRecognition(combinedRow, 0.9m, [], [], [new(combinedRow, 1, .10, .20, .90, .23)]),
+            result,
+            identifierMappingReason);
+
+        Assert.Equal(
+            "mapped-labels-first-delimited",
+            GoogleDocumentAiVocLayoutMapper.DiagnoseInlineIdentifierPair(combinedRow));
         Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
         Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("mapped-labels-first-delimited", diagnostic.IdentifierMappingReason);
+        Assert.DoesNotContain("SYNTHCHASSIS12345", diagnostic.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("SYNTHENGINE67890", diagnostic.ToString(), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -5491,13 +5515,14 @@ public sealed class BusinessRulesTests
             new("HONDA / CIVIC 1.5L V", 1, .11, .40, .39, .43),
             new("Jenis Badan / Tahun Dibuat", 1, .10, .50, .40, .53),
             new("MOTOKAR / 2024", 1, .11, .55, .39, .58)
-        ]);
+        ], out var identifierMappingReason);
 
         Assert.Equal("TRUSTEDCHASSIS123", result.Fields["chassisNumber"]);
         Assert.Null(result.Fields["engineNumber"]);
         Assert.Equal("Trusted Make", result.Fields["make"]);
         Assert.Null(result.Fields["model"]);
         Assert.Equal("2023", result.Fields["year"]);
+        Assert.Equal("existing-value-conflict", identifierMappingReason);
     }
 
     [Theory]
@@ -5839,6 +5864,7 @@ public sealed class BusinessRulesTests
         Assert.Contains("ChassisAllowedCharacters=False", entry.Message, StringComparison.Ordinal);
         Assert.Contains("VehicleLabelBlockCount=5", entry.Message, StringComparison.Ordinal);
         Assert.Contains("IdentifierLabelTokenCount=0", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("IdentifierMappingReason=no-layout-lines", entry.Message, StringComparison.Ordinal);
         Assert.Contains("IdentifierSameBandTokenBuckets=none", entry.Message, StringComparison.Ordinal);
         Assert.Contains("IdentifierWordSameBandBuckets=none", entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(privateCandidate, entry.Message, StringComparison.Ordinal);
