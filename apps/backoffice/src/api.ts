@@ -112,6 +112,11 @@ export type VehicleOcrJob = OcrJob & {
 };
 
 export type UploadProgressHandler = (percent: number) => void;
+export const sessionExpiredEventName = "ysheng:session-expired";
+
+function notifySessionExpired() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(sessionExpiredEventName));
+}
 export type DocumentUploadOwner = {
   ownershipType?: DocumentOwnershipType;
   customerId?: string;
@@ -2628,7 +2633,8 @@ async function request<T = unknown>(path: string, init: RequestInit = {}, errorM
   });
 
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`, path.split("?")[0] === "/api/auth/login"));
+    const authPath = path.split("?")[0];
+    throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`, authPath === "/api/auth/login" || authPath === "/api/auth/me"));
   }
 
   return parseOptionalJson<T>(response);
@@ -2712,6 +2718,7 @@ async function uploadFileWithProgress<T = unknown>(path: string, file: File, onP
         resolve(xhr.responseText.trim() ? JSON.parse(xhr.responseText) as T : undefined as T);
         return;
       }
+      if (xhr.status === 401) notifySessionExpired();
       const responseMessage = extractErrorMessage(xhr.responseText);
       reject(new Error(humanizeApiError(new Error(responseMessage ?? `Upload failed with status (${xhr.status})`), "Upload failed. Please check the file and try again.")));
     };
@@ -2725,7 +2732,11 @@ async function getWithNetworkFallback<T>(path: string, fallback: T, options: { o
     const response = await fetch(`${apiBaseUrl}${path}`, { credentials: "include" });
     if (response.ok) return response.json();
     if (response.status === 404 && options.onNotFoundFallback) return fallback;
-    if (response.status === 401 || response.status === 403) return emptyLike(fallback);
+    if (response.status === 401) {
+      notifySessionExpired();
+      return emptyLike(fallback);
+    }
+    if (response.status === 403) return emptyLike(fallback);
   } catch {
     return fallback;
   }
@@ -2743,6 +2754,7 @@ async function parseOptionalJson<T>(response: Response): Promise<T> {
 }
 
 async function responseErrorMessage(response: Response, fallback: string, isLoginRequest = false) {
+  if (response.status === 401 && !isLoginRequest) notifySessionExpired();
   const text = await response.text();
   const extractedMessage = extractErrorMessage(text);
   if (extractedMessage) return extractedMessage;
