@@ -5405,11 +5405,43 @@ public sealed class BusinessRulesTests
         Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
     }
 
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_identifiers_after_the_combined_labels()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin / No: SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan";
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            // Production-shaped redaction: both labels precede the two identifier
+            // tokens; short/word noise remains non-identifying and is ignored.
+            new(combinedRow, 1, .10, .20, .90, .23),
+            new("1498 cc MOTOKAR", 1, .11, .25, .39, .28),
+            new("10/01/2024", 1, .41, .25, .55, .28)
+        ]);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+    }
+
     [Theory]
     [InlineData("No. Chasis 1498CC / No. Enjin 10/01/2024")]
     [InlineData("No. Chasis SYNTHCHASSIS12345 OTHER12345 / No. Enjin SYNTHENGINE67890")]
     [InlineData("CHASREF123456 / ENJINREF67890")]
     [InlineData("DOCREFERENCE12345 No. Chasis / No. Enjin SYNTHENGINE67890")]
+    [InlineData("No. Chasis / No. Enjin / SYNTHCHASSIS12345 SYNTHENGINE67890 EXTRA12345")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan Extra")]
+    [InlineData("No. Chasis / No. Enjin / No SHORT1 SYNTHENGINE67890 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHCHASSIS123456789 SYNTHENGINE67890 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 SYNTHENGINE67890 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan X")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ12345678901234567890")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 10SEPT2024 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 2024SEPT10 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 10JANUARY2024 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 2024SEPTEMBER10 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 10DISEMBER2024 Rujukan")]
     public void Google_document_ai_fixed_voc_layout_rejects_ambiguous_or_non_identifier_inline_pairs(string label)
     {
         var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], label, 0.9m, []);

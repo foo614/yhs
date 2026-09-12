@@ -979,13 +979,37 @@ public static class GoogleDocumentAiVocLayoutMapper
     private static bool TrySplitInlineIdentifierPair(string value, out string chassis, out string engine)
     {
         chassis = engine = "";
-        var match = Regex.Match(
+        var interleaved = Regex.Match(
             value,
-            @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*(?<chassis>.*?)\s*[/|]?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*(?<engine>.+)$",
+            @"^\s*(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*(?<chassis>.*?)\s*[/|]?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*(?<engine>.+)$",
             RegexOptions.IgnoreCase);
-        if (!match.Success) return false;
-        chassis = ValidateInlineIdentifier(match.Groups["chassis"].Value, 10) ?? "";
-        engine = ValidateInlineIdentifier(match.Groups["engine"].Value, 5) ?? "";
+        if (interleaved.Success)
+        {
+            chassis = ValidateInlineIdentifier(interleaved.Groups["chassis"].Value, 10) ?? "";
+            engine = ValidateInlineIdentifier(interleaved.Groups["engine"].Value, 5) ?? "";
+            if (chassis.Length > 0 && engine.Length > 0) return true;
+        }
+
+        var labelsFirst = Regex.Match(
+            value,
+            @"^\s*(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*[/|]\s*(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*[/|]?\s*(?<values>.+)$",
+            RegexOptions.IgnoreCase);
+        if (!labelsFirst.Success) return false;
+        var residualTokens = Regex.Matches(
+                labelsFirst.Groups["values"].Value.ToUpperInvariant(),
+                @"[A-Z0-9-]+")
+            .Select(match => match.Value)
+            .ToList();
+        if (residualTokens.Count != 4) return false;
+        var candidates = residualTokens
+            .Where(token => token.Length is >= 10 and <= 17)
+            .Select(token => ValidateIdentifier(token, 10))
+            .Where(candidate => candidate is not null)
+            .Cast<string>()
+            .ToList();
+        if (candidates.Count != 2) return false;
+        chassis = ValidateIdentifier(candidates[0], 10) ?? "";
+        engine = ValidateIdentifier(candidates[1], 10) ?? "";
         return chassis.Length > 0 && engine.Length > 0;
     }
 
@@ -1103,10 +1127,12 @@ public static class GoogleDocumentAiVocLayoutMapper
 
     private static string? ValidateIdentifier(string value, int minimumLength)
     {
+        const string monthName = "(?:JAN|JANUARY|JANUARI|FEB|FEBRUARY|FEBRUARI|MAC|MAR|MARCH|APR|APRIL|MEI|MAY|JUN|JUNE|JUL|JULY|JULAI|OGO|OGOS|AUG|AUGUST|SEP|SEPT|SEPTEMBER|OKT|OKTOBER|OCT|OCTOBER|NOV|NOVEMBER|DIS|DISEMBER|DEC|DECEMBER)";
         var normalized = Regex.Replace(value.ToUpperInvariant(), @"\s+", "").Trim(':', '-', '/', '|');
         return normalized.Length >= minimumLength
             && Regex.IsMatch(normalized, @"^[A-Z0-9-]{5,32}$")
             && !Regex.IsMatch(normalized, @"^\d{3,5}CC$")
+            && !Regex.IsMatch(normalized, $@"^(?:\d{{1,2}}{monthName}\d{{2,4}}|\d{{4}}{monthName}\d{{1,2}})$")
             && Regex.IsMatch(normalized, @"[A-Z]")
             && Regex.IsMatch(normalized, @"\d") ? normalized : null;
     }
