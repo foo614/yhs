@@ -924,7 +924,10 @@ export function DeliveryDrawerContent({
   const completedItems = completed.map((stage) => ({
     key: stage,
     label: <Space><CheckCircleOutlined className="deliveryStageCompleteIcon" />{stageMeta[stage].label}</Space>,
-    children: item.terminal ? <StageSummary item={item} stage={stage} /> : (
+    children: item.terminal || stage === "ClearDocuments" ? <Space direction="vertical" className="fullWidth">
+      {stage === "ClearDocuments" ? <DocumentChecksSavedSummary item={item} /> : <StageSummary item={item} stage={stage} />}
+      {!item.terminal && stage === "ClearDocuments" && <Collapse ghost items={[{ key: "edit-document-checks", label: "Edit document checks / 编辑文件确认", children: <CurrentStageForm item={{ ...item, stage }} picOptions={picOptions} saving={saving} onSave={onSave} onUpload={onUpload} onRelease={onRelease} onRequestInvoice={onRequestInvoice} /> }]} />}
+    </Space> : (
       <CurrentStageForm
         item={{ ...item, stage }}
         picOptions={picOptions}
@@ -1178,4 +1181,17 @@ function StageSummary({ item, stage }: { item: DeliveryWorkboardItem; stage: Del
     return <Typography.Text type="secondary">Coverage, documents, customer notice, and Finance clearance checked.</Typography.Text>;
   }
   return <Typography.Text type="secondary">Handover evidence and final confirmation recorded.</Typography.Text>;
+}
+
+function DocumentChecksSavedSummary({ item }: { item: DeliveryWorkboardItem }) {
+  const checks = [
+    ["Delivery documents", item.documentsPrepared],
+    ["Insurance evidence", item.insuranceHandled],
+    ["Road tax evidence", item.roadTaxHandled],
+    ["2-day customer notice", item.twoDayNoticeSent]
+  ] as const;
+  return <Space direction="vertical" className="fullWidth">
+    <Alert type="success" showIcon message="Document checks saved / 文件确认已保存" description={item.financeCleared ? "Finance clearance is complete. Continue with the current delivery step." : "Next: waiting for Finance clearance before vehicle release."} />
+    <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered items={checks.map(([label, checked]) => ({ key: label, label, children: <Tag color={checked ? "green" : "orange"}>{checked ? "Confirmed" : "Not confirmed"}</Tag> }))} />
+  </Space>;
 }
