@@ -66,7 +66,8 @@ public sealed record GoogleDocumentAiRecognition(
     decimal Confidence,
     IReadOnlyList<GoogleDocumentAiEntity> Entities,
     IReadOnlyList<string> Warnings,
-    IReadOnlyList<GoogleDocumentAiLayoutLine>? LayoutLines = null);
+    IReadOnlyList<GoogleDocumentAiLayoutLine>? LayoutLines = null,
+    IReadOnlyList<GoogleDocumentAiLayoutLine>? LayoutTokens = null);
 
 public sealed record GoogleDocumentAiLayoutLine(string Text, int Page, double Left, double Top, double Right, double Bottom);
 
@@ -143,7 +144,33 @@ public sealed class GoogleDocumentAiClient(
             confidence,
             entities,
             warnings,
-            ReadLayoutLines(analyzedDocument, rawText));
+            ReadLayoutLines(analyzedDocument, rawText),
+            ReadLayoutTokens(analyzedDocument, rawText));
+    }
+
+    private static IReadOnlyList<GoogleDocumentAiLayoutLine> ReadLayoutTokens(JsonElement document, string rawText)
+    {
+        const int maxPages = 15;
+        const int maxTokens = 1_000;
+        if (!document.TryGetProperty("pages", out var pages) || pages.ValueKind != JsonValueKind.Array) return [];
+        var result = new List<GoogleDocumentAiLayoutLine>();
+        var pageNumber = 0;
+        var examinedTokens = 0;
+        foreach (var page in pages.EnumerateArray())
+        {
+            pageNumber++;
+            if (pageNumber > maxPages || result.Count >= maxTokens || examinedTokens >= 2_000) break;
+            if (!page.TryGetProperty("tokens", out var tokens) || tokens.ValueKind != JsonValueKind.Array) continue;
+            foreach (var token in tokens.EnumerateArray())
+            {
+                if (++examinedTokens > 2_000 || result.Count >= maxTokens) break;
+                if (!token.TryGetProperty("layout", out var layout)
+                    || !TryReadTextAnchor(layout, rawText, out var text)
+                    || !TryReadBounds(layout, out var left, out var top, out var right, out var bottom)) continue;
+                result.Add(new GoogleDocumentAiLayoutLine(text.Trim(), pageNumber, left, top, right, bottom));
+            }
+        }
+        return result;
     }
 
     private static IReadOnlyList<GoogleDocumentAiLayoutLine> ReadLayoutLines(JsonElement document, string rawText)
@@ -406,7 +433,7 @@ public sealed class GoogleDocumentAiExtractor(
         {
             var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction);
             logger.LogInformation(
-                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}, ChassisLengthBucket={ChassisLengthBucket}, ChassisAllowedCharacters={ChassisAllowedCharacters}, ChassisHasLetter={ChassisHasLetter}, ChassisHasDigit={ChassisHasDigit}, EngineLengthBucket={EngineLengthBucket}, EngineAllowedCharacters={EngineAllowedCharacters}, EngineHasLetter={EngineHasLetter}, EngineHasDigit={EngineHasDigit}, VehicleLabelBlockCount={VehicleLabelBlockCount}, VehicleValueBlockCount={VehicleValueBlockCount}, YearPositionValid={YearPositionValid}, RegistrationDatePositionValid={RegistrationDatePositionValid}",
+                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}, ChassisLengthBucket={ChassisLengthBucket}, ChassisAllowedCharacters={ChassisAllowedCharacters}, ChassisHasLetter={ChassisHasLetter}, ChassisHasDigit={ChassisHasDigit}, EngineLengthBucket={EngineLengthBucket}, EngineAllowedCharacters={EngineAllowedCharacters}, EngineHasLetter={EngineHasLetter}, EngineHasDigit={EngineHasDigit}, IdentifierLabelTokenCount={IdentifierLabelTokenCount}, IdentifierLabelTokenBuckets={IdentifierLabelTokenBuckets}, IdentifierLabelDelimiter={IdentifierLabelDelimiter}, IdentifierSameBandCount={IdentifierSameBandCount}, IdentifierSameBandTokenBuckets={IdentifierSameBandTokenBuckets}, IdentifierBelowBandCount={IdentifierBelowBandCount}, IdentifierBelowBandTokenBuckets={IdentifierBelowBandTokenBuckets}, IdentifierWordSameBandCount={IdentifierWordSameBandCount}, IdentifierWordSameBandBuckets={IdentifierWordSameBandBuckets}, IdentifierWordBelowBandCount={IdentifierWordBelowBandCount}, IdentifierWordBelowBandBuckets={IdentifierWordBelowBandBuckets}, VehicleLabelBlockCount={VehicleLabelBlockCount}, VehicleValueBlockCount={VehicleValueBlockCount}, YearPositionValid={YearPositionValid}, RegistrationDatePositionValid={RegistrationDatePositionValid}",
                 diagnostic.LineCount,
                 diagnostic.EntityCount,
                 diagnostic.EntityTypeCount,
@@ -430,6 +457,17 @@ public sealed class GoogleDocumentAiExtractor(
                 diagnostic.EngineCandidate.AllowedCharacters,
                 diagnostic.EngineCandidate.HasLetter,
                 diagnostic.EngineCandidate.HasDigit,
+                diagnostic.IdentifierLayout.LabelTokenCount,
+                diagnostic.IdentifierLayout.LabelTokenBuckets,
+                diagnostic.IdentifierLayout.LabelDelimiter,
+                diagnostic.IdentifierLayout.SameBandCount,
+                diagnostic.IdentifierLayout.SameBandTokenBuckets,
+                diagnostic.IdentifierLayout.BelowBandCount,
+                diagnostic.IdentifierLayout.BelowBandTokenBuckets,
+                diagnostic.IdentifierLayout.WordSameBandCount,
+                diagnostic.IdentifierLayout.WordSameBandBuckets,
+                diagnostic.IdentifierLayout.WordBelowBandCount,
+                diagnostic.IdentifierLayout.WordBelowBandBuckets,
                 diagnostic.VehicleColumn.LabelBlockCount,
                 diagnostic.VehicleColumn.ValueBlockCount,
                 diagnostic.VehicleColumn.YearPositionValid,
@@ -458,6 +496,7 @@ public sealed record GoogleDocumentAiVocDiagnostic(
     bool YearMapped,
     VocIdentifierCandidateDiagnostic ChassisCandidate,
     VocIdentifierCandidateDiagnostic EngineCandidate,
+    VocCompositeIdentifierLayoutDiagnostic IdentifierLayout,
     VocVehicleColumnDiagnostic VehicleColumn)
 {
     public static GoogleDocumentAiVocDiagnostic Create(
@@ -488,8 +527,85 @@ public sealed record GoogleDocumentAiVocDiagnostic(
             HasField(extraction, "year"),
             IdentifierCandidate(identifierCandidates.Chassis),
             IdentifierCandidate(identifierCandidates.Engine),
+            AnalyzeIdentifierLayout(recognition.LayoutLines ?? [], recognition.LayoutTokens ?? []),
             AnalyzeVehicleColumn(lines));
     }
+
+    private static VocCompositeIdentifierLayoutDiagnostic AnalyzeIdentifierLayout(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutTokens)
+    {
+        var label = layoutLines
+            .Where(line => Regex.IsMatch(line.Text, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b", RegexOptions.IgnoreCase)
+                && Regex.IsMatch(line.Text, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase))
+            .OrderBy(line => Math.Max(0, line.Right - line.Left) * Math.Max(0, line.Bottom - line.Top))
+            .FirstOrDefault();
+        if (label is null) return new VocCompositeIdentifierLayoutDiagnostic(0, "none", "none", 0, "none", 0, "none", 0, "none", 0, "none");
+
+        var withoutLabels = Regex.Replace(
+            label.Text,
+            @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS|ENJIN)\b",
+            " ",
+            RegexOptions.IgnoreCase);
+        var labelTokens = IdentifierTokens(withoutLabels);
+        var sameBand = layoutLines.Where(line => !ReferenceEquals(line, label)
+            && line.Page == label.Page
+            && VerticalOverlap(label, line) >= 0.45
+            && !IsDiagnosticKnownLabel(line.Text)).Take(8).ToList();
+        var belowBand = layoutLines.Where(line => !ReferenceEquals(line, label)
+            && line.Page == label.Page
+            && line.Top - label.Bottom is >= -0.01 and <= 0.12
+            && (HorizontalOverlap(label, line) >= 0.35 || Math.Abs(CenterX(label) - CenterX(line)) <= 0.08)
+            && !IsDiagnosticKnownLabel(line.Text)).Take(8).ToList();
+        var wordSameBand = layoutTokens.Where(token => token.Page == label.Page
+            && VerticalOverlap(label, token) >= 0.45
+            && !IsIdentifierLabelToken(token.Text)).Take(16).ToList();
+        var wordBelowBand = layoutTokens.Where(token => token.Page == label.Page
+            && token.Top - label.Bottom is >= -0.01 and <= 0.12
+            && (HorizontalOverlap(label, token) >= 0.35 || Math.Abs(CenterX(label) - CenterX(token)) <= 0.08)
+            && !IsIdentifierLabelToken(token.Text)).Take(16).ToList();
+        return new VocCompositeIdentifierLayoutDiagnostic(
+            labelTokens.Count,
+            TokenBuckets(labelTokens),
+            withoutLabels.Contains('/') ? "slash" : withoutLabels.Contains('|') ? "pipe" : labelTokens.Count > 0 ? "none" : "labels-only",
+            sameBand.Count,
+            TokenBuckets(sameBand.SelectMany(line => IdentifierTokens(line.Text)).ToList()),
+            belowBand.Count,
+            TokenBuckets(belowBand.SelectMany(line => IdentifierTokens(line.Text)).ToList()),
+            wordSameBand.Count,
+            TokenBuckets(wordSameBand.SelectMany(token => IdentifierTokens(token.Text)).ToList()),
+            wordBelowBand.Count,
+            TokenBuckets(wordBelowBand.SelectMany(token => IdentifierTokens(token.Text)).ToList()));
+    }
+
+    private static List<string> IdentifierTokens(string value) => Regex.Matches(value.ToUpperInvariant(), @"[A-Z0-9-]{2,64}")
+        .Select(match => match.Value)
+        .Take(16)
+        .ToList();
+
+    private static string TokenBuckets(IReadOnlyList<string> tokens) => tokens.Count == 0
+        ? "none"
+        : string.Join(',', tokens.Take(8).Select(token => LengthBucket(token.Length)));
+
+    private static bool IsDiagnosticKnownLabel(string value) =>
+        Regex.IsMatch(value, @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b", RegexOptions.IgnoreCase);
+
+    private static bool IsIdentifierLabelToken(string value) =>
+        Regex.IsMatch(value.Trim(), @"^(?:NO\.?|NOMBOR|CHASIS|CHASSIS|CASIS|ENJIN|/|\|)$", RegexOptions.IgnoreCase);
+
+    private static double VerticalOverlap(GoogleDocumentAiLayoutLine left, GoogleDocumentAiLayoutLine right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.Bottom, right.Bottom) - Math.Max(left.Top, right.Top));
+        return overlap / Math.Max(0.001, Math.Min(left.Bottom - left.Top, right.Bottom - right.Top));
+    }
+
+    private static double HorizontalOverlap(GoogleDocumentAiLayoutLine left, GoogleDocumentAiLayoutLine right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.Right, right.Right) - Math.Max(left.Left, right.Left));
+        return overlap / Math.Max(0.001, Math.Min(left.Right - left.Left, right.Right - right.Left));
+    }
+
+    private static double CenterX(GoogleDocumentAiLayoutLine line) => (line.Left + line.Right) / 2;
 
     private static VocIdentifierCandidateDiagnostic IdentifierCandidate(string candidate)
     {
@@ -633,6 +749,18 @@ public sealed record GoogleDocumentAiVocDiagnostic(
 }
 
 public sealed record VocIdentifierCandidateDiagnostic(string LengthBucket, bool AllowedCharacters, bool HasLetter, bool HasDigit);
+public sealed record VocCompositeIdentifierLayoutDiagnostic(
+    int LabelTokenCount,
+    string LabelTokenBuckets,
+    string LabelDelimiter,
+    int SameBandCount,
+    string SameBandTokenBuckets,
+    int BelowBandCount,
+    string BelowBandTokenBuckets,
+    int WordSameBandCount,
+    string WordSameBandBuckets,
+    int WordBelowBandCount,
+    string WordBelowBandBuckets);
 public sealed record VocVehicleColumnDiagnostic(int LabelBlockCount, int ValueBlockCount, bool YearPositionValid, bool RegistrationDatePositionValid);
 
 public static class GoogleDocumentAiVocLayoutMapper
