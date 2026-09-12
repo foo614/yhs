@@ -5064,7 +5064,7 @@ export function LoanPage({
 
 export function DeliveryPage({
   vehicles,
-  loans,
+  loans = [],
   canCorrectBuyer = false,
   initialDeliveryId,
   dashboardFocus,
@@ -5072,7 +5072,7 @@ export function DeliveryPage({
   onOpenCustomer
 }: {
   vehicles: VehicleLookup[];
-  loans: LoanApplication[];
+  loans?: LoanApplication[];
   canCorrectBuyer?: boolean;
   initialDeliveryId?: string;
   dashboardFocus: DashboardDrilldown;

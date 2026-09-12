@@ -257,7 +257,7 @@ export function initialDeliveryFocusResolution({
 
 export function DeliveryWorkboardPage({
   vehicles,
-  loans,
+  loans = [],
   dashboardFocus,
   onClearDashboardFocus,
   onOpenCustomer,
@@ -268,7 +268,7 @@ export function DeliveryWorkboardPage({
   autoLoad = true
 }: {
   vehicles: VehicleLookup[];
-  loans: LoanApplication[];
+  loans?: LoanApplication[];
   dashboardFocus?: { vehicleId?: string };
   onClearDashboardFocus: () => void;
   onOpenCustomer: (customerId: string) => void;
