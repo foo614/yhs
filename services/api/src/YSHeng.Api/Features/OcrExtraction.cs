@@ -655,6 +655,9 @@ public static class GoogleDocumentAiVocLayoutMapper
         var fields = new Dictionary<string, string?>(extraction.Fields, StringComparer.OrdinalIgnoreCase);
         var confidence = new Dictionary<string, decimal>(extraction.FieldConfidence, StringComparer.OrdinalIgnoreCase);
         var consumed = new HashSet<GoogleDocumentAiLayoutLine>();
+        ApplyCompositeIdentifierPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
+        ApplyCompositeTextPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
+        ApplyCompositeYear(layoutLines, fields, confidence, consumed, extraction.Confidence);
         foreach (var spec in Fields)
         {
             if (fields.TryGetValue(spec.Field, out var existing) && !string.IsNullOrWhiteSpace(existing)) continue;
@@ -670,6 +673,152 @@ public static class GoogleDocumentAiVocLayoutMapper
                 && warning.StartsWith($"No {WarningFieldName(spec.Field)} was detected.", StringComparison.OrdinalIgnoreCase)))
             .ToList();
         return extraction with { Fields = fields, FieldConfidence = confidence, Warnings = warnings };
+    }
+
+    private static void ApplyCompositeIdentifierPair(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> confidence,
+        HashSet<GoogleDocumentAiLayoutLine> consumed,
+        decimal documentConfidence)
+    {
+        var match = FindCompositeRelativeLine(lines, "CHAS", "ENJIN", consumed);
+        if (match is null || !TrySplitIdentifierPair(match.Text, out var chassis, out var engine)) return;
+        if (!CanFillCompositePair(fields, "chassisNumber", chassis, "engineNumber", engine)) return;
+        FillMissingCompositeField(fields, confidence, "chassisNumber", chassis, documentConfidence);
+        FillMissingCompositeField(fields, confidence, "engineNumber", engine, documentConfidence);
+        consumed.Add(match);
+    }
+
+    private static void ApplyCompositeTextPair(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> confidence,
+        HashSet<GoogleDocumentAiLayoutLine> consumed,
+        decimal documentConfidence)
+    {
+        var match = FindCompositeRelativeLine(lines, "BUATAN", "NAMA MODEL", consumed);
+        if (match is null) return;
+        var parts = match.Text.Split(['/', '|'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2) return;
+        var make = ValidateDescription(parts[0]);
+        var model = ValidateDescription(parts[1]);
+        if (make is null || model is null) return;
+        // The generic parser can place the unsplit paired cell in Make. That value is
+        // the same layout candidate, not an independent extraction worth preserving.
+        fields.TryGetValue("make", out var existingMake);
+        fields.TryGetValue("model", out var existingModel);
+        var makeIsEcho = IsCompositeTextEcho(existingMake, make, model);
+        var modelIsEcho = IsCompositeTextEcho(existingModel, make, model);
+        if ((!makeIsEcho && HasValue(fields, "make") && !string.Equals(existingMake?.Trim(), make, StringComparison.OrdinalIgnoreCase))
+            || (!modelIsEcho && HasValue(fields, "model") && !string.Equals(existingModel?.Trim(), model, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+        if (makeIsEcho)
+        {
+            fields["make"] = null;
+            confidence.Remove("make");
+        }
+        if (modelIsEcho)
+        {
+            fields["model"] = null;
+            confidence.Remove("model");
+        }
+        FillMissingCompositeField(fields, confidence, "make", make, documentConfidence);
+        FillMissingCompositeField(fields, confidence, "model", model, documentConfidence);
+        consumed.Add(match);
+    }
+
+    private static void ApplyCompositeYear(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> confidence,
+        HashSet<GoogleDocumentAiLayoutLine> consumed,
+        decimal documentConfidence)
+    {
+        var match = FindCompositeRelativeLine(lines, "JENIS BADAN", "TAHUN DIBUAT", consumed);
+        if (match is null) return;
+        var parts = match.Text.Split(['/', '|'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var year = parts.Length == 2 ? ValidateYear(parts[1]) : null;
+        if (year is null || HasValue(fields, "year")) return;
+        FillMissingCompositeField(fields, confidence, "year", year, documentConfidence);
+        consumed.Add(match);
+    }
+
+    private static bool CanFillCompositePair(
+        IReadOnlyDictionary<string, string?> fields,
+        string firstField,
+        string firstCandidate,
+        string secondField,
+        string secondCandidate) =>
+        (!HasValue(fields, firstField) || string.Equals(fields[firstField]?.Trim(), firstCandidate, StringComparison.OrdinalIgnoreCase))
+        && (!HasValue(fields, secondField) || string.Equals(fields[secondField]?.Trim(), secondCandidate, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsCompositeTextEcho(string? existing, string make, string model)
+    {
+        if (string.IsNullOrWhiteSpace(existing)) return false;
+        var normalized = existing.Trim();
+        return normalized.StartsWith(make, StringComparison.OrdinalIgnoreCase)
+            && normalized.Contains(model, StringComparison.OrdinalIgnoreCase)
+            && (normalized.Contains('/') || normalized.Contains('|'));
+    }
+
+    private static bool HasValue(IReadOnlyDictionary<string, string?> fields, string field) =>
+        fields.TryGetValue(field, out var value) && !string.IsNullOrWhiteSpace(value);
+
+    private static void FillMissingCompositeField(
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> confidence,
+        string field,
+        string value,
+        decimal documentConfidence)
+    {
+        if (HasValue(fields, field)) return;
+        fields[field] = value;
+        confidence[field] = documentConfidence;
+    }
+
+    private static GoogleDocumentAiLayoutLine? FindCompositeRelativeLine(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        string firstLabel,
+        string secondLabel,
+        HashSet<GoogleDocumentAiLayoutLine> consumed)
+    {
+        var label = lines
+            .Where(line => NormalizeWords(line.Text).Contains(firstLabel, StringComparison.Ordinal)
+                && NormalizeWords(line.Text).Contains(secondLabel, StringComparison.Ordinal))
+            .OrderBy(LineArea)
+            .FirstOrDefault();
+        if (label is null) return null;
+        return lines
+            .Where(line => line.Page == label.Page && !ReferenceEquals(line, label) && !consumed.Contains(line) && !IsKnownLabel(line.Text))
+            .Select(line => new { Line = line, Score = RelativeScore(label, line, lines) })
+            .Where(candidate => candidate.Score is not null)
+            .OrderBy(candidate => candidate.Score)
+            .ThenBy(candidate => LineArea(candidate.Line))
+            .Select(candidate => candidate.Line)
+            .FirstOrDefault();
+    }
+
+    private static bool TrySplitIdentifierPair(string value, out string chassis, out string engine)
+    {
+        chassis = engine = "";
+        var delimited = value.Split(['/', '|'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (delimited.Length == 2)
+        {
+            chassis = ValidateIdentifier(delimited[0], 10) ?? "";
+            engine = ValidateIdentifier(delimited[1], 5) ?? "";
+            if (chassis.Length > 0 && engine.Length > 0) return true;
+        }
+        var tokens = Regex.Matches(value.ToUpperInvariant(), @"[A-Z0-9-]{5,32}")
+            .Select(match => match.Value)
+            .Where(token => ValidateIdentifier(token, 5) is not null)
+            .ToList();
+        if (tokens.Count != 2) return false;
+        chassis = ValidateIdentifier(tokens[0], 10) ?? "";
+        engine = ValidateIdentifier(tokens[1], 5) ?? "";
+        return chassis.Length > 0 && engine.Length > 0;
     }
 
     private static (string Value, GoogleDocumentAiLayoutLine Line)? FindRelativeValue(
