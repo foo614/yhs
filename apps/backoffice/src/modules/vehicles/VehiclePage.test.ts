@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
-import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -203,6 +203,34 @@ describe("vehicle intake checklist navigation", () => {
     expect(vehicleIntakeChecklistTab("ucd")).toBe("vehicle");
     expect(vehicleIntakeChecklistTab("outstation-pickup")).toBe("vehicle");
     expect(vehicleIntakeChecklistTab("sales-leads")).toBe("people");
+  });
+
+  it("activates the whole card by click, Enter, or Space without nesting another control", () => {
+    let activations = 0;
+    const element = IntakeChecklistCard({
+      className: "ready",
+      actionLabel: "Open owner / 查看原车主",
+      onActivate: () => { activations += 1; },
+      children: createElement("strong", null, "Owner name")
+    });
+    const props = element.props as {
+      role: string;
+      tabIndex: number;
+      onClick: () => void;
+      onKeyDown: (event: { key: string; preventDefault: () => void }) => void;
+    };
+    let prevented = 0;
+
+    expect(props.role).toBe("button");
+    expect(props.tabIndex).toBe(0);
+    props.onClick();
+    props.onKeyDown({ key: "Enter", preventDefault: () => { prevented += 1; } });
+    props.onKeyDown({ key: " ", preventDefault: () => { prevented += 1; } });
+    props.onKeyDown({ key: "Escape", preventDefault: () => { prevented += 1; } });
+
+    expect(activations).toBe(3);
+    expect(prevented).toBe(2);
+    expect(renderToStaticMarkup(element)).not.toContain("<button");
   });
 });
 
