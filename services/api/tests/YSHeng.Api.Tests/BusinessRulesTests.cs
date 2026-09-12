@@ -5108,6 +5108,147 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Ocr_parser_maps_google_document_ai_column_major_jpj_rows()
+    {
+        const string rawText =
+            "JABATAN PENGANGKUTAN JALAN\n" +
+            "SIJIL PEMILIKAN KENDERAAN\n" +
+            "SALINAN UJIAN\n" +
+            "MAKLUMAT KENDERAAN\n" +
+            "No. Pendaftaran\n" +
+            "QAA1234\n" +
+            "No. Chasis : SYNTHCHASSIS12345\n" +
+            "No. Enjin : SYNTHENGINE67890\n" +
+            "Keupayaan Enjin\n" +
+            "1498 cc\n" +
+            "Buatan\n" +
+            "Nama Model\n" +
+            "Jenis Badan\n" +
+            "Tahun Dibuat\n" +
+            "Tarikh Pendaftaran\n" +
+            "PROTON\n" +
+            "S70 PREMIUM\n" +
+            "MOTOKAR\n" +
+            "2025\n" +
+            "10/01/2025\n" +
+            "STATUS\n" +
+            "AKTIF\n" +
+            "KATEGORI\n" +
+            "PERSENDIRIAN\n" +
+            "WARNA\n" +
+            "MERAH\n" +
+            "BAHAN BAKAR\n" +
+            "PETROL\n" +
+            "NEGARA PEMBUAT\n" +
+            "MALAYSIA\n" +
+            "KELAS KEGUNAAN\n" +
+            "MOTOKAR INDIVIDU\n" +
+            "NO. RUJUKAN\n" +
+            "SYNTHREF123\n" +
+            "TARIKH CETAK\n" +
+            "01/01/2026\n" +
+            "TAMAT";
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "synthetic-google-column-major-voc.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(rawText)
+            },
+            []);
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(
+            new GoogleDocumentAiRecognition(rawText, 0.9m, [], []),
+            result);
+
+        Assert.Equal(37, diagnostic.LineCount);
+        Assert.Equal("next-line-content", diagnostic.RegistrationLayout);
+        Assert.Equal("same-line-content", diagnostic.ChassisLayout);
+        Assert.Equal("same-line-content", diagnostic.EngineLayout);
+        Assert.Equal("next-line-label", diagnostic.MakeLayout);
+        Assert.Equal("next-line-label", diagnostic.ModelLayout);
+        Assert.Equal("next-line-label", diagnostic.YearLayout);
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("S70 PREMIUM", result.Fields["model"]);
+        Assert.Equal("2025", result.Fields["year"]);
+        Assert.NotEqual("1498", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_maps_google_document_ai_interleaved_identifier_row()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "synthetic-google-interleaved-voc.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "No. Pendaftaran\nQAA1234\n" +
+                    "No. Chasis : SYNTHCHASSIS12345 / No. Enjin : SYNTHENGINE67890\n" +
+                    "Buatan / Nama Model : PROTON / S70 PREMIUM\n" +
+                    "Jenis Badan / Tahun Dibuat : MOTOKAR / 2025\n" +
+                    "Tarikh Pendaftaran : 10/01/2025")
+            },
+            []);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("S70 PREMIUM", result.Fields["model"]);
+        Assert.Equal("2025", result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_does_not_shift_incomplete_google_document_ai_column_values()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "synthetic-google-incomplete-column-voc.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "No. Pendaftaran\nQAA1234\n" +
+                    "No. Chasis : SYNTHCHASSIS12345\n" +
+                    "No. Enjin : SYNTHENGINE67890\n" +
+                    "Buatan\nNama Model\nJenis Badan\nTahun Dibuat\nTarikh Pendaftaran\n" +
+                    "PROTON\nMOTOKAR\n2025\n10/01/2025\nSTATUS")
+            },
+            []);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Null(result.Fields["make"]);
+        Assert.Null(result.Fields["model"]);
+        Assert.Null(result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_does_not_cross_map_incomplete_interleaved_identifiers()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "synthetic-google-incomplete-interleaved-voc.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "No. Pendaftaran\nQAA1234\n" +
+                    "No. Chasis : / No. Enjin : SYNTHENGINE67890\n" +
+                    "Buatan / Nama Model : PROTON / S70 PREMIUM\n" +
+                    "Jenis Badan / Tahun Dibuat : MOTOKAR / 2025")
+            },
+            []);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
     public void Google_document_ai_voc_diagnostic_reports_only_shape_and_field_presence()
     {
         const string syntheticChassis = "SYNTHCHASSIS12345";
