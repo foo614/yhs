@@ -8,6 +8,7 @@ import { CashCustodyPage } from "./CashCustodyPage";
 import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, filterFinanceRowsByFields, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
 import { PreviewDocumentUpload } from "../shared/PreviewDocumentUpload";
+import { SecureDocumentEvidence } from "../shared/SecureDocumentEvidence";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { OwnerPurchaseInvoiceDetails } from "../vehicles/OwnerPurchaseInvoiceDetails";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
@@ -43,7 +44,6 @@ import {
   humanizeApiError,
   paymentVoucherPdfUrl,
   resolveDeliveryInvoiceUpdate,
-  vehicleDocumentContentUrl,
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
@@ -175,6 +175,16 @@ export function financeInvoiceSubmitLabel(calculatedTotal: number, agreedTotal: 
 export function financeRequesterLabel(requestedBy?: string, currentUserId?: string) {
   if (!requestedBy) return "-";
   return requestedBy === currentUserId ? "You" : "Finance staff";
+}
+
+export function paymentCollectionEvidence(documents: VehicleDocument[], paymentId: string, collectionId: string) {
+  return documents.filter((document) => document.paymentRecordId === paymentId && document.collectionTransactionId === collectionId);
+}
+
+export function financeHistoryDateTime(value?: string) {
+  if (!value) return "-";
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.format("DD MMM YYYY, HH:mm") : value;
 }
 
 export function financePaymentNeedsAdjustmentApproval(payment: Pick<PaymentRecord, "ncdAmount" | "nettPriceVariance">) {
@@ -1030,7 +1040,7 @@ export function FinancePage({
       {(payment.collections?.length ?? 0) === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No payments added yet." /> : payment.collections?.map((collection) => {
         const bankDisbursement = collection.method === "BankDisbursement";
         const physicalCash = collection.method === "Cash";
-        const evidence = paymentDocuments.filter((document) => document.collectionTransactionId === collection.id);
+        const evidence = paymentCollectionEvidence(paymentDocuments, payment.id, collection.id);
         const hasEvidence = evidence.length > 0;
         const evidenceUnavailable = selectedPayment?.id !== payment.id || paymentDocumentsLoading || Boolean(paymentDocumentsLoadError);
         const createdByCurrentUser = Boolean(currentUser?.id && collection.createdBy === currentUser.id);
@@ -1039,9 +1049,15 @@ export function FinancePage({
           <div><strong>{formatMoney(collection.amount)}</strong><Tag color={collection.status === "Reconciled" ? "green" : collection.status === "Reversed" ? "red" : "gold"}>{collectionStatusLabel(collection.status)}</Tag></div>
           <dl>
             <div><dt>Method</dt><dd>{collectionMethodLabel(collection.method)}</dd></div>
-            <div><dt>Received</dt><dd>{collection.receivedDate}</dd></div>
+            <div><dt>Received date</dt><dd>{collection.receivedDate}</dd></div>
+            <div><dt>Recorded at</dt><dd>{financeHistoryDateTime(collection.createdAt)}</dd></div>
             <div><dt>Reference</dt><dd>{collection.reference || "-"}</dd></div>
+            <div><dt>Recorded by</dt><dd>{financeRequesterLabel(collection.createdBy, currentUser?.id)}</dd></div>
             {bankDisbursement && <div><dt>Financing</dt><dd>{financingStatusLabel(collection.financingStatus)}</dd></div>}
+            {collection.reconciledAt && <div><dt>Reconciled at</dt><dd>{financeHistoryDateTime(collection.reconciledAt)}</dd></div>}
+            {collection.reconciledBy && <div><dt>Reconciled by</dt><dd>{financeRequesterLabel(collection.reconciledBy, currentUser?.id)}</dd></div>}
+            {collection.reversedAt && <div><dt>Reversed at</dt><dd>{financeHistoryDateTime(collection.reversedAt)}</dd></div>}
+            {collection.reversedBy && <div><dt>Reversed by</dt><dd>{financeRequesterLabel(collection.reversedBy, currentUser?.id)}</dd></div>}
           </dl>
           {collection.notes && <Typography.Paragraph type="secondary">{collection.notes}</Typography.Paragraph>}
           {collection.reversalReason && <Alert type="warning" showIcon message={`Reversed: ${collection.reversalReason}`} />}
@@ -1057,7 +1073,7 @@ export function FinancePage({
               }
             }}><Button size="small">{hasEvidence ? "Add evidence" : "Attach evidence"}</Button></Upload>}
           </Space>}
-          {evidence.length > 0 && <div className="financeCollectionEvidenceList">{evidence.map((document) => <div key={document.id}><Typography.Link href={vehicleDocumentContentUrl(payment.vehicleId, document.id)} target="_blank">{document.fileName}</Typography.Link><Typography.Text type="secondary">Uploaded {document.uploadedAt.slice(0, 10)} by {financeRequesterLabel(document.uploadedBy, currentUser?.id)}</Typography.Text></div>)}</div>}
+          {evidence.length > 0 && <div className="financeCollectionEvidenceList">{evidence.map((document) => <div key={document.id}><Typography.Text type="secondary">Uploaded {financeHistoryDateTime(document.uploadedAt)} by {financeRequesterLabel(document.uploadedBy, currentUser?.id)}</Typography.Text><SecureDocumentEvidence vehicleId={payment.vehicleId} document={document} /></div>)}</div>}
           {!physicalCash && collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => Modal.confirm({ title: "Record funds disbursed?", content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.", okText: "Record funds disbursed", cancelText: "Cancel", onOk: () => updateFinancing(collection, "Disbursed") })}>Record funds disbursed</Button>}

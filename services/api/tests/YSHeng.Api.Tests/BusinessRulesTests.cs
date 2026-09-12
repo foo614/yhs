@@ -4690,6 +4690,8 @@ public sealed class BusinessRulesTests
         Assert.True(DepartmentAccess.CanUploadDocument(["Repair"], FileCategory.RepairInvoice));
         Assert.True(DepartmentAccess.CanUploadDocument(["Finance"], FileCategory.PaymentReceipt));
         Assert.True(DepartmentAccess.CanUploadDocument(["Finance"], FileCategory.PaymentInvoice));
+        Assert.True(DepartmentAccess.CanUploadDocument(["BossAdmin"], FileCategory.PaymentReceipt));
+        Assert.True(DepartmentAccess.CanUploadDocument(["BossAdmin"], FileCategory.PaymentInvoice));
         Assert.True(DepartmentAccess.CanUploadDocument(["BossAdmin"], FileCategory.Policy));
         Assert.False(DepartmentAccess.CanUploadDocument(["Loan"], FileCategory.Policy));
         Assert.False(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.PurchaseInvoice));

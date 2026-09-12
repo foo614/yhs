@@ -354,6 +354,22 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Payment_evidence_content_is_vehicle_document_composite_scoped_and_category_authorized()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var routeStart = program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/documents/{documentId:guid}/content\"", StringComparison.Ordinal);
+        var routeEnd = program.IndexOf("backOffice.MapPost(\"/documents/{documentId:guid}/ocr-jobs\"", routeStart, StringComparison.Ordinal);
+        Assert.True(routeStart >= 0 && routeEnd > routeStart);
+        var route = program[routeStart..routeEnd];
+
+        Assert.Contains("item.Id == documentId && item.VehicleId == id", route);
+        Assert.Contains("DepartmentAccess.CanUploadDocument(roles, document.Category)", route);
+        Assert.Contains("return Results.NotFound()", route);
+        Assert.Contains("return Results.Forbid()", route);
+    }
+
+    [Fact]
     public void Api_reference_enum_values_match_domain_models()
     {
         var root = FindRepositoryRoot();

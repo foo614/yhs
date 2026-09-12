@@ -1993,6 +1993,21 @@ describe("backoffice api client", () => {
     );
   });
 
+  it("surfaces protected document preview errors without returning a fallback blob", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: vi.fn().mockResolvedValue(JSON.stringify({ message: "Payment evidence is not available to this role." }))
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getVehicleDocumentContent("vehicle-1", "document-1")).rejects.toThrow("Payment evidence is not available to this role.");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/documents/document-1/content",
+      { credentials: "include" }
+    );
+  });
+
   it("loads captured OCR data for a vehicle", async () => {
     const jobs = [
       {
