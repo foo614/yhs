@@ -5014,6 +5014,46 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Ocr_parser_maps_google_document_ai_split_jpj_label_value_rows()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "synthetic-google-split-row-voc.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "Nombor Pendaftaran\n" +
+                    "QAA1234\n" +
+                    "Nombor Casis\n" +
+                    "SYNTHCHASSIS12345\n" +
+                    "Nombor Enjin\n" +
+                    "SYNTHENGINE67890\n" +
+                    "Keupayaan Enjin\n" +
+                    "1498 cc\n" +
+                    "Buatan\n" +
+                    "PROTON\n" +
+                    "Nama Model\n" +
+                    "S70 PREMIUM\n" +
+                    "Jenis Badan\n" +
+                    "MOTOKAR\n" +
+                    "Tahun Dibuat\n" +
+                    "2025\n" +
+                    "Tarikh Pendaftaran\n" +
+                    "10/01/2025")
+            },
+            []);
+
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("S70 PREMIUM", result.Fields["model"]);
+        Assert.Equal("2025", result.Fields["year"]);
+        Assert.NotEqual("1498", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
     public void Ocr_parser_keeps_unreadable_jpj_voc_values_for_manual_review()
     {
         var document = new DocumentBlob
