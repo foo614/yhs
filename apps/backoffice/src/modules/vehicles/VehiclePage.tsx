@@ -626,6 +626,10 @@ export function getVehicleWorkflowState(vehicle: Pick<Vehicle, "status" | "bossC
   };
 }
 
+export function vehicleDocumentOwnershipSelection(requested?: DocumentOwnershipType, current?: DocumentOwnershipType): DocumentOwnershipType {
+  return requested ?? current ?? "Seller";
+}
+
 export type VehicleIntakeChecklistDestination = "owner" | "purchase-invoice" | "captured-data" | "management-approval" | "ucd" | "outstation-pickup" | "sales-leads";
 
 export function vehicleIntakeChecklistTab(destination: VehicleIntakeChecklistDestination) {
@@ -751,7 +755,7 @@ export function VehiclePage({
 }) {
   const [uploadVehicleId, setUploadVehicleId] = useState(vehicles[0]?.id ?? "");
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("IdentityCard");
-  const [documentOwnershipTab, setDocumentOwnershipTab] = useState<DocumentOwnershipType>("Buyer");
+  const [documentOwnershipTab, setDocumentOwnershipTab] = useState<DocumentOwnershipType>(() => vehicleDocumentOwnershipSelection());
   const [documentPersonId, setDocumentPersonId] = useState("");
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
   const [ocrJobs, setOcrJobs] = useState<VehicleOcrJob[]>([]);
@@ -1084,7 +1088,7 @@ export function VehiclePage({
   };
 
   const selectDocumentOwnershipTab = (ownershipType: DocumentOwnershipType) => {
-    setDocumentOwnershipTab(ownershipType);
+    setDocumentOwnershipTab((current) => vehicleDocumentOwnershipSelection(ownershipType, current));
     const categories = vehicleDocumentCategoriesForOwnership(ownershipType, documents);
     if (!categories.includes(documentCategory)) setDocumentCategory(categories[0]);
   };
