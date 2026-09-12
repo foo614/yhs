@@ -1814,7 +1814,22 @@ backOffice.MapPost("/deliveries/{id:guid}/release", async (Guid id, AppDbContext
     var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
     var deliveries = (await db.DeliverySchedules.AsNoTracking().ToListAsync()).Where(item => item.Id != id).Append(released);
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, payments, deliveries, financeInvoices, collections));
-    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, "Vehicle released to customer", "Released"));
+    var openVehicleLeads = await db.Leads
+        .Where(lead => lead.VehicleId == delivery.VehicleId && lead.Status != LeadStatus.Closed)
+        .ToListAsync();
+    var leadClosures = DeliveryLeadClosureRules.CloseOpenLeads(delivery.VehicleId, delivery.CustomerId.Value, vehicle.SalesAgentUserId, openVehicleLeads);
+    foreach (var closure in leadClosures)
+    {
+        var existingLead = openVehicleLeads.First(lead => lead.Id == closure.Lead.Id);
+        db.Entry(existingLead).CurrentValues.SetValues(closure.Lead);
+        ApiAudit.Add(db, context.User, $"lead.closedByDeliveryRelease.{closure.Outcome.ToString().ToLowerInvariant()}", nameof(Lead), closure.Lead.Id);
+    }
+    var soldLeadCount = leadClosures.Count(closure => closure.Outcome == LeadClosureOutcome.Sold);
+    var lostLeadCount = leadClosures.Count - soldLeadCount;
+    var releaseSummary = leadClosures.Count == 0
+        ? "Vehicle released to customer; no open leads required closure"
+        : $"Vehicle released to customer; {soldLeadCount} lead closed Sold and {lostLeadCount} closed Lost";
+    db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, releaseSummary, "Released"));
     ApiAudit.Add(db, context.User, "delivery.released", nameof(DeliverySchedule), id);
     await db.SaveChangesAsync();
     await releaseTransaction.CommitAsync();

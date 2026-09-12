@@ -69,6 +69,34 @@ public sealed record DeliveryWorkboardItem(
     IReadOnlyList<DeliveryEvidenceItem> Evidence);
 
 public sealed record SalesAgentOption(string Id, string DisplayName);
+public sealed record DeliveryLeadClosure(Lead Lead, LeadClosureOutcome Outcome);
+
+public static class DeliveryLeadClosureRules
+{
+    public static IReadOnlyList<DeliveryLeadClosure> CloseOpenLeads(Guid vehicleId, Guid customerId, string? salesAgentUserId, IEnumerable<Lead> leads)
+    {
+        var openLeads = leads
+            .Where(lead => lead.VehicleId == vehicleId && lead.Status != LeadStatus.Closed)
+            .ToList();
+        var winnerId = openLeads
+            .Where(lead => lead.CustomerId == customerId)
+            .OrderByDescending(lead => !string.IsNullOrWhiteSpace(salesAgentUserId) && string.Equals(lead.TakenByUserId, salesAgentUserId, StringComparison.Ordinal))
+            .ThenByDescending(lead => !string.IsNullOrWhiteSpace(lead.TakenByUserId))
+            .ThenByDescending(lead => lead.TakenAt ?? lead.CreatedAt)
+            .ThenBy(lead => lead.Id)
+            .Select(lead => (Guid?)lead.Id)
+            .FirstOrDefault();
+
+        return openLeads
+            .Select(lead =>
+            {
+                var outcome = lead.Id == winnerId ? LeadClosureOutcome.Sold : LeadClosureOutcome.Lost;
+                return new DeliveryLeadClosure(lead with { Status = LeadStatus.Closed, ClosureOutcome = outcome }, outcome);
+            })
+            .ToList();
+    }
+}
+
 public sealed record SalesWorkboardItem(
     Guid VehicleId,
     string PlateNumber,
