@@ -427,13 +427,19 @@ public sealed class GoogleDocumentAiExtractor(
         var mappedExtraction = GoogleDocumentAiEntityMapper.Apply(extraction, recognition.Entities);
         if (document.Category == FileCategory.Voc)
         {
-            mappedExtraction = GoogleDocumentAiVocLayoutMapper.Apply(mappedExtraction, recognition.LayoutLines ?? []);
+            mappedExtraction = GoogleDocumentAiVocLayoutMapper.Apply(
+                mappedExtraction,
+                recognition.LayoutLines ?? [],
+                out var identifierMappingReason);
+            var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction, identifierMappingReason);
+            LogVocDiagnostic(logger, diagnostic);
         }
-        if (document.Category == FileCategory.Voc)
-        {
-            var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction);
-            logger.LogInformation(
-                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}, ChassisLengthBucket={ChassisLengthBucket}, ChassisAllowedCharacters={ChassisAllowedCharacters}, ChassisHasLetter={ChassisHasLetter}, ChassisHasDigit={ChassisHasDigit}, EngineLengthBucket={EngineLengthBucket}, EngineAllowedCharacters={EngineAllowedCharacters}, EngineHasLetter={EngineHasLetter}, EngineHasDigit={EngineHasDigit}, IdentifierLabelTokenCount={IdentifierLabelTokenCount}, IdentifierLabelTokenBuckets={IdentifierLabelTokenBuckets}, IdentifierLabelDelimiter={IdentifierLabelDelimiter}, IdentifierSameBandCount={IdentifierSameBandCount}, IdentifierSameBandTokenBuckets={IdentifierSameBandTokenBuckets}, IdentifierBelowBandCount={IdentifierBelowBandCount}, IdentifierBelowBandTokenBuckets={IdentifierBelowBandTokenBuckets}, IdentifierWordSameBandCount={IdentifierWordSameBandCount}, IdentifierWordSameBandBuckets={IdentifierWordSameBandBuckets}, IdentifierWordBelowBandCount={IdentifierWordBelowBandCount}, IdentifierWordBelowBandBuckets={IdentifierWordBelowBandBuckets}, VehicleLabelBlockCount={VehicleLabelBlockCount}, VehicleValueBlockCount={VehicleValueBlockCount}, YearPositionValid={YearPositionValid}, RegistrationDatePositionValid={RegistrationDatePositionValid}",
+        return mappedExtraction;
+    }
+
+    private static void LogVocDiagnostic(ILogger logger, GoogleDocumentAiVocDiagnostic diagnostic) =>
+        logger.LogInformation(
+                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}, ChassisLengthBucket={ChassisLengthBucket}, ChassisAllowedCharacters={ChassisAllowedCharacters}, ChassisHasLetter={ChassisHasLetter}, ChassisHasDigit={ChassisHasDigit}, EngineLengthBucket={EngineLengthBucket}, EngineAllowedCharacters={EngineAllowedCharacters}, EngineHasLetter={EngineHasLetter}, EngineHasDigit={EngineHasDigit}, IdentifierMappingReason={IdentifierMappingReason}, IdentifierLabelTokenCount={IdentifierLabelTokenCount}, IdentifierLabelTokenBuckets={IdentifierLabelTokenBuckets}, IdentifierLabelDelimiter={IdentifierLabelDelimiter}, IdentifierSameBandCount={IdentifierSameBandCount}, IdentifierSameBandTokenBuckets={IdentifierSameBandTokenBuckets}, IdentifierBelowBandCount={IdentifierBelowBandCount}, IdentifierBelowBandTokenBuckets={IdentifierBelowBandTokenBuckets}, IdentifierWordSameBandCount={IdentifierWordSameBandCount}, IdentifierWordSameBandBuckets={IdentifierWordSameBandBuckets}, IdentifierWordBelowBandCount={IdentifierWordBelowBandCount}, IdentifierWordBelowBandBuckets={IdentifierWordBelowBandBuckets}, VehicleLabelBlockCount={VehicleLabelBlockCount}, VehicleValueBlockCount={VehicleValueBlockCount}, YearPositionValid={YearPositionValid}, RegistrationDatePositionValid={RegistrationDatePositionValid}",
                 diagnostic.LineCount,
                 diagnostic.EntityCount,
                 diagnostic.EntityTypeCount,
@@ -457,6 +463,7 @@ public sealed class GoogleDocumentAiExtractor(
                 diagnostic.EngineCandidate.AllowedCharacters,
                 diagnostic.EngineCandidate.HasLetter,
                 diagnostic.EngineCandidate.HasDigit,
+                diagnostic.IdentifierMappingReason,
                 diagnostic.IdentifierLayout.LabelTokenCount,
                 diagnostic.IdentifierLayout.LabelTokenBuckets,
                 diagnostic.IdentifierLayout.LabelDelimiter,
@@ -472,10 +479,6 @@ public sealed class GoogleDocumentAiExtractor(
                 diagnostic.VehicleColumn.ValueBlockCount,
                 diagnostic.VehicleColumn.YearPositionValid,
                 diagnostic.VehicleColumn.RegistrationDatePositionValid);
-        }
-
-        return mappedExtraction;
-    }
 }
 
 public sealed record GoogleDocumentAiVocDiagnostic(
@@ -496,12 +499,14 @@ public sealed record GoogleDocumentAiVocDiagnostic(
     bool YearMapped,
     VocIdentifierCandidateDiagnostic ChassisCandidate,
     VocIdentifierCandidateDiagnostic EngineCandidate,
+    string IdentifierMappingReason,
     VocCompositeIdentifierLayoutDiagnostic IdentifierLayout,
     VocVehicleColumnDiagnostic VehicleColumn)
 {
     public static GoogleDocumentAiVocDiagnostic Create(
         GoogleDocumentAiRecognition recognition,
-        OcrExtractionResult extraction)
+        OcrExtractionResult extraction,
+        string identifierMappingReason = "not-captured")
     {
         var lines = recognition.RawText
             .Replace("\r\n", "\n", StringComparison.Ordinal)
@@ -527,6 +532,7 @@ public sealed record GoogleDocumentAiVocDiagnostic(
             HasField(extraction, "year"),
             IdentifierCandidate(identifierCandidates.Chassis),
             IdentifierCandidate(identifierCandidates.Engine),
+            identifierMappingReason,
             AnalyzeIdentifierLayout(recognition.LayoutLines ?? [], recognition.LayoutTokens ?? []),
             AnalyzeVehicleColumn(lines));
     }
@@ -766,6 +772,8 @@ public sealed record VocVehicleColumnDiagnostic(int LabelBlockCount, int ValueBl
 public static class GoogleDocumentAiVocLayoutMapper
 {
     private sealed record FieldSpec(string Field, string[] Labels, Func<string, string?> Validate);
+    private sealed record IdentifierPairParseResult(bool Success, string Chassis, string Engine, string Reason);
+    private sealed record CompositeIdentifierApplyResult(bool SuppressStandalone, string Reason);
 
     private static readonly FieldSpec[] Fields =
     [
@@ -778,12 +786,24 @@ public static class GoogleDocumentAiVocLayoutMapper
     ];
 
     public static OcrExtractionResult Apply(OcrExtractionResult extraction, IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines)
+        => Apply(extraction, layoutLines, out _);
+
+    public static OcrExtractionResult Apply(
+        OcrExtractionResult extraction,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines,
+        out string identifierMappingReason)
     {
-        if (layoutLines.Count == 0) return extraction;
+        if (layoutLines.Count == 0)
+        {
+            identifierMappingReason = "no-layout-lines";
+            return extraction;
+        }
         var fields = new Dictionary<string, string?>(extraction.Fields, StringComparer.OrdinalIgnoreCase);
         var confidence = new Dictionary<string, decimal>(extraction.FieldConfidence, StringComparer.OrdinalIgnoreCase);
         var consumed = new HashSet<GoogleDocumentAiLayoutLine>();
-        var suppressStandaloneIdentifiers = ApplyCompositeIdentifierPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
+        var identifierResult = ApplyCompositeIdentifierPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
+        identifierMappingReason = identifierResult.Reason;
+        var suppressStandaloneIdentifiers = identifierResult.SuppressStandalone;
         ApplyCompositeTextPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
         ApplyCompositeYear(layoutLines, fields, confidence, consumed, extraction.Confidence);
         foreach (var spec in Fields)
@@ -804,7 +824,7 @@ public static class GoogleDocumentAiVocLayoutMapper
         return extraction with { Fields = fields, FieldConfidence = confidence, Warnings = warnings };
     }
 
-    private static bool ApplyCompositeIdentifierPair(
+    private static CompositeIdentifierApplyResult ApplyCompositeIdentifierPair(
         IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
         Dictionary<string, string?> fields,
         Dictionary<string, decimal> confidence,
@@ -817,19 +837,24 @@ public static class GoogleDocumentAiVocLayoutMapper
             .OrderBy(LineArea)
             .FirstOrDefault();
         var match = label;
-        var chassis = "";
-        var engine = "";
         var hasInlineContent = match is not null && HasInlineIdentifierContent(match.Text);
-        var hasInlinePair = hasInlineContent && TrySplitInlineIdentifierPair(match!.Text, out chassis, out engine);
-        if (hasInlineContent && !hasInlinePair) return true;
+        var inlinePair = hasInlineContent
+            ? ParseInlineIdentifierPair(match!.Text)
+            : new IdentifierPairParseResult(false, "", "", "no-inline-content");
+        var hasInlinePair = inlinePair.Success;
+        var chassis = inlinePair.Chassis;
+        var engine = inlinePair.Engine;
+        if (hasInlineContent && !hasInlinePair) return new CompositeIdentifierApplyResult(true, inlinePair.Reason);
         if (!hasInlineContent)
             match = label is null ? null : FindCompositeRelativeLineFromLabel(lines, label, consumed);
-        if (!hasInlinePair && (match is null || !TrySplitIdentifierPair(match.Text, out chassis, out engine))) return false;
-        if (!CanFillCompositePair(fields, "chassisNumber", chassis, "engineNumber", engine)) return hasInlineContent;
+        if (!hasInlinePair && (match is null || !TrySplitIdentifierPair(match.Text, out chassis, out engine)))
+            return new CompositeIdentifierApplyResult(false, label is null ? "no-combined-label" : "relative-pair-not-mapped");
+        if (!CanFillCompositePair(fields, "chassisNumber", chassis, "engineNumber", engine))
+            return new CompositeIdentifierApplyResult(hasInlineContent, "existing-value-conflict");
         FillMissingCompositeField(fields, confidence, "chassisNumber", chassis, documentConfidence);
         FillMissingCompositeField(fields, confidence, "engineNumber", engine, documentConfidence);
         if (match is not null && !ReferenceEquals(match, label)) consumed.Add(match);
-        return hasInlineContent;
+        return new CompositeIdentifierApplyResult(hasInlineContent, hasInlineContent ? inlinePair.Reason : "mapped-relative-pair");
     }
 
     private static void ApplyCompositeTextPair(
@@ -976,41 +1001,36 @@ public static class GoogleDocumentAiVocLayoutMapper
         return chassis.Length > 0 && engine.Length > 0;
     }
 
-    private static bool TrySplitInlineIdentifierPair(string value, out string chassis, out string engine)
-    {
-        chassis = engine = "";
-        var interleaved = Regex.Match(
-            value,
-            @"^\s*(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*(?<chassis>.*?)\s*[/|]?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*(?<engine>.+)$",
-            RegexOptions.IgnoreCase);
-        if (interleaved.Success)
-        {
-            chassis = ValidateInlineIdentifier(interleaved.Groups["chassis"].Value, 10) ?? "";
-            engine = ValidateInlineIdentifier(interleaved.Groups["engine"].Value, 5) ?? "";
-            if (chassis.Length > 0 && engine.Length > 0) return true;
-        }
+    public static string DiagnoseInlineIdentifierPair(string value) => ParseInlineIdentifierPair(value).Reason;
 
+    private static IdentifierPairParseResult ParseInlineIdentifierPair(string value)
+    {
         var labelsFirst = Regex.Match(
             value,
-            @"^\s*(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*[/|]\s*(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*[/|]?\s*(?<values>.+)$",
+            @"^\s*(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[/|]\s*(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]\s*(?<values>.+)$",
             RegexOptions.IgnoreCase);
-        if (!labelsFirst.Success) return false;
-        var residualTokens = Regex.Matches(
-                labelsFirst.Groups["values"].Value.ToUpperInvariant(),
-                @"[A-Z0-9-]+")
-            .Select(match => match.Value)
-            .ToList();
-        if (residualTokens.Count != 4) return false;
-        var candidates = residualTokens
-            .Where(token => token.Length is >= 10 and <= 17)
-            .Select(token => ValidateIdentifier(token, 10))
-            .Where(candidate => candidate is not null)
-            .Cast<string>()
-            .ToList();
-        if (candidates.Count != 2) return false;
-        chassis = ValidateIdentifier(candidates[0], 10) ?? "";
-        engine = ValidateIdentifier(candidates[1], 10) ?? "";
-        return chassis.Length > 0 && engine.Length > 0;
+        if (labelsFirst.Success)
+        {
+            var cells = labelsFirst.Groups["values"].Value.Split(['/', '|'], StringSplitOptions.TrimEntries);
+            if (cells.Length != 2 || cells.Any(string.IsNullOrWhiteSpace))
+                return new IdentifierPairParseResult(false, "", "", "labels-first-delimiter-count");
+            var chassis = ValidateInlineIdentifier(cells[0], 10) ?? "";
+            var engine = ValidateInlineIdentifier(cells[1], 5) ?? "";
+            return chassis.Length > 0 && engine.Length > 0
+                ? new IdentifierPairParseResult(true, chassis, engine, "mapped-labels-first-delimited")
+                : new IdentifierPairParseResult(false, "", "", "labels-first-validation-failed");
+        }
+
+        var interleaved = Regex.Match(
+            value,
+            @"^\s*(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*(?<chassis>.+?)\s*[/|]?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*(?<engine>.+)$",
+            RegexOptions.IgnoreCase);
+        if (!interleaved.Success) return new IdentifierPairParseResult(false, "", "", "label-pattern-not-matched");
+        var interleavedChassis = ValidateInlineIdentifier(interleaved.Groups["chassis"].Value, 10) ?? "";
+        var interleavedEngine = ValidateInlineIdentifier(interleaved.Groups["engine"].Value, 5) ?? "";
+        return interleavedChassis.Length > 0 && interleavedEngine.Length > 0
+            ? new IdentifierPairParseResult(true, interleavedChassis, interleavedEngine, "mapped-interleaved")
+            : new IdentifierPairParseResult(false, "", "", "interleaved-validation-failed");
     }
 
     private static bool HasInlineIdentifierContent(string value)

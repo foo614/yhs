@@ -2734,18 +2734,6 @@ body {
   margin-bottom: 16px;
 }
 
-.vehicleIntakeVocSummary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-
-.vehicleIntakeVocSummary .ant-tag {
-  margin: 0;
-  white-space: normal;
-}
-
 .vehicleIntakePreviousOwnerControl {
   display: grid;
   gap: 10px;

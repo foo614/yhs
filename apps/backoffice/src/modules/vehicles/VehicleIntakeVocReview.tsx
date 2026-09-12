@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { UploadOutlined } from "@ant-design/icons";
-import { Alert, Button, Space, Tag, Upload, message } from "antd";
+import { Alert, Button, Space, Upload, message } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { previewVehicleIntakeVoc, type OcrExtractionResult, type VehicleCatalogModel } from "../../api";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
@@ -182,17 +182,6 @@ export function vehicleIntakeVocPreviewApplication(
   };
 }
 
-export function vehicleIntakeVocFieldState(
-  draft: VehicleIntakeVocDraft,
-  reviewedValues: Record<string, string | null | undefined>,
-  field: VehicleIntakeVocField
-) {
-  const extracted = normalized(reviewedValues[field]);
-  const detected = Boolean(extracted) && (field !== "year" || validYear(extracted));
-  if (!detected) return "Enter manually";
-  return normalized(draft[field]) ? "Existing entry kept" : "OCR-filled";
-}
-
 export function VehicleIntakeVocReview({
   draft,
   catalogModels,
@@ -213,16 +202,12 @@ export function VehicleIntakeVocReview({
   const catalogResolution = vehicleIntakeVocCatalogResolution(reviewedValues, catalogModels);
   const catalogMatch = catalogResolution?.item;
   const catalogPairAccepted = Boolean(catalogMatch && canApplyVehicleIntakeVocCatalogPair(draft, catalogMatch));
-  const reviewStateValues = catalogMatch && catalogPairAccepted
-    ? { ...reviewedValues, make: catalogMatch.make, model: catalogMatch.model }
-    : reviewedValues;
   const ocrMake = normalized(reviewedValues.make);
   const ocrModel = normalized(reviewedValues.model);
   const ocrCatalogReference = vehicleIntakeVocCatalogReference(reviewedValues);
   const hasExtractedCatalogText = Boolean(ocrMake || ocrModel);
   const needsCatalogConfirmation = hasExtractedCatalogText && !catalogMatch;
   const hasCatalogConflict = Boolean(hasExtractedCatalogText && catalogMatch && !catalogPairAccepted);
-  const requiresCatalogChoice = needsCatalogConfirmation || hasCatalogConflict;
   const previewRequestGate = useRef<ReturnType<typeof createVehicleIntakeVocPreviewRequestGate> | null>(null);
   const previewInFlight = useRef(false);
 
@@ -334,15 +319,6 @@ export function VehicleIntakeVocReview({
               description={`OCR reference: ${ocrCatalogReference}. The detailed OCR variant remains visible for review; the vehicle will use the existing canonical catalogue model.`}
             />
           ) : null}
-          <div className="vehicleIntakeVocSummary" aria-label="VOC extraction summary">
-            {vocFields.map((field) => {
-              const state = requiresCatalogChoice && (field.name === "make" || field.name === "model") && !normalized(draft[field.name])
-                ? "Select manually"
-                : vehicleIntakeVocFieldState(draft, reviewStateValues, field.name);
-              return <Tag key={field.name} color={state === "OCR-filled" ? "blue" : state === "Existing entry kept" ? "green" : "default"}>{field.label}: {state}</Tag>;
-            })}
-            <Tag color={normalized(reviewedValues.ownerName) ? "green" : "default"}>Registered owner: {normalized(reviewedValues.ownerName) ? "Detected for reference" : "Not detected"}</Tag>
-          </div>
           <Space wrap>
             <Button onClick={clear} disabled={disabled || busy}>Remove VOC review</Button>
             <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>

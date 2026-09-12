@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { OcrExtractionResult, VehicleCatalogModel } from "../../api";
 import { VehicleMakeModelFields } from "./VehiclePage";
-import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocCatalogReference, vehicleIntakeVocCatalogResolution, vehicleIntakeVocDetectedFields, vehicleIntakeVocFieldState, vehicleIntakeVocPatch, vehicleIntakeVocPreviewApplication, vocReviewWarnings } from "./VehicleIntakeVocReview";
+import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocCatalogReference, vehicleIntakeVocCatalogResolution, vehicleIntakeVocDetectedFields, vehicleIntakeVocPatch, vehicleIntakeVocPreviewApplication, vocReviewWarnings } from "./VehicleIntakeVocReview";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -148,17 +148,17 @@ describe("vehicle intake VOC review", () => {
     expect(vehicleIntakeVocCatalogResolution({ make: "HONDA CIVIC X PREMIUM", model: null }, ambiguous)).toBeUndefined();
   });
 
-  it("distinguishes OCR-filled fields from fields that still need manual entry", () => {
-    expect(vehicleIntakeVocDetectedFields({ plateNumber: "VAB1234", chassisNumber: null, year: "2024" })).toEqual(["plateNumber", "year"]);
-    expect(vehicleIntakeVocFieldState({}, reviewedValues, "make")).toBe("OCR-filled");
-    expect(vehicleIntakeVocFieldState({ make: "Honda" }, reviewedValues, "make")).toBe("Existing entry kept");
-    expect(vehicleIntakeVocFieldState({}, { chassisNumber: null }, "chassisNumber")).toBe("Enter manually");
-  });
-
-  it("keeps the compact extraction summary wrapping across desktop, tablet, and mobile widths", () => {
-    const styles = readFileSync(fileURLToPath(new URL("../../styles.css", import.meta.url)), "utf8");
-    expect(styles).toMatch(/\.vehicleIntakeVocSummary\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s);
-    expect(styles).not.toMatch(/\.vehicleIntakeVocSummary\s*\{[^}]*width:\s*\d+px;/s);
+  it("omits the redundant field-status chips while preserving guidance and editable vehicle fields", () => {
+    const reviewSource = readFileSync(fileURLToPath(new URL("./VehicleIntakeVocReview.tsx", import.meta.url)), "utf8");
+    const vehiclePageSource = readFileSync(fileURLToPath(new URL("./VehiclePage.tsx", import.meta.url)), "utf8");
+    expect(reviewSource).not.toContain("vehicleIntakeVocSummary");
+    expect(reviewSource).not.toContain("Existing entry kept");
+    expect(reviewSource).not.toContain("Enter manually");
+    expect(reviewSource).not.toContain("Not detected");
+    expect(reviewSource).toContain("VOC draft prepared — review the vehicle fields below");
+    expect(reviewSource).toContain("OCR Make or Model is not in the catalogue");
+    expect(vehiclePageSource).toContain('name="chassisNumber"');
+    expect(vehiclePageSource).toContain('name="engineNumber"');
   });
 
   it("keeps OCR guidance compact and separated from the following control at every width", () => {
