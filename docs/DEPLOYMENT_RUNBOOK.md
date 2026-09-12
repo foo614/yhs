@@ -4,7 +4,7 @@ This runbook is the operator checklist for proving and deploying the Docker VPS 
 
 ## Shinjiru Ubuntu CI/CD (Production)
 
-The production path publishes the Aspire AppHost into a Docker Compose artifact during CI, then deploys that verified artifact and the matching source commit to an Ubuntu VPS through GitHub Actions. It preserves the `postgres`, `api`, `worker`, `frontoffice`, and `backoffice` service names, PostgreSQL 17, and the `postgres_data` volume. The Aspire dashboard is reachable only through Caddy at `https://<BACKOFFICE_DOMAIN>/ops`; application, database, OTLP, and dashboard services have no public host ports. Caddy obtains and renews TLS certificates after DNS records resolve to the VPS.
+The production path publishes the Aspire AppHost into a Docker Compose artifact during CI, then deploys that verified artifact and the matching source commit to an Ubuntu VPS through GitHub Actions. It preserves the `postgres`, `api`, `worker`, `frontoffice`, and `backoffice` service names, PostgreSQL 17, and the `postgres_data` volume. An internal OpenTelemetry Collector fans API and worker logs, metrics, and traces out to both the Aspire dashboard and Grafana Cloud. The Aspire dashboard is reachable only through Caddy at `https://<BACKOFFICE_DOMAIN>/ops`; application, database, Collector, OTLP, and dashboard services have no public host ports. Caddy obtains and renews TLS certificates after DNS records resolve to the VPS.
 
 Before the first deployment:
 
@@ -63,6 +63,10 @@ Before production deploy, replace:
 - `SEED_ADMIN_PASSWORD`
 - `ASPIRE_DASHBOARD_BROWSER_TOKEN`
 - `ASPIRE_DASHBOARD_OTLP_API_KEY`
+- `OTEL_COLLECTOR_INGEST_TOKEN`
+- `GRAFANA_CLOUD_OTLP_ENDPOINT`
+- `GRAFANA_CLOUD_OTLP_INSTANCE_ID`
+- `GRAFANA_CLOUD_OTLP_API_TOKEN`
 - `PUBLIC_API_BASE_URL`
 - `FRONTOFFICE_ORIGIN`
 - `BACKOFFICE_ORIGIN`
@@ -74,7 +78,9 @@ Before production deploy, replace:
 - `GOOGLE_DOCUMENT_AI_DEFAULT_PROCESSOR_ID`
 - `GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH`
 
-Generate the two dashboard values independently on a secure workstation with `openssl rand -hex 32`. The browser token protects the `/ops` user interface; the OTLP key authenticates only telemetry from the API and worker. Do not reuse either value, put it in a URL, or paste it into tickets, chat, source control, or CI logs.
+Generate the two dashboard values and `OTEL_COLLECTOR_INGEST_TOKEN` independently on a secure workstation with `openssl rand -hex 32`. The browser token protects the `/ops` user interface, the dashboard OTLP key authenticates only the Collector's Aspire exporter, and the Collector ingest token authenticates only API/worker telemetry. Do not reuse any value, put it in a URL, or paste it into tickets, pull requests, chat, source control, or CI logs.
+
+For Grafana Cloud stack `fld614`, copy the OTLP endpoint and numeric instance ID from the stack's OpenTelemetry configuration and create a dedicated access-policy token with only logs, metrics, and traces write scopes. Store all three only inside `PRODUCTION_ENV_FILE`; never paste the token or an authorization header into a ticket, pull request, chat, or log. Rotate any credential immediately after accidental disclosure. The Collector receives internal OTLP/gRPC and independently exports to the existing Aspire dashboard and Grafana Cloud; see `docs/OBSERVABILITY_RUNBOOK.md` for flow, verification, failure behavior, and alert definitions.
 
 Validation rejects placeholder passwords, placeholder dashboard credentials, `example.com`, localhost public URLs, loopback public URLs, and trailing slashes on public URLs.
 

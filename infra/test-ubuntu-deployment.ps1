@@ -86,9 +86,18 @@ foreach ($expected in @(
   'ASPIRE_DASHBOARD_API_DISABLED: "true"',
   "OTEL_SERVICE_NAME: ysheng-api",
   "OTEL_SERVICE_NAME: ysheng-worker",
-  "OTEL_EXPORTER_OTLP_ENDPOINT: http://production-dashboard:18889",
+  "otel-collector:",
+  "otel/opentelemetry-collector-contrib:0.160.0@sha256:5b66b0dc6921f2a439cf50b942ccb9e2a4375f136239a9fdf709ef33e4bfc668",
+  "otel-collector-health:",
+  "curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6",
+  "http://otel-collector:13133/",
+  "./otel-collector.production.yaml:/etc/otelcol-contrib/config.yaml:ro",
+  "GRAFANA_CLOUD_OTLP_ENDPOINT",
+  "GRAFANA_CLOUD_OTLP_INSTANCE_ID",
+  "GRAFANA_CLOUD_OTLP_API_TOKEN",
+  "OTEL_COLLECTOR_INGEST_TOKEN",
+  "OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317",
   "OTEL_EXPORTER_OTLP_PROTOCOL: grpc",
-  'OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${ASPIRE_DASHBOARD_OTLP_API_KEY}',
   "networks:",
   "- aspire",
   "./caddy/Caddyfile:/etc/caddy/Caddyfile:ro",
@@ -177,6 +186,8 @@ Assert-Contains -Name "Production smoke script" -Text $smoke -Expected "strict-t
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "Production environment validation failed:"
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "must equal"
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "ASPIRE_DASHBOARD_BROWSER_TOKEN"
+Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "GRAFANA_CLOUD_OTLP_API_TOKEN"
+Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "OTEL_COLLECTOR_INGEST_TOKEN"
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH"
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "Google Application Default Credentials file not found"
 Assert-Contains -Name "Backup service" -Text $backupService -Expected "User=__DEPLOY_USER__"

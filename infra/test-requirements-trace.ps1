@@ -18,6 +18,7 @@ foreach ($expected in @(
   ".NET 10 API",
   "PostgreSQL persistence",
   "Docker/VPS deployment shape",
+  "OpenTelemetry Collector",
   "Deployment runbook",
   "GitHub CI verification",
   "Available vehicle inventory",

@@ -33,6 +33,10 @@ $requiredKeys = @(
   "ASPNETCORE_ENVIRONMENT",
   "ASPIRE_DASHBOARD_BROWSER_TOKEN",
   "ASPIRE_DASHBOARD_OTLP_API_KEY",
+  "OTEL_COLLECTOR_INGEST_TOKEN",
+  "GRAFANA_CLOUD_OTLP_ENDPOINT",
+  "GRAFANA_CLOUD_OTLP_INSTANCE_ID",
+  "GRAFANA_CLOUD_OTLP_API_TOKEN",
   "PUBLIC_API_BASE_URL",
   "FRONTOFFICE_ORIGIN",
   "BACKOFFICE_ORIGIN",
@@ -55,19 +59,48 @@ if (-not $AllowExampleValues) {
     "change-this-admin-password",
     "change-this-dashboard-browser-token",
     "change-this-dashboard-otlp-api-key",
+    "change-this-collector-ingest-token",
+    "replace-with-grafana-cloud-api-token",
     "ChangeMe123!",
     "ysheng_dev"
   )
-  foreach ($key in @("POSTGRES_PASSWORD", "SEED_ADMIN_PASSWORD", "ASPIRE_DASHBOARD_BROWSER_TOKEN", "ASPIRE_DASHBOARD_OTLP_API_KEY")) {
+  foreach ($key in @("POSTGRES_PASSWORD", "SEED_ADMIN_PASSWORD", "ASPIRE_DASHBOARD_BROWSER_TOKEN", "ASPIRE_DASHBOARD_OTLP_API_KEY", "OTEL_COLLECTOR_INGEST_TOKEN", "GRAFANA_CLOUD_OTLP_API_TOKEN")) {
     if ($values.ContainsKey($key) -and $unsafeValues -contains $values[$key]) {
       $errors.Add("$key still uses an example/default value.")
     }
   }
-  foreach ($key in @("ASPIRE_DASHBOARD_BROWSER_TOKEN", "ASPIRE_DASHBOARD_OTLP_API_KEY")) {
+  foreach ($key in @("ASPIRE_DASHBOARD_BROWSER_TOKEN", "ASPIRE_DASHBOARD_OTLP_API_KEY", "OTEL_COLLECTOR_INGEST_TOKEN")) {
     if ($values.ContainsKey($key) -and $values[$key].Length -lt 32) {
       $errors.Add("$key must be at least 32 characters long.")
     }
   }
+  if ($values.ContainsKey("GRAFANA_CLOUD_OTLP_API_TOKEN") -and $values["GRAFANA_CLOUD_OTLP_API_TOKEN"].Length -lt 20) {
+    $errors.Add("GRAFANA_CLOUD_OTLP_API_TOKEN must be at least 20 characters long.")
+  }
+}
+
+if ($values.ContainsKey("GRAFANA_CLOUD_OTLP_ENDPOINT")) {
+  try {
+    $grafanaEndpoint = [Uri]$values["GRAFANA_CLOUD_OTLP_ENDPOINT"]
+    if ($grafanaEndpoint.Scheme -ne "https" -or -not $grafanaEndpoint.IsAbsoluteUri) {
+      $errors.Add("GRAFANA_CLOUD_OTLP_ENDPOINT must be an absolute https URL.")
+    }
+    if ($grafanaEndpoint.AbsolutePath.TrimEnd("/") -notmatch "/otlp$") {
+      $errors.Add("GRAFANA_CLOUD_OTLP_ENDPOINT must end with /otlp.")
+    }
+    if ($grafanaEndpoint.DnsSafeHost -notmatch "^otlp-gateway-prod-[a-z0-9-]+\.grafana\.net$" -or
+        -not [string]::IsNullOrEmpty($grafanaEndpoint.UserInfo) -or
+        -not [string]::IsNullOrEmpty($grafanaEndpoint.Query) -or
+        -not [string]::IsNullOrEmpty($grafanaEndpoint.Fragment)) {
+      $errors.Add("GRAFANA_CLOUD_OTLP_ENDPOINT must use a Grafana Cloud production OTLP gateway without userinfo, query, or fragment.")
+    }
+  }
+  catch {
+    $errors.Add("GRAFANA_CLOUD_OTLP_ENDPOINT must be a valid URL.")
+  }
+}
+if ($values.ContainsKey("GRAFANA_CLOUD_OTLP_INSTANCE_ID") -and $values["GRAFANA_CLOUD_OTLP_INSTANCE_ID"] -notmatch "^[0-9]+$") {
+  $errors.Add("GRAFANA_CLOUD_OTLP_INSTANCE_ID must be numeric.")
 }
 
 if ($values.ContainsKey("ASPNETCORE_ENVIRONMENT") -and $values["ASPNETCORE_ENVIRONMENT"] -ne "Production") {
