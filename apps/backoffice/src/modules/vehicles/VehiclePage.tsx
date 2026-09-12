@@ -3229,10 +3229,11 @@ export function VehiclePage({
         <Space direction="vertical" size={16} className="fullWidth">
           {!sellerIdentityReadFailed && !reviewedExistingOwner ? (
             <Alert
+              className="compactOcrGuidanceAlert"
               type="info"
               showIcon
               message="Nothing has been created yet"
-              description="Check the details read from the NRIC. The previous owner is created only when the complete vehicle intake is submitted."
+              description="Review the NRIC details below. The owner is created only when the vehicle intake is submitted."
             />
           ) : null}
           {sellerIdentityReadFailed && !sellerIdentityManualEntry ? (
@@ -3278,12 +3279,13 @@ export function VehiclePage({
           ) : sellerIdentityPreview ? (
             <Form name="sellerIdentityReview" form={sellerIdentityReviewForm} layout="vertical" onFinish={(values) => void confirmNewOwnerFromIdentityCard(values)}>
               <Alert
+                className="compactOcrGuidanceAlert vehicleIntakeOwnerReviewAlert"
                 type="warning"
                 showIcon
                 message={sellerIdentityManualEntry ? "Enter previous owner details manually" : "No exact NRIC match was found"}
                 description={sellerIdentityManualEntry
                   ? "Confirm every field before continuing. The system will stop a duplicate when the NRIC matches an existing record."
-                  : "Review every field before confirming a new previous owner. A similar name may still belong to an existing record."}
+                  : "Review each field before confirming. A similar name may still be an existing owner."}
               />
               {possibleIdentityOwners.length ? (
                 <Form.Item label="Possible existing owner / 可能已有原车主" extra="Select only when you have confirmed this is the same person.">
