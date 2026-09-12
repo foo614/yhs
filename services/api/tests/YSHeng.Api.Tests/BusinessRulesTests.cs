@@ -3,7 +3,9 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
 using SkiaSharp;
 using UglyToad.PdfPig.Writer;
 using YSHeng.Api.Data;
@@ -5106,6 +5108,72 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Google_document_ai_voc_diagnostic_reports_only_shape_and_field_presence()
+    {
+        const string syntheticChassis = "SYNTHCHASSIS12345";
+        const string syntheticEngine = "SYNTHENGINE67890";
+        var rawText =
+            "Nombor Pendaftaran\nQAA1234\n" +
+            $"Nombor Casis\n{syntheticChassis}\n" +
+            $"Nombor Enjin\n{syntheticEngine}\n" +
+            "Buatan\nPROTON\nNama Model\nS70 PREMIUM\nJenis Badan\nMOTOKAR\nTahun Dibuat\n2025";
+        var recognition = new GoogleDocumentAiRecognition(
+            rawText,
+            0.9m,
+            [new GoogleDocumentAiEntity("generic_type", "PRIVATE PROVIDER VALUE", 0.8m)],
+            []);
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc },
+            [],
+            rawText,
+            recognition.Confidence,
+            recognition.Warnings);
+
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, extraction);
+
+        Assert.Equal("next-line-content", diagnostic.RegistrationLayout);
+        Assert.Equal("next-line-content", diagnostic.ChassisLayout);
+        Assert.Equal("next-line-content", diagnostic.EngineLayout);
+        Assert.Equal("next-line-content", diagnostic.MakeLayout);
+        Assert.Equal("next-line-content", diagnostic.ModelLayout);
+        Assert.Equal("next-line-content", diagnostic.YearLayout);
+        Assert.True(diagnostic.PlateMapped);
+        Assert.True(diagnostic.ChassisMapped);
+        Assert.True(diagnostic.EngineMapped);
+        Assert.True(diagnostic.MakeMapped);
+        Assert.True(diagnostic.ModelMapped);
+        Assert.True(diagnostic.YearMapped);
+        var renderedDiagnostic = diagnostic.ToString();
+        Assert.DoesNotContain(syntheticChassis, renderedDiagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain(syntheticEngine, renderedDiagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRIVATE PROVIDER VALUE", renderedDiagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Google_document_ai_voc_diagnostic_does_not_treat_combined_headers_as_values()
+    {
+        var rawText =
+            "No. Pendaftaran\nQAA1234\n" +
+            "No. Chasis / No. Enjin\nSYNTHCHASSIS12345 / SYNTHENGINE67890\n" +
+            "Buatan / Nama Model\nPROTON / S70 PREMIUM\n" +
+            "Jenis Badan / Tahun Dibuat\nMOTOKAR / 2025";
+        var recognition = new GoogleDocumentAiRecognition(rawText, 0.9m, [], []);
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc },
+            [],
+            rawText,
+            recognition.Confidence,
+            recognition.Warnings);
+
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, extraction);
+
+        Assert.Equal("next-line-content", diagnostic.ChassisLayout);
+        Assert.Equal("next-line-content", diagnostic.EngineLayout);
+        Assert.Equal("next-line-content", diagnostic.MakeLayout);
+        Assert.Equal("next-line-content", diagnostic.ModelLayout);
+    }
+
+    [Fact]
     public void Ocr_parser_keeps_unreadable_jpj_voc_values_for_manual_review()
     {
         var document = new DocumentBlob
@@ -5386,7 +5454,7 @@ public sealed class BusinessRulesTests
                 InvoiceProcessorId = "invoice-processor",
                 RequestTimeoutSeconds = 30
             }));
-        var extractor = new GoogleDocumentAiExtractor(client);
+        var extractor = new GoogleDocumentAiExtractor(client, NullLogger<GoogleDocumentAiExtractor>.Instance);
         var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "VPK1234" };
         var document = new DocumentBlob
         {
@@ -5411,6 +5479,55 @@ public sealed class BusinessRulesTests
         Assert.Equal("52000", result.Fields["amount"]);
         Assert.Equal(0.98m, result.FieldConfidence["invoiceNumber"]);
         Assert.DoesNotContain(result.Warnings, warning => warning.Contains("default OCR processor", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Google_document_ai_voc_provider_failure_logs_only_safe_status_and_rethrows()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)));
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions { ProjectId = "ysheng-ocr", DefaultProcessorId = "general-processor" }));
+        var logger = new CapturingLogger<GoogleDocumentAiExtractor>();
+        var extractor = new GoogleDocumentAiExtractor(client, logger);
+        var document = new DocumentBlob
+        {
+            Category = FileCategory.Voc,
+            FileName = "private-voc.pdf",
+            MimeType = "application/pdf",
+            Content = [1, 2, 3]
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => extractor.AnalyzeAsync(document, []));
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("ProviderSucceeded=False", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(document.FileName, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("test-access-token", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Google_document_ai_voc_caller_cancellation_is_not_logged_as_provider_failure()
+    {
+        var handler = new StubHttpMessageHandler((_, cancellationToken) =>
+            Task.FromCanceled<HttpResponseMessage>(cancellationToken));
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions { ProjectId = "ysheng-ocr", DefaultProcessorId = "general-processor" }));
+        var logger = new CapturingLogger<GoogleDocumentAiExtractor>();
+        var extractor = new GoogleDocumentAiExtractor(client, logger);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => extractor.AnalyzeAsync(
+            new DocumentBlob { Category = FileCategory.Voc, MimeType = "application/pdf", Content = [1] },
+            [],
+            cancellation.Token));
+
+        Assert.Empty(logger.Entries);
     }
 
     [Fact]
@@ -5628,6 +5745,23 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 internal sealed class FixedGoogleAccessTokenProvider(string accessToken) : IGoogleAccessTokenProvider
 {
     public Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default) => Task.FromResult(accessToken);
+}
+
+internal sealed class CapturingLogger<T> : ILogger<T>
+{
+    public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        LogLevel logLevel,
+        EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter) =>
+        Entries.Add((logLevel, formatter(state, exception)));
 }
 
 internal static class VehicleSeed

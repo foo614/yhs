@@ -244,19 +244,127 @@ public sealed class GoogleDocumentAiClient(
     }
 }
 
-public sealed class GoogleDocumentAiExtractor(GoogleDocumentAiClient client) : IOcrExtractor
+public sealed class GoogleDocumentAiExtractor(
+    GoogleDocumentAiClient client,
+    ILogger<GoogleDocumentAiExtractor> logger) : IOcrExtractor
 {
     public async Task<OcrExtractionResult> AnalyzeAsync(DocumentBlob document, IEnumerable<Vehicle> vehicles, CancellationToken cancellationToken = default)
     {
-        var recognition = await client.RecognizeAsync(document, cancellationToken);
+        GoogleDocumentAiRecognition recognition;
+        try
+        {
+            recognition = await client.RecognizeAsync(document, cancellationToken);
+        }
+        catch (Exception exception) when (
+            document.Category == FileCategory.Voc &&
+            !(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
+        {
+            logger.LogWarning("VOC OCR provider diagnostic: ProviderSucceeded={ProviderSucceeded}", false);
+            throw;
+        }
         var extraction = OcrExtractionParser.Analyze(
             document,
             vehicles,
             recognition.RawText,
             recognition.Confidence,
             recognition.Warnings);
-        return GoogleDocumentAiEntityMapper.Apply(extraction, recognition.Entities);
+        var mappedExtraction = GoogleDocumentAiEntityMapper.Apply(extraction, recognition.Entities);
+        if (document.Category == FileCategory.Voc)
+        {
+            var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction);
+            logger.LogInformation(
+                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}",
+                diagnostic.LineCount,
+                diagnostic.EntityCount,
+                diagnostic.EntityTypeCount,
+                diagnostic.RegistrationLayout,
+                diagnostic.ChassisLayout,
+                diagnostic.EngineLayout,
+                diagnostic.MakeLayout,
+                diagnostic.ModelLayout,
+                diagnostic.YearLayout,
+                diagnostic.PlateMapped,
+                diagnostic.ChassisMapped,
+                diagnostic.EngineMapped,
+                diagnostic.MakeMapped,
+                diagnostic.ModelMapped,
+                diagnostic.YearMapped);
+        }
+
+        return mappedExtraction;
     }
+}
+
+public sealed record GoogleDocumentAiVocDiagnostic(
+    int LineCount,
+    int EntityCount,
+    int EntityTypeCount,
+    string RegistrationLayout,
+    string ChassisLayout,
+    string EngineLayout,
+    string MakeLayout,
+    string ModelLayout,
+    string YearLayout,
+    bool PlateMapped,
+    bool ChassisMapped,
+    bool EngineMapped,
+    bool MakeMapped,
+    bool ModelMapped,
+    bool YearMapped)
+{
+    public static GoogleDocumentAiVocDiagnostic Create(
+        GoogleDocumentAiRecognition recognition,
+        OcrExtractionResult extraction)
+    {
+        var lines = recognition.RawText
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        return new GoogleDocumentAiVocDiagnostic(
+            lines.Length,
+            recognition.Entities.Count,
+            recognition.Entities.Select(entity => entity.Type).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            ClassifyLayout(lines, @"\b(?:NO\.?|NOMBOR)\s*PENDAFTARAN\b"),
+            ClassifyLayout(lines, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b"),
+            ClassifyLayout(lines, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b"),
+            ClassifyLayout(lines, @"\bBUATAN\b"),
+            ClassifyLayout(lines, @"\bNAMA\s+MODEL\b"),
+            ClassifyLayout(lines, @"\bTAHUN\s+DIBUAT\b"),
+            HasField(extraction, "plateNumber"),
+            HasField(extraction, "chassisNumber"),
+            HasField(extraction, "engineNumber"),
+            HasField(extraction, "make"),
+            HasField(extraction, "model"),
+            HasField(extraction, "year"));
+    }
+
+    private static string ClassifyLayout(IReadOnlyList<string> lines, string labelPattern)
+    {
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var match = Regex.Match(lines[index], labelPattern, RegexOptions.IgnoreCase);
+            if (!match.Success) continue;
+            var suffix = lines[index][(match.Index + match.Length)..];
+            var nonLabelSuffix = Regex.Replace(
+                suffix,
+                @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b",
+                "",
+                RegexOptions.IgnoreCase);
+            if (!string.IsNullOrWhiteSpace(nonLabelSuffix.Trim(' ', ':', '-', '/', '|')))
+            {
+                return "same-line-content";
+            }
+            if (index + 1 >= lines.Count) return "label-at-end";
+            return Regex.IsMatch(lines[index + 1], @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b", RegexOptions.IgnoreCase)
+                ? "next-line-label"
+                : "next-line-content";
+        }
+        return "missing";
+    }
+
+    private static bool HasField(OcrExtractionResult extraction, string field) =>
+        extraction.Fields.TryGetValue(field, out var value) && !string.IsNullOrWhiteSpace(value);
 }
 
 public static class GoogleDocumentAiEntityMapper
