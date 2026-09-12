@@ -5200,8 +5200,8 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
       title: "Source / 来源",
       width: 260,
       render: (_, row) => (
-        <Tooltip title={leadSourceSummary(row)}>
-          <Typography.Text className="leadSourceText">{leadSourceSummary(row)}</Typography.Text>
+        <Tooltip title={leadSourceSummary(row, vehicles)}>
+          <Typography.Text className="leadSourceText">{leadSourceSummary(row, vehicles)}</Typography.Text>
         </Tooltip>
       )
     },
@@ -5358,7 +5358,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
                         <strong>{lead.customerName}</strong>
                         <span>{lead.phone}</span>
                         <small>{lead.message || "No message"}</small>
-                        <small>{leadSourceSummary(lead)}</small>
+                        <small>{leadSourceSummary(lead, vehicles)}</small>
                         {leadOwnerLabel(lead) ? <small>{leadOwnerLabel(lead)}</small> : null}
                       </div>
                       <Space wrap size={4}>
