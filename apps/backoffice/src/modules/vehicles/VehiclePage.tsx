@@ -2968,13 +2968,13 @@ export function VehiclePage({
             <Form.Item className="vehicleIntakeVocFormItem" label="Vehicle ownership certificate / 车辆登记证">
               <VehicleIntakeVocReview
                 draft={vehicleIntakeDraft}
-                onApply={(patch: VehicleIntakeVocPatch, file) => {
+                onReviewReady={(patch: VehicleIntakeVocPatch, file) => {
                   vehicleIntakeIdentityFormRef.current?.setFieldsValue(patch);
                   setVehicleIntakeDraft((current) => ({ ...current, ...patch }));
                   setSellerVocFile(file);
                   message.success(Object.keys(patch).length
-                    ? "Approved VOC values were applied to the intake draft. The original file will be uploaded only when you create the vehicle."
-                    : "VOC review is ready. The original file will be uploaded only when you create the vehicle.");
+                    ? "VOC suggestions filled the empty vehicle fields. Review or edit them before creating the vehicle."
+                    : "VOC review is attached. Existing entries were preserved; review the vehicle fields before continuing.");
                 }}
                 onClear={() => setSellerVocFile(null)}
               />
