@@ -430,6 +430,7 @@ public sealed class GoogleDocumentAiExtractor(
             mappedExtraction = GoogleDocumentAiVocLayoutMapper.Apply(
                 mappedExtraction,
                 recognition.LayoutLines ?? [],
+                recognition.LayoutTokens ?? [],
                 out var identifierMappingReason);
             var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction, identifierMappingReason);
             LogVocDiagnostic(logger, diagnostic);
@@ -786,11 +787,17 @@ public static class GoogleDocumentAiVocLayoutMapper
     ];
 
     public static OcrExtractionResult Apply(OcrExtractionResult extraction, IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines)
-        => Apply(extraction, layoutLines, out _);
+        => Apply(extraction, layoutLines, [], out _);
 
     public static OcrExtractionResult Apply(
         OcrExtractionResult extraction,
         IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines,
+        out string identifierMappingReason) => Apply(extraction, layoutLines, [], out identifierMappingReason);
+
+    public static OcrExtractionResult Apply(
+        OcrExtractionResult extraction,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutTokens,
         out string identifierMappingReason)
     {
         if (layoutLines.Count == 0)
@@ -801,7 +808,7 @@ public static class GoogleDocumentAiVocLayoutMapper
         var fields = new Dictionary<string, string?>(extraction.Fields, StringComparer.OrdinalIgnoreCase);
         var confidence = new Dictionary<string, decimal>(extraction.FieldConfidence, StringComparer.OrdinalIgnoreCase);
         var consumed = new HashSet<GoogleDocumentAiLayoutLine>();
-        var identifierResult = ApplyCompositeIdentifierPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
+        var identifierResult = ApplyCompositeIdentifierPair(layoutLines, layoutTokens, fields, confidence, consumed, extraction.Confidence);
         identifierMappingReason = identifierResult.Reason;
         var suppressStandaloneIdentifiers = identifierResult.SuppressStandalone;
         ApplyCompositeTextPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
@@ -826,6 +833,7 @@ public static class GoogleDocumentAiVocLayoutMapper
 
     private static CompositeIdentifierApplyResult ApplyCompositeIdentifierPair(
         IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> tokens,
         Dictionary<string, string?> fields,
         Dictionary<string, decimal> confidence,
         HashSet<GoogleDocumentAiLayoutLine> consumed,
@@ -844,7 +852,15 @@ public static class GoogleDocumentAiVocLayoutMapper
         var hasInlinePair = inlinePair.Success;
         var chassis = inlinePair.Chassis;
         var engine = inlinePair.Engine;
-        if (hasInlineContent && !hasInlinePair) return new CompositeIdentifierApplyResult(true, inlinePair.Reason);
+        if (hasInlineContent && !hasInlinePair)
+        {
+            var geometryPair = ParseGeometryIdentifierPair(label!, tokens);
+            if (!geometryPair.Success) return new CompositeIdentifierApplyResult(true, geometryPair.Reason);
+            inlinePair = geometryPair;
+            hasInlinePair = true;
+            chassis = geometryPair.Chassis;
+            engine = geometryPair.Engine;
+        }
         if (!hasInlineContent)
             match = label is null ? null : FindCompositeRelativeLineFromLabel(lines, label, consumed);
         if (!hasInlinePair && (match is null || !TrySplitIdentifierPair(match.Text, out chassis, out engine)))
@@ -1002,6 +1018,63 @@ public static class GoogleDocumentAiVocLayoutMapper
     }
 
     public static string DiagnoseInlineIdentifierPair(string value) => ParseInlineIdentifierPair(value).Reason;
+
+    public static string DiagnoseGeometryIdentifierPair(
+        GoogleDocumentAiLayoutLine label,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> tokens) => ParseGeometryIdentifierPair(label, tokens).Reason;
+
+    private static IdentifierPairParseResult ParseGeometryIdentifierPair(
+        GoogleDocumentAiLayoutLine label,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> tokens)
+    {
+        var rowTokens = tokens
+            .Where(token => token.Page == label.Page
+                && token.Right >= label.Left - 0.02
+                && token.Left <= label.Right + 0.02
+                && TokenVerticalOverlap(label, token) >= 0.45)
+            .OrderBy(token => token.Left)
+            .ToList();
+        var chassisLabels = rowTokens
+            .Where(token => NormalizeWords(token.Text) is "CHASIS" or "CHASSIS" or "CASIS")
+            .ToList();
+        var noLabels = rowTokens.Where(token => NormalizeWords(token.Text) is "NO" or "NOMBOR").ToList();
+        var headerPairs = rowTokens
+            .Where(token => NormalizeWords(token.Text) == "ENJIN")
+            .SelectMany(engine => chassisLabels.Select(chassis => new { Engine = engine, Chassis = chassis }))
+            .Where(pair => pair.Chassis.Left < pair.Engine.Left && TokensShareRow(pair.Chassis, pair.Engine))
+            .Where(pair => noLabels.Any(no => no.Left < pair.Chassis.Left && TokensShareRow(no, pair.Chassis))
+                && noLabels.Any(no => no.Left > pair.Chassis.Right && no.Right < pair.Engine.Left && TokensShareRow(no, pair.Engine))
+                && rowTokens.Any(separator => separator.Text.Trim() is "/" or "|"
+                    && separator.Left > pair.Chassis.Right
+                    && separator.Right < pair.Engine.Left
+                    && TokensShareRow(separator, pair.Engine)))
+            .ToList();
+        if (headerPairs.Count != 1) return new IdentifierPairParseResult(false, "", "", "geometry-header-count");
+        var engineLabel = headerPairs[0].Engine;
+
+        var engineHeight = Math.Max(0.001, engineLabel.Bottom - engineLabel.Top);
+        var alignedTokens = rowTokens
+            .Where(token => token.Left >= engineLabel.Right - 0.005
+                && Math.Abs(CenterY(token) - CenterY(engineLabel)) <= Math.Max(0.012, engineHeight * 0.75))
+            .ToList();
+        var candidates = alignedTokens
+            .Select(token => new { Token = token, Value = ValidateIdentifier(token.Text, 5) })
+            .Where(candidate => candidate.Value is not null)
+            .ToList();
+        if (candidates.Count != 2) return new IdentifierPairParseResult(false, "", "", "geometry-candidate-count");
+
+        var separatorPresent = alignedTokens.Any(token =>
+            (token.Text.Trim() is "/" or "|")
+            && CenterX(token) > CenterX(candidates[0].Token)
+            && CenterX(token) < CenterX(candidates[1].Token));
+        if (!separatorPresent) return new IdentifierPairParseResult(false, "", "", "geometry-delimiter-missing");
+
+        var chassis = ValidateIdentifier(candidates[0].Value!, 10) ?? "";
+        var engine = ValidateIdentifier(candidates[1].Value!, 5) ?? "";
+        return chassis.Length > 0 && engine.Length > 0
+            ? new IdentifierPairParseResult(true, chassis, engine, "mapped-geometry-delimited")
+            : new IdentifierPairParseResult(false, "", "", "geometry-validation-failed");
+    }
 
     private static IdentifierPairParseResult ParseInlineIdentifierPair(string value)
     {
@@ -1176,6 +1249,15 @@ public static class GoogleDocumentAiVocLayoutMapper
     private static double LineArea(GoogleDocumentAiLayoutLine line) => Math.Max(0, line.Right - line.Left) * Math.Max(0, line.Bottom - line.Top);
     private static double CenterX(GoogleDocumentAiLayoutLine line) => (line.Left + line.Right) / 2;
     private static double CenterY(GoogleDocumentAiLayoutLine line) => (line.Top + line.Bottom) / 2;
+    private static bool TokensShareRow(GoogleDocumentAiLayoutLine left, GoogleDocumentAiLayoutLine right) =>
+        Math.Abs(CenterY(left) - CenterY(right)) <= Math.Max(
+            0.012,
+            Math.Max(left.Bottom - left.Top, right.Bottom - right.Top) * 0.75);
+    private static double TokenVerticalOverlap(GoogleDocumentAiLayoutLine left, GoogleDocumentAiLayoutLine right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.Bottom, right.Bottom) - Math.Max(left.Top, right.Top));
+        return overlap / Math.Max(0.001, Math.Min(left.Bottom - left.Top, right.Bottom - right.Top));
+    }
 
     private static string WarningFieldName(string field) => field switch
     {

@@ -5425,6 +5425,114 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_merged_identifier_line_from_aligned_token_cells()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin / No: SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+        var label = new GoogleDocumentAiLayoutLine(combinedRow, 1, .10, .20, .92, .28);
+        var tokens = new GoogleDocumentAiLayoutLine[]
+        {
+            new("No.", 1, .10, .20, .14, .23),
+            new("Chasis", 1, .15, .20, .23, .23),
+            new("/", 1, .24, .20, .25, .23),
+            new("No.", 1, .26, .20, .30, .23),
+            new("Enjin", 1, .31, .20, .38, .23),
+            new(":", 1, .39, .20, .40, .23),
+            new("SYNTHCHASSIS12345", 1, .43, .20, .61, .23),
+            new("/", 1, .62, .20, .63, .23),
+            new("SYNTHENGINE67890", 1, .65, .20, .80, .23),
+            new("No.", 1, .10, .25, .14, .28),
+            new("Rujukan", 1, .15, .25, .24, .28),
+            new("SYNTHREFERENCE123", 1, .43, .25, .61, .28)
+        };
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [label], tokens, out var reason);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("mapped-geometry-delimited", reason);
+        Assert.Equal("mapped-geometry-delimited", GoogleDocumentAiVocLayoutMapper.DiagnoseGeometryIdentifierPair(label, tokens));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void Google_document_ai_fixed_voc_layout_rejects_geometry_without_one_delimited_identifier_pair(
+        bool includeDelimiter,
+        bool includeExtraCandidate)
+    {
+        const string combinedRow = "No. Chasis / No. Enjin merged provider line";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+        var label = new GoogleDocumentAiLayoutLine(combinedRow, 1, .10, .20, .92, .23);
+        var tokens = new List<GoogleDocumentAiLayoutLine>
+        {
+            new("No.", 1, .10, .20, .14, .23),
+            new("Chasis", 1, .15, .20, .23, .23),
+            new("/", 1, .24, .20, .25, .23),
+            new("No.", 1, .26, .20, .30, .23),
+            new("Enjin", 1, .31, .20, .38, .23),
+            new("SYNTHCHASSIS12345", 1, .43, .20, .61, .23),
+            new("SYNTHENGINE67890", 1, .65, .20, .80, .23)
+        };
+        if (includeDelimiter) tokens.Add(new("/", 1, .62, .20, .63, .23));
+        if (includeExtraCandidate) tokens.Add(new("EXTRAREFERENCE123", 1, .82, .20, .91, .23));
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [label], tokens, out var reason);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Equal(includeExtraCandidate ? "geometry-candidate-count" : "geometry-delimiter-missing", reason);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_rejects_multiple_full_geometry_headers_in_a_merged_line()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin merged rows";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+        var label = new GoogleDocumentAiLayoutLine(combinedRow, 1, .10, .20, .92, .29);
+        var tokens = GeometryHeaderTokens(.20, "SYNTHCHASSIS12345", "SYNTHENGINE67890")
+            .Concat(GeometryHeaderTokens(.26, "OTHERCHASSIS12345", "OTHERENGINE67890"))
+            .ToList();
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [label], tokens, out var reason);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Equal("geometry-header-count", reason);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_rejects_a_distant_geometry_header_outside_the_merged_line()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin merged provider line";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+        var label = new GoogleDocumentAiLayoutLine(combinedRow, 1, .10, .20, .92, .23);
+        var tokens = GeometryHeaderTokens(.60, "OTHERCHASSIS12345", "OTHERENGINE67890");
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [label], tokens, out var reason);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Equal("geometry-header-count", reason);
+    }
+
+    private static IReadOnlyList<GoogleDocumentAiLayoutLine> GeometryHeaderTokens(
+        double top,
+        string chassis,
+        string engine) =>
+    [
+        new("No.", 1, .10, top, .14, top + .03),
+        new("Chasis", 1, .15, top, .23, top + .03),
+        new("/", 1, .24, top, .25, top + .03),
+        new("No.", 1, .26, top, .30, top + .03),
+        new("Enjin", 1, .31, top, .38, top + .03),
+        new(":", 1, .39, top, .40, top + .03),
+        new(chassis, 1, .43, top, .61, top + .03),
+        new("/", 1, .62, top, .63, top + .03),
+        new(engine, 1, .65, top, .80, top + .03)
+    ];
+
+    [Fact]
     public void Google_document_ai_fixed_voc_layout_maps_the_jpj_labels_first_delimited_row()
     {
         const string combinedRow = "No. Chasis / No. Enjin : SYNTHCHASSIS12345 / SYNTHENGINE67890";
