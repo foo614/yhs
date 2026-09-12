@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
 using YSHeng.Api.Features;
 using Xunit;
@@ -6,6 +8,23 @@ namespace YSHeng.Api.Tests;
 
 public sealed class FinanceV2RulesTests
 {
+    [Fact]
+    public void Payment_persistence_model_maps_all_retained_non_null_autocount_columns()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=localhost;Database=model_only;Username=model_only;Password=model_only")
+            .Options;
+        using var db = new AppDbContext(options);
+        var payment = db.Model.FindEntityType(typeof(PaymentRecord));
+
+        Assert.NotNull(payment?.FindProperty(nameof(PaymentRecord.InvoiceGenerated)));
+        Assert.NotNull(payment?.FindProperty(nameof(PaymentRecord.AutoCountKeyed)));
+        Assert.NotNull(payment?.FindProperty(nameof(PaymentRecord.ExternalSyncStatus)));
+        Assert.False(payment!.FindProperty(nameof(PaymentRecord.InvoiceGenerated))!.IsNullable);
+        Assert.False(payment.FindProperty(nameof(PaymentRecord.AutoCountKeyed))!.IsNullable);
+        Assert.False(payment.FindProperty(nameof(PaymentRecord.ExternalSyncStatus))!.IsNullable);
+    }
+
     [Fact]
     public void Nett_price_formula_is_server_owned_and_rounded_to_two_decimals()
     {
@@ -55,6 +74,8 @@ public sealed class FinanceV2RulesTests
         var payment = FinanceV2Rules.CreatePayment(request, vehicle, Guid.NewGuid(), "finance-1", DateTime.UtcNow);
 
         Assert.False(payment.InvoiceGenerated);
+        Assert.False(payment.AutoCountKeyed);
+        Assert.Equal(0, payment.ExternalSyncStatus);
         Assert.False(FinanceV2Rules.RequiresNettPriceApproval(payment));
 
         var issued = FinanceV2Rules.MarkInvoiceGenerated(payment, "SI-202609-000001");
@@ -62,6 +83,30 @@ public sealed class FinanceV2RulesTests
         Assert.True(issued.InvoiceGenerated);
         Assert.True(issued.DocumentsPrepared);
         Assert.Equal("SI-202609-000001", issued.InvoiceNumber);
+        Assert.False(issued.AutoCountKeyed);
+        Assert.Equal(0, issued.ExternalSyncStatus);
+    }
+
+    [Fact]
+    public void Legacy_autocount_compatibility_values_are_server_owned_during_updates()
+    {
+        var existing = V2Payment(150_000m) with
+        {
+            InvoiceGenerated = true,
+            AutoCountKeyed = true,
+            ExternalSyncStatus = 2
+        };
+
+        var preserved = FinanceV2Rules.PreserveServerOwnedFields(existing, existing with
+        {
+            InvoiceGenerated = false,
+            AutoCountKeyed = false,
+            ExternalSyncStatus = 0
+        });
+
+        Assert.True(preserved.InvoiceGenerated);
+        Assert.True(preserved.AutoCountKeyed);
+        Assert.Equal(2, preserved.ExternalSyncStatus);
     }
 
     [Fact]

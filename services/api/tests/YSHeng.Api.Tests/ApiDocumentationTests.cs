@@ -444,6 +444,8 @@ public sealed class ApiDocumentationTests
         var existingInvoiceReturnIndex = invoiceIssueMethod.IndexOf("if (existingInvoice is not null)", StringComparison.Ordinal);
         Assert.True(deliveryGuardIndex >= 0 && deliveryGuardIndex < existingInvoiceReturnIndex);
         Assert.Contains("ADD COLUMN IF NOT EXISTS \"InvoiceGenerated\" boolean NOT NULL DEFAULT false", seedData);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"AutoCountKeyed\" boolean NOT NULL DEFAULT false", seedData);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"ExternalSyncStatus\" integer NOT NULL DEFAULT 0", seedData);
     }
 
     [Fact]

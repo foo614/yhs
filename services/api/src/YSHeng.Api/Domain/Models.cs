@@ -447,7 +447,12 @@ public sealed record PaymentRecord
     public bool BossChecked { get; init; }
     public bool DocumentsPrepared { get; init; }
     public bool ChecklistValidated { get; init; }
+    [JsonIgnore]
     public bool InvoiceGenerated { get; init; }
+    [JsonIgnore]
+    public bool AutoCountKeyed { get; init; }
+    [JsonIgnore]
+    public int ExternalSyncStatus { get; init; }
     public decimal SalesPrice { get; init; }
     public decimal InterestAdditionalCharges { get; init; }
     public decimal NcdAmount { get; init; }
