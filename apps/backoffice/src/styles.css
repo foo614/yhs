@@ -4190,6 +4190,90 @@ body {
   margin-bottom: 0;
 }
 
+.financeCollectionEvidenceList,
+.financeCollectionEvidenceList > div,
+.secureDocumentEvidence,
+.secureDocumentEvidenceHeader > div:first-child {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.financeCollectionEvidenceList {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+
+.secureDocumentEvidence {
+  padding: 10px;
+  border: 1px solid rgba(20, 72, 61, .12);
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.secureDocumentEvidenceHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.secureDocumentEvidenceHeader .ant-typography {
+  overflow-wrap: anywhere;
+}
+
+.secureDocumentEvidenceState {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.secureDocumentThumbnail {
+  width: 100%;
+  min-height: 140px;
+  max-height: 220px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(20, 72, 61, .18);
+  border-radius: 6px;
+  background: #eef4f2;
+  cursor: zoom-in;
+}
+
+.secureDocumentThumbnail img {
+  width: 100%;
+  height: 100%;
+  max-height: 220px;
+  display: block;
+  object-fit: contain;
+}
+
+.secureDocumentPdf iframe {
+  width: 100%;
+  height: 260px;
+  display: block;
+  border: 1px solid rgba(20, 72, 61, .18);
+  border-radius: 6px;
+  background: #fff;
+}
+
+@media (max-width: 640px) {
+  .secureDocumentEvidenceHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .secureDocumentEvidenceHeader .ant-space,
+  .secureDocumentEvidenceHeader .ant-btn {
+    width: 100%;
+  }
+
+  .secureDocumentPdf iframe {
+    height: 220px;
+  }
+}
+
 .financeV2ReverseReason {
   margin-top: 14px;
 }

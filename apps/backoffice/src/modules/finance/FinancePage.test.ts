@@ -13,6 +13,7 @@ import {
   financeInvoiceSubmitLabel,
   financeInvoiceVehicleDefaults,
   financePaymentNeedsAdjustmentApproval,
+  financeHistoryDateTime,
   financePaymentCustomerId,
   financePaymentCustomerLabel,
   financeRequesterLabel,
@@ -23,6 +24,7 @@ import {
   InvoiceUpdateRequestQueue,
   PurchaseInvoiceConfirmationError,
   payDailySpend,
+  paymentCollectionEvidence,
   paymentFromEditableDetails,
   settlementDraftForVehicle,
   settlementMatchesDashboardAttention
@@ -208,6 +210,25 @@ describe("Customer receipt targets", () => {
     expect(targets[0].payment.id).toBe("payment-1");
     expect(targets[0].payment.vehicleId).toBe("vehicle-1");
     expect(targets[0].collection).toMatchObject({ id: "collection-pending", paymentRecordId: "payment-1", amount: 10_000, status: "Pending" });
+  });
+});
+
+describe("Payment history evidence", () => {
+  it("associates evidence through both payment and collection ownership IDs", () => {
+    const base = { fileName: "receipt.jpg", mimeType: "image/jpeg", category: "PaymentReceipt" as const, ownershipType: "Vehicle" as const, uploadedBy: "finance-1", checksum: "hash", uploadedAt: "2026-09-12T03:04:00Z" };
+    const documents = [
+      { ...base, id: "match", paymentRecordId: "payment-1", collectionTransactionId: "collection-1" },
+      { ...base, id: "wrong-payment", paymentRecordId: "payment-2", collectionTransactionId: "collection-1" },
+      { ...base, id: "wrong-collection", paymentRecordId: "payment-1", collectionTransactionId: "collection-2" }
+    ];
+
+    expect(paymentCollectionEvidence(documents, "payment-1", "collection-1").map((document) => document.id)).toEqual(["match"]);
+  });
+
+  it("renders stored timestamps as date and time while retaining invalid source text", () => {
+    expect(financeHistoryDateTime("2026-09-12T03:04:00Z")).toMatch(/12 Sep 2026/);
+    expect(financeHistoryDateTime("not-a-date")).toBe("not-a-date");
+    expect(financeHistoryDateTime()).toBe("-");
   });
 });
 
