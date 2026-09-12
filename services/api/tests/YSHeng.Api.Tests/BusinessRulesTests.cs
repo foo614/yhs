@@ -3661,6 +3661,58 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Delivery_release_closes_the_canonical_buyer_lead_sold_and_other_open_leads_lost_once()
+    {
+        var vehicleId = Guid.NewGuid();
+        var buyerId = Guid.NewGuid();
+        var olderBuyerLead = new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = buyerId, Status = LeadStatus.Contacted, TakenByUserId = "sales-1", TakenByName = "Sales One", TakenAt = DateTime.UtcNow.AddDays(-2) };
+        var winningLead = new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = buyerId, Status = LeadStatus.Contacted, TakenByUserId = "sales-2", TakenByName = "Sales Two", TakenAt = DateTime.UtcNow.AddDays(-1) };
+        var competingLead = new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = Guid.NewGuid(), Status = LeadStatus.New };
+        var unlinkedLegacyLead = new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = null, Status = LeadStatus.Contacted, TakenByUserId = "sales-3" };
+        var alreadyClosed = new[]
+        {
+            new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = buyerId, Status = LeadStatus.Closed, ClosureOutcome = LeadClosureOutcome.Sold },
+            new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = Guid.NewGuid(), Status = LeadStatus.Closed, ClosureOutcome = LeadClosureOutcome.Lost },
+            new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = null, Status = LeadStatus.Closed, ClosureOutcome = LeadClosureOutcome.Invalid }
+        };
+        var unrelatedLead = new Lead { Id = Guid.NewGuid(), VehicleId = Guid.NewGuid(), CustomerId = buyerId, Status = LeadStatus.New };
+        var leads = new[] { olderBuyerLead, winningLead, competingLead, unlinkedLegacyLead, unrelatedLead }.Concat(alreadyClosed).ToList();
+
+        var closures = DeliveryLeadClosureRules.CloseOpenLeads(vehicleId, buyerId, "sales-1", leads);
+
+        Assert.Equal(4, closures.Count);
+        Assert.Equal(LeadClosureOutcome.Sold, Assert.Single(closures, closure => closure.Lead.Id == olderBuyerLead.Id).Outcome);
+        Assert.All(closures.Where(closure => closure.Lead.Id != olderBuyerLead.Id), closure => Assert.Equal(LeadClosureOutcome.Lost, closure.Outcome));
+        Assert.All(closures, closure => Assert.Equal(LeadStatus.Closed, closure.Lead.Status));
+        Assert.Equal("sales-1", Assert.Single(closures, closure => closure.Lead.Id == olderBuyerLead.Id).Lead.TakenByUserId);
+        Assert.Equal("Sales One", Assert.Single(closures, closure => closure.Lead.Id == olderBuyerLead.Id).Lead.TakenByName);
+        Assert.DoesNotContain(closures, closure => closure.Lead.Id == unrelatedLead.Id || alreadyClosed.Any(closed => closed.Id == closure.Lead.Id));
+
+        var afterFirstRelease = leads
+            .Select(lead => closures.FirstOrDefault(closure => closure.Lead.Id == lead.Id)?.Lead ?? lead)
+            .ToList();
+        Assert.Empty(DeliveryLeadClosureRules.CloseOpenLeads(vehicleId, buyerId, "sales-1", afterFirstRelease));
+        Assert.Equal(LeadStatus.New, unrelatedLead.Status);
+        Assert.Equal([LeadClosureOutcome.Sold, LeadClosureOutcome.Lost, LeadClosureOutcome.Invalid], alreadyClosed.Select(lead => lead.ClosureOutcome));
+    }
+
+    [Fact]
+    public void Delivery_release_does_not_invent_a_sold_lead_without_a_canonical_customer_match()
+    {
+        var vehicleId = Guid.NewGuid();
+        var openLeads = new[]
+        {
+            new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = Guid.NewGuid(), Status = LeadStatus.Contacted, TakenByUserId = "sales-1" },
+            new Lead { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = null, Status = LeadStatus.New }
+        };
+
+        var closures = DeliveryLeadClosureRules.CloseOpenLeads(vehicleId, Guid.NewGuid(), "sales-1", openLeads);
+
+        Assert.Equal(2, closures.Count);
+        Assert.All(closures, closure => Assert.Equal(LeadClosureOutcome.Lost, closure.Outcome));
+    }
+
+    [Fact]
     public void Delivery_is_ready_without_windscreen_cover_when_other_release_requirements_are_complete()
     {
         var delivery = new DeliverySchedule

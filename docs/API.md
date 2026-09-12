@@ -233,7 +233,7 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `GET` | `/api/deliveries/{id}/release-readiness` | `Deliveries` | Check the exact delivery checklist, required delivery-owned documents, and release evidence metadata. |
 | `POST` | `/api/deliveries/{id}/request-invoice-update` | `Deliveries` | Record a reasoned pre-issuance request for Finance; it does not edit invoice or payment data and is rejected after the immutable Finance V2 invoice exists. |
 | `GET` | `/api/deliveries/invoice-update-requests` | `Finance` | List open Delivery invoice-update requests with the vehicle, locked customer, reason, and request time for Finance follow-up. |
-| `POST` | `/api/deliveries/{id}/release` | `Deliveries` | Release a ready vehicle after exact evidence and reconciled Finance clearance pass server validation. |
+| `POST` | `/api/deliveries/{id}/release` | `Deliveries` | Release a ready vehicle after exact evidence and reconciled Finance clearance pass server validation. In the same transaction, one open canonical-buyer lead closes Sold, preferring the vehicle's existing sales attribution and then the latest assigned enquiry; every other open lead for that vehicle closes Lost. Already-closed and unrelated leads remain unchanged, and Delivery PIC remains separate from sales ownership. |
 | `POST` | `/api/deliveries/{id}/cancel` | `Deliveries` | Cancel an active delivery plan with a required reason. |
 | `GET` | `/api/repairs` | `Repairs` | List repair jobs. |
 | `POST` | `/api/repairs` | `Repairs` | Create repair job. |

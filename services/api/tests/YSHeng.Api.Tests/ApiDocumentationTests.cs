@@ -410,6 +410,25 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Delivery_release_closes_vehicle_leads_inside_the_authorized_release_transaction()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var start = program.IndexOf("backOffice.MapPost(\"/deliveries/{id:guid}/release\"", StringComparison.Ordinal);
+        var end = program.IndexOf("backOffice.MapPost(\"/deliveries/{id:guid}/cancel\"", start, StringComparison.Ordinal);
+        var route = program[start..end];
+
+        Assert.Contains("RequireAuthorization(\"Deliveries\")", route);
+        Assert.DoesNotContain("RequireAuthorization(\"Sales\")", route);
+        Assert.Contains("DeliveryLeadClosureRules.CloseOpenLeads", route);
+        Assert.Contains("lead.closedByDeliveryRelease", route);
+        Assert.Contains("DeliveryActivityAudit.Create", route);
+        Assert.True(route.IndexOf("if (!workboardItem.CanRelease)", StringComparison.Ordinal) < route.IndexOf("DeliveryLeadClosureRules.CloseOpenLeads", StringComparison.Ordinal));
+        Assert.True(route.IndexOf("DeliveryLeadClosureRules.CloseOpenLeads", StringComparison.Ordinal) < route.IndexOf("await db.SaveChangesAsync()", StringComparison.Ordinal));
+        Assert.True(route.IndexOf("await db.SaveChangesAsync()", StringComparison.Ordinal) < route.IndexOf("await releaseTransaction.CommitAsync()", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Finance_v2_download_receivable_buyer_and_delivery_invoice_boundaries_are_server_enforced()
     {
         var root = FindRepositoryRoot();
