@@ -279,7 +279,10 @@ describe("simple delivery workboard", () => {
     expect(markup).toContain("Download");
     expect(markup).not.toContain("checksum");
     expect(markup).toContain("Waiting for Finance / 等待财务");
-    expect(markup).toContain("Request sent to Finance");
+    expect(markup).toContain("Sales Invoice update pending with Finance");
+    expect(markup).toContain("Finance has received the request");
+    expect(markup).toContain("Request pending");
+    expect(markup).not.toContain("Request invoice update");
     expect(markup).not.toContain("Invoice No");
     expect(markup).not.toContain("Windscreen expiry");
     expect(markup).not.toContain("Windscreen cover reviewed");

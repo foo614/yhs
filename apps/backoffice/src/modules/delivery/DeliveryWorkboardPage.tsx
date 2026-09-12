@@ -492,7 +492,7 @@ export function DeliveryWorkboardPage({
         message.success("Delivery cancelled");
       } else if (secondaryAction === "invoice") {
         await requestDeliveryInvoiceUpdate(selected.id, actionReason.trim());
-        message.success("Invoice update requested from Finance");
+        message.success("Sales Invoice update requested from Finance");
       } else if (secondaryAction === "buyer") {
         const canonicalCustomerId = vehicles.find((vehicle) => vehicle.id === selected.vehicleId)?.customerId;
         if (!canonicalCustomerId) {
@@ -816,14 +816,14 @@ export function DeliveryWorkboardPage({
 
       <Modal
         open={Boolean(secondaryAction)}
-        title={secondaryAction === "cancel" ? "Cancel delivery?" : secondaryAction === "invoice" ? "Request invoice update" : secondaryAction === "buyer" ? "Lock confirmed buyer?" : "Reschedule delivery"}
-        okText={secondaryAction === "cancel" ? "Cancel delivery" : secondaryAction === "invoice" ? "Send request" : secondaryAction === "buyer" ? "Confirm buyer lock" : "Save new schedule"}
+        title={secondaryAction === "cancel" ? "Cancel delivery?" : secondaryAction === "invoice" ? "Request Sales Invoice Update" : secondaryAction === "buyer" ? "Lock confirmed buyer?" : "Reschedule delivery"}
+        okText={secondaryAction === "cancel" ? "Cancel delivery" : secondaryAction === "invoice" ? "Send to Finance" : secondaryAction === "buyer" ? "Confirm buyer lock" : "Save new schedule"}
         okButtonProps={{ danger: secondaryAction === "cancel", loading: saving }}
         onCancel={() => setSecondaryAction(undefined)}
         onOk={() => void runSecondaryAction()}
       >
         {secondaryAction === "cancel" && <Alert type="warning" showIcon message="This closes the delivery record. Start a new delivery if the sale continues later." />}
-        {secondaryAction === "invoice" && <Alert type="info" showIcon message="Finance will receive the request. Delivery staff cannot edit invoice details." />}
+        {secondaryAction === "invoice" && <Alert type="info" showIcon message="Finance will update the existing Sales Invoice" description="Tell Finance what must change. Delivery staff cannot edit invoice details or create a separate invoice." />}
         {secondaryAction === "buyer" && <Alert type="warning" showIcon message="This locks delivery to the confirmed buyer already linked on the vehicle. It does not change or select a different customer." />}
         {secondaryAction === "reschedule" && <div className="deliveryActionDateGrid">
           <label><span>New date</span><DatePicker format="YYYY-MM-DD" value={deliveryDatePickerValue(rescheduleDate)} onChange={(value) => setRescheduleDate(deliveryDateString(value))} /></label>
@@ -835,7 +835,7 @@ export function DeliveryWorkboardPage({
           </>}
         </div>}
         <label className="deliveryActionReason">
-          <span>{secondaryAction === "invoice" ? "What needs updating?" : secondaryAction === "buyer" ? "Why is this correction needed?" : "Reason"}</span>
+          <span>{secondaryAction === "invoice" ? "Sales Invoice update reason" : secondaryAction === "buyer" ? "Why is this correction needed?" : "Reason"}</span>
           <Input.TextArea rows={3} value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder="Add a short, clear reason" />
         </label>
       </Modal>
@@ -1072,7 +1072,13 @@ export function CurrentStageForm({
           message={item.financeCleared ? "Finance cleared / 财务已确认" : "Waiting for Finance / 等待财务"}
           description="Delivery can see clearance only. Invoice amounts and payment details stay with Finance."
         />
-        <Button disabled={item.invoiceUpdateRequested} onClick={onRequestInvoice}>{item.invoiceUpdateRequested ? "Request sent to Finance / 已通知财务" : "Request invoice update / 要求更新发票"}</Button>
+        <Alert
+          type={item.invoiceUpdateRequested ? "info" : "success"}
+          showIcon
+          message={item.invoiceUpdateRequested ? "Sales Invoice update pending with Finance / 销售发票更新处理中" : "Sales Invoice is owned by Finance / 销售发票由财务负责"}
+          description={item.invoiceUpdateRequested ? "Finance has received the request. Another request cannot be sent until Finance resolves it." : "Delivery uses the existing Sales Invoice. Request an update only when its details need correction."}
+          action={<Button disabled={item.invoiceUpdateRequested} onClick={onRequestInvoice}>{item.invoiceUpdateRequested ? "Request pending / 请求处理中" : "Request Sales Invoice Update / 要求更新销售发票"}</Button>}
+        />
       </div>
       <Button type="primary" htmlType="submit" loading={saving}>Save document checks / 保存文件确认</Button>
     </Form>;
