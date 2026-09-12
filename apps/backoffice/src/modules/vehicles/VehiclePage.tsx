@@ -35,6 +35,7 @@ import {
   getSupplierMaster,
   humanizeApiError,
   previewOwnerIdentityCard,
+  reorderVehiclePhotos,
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
@@ -761,6 +762,7 @@ export function VehiclePage({
   const [photoDeleteDialogSubmitting, setPhotoDeleteDialogSubmitting] = useState(false);
   const [photoDeleteError, setPhotoDeleteError] = useState<string | null>(null);
   const [photoGalleryWarning, setPhotoGalleryWarning] = useState<string | null>(null);
+  const [draggedPhotoId, setDraggedPhotoId] = useState<string | null>(null);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
   const [uploadsLoading, setUploadsLoading] = useState(false);
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
@@ -982,7 +984,28 @@ export function VehiclePage({
         const busyKey = `${selectedVehicleId}:${photo.id}`;
         const isDeleting = deletingPhotoIds.has(busyKey);
         return (
-          <div className="vehiclePhotoPreviewCard" key={photo.id}>
+          <div
+            className="vehiclePhotoPreviewCard"
+            key={photo.id}
+            draggable
+            onDragStart={() => setDraggedPhotoId(photo.id)}
+            onDragEnd={() => setDraggedPhotoId(null)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (!draggedPhotoId || draggedPhotoId === photo.id) return;
+              const reordered = [...visiblePhotos];
+              const from = reordered.findIndex((item) => item.id === draggedPhotoId);
+              const to = reordered.findIndex((item) => item.id === photo.id);
+              if (from < 0 || to < 0) return;
+              const [moved] = reordered.splice(from, 1);
+              reordered.splice(to, 0, moved);
+              setPhotos(reordered);
+              void reorderVehiclePhotos(selectedVehicleId, reordered.map((item) => item.id)).catch((error) => {
+                setPhotoGalleryWarning(humanizeApiError(error, "Photo order could not be saved."));
+                void loadUploads(selectedVehicleId, true);
+              });
+            }}
+          >
             <a
               className="vehiclePhotoPreviewLink"
               href={vehiclePhotoContentUrl(selectedVehicleId, photo.id)}

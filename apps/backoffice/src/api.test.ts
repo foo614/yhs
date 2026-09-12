@@ -104,6 +104,7 @@ import {
   officialReceiptContentUrl,
   vehiclePhotoContentUrl,
   deleteVehiclePhoto,
+  reorderVehiclePhotos,
   deleteLoanDocument,
   login,
   logout,
@@ -2036,6 +2037,15 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:5000/api/vehicles/vehicle-1/photos/photo-1",
       expect.objectContaining({ method: "DELETE", credentials: "include" })
+    );
+  });
+
+  it("saves the complete vehicle photo order", async () => {
+    const fetchMock = mockEmptyFetch(true, 204);
+    await reorderVehiclePhotos("vehicle-1", ["photo-2", "photo-1"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/photos/order",
+      expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify({ photoIds: ["photo-2", "photo-1"] }) })
     );
   });
 

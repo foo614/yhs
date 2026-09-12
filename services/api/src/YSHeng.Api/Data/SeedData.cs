@@ -623,6 +623,7 @@ public static class SeedData
             ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "CreatorAttribution" text NULL;
             ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "LicenseName" text NULL;
             ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "LicenseUrl" text NULL;
+            ALTER TABLE "VehiclePhotos" ADD COLUMN IF NOT EXISTS "SortOrder" integer NULL;
         """);
     }
 

@@ -1323,6 +1323,7 @@ export type VehiclePhoto = {
   mimeType: string;
   uploadedBy: string;
   checksum: string;
+  sortOrder?: number | null;
   uploadedAt: string;
 };
 
@@ -2563,6 +2564,13 @@ export async function uploadVehiclePhoto(vehicleId: string, file: File) {
 
 export async function deleteVehiclePhoto(vehicleId: string, photoId: string): Promise<void> {
   await request<void>(`/api/vehicles/${vehicleId}/photos/${photoId}`, { method: "DELETE" }, "Unable to delete vehicle photo");
+}
+
+export async function reorderVehiclePhotos(vehicleId: string, photoIds: string[]): Promise<void> {
+  await request<void>(`/api/vehicles/${vehicleId}/photos/order`, {
+    method: "PUT",
+    body: JSON.stringify({ photoIds })
+  }, "Unable to save vehicle photo order");
 }
 
 export async function uploadVehicleDocument(vehicleId: string, file: File, category: DocumentCategory, owner?: DocumentUploadOwner): Promise<VehicleDocument> {

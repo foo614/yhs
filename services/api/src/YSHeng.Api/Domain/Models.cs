@@ -158,8 +158,11 @@ public sealed record VehiclePhoto
     public string? CreatorAttribution { get; init; }
     public string? LicenseName { get; init; }
     public string? LicenseUrl { get; init; }
+    public int? SortOrder { get; init; }
     public DateTime UploadedAt { get; init; } = DateTime.UtcNow;
 }
+
+public sealed record VehiclePhotoOrderRequest(Guid[] PhotoIds);
 
 public sealed record DocumentBlob
 {
