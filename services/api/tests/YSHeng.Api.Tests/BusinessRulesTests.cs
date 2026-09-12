@@ -148,6 +148,45 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Vehicle_catalog_selection_resolves_active_canonical_pair_and_rejects_raw_bypass()
+    {
+        var civic = new VehicleCatalogModel { Make = "Honda", Model = "Civic", IsActive = true };
+        var inactive = new VehicleCatalogModel { Make = "Honda", Model = "City", IsActive = false };
+
+        var caseOnly = VehicleCatalogRules.FindActiveSelection(" honda ", "civic", [civic, inactive]);
+        var wrongMake = VehicleCatalogRules.FindActiveSelection("Nissan", "Civic", [civic, inactive]);
+        var detailedRaw = VehicleCatalogRules.FindActiveSelection("Honda", "Civic 1.5L V", [civic, inactive]);
+
+        Assert.Same(civic, caseOnly);
+        Assert.Null(wrongMake);
+        Assert.Null(detailedRaw);
+        Assert.Contains(VehicleCatalogRules.ValidateSelection(detailedRaw).Errors, error => error.Code == "vehicle_catalog_selection_required");
+        var canonicalVehicle = VehicleCatalogRules.ApplyCanonicalSelection(
+            VehicleSeed.Available(publicVisible: false) with { Make = "HONDA", Model = "CIVIC" }, caseOnly!);
+        Assert.Equal("Honda", canonicalVehicle.Make);
+        Assert.Equal("Civic", canonicalVehicle.Model);
+    }
+
+    [Fact]
+    public void Explicitly_created_catalog_pair_becomes_a_valid_vehicle_selection()
+    {
+        var created = VehicleCatalogRules.Create(new VehicleCatalogModelRequest(" New Make ", " New Model "));
+
+        Assert.True(VehicleCatalogRules.Validate(created).IsValid);
+        Assert.Same(created, VehicleCatalogRules.FindActiveSelection("new make", "new model", [created]));
+    }
+
+    [Fact]
+    public void Unchanged_legacy_catalog_pair_remains_editable_but_pair_changes_require_validation()
+    {
+        var existing = VehicleSeed.Available(publicVisible: false) with { Make = "Legacy Make", Model = "Legacy Model" };
+
+        Assert.False(VehicleCatalogRules.HasSelectionChanged(existing, existing with { StockLocation = "Showroom" }));
+        Assert.True(VehicleCatalogRules.HasSelectionChanged(existing, existing with { Model = "Different Model" }));
+        Assert.True(VehicleCatalogRules.HasSelectionChanged(existing, existing with { Make = "legacy make" }));
+    }
+
+    [Fact]
     public void Vehicle_catalog_public_response_excludes_internal_status()
     {
         var item = new VehicleCatalogModel { Make = "Honda", Model = "City", IsActive = false };
@@ -5320,6 +5359,90 @@ public sealed class BusinessRulesTests
 
         Assert.Equal("QAA1234", result.Fields["plateNumber"]);
         Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No car plate", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_splits_known_paired_rows_without_cross_mapping()
+    {
+        const string rawText =
+            "No. Chasis / No. Enjin SYNTHCHASSIS12345 SYNTHENGINE67890 " +
+            "Buatan / Nama Model HONDA / CIVIC 1.5L V Jenis Badan / Tahun Dibuat MOTOKAR / 2024";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], rawText, 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Chasis / No. Enjin", 1, .10, .20, .40, .23),
+            new("SYNTHCHASSIS12345 SYNTHENGINE67890", 1, .11, .25, .39, .28),
+            new("Buatan / Nama Model", 1, .10, .35, .40, .38),
+            new("HONDA / CIVIC 1.5L V", 1, .11, .40, .39, .43),
+            new("Jenis Badan / Tahun Dibuat", 1, .10, .50, .40, .53),
+            new("MOTOKAR / 2024", 1, .11, .55, .39, .58)
+        ]);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("HONDA", result.Fields["make"]);
+        Assert.Equal("CIVIC 1.5L V", result.Fields["model"]);
+        Assert.Equal("2024", result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_preserves_conflicting_prepopulated_values()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "", 0.9m, []) with
+        {
+            Fields = new Dictionary<string, string?>
+            {
+                ["chassisNumber"] = "TRUSTEDCHASSIS123",
+                ["engineNumber"] = null,
+                ["make"] = "Trusted Make",
+                ["model"] = null,
+                ["year"] = "2023"
+            }
+        };
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Chasis / No. Enjin", 1, .10, .20, .40, .23),
+            new("OTHERCHASSIS12345 OTHERENGINE67890", 1, .11, .25, .39, .28),
+            new("Buatan / Nama Model", 1, .10, .35, .40, .38),
+            new("HONDA / CIVIC 1.5L V", 1, .11, .40, .39, .43),
+            new("Jenis Badan / Tahun Dibuat", 1, .10, .50, .40, .53),
+            new("MOTOKAR / 2024", 1, .11, .55, .39, .58)
+        ]);
+
+        Assert.Equal("TRUSTEDCHASSIS123", result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Equal("Trusted Make", result.Fields["make"]);
+        Assert.Null(result.Fields["model"]);
+        Assert.Equal("2023", result.Fields["year"]);
+    }
+
+    [Theory]
+    [InlineData("HONDA / CIVIC 1.5L V", "Trusted Model", "HONDA / CIVIC 1.5L V", "Trusted Model")]
+    [InlineData("Trusted Make", "HONDA / CIVIC 1.5L V", "Trusted Make", "HONDA / CIVIC 1.5L V")]
+    public void Google_document_ai_fixed_voc_layout_preserves_a_trusted_partner_when_only_one_field_is_a_composite_echo(
+        string existingMake,
+        string existingModel,
+        string? expectedMake,
+        string? expectedModel)
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "", 0.9m, []) with
+        {
+            Fields = new Dictionary<string, string?>
+            {
+                ["make"] = existingMake,
+                ["model"] = existingModel
+            }
+        };
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("Buatan / Nama Model", 1, .10, .35, .40, .38),
+            new("HONDA / CIVIC 1.5L V", 1, .11, .40, .39, .43)
+        ]);
+
+        Assert.Equal(expectedMake, result.Fields["make"]);
+        Assert.Equal(expectedModel, result.Fields["model"]);
     }
 
     [Fact]

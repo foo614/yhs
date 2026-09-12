@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { UploadOutlined } from "@ant-design/icons";
 import { Alert, Button, Space, Tag, Upload, message } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
-import { previewVehicleIntakeVoc, type OcrExtractionResult } from "../../api";
+import { previewVehicleIntakeVoc, type OcrExtractionResult, type VehicleCatalogModel } from "../../api";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
 
 const vocFields = [
@@ -25,6 +25,43 @@ export type VehicleIntakeVocDraft = {
 };
 export type VehicleIntakeVocPatch = VehicleIntakeVocDraft;
 export type VehicleIntakeVocDecision = "keep" | "replace";
+
+export type VehicleIntakeVocCatalogResolution = {
+  item: VehicleCatalogModel;
+  modelMatch: "exact" | "base";
+};
+
+function catalogWords(value: string | null | undefined) {
+  return normalized(value).toLocaleUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+}
+
+export function vehicleIntakeVocCatalogResolution(
+  reviewedValues: Record<string, string | null | undefined>,
+  catalogModels: readonly VehicleCatalogModel[]
+): VehicleIntakeVocCatalogResolution | undefined {
+  const make = catalogWords(reviewedValues.make);
+  const model = catalogWords(reviewedValues.model);
+  if (!make || !model) return undefined;
+  const makeModels = catalogModels.filter((item) => item.isActive && catalogWords(item.make) === make);
+  const exact = makeModels.filter((item) => catalogWords(item.model) === model);
+  if (exact.length === 1) return { item: exact[0], modelMatch: "exact" };
+  if (exact.length > 1) return undefined;
+  const baseMatches = makeModels.filter((item) => {
+    const candidate = catalogWords(item.model);
+    return candidate && model.startsWith(`${candidate} `);
+  });
+  if (!baseMatches.length) return undefined;
+  const longestLength = Math.max(...baseMatches.map((item) => catalogWords(item.model).length));
+  const longest = baseMatches.filter((item) => catalogWords(item.model).length === longestLength);
+  return longest.length === 1 ? { item: longest[0], modelMatch: "base" } : undefined;
+}
+
+export function vehicleIntakeVocCatalogMatch(
+  reviewedValues: Record<string, string | null | undefined>,
+  catalogModels: readonly VehicleCatalogModel[]
+) {
+  return vehicleIntakeVocCatalogResolution(reviewedValues, catalogModels)?.item;
+}
 
 export function isVehicleIntakeVocMimeType(mimeType: string) {
   return mimeType === "application/pdf" || isOcrImageMimeType(mimeType);
@@ -66,17 +103,33 @@ function validYear(value: string) {
 export function vehicleIntakeVocPatch(
   draft: VehicleIntakeVocDraft,
   reviewedValues: Record<string, string | null | undefined>,
-  decisions: Partial<Record<VehicleIntakeVocField, VehicleIntakeVocDecision>>
+  decisions: Partial<Record<VehicleIntakeVocField, VehicleIntakeVocDecision>>,
+  catalogModels: readonly VehicleCatalogModel[]
 ): VehicleIntakeVocPatch {
-  return vocFields.reduce<VehicleIntakeVocPatch>((patch, field) => {
+  const catalogMatch = vehicleIntakeVocCatalogMatch(reviewedValues, catalogModels);
+  const patch: VehicleIntakeVocPatch = {};
+  if (catalogMatch) {
+    const currentMake = normalized(draft.make);
+    const currentModel = normalized(draft.model);
+    const makeMatches = catalogWords(currentMake) === catalogWords(catalogMatch.make);
+    const modelMatches = catalogWords(currentModel) === catalogWords(catalogMatch.model);
+    const canApplyPair = (!currentMake || makeMatches || decisions.make === "replace")
+      && (!currentModel || modelMatches || decisions.model === "replace");
+    if (canApplyPair) {
+      if (!makeMatches) patch.make = catalogMatch.make;
+      if (!modelMatches) patch.model = catalogMatch.model;
+    }
+  }
+  return vocFields.reduce<VehicleIntakeVocPatch>((nextPatch, field) => {
+    if (field.name === "make" || field.name === "model") return nextPatch;
     const extracted = normalized(reviewedValues[field.name]);
     const current = normalized(draft[field.name]);
-    if (!extracted || (field.name === "year" && !validYear(extracted))) return patch;
-    if (current && (current === extracted || decisions[field.name] !== "replace")) return patch;
-    if (field.name === "year") patch.year = Number(extracted);
-    else patch[field.name] = extracted;
-    return patch;
-  }, {});
+    if (!extracted || (field.name === "year" && !validYear(extracted))) return nextPatch;
+    if (current && (current === extracted || decisions[field.name] !== "replace")) return nextPatch;
+    if (field.name === "year") nextPatch.year = Number(extracted);
+    else nextPatch[field.name] = extracted;
+    return nextPatch;
+  }, patch);
 }
 
 export function vehicleIntakeVocDetectedFields(reviewedValues: Record<string, string | null | undefined>) {
@@ -98,11 +151,13 @@ export function vehicleIntakeVocFieldState(
 
 export function VehicleIntakeVocReview({
   draft,
+  catalogModels,
   disabled,
   onReviewReady,
   onClear
 }: {
   draft: VehicleIntakeVocDraft;
+  catalogModels: readonly VehicleCatalogModel[];
   disabled?: boolean;
   onReviewReady: (patch: VehicleIntakeVocPatch, file: File, detectedFields: VehicleIntakeVocField[]) => void;
   onClear: () => void;
@@ -111,6 +166,12 @@ export function VehicleIntakeVocReview({
   const [reviewedValues, setReviewedValues] = useState<Record<string, string | null | undefined>>({});
   const [busy, setBusy] = useState(false);
   const visibleWarnings = vocReviewWarnings(result?.warnings ?? []);
+  const catalogResolution = vehicleIntakeVocCatalogResolution(reviewedValues, catalogModels);
+  const catalogMatch = catalogResolution?.item;
+  const ocrMake = normalized(reviewedValues.make);
+  const ocrModel = normalized(reviewedValues.model);
+  const hasExtractedCatalogText = Boolean(ocrMake || ocrModel);
+  const needsCatalogConfirmation = hasExtractedCatalogText && !catalogMatch;
   const previewRequestGate = useRef<ReturnType<typeof createVehicleIntakeVocPreviewRequestGate> | null>(null);
   const previewInFlight = useRef(false);
 
@@ -144,7 +205,7 @@ export function VehicleIntakeVocReview({
       const detectedFields = vehicleIntakeVocDetectedFields(nextValues);
       setResult(preview.result);
       setReviewedValues(nextValues);
-      onReviewReady(vehicleIntakeVocPatch(draft, nextValues, {}), nextFile, detectedFields);
+      onReviewReady(vehicleIntakeVocPatch(draft, nextValues, {}, catalogModels), nextFile, detectedFields);
       option.onSuccess?.({ ok: true });
     } catch (error) {
       if (!gate.isCurrent(request)) return;
@@ -198,9 +259,28 @@ export function VehicleIntakeVocReview({
               description={<ul className="vehicleIntakeVocWarnings">{visibleWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
             />
           ) : null}
+          {needsCatalogConfirmation ? (
+            <Alert
+              className="compactOcrGuidanceAlert"
+              type="warning"
+              showIcon
+              message="OCR Make or Model is not in the catalogue"
+              description={`OCR reference: ${ocrMake || "Make not detected"} / ${ocrModel || "Model not detected"}. Choose an existing Make and Model below, or explicitly add the checked option through the governed catalogue flow. OCR will not create or submit catalogue data.`}
+            />
+          ) : catalogResolution?.modelMatch === "base" ? (
+            <Alert
+              className="compactOcrGuidanceAlert"
+              type="info"
+              showIcon
+              message={`Matched to catalogue: ${catalogResolution.item.make} / ${catalogResolution.item.model}`}
+              description={`OCR reference: ${ocrMake} / ${ocrModel}. The detailed OCR variant remains visible for review; the vehicle will use the existing canonical catalogue model.`}
+            />
+          ) : null}
           <div className="vehicleIntakeVocSummary" aria-label="VOC extraction summary">
             {vocFields.map((field) => {
-              const state = vehicleIntakeVocFieldState(draft, reviewedValues, field.name);
+              const state = needsCatalogConfirmation && (field.name === "make" || field.name === "model") && !normalized(draft[field.name])
+                ? "Select manually"
+                : vehicleIntakeVocFieldState(draft, reviewedValues, field.name);
               return <Tag key={field.name} color={state === "OCR-filled" ? "blue" : state === "Existing entry kept" ? "green" : "default"}>{field.label}: {state}</Tag>;
             })}
             <Tag color={normalized(reviewedValues.ownerName) ? "green" : "default"}>Registered owner: {normalized(reviewedValues.ownerName) ? "Detected for reference" : "Not detected"}</Tag>

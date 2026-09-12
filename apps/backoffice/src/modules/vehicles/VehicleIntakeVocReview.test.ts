@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocDetectedFields, vehicleIntakeVocFieldState, vehicleIntakeVocPatch, vocReviewWarnings } from "./VehicleIntakeVocReview";
+import type { VehicleCatalogModel } from "../../api";
+import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocCatalogResolution, vehicleIntakeVocDetectedFields, vehicleIntakeVocFieldState, vehicleIntakeVocPatch, vocReviewWarnings } from "./VehicleIntakeVocReview";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -16,6 +17,11 @@ function deferred<T>() {
 }
 
 describe("vehicle intake VOC review", () => {
+  const catalogModels: VehicleCatalogModel[] = [
+    { id: "proton-x70", make: "Proton", model: "X70", isActive: true },
+    { id: "honda-civic", make: "Honda", model: "Civic", isActive: true },
+    { id: "nissan-civic", make: "Nissan", model: "Civic", isActive: true }
+  ];
   const reviewedValues = {
     plateNumber: "VAB1234",
     chassisNumber: "MMB12345678901234",
@@ -27,7 +33,7 @@ describe("vehicle intake VOC review", () => {
   };
 
   it("fills only empty intake fields until staff explicitly applies the reviewed VOC", () => {
-    expect(vehicleIntakeVocPatch({ plateNumber: "VAB1234", make: "", model: "", year: undefined }, reviewedValues, {})).toEqual({
+    expect(vehicleIntakeVocPatch({ plateNumber: "VAB1234", make: "", model: "", year: undefined }, reviewedValues, {}, catalogModels)).toEqual({
       chassisNumber: "MMB12345678901234",
       engineNumber: "4B11T123456",
       make: "Proton",
@@ -39,20 +45,40 @@ describe("vehicle intake VOC review", () => {
   it("keeps differing nonblank intake values unless staff chooses Replace for that field", () => {
     const draft = { plateNumber: "VAB1234", make: "Honda", model: "CR-V", year: 2023 };
 
-    expect(vehicleIntakeVocPatch(draft, reviewedValues, {})).toEqual({
+    expect(vehicleIntakeVocPatch(draft, reviewedValues, {}, catalogModels)).toEqual({
       chassisNumber: "MMB12345678901234",
       engineNumber: "4B11T123456"
     });
-    expect(vehicleIntakeVocPatch(draft, reviewedValues, { make: "replace", year: "replace" })).toEqual({
+    expect(vehicleIntakeVocPatch(draft, reviewedValues, { make: "replace", year: "replace" }, catalogModels)).toEqual({
       chassisNumber: "MMB12345678901234",
       engineNumber: "4B11T123456",
-      make: "Proton",
       year: 2024
     });
+    expect(vehicleIntakeVocPatch(draft, reviewedValues, { make: "replace", model: "replace" }, catalogModels)).toMatchObject({ make: "Proton", model: "X70" });
   });
 
   it("does not apply an invalid OCR year", () => {
-    expect(vehicleIntakeVocPatch({}, { ...reviewedValues, year: "2099" }, {})).not.toHaveProperty("year");
+    expect(vehicleIntakeVocPatch({}, { ...reviewedValues, year: "2099" }, {}, catalogModels)).not.toHaveProperty("year");
+  });
+
+  it("selects a unique canonical model base within the matched Make and preserves match type", () => {
+    const resolution = vehicleIntakeVocCatalogResolution({ make: "HONDA", model: "CIVIC 1.5L V" }, catalogModels);
+
+    expect(resolution).toMatchObject({ item: { make: "Honda", model: "Civic" }, modelMatch: "base" });
+    expect(vehicleIntakeVocPatch({}, { make: "HONDA", model: "CIVIC 1.5L V" }, {}, catalogModels)).toEqual({ make: "Honda", model: "Civic" });
+  });
+
+  it("requires manual selection for ambiguous prefixes, wrong-Make models, and no match", () => {
+    const ambiguous = [
+      ...catalogModels,
+      { id: "honda-civic-hyphen", make: "Honda", model: "Civic-X", isActive: true },
+      { id: "honda-civic-space", make: "Honda", model: "Civic X", isActive: true }
+    ];
+
+    expect(vehicleIntakeVocCatalogResolution({ make: "Honda", model: "Civic X Premium" }, ambiguous)).toBeUndefined();
+    expect(vehicleIntakeVocCatalogResolution({ make: "Honda", model: "Nissan Leaf" }, catalogModels)).toBeUndefined();
+    expect(vehicleIntakeVocCatalogResolution({ make: "Unknown", model: "Civic" }, catalogModels)).toBeUndefined();
+    expect(vehicleIntakeVocCatalogResolution({ make: "Honda", model: "Accord" }, catalogModels)).toBeUndefined();
   });
 
   it("distinguishes OCR-filled fields from fields that still need manual entry", () => {
@@ -80,6 +106,13 @@ describe("vehicle intake VOC review", () => {
     expect(vehiclePageSource).toContain('className="compactOcrGuidanceAlert vehicleIntakeOwnerReviewAlert"');
   });
 
+  it("uses governed catalogue selectors for vehicle edits while preserving current legacy values", () => {
+    const vehiclePageSource = readFileSync(fileURLToPath(new URL("./VehiclePage.tsx", import.meta.url)), "utf8");
+    expect(vehiclePageSource).toContain('legacySelection={{ make: selectedVehicle?.make, model: selectedVehicle?.model }}');
+    expect(vehiclePageSource).not.toContain('<Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>');
+    expect(vehiclePageSource).toContain("(current saved value)");
+  });
+
   it("accepts the intake VOC file types without broadening the NRIC image-only rule", () => {
     expect(isVehicleIntakeVocMimeType("application/pdf")).toBe(true);
     expect(isVehicleIntakeVocMimeType("image/jpeg")).toBe(true);
@@ -96,6 +129,7 @@ describe("vehicle intake VOC review", () => {
   it("disables the initial scan control when the intake is disabled", () => {
     const markup = renderToStaticMarkup(createElement(VehicleIntakeVocReview, {
       draft: {},
+      catalogModels,
       disabled: true,
       onReviewReady: () => undefined,
       onClear: () => undefined
