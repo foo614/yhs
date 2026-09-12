@@ -3581,23 +3581,12 @@ function RepairPage({
         <Button onClick={() => setUploadRepairId("")}>Back to Repair List</Button>
         <ProCard title={`Repair Details / 整备详情 - ${plateFor(vehicles, selectedRepair.vehicleId)}`}>
           <Descriptions size="small" column={{ xs: 1, md: 3 }}>
-            <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedRepair.vehicleId)}</Descriptions.Item>
-            <Descriptions.Item label="Repair title / 整备标题">{selectedRepair.whatToDo || selectedRepair.repairPart || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Cost / 费用 (RM)">{formatMoney(selectedRepair.cost)}</Descriptions.Item>
-            <Descriptions.Item label="Work status / 工作状态">
-              <Tag color={selectedRepair.checklistDone ? "green" : "orange"}>{selectedRepair.checklistDone ? "Completed" : "In progress"}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Started on / 开始日期">{selectedRepair.startedOn || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Expected completion / 预计完成">{selectedRepair.expectedCompletionDate || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Approval / 审批">
-              <Tag color={selectedRepair.approvalStatus === "Rejected" ? "red" : selectedRepair.approvalStatus === "Pending" ? "gold" : "blue"}>{selectedRepair.approvalStatus ?? "Approved"}</Tag>
-            </Descriptions.Item>
+            <Descriptions.Item label="Work status / 工作状态"><Tag color={selectedRepair.checklistDone ? "green" : "orange"}>{selectedRepair.checklistDone ? "Completed" : "In progress"}</Tag></Descriptions.Item>
+            <Descriptions.Item label="Approval / 审批"><Tag color={selectedRepair.approvalStatus === "Rejected" ? "red" : selectedRepair.approvalStatus === "Pending" ? "gold" : "blue"}>{selectedRepair.approvalStatus ?? "Approved"}</Tag></Descriptions.Item>
             <Descriptions.Item label="Approved By / 审批人">{selectedRepair.approvedBy || "Not approved"}</Descriptions.Item>
             <Descriptions.Item label="Approved At / 审批时间">{selectedRepair.approvedAt ? new Date(selectedRepair.approvedAt).toLocaleString() : "-"}</Descriptions.Item>
           </Descriptions>
           {canApproveRepairs && selectedRepair.approvalStatus !== "Approved" && <Button type="primary" onClick={() => confirmRepairApproval(selectedRepair)}>Approve Repair</Button>}
-        </ProCard>
-        <ProCard title="Repair Record / 整备资料">
           <Form
             name="repairEdit"
             key={`${selectedRepair.id}-repair-record`}
