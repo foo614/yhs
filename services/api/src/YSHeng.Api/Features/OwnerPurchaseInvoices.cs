@@ -479,7 +479,7 @@ public static class OwnerPurchaseInvoicePdf
             "Purchase lines:"
         };
         text.AddRange(lines.OrderBy(line => line.SortOrder).Select(line =>
-            $"{line.SortOrder}. {line.LineType}: {line.Description} — RM {line.Amount.ToString("N2", CultureInfo.InvariantCulture)}{(line.CapitaliseIntoVehicleCost ? " (capitalise)" : "")}"));
+            $"{line.SortOrder}. {line.LineType}: {line.Description} — RM {line.Amount.ToString("N2", CultureInfo.InvariantCulture)}"));
         text.Add($"Total: RM {revision.Amount.ToString("N2", CultureInfo.InvariantCulture)}");
         text.Add($"Prepared by: {revision.CreatedBy}");
         text.Add($"Prepared at (UTC): {revision.CreatedAt:yyyy-MM-dd HH:mm:ss}");
@@ -494,7 +494,8 @@ public static class OwnerPurchaseInvoicePdf
             .Append("PURCHASE INVOICE / 收车发票")
             .Append("PURCHASE DETAILS / 收车明细")
             .ToList();
-        return BuildPdf(pages, allText, revision.InvoiceNumber, revision.RevisionNumber);
+        var contents = pages.Select((page, index) => PageContent(page, index + 1, pages.Count, revision.InvoiceNumber, revision.RevisionNumber)).ToList();
+        return BrandedPdf.Create(contents, allText);
     }
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
@@ -565,150 +566,34 @@ public static class OwnerPurchaseInvoicePdf
         return units * fontSize / 1000d;
     }
 
-    private static byte[] BuildPdf(IReadOnlyList<IReadOnlyList<string>> pages, IReadOnlyList<string> allText, string invoiceNumber, int revisionNumber)
-    {
-        const int pageObjectStart = 9;
-        var contentObjectStart = pageObjectStart + pages.Count;
-        var pageReferences = string.Join(" ", Enumerable.Range(pageObjectStart, pages.Count).Select(number => $"{number} 0 R"));
-        var objects = new List<byte[]>
-        {
-            Ascii("<< /Type /Catalog /Pages 2 0 R >>"),
-            Ascii($"<< /Type /Pages /Kids [{pageReferences}] /Count {pages.Count} >>"),
-            Ascii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),
-            Ascii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"),
-            Ascii("<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [6 0 R] /ToUnicode 8 0 R >>"),
-            Ascii("<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 5 >> /FontDescriptor 7 0 R /DW 1000 >>"),
-            Ascii("<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [-250 -143 1000 857] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>"),
-            StreamObject(Ascii(ToUnicodeCMap(allText)))
-        };
-        objects.AddRange(pages.Select((page, index) => Ascii($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PageWidth} {PageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents {contentObjectStart + index} 0 R >>")));
-        objects.AddRange(pages.Select((page, index) => StreamObject(Ascii(PageContent(page, index + 1, pages.Count, invoiceNumber, revisionNumber)))));
-
-        using var stream = new MemoryStream();
-        Write(stream, Ascii("%PDF-1.7\n"));
-        var offsets = new List<long> { 0 };
-        for (var index = 0; index < objects.Count; index++)
-        {
-            offsets.Add(stream.Position);
-            Write(stream, Ascii($"{index + 1} 0 obj\n"));
-            Write(stream, objects[index]);
-            Write(stream, Ascii("\nendobj\n"));
-        }
-
-        var xrefOffset = stream.Position;
-        Write(stream, Ascii($"xref\n0 {objects.Count + 1}\n0000000000 65535 f \n"));
-        foreach (var offset in offsets.Skip(1)) Write(stream, Ascii($"{offset:0000000000} 00000 n \n"));
-        Write(stream, Ascii($"trailer\n<< /Size {objects.Count + 1} /Root 1 0 R >>\nstartxref\n{xrefOffset}\n%%EOF"));
-        return stream.ToArray();
-    }
-
     private static string PageContent(IReadOnlyList<string> lines, int pageNumber, int pageCount, string invoiceNumber, int revisionNumber)
     {
         var page = new StringBuilder();
-        FillRectangle(page, 0, 752, PageWidth, 90, "0.055 0.18 0.16");
-        DrawText(page, "YS HENG | FINANCE OPERATIONS", "/F2", 9, LeftMargin, 816, "1 1 1");
-        DrawText(page, pageNumber == 1 ? "PURCHASE INVOICE / 收车发票" : "PURCHASE INVOICE / 收车发票 — CONTINUED", "/F2", 19, LeftMargin, 786, "1 1 1");
-        DrawText(page, $"INVOICE {invoiceNumber}", "/F2", 9, LeftMargin, 761, "1 1 1");
-        FillRectangle(page, 433, 774, 112, 24, "0.12 0.43 0.36");
-        DrawText(page, $"VERSION {revisionNumber}", "/F2", 9, 459, 781, "1 1 1");
+        BrandedPdf.Header(page, pageNumber == 1 ? "PURCHASE INVOICE / 收车发票" : "PURCHASE INVOICE", invoiceNumber, $"Version {revisionNumber}", pageNumber > 1);
 
-        DrawText(page, pageNumber == 1 ? "Owner acquisition record" : "Invoice details continued", "/F2", 11, LeftMargin, 730, "0.055 0.18 0.16");
-        StrokeLine(page, LeftMargin, 722, PageWidth - RightMargin, 722, "0.76 0.82 0.80");
+        BrandedPdf.Text(page, LeftMargin, 724, 11, pageNumber == 1 ? "Owner acquisition record" : "Invoice details continued", bold: true, color: BrandedPdf.Navy);
+        BrandedPdf.Line(page, LeftMargin, 714, PageWidth - RightMargin, 714, BrandedPdf.Rule);
         var baseline = FirstBodyBaseline;
         foreach (var line in lines)
         {
             if (line.StartsWith("Purchase lines:", StringComparison.Ordinal))
             {
-                StrokeLine(page, LeftMargin, baseline + 9, PageWidth - RightMargin, baseline + 9, "0.76 0.82 0.80");
-                DrawText(page, "PURCHASE DETAILS / 收车明细", "/F2", 10, LeftMargin, baseline, "0.055 0.35 0.30");
+                BrandedPdf.Line(page, LeftMargin, baseline + 9, PageWidth - RightMargin, baseline + 9, BrandedPdf.Rule);
+                BrandedPdf.Text(page, LeftMargin, baseline, 10, "PURCHASE DETAILS / 收车明细", bold: true, color: BrandedPdf.Blue);
             }
             else if (line.StartsWith("Total:", StringComparison.Ordinal))
             {
-                FillRectangle(page, LeftMargin - 8, baseline - 5, PageWidth - LeftMargin - RightMargin + 16, 22, "0.91 0.96 0.95");
-                DrawText(page, line, "/F2", 11, LeftMargin, baseline, "0.02 0.39 0.32");
+                BrandedPdf.Fill(page, LeftMargin - 8, baseline - 5, PageWidth - LeftMargin - RightMargin + 16, 22, BrandedPdf.PaleBlue);
+                BrandedPdf.Text(page, LeftMargin, baseline, 11, line, bold: true, color: BrandedPdf.Navy);
             }
             else
             {
-                DrawText(page, line, line.StartsWith("Invoice number:", StringComparison.Ordinal) ? "/F2" : "/F1", BodyFontSize, LeftMargin, baseline, "0.12 0.16 0.15");
+                BrandedPdf.Text(page, LeftMargin, baseline, BodyFontSize, line, bold: line.StartsWith("Invoice number:", StringComparison.Ordinal), color: BrandedPdf.Dark);
             }
             baseline -= BodyLineHeight;
         }
-        StrokeLine(page, LeftMargin, 52, PageWidth - RightMargin, 52, "0.76 0.82 0.80");
-        DrawText(page, $"Invoice {invoiceNumber}  |  Version {revisionNumber}  |  Page {pageNumber} of {pageCount}", "/F1", 9, LeftMargin, FooterBaseline, "0.34 0.41 0.39");
+        BrandedPdf.Footer(page, $"{invoiceNumber}  |  Version {revisionNumber}", pageNumber, pageCount, "YS Heng - Finance copy");
         return page.ToString();
     }
 
-    private static void FillRectangle(StringBuilder page, int x, int y, int width, int height, string colour)
-    {
-        page.Append(colour).AppendLine(" rg");
-        page.Append(x).Append(' ').Append(y).Append(' ').Append(width).Append(' ').Append(height).AppendLine(" re f");
-    }
-
-    private static void StrokeLine(StringBuilder page, int x1, int y1, int x2, int y2, string colour)
-    {
-        page.Append(colour).AppendLine(" RG");
-        page.Append("0.7 w ").Append(x1).Append(' ').Append(y1).Append(" m ").Append(x2).Append(' ').Append(y2).AppendLine(" l S");
-    }
-
-    private static void DrawText(StringBuilder page, string value, string latinFont, int fontSize, int x, int y, string colour)
-    {
-        page.AppendLine("BT");
-        page.Append(colour).AppendLine(" rg");
-        AppendText(page, value, latinFont, fontSize, x, y);
-        page.AppendLine("ET");
-    }
-
-    private static void AppendText(StringBuilder page, string value, string latinFont, int fontSize, int x, int y)
-    {
-        var segment = new StringBuilder();
-        var currentIsLatin = true;
-        foreach (var character in value)
-        {
-            var isLatin = character <= '\u007f';
-            if (segment.Length > 0 && isLatin != currentIsLatin)
-            {
-                var completedSegment = segment.ToString();
-                AppendSegment(page, completedSegment, currentIsLatin, latinFont, fontSize, x, y + 2);
-                x += (int)Math.Ceiling(completedSegment.Sum(item => TextWidth(item, fontSize)));
-                segment.Clear();
-            }
-            currentIsLatin = isLatin;
-            segment.Append(character);
-        }
-        if (segment.Length > 0) AppendSegment(page, segment.ToString(), currentIsLatin, latinFont, fontSize, x, y + 2);
-    }
-
-    private static void AppendSegment(StringBuilder page, string value, bool isLatin, string latinFont, int fontSize, int x, int y)
-    {
-        page.Append(latinFont == "/F2" && isLatin ? "/F2" : isLatin ? latinFont : "/F3").Append(' ').Append(fontSize).AppendLine(" Tf");
-        page.Append("1 0 0 1 ").Append(x).Append(' ').Append(y).AppendLine(" Tm");
-        if (isLatin)
-            page.Append('(').Append(EscapePdfLiteral(value)).AppendLine(") Tj");
-        else
-            page.Append('<').Append(Utf16BeHex(value)).AppendLine("> Tj");
-    }
-
-    private static string ToUnicodeCMap(IEnumerable<string> values)
-    {
-        var characters = values.SelectMany(value => value).Distinct().OrderBy(value => value).ToList();
-        var cmap = new StringBuilder("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
-        foreach (var batch in characters.Chunk(100))
-        {
-            cmap.AppendLine($"{batch.Length} beginbfchar");
-            foreach (var character in batch) cmap.AppendLine($"<{(int)character:X4}> <{(int)character:X4}>");
-            cmap.AppendLine("endbfchar");
-        }
-        cmap.Append("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
-        return cmap.ToString();
-    }
-
-    private static string Utf16BeHex(string value) => Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(value));
-
-    private static string EscapePdfLiteral(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("(", "\\(", StringComparison.Ordinal).Replace(")", "\\)", StringComparison.Ordinal);
-
-    private static byte[] StreamObject(byte[] content) => Ascii($"<< /Length {content.Length} >>\nstream\n").Concat(content).Concat(Ascii("\nendstream")).ToArray();
-
-    private static byte[] Ascii(string value) => Encoding.ASCII.GetBytes(value);
-
-    private static void Write(Stream stream, byte[] bytes) => stream.Write(bytes, 0, bytes.Length);
 }
