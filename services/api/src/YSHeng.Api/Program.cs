@@ -761,7 +761,7 @@ backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Gu
     return photo is null ? Results.NotFound() : Results.File(photo.Content, photo.MimeType);
 });
 
-backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, Guid? collectionTransactionId, Guid? deliveryScheduleId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, Guid? collectionTransactionId, Guid? deliveryScheduleId, Guid? loanApplicationId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
 {
     var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
     if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
@@ -828,6 +828,14 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     else if (deliveryScheduleId.HasValue)
     {
         return Results.BadRequest(new ValidationResult([new ValidationError("delivery_document_category_invalid", "Only delivery evidence categories can link to a delivery.")]));
+    }
+
+    LoanApplication? linkedLoan = null;
+    if (loanApplicationId.HasValue)
+    {
+        linkedLoan = await db.LoanApplications.AsNoTracking().FirstOrDefaultAsync(item => item.Id == loanApplicationId.Value);
+        var loanDocumentValidation = LoanDocumentRules.ValidateUpload(linkedLoan, id, vehicle.CustomerId, category);
+        if (!loanDocumentValidation.IsValid) return Results.BadRequest(loanDocumentValidation);
     }
 
     var ownershipValidation = DocumentOwnershipRules.Validate(category, repairJobId, paymentRecordId, ownershipType, selectedCustomerId, selectedOwnerId);
@@ -959,6 +967,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         PaymentRecordId = paymentRecordId,
         CollectionTransactionId = collectionTransactionId,
         DeliveryScheduleId = deliveryScheduleId,
+        LoanApplicationId = linkedLoan?.Id,
         OwnershipType = resolvedOwnership,
         Category = category,
         FileName = file.FileName,

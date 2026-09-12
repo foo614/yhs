@@ -1,6 +1,14 @@
-import type { Customer, DocumentCategory, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
+import type { Customer, DocumentCategory, DocumentUploadOwner, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 
 export const loanDocumentCategories = ["Voc", "ApDocument", "StatusReceipt", "LoanDocument"] as const;
+
+export function loanDocumentUploadOwner(loan: Pick<LoanApplication, "id">): DocumentUploadOwner {
+  return { loanApplicationId: loan.id };
+}
+
+export function nextLoanDocumentReloadKey(current: number) {
+  return current + 1;
+}
 
 export function canCreateManualLoan(roles: readonly string[]) {
   return roles.includes("BossAdmin");

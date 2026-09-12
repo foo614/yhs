@@ -55,7 +55,7 @@ import type { InputProps, InputRef } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
-import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanDone, type LoanFilters } from "./loan";
+import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, loanDocumentUploadOwner, markLoanDone, nextLoanDocumentReloadKey, type LoanFilters } from "./loan";
 import {
   activeLeadCountByVehicle,
   expandLeadGroupsByDefault,
@@ -1267,8 +1267,8 @@ export default function App() {
                 (record) => setLoans((items) => replaceById(items, record)),
                 status === "Approved" ? "Loan approval recorded" : "Loan rejection recorded"
               )}
-              onUploadDocument={(vehicleId, file, category, onProgress) => runUpload(
-                () => uploadVehicleDocumentWithProgress(vehicleId, file, category, onProgress),
+              onUploadDocument={(vehicleId, file, category, onProgress, owner) => runUpload(
+                () => uploadVehicleDocumentWithProgress(vehicleId, file, category, onProgress, owner),
                 "Loan document uploaded"
               )}
             />
@@ -4464,7 +4464,7 @@ export function LoanPage({
   onCreate: (loan: LoanApplication) => void;
   onUpdate: (loan: LoanApplication) => void;
   onDecide: (loanId: string, status: LoanDecisionStatus, rejectionReason?: string) => Promise<void>;
-  onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, onProgress: UploadProgressHandler) => Promise<void>;
+  onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, onProgress: UploadProgressHandler, owner: DocumentUploadOwner) => Promise<void>;
 }) {
   const [documentChecks, setDocumentChecks] = useState<Record<string, LoanDocumentCheck>>({});
   const [documentChecksLoading, setDocumentChecksLoading] = useState(false);
@@ -4733,8 +4733,8 @@ export function LoanPage({
     const check = documentChecks[selectedLoan.id];
     const missingLoanDocuments = check?.missingCategories ?? loanDocumentCategories;
     const uploadLoanDocument = async (category: DocumentCategory, file: File, onProgress: UploadProgressHandler) => {
-      await onUploadDocument(selectedLoan.vehicleId, file, category, onProgress);
-      setDocumentReloadKey((value) => value + 1);
+      await onUploadDocument(selectedLoan.vehicleId, file, category, onProgress, loanDocumentUploadOwner(selectedLoan));
+      setDocumentReloadKey(nextLoanDocumentReloadKey);
     };
     const removeLoanDocument = async (document: VehicleDocument) => {
       try {

@@ -634,6 +634,7 @@ public static class SeedData
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "PaymentRecordId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "CollectionTransactionId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "LoanApplicationId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnershipType" integer NOT NULL DEFAULT 2;
             ALTER TABLE "Owners" ADD COLUMN IF NOT EXISTS "IcNumber" text NULL;
             ALTER TABLE "Owners" ADD COLUMN IF NOT EXISTS "Address" text NULL;
@@ -653,6 +654,7 @@ public static class SeedData
               AND ("OwnerId" IS NOT NULL OR "CustomerId" IS NOT NULL OR "Category" IN (1, 2, 3, 4, 6, 7, 8));
 
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_OwnerId" ON "DocumentBlobs" ("OwnerId");
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_LoanApplicationId" ON "DocumentBlobs" ("LoanApplicationId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_RepairJobId" ON "DocumentBlobs" ("RepairJobId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_PaymentRecordId" ON "DocumentBlobs" ("PaymentRecordId");
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_CollectionTransactionId" ON "DocumentBlobs" ("CollectionTransactionId");

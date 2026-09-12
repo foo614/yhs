@@ -3538,6 +3538,35 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Loan_document_upload_requires_the_selected_canonical_loan_and_checklist_category()
+    {
+        var vehicleId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var loan = new LoanApplication { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = customerId };
+
+        Assert.True(LoanDocumentRules.ValidateUpload(loan, vehicleId, customerId, FileCategory.StatusReceipt).IsValid);
+        Assert.Contains(LoanDocumentRules.ValidateUpload(loan, Guid.NewGuid(), customerId, FileCategory.StatusReceipt).Errors, error => error.Code == "loan_document_vehicle_mismatch");
+        Assert.Contains(LoanDocumentRules.ValidateUpload(loan, vehicleId, Guid.NewGuid(), FileCategory.StatusReceipt).Errors, error => error.Code == "loan_document_buyer_mismatch");
+        Assert.Contains(LoanDocumentRules.ValidateUpload(loan, vehicleId, customerId, FileCategory.RepairInvoice).Errors, error => error.Code == "loan_document_category_invalid");
+    }
+
+    [Fact]
+    public void Loan_document_check_accepts_explicit_loan_association_without_changing_category_ownership()
+    {
+        var loan = new LoanApplication { Id = Guid.NewGuid(), VehicleId = Guid.NewGuid(), CustomerId = Guid.NewGuid() };
+        var documents = new[]
+        {
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, OwnershipType = DocumentOwnershipType.Vehicle, Category = FileCategory.StatusReceipt },
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, OwnershipType = DocumentOwnershipType.Seller, Category = FileCategory.Voc },
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, OwnershipType = DocumentOwnershipType.Seller, Category = FileCategory.ApDocument },
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, OwnershipType = DocumentOwnershipType.Buyer, Category = FileCategory.LoanDocument }
+        };
+
+        Assert.True(LoanDocumentRules.CheckCompleteness(loan, documents).IsComplete);
+        Assert.False(LoanDocumentRules.CheckCompleteness(loan with { Id = Guid.NewGuid() }, documents).IsComplete);
+    }
+
+    [Fact]
     public void Loan_completion_requires_documents_for_the_current_vehicle_and_buyer()
     {
         var loan = new LoanApplication
