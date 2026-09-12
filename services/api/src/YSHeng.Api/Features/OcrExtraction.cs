@@ -640,8 +640,8 @@ public static class OcrExtractionParser
     private static JpjVocFields FindJpjVocFields(string text)
     {
         var lines = TextLines(text);
-        var plateLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\bNO\.?\s*PENDAFTARAN\b", RegexOptions.IgnoreCase));
-        var chassisEngineLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\bNO\.?\s*(?:CHASIS|CHASSIS|CASIS)\b\s*/?\s*\bNO\.?\s*ENJIN\b", RegexOptions.IgnoreCase));
+        var plateLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*PENDAFTARAN\b", RegexOptions.IgnoreCase));
+        var chassisEngineLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*/?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase));
         var makeModelLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\bBUATAN\b\s*/?\s*\bNAMA\s+MODEL\b", RegexOptions.IgnoreCase));
         if (plateLabelIndex < 0 || chassisEngineLabelIndex < 0 || makeModelLabelIndex < 0)
         {
@@ -770,7 +770,7 @@ public static class OcrExtractionParser
 
     private static string? FindJpjLabeledPlate(string line)
     {
-        var match = Regex.Match(line, @"\bNO\.?\s*PENDAFTARAN\b\s*:?\s*(?<plate>[A-Z]{1,3}\s?\d{1,4}(?:[A-Z])?)\b", RegexOptions.IgnoreCase);
+        var match = Regex.Match(line, @"\b(?:NO\.?|NOMBOR)\s*PENDAFTARAN\b\s*:?\s*(?<plate>[A-Z]{1,3}\s?\d{1,4}(?:[A-Z])?)\b", RegexOptions.IgnoreCase);
         return match.Success
             ? match.Groups["plate"].Value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant()
             : null;
@@ -780,7 +780,7 @@ public static class OcrExtractionParser
     {
         var match = Regex.Match(
             line,
-            @"\bNO\.?\s*(?:CHASIS|CHASSIS|CASIS)\b\s*/?\s*\bNO\.?\s*ENJIN\b\s*:?\s*(?<chassis>[A-Z0-9-]{10,32})\s*/\s*(?<engine>[A-Z0-9-]{5,32})\b",
+            @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*/?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*:?\s*(?<chassis>[A-Z0-9-]{10,32})\s*/\s*(?<engine>[A-Z0-9-]{5,32})\b",
             RegexOptions.IgnoreCase);
         return match.Success
             ? (NormalizeJpjIdentifier(match.Groups["chassis"].Value), NormalizeJpjIdentifier(match.Groups["engine"].Value))
@@ -951,7 +951,7 @@ public static class OcrExtractionParser
         .ToList();
 
     private static bool IsMyKadHeader(string text) =>
-        Regex.IsMatch(text, @"\b(KAD|PENGENALAN|MALAYSIA|WARGANEGARA|LELAKI|PEREMPUAN|ISLAM)\b", RegexOptions.IgnoreCase) ||
+        Regex.IsMatch(text, @"\b(KAD|PENGENALAN|IDENTITY\s+CARD|MALAYSIA|WARGANEGARA|LELAKI|PEREMPUAN|ISLAM)\b", RegexOptions.IgnoreCase) ||
         Regex.IsMatch(text, @"^MA[IL]S?Y?$", RegexOptions.IgnoreCase) ||
         Regex.IsMatch(text, @"MALAY|KERAJAAN", RegexOptions.IgnoreCase);
 

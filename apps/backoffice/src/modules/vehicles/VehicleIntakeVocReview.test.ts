@@ -1,7 +1,9 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocPatch, vocReviewWarnings } from "./VehicleIntakeVocReview";
+import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocDetectedFields, vehicleIntakeVocFieldState, vehicleIntakeVocPatch, vocReviewWarnings } from "./VehicleIntakeVocReview";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -53,6 +55,19 @@ describe("vehicle intake VOC review", () => {
     expect(vehicleIntakeVocPatch({}, { ...reviewedValues, year: "2099" }, {})).not.toHaveProperty("year");
   });
 
+  it("distinguishes OCR-filled fields from fields that still need manual entry", () => {
+    expect(vehicleIntakeVocDetectedFields({ plateNumber: "VAB1234", chassisNumber: null, year: "2024" })).toEqual(["plateNumber", "year"]);
+    expect(vehicleIntakeVocFieldState({}, reviewedValues, "make")).toBe("OCR-filled");
+    expect(vehicleIntakeVocFieldState({ make: "Honda" }, reviewedValues, "make")).toBe("Existing entry kept");
+    expect(vehicleIntakeVocFieldState({}, { chassisNumber: null }, "chassisNumber")).toBe("Enter manually");
+  });
+
+  it("keeps the compact extraction summary wrapping across desktop, tablet, and mobile widths", () => {
+    const styles = readFileSync(fileURLToPath(new URL("../../styles.css", import.meta.url)), "utf8");
+    expect(styles).toMatch(/\.vehicleIntakeVocSummary\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s);
+    expect(styles).not.toMatch(/\.vehicleIntakeVocSummary\s*\{[^}]*width:\s*\d+px;/s);
+  });
+
   it("accepts the intake VOC file types without broadening the NRIC image-only rule", () => {
     expect(isVehicleIntakeVocMimeType("application/pdf")).toBe(true);
     expect(isVehicleIntakeVocMimeType("image/jpeg")).toBe(true);
@@ -70,7 +85,7 @@ describe("vehicle intake VOC review", () => {
     const markup = renderToStaticMarkup(createElement(VehicleIntakeVocReview, {
       draft: {},
       disabled: true,
-      onApply: () => undefined,
+      onReviewReady: () => undefined,
       onClear: () => undefined
     }));
 

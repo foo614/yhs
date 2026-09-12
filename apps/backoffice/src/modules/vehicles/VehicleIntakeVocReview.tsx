@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircleFilled, UploadOutlined } from "@ant-design/icons";
-import { Alert, Button, Descriptions, Input, Radio, Space, Tag, Typography, Upload, message } from "antd";
+import { UploadOutlined } from "@ant-design/icons";
+import { Alert, Button, Space, Tag, Upload, message } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { previewVehicleIntakeVoc, type OcrExtractionResult } from "../../api";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
@@ -79,21 +79,36 @@ export function vehicleIntakeVocPatch(
   }, {});
 }
 
+export function vehicleIntakeVocDetectedFields(reviewedValues: Record<string, string | null | undefined>) {
+  return vocFields
+    .filter((field) => normalized(reviewedValues[field.name]) && (field.name !== "year" || validYear(normalized(reviewedValues.year))))
+    .map((field) => field.name);
+}
+
+export function vehicleIntakeVocFieldState(
+  draft: VehicleIntakeVocDraft,
+  reviewedValues: Record<string, string | null | undefined>,
+  field: VehicleIntakeVocField
+) {
+  const extracted = normalized(reviewedValues[field]);
+  const detected = Boolean(extracted) && (field !== "year" || validYear(extracted));
+  if (!detected) return "Enter manually";
+  return normalized(draft[field]) ? "Existing entry kept" : "OCR-filled";
+}
+
 export function VehicleIntakeVocReview({
   draft,
   disabled,
-  onApply,
+  onReviewReady,
   onClear
 }: {
   draft: VehicleIntakeVocDraft;
   disabled?: boolean;
-  onApply: (patch: VehicleIntakeVocPatch, file: File) => void;
+  onReviewReady: (patch: VehicleIntakeVocPatch, file: File, detectedFields: VehicleIntakeVocField[]) => void;
   onClear: () => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<OcrExtractionResult | null>(null);
   const [reviewedValues, setReviewedValues] = useState<Record<string, string | null | undefined>>({});
-  const [decisions, setDecisions] = useState<Partial<Record<VehicleIntakeVocField, VehicleIntakeVocDecision>>>({});
   const [busy, setBusy] = useState(false);
   const visibleWarnings = vocReviewWarnings(result?.warnings ?? []);
   const previewRequestGate = useRef<ReturnType<typeof createVehicleIntakeVocPreviewRequestGate> | null>(null);
@@ -126,10 +141,10 @@ export function VehicleIntakeVocReview({
       const preview = await previewVehicleIntakeVoc(nextFile);
       if (!gate.isCurrent(request)) return;
       const nextValues = { ...preview.result.fields };
-      setFile(nextFile);
+      const detectedFields = vehicleIntakeVocDetectedFields(nextValues);
       setResult(preview.result);
       setReviewedValues(nextValues);
-      setDecisions({});
+      onReviewReady(vehicleIntakeVocPatch(draft, nextValues, {}), nextFile, detectedFields);
       option.onSuccess?.({ ok: true });
     } catch (error) {
       if (!gate.isCurrent(request)) return;
@@ -143,18 +158,10 @@ export function VehicleIntakeVocReview({
     }
   };
 
-  const apply = () => {
-    if (!file || disabled || busy) return;
-    const patch = vehicleIntakeVocPatch(draft, reviewedValues, decisions);
-    onApply(patch, file);
-  };
-
   const clear = () => {
     if (disabled || busy) return;
-    setFile(null);
     setResult(null);
     setReviewedValues({});
-    setDecisions({});
     onClear();
   };
 
@@ -164,7 +171,7 @@ export function VehicleIntakeVocReview({
         type="info"
         showIcon
         message="Optional VOC check / 可选 VOC 核对"
-        description="Choose an English VOC PDF, JPG, PNG, or WebP file (PDF: 1–15 readable, unencrypted pages; maximum 10 MB). Check the suggested vehicle details, then apply only the fields you approve. Nothing is saved until the vehicle intake is created."
+        description="Choose an English VOC PDF, JPG, PNG, or WebP file (PDF: 1–15 readable, unencrypted pages; maximum 10 MB). Detected values fill only empty fields in the vehicle form below. Review or edit them before the final Create Vehicle confirmation."
       />
       {!result ? (
         <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>
@@ -175,9 +182,9 @@ export function VehicleIntakeVocReview({
           <Alert
             type={result.confidence > 0 ? "warning" : "error"}
             showIcon
-            message={result.confidence > 0 ? "Check every suggested value" : "VOC could not be read automatically"}
+            message={result.confidence > 0 ? "VOC draft prepared — review the vehicle fields below" : "VOC could not be read automatically"}
             description={result.confidence > 0
-              ? "Blank vehicle fields can be filled after Apply. Existing different values stay unchanged unless you select Replace for that field."
+              ? "Existing entries were preserved. Nothing is saved until you review the full intake and confirm Create Vehicle."
               : "Keep or enter the vehicle details manually. You can choose another clear VOC file."}
           />
           {visibleWarnings.length ? (
@@ -188,45 +195,14 @@ export function VehicleIntakeVocReview({
               description={<ul className="vehicleIntakeVocWarnings">{visibleWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
             />
           ) : null}
-          <Descriptions size="small" bordered column={1}>
-            <Descriptions.Item label="Registered owner / 注册车主">
-              {normalized(reviewedValues.ownerName) || "Not detected"} <Tag>Reference only</Tag>
-            </Descriptions.Item>
-          </Descriptions>
-          {vocFields.map((field) => {
-            const current = normalized(draft[field.name]);
-            const extracted = normalized(reviewedValues[field.name]);
-            const differs = Boolean(current && extracted && current !== extracted);
-            const invalid = field.name === "year" && Boolean(extracted) && !validYear(extracted);
-            const inputId = `vehicle-intake-voc-${field.name}`;
-            return (
-              <div className="vehicleIntakeVocField" key={field.name}>
-                <Typography.Text strong><label htmlFor={inputId}>{field.label}</label></Typography.Text>
-                <Input
-                  id={inputId}
-                  aria-label={field.label}
-                  value={reviewedValues[field.name] ?? ""}
-                  disabled={!extracted || disabled || busy}
-                  onChange={(event) => setReviewedValues((values) => ({ ...values, [field.name]: event.target.value }))}
-                />
-                {invalid ? <Typography.Text type="danger">The suggested year is not valid and cannot be applied.</Typography.Text> : null}
-                {differs ? (
-                  <Radio.Group
-                    aria-label={`Decision for ${field.label}`}
-                    disabled={disabled || busy}
-                    value={decisions[field.name] ?? "keep"}
-                    onChange={(event) => setDecisions((currentDecisions) => ({ ...currentDecisions, [field.name]: event.target.value as VehicleIntakeVocDecision }))}
-                    options={[
-                      { value: "keep", label: `Keep current: ${current}` },
-                      { value: "replace", label: "Replace with reviewed VOC value" }
-                    ]}
-                  />
-                ) : current ? <Tag color="green">Matches current draft</Tag> : extracted ? <Tag color="blue">Will fill this empty draft field after Apply</Tag> : <Typography.Text type="secondary">Not detected</Typography.Text>}
-              </div>
-            );
-          })}
+          <div className="vehicleIntakeVocSummary" aria-label="VOC extraction summary">
+            {vocFields.map((field) => {
+              const state = vehicleIntakeVocFieldState(draft, reviewedValues, field.name);
+              return <Tag key={field.name} color={state === "OCR-filled" ? "blue" : state === "Existing entry kept" ? "green" : "default"}>{field.label}: {state}</Tag>;
+            })}
+            <Tag color={normalized(reviewedValues.ownerName) ? "green" : "default"}>Registered owner: {normalized(reviewedValues.ownerName) ? "Detected for reference" : "Not detected"}</Tag>
+          </div>
           <Space wrap>
-            <Button type="primary" icon={<CheckCircleFilled />} onClick={apply} disabled={disabled || busy}>Apply approved VOC values</Button>
             <Button onClick={clear} disabled={disabled || busy}>Remove VOC review</Button>
             <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>
               <Button loading={busy} disabled={disabled || busy}>Choose another file</Button>

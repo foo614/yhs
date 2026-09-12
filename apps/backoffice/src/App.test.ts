@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, loanIdFromRouteUrl, LoanPage, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
@@ -215,12 +217,22 @@ describe("management dashboard", () => {
     expect(markup.indexOf("Executive intelligence / 决策图表")).toBeLessThan(markup.indexOf("AI document processing / AI 文件处理"));
     expect(markup).toContain("AI document processing / AI 文件处理");
     expect(markup).toContain("OCR field accuracy / OCR 字段准确率");
+    expect(markup).toContain("Staff-reviewed field outcomes / 员工复核结果");
+    expect(markup).toContain("Corrected by staff");
+    expect(markup).toContain("Review workload / 复核工作量");
+    expect(markup).toContain("3 pending staff checks");
+    expect(markup).toContain("aria-label=\"9 fields unchanged after staff review and 3 fields corrected by staff\"");
     expect(markup).toContain("Invoices &amp; receipts");
     expect(markup).not.toContain("sensitive extracted text");
     expect(markup).not.toContain("Estimated Profit / 预估利润");
     expect(markup).toContain("AI document processing / AI 文件处理");
     expect(markup).toContain("Invoices &amp; receipts");
     expect(markup).not.toContain("identity text");
+
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+    expect(styles).toMatch(/\.dashboardAiCharts\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
+    expect(styles).toMatch(/@media \(max-width: 1024px\)[\s\S]*?\.dashboardAiCharts\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\);/);
+    expect(styles).toMatch(/@media \(max-width: 720px\)[\s\S]*?\.dashboardAiLegend\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\);/);
 
     const reminderMarkup = renderToStaticMarkup(createElement(DashboardPage, {
       dashboard,

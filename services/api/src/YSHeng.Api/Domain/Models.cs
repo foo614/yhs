@@ -174,6 +174,7 @@ public sealed record DocumentBlob
     public Guid? PaymentRecordId { get; init; }
     public Guid? CollectionTransactionId { get; init; }
     public Guid? DeliveryScheduleId { get; init; }
+    public Guid? LoanApplicationId { get; init; }
     public DocumentOwnershipType OwnershipType { get; init; } = DocumentOwnershipType.Vehicle;
     public FileCategory Category { get; init; }
     public string FileName { get; init; } = "";

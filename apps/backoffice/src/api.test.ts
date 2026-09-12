@@ -2040,6 +2040,18 @@ describe("backoffice api client", () => {
     );
   });
 
+  it("links a checklist upload to the selected loan", async () => {
+    const fetchMock = mockFetch({ id: "uploaded" });
+    const document = new File(["document-bytes"], "status.pdf", { type: "application/pdf" });
+
+    await uploadVehicleDocument("vehicle-1", document, "StatusReceipt", { loanApplicationId: "loan-1" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/documents?category=StatusReceipt&loanApplicationId=loan-1",
+      expect.objectContaining({ method: "POST", credentials: "include", body: expect.any(FormData) })
+    );
+  });
+
   it("saves the complete vehicle photo order", async () => {
     const fetchMock = mockEmptyFetch(true, 204);
     await reorderVehiclePhotos("vehicle-1", ["photo-2", "photo-1"]);

@@ -3437,10 +3437,27 @@ public static class LoanDocumentRules
         FileCategory.LoanDocument
     ];
 
+    public static ValidationResult ValidateUpload(LoanApplication? loan, Guid vehicleId, Guid? canonicalCustomerId, FileCategory category)
+    {
+        var errors = new List<ValidationError>();
+        if (loan is null)
+        {
+            errors.Add(new("loan_document_loan_invalid", "Select an existing loan before uploading its document."));
+        }
+        else
+        {
+            if (loan.VehicleId != vehicleId) errors.Add(new("loan_document_vehicle_mismatch", "The selected loan is not linked to this vehicle."));
+            if (canonicalCustomerId != loan.CustomerId) errors.Add(new("loan_document_buyer_mismatch", "The selected loan buyer is no longer the vehicle's confirmed buyer."));
+        }
+        if (!RequiredCategories.Contains(category)) errors.Add(new("loan_document_category_invalid", "This category is not part of the required loan checklist."));
+        return new ValidationResult(errors);
+    }
+
     public static LoanDocumentCheck CheckCompleteness(LoanApplication loan, IEnumerable<DocumentBlob> documents)
     {
         var attachedCategories = documents
-            .Where(document => document.VehicleId == loan.VehicleId && document.CustomerId == loan.CustomerId)
+            .Where(document => document.VehicleId == loan.VehicleId &&
+                (document.LoanApplicationId == loan.Id || (document.LoanApplicationId == null && document.CustomerId == loan.CustomerId)))
             .Select(document => document.Category)
             .ToHashSet();
         var missing = RequiredCategories.Where(category => !attachedCategories.Contains(category)).ToList();

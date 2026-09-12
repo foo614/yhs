@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, markLoanDone } from "./loan";
+import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, loanDocumentUploadOwner, markLoanDone, nextLoanDocumentReloadKey } from "./loan";
 import type { Customer, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 
 const baseLoan: LoanApplication = {
@@ -45,6 +45,11 @@ describe("loan workflow helpers", () => {
 
   it("limits loan uploads to loan workflow document categories", () => {
     expect(loanDocumentCategories).toEqual(["Voc", "ApDocument", "StatusReceipt", "LoanDocument"]);
+  });
+
+  it("associates a checklist upload with the selected loan", () => {
+    expect(loanDocumentUploadOwner(baseLoan)).toEqual({ loanApplicationId: "loan-1" });
+    expect(nextLoanDocumentReloadKey(2)).toBe(3);
   });
 
   it("requires a reason for exceptional rejected loan creation", () => {

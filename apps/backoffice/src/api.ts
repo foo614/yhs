@@ -125,6 +125,7 @@ export type DocumentUploadOwner = {
   paymentRecordId?: string;
   collectionTransactionId?: string;
   deliveryScheduleId?: string;
+  loanApplicationId?: string;
 };
 
 export type Vehicle = {
@@ -1300,6 +1301,7 @@ export type VehicleDocument = {
   mimeType: string;
   category: DocumentCategory;
   ownershipType: DocumentOwnershipType;
+  loanApplicationId?: string;
   customerId?: string;
   ownerId?: string;
   repairJobId?: string;
@@ -2603,6 +2605,7 @@ function documentUploadPath(vehicleId: string, category: DocumentCategory, owner
   if (owner?.paymentRecordId) query.set("paymentRecordId", owner.paymentRecordId);
   if (owner?.collectionTransactionId) query.set("collectionTransactionId", owner.collectionTransactionId);
   if (owner?.deliveryScheduleId) query.set("deliveryScheduleId", owner.deliveryScheduleId);
+  if (owner?.loanApplicationId) query.set("loanApplicationId", owner.loanApplicationId);
   return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
 }
 
