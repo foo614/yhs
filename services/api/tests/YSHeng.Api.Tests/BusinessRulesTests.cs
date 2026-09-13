@@ -2299,6 +2299,22 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Hr_payslip_pdf_contains_configured_payroll_fields_without_statutory_fabrication()
+    {
+        var payslip = new HrPayslip { StaffUserId = "staff-1", PayPeriodId = Guid.NewGuid(), BaseSalary = 2200m, WorkingDays = 22, DailySalary = 100m, UnpaidLeaveDeduction = 100m, Allowances = 50m, ManualDeductions = 20m, GrossPay = 2250m, NetPay = 2130m };
+        var period = new HrPayPeriod { Id = payslip.PayPeriodId, Name = "July 2026", StartDate = new DateOnly(2026, 7, 1), EndDate = new DateOnly(2026, 7, 31), WorkingDays = 22 };
+        var content = Encoding.ASCII.GetString(HrPayslipPdfFactory.Create(payslip, period, "Example Staff", "YS HENG AUTOMOTIVE SDN BHD").Content);
+
+        Assert.StartsWith("%PDF-", content);
+        Assert.Contains("MONTHLY SALARY SUMMARY PAYSLIP", content);
+        Assert.Contains("Example Staff", content);
+        Assert.Contains("RM 2,130.00", content);
+        Assert.Contains("Manual deductions", content);
+        Assert.DoesNotContain("EPF", content);
+        Assert.DoesNotContain("SOCSO", content);
+    }
+
+    [Fact]
     public void Daily_spend_validation_requires_description_amount_and_due_date()
     {
         var spend = new DailySpend

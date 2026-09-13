@@ -130,6 +130,7 @@ import {
   deleteLoanDocument,
   exportAutoCountWorkbook,
   exportPaymentsCsv,
+  downloadHrPayslipPdf,
   generateHrPayslips,
   getAuditLog,
   getCurrentUser,
@@ -1462,6 +1463,18 @@ export default function App() {
               onUpdatePayrollProfile={(profile) => runUpdate(() => updateHrPayrollProfile(profile), (record) => setHrPayrollProfiles((items) => replaceByIdOrPrepend(items, record)), "Payroll profile updated")}
               onCreatePayPeriod={(period) => runCreate(() => createHrPayPeriod(period), (record) => setHrPayPeriods((items) => [record, ...items]), "Pay period created")}
               onGeneratePayslips={(payPeriodId) => runUpdate(() => generateHrPayslips(payPeriodId), (records) => setHrPayslips((items) => mergeById(items, records)), "Payslips generated")}
+              onDownloadPayslip={async (payslip) => {
+                try {
+                  const url = URL.createObjectURL(await downloadHrPayslipPdf(payslip.id));
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `payslip-${payslip.id}.pdf`;
+                  link.click();
+                  URL.revokeObjectURL(url);
+                } catch (error) {
+                  notifyError("Payslip PDF could not be downloaded", humanizeApiError(error));
+                }
+              }}
             />
           )}
           {pathname === "/audit-log" && <AuditLogPage auditLog={auditLog} filters={auditLogFilters} onSearch={handleAuditLogSearch} />}
