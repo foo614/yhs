@@ -68,6 +68,7 @@ services:
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.160.0@sha256:5b66b0dc6921f2a439cf50b942ccb9e2a4375f136239a9fdf709ef33e4bfc668
+    user: "10001:10001"
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     restart: unless-stopped
     environment:
@@ -78,6 +79,14 @@ services:
       GRAFANA_CLOUD_OTLP_API_TOKEN: ${GRAFANA_CLOUD_OTLP_API_TOKEN}
     volumes:
       - ./otel-collector.production.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - /:/hostfs:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
     networks:
       - telemetry
       - telemetry-egress

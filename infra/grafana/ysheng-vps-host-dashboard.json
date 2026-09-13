@@ -1,0 +1,19 @@
+{
+  "annotations": { "list": [] },
+  "description": "Low-cardinality host health for the YS Heng production VPS. Application telemetry remains on the existing Aspire and Grafana pipelines.",
+  "editable": false,
+  "panels": [
+    { "type": "timeseries", "title": "CPU utilization", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }, "targets": [{ "expr": "avg(sum without (state) (system_cpu_utilization_ratio{service_name=\"ysheng-vps-host\",state!=\"idle\"}))", "legendFormat": "used" }] },
+    { "type": "timeseries", "title": "Memory utilization", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }, "targets": [{ "expr": "avg(system_memory_utilization_ratio{service_name=\"ysheng-vps-host\",state=\"used\"})", "legendFormat": "used" }] },
+    { "type": "timeseries", "title": "Root filesystem utilization", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }, "targets": [{ "expr": "max(system_filesystem_utilization_ratio{service_name=\"ysheng-vps-host\",mountpoint=\"/\"})", "legendFormat": "/" }] },
+    { "type": "timeseries", "title": "Disk I/O", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }, "targets": [{ "expr": "sum(rate(system_disk_io_time_seconds_total{service_name=\"ysheng-vps-host\"}[5m]))", "legendFormat": "I/O time" }] },
+    { "type": "timeseries", "title": "Network throughput", "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 }, "targets": [{ "expr": "sum(rate(system_network_io_bytes_total{service_name=\"ysheng-vps-host\"}[5m])) by (direction)", "legendFormat": "{{direction}}" }] }
+  ],
+  "schemaVersion": 41,
+  "tags": ["ysheng", "production", "hostmetrics"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "YS Heng Production VPS Host Health",
+  "uid": "ysheng-vps-host",
+  "version": 1
+}

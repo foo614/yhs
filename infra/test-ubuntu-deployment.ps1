@@ -89,10 +89,16 @@ foreach ($expected in @(
   "OTEL_SERVICE_NAME: ysheng-worker",
   "otel-collector:",
   "otel/opentelemetry-collector-contrib:0.160.0@sha256:5b66b0dc6921f2a439cf50b942ccb9e2a4375f136239a9fdf709ef33e4bfc668",
+  'user: "10001:10001"',
   "otel-collector-health:",
   "curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6",
   "http://otel-collector:13133/",
   "./otel-collector.production.yaml:/etc/otelcol-contrib/config.yaml:ro",
+  "/:/hostfs:ro",
+  "read_only: true",
+  "no-new-privileges:true",
+  "cap_drop:",
+  "- ALL",
   "GRAFANA_CLOUD_OTLP_ENDPOINT",
   "GRAFANA_CLOUD_OTLP_INSTANCE_ID",
   "GRAFANA_CLOUD_OTLP_API_TOKEN",
@@ -107,6 +113,11 @@ foreach ($expected in @(
   "restart: unless-stopped"
 )) {
   Assert-Contains -Name "Aspire production Compose override" -Text $aspireProductionCompose -Expected $expected
+}
+foreach ($forbidden in @("/var/run/docker.sock", "privileged: true", "pid: host")) {
+  if ($aspireProductionCompose.Contains($forbidden)) {
+    throw "Aspire production Compose override contains forbidden host-metrics access: $forbidden"
+  }
 }
 
 foreach ($expected in @(
