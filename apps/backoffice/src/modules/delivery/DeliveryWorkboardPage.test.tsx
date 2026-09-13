@@ -90,6 +90,27 @@ describe("simple delivery workboard", () => {
     expect(styles).toMatch(/@media \(max-width:\s*720px\)[\s\S]*?\.deliveryFinanceGate\s*{[^}]*grid-template-columns:\s*1fr/s);
   });
 
+  it("keeps responsive spacing between Handover Finance status and its action", () => {
+    const markup = renderToStaticMarkup(createElement(CurrentStageForm, {
+      item: { ...baseItem, stage: "Handover", financeCleared: true, canRelease: false },
+      picOptions: [],
+      saving: false,
+      onSave: noOp,
+      onUpload: noOp,
+      onRelease: () => {},
+      onRequestInvoice: () => {}
+    }));
+    const styles = readFileSync(fileURLToPath(new URL("../../styles.css", import.meta.url)), "utf8");
+
+    expect(markup).toContain('class="deliveryHandoverActions"');
+    expect(markup).toContain("Finance cleared / 财务已确认");
+    expect(markup).toContain("Save handover checks / 保存交车确认");
+    expect(styles).toMatch(/\.deliveryHandoverActions\s*{[^}]*display:\s*grid[^}]*gap:\s*12px/s);
+    expect(styles).toMatch(/\.deliveryHandoverActions > \.ant-alert\s*{[^}]*width:\s*100%[^}]*min-width:\s*0/s);
+    expect(styles).toMatch(/\.deliveryHandoverActions > \.ant-btn\s*{[^}]*justify-self:\s*start/s);
+    expect(styles).toMatch(/@media \(max-width:\s*720px\)[\s\S]*?\.deliveryHandoverActions \.ant-btn,[\s\S]*?width:\s*100%/s);
+  });
+
   it("filters one scannable list by car, stage, and staff-backed PIC", () => {
     const items: DeliveryWorkboardItem[] = [
       baseItem,
