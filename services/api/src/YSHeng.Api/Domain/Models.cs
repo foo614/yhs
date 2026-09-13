@@ -604,7 +604,10 @@ public sealed record CashHandover
 public sealed record OfficialReceipt
 {
     public Guid Id { get; init; } = Guid.NewGuid();
-    public Guid CashHandoverId { get; init; }
+    public Guid? CashHandoverId { get; init; }
+    public Guid? CollectionTransactionId { get; init; }
+    public Guid? FinanceInvoiceId { get; init; }
+    public Guid? EvidenceDocumentId { get; init; }
     public Guid PaymentRecordId { get; init; }
     public string ReceiptNumber { get; init; } = "";
     public decimal Amount { get; init; }
@@ -612,6 +615,10 @@ public sealed record OfficialReceipt
     public string ContentMimeType { get; init; } = "application/pdf";
     public string CreatedBy { get; init; } = "";
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public bool IsVoided { get; init; }
+    public string? VoidedBy { get; init; }
+    public DateTime? VoidedAt { get; init; }
+    public string? VoidReason { get; init; }
 }
 
 public sealed record CollectionTransaction
@@ -637,6 +644,9 @@ public sealed record CollectionTransaction
     public string? ReversedBy { get; init; }
     public DateTime? ReversedAt { get; init; }
     public string? ReversalReason { get; init; }
+    public Guid? OfficialReceiptId { get; init; }
+    public string? OfficialReceiptNumber { get; init; }
+    public bool OfficialReceiptVoided { get; init; }
 }
 
 public sealed record HrAttendanceRecord

@@ -725,6 +725,19 @@ public static class SeedData
 
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_OfficialReceipts_CashHandoverId" ON "OfficialReceipts" ("CashHandoverId");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_OfficialReceipts_ReceiptNumber" ON "OfficialReceipts" ("ReceiptNumber");
+
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "OfficialReceiptId" uuid NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "OfficialReceiptNumber" text NULL;
+            ALTER TABLE "CollectionTransactions" ADD COLUMN IF NOT EXISTS "OfficialReceiptVoided" boolean NOT NULL DEFAULT FALSE;
+            ALTER TABLE "OfficialReceipts" ALTER COLUMN "CashHandoverId" DROP NOT NULL;
+            ALTER TABLE "OfficialReceipts" ADD COLUMN IF NOT EXISTS "CollectionTransactionId" uuid NULL;
+            ALTER TABLE "OfficialReceipts" ADD COLUMN IF NOT EXISTS "FinanceInvoiceId" uuid NULL;
+            ALTER TABLE "OfficialReceipts" ADD COLUMN IF NOT EXISTS "EvidenceDocumentId" uuid NULL;
+            ALTER TABLE "OfficialReceipts" ADD COLUMN IF NOT EXISTS "IsVoided" boolean NOT NULL DEFAULT FALSE;
+            ALTER TABLE "OfficialReceipts" ADD COLUMN IF NOT EXISTS "VoidedBy" text NULL;
+            ALTER TABLE "OfficialReceipts" ADD COLUMN IF NOT EXISTS "VoidedAt" timestamp with time zone NULL;
+            ALTER TABLE "OfficialReceipts" ADD COLUMN IF NOT EXISTS "VoidReason" text NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_OfficialReceipts_CollectionTransactionId" ON "OfficialReceipts" ("CollectionTransactionId") WHERE "CollectionTransactionId" IS NOT NULL;
         """);
     }
 

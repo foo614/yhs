@@ -1253,7 +1253,7 @@ backOffice.MapGet("/customers/{id:guid}/profile", async (Guid id, AppDbContext d
         .ToListAsync();
     var handovers = await db.CashHandovers.AsNoTracking().Where(handover => handover.CustomerId == id).ToListAsync();
     var handoverIds = handovers.Select(handover => handover.Id).ToList();
-    var receipts = await db.OfficialReceipts.AsNoTracking().Where(receipt => handoverIds.Contains(receipt.CashHandoverId)).ToListAsync();
+    var receipts = await db.OfficialReceipts.AsNoTracking().Where(receipt => receipt.CashHandoverId.HasValue && handoverIds.Contains(receipt.CashHandoverId.Value)).ToListAsync();
     var deliveryIds = deliveries.Select(delivery => delivery.Id).ToHashSet();
     var profileDocuments = await db.DocumentBlobs.AsNoTracking()
         .Where(document => document.VehicleId.HasValue && vehicleIds.Contains(document.VehicleId.Value))
@@ -2743,20 +2743,36 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reconcile", async (Guid i
     var vehicle = await FinanceApi.LockVehicleAsync(db, payment.VehicleId);
     var buyerValidation = FinanceV2Rules.ValidateCanonicalBuyer(payment, invoice, vehicle);
     if (!buyerValidation.IsValid) return Results.BadRequest(buyerValidation);
-    if (collection.Status != CollectionStatus.Reconciled)
-    {
-        var actorUserId = StaffIdentity.CurrentUserId(context);
-        var hasLinkedEvidence = await db.DocumentBlobs.AsNoTracking().AnyAsync(document =>
-            document.CollectionTransactionId == collection.Id &&
+    var evidence = await db.DocumentBlobs.AsNoTracking()
+        .Where(document => document.CollectionTransactionId == collection.Id &&
             document.PaymentRecordId == payment.Id &&
             document.VehicleId == payment.VehicleId &&
-            (document.Category == FileCategory.PaymentReceipt || document.Category == FileCategory.PaymentInvoice));
-        var validation = FinanceV2Rules.ValidateReconcile(payment, collection, actorUserId, hasLinkedEvidence);
+            (document.Category == FileCategory.PaymentReceipt || document.Category == FileCategory.PaymentInvoice))
+        .OrderBy(document => document.UploadedAt)
+        .FirstOrDefaultAsync();
+    var now = DateTime.UtcNow;
+    var actorUserId = StaffIdentity.CurrentUserId(context);
+    if (collection.Status != CollectionStatus.Reconciled)
+    {
+        var validation = FinanceV2Rules.ValidateReconcile(payment, collection, actorUserId, evidence is not null);
         if (!validation.IsValid) return Results.BadRequest(validation);
-        var updated = collection with { Status = CollectionStatus.Reconciled, ReconciledBy = actorUserId, ReconciledAt = DateTime.UtcNow };
+        var updated = collection with { Status = CollectionStatus.Reconciled, ReconciledBy = actorUserId, ReconciledAt = now };
         db.Entry(collection).CurrentValues.SetValues(updated);
         collection = updated;
         ApiAudit.Add(db, context.User, "finance.collectionReconciled", nameof(CollectionTransaction), id);
+    }
+    var receipt = await db.OfficialReceipts.FirstOrDefaultAsync(item => item.CollectionTransactionId == collection.Id);
+    if (receipt is null)
+    {
+        if (invoice is null || vehicle is null || evidence is null) return Results.BadRequest(new ApiError("The reconciled collection is missing its invoice, vehicle, or secured payment evidence."));
+        var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.CustomerId);
+        if (customer is null) return Results.BadRequest(new ApiError("The reconciled collection customer is unavailable."));
+        receipt = OfficialReceiptFactory.CreateForCollection(collection, payment, invoice, evidence, vehicle, customer, actorUserId, now);
+        db.OfficialReceipts.Add(receipt);
+        var linked = collection with { OfficialReceiptId = receipt.Id, OfficialReceiptNumber = receipt.ReceiptNumber, OfficialReceiptVoided = false };
+        db.Entry(collection).CurrentValues.SetValues(linked);
+        collection = linked;
+        ApiAudit.Add(db, context.User, "officialReceipt.generated", nameof(OfficialReceipt), receipt.Id);
     }
     var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
     await db.SaveChangesAsync();
@@ -2788,11 +2804,35 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reverse", async (Guid id,
     db.Entry(collection).CurrentValues.SetValues(updated);
     collection = updated;
     ApiAudit.Add(db, context.User, "finance.collectionReversed", nameof(CollectionTransaction), id);
+    var receipt = await db.OfficialReceipts.FirstOrDefaultAsync(item => item.CollectionTransactionId == id);
+    if (receipt is not null && !receipt.IsVoided)
+    {
+        var voided = receipt with
+        {
+            IsVoided = true,
+            VoidedBy = StaffIdentity.CurrentUserId(context),
+            VoidedAt = updated.ReversedAt,
+            VoidReason = updated.ReversalReason
+        };
+        db.Entry(receipt).CurrentValues.SetValues(voided);
+        var linked = collection with { OfficialReceiptVoided = true };
+        db.Entry(collection).CurrentValues.SetValues(linked);
+        collection = linked;
+        ApiAudit.Add(db, context.User, "officialReceipt.voided", nameof(OfficialReceipt), receipt.Id);
+    }
     var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
     await db.SaveChangesAsync();
     await transaction.CommitAsync();
     return Results.Ok(aggregate);
 }).RequireAuthorization("BossAdmin");
+
+backOffice.MapGet("/collection-transactions/{id:guid}/official-receipt/content", async (Guid id, AppDbContext db) =>
+{
+    var receipt = await db.OfficialReceipts.AsNoTracking().FirstOrDefaultAsync(item => item.CollectionTransactionId == id);
+    return receipt is null
+        ? Results.NotFound()
+        : Results.File(receipt.Content, receipt.ContentMimeType, $"{receipt.ReceiptNumber}.pdf");
+}).RequireAuthorization("Finance");
 
 
 backOffice.MapGet("/cash-handovers", async (AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>

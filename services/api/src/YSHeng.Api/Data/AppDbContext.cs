@@ -131,7 +131,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<CashHandover>().HasIndex(handover => new { handover.Status, handover.CollectedAt });
         builder.Entity<CashHandover>().Property(handover => handover.Version).IsConcurrencyToken();
         builder.Entity<OfficialReceipt>().Property(receipt => receipt.Content).HasColumnType("bytea");
-        builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.CashHandoverId).IsUnique();
+        builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.CashHandoverId).HasFilter("\"CashHandoverId\" IS NOT NULL").IsUnique();
+        builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.CollectionTransactionId).HasFilter("\"CollectionTransactionId\" IS NOT NULL").IsUnique();
         builder.Entity<OfficialReceipt>().HasIndex(receipt => receipt.ReceiptNumber).IsUnique();
         builder.Entity<HrAttendanceRecord>().HasIndex(record => new { record.StaffUserId, record.AttendanceDate });
         builder.Entity<HrAttendanceQrChallenge>().HasIndex(challenge => challenge.ExpiresAt);
