@@ -5988,10 +5988,30 @@ body {
 
 .deliveryFinanceGate {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin-bottom: 16px;
   align-items: center;
+}
+
+.deliveryFinanceGate .ant-alert,
+.deliveryFinanceGate .ant-alert-content {
+  min-width: 0;
+}
+
+.deliveryFinanceGate .ant-alert {
+  flex-wrap: wrap;
+}
+
+.deliveryFinanceGate .ant-alert-action {
+  flex: 1 0 100%;
+  margin-top: 8px;
+  margin-inline-start: 0;
+}
+
+.deliveryFinanceGate .ant-alert-message,
+.deliveryFinanceGate .ant-alert-description {
+  overflow-wrap: break-word;
 }
 
 .deliveryEvidenceReviewIntro .ant-typography {
