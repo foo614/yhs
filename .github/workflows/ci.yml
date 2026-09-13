@@ -141,7 +141,9 @@ jobs:
       - name: Check Ubuntu deployment script syntax
         shell: bash
         run: |
+          bash infra/test-component-deployment.sh
           bash -n infra/ubuntu/bootstrap-shinjiru.sh
+          bash -n infra/ubuntu/classify-production-components.sh
           bash -n infra/ubuntu/deploy-production.sh
           bash -n infra/ubuntu/validate-production-env.sh
           bash -n infra/ubuntu/backup-postgres.sh
@@ -219,9 +221,29 @@ jobs:
           ssh_target="$DEPLOY_USER@$DEPLOY_HOST"
           remote_stage=".cache/ysheng/releases/$GITHUB_SHA"
 
+          current_release_sha="$("${ssh_command[@]}" "$ssh_target" "basename \"\$(readlink -f /opt/ysheng/current 2>/dev/null)\" 2>/dev/null || true")"
+          deploy_components="full"
+          history_ready="true"
+          if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]] && ! git fetch --no-tags --unshallow origin main; then
+            history_ready="false"
+          fi
+          if [[ "$history_ready" == "true" && "$current_release_sha" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$current_release_sha^{commit}" 2>/dev/null && git merge-base --is-ancestor "$current_release_sha" "$GITHUB_SHA"; then
+            deploy_components="$(git diff --name-only "$current_release_sha" "$GITHUB_SHA" | bash infra/ubuntu/classify-production-components.sh)"
+          else
+            echo "Production baseline is unavailable or unsafe to compare; using full deployment."
+          fi
+          local_env_sha="$(sha256sum "$env_file" | awk '{print $1}')"
+          remote_env_digest_line="$("${ssh_command[@]}" "$ssh_target" "sha256sum /opt/ysheng/shared/.env 2>/dev/null || true")"
+          remote_env_sha="${remote_env_digest_line%% *}"
+          if [[ ! "$remote_env_sha" =~ ^[0-9a-f]{64}$ || "$remote_env_sha" != "$local_env_sha" ]]; then
+            echo "Production environment changed or has no trusted baseline; using full deployment."
+            deploy_components="full"
+          fi
+          echo "Production deployment scope: $deploy_components (baseline: ${current_release_sha:-unknown}, target: $GITHUB_SHA)"
+
           "${ssh_command[@]}" "$ssh_target" "mkdir -p '$remote_stage'"
           git archive --format=tar "$GITHUB_SHA" | "${ssh_command[@]}" "$ssh_target" "tar -xf - -C '$remote_stage'"
           tar -C infra/aspire-output -cf - . | "${ssh_command[@]}" "$ssh_target" "mkdir -p '$remote_stage/infra/aspire-output'; tar -xf - -C '$remote_stage/infra/aspire-output'"
           "${ssh_command[@]}" "$ssh_target" "sudo -n /bin/bash '$remote_stage/infra/ubuntu/bootstrap-shinjiru.sh' --deploy-user '$DEPLOY_USER' --release-dir '$remote_stage' --ssh-port '$DEPLOY_SSH_PORT'"
           cat "$env_file" | "${ssh_command[@]}" "$ssh_target" "umask 077; cat > /opt/ysheng/shared/.env"
-          "${ssh_command[@]}" "$ssh_target" "bash '/opt/ysheng/releases/$GITHUB_SHA/infra/ubuntu/deploy-production.sh' --release-dir '/opt/ysheng/releases/$GITHUB_SHA' --env-file /opt/ysheng/shared/.env"
+          "${ssh_command[@]}" "$ssh_target" "bash '/opt/ysheng/releases/$GITHUB_SHA/infra/ubuntu/deploy-production.sh' --release-dir '/opt/ysheng/releases/$GITHUB_SHA' --env-file /opt/ysheng/shared/.env --components '$deploy_components'"

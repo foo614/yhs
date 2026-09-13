@@ -33,6 +33,7 @@ $apiProgram = Read-Text "services/api/src/YSHeng.Api/Program.cs"
 $opsProxy = Read-Text "infra/nginx/ops-proxy.conf"
 $bootstrap = Read-Text "infra/ubuntu/bootstrap-shinjiru.sh"
 $deploy = Read-Text "infra/ubuntu/deploy-production.sh"
+$classifier = Read-Text "infra/ubuntu/classify-production-components.sh"
 $backup = Read-Text "infra/ubuntu/backup-postgres.sh"
 $smoke = Read-Text "infra/ubuntu/production-smoke.sh"
 $envValidator = Read-Text "infra/ubuntu/validate-production-env.sh"
@@ -165,6 +166,10 @@ foreach ($expected in @(
   "validate-production-env.sh",
   'bash "$APP_ROOT/current/infra/ubuntu/backup-postgres.sh"',
   "up -d --build --remove-orphans",
+  'up -d --build --no-deps backoffice',
+  'up -d --build --no-deps frontoffice',
+  'up -d --build --no-deps api worker',
+  '--components "$COMPONENTS"',
   "production-smoke.sh",
   "sudo -n ln -sfn --"
 )) {
@@ -183,6 +188,12 @@ foreach ($expected in @(
 }
 
 Assert-Contains -Name "Production smoke script" -Text $smoke -Expected "strict-transport-security"
+Assert-Contains -Name "Production smoke script" -Text $smoke -Expected '--components'
+Assert-Contains -Name "Production smoke script" -Text $smoke -Expected 'hardening_url="$backoffice_url"'
+Assert-Contains -Name "Component classifier" -Text $classifier -Expected 'apps/backoffice/*'
+Assert-Contains -Name "Component classifier" -Text $classifier -Expected 'apps/frontoffice/*'
+Assert-Contains -Name "Component classifier" -Text $classifier -Expected 'services/api/*'
+Assert-Contains -Name "Component classifier" -Text $classifier -Expected 'echo "full"'
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "Production environment validation failed:"
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "must equal"
 Assert-Contains -Name "Ubuntu environment validator" -Text $envValidator -Expected "ASPIRE_DASHBOARD_BROWSER_TOKEN"
@@ -206,10 +217,19 @@ foreach ($expected in @(
   "SHIJIRU_SSH_PRIVATE_KEY",
   "SHIJIRU_KNOWN_HOSTS",
   "PRODUCTION_ENV_FILE",
+  'local_env_sha="$(sha256sum "$env_file"',
+  'sha256sum /opt/ysheng/shared/.env',
+  '"$remote_env_sha" != "$local_env_sha"',
+  'deploy_components="full"',
   "StrictHostKeyChecking=yes",
   "Check merged Aspire production Compose dashboard",
   "Check Ubuntu deployment script syntax",
+  "bash infra/test-component-deployment.sh",
   "bash -n infra/ubuntu/bootstrap-shinjiru.sh",
+  "classify-production-components.sh",
+  "current_release_sha",
+  "git merge-base --is-ancestor",
+  "--components '`$deploy_components'",
   "git archive",
   "actions/download-artifact@v4",
   "tar -C infra/aspire-output",
