@@ -69,6 +69,10 @@ Before production deploy, replace:
 - `GRAFANA_CLOUD_OTLP_ENDPOINT`
 - `GRAFANA_CLOUD_OTLP_INSTANCE_ID`
 - `GRAFANA_CLOUD_OTLP_API_TOKEN`
+
+The production Collector also exports host-level CPU, load, memory, paging, physical-disk, root-filesystem, and physical-network metrics to the existing Aspire and Grafana Cloud exporters. It runs without privileged mode, Docker socket access, cAdvisor, or container discovery. The host filesystem is mounted read-only solely for the `hostmetrics` receiver; the container has all Linux capabilities dropped, `no-new-privileges`, a read-only root filesystem, and a small no-exec temporary filesystem. Collection excludes virtual filesystems, non-physical disks, loopback, Docker bridges, and virtual network interfaces to prevent sensitive or high-cardinality labels.
+
+Import `infra/grafana/ysheng-vps-host-dashboard.json` into the Grafana Cloud stack connected to the OTLP endpoint. Confirm the dashboard receives `service.name = ysheng-vps-host` data for CPU, memory, root filesystem, disk I/O, and network throughput. Do not add Docker socket mounts, privileged mode, cAdvisor, per-process collection, container names, command lines, customer identifiers, or raw mount paths beyond `/`.
 - `PUBLIC_API_BASE_URL`
 - `FRONTOFFICE_ORIGIN`
 - `BACKOFFICE_ORIGIN`

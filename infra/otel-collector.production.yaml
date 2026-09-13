@@ -22,6 +22,38 @@ receivers:
           scrape_interval: 30s
           static_configs:
             - targets: [127.0.0.1:8888]
+  host_metrics:
+    collection_interval: 30s
+    root_path: /hostfs
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      load:
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      paging:
+      disk:
+        include:
+          devices: ["^(sd|vd|xvd|nvme).*$"]
+          match_type: regexp
+      filesystem:
+        include_mount_points:
+          mount_points: ["/"]
+          match_type: strict
+        exclude_fs_types:
+          fs_types: ["^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|overlay|proc|pstore|securityfs|sysfs|tmpfs|tracefs)$"]
+          match_type: regexp
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+      network:
+        include:
+          interfaces: ["^(eth|ens|enp)[0-9a-z]+$"]
+          match_type: regexp
 
 processors:
   memory_limiter:
@@ -36,6 +68,14 @@ processors:
       - key: service.namespace
         action: upsert
         value: ysheng
+  resource/host:
+    attributes:
+      - key: service.name
+        action: upsert
+        value: ysheng-vps-host
+      - key: service.instance.id
+        action: upsert
+        value: production-vps
   batch:
     timeout: 5s
     send_batch_size: 512
@@ -80,6 +120,10 @@ service:
     metrics:
       receivers: [otlp, prometheus/collector]
       processors: [memory_limiter, resource/production, batch]
+      exporters: [otlp/aspire, otlphttp/grafana_cloud]
+    metrics/host:
+      receivers: [host_metrics]
+      processors: [memory_limiter, resource/production, resource/host, batch]
       exporters: [otlp/aspire, otlphttp/grafana_cloud]
     traces:
       receivers: [otlp]
