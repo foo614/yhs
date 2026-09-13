@@ -157,7 +157,7 @@ public sealed class ApiDocumentationTests
         Assert.Contains("UX_CollectionTransactions_ActiveMethod_NormalizedReference", seed);
         Assert.Contains("WHERE \"NormalizedReference\" IS NOT NULL AND \"Status\" <> 2", seed);
         Assert.Contains("LockCollectionReferenceAsync", program);
-        Assert.Contains("collection_reconcile_self_approval_forbidden", File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "FinanceV2.cs")));
+        Assert.DoesNotContain("collection_reconcile_self_approval_forbidden", File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "FinanceV2.cs")));
         Assert.Contains("collection_evidence_required", File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "FinanceV2.cs")));
         Assert.Contains("finance.invoicePdfDownloaded", program);
     }
@@ -334,6 +334,9 @@ public sealed class ApiDocumentationTests
         Assert.DoesNotContain("Sales", policy);
         Assert.DoesNotContain("Delivery", policy);
         Assert.Contains("RequireAuthorization(\"Finance\")", reconcile);
+        Assert.Contains("officialReceipt.generated", reconcile);
+        Assert.Contains("finance.collectionReconciled", reconcile);
+        Assert.Contains("if (collection.Status != CollectionStatus.Reconciled)", reconcile);
         Assert.Contains("backOffice.MapGet(\"/collection-transactions/{id:guid}/official-receipt/content\"", program);
         var receiptDownload = program[
             program.IndexOf("backOffice.MapGet(\"/collection-transactions/{id:guid}/official-receipt/content\"", StringComparison.Ordinal)..
