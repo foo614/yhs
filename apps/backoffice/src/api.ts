@@ -891,6 +891,7 @@ export type CollectionTransaction = {
   reversalReason?: string;
   officialReceiptId?: string;
   officialReceiptNumber?: string;
+  officialReceiptVoided?: boolean;
 };
 
 export type FinanceSaleInput = {
@@ -2345,6 +2346,10 @@ export async function reverseCollection(collectionId: string, reason: string): P
     method: "POST",
     body: JSON.stringify({ reason })
   });
+}
+
+export function collectionOfficialReceiptContentUrl(collectionId: string) {
+  return `${apiBaseUrl}/api/collection-transactions/${collectionId}/official-receipt/content`;
 }
 
 export function financeInvoiceContentUrl(invoiceId: string) {

@@ -188,9 +188,9 @@ public static class CustomerProfileFactory
                 ? profileInvoices.Select(invoice => new CustomerProfileInvoice(invoice.Id, invoice.PaymentRecordId, invoice.VehicleId, invoice.InvoiceNumber, invoice.InvoiceDate, invoice.Amount)).ToList()
                 : [],
             canViewFinance
-                ? receipts.Where(receipt => handoverIds.Contains(receipt.CashHandoverId))
+                ? receipts.Where(receipt => receipt.CashHandoverId.HasValue && handoverIds.Contains(receipt.CashHandoverId.Value))
                     .OrderByDescending(receipt => receipt.CreatedAt)
-                    .Select(receipt => new CustomerProfileReceipt(receipt.CashHandoverId, receipt.Id, receipt.PaymentRecordId, receipt.ReceiptNumber, receipt.Amount, receipt.CreatedAt)).ToList()
+                    .Select(receipt => new CustomerProfileReceipt(receipt.CashHandoverId!.Value, receipt.Id, receipt.PaymentRecordId, receipt.ReceiptNumber, receipt.Amount, receipt.CreatedAt)).ToList()
                 : [],
             visibleDocuments.Select(document => new CustomerProfileDocument(
                 document.Id,

@@ -2526,6 +2526,69 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Reconciled_collection_receipt_is_stable_linked_and_uses_the_branded_pdf_family()
+    {
+        var payment = new PaymentRecord { Id = Guid.NewGuid(), VehicleId = Guid.NewGuid(), FinanceWorkflowVersion = 2 };
+        var collection = new CollectionTransaction
+        {
+            Id = Guid.Parse("aa1192b3-c5f8-41ec-827f-56769a8c5f59"),
+            PaymentRecordId = payment.Id,
+            Amount = 12500m,
+            Method = CollectionMethod.BankTransfer,
+            Reference = "BANK-REF-1001",
+            ReceivedDate = new DateOnly(2026, 9, 13)
+        };
+        var invoice = new FinanceInvoice { Id = Guid.NewGuid(), PaymentRecordId = payment.Id, VehicleId = payment.VehicleId, CustomerId = Guid.NewGuid(), CustomerName = "Invoice Customer", CustomerPhone = "0199999999", VehiclePlateNumber = "SNAP123", VehicleDescription = "Honda Civic 2024" };
+        var evidence = new DocumentBlob { Id = Guid.NewGuid(), VehicleId = payment.VehicleId, PaymentRecordId = payment.Id, CollectionTransactionId = collection.Id, FileName = "verified-payment.pdf" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { Id = payment.VehicleId, PlateNumber = "TEST123", Make = "Honda", Model = "Civic", Year = 2024 };
+        var customer = new Customer { Id = invoice.CustomerId, Name = "Test Customer", Phone = "0100000000" };
+        var now = new DateTime(2026, 9, 13, 9, 30, 0, DateTimeKind.Utc);
+
+        var first = OfficialReceiptFactory.CreateForCollection(collection, payment, invoice, evidence, "finance-checker", now);
+        var retry = OfficialReceiptFactory.CreateForCollection(collection, payment, invoice, evidence, "finance-checker", now.AddHours(1));
+
+        Assert.Equal("YSR-20260913-AA1192", first.ReceiptNumber);
+        Assert.Equal(first.ReceiptNumber, retry.ReceiptNumber);
+        Assert.Equal(collection.Id, first.CollectionTransactionId);
+        Assert.Equal(invoice.Id, first.FinanceInvoiceId);
+        Assert.Equal(evidence.Id, first.EvidenceDocumentId);
+        Assert.Equal(collection.Amount, first.Amount);
+        Assert.StartsWith("%PDF-", System.Text.Encoding.ASCII.GetString(first.Content));
+        var pdfText = System.Text.Encoding.ASCII.GetString(first.Content);
+        Assert.Contains("OFFICIAL RECEIPT", pdfText);
+        Assert.Contains("BANK-REF-1001", pdfText);
+        Assert.Contains("Invoice Customer", pdfText);
+        Assert.Contains("SNAP123", pdfText);
+        Assert.DoesNotContain(customer.Name, pdfText);
+        Assert.DoesNotContain(vehicle.PlateNumber, pdfText);
+        Assert.DoesNotContain(collection.Id.ToString(), pdfText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Reconciled_collection_receipt_preserves_long_details_on_continuation_pages()
+    {
+        var payment = new PaymentRecord { Id = Guid.NewGuid(), VehicleId = Guid.NewGuid(), FinanceWorkflowVersion = 2 };
+        var collection = new CollectionTransaction
+        {
+            Id = Guid.NewGuid(),
+            PaymentRecordId = payment.Id,
+            Amount = 100m,
+            Method = CollectionMethod.Other,
+            Reference = string.Join(' ', Enumerable.Repeat("LONG-REFERENCE", 40)),
+            ReceivedDate = new DateOnly(2026, 9, 13)
+        };
+        var invoice = new FinanceInvoice { Id = Guid.NewGuid(), PaymentRecordId = payment.Id, VehicleId = payment.VehicleId, CustomerId = Guid.NewGuid(), CustomerName = string.Join(' ', Enumerable.Repeat("Long Customer Name", 12)), CustomerPhone = "0100000000", VehiclePlateNumber = "TEST123", VehicleDescription = "Test Vehicle" };
+        var evidence = new DocumentBlob { Id = Guid.NewGuid(), VehicleId = payment.VehicleId, PaymentRecordId = payment.Id, CollectionTransactionId = collection.Id, FileName = string.Join('-', Enumerable.Repeat("evidence", 20)) + ".pdf" };
+        var receipt = OfficialReceiptFactory.CreateForCollection(collection, payment, invoice, evidence, "finance-checker", DateTime.UtcNow);
+        var pdfText = System.Text.Encoding.ASCII.GetString(receipt.Content);
+
+        var pageCountMarker = System.Text.RegularExpressions.Regex.Match(pdfText, @"/Type /Pages /Kids \[[^\]]+\] /Count (?<count>\d+)");
+        Assert.True(pageCountMarker.Success);
+        Assert.True(int.Parse(pageCountMarker.Groups["count"].Value) > 1);
+        Assert.Contains("Full receipt details", pdfText);
+    }
+
+    [Fact]
     public void Photo_upload_validation_rejects_unsupported_image_bytes()
     {
         var result = PhotoUploadRules.CreateThumbnail([1, 2, 3, 4]);
