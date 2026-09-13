@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
-import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleCustomerPath, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -157,6 +157,14 @@ describe("vehicleLoanHandoffStep", () => {
 });
 
 describe("vehicleCustomerEditPolicy", () => {
+  it("links only the vehicle's canonical saved customer to Customer 360", () => {
+    const customers = [{ id: "customer-1", name: "Ali Tan", phone: "0123456789" }];
+
+    expect(vehicleCustomerPath("customer-1", customers)).toBe("/customer-360?customerId=customer-1");
+    expect(vehicleCustomerPath("missing-customer", customers)).toBeUndefined();
+    expect(vehicleCustomerPath(undefined, customers)).toBeUndefined();
+  });
+
   const activeLoan: LoanApplication = { id: "loan-1", vehicleId: "vehicle-1", customerId: "customer-1", status: "Pending", louApproved: false, louDone: false };
 
   it("lets staff repair a missing canonical buyer using only the active loan customer", () => {
