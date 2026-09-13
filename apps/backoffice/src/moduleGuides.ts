@@ -596,7 +596,7 @@ const financeManagementGuide: ModuleGuideDefinition = {
     },
     {
       title: "Record then reconcile / 记录后再对账",
-      description: "Add the payment method, date, amount, reference, and evidence; a different authorized staff member should reconcile it."
+      description: "Add the payment method, date, amount, reference, and evidence; Finance or Boss/Admin then confirms the funds and reconciles it."
     },
     {
       title: "Control payments and exports / 管理付款与导出",
@@ -610,11 +610,11 @@ const financeManagementGuide: ModuleGuideDefinition = {
       kind: "tab",
       audience: "Finance and Boss/Admin",
       purpose: "Prepare the sale invoice, record non-cash collections, reconcile evidence, and export reviewed AutoCount workbooks.",
-      actions: ["Confirm the vehicle's buyer and active sales agent.", "Prepare the invoice with vehicle, insurance, road tax, and other paid-on-behalf lines.", "When nett price differs from the calculated total, obtain approval from another Boss/Admin.", "Add each non-cash partial collection with method, amount, date, and reference.", "For bank financing, progress Pending to Approved to Disbursed.", "Attach evidence to the exact collection.", "Have a different Finance user reconcile it.", "Boss/Admin reverses only a genuine error.", "Choose a date range and export the AutoCount .xlsx.", "Before manual import, inspect every row's status and remarks, resolve review-only or draft rows, and keep TaxCode blank until Finance confirms the tax mapping."],
+      actions: ["Confirm the vehicle's buyer and active sales agent.", "Prepare the invoice with vehicle, insurance, road tax, and other paid-on-behalf lines.", "When nett price differs from the calculated total, obtain approval from another Boss/Admin.", "Add each non-cash partial collection with method, amount, date, and reference.", "For bank financing, progress Pending to Approved to Disbursed.", "Attach evidence to the exact collection.", "Finance or Boss/Admin confirms the money reached the company account and reconciles it; the audit trail records who completed the action.", "Boss/Admin reverses only a genuine error.", "Choose a date range and export the AutoCount .xlsx.", "Before manual import, inspect every row's status and remarks, resolve review-only or draft rows, and keep TaxCode blank until Finance confirms the tax mapping."],
       requiredItems: ["Confirmed buyer", "Active sales agent", "Invoice line values", "Approval for price variance", "Collection method, amount, date, reference, and evidence", "Disbursed bank financing before reconciliation"],
-      completeWhen: "The invoice is issued, all collections are independently reconciled, and the receivable balance is Paid.",
+      completeWhen: "The invoice is issued, all collections are reconciled with evidence and an audit record, and the receivable balance is Paid.",
       handoff: "Reviewed AutoCount workbook for manual import; customer history appears in Customer 360.",
-      warnings: ["Cash is handled through Cash Handover, not added as a normal collection.", "There is one receivable per buyer-linked vehicle.", "A requester cannot approve their own variance and a recorder cannot reconcile their own collection.", "The workbook may include draft, pending, unpaid, or unconfirmed review-only rows with warning remarks; export does not make them posting-ready.", "AutoCount export is a mapping/import aid, not a direct integration, and TaxCode remains blank until Finance confirms the tax mapping."]
+      warnings: ["Cash is handled through Cash Handover, not added as a normal collection.", "There is one receivable per buyer-linked vehicle.", "A requester still cannot approve their own NCD or nett-price variance; collection reconciliation is restricted to Finance and Boss/Admin and remains audited.", "The workbook may include draft, pending, unpaid, or unconfirmed review-only rows with warning remarks; export does not make them posting-ready.", "AutoCount export is a mapping/import aid, not a direct integration, and TaxCode remains blank until Finance confirms the tax mapping."]
     },
     {
       key: "settlements",
@@ -689,7 +689,7 @@ const financeManagementGuide: ModuleGuideDefinition = {
       warnings: ["Cash custody is separate from accounting reconciliation.", "This flow is for supported legacy/cash records only and allows one handover per payment.", "The Sales recorder cannot issue their own official receipt."]
     }
   ],
-  completionReminder: "Keep maker and checker separate. Never mark a collection, voucher, or cash handover complete without matching evidence."
+  completionReminder: "Follow each workflow's approval rule. Never mark a collection, voucher, or cash handover complete without matching evidence and its required audit trail."
 };
 
 const financeSalesGuide: ModuleGuideDefinition = {

@@ -38,6 +38,9 @@ describe("official customer receipt workflow", () => {
     expect(source).not.toContain("Create customer receipt");
     expect(source).not.toContain("financeReceiptUpload");
     expect(source).toContain("Reconcile and issue official receipt?");
+    expect(source).toContain("records your action in the audit trail");
+    expect(source).not.toContain("Another Finance or Admin user must reconcile");
+    expect(source).not.toContain("createdByCurrentUser");
     expect(source).toContain("collectionOfficialReceiptContentUrl(collection.id)");
     expect(source).toContain("Official receipt voided");
   });

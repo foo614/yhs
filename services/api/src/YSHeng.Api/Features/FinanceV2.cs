@@ -418,10 +418,6 @@ public static class FinanceV2Rules
         if (!Enum.IsDefined(typeof(CollectionMethod), collection.Method)) errors.Add(new("collection_method_invalid", "The stored collection method is invalid and requires review."));
         if (!Enum.IsDefined(typeof(FinancingStatus), collection.FinancingStatus)) errors.Add(new("collection_financing_status_invalid", "The stored financing status is invalid and requires review."));
         if (collection.Status == CollectionStatus.Reversed) errors.Add(new("collection_reversed", "A reversed collection cannot be reconciled."));
-        if (string.Equals(collection.CreatedBy, actorUserId, StringComparison.Ordinal))
-        {
-            errors.Add(new("collection_reconcile_self_approval_forbidden", "The staff member who recorded this collection cannot reconcile it."));
-        }
         if (RequiresTraceableReference(collection.Method) && NormalizeReference(collection.Reference) is null)
         {
             errors.Add(new("collection_reference_required", "A traceable transaction or supporting document reference is required before reconciliation."));

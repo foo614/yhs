@@ -478,17 +478,15 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
-    public void Collection_recorder_cannot_reconcile_their_own_entry()
+    public void Finance_and_boss_admin_collection_recorders_can_reconcile_their_own_entry_with_evidence()
     {
         var payment = V2Payment(100m);
         var collection = CollectionFor(payment, 10m, CollectionStatus.Pending, "BANK-1") with { CreatedBy = "finance-1" };
 
+        Assert.True(FinanceV2Rules.ValidateReconcile(payment, collection, "finance-1", hasLinkedEvidence: true).IsValid);
+        Assert.True(FinanceV2Rules.ValidateReconcile(payment, collection with { CreatedBy = "boss-admin-1" }, "boss-admin-1", hasLinkedEvidence: true).IsValid);
         Assert.Contains(
-            FinanceV2Rules.ValidateReconcile(payment, collection, "finance-1", hasLinkedEvidence: true).Errors,
-            error => error.Code == "collection_reconcile_self_approval_forbidden");
-        Assert.True(FinanceV2Rules.ValidateReconcile(payment, collection, "finance-2", hasLinkedEvidence: true).IsValid);
-        Assert.Contains(
-            FinanceV2Rules.ValidateReconcile(payment, collection, "finance-2", hasLinkedEvidence: false).Errors,
+            FinanceV2Rules.ValidateReconcile(payment, collection, "finance-1", hasLinkedEvidence: false).Errors,
             error => error.Code == "collection_evidence_required");
     }
 
