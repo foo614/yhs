@@ -807,13 +807,15 @@ export function HrSalaryPage({
         <Space direction="vertical" size={14} className="fullWidth">
           <Typography.Text type="secondary">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</Typography.Text>
           <Form name="hrBusinessTrip" form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: today, endDate: today, isUrgentException: false }}>
-            <div className="leaveDetailsGrid">
+            <div className="leaveDetailsGrid businessTripDetailsGrid">
               {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>}
               <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><Input type="date" /></Form.Item>
               <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><Input type="date" /></Form.Item>
               <Form.Item name="location" label="Location / 地点" rules={[{ required: true }]}><Input placeholder="Customer site / 客户地点" /></Form.Item>
-              <Form.Item name="purpose" label="Purpose / 目的" rules={[{ required: true }]}><Input placeholder="Sales visit / 跑销" /></Form.Item>
-              <Form.Item name="isUrgentException" valuePropName="checked"><Checkbox>Urgent exception / 临时外勤例外</Checkbox></Form.Item>
+              <div className="businessTripPurposeRow">
+                <Form.Item name="purpose" label="Purpose / 目的" rules={[{ required: true }]}><Input placeholder="Sales visit / 跑销" /></Form.Item>
+                <Form.Item name="isUrgentException" label="Urgent exception / 临时外勤例外" valuePropName="checked"><Checkbox>Apply / 申请</Checkbox></Form.Item>
+              </div>
             </div>
             <Button type="primary" htmlType="submit">Submit Outstation Request / 提交外勤申请</Button>
           </Form>

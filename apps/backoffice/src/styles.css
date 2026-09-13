@@ -2561,6 +2561,18 @@ body {
   align-items: stretch;
 }
 
+.businessTripPurposeRow {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(260px, 1.2fr) minmax(210px, .8fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.businessTripPurposeRow .ant-form-item {
+  margin-bottom: 0;
+}
+
 .leaveCalculatedDays {
   min-height: 96px;
   display: flex;
@@ -5565,6 +5577,10 @@ body {
 @media (max-width: 720px) {
   .financeToolbarForm {
     display: flex !important;
+  }
+
+  .businessTripPurposeRow {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .ant-modal-wrap {
