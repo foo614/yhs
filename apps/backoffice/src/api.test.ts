@@ -785,7 +785,7 @@ describe("backoffice api client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(getPurchaseInvoiceRevisionContent("invoice-1", 2)).resolves.toBe(content);
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/purchase-invoices/invoice-1/revisions/2/content", { credentials: "include", cache: "no-store" });
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/purchase-invoices/invoice-1/revisions/2/content", { credentials: "include" });
   });
 
   it("loads and updates repair jobs for refurbishment checklist tracking", async () => {
