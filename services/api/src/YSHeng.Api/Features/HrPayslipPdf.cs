@@ -19,14 +19,14 @@ public static class HrPayslipPdfFactory
         Text(page, 420, 790, 10, "MONTH:", true);
         Text(page, 470, 790, 10, month);
         Line(page, 48, 748, 547, 748);
-        Text(page, 62, 726, 10, "Employee / 员工", true);
+        Text(page, 62, 726, 10, "Employee", true);
         Text(page, 180, 726, 10, safeName);
-        Text(page, 62, 706, 10, "Pay period / 薪资月份", true);
+        Text(page, 62, 706, 10, "Pay period", true);
         Text(page, 180, 706, 10, period.Name);
         Line(page, 48, 686, 547, 686);
 
-        Text(page, 62, 664, 10, "SALARY / 薪资", true);
-        Text(page, 330, 664, 10, "DEDUCTIONS / 扣除", true);
+        Text(page, 62, 664, 10, "SALARY", true);
+        Text(page, 330, 664, 10, "DEDUCTIONS", true);
         Row(page, 62, 638, "Base salary", payslip.BaseSalary);
         Row(page, 330, 638, "Unpaid leave", payslip.UnpaidLeaveDeduction);
         Row(page, 62, 614, payslip.EmploymentType == HrEmploymentType.Hourly ? "Attendance pay" : "Overtime pay", payslip.EmploymentType == HrEmploymentType.Hourly ? payslip.AttendancePay : payslip.OvertimePay);

@@ -4482,6 +4482,7 @@ hr.MapGet("/payslips/{id:guid}/pdf", async (Guid id, AppDbContext db, UserManage
     var pdf = HrPayslipPdfFactory.Create(payslip, period, staff?.DisplayName ?? payslip.StaffUserId, "YS HENG AUTOMOTIVE SDN BHD");
     ApiAudit.Add(db, context.User, "hr.payslip.pdfDownloaded", nameof(HrPayslip), payslip.Id);
     await db.SaveChangesAsync();
+    context.Response.Headers.CacheControl = "private, no-store";
     return Results.File(pdf.Content, "application/pdf", pdf.FileName);
 });
 

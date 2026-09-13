@@ -2653,7 +2653,7 @@ async function request<T = unknown>(path: string, init: RequestInit = {}, errorM
 }
 
 async function requestBlob(path: string, errorMessage = "Request failed with status"): Promise<Blob> {
-  const response = await fetch(`${apiBaseUrl}${path}`, { credentials: "include" });
+  const response = await fetch(`${apiBaseUrl}${path}`, { credentials: "include", cache: "no-store" });
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`));
   }
