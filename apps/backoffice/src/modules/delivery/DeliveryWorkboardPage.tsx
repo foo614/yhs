@@ -1101,12 +1101,14 @@ export function CurrentStageForm({
       <Form.Item name="customerAcknowledged" valuePropName="checked"><Checkbox>Customer acknowledged handover / 客户已确认交车</Checkbox></Form.Item>
       <Form.Item name="finalChecklistConfirmed" valuePropName="checked"><Checkbox>Final checklist confirmed / 最终清单已确认</Checkbox></Form.Item>
     </div>
-    <Alert
-      type={item.financeCleared ? "success" : "warning"}
-      showIcon
-      message={item.financeCleared ? "Finance cleared / 财务已确认" : "Release blocked: waiting for Finance / 等待财务，暂不能交车"}
-    />
-    {item.canRelease ? <Button type="primary" onClick={onRelease} loading={saving}>Confirm vehicle release / 确认交车</Button> : <Button type="primary" htmlType="submit" loading={saving}>Save handover checks / 保存交车确认</Button>}
+    <div className="deliveryHandoverActions">
+      <Alert
+        type={item.financeCleared ? "success" : "warning"}
+        showIcon
+        message={item.financeCleared ? "Finance cleared / 财务已确认" : "Release blocked: waiting for Finance / 等待财务，暂不能交车"}
+      />
+      {item.canRelease ? <Button type="primary" onClick={onRelease} loading={saving}>Confirm vehicle release / 确认交车</Button> : <Button type="primary" htmlType="submit" loading={saving}>Save handover checks / 保存交车确认</Button>}
+    </div>
   </Form>;
 }
 

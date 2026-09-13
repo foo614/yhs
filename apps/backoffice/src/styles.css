@@ -6014,6 +6014,20 @@ body {
   overflow-wrap: break-word;
 }
 
+.deliveryHandoverActions {
+  display: grid;
+  gap: 12px;
+}
+
+.deliveryHandoverActions > .ant-alert {
+  width: 100%;
+  min-width: 0;
+}
+
+.deliveryHandoverActions > .ant-btn {
+  justify-self: start;
+}
+
 .deliveryEvidenceReviewIntro .ant-typography {
   margin-bottom: 4px;
 }
@@ -6131,6 +6145,7 @@ body {
   .deliveryWorkboardToolbar .ant-input-search,
   .deliveryWorkboardToolbar .ant-select,
   .deliveryFinanceGate .ant-btn,
+  .deliveryHandoverActions .ant-btn,
   .salesMyCarsFilterBar .ant-select {
     width: 100%;
   }
