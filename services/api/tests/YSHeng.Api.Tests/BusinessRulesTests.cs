@@ -148,6 +148,45 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Vehicle_catalog_selection_resolves_active_canonical_pair_and_rejects_raw_bypass()
+    {
+        var civic = new VehicleCatalogModel { Make = "Honda", Model = "Civic", IsActive = true };
+        var inactive = new VehicleCatalogModel { Make = "Honda", Model = "City", IsActive = false };
+
+        var caseOnly = VehicleCatalogRules.FindActiveSelection(" honda ", "civic", [civic, inactive]);
+        var wrongMake = VehicleCatalogRules.FindActiveSelection("Nissan", "Civic", [civic, inactive]);
+        var detailedRaw = VehicleCatalogRules.FindActiveSelection("Honda", "Civic 1.5L V", [civic, inactive]);
+
+        Assert.Same(civic, caseOnly);
+        Assert.Null(wrongMake);
+        Assert.Null(detailedRaw);
+        Assert.Contains(VehicleCatalogRules.ValidateSelection(detailedRaw).Errors, error => error.Code == "vehicle_catalog_selection_required");
+        var canonicalVehicle = VehicleCatalogRules.ApplyCanonicalSelection(
+            VehicleSeed.Available(publicVisible: false) with { Make = "HONDA", Model = "CIVIC" }, caseOnly!);
+        Assert.Equal("Honda", canonicalVehicle.Make);
+        Assert.Equal("Civic", canonicalVehicle.Model);
+    }
+
+    [Fact]
+    public void Explicitly_created_catalog_pair_becomes_a_valid_vehicle_selection()
+    {
+        var created = VehicleCatalogRules.Create(new VehicleCatalogModelRequest(" New Make ", " New Model "));
+
+        Assert.True(VehicleCatalogRules.Validate(created).IsValid);
+        Assert.Same(created, VehicleCatalogRules.FindActiveSelection("new make", "new model", [created]));
+    }
+
+    [Fact]
+    public void Unchanged_legacy_catalog_pair_remains_editable_but_pair_changes_require_validation()
+    {
+        var existing = VehicleSeed.Available(publicVisible: false) with { Make = "Legacy Make", Model = "Legacy Model" };
+
+        Assert.False(VehicleCatalogRules.HasSelectionChanged(existing, existing with { StockLocation = "Showroom" }));
+        Assert.True(VehicleCatalogRules.HasSelectionChanged(existing, existing with { Model = "Different Model" }));
+        Assert.True(VehicleCatalogRules.HasSelectionChanged(existing, existing with { Make = "legacy make" }));
+    }
+
+    [Fact]
     public void Vehicle_catalog_public_response_excludes_internal_status()
     {
         var item = new VehicleCatalogModel { Make = "Honda", Model = "City", IsActive = false };
@@ -5022,19 +5061,19 @@ public sealed class BusinessRulesTests
                 FileName = "jpj-voc-same-line-layout.txt",
                 MimeType = "text/plain",
                 Content = System.Text.Encoding.UTF8.GetBytes(
-                    "No. Pendaftaran : VMW9796\n" +
-                    "No. ID : 971211055039\n" +
-                    "Nama Pemunya Berdaftar : CHEONG WEN ZHE\n" +
-                    "No. Chasis / No. Enjin : PMHFE1650RD401993 / L15BG2102023\n" +
+                    "No. Pendaftaran : QAA1234\n" +
+                    "No. ID : 900101010101\n" +
+                    "Nama Pemunya Berdaftar : SYNTHETIC OWNER\n" +
+                    "No. Chasis / No. Enjin : SYNTHCHASSIS12345 / SYNTHENGINE67890\n" +
                     "Buatan / Nama Model : HONDA / CIVIC 1.5L V\n" +
                     "Jenis Badan / Tahun Dibuat : MOTOKAR / 2024\n" +
                     "Tarikh Pendaftaran : 26/08/2024")
             },
             []);
 
-        Assert.Equal("VMW9796", result.Fields["plateNumber"]);
-        Assert.Equal("PMHFE1650RD401993", result.Fields["chassisNumber"]);
-        Assert.Equal("L15BG2102023", result.Fields["engineNumber"]);
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
         Assert.Equal("HONDA", result.Fields["make"]);
         Assert.Equal("CIVIC 1.5L V", result.Fields["model"]);
         Assert.Equal("2024", result.Fields["year"]);
@@ -5180,6 +5219,496 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Ocr_parser_maps_redacted_provider_grid_with_prefixed_identifier_separator_and_punctuated_labels()
+    {
+        const string rawText =
+            "JABATAN PENGANGKUTAN JALAN\n" +
+            "SIJIL PEMILIKAN KENDERAAN\n" +
+            "No. Pendaftaran\n" +
+            "QAA1234\n" +
+            "No. Chasis / No. Enjin\n" +
+            "/ SYNTHCHASSIS12345 SYNTHENGINE67890 !\n" +
+            "Keupayaan Enjin :\n" +
+            "Buatan :\n" +
+            "Nama Model :\n" +
+            "Jenis Badan :\n" +
+            "Tahun Dibuat :\n" +
+            "Tarikh Pendaftaran :\n" +
+            "1498 cc\n" +
+            "PROTON\n" +
+            "S70 PREMIUM\n" +
+            "MOTOKAR\n" +
+            "2025\n" +
+            "10/01/2025\n" +
+            "STATUS\nAKTIF\nKATEGORI\nPERSENDIRIAN\nWARNA\nMERAH\n" +
+            "BAHAN BAKAR\nPETROL\nNEGARA PEMBUAT\nMALAYSIA\nKELAS KEGUNAAN\n" +
+            "MOTOKAR INDIVIDU\nNO. RUJUKAN\nSYNTHREF123\nTARIKH CETAK\n" +
+            "01/01/2026\nSALINAN UJIAN\nDOKUMEN UJIAN\nTAMAT";
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "redacted-provider-grid.txt",
+                MimeType = "text/plain",
+                Content = Encoding.UTF8.GetBytes(rawText)
+            },
+            []);
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(
+            new GoogleDocumentAiRecognition(rawText, 0.9m, [], []),
+            result);
+
+        Assert.Equal(37, diagnostic.LineCount);
+        Assert.Equal("none", diagnostic.ChassisCandidate.LengthBucket);
+        Assert.Equal("33-plus", diagnostic.EngineCandidate.LengthBucket);
+        Assert.False(diagnostic.EngineCandidate.AllowedCharacters);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("S70 PREMIUM", result.Fields["model"]);
+        Assert.Equal("2025", result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_validated_values_from_label_relative_cells()
+    {
+        const string flattenedProviderText =
+            "No. Pendaftaran\nQAA1234\nNo. Chasis / No. Enjin / SYNTHCHASSIS12345 SYNTHENGINE67890\n" +
+            "Buatan Nama Model Tahun Dibuat\nPROTON S70 PREMIUM 2025";
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], flattenedProviderText, 0.9m, []);
+        var layout = new GoogleDocumentAiLayoutLine[]
+        {
+            new("No. Pendaftaran", 1, .10, .10, .28, .13), new("QAA1234", 1, .32, .10, .42, .13),
+            new("No. Chasis", 1, .10, .20, .24, .23), new("SYNTHCHASSIS12345", 1, .27, .20, .48, .23),
+            new("No. Enjin", 1, .52, .20, .64, .23), new("SYNTHENGINE67890", 1, .68, .20, .89, .23),
+            new("Buatan", 1, .10, .30, .24, .33), new("PROTON", 1, .27, .30, .40, .33),
+            new("Nama Model", 1, .10, .40, .24, .43), new("S70 PREMIUM", 1, .27, .40, .45, .43),
+            new("Tahun Dibuat", 1, .10, .50, .24, .53), new("2025", 1, .27, .50, .34, .53)
+        };
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, layout);
+
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("S70 PREMIUM", result.Fields["model"]);
+        Assert.Equal("2025", result.Fields["year"]);
+        Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No chassis number", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No engine number", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_rejects_invalid_nearby_values()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "No. Enjin 1498 cc unrelated", 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Enjin", 1, .10, .20, .24, .23),
+            new("1498 cc", 1, .27, .20, .35, .23),
+            new("UNRELATED", 1, .40, .20, .52, .23)
+        ]);
+
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_does_not_borrow_engine_value_for_missing_chassis()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "No. Chasis / No. Enjin", 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Chasis", 1, .10, .20, .22, .23),
+            new("No. Enjin", 1, .45, .20, .56, .23),
+            new("ENGINE123", 1, .60, .20, .72, .23)
+        ]);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Equal("ENGINE123", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_below_cell_and_short_valid_engine()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "Buatan Proton No. Enjin A12B3", 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("Buatan", 1, .10, .20, .24, .23),
+            new("PROTON", 1, .11, .25, .23, .28),
+            new("No. Enjin", 1, .50, .20, .64, .23),
+            new("A12B3", 1, .68, .20, .76, .23)
+        ]);
+
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.Equal("A12B3", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_removes_resolved_plate_warning()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "No. Pendaftaran", 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Pendaftaran", 1, .10, .10, .28, .13),
+            new("QAA1234", 1, .32, .10, .42, .13)
+        ]);
+
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No car plate", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_splits_known_paired_rows_without_cross_mapping()
+    {
+        const string rawText =
+            "No. Chasis / No. Enjin SYNTHCHASSIS12345 SYNTHENGINE67890 " +
+            "Buatan / Nama Model HONDA / CIVIC 1.5L V Jenis Badan / Tahun Dibuat MOTOKAR / 2024";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], rawText, 0.9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Chasis / No. Enjin", 1, .10, .20, .40, .23),
+            new("SYNTHCHASSIS12345 SYNTHENGINE67890", 1, .11, .25, .39, .28),
+            new("Buatan / Nama Model", 1, .10, .35, .40, .38),
+            new("HONDA / CIVIC 1.5L V", 1, .11, .40, .39, .43),
+            new("Jenis Badan / Tahun Dibuat", 1, .10, .50, .40, .53),
+            new("MOTOKAR / 2024", 1, .11, .55, .39, .58)
+        ], out var identifierMappingReason);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("HONDA", result.Fields["make"]);
+        Assert.Equal("CIVIC 1.5L V", result.Fields["model"]);
+        Assert.Equal("2024", result.Fields["year"]);
+        Assert.Equal("mapped-relative-pair", identifierMappingReason);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_identifiers_interleaved_with_the_combined_label()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [],
+            "No. Chasis SYNTHCHASSIS12345 / No. Enjin SYNTHENGINE67890", 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            // Faithful redacted geometry: Document AI returns the two identifiers in
+            // the same layout line as the combined labels, with a slash between them.
+            new("No. Chasis SYNTHCHASSIS12345 / No. Enjin SYNTHENGINE67890", 1, .10, .20, .90, .23),
+            new("1498 cc MOTOKAR", 1, .11, .25, .39, .28),
+            new("10/01/2024", 1, .41, .25, .55, .28)
+        ]);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_rejects_unstructured_tokens_after_the_combined_labels()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin / No: SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan";
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new(combinedRow, 1, .10, .20, .90, .23),
+            new("1498 cc MOTOKAR", 1, .11, .25, .39, .28),
+            new("10/01/2024", 1, .41, .25, .55, .28)
+        ]);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_merged_identifier_line_from_aligned_token_cells()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin / No: SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+        var label = new GoogleDocumentAiLayoutLine(combinedRow, 1, .10, .20, .92, .28);
+        var tokens = new GoogleDocumentAiLayoutLine[]
+        {
+            new("No.", 1, .10, .20, .14, .23),
+            new("Chasis", 1, .15, .20, .23, .23),
+            new("/", 1, .24, .20, .25, .23),
+            new("No.", 1, .26, .20, .30, .23),
+            new("Enjin", 1, .31, .20, .38, .23),
+            new(":", 1, .39, .20, .40, .23),
+            new("SYNTHCHASSIS12345", 1, .43, .20, .61, .23),
+            new("/", 1, .62, .20, .63, .23),
+            new("SYNTHENGINE67890", 1, .65, .20, .80, .23),
+            new("No.", 1, .10, .25, .14, .28),
+            new("Rujukan", 1, .15, .25, .24, .28),
+            new("SYNTHREFERENCE123", 1, .43, .25, .61, .28)
+        };
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [label], tokens, out var reason);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("mapped-geometry-delimited", reason);
+        Assert.Equal("mapped-geometry-delimited", GoogleDocumentAiVocLayoutMapper.DiagnoseGeometryIdentifierPair(label, tokens));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void Google_document_ai_fixed_voc_layout_rejects_geometry_without_one_delimited_identifier_pair(
+        bool includeDelimiter,
+        bool includeExtraCandidate)
+    {
+        const string combinedRow = "No. Chasis / No. Enjin merged provider line";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+        var label = new GoogleDocumentAiLayoutLine(combinedRow, 1, .10, .20, .92, .23);
+        var tokens = new List<GoogleDocumentAiLayoutLine>
+        {
+            new("No.", 1, .10, .20, .14, .23),
+            new("Chasis", 1, .15, .20, .23, .23),
+            new("/", 1, .24, .20, .25, .23),
+            new("No.", 1, .26, .20, .30, .23),
+            new("Enjin", 1, .31, .20, .38, .23),
+            new("SYNTHCHASSIS12345", 1, .43, .20, .61, .23),
+            new("SYNTHENGINE67890", 1, .65, .20, .80, .23)
+        };
+        if (includeDelimiter) tokens.Add(new("/", 1, .62, .20, .63, .23));
+        if (includeExtraCandidate) tokens.Add(new("EXTRAREFERENCE123", 1, .82, .20, .91, .23));
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [label], tokens, out var reason);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Equal(includeExtraCandidate ? "geometry-candidate-count" : "geometry-delimiter-missing", reason);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_rejects_multiple_full_geometry_headers_in_a_merged_line()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin merged rows";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+        var label = new GoogleDocumentAiLayoutLine(combinedRow, 1, .10, .20, .92, .29);
+        var tokens = GeometryHeaderTokens(.20, "SYNTHCHASSIS12345", "SYNTHENGINE67890")
+            .Concat(GeometryHeaderTokens(.26, "OTHERCHASSIS12345", "OTHERENGINE67890"))
+            .ToList();
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [label], tokens, out var reason);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Equal("geometry-header-count", reason);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_rejects_a_distant_geometry_header_outside_the_merged_line()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin merged provider line";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+        var label = new GoogleDocumentAiLayoutLine(combinedRow, 1, .10, .20, .92, .23);
+        var tokens = GeometryHeaderTokens(.60, "OTHERCHASSIS12345", "OTHERENGINE67890");
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [label], tokens, out var reason);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Equal("geometry-header-count", reason);
+    }
+
+    private static IReadOnlyList<GoogleDocumentAiLayoutLine> GeometryHeaderTokens(
+        double top,
+        string chassis,
+        string engine) =>
+    [
+        new("No.", 1, .10, top, .14, top + .03),
+        new("Chasis", 1, .15, top, .23, top + .03),
+        new("/", 1, .24, top, .25, top + .03),
+        new("No.", 1, .26, top, .30, top + .03),
+        new("Enjin", 1, .31, top, .38, top + .03),
+        new(":", 1, .39, top, .40, top + .03),
+        new(chassis, 1, .43, top, .61, top + .03),
+        new("/", 1, .62, top, .63, top + .03),
+        new(engine, 1, .65, top, .80, top + .03)
+    ];
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_maps_the_jpj_labels_first_delimited_row()
+    {
+        const string combinedRow = "No. Chasis / No. Enjin : SYNTHCHASSIS12345 / SYNTHENGINE67890";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], combinedRow, 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(
+            extraction,
+            [new(combinedRow, 1, .10, .20, .90, .23)],
+            out var identifierMappingReason);
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(
+            new GoogleDocumentAiRecognition(combinedRow, 0.9m, [], [], [new(combinedRow, 1, .10, .20, .90, .23)]),
+            result,
+            identifierMappingReason);
+
+        Assert.Equal(
+            "mapped-labels-first-delimited",
+            GoogleDocumentAiVocLayoutMapper.DiagnoseInlineIdentifierPair(combinedRow));
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+        Assert.Equal("mapped-labels-first-delimited", diagnostic.IdentifierMappingReason);
+        Assert.DoesNotContain("SYNTHCHASSIS12345", diagnostic.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("SYNTHENGINE67890", diagnostic.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("No. Chasis 1498CC / No. Enjin 10/01/2024")]
+    [InlineData("No. Chasis SYNTHCHASSIS12345 OTHER12345 / No. Enjin SYNTHENGINE67890")]
+    [InlineData("CHASREF123456 / ENJINREF67890")]
+    [InlineData("DOCREFERENCE12345 No. Chasis / No. Enjin SYNTHENGINE67890")]
+    [InlineData("No. Chasis / No. Enjin / SYNTHCHASSIS12345 SYNTHENGINE67890 EXTRA12345")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan Extra")]
+    [InlineData("No. Chasis / No. Enjin / No SHORT1 SYNTHENGINE67890 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHCHASSIS123456789 SYNTHENGINE67890 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 SYNTHENGINE67890 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan X")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHCHASSIS12345 SYNTHENGINE67890 Rujukan ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ12345678901234567890")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 10SEPT2024 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 2024SEPT10 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 10JANUARY2024 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 2024SEPTEMBER10 Rujukan")]
+    [InlineData("No. Chasis / No. Enjin / No SYNTHENGINE67890 10DISEMBER2024 Rujukan")]
+    public void Google_document_ai_fixed_voc_layout_rejects_ambiguous_or_non_identifier_inline_pairs(string label)
+    {
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], label, 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction, [new(label, 1, .10, .20, .90, .23)]);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_does_not_fall_back_from_an_ambiguous_inline_pair()
+    {
+        const string label = "No. Chasis SYNTHCHASSIS12345 OTHER12345 / No. Enjin SYNTHENGINE67890";
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], label, 0.9m, []);
+
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new(label, 1, .10, .20, .90, .23),
+            new("UNRELATEDREF12345 OTHERCODE67890", 1, .11, .25, .39, .28)
+        ]);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+    }
+
+    [Fact]
+    public void Google_document_ai_fixed_voc_layout_preserves_conflicting_prepopulated_values()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "", 0.9m, []) with
+        {
+            Fields = new Dictionary<string, string?>
+            {
+                ["chassisNumber"] = "TRUSTEDCHASSIS123",
+                ["engineNumber"] = null,
+                ["make"] = "Trusted Make",
+                ["model"] = null,
+                ["year"] = "2023"
+            }
+        };
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Chasis / No. Enjin", 1, .10, .20, .40, .23),
+            new("OTHERCHASSIS12345 OTHERENGINE67890", 1, .11, .25, .39, .28),
+            new("Buatan / Nama Model", 1, .10, .35, .40, .38),
+            new("HONDA / CIVIC 1.5L V", 1, .11, .40, .39, .43),
+            new("Jenis Badan / Tahun Dibuat", 1, .10, .50, .40, .53),
+            new("MOTOKAR / 2024", 1, .11, .55, .39, .58)
+        ], out var identifierMappingReason);
+
+        Assert.Equal("TRUSTEDCHASSIS123", result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Equal("Trusted Make", result.Fields["make"]);
+        Assert.Null(result.Fields["model"]);
+        Assert.Equal("2023", result.Fields["year"]);
+        Assert.Equal("existing-value-conflict", identifierMappingReason);
+    }
+
+    [Theory]
+    [InlineData("HONDA / CIVIC 1.5L V", "Trusted Model", "HONDA / CIVIC 1.5L V", "Trusted Model")]
+    [InlineData("Trusted Make", "HONDA / CIVIC 1.5L V", "Trusted Make", "HONDA / CIVIC 1.5L V")]
+    public void Google_document_ai_fixed_voc_layout_preserves_a_trusted_partner_when_only_one_field_is_a_composite_echo(
+        string existingMake,
+        string existingModel,
+        string? expectedMake,
+        string? expectedModel)
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], "", 0.9m, []) with
+        {
+            Fields = new Dictionary<string, string?>
+            {
+                ["make"] = existingMake,
+                ["model"] = existingModel
+            }
+        };
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("Buatan / Nama Model", 1, .10, .35, .40, .38),
+            new("HONDA / CIVIC 1.5L V", 1, .11, .40, .39, .43)
+        ]);
+
+        Assert.Equal(expectedMake, result.Fields["make"]);
+        Assert.Equal(expectedModel, result.Fields["model"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_does_not_cross_map_ambiguous_provider_identifier_tokens_or_incomplete_punctuated_columns()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "redacted-ambiguous-provider-grid.txt",
+                MimeType = "text/plain",
+                Content = Encoding.UTF8.GetBytes(
+                    "No. Pendaftaran\nQAA1234\n" +
+                    "No. Chasis / No. Enjin\n/ SYNTHCHASSIS12345 SYNTHENGINE67890 OTHERREF12345\n" +
+                    "UNRELATEDREF12345 OTHERCODE67890\n" +
+                    "Buatan :\nNama Model :\nJenis Badan :\nTahun Dibuat :\nTarikh Pendaftaran :\n" +
+                    "PROTON\nMOTOKAR\n2025\n10/01/2025")
+            },
+            []);
+
+        Assert.Null(result.Fields["chassisNumber"]);
+        Assert.Null(result.Fields["engineNumber"]);
+        Assert.Null(result.Fields["make"]);
+        Assert.Null(result.Fields["model"]);
+        Assert.Null(result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_does_not_replace_standalone_identifiers_with_unrelated_header_codes()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "redacted-standalone-identifiers.txt",
+                MimeType = "text/plain",
+                Content = Encoding.UTF8.GetBytes(
+                    "DOCREFERENCE12345 CASE2026\n" +
+                    "No. Pendaftaran\nQAA1234\n" +
+                    "No. Chasis\nSYNTHCHASSIS12345\n" +
+                    "No. Enjin\nSYNTHENGINE67890\n" +
+                    "Buatan\nPROTON\nNama Model\nS70 PREMIUM")
+            },
+            []);
+
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
     public void Ocr_parser_maps_google_document_ai_interleaved_identifier_row()
     {
         var result = AnalyzeOcrFixture(
@@ -5279,6 +5808,14 @@ public sealed class BusinessRulesTests
         Assert.Equal("next-line-content", diagnostic.EngineLayout);
         Assert.Equal("next-line-content", diagnostic.MakeLayout);
         Assert.Equal("next-line-content", diagnostic.ModelLayout);
+        Assert.Equal("10-17", diagnostic.ChassisCandidate.LengthBucket);
+        Assert.True(diagnostic.ChassisCandidate.AllowedCharacters);
+        Assert.True(diagnostic.ChassisCandidate.HasLetter);
+        Assert.True(diagnostic.ChassisCandidate.HasDigit);
+        Assert.Equal("10-17", diagnostic.EngineCandidate.LengthBucket);
+        Assert.True(diagnostic.EngineCandidate.AllowedCharacters);
+        Assert.True(diagnostic.EngineCandidate.HasLetter);
+        Assert.True(diagnostic.EngineCandidate.HasDigit);
         Assert.Equal("next-line-content", diagnostic.YearLayout);
         Assert.True(diagnostic.PlateMapped);
         Assert.True(diagnostic.ChassisMapped);
@@ -5286,10 +5823,251 @@ public sealed class BusinessRulesTests
         Assert.True(diagnostic.MakeMapped);
         Assert.True(diagnostic.ModelMapped);
         Assert.True(diagnostic.YearMapped);
+        Assert.Equal("10-17", diagnostic.ChassisCandidate.LengthBucket);
+        Assert.True(diagnostic.ChassisCandidate.AllowedCharacters);
+        Assert.True(diagnostic.ChassisCandidate.HasLetter);
+        Assert.True(diagnostic.ChassisCandidate.HasDigit);
+        Assert.Equal("10-17", diagnostic.EngineCandidate.LengthBucket);
+        Assert.True(diagnostic.EngineCandidate.AllowedCharacters);
+        Assert.Equal(1, diagnostic.VehicleColumn.LabelBlockCount);
+        Assert.Equal(1, diagnostic.VehicleColumn.ValueBlockCount);
         var renderedDiagnostic = diagnostic.ToString();
         Assert.DoesNotContain(syntheticChassis, renderedDiagnostic, StringComparison.Ordinal);
         Assert.DoesNotContain(syntheticEngine, renderedDiagnostic, StringComparison.Ordinal);
         Assert.DoesNotContain("PRIVATE PROVIDER VALUE", renderedDiagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Google_document_ai_voc_rejection_diagnostic_is_bounded_and_contains_no_candidate_value()
+    {
+        const string privateCandidate = "PRIVATE-CHASSIS-VALUE-WITH-UNSUPPORTED-PUNCTUATION!123456789";
+        var rawText =
+            $"No. Chasis : {privateCandidate}\n" +
+            "No. Enjin : !!!!\n" +
+            "Keupayaan Enjin\nBuatan\nNama Model\nJenis Badan\nTahun Dibuat\nTarikh Pendaftaran\n" +
+            "1498 cc\nPROTON\nS70 PREMIUM\nMOTOKAR\nYEAR UNKNOWN\nDATE UNKNOWN";
+        var recognition = new GoogleDocumentAiRecognition(rawText, 0.9m, [], []);
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc },
+            [],
+            rawText,
+            recognition.Confidence,
+            recognition.Warnings);
+
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, extraction);
+
+        Assert.Equal("33-plus", diagnostic.ChassisCandidate.LengthBucket);
+        Assert.False(diagnostic.ChassisCandidate.AllowedCharacters);
+        Assert.True(diagnostic.ChassisCandidate.HasLetter);
+        Assert.True(diagnostic.ChassisCandidate.HasDigit);
+        Assert.Equal("1-4", diagnostic.EngineCandidate.LengthBucket);
+        Assert.False(diagnostic.EngineCandidate.AllowedCharacters);
+        Assert.False(diagnostic.EngineCandidate.HasLetter);
+        Assert.False(diagnostic.EngineCandidate.HasDigit);
+        Assert.Equal(6, diagnostic.VehicleColumn.LabelBlockCount);
+        Assert.Equal(6, diagnostic.VehicleColumn.ValueBlockCount);
+        Assert.False(diagnostic.VehicleColumn.YearPositionValid);
+        Assert.False(diagnostic.VehicleColumn.RegistrationDatePositionValid);
+        var rendered = diagnostic.ToString();
+        Assert.DoesNotContain(privateCandidate, rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROTON", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("S70 PREMIUM", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("YEAR UNKNOWN", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("DATE UNKNOWN", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Google_document_ai_voc_rejection_diagnostic_caps_block_counts()
+    {
+        var labels = string.Join('\n', Enumerable.Repeat("Buatan", 25));
+        var values = string.Join('\n', Enumerable.Repeat("PRIVATE VALUE", 25));
+        var rawText = $"{labels}\n{values}";
+        var recognition = new GoogleDocumentAiRecognition(rawText, 0.9m, [], []);
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], rawText, recognition.Confidence, []);
+
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, extraction);
+
+        Assert.Equal(20, diagnostic.VehicleColumn.LabelBlockCount);
+        Assert.Equal(20, diagnostic.VehicleColumn.ValueBlockCount);
+        Assert.DoesNotContain("PRIVATE VALUE", diagnostic.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Google_document_ai_voc_diagnostic_reports_identifier_geometry_shape_without_values()
+    {
+        const string privateChassis = "PRIVATECHASSIS12345";
+        const string privateEngine = "PRIVATEENGINE67890";
+        var recognition = new GoogleDocumentAiRecognition(
+            "No. Chasis / No. Enjin",
+            0.9m,
+            [],
+            [],
+            [
+                new("No. Chasis / No. Enjin", 1, .10, .20, .42, .23),
+                new(privateChassis, 1, .44, .20, .64, .23),
+                new(privateEngine, 1, .66, .20, .84, .23),
+                new("UNRELATED99", 1, .11, .30, .24, .33)
+            ],
+            [
+                new("No.", 1, .10, .20, .14, .23),
+                new("Chasis", 1, .15, .20, .23, .23),
+                new("/", 1, .24, .20, .25, .23),
+                new("No.", 1, .26, .20, .30, .23),
+                new("Enjin", 1, .31, .20, .38, .23),
+                new(privateChassis, 1, .44, .20, .64, .23),
+                new(privateEngine, 1, .66, .20, .84, .23),
+                new("UNRELATED99", 1, .11, .30, .24, .33)
+            ]);
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.Voc }, [], recognition.RawText, recognition.Confidence, []);
+
+        var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, extraction);
+
+        Assert.Equal(0, diagnostic.IdentifierLayout.LabelTokenCount);
+        Assert.Equal("slash", diagnostic.IdentifierLayout.LabelDelimiter);
+        Assert.Equal(2, diagnostic.IdentifierLayout.SameBandCount);
+        Assert.Equal("18-32,18-32", diagnostic.IdentifierLayout.SameBandTokenBuckets);
+        Assert.Equal(1, diagnostic.IdentifierLayout.BelowBandCount);
+        Assert.Equal("10-17", diagnostic.IdentifierLayout.BelowBandTokenBuckets);
+        Assert.Equal(2, diagnostic.IdentifierLayout.WordSameBandCount);
+        Assert.Equal("18-32,18-32", diagnostic.IdentifierLayout.WordSameBandBuckets);
+        Assert.Equal(1, diagnostic.IdentifierLayout.WordBelowBandCount);
+        Assert.Equal("10-17", diagnostic.IdentifierLayout.WordBelowBandBuckets);
+        Assert.DoesNotContain(privateChassis, diagnostic.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(privateEngine, diagnostic.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("UNRELATED99", diagnostic.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Google_document_ai_voc_success_log_contains_only_bounded_diagnostic_metadata()
+    {
+        const string privateCandidate = "PRIVATECHASSIS12345";
+        const string privateMake = "PRIVATE MAKE";
+        var providerText = $"No. Pendaftaran\nQAA1234\nNo. Chasis : {privateCandidate}!\nNo. Enjin : !!!!\nBuatan\nNama Model\nJenis Badan\nTahun Dibuat\nTarikh Pendaftaran\n{privateMake}\nPRIVATE MODEL\nMOTOKAR\nUNKNOWN YEAR\nUNKNOWN DATE";
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            document = new
+            {
+                text = providerText,
+                entities = Array.Empty<object>(),
+                pages = Array.Empty<object>()
+            }
+        });
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+        }));
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions { ProjectId = "ysheng-ocr", DefaultProcessorId = "general-processor" }));
+        var logger = new CapturingLogger<GoogleDocumentAiExtractor>();
+        var extractor = new GoogleDocumentAiExtractor(client, logger);
+
+        await extractor.AnalyzeAsync(new DocumentBlob { Category = FileCategory.Voc, FileName = "private-voc.pdf", MimeType = "application/pdf", Content = [1] }, []);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains("ChassisLengthBucket=18-32", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("ChassisAllowedCharacters=False", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("VehicleLabelBlockCount=5", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("IdentifierLabelTokenCount=0", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("IdentifierMappingReason=no-layout-lines", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("IdentifierSameBandTokenBuckets=none", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("IdentifierWordSameBandBuckets=none", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(privateCandidate, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(privateMake, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRIVATE MODEL", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-voc.pdf", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("test-access-token", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Google_document_ai_client_preserves_page_line_geometry_for_fixed_voc_mapping()
+    {
+        const string providerText = "BUATAN\nPROTON\n";
+        static object Layout(string start, string end, double left, double right) => new
+        {
+            textAnchor = new { textSegments = new[] { new { startIndex = start, endIndex = end } } },
+            boundingPoly = new { normalizedVertices = new[] { new { x = left, y = .2 }, new { x = right, y = .2 }, new { x = right, y = .23 }, new { x = left, y = .23 } } }
+        };
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            document = new
+            {
+                text = providerText,
+                entities = Array.Empty<object>(),
+                pages = new[] { new
+                {
+                    lines = new[] { new { layout = Layout("0", "7", .1, .2) }, new { layout = Layout("7", "14", .3, .4) } },
+                    tokens = new[] { new { layout = Layout("0", "7", .1, .2) }, new { layout = Layout("7", "14", .3, .4) } },
+                    tables = new[] { new
+                    {
+                        headerRows = Array.Empty<object>(),
+                        bodyRows = new[] { new { cells = new[] { new { layout = Layout("0", "7", .1, .2) }, new { layout = Layout("7", "14", .3, .4) } } } }
+                    } }
+                } }
+            }
+        });
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+        }));
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(handler),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions { ProjectId = "ysheng-ocr", DefaultProcessorId = "general-processor" }));
+
+        var recognition = await client.RecognizeAsync(new DocumentBlob { Category = FileCategory.Voc, MimeType = "application/pdf", Content = [1] });
+
+        Assert.Collection(recognition.LayoutLines!,
+            label =>
+            {
+                Assert.Equal("BUATAN", label.Text);
+                Assert.Equal(1, label.Page);
+                Assert.Equal(.1, label.Left);
+                Assert.Equal(.2, label.Right);
+            },
+            value => Assert.Equal("PROTON", value.Text));
+        Assert.Collection(recognition.LayoutTokens!,
+            token => Assert.Equal("BUATAN", token.Text),
+            token => Assert.Equal("PROTON", token.Text));
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], providerText, recognition.Confidence, []);
+        var mapped = GoogleDocumentAiVocLayoutMapper.Apply(extraction, recognition.LayoutLines!);
+        Assert.Equal("PROTON", mapped.Fields["make"]);
+    }
+
+    [Fact]
+    public async Task Google_document_ai_client_caps_examined_layout_tokens_even_when_tokens_are_rejected()
+    {
+        const string providerText = "SAFE";
+        static object ValidLayout() => new
+        {
+            textAnchor = new { textSegments = new[] { new { startIndex = "0", endIndex = "4" } } },
+            boundingPoly = new { normalizedVertices = new[] { new { x = .1, y = .2 }, new { x = .2, y = .2 }, new { x = .2, y = .23 }, new { x = .1, y = .23 } } }
+        };
+        var rejected = Enumerable.Range(0, 2_000).Select(_ => new { layout = new { } }).Cast<object>().ToList();
+        rejected.Add(new { layout = ValidLayout() });
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            document = new
+            {
+                text = providerText,
+                entities = Array.Empty<object>(),
+                pages = new[] { new { lines = Array.Empty<object>(), tables = Array.Empty<object>(), tokens = rejected } }
+            }
+        });
+        var client = new GoogleDocumentAiClient(
+            new HttpClient(new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+            }))),
+            new FixedGoogleAccessTokenProvider("test-access-token"),
+            Options.Create(new GoogleDocumentAiOptions { ProjectId = "ysheng-ocr", DefaultProcessorId = "general-processor" }));
+
+        var recognition = await client.RecognizeAsync(new DocumentBlob { Category = FileCategory.Voc, MimeType = "application/pdf", Content = [1] });
+
+        Assert.Empty(recognition.LayoutTokens!);
     }
 
     [Fact]

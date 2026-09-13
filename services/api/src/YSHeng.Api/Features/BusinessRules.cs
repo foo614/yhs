@@ -492,6 +492,28 @@ public static class VehicleCatalogRules
             && string.Equals(item.Make, candidate.Make, StringComparison.OrdinalIgnoreCase)
             && string.Equals(item.Model, candidate.Model, StringComparison.OrdinalIgnoreCase));
 
+    public static VehicleCatalogModel? FindActiveSelection(
+        string? make,
+        string? model,
+        IEnumerable<VehicleCatalogModel> catalogModels) =>
+        catalogModels.FirstOrDefault(item => item.IsActive
+            && string.Equals(item.Make, make?.Trim(), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(item.Model, model?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    public static ValidationResult ValidateSelection(VehicleCatalogModel? selection) =>
+        selection is not null
+            ? new ValidationResult([])
+            : new ValidationResult([new ValidationError(
+                "vehicle_catalog_selection_required",
+                "Select an active Make and Model from the vehicle catalogue, or add the option through the governed catalogue flow first.")]);
+
+    public static bool HasSelectionChanged(Vehicle existing, Vehicle update) =>
+        !string.Equals(existing.Make, update.Make, StringComparison.Ordinal)
+        || !string.Equals(existing.Model, update.Model, StringComparison.Ordinal);
+
+    public static Vehicle ApplyCanonicalSelection(Vehicle vehicle, VehicleCatalogModel selection) =>
+        vehicle with { Make = selection.Make, Model = selection.Model };
+
     public static PublicVehicleCatalogModelResponse ToPublicResponse(VehicleCatalogModel item) =>
         new(item.Make, item.Model);
 }

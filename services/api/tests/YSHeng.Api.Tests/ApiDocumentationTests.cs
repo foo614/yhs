@@ -218,6 +218,24 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Vehicle_write_routes_enforce_canonical_catalog_selection_and_preserve_unchanged_legacy_pairs()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var intakeRoute = program[program.IndexOf("backOffice.MapPost(\"/vehicle-intakes\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapPost(\"/vehicles\"", StringComparison.Ordinal)];
+        var createRoute = program[program.IndexOf("backOffice.MapPost(\"/vehicles\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapPut(\"/vehicles/{id:guid}\"", StringComparison.Ordinal)];
+        var updateRoute = program[program.IndexOf("backOffice.MapPut(\"/vehicles/{id:guid}\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/stock-movements\"", StringComparison.Ordinal)];
+
+        Assert.Contains("VehicleCatalogRules.ValidateSelection(catalogSelection)", intakeRoute);
+        Assert.Contains("VehicleCatalogRules.ApplyCanonicalSelection", intakeRoute);
+        Assert.Contains("VehicleCatalogRules.ValidateSelection(catalogSelection)", createRoute);
+        Assert.Contains("VehicleCatalogRules.ApplyCanonicalSelection", createRoute);
+        Assert.Contains("VehicleCatalogRules.HasSelectionChanged(existingSnapshot, update)", updateRoute);
+        Assert.Contains("VehicleCatalogRules.ValidateSelection(catalogSelection)", updateRoute);
+        Assert.Contains("VehicleCatalogRules.ApplyCanonicalSelection", updateRoute);
+    }
+
+    [Fact]
     public void Dashboard_ai_document_processing_remains_aggregate_and_boss_admin_only()
     {
         var root = FindRepositoryRoot();

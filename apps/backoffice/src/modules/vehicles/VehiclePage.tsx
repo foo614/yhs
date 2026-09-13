@@ -273,30 +273,44 @@ function PurchaseInvoiceLineFields() {
   );
 }
 
-function VehicleMakeModelFields({
+export function VehicleMakeModelFields({
   catalogModels,
-  onCreateCatalogModel
+  onCreateCatalogModel,
+  legacySelection
 }: {
   catalogModels: VehicleCatalogModel[];
   onCreateCatalogModel: (make: string, model: string) => Promise<boolean>;
+  legacySelection?: { make?: string; model?: string };
 }) {
   const form = Form.useFormInstance();
   const selectedMake = Form.useWatch("make", form);
   const [makeSearch, setMakeSearch] = useState("");
   const [modelSearch, setModelSearch] = useState("");
   const [creatingModel, setCreatingModel] = useState(false);
-  const makeOptions = useMemo(
-    () => Array.from(new Set(catalogModels.filter((item) => item.isActive).map((item) => item.make)))
-      .sort((left, right) => left.localeCompare(right))
-      .map((make) => ({ value: make, label: make })),
-    [catalogModels]
-  );
+  const makeOptions = useMemo(() => {
+    const activeMakes = Array.from(new Set(catalogModels.filter((item) => item.isActive).map((item) => item.make)));
+    const legacyMake = legacySelection?.make?.trim();
+    if (legacyMake && !activeMakes.some((make) => make.toLocaleLowerCase() === legacyMake.toLocaleLowerCase())) activeMakes.push(legacyMake);
+    return activeMakes.sort((left, right) => left.localeCompare(right)).map((make) => ({
+      value: make,
+      label: make === legacyMake ? `${make} (current saved value)` : make
+    }));
+  }, [catalogModels, legacySelection?.make]);
   const modelOptions = useMemo(
-    () => catalogModels
+    () => {
+      const options = catalogModels
       .filter((item) => item.isActive && item.make.toLocaleLowerCase() === selectedMake?.toLocaleLowerCase())
       .sort((left, right) => left.model.localeCompare(right.model))
-      .map((item) => ({ value: item.model, label: item.model })),
-    [catalogModels, selectedMake]
+      .map((item) => ({ value: item.model, label: item.model }));
+      const legacyModel = legacySelection?.model?.trim();
+      if (legacyModel
+        && selectedMake?.toLocaleLowerCase() === legacySelection?.make?.trim().toLocaleLowerCase()
+        && !options.some((option) => option.value.toLocaleLowerCase() === legacyModel.toLocaleLowerCase())) {
+        options.push({ value: legacyModel, label: `${legacyModel} (current saved value)` });
+      }
+      return options;
+    },
+    [catalogModels, legacySelection?.make, legacySelection?.model, selectedMake]
   );
   const trimmedMakeSearch = makeSearch.trim();
   const trimmedModelSearch = modelSearch.trim();
@@ -2565,8 +2579,11 @@ export function VehiclePage({
               </Form.Item>
               <Form.Item name="chassisNumber" label="Chassis Number"><Input /></Form.Item>
               <Form.Item name="engineNumber" label="Engine Number"><Input /></Form.Item>
-              <Form.Item name="make" label="Make"><Input placeholder="Toyota" /></Form.Item>
-              <Form.Item name="model" label="Model"><Input placeholder="Vios" /></Form.Item>
+              <VehicleMakeModelFields
+                catalogModels={catalogModels}
+                onCreateCatalogModel={addVehicleCatalogModel}
+                legacySelection={{ make: selectedVehicle?.make, model: selectedVehicle?.model }}
+              />
               <Form.Item
                 name="year"
                 label="Year"
@@ -2983,6 +3000,7 @@ export function VehiclePage({
             <Form.Item className="vehicleIntakeVocFormItem" label="Vehicle ownership certificate / 车辆登记证">
               <VehicleIntakeVocReview
                 draft={vehicleIntakeDraft}
+                catalogModels={catalogModels}
                 onReviewReady={(patch: VehicleIntakeVocPatch, file) => {
                   vehicleIntakeIdentityFormRef.current?.setFieldsValue(patch);
                   setVehicleIntakeDraft((current) => ({ ...current, ...patch }));

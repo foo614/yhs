@@ -65,7 +65,11 @@ public sealed record GoogleDocumentAiRecognition(
     string RawText,
     decimal Confidence,
     IReadOnlyList<GoogleDocumentAiEntity> Entities,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<GoogleDocumentAiLayoutLine>? LayoutLines = null,
+    IReadOnlyList<GoogleDocumentAiLayoutLine>? LayoutTokens = null);
+
+public sealed record GoogleDocumentAiLayoutLine(string Text, int Page, double Left, double Top, double Right, double Bottom);
 
 public sealed class GoogleDocumentAiClient(
     HttpClient httpClient,
@@ -135,7 +139,159 @@ public sealed class GoogleDocumentAiClient(
             warnings.Add("Google Document AI did not return confidence values for this result.");
         }
 
-        return new GoogleDocumentAiRecognition(rawText.Trim(), confidence, entities, warnings);
+        return new GoogleDocumentAiRecognition(
+            rawText.Trim(),
+            confidence,
+            entities,
+            warnings,
+            ReadLayoutLines(analyzedDocument, rawText),
+            ReadLayoutTokens(analyzedDocument, rawText));
+    }
+
+    private static IReadOnlyList<GoogleDocumentAiLayoutLine> ReadLayoutTokens(JsonElement document, string rawText)
+    {
+        const int maxPages = 15;
+        const int maxTokens = 1_000;
+        if (!document.TryGetProperty("pages", out var pages) || pages.ValueKind != JsonValueKind.Array) return [];
+        var result = new List<GoogleDocumentAiLayoutLine>();
+        var pageNumber = 0;
+        var examinedTokens = 0;
+        foreach (var page in pages.EnumerateArray())
+        {
+            pageNumber++;
+            if (pageNumber > maxPages || result.Count >= maxTokens || examinedTokens >= 2_000) break;
+            if (!page.TryGetProperty("tokens", out var tokens) || tokens.ValueKind != JsonValueKind.Array) continue;
+            foreach (var token in tokens.EnumerateArray())
+            {
+                if (++examinedTokens > 2_000 || result.Count >= maxTokens) break;
+                if (!token.TryGetProperty("layout", out var layout)
+                    || !TryReadTextAnchor(layout, rawText, out var text)
+                    || !TryReadBounds(layout, out var left, out var top, out var right, out var bottom)) continue;
+                result.Add(new GoogleDocumentAiLayoutLine(text.Trim(), pageNumber, left, top, right, bottom));
+            }
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<GoogleDocumentAiLayoutLine> ReadLayoutLines(JsonElement document, string rawText)
+    {
+        const int maxPages = 15;
+        const int maxLayoutItems = 1_000;
+        const int maxExaminedItems = 2_000;
+        if (!document.TryGetProperty("pages", out var pages) || pages.ValueKind != JsonValueKind.Array) return [];
+        var result = new List<GoogleDocumentAiLayoutLine>();
+        var seen = new HashSet<GoogleDocumentAiLayoutLine>();
+        var pageNumber = 0;
+        var examinedItems = 0;
+        foreach (var page in pages.EnumerateArray())
+        {
+            pageNumber++;
+            if (pageNumber > maxPages || result.Count >= maxLayoutItems) break;
+            if (page.TryGetProperty("tables", out var tables) && tables.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var table in tables.EnumerateArray())
+                {
+                    if (++examinedItems > maxExaminedItems) break;
+                    ReadTableRows(table, "headerRows", pageNumber, rawText, result, seen, maxLayoutItems, ref examinedItems, maxExaminedItems);
+                    ReadTableRows(table, "bodyRows", pageNumber, rawText, result, seen, maxLayoutItems, ref examinedItems, maxExaminedItems);
+                    if (result.Count >= maxLayoutItems || examinedItems >= maxExaminedItems) break;
+                }
+            }
+            if (examinedItems >= maxExaminedItems) break;
+            if (!page.TryGetProperty("lines", out var lines) || lines.ValueKind != JsonValueKind.Array) continue;
+            foreach (var line in lines.EnumerateArray())
+            {
+                if (++examinedItems > maxExaminedItems || result.Count >= maxLayoutItems) break;
+                if (!line.TryGetProperty("layout", out var layout)
+                    || !TryReadTextAnchor(layout, rawText, out var text)
+                    || !TryReadBounds(layout, out var left, out var top, out var right, out var bottom)) continue;
+                AddLayoutLine(result, seen, new GoogleDocumentAiLayoutLine(text.Trim(), pageNumber, left, top, right, bottom));
+            }
+        }
+        return result;
+    }
+
+    private static void ReadTableRows(
+        JsonElement table,
+        string property,
+        int pageNumber,
+        string rawText,
+        List<GoogleDocumentAiLayoutLine> result,
+        HashSet<GoogleDocumentAiLayoutLine> seen,
+        int maxLayoutItems,
+        ref int examinedItems,
+        int maxExaminedItems)
+    {
+        if (!table.TryGetProperty(property, out var rows) || rows.ValueKind != JsonValueKind.Array) return;
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (++examinedItems > maxExaminedItems || result.Count >= maxLayoutItems) break;
+            if (!row.TryGetProperty("cells", out var cells) || cells.ValueKind != JsonValueKind.Array) continue;
+            foreach (var cell in cells.EnumerateArray())
+            {
+                if (++examinedItems > maxExaminedItems || result.Count >= maxLayoutItems) break;
+                if (!cell.TryGetProperty("layout", out var layout)
+                    || !TryReadTextAnchor(layout, rawText, out var text)
+                    || !TryReadBounds(layout, out var left, out var top, out var right, out var bottom)) continue;
+                AddLayoutLine(result, seen, new GoogleDocumentAiLayoutLine(text.Trim(), pageNumber, left, top, right, bottom));
+            }
+        }
+    }
+
+    private static void AddLayoutLine(List<GoogleDocumentAiLayoutLine> result, HashSet<GoogleDocumentAiLayoutLine> seen, GoogleDocumentAiLayoutLine line)
+    {
+        if (seen.Add(line)) result.Add(line);
+    }
+
+    private static bool TryReadTextAnchor(JsonElement layout, string rawText, out string text)
+    {
+        text = "";
+        if (!layout.TryGetProperty("textAnchor", out var anchor)
+            || !anchor.TryGetProperty("textSegments", out var segments)
+            || segments.ValueKind != JsonValueKind.Array) return false;
+        var builder = new StringBuilder();
+        var segmentCount = 0;
+        foreach (var segment in segments.EnumerateArray())
+        {
+            if (++segmentCount > 16 || builder.Length >= 512) break;
+            var start = ReadIndex(segment, "startIndex");
+            var end = ReadIndex(segment, "endIndex");
+            if (start < 0 || end <= start || end > rawText.Length) continue;
+            builder.Append(rawText.AsSpan(start, Math.Min(end - start, 512 - builder.Length)));
+        }
+        text = builder.ToString();
+        return !string.IsNullOrWhiteSpace(text);
+    }
+
+    private static int ReadIndex(JsonElement segment, string property)
+    {
+        if (!segment.TryGetProperty(property, out var value)) return property == "startIndex" ? 0 : -1;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)) return number;
+        return value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number) ? number : -1;
+    }
+
+    private static bool TryReadBounds(JsonElement layout, out double left, out double top, out double right, out double bottom)
+    {
+        left = top = double.MaxValue;
+        right = bottom = double.MinValue;
+        if (!layout.TryGetProperty("boundingPoly", out var poly)
+            || !poly.TryGetProperty("normalizedVertices", out var vertices)
+            || vertices.ValueKind != JsonValueKind.Array) return false;
+        var found = false;
+        var vertexCount = 0;
+        foreach (var vertex in vertices.EnumerateArray())
+        {
+            if (++vertexCount > 16) return false;
+            var x = vertex.TryGetProperty("x", out var xValue) && xValue.TryGetDouble(out var parsedX) ? parsedX : 0;
+            var y = vertex.TryGetProperty("y", out var yValue) && yValue.TryGetDouble(out var parsedY) ? parsedY : 0;
+            if (!double.IsFinite(x) || !double.IsFinite(y) || x is < 0 or > 1 || y is < 0 or > 1) return false;
+            left = Math.Min(left, x);
+            top = Math.Min(top, y);
+            right = Math.Max(right, x);
+            bottom = Math.Max(bottom, y);
+            found = true;
+        }
+        return found && right > left && bottom > top;
     }
 
     private (string ProcessorId, bool UsedDefaultFallback, string SpecializedProcessorName) SelectProcessor(FileCategory category)
@@ -271,9 +427,20 @@ public sealed class GoogleDocumentAiExtractor(
         var mappedExtraction = GoogleDocumentAiEntityMapper.Apply(extraction, recognition.Entities);
         if (document.Category == FileCategory.Voc)
         {
-            var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction);
-            logger.LogInformation(
-                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}",
+            mappedExtraction = GoogleDocumentAiVocLayoutMapper.Apply(
+                mappedExtraction,
+                recognition.LayoutLines ?? [],
+                recognition.LayoutTokens ?? [],
+                out var identifierMappingReason);
+            var diagnostic = GoogleDocumentAiVocDiagnostic.Create(recognition, mappedExtraction, identifierMappingReason);
+            LogVocDiagnostic(logger, diagnostic);
+        }
+        return mappedExtraction;
+    }
+
+    private static void LogVocDiagnostic(ILogger logger, GoogleDocumentAiVocDiagnostic diagnostic) =>
+        logger.LogInformation(
+                "VOC OCR field-presence diagnostic: Lines={LineCount}, Entities={EntityCount}, EntityTypes={EntityTypeCount}, RegistrationLayout={RegistrationLayout}, ChassisLayout={ChassisLayout}, EngineLayout={EngineLayout}, MakeLayout={MakeLayout}, ModelLayout={ModelLayout}, YearLayout={YearLayout}, PlateMapped={PlateMapped}, ChassisMapped={ChassisMapped}, EngineMapped={EngineMapped}, MakeMapped={MakeMapped}, ModelMapped={ModelMapped}, YearMapped={YearMapped}, ChassisLengthBucket={ChassisLengthBucket}, ChassisAllowedCharacters={ChassisAllowedCharacters}, ChassisHasLetter={ChassisHasLetter}, ChassisHasDigit={ChassisHasDigit}, EngineLengthBucket={EngineLengthBucket}, EngineAllowedCharacters={EngineAllowedCharacters}, EngineHasLetter={EngineHasLetter}, EngineHasDigit={EngineHasDigit}, IdentifierMappingReason={IdentifierMappingReason}, IdentifierLabelTokenCount={IdentifierLabelTokenCount}, IdentifierLabelTokenBuckets={IdentifierLabelTokenBuckets}, IdentifierLabelDelimiter={IdentifierLabelDelimiter}, IdentifierSameBandCount={IdentifierSameBandCount}, IdentifierSameBandTokenBuckets={IdentifierSameBandTokenBuckets}, IdentifierBelowBandCount={IdentifierBelowBandCount}, IdentifierBelowBandTokenBuckets={IdentifierBelowBandTokenBuckets}, IdentifierWordSameBandCount={IdentifierWordSameBandCount}, IdentifierWordSameBandBuckets={IdentifierWordSameBandBuckets}, IdentifierWordBelowBandCount={IdentifierWordBelowBandCount}, IdentifierWordBelowBandBuckets={IdentifierWordBelowBandBuckets}, VehicleLabelBlockCount={VehicleLabelBlockCount}, VehicleValueBlockCount={VehicleValueBlockCount}, YearPositionValid={YearPositionValid}, RegistrationDatePositionValid={RegistrationDatePositionValid}",
                 diagnostic.LineCount,
                 diagnostic.EntityCount,
                 diagnostic.EntityTypeCount,
@@ -288,11 +455,31 @@ public sealed class GoogleDocumentAiExtractor(
                 diagnostic.EngineMapped,
                 diagnostic.MakeMapped,
                 diagnostic.ModelMapped,
-                diagnostic.YearMapped);
-        }
-
-        return mappedExtraction;
-    }
+                diagnostic.YearMapped,
+                diagnostic.ChassisCandidate.LengthBucket,
+                diagnostic.ChassisCandidate.AllowedCharacters,
+                diagnostic.ChassisCandidate.HasLetter,
+                diagnostic.ChassisCandidate.HasDigit,
+                diagnostic.EngineCandidate.LengthBucket,
+                diagnostic.EngineCandidate.AllowedCharacters,
+                diagnostic.EngineCandidate.HasLetter,
+                diagnostic.EngineCandidate.HasDigit,
+                diagnostic.IdentifierMappingReason,
+                diagnostic.IdentifierLayout.LabelTokenCount,
+                diagnostic.IdentifierLayout.LabelTokenBuckets,
+                diagnostic.IdentifierLayout.LabelDelimiter,
+                diagnostic.IdentifierLayout.SameBandCount,
+                diagnostic.IdentifierLayout.SameBandTokenBuckets,
+                diagnostic.IdentifierLayout.BelowBandCount,
+                diagnostic.IdentifierLayout.BelowBandTokenBuckets,
+                diagnostic.IdentifierLayout.WordSameBandCount,
+                diagnostic.IdentifierLayout.WordSameBandBuckets,
+                diagnostic.IdentifierLayout.WordBelowBandCount,
+                diagnostic.IdentifierLayout.WordBelowBandBuckets,
+                diagnostic.VehicleColumn.LabelBlockCount,
+                diagnostic.VehicleColumn.ValueBlockCount,
+                diagnostic.VehicleColumn.YearPositionValid,
+                diagnostic.VehicleColumn.RegistrationDatePositionValid);
 }
 
 public sealed record GoogleDocumentAiVocDiagnostic(
@@ -310,16 +497,23 @@ public sealed record GoogleDocumentAiVocDiagnostic(
     bool EngineMapped,
     bool MakeMapped,
     bool ModelMapped,
-    bool YearMapped)
+    bool YearMapped,
+    VocIdentifierCandidateDiagnostic ChassisCandidate,
+    VocIdentifierCandidateDiagnostic EngineCandidate,
+    string IdentifierMappingReason,
+    VocCompositeIdentifierLayoutDiagnostic IdentifierLayout,
+    VocVehicleColumnDiagnostic VehicleColumn)
 {
     public static GoogleDocumentAiVocDiagnostic Create(
         GoogleDocumentAiRecognition recognition,
-        OcrExtractionResult extraction)
+        OcrExtractionResult extraction,
+        string identifierMappingReason = "not-captured")
     {
         var lines = recognition.RawText
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n')
             .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var identifierCandidates = FindIdentifierCandidates(lines);
 
         return new GoogleDocumentAiVocDiagnostic(
             lines.Length,
@@ -336,8 +530,202 @@ public sealed record GoogleDocumentAiVocDiagnostic(
             HasField(extraction, "engineNumber"),
             HasField(extraction, "make"),
             HasField(extraction, "model"),
-            HasField(extraction, "year"));
+            HasField(extraction, "year"),
+            IdentifierCandidate(identifierCandidates.Chassis),
+            IdentifierCandidate(identifierCandidates.Engine),
+            identifierMappingReason,
+            AnalyzeIdentifierLayout(recognition.LayoutLines ?? [], recognition.LayoutTokens ?? []),
+            AnalyzeVehicleColumn(lines));
     }
+
+    private static VocCompositeIdentifierLayoutDiagnostic AnalyzeIdentifierLayout(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutTokens)
+    {
+        var label = layoutLines
+            .Where(line => Regex.IsMatch(line.Text, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b", RegexOptions.IgnoreCase)
+                && Regex.IsMatch(line.Text, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase))
+            .OrderBy(line => Math.Max(0, line.Right - line.Left) * Math.Max(0, line.Bottom - line.Top))
+            .FirstOrDefault();
+        if (label is null) return new VocCompositeIdentifierLayoutDiagnostic(0, "none", "none", 0, "none", 0, "none", 0, "none", 0, "none");
+
+        var withoutLabels = Regex.Replace(
+            label.Text,
+            @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS|ENJIN)\b",
+            " ",
+            RegexOptions.IgnoreCase);
+        var labelTokens = IdentifierTokens(withoutLabels);
+        var sameBand = layoutLines.Where(line => !ReferenceEquals(line, label)
+            && line.Page == label.Page
+            && VerticalOverlap(label, line) >= 0.45
+            && !IsDiagnosticKnownLabel(line.Text)).Take(8).ToList();
+        var belowBand = layoutLines.Where(line => !ReferenceEquals(line, label)
+            && line.Page == label.Page
+            && line.Top - label.Bottom is >= -0.01 and <= 0.12
+            && (HorizontalOverlap(label, line) >= 0.35 || Math.Abs(CenterX(label) - CenterX(line)) <= 0.08)
+            && !IsDiagnosticKnownLabel(line.Text)).Take(8).ToList();
+        var wordSameBand = layoutTokens.Where(token => token.Page == label.Page
+            && VerticalOverlap(label, token) >= 0.45
+            && !IsIdentifierLabelToken(token.Text)).Take(16).ToList();
+        var wordBelowBand = layoutTokens.Where(token => token.Page == label.Page
+            && token.Top - label.Bottom is >= -0.01 and <= 0.12
+            && (HorizontalOverlap(label, token) >= 0.35 || Math.Abs(CenterX(label) - CenterX(token)) <= 0.08)
+            && !IsIdentifierLabelToken(token.Text)).Take(16).ToList();
+        return new VocCompositeIdentifierLayoutDiagnostic(
+            labelTokens.Count,
+            TokenBuckets(labelTokens),
+            withoutLabels.Contains('/') ? "slash" : withoutLabels.Contains('|') ? "pipe" : labelTokens.Count > 0 ? "none" : "labels-only",
+            sameBand.Count,
+            TokenBuckets(sameBand.SelectMany(line => IdentifierTokens(line.Text)).ToList()),
+            belowBand.Count,
+            TokenBuckets(belowBand.SelectMany(line => IdentifierTokens(line.Text)).ToList()),
+            wordSameBand.Count,
+            TokenBuckets(wordSameBand.SelectMany(token => IdentifierTokens(token.Text)).ToList()),
+            wordBelowBand.Count,
+            TokenBuckets(wordBelowBand.SelectMany(token => IdentifierTokens(token.Text)).ToList()));
+    }
+
+    private static List<string> IdentifierTokens(string value) => Regex.Matches(value.ToUpperInvariant(), @"[A-Z0-9-]{2,64}")
+        .Select(match => match.Value)
+        .Take(16)
+        .ToList();
+
+    private static string TokenBuckets(IReadOnlyList<string> tokens) => tokens.Count == 0
+        ? "none"
+        : string.Join(',', tokens.Take(8).Select(token => LengthBucket(token.Length)));
+
+    private static bool IsDiagnosticKnownLabel(string value) =>
+        Regex.IsMatch(value, @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b", RegexOptions.IgnoreCase);
+
+    private static bool IsIdentifierLabelToken(string value) =>
+        Regex.IsMatch(value.Trim(), @"^(?:NO\.?|NOMBOR|CHASIS|CHASSIS|CASIS|ENJIN|/|\|)$", RegexOptions.IgnoreCase);
+
+    private static double VerticalOverlap(GoogleDocumentAiLayoutLine left, GoogleDocumentAiLayoutLine right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.Bottom, right.Bottom) - Math.Max(left.Top, right.Top));
+        return overlap / Math.Max(0.001, Math.Min(left.Bottom - left.Top, right.Bottom - right.Top));
+    }
+
+    private static double HorizontalOverlap(GoogleDocumentAiLayoutLine left, GoogleDocumentAiLayoutLine right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.Right, right.Right) - Math.Max(left.Left, right.Left));
+        return overlap / Math.Max(0.001, Math.Min(left.Right - left.Left, right.Right - right.Left));
+    }
+
+    private static double CenterX(GoogleDocumentAiLayoutLine line) => (line.Left + line.Right) / 2;
+
+    private static VocIdentifierCandidateDiagnostic IdentifierCandidate(string candidate)
+    {
+        var normalized = Regex.Replace(candidate, @"\s+", string.Empty).ToUpperInvariant();
+        return new VocIdentifierCandidateDiagnostic(
+            LengthBucket(normalized.Length),
+            normalized.Length > 0 && Regex.IsMatch(normalized, @"^[A-Z0-9-]+$", RegexOptions.IgnoreCase),
+            Regex.IsMatch(normalized, @"[A-Z]", RegexOptions.IgnoreCase),
+            Regex.IsMatch(normalized, @"\d"));
+    }
+
+    private static (string Chassis, string Engine) FindIdentifierCandidates(IReadOnlyList<string> lines)
+    {
+        var interleavedPattern = @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*(?<chassis>[^/]+?)\s*/?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*(?<engine>.+)$";
+        foreach (var line in lines)
+        {
+            var interleaved = Regex.Match(line, interleavedPattern, RegexOptions.IgnoreCase);
+            if (interleaved.Success)
+                return (CleanCandidate(interleaved.Groups["chassis"].Value), CleanCandidate(interleaved.Groups["engine"].Value));
+        }
+
+        var combinedIndex = -1;
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (Regex.IsMatch(lines[index], @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b", RegexOptions.IgnoreCase) &&
+                Regex.IsMatch(lines[index], @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase))
+            {
+                combinedIndex = index;
+                break;
+            }
+        }
+        if (combinedIndex >= 0 && combinedIndex + 1 < lines.Count)
+        {
+            var pair = lines[combinedIndex + 1].Split('/', 2, StringSplitOptions.TrimEntries);
+            if (pair.Length == 2) return (CleanCandidate(pair[0]), CleanCandidate(pair[1]));
+        }
+
+        return (
+            FindStandaloneCandidate(lines, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b"),
+            FindStandaloneCandidate(lines, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b"));
+    }
+
+    private static string FindStandaloneCandidate(IReadOnlyList<string> lines, string labelPattern)
+    {
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var match = Regex.Match(lines[index], labelPattern, RegexOptions.IgnoreCase);
+            if (!match.Success) continue;
+            var candidate = CleanCandidate(lines[index][(match.Index + match.Length)..]);
+            return !string.IsNullOrWhiteSpace(candidate) || index + 1 >= lines.Count || IsKnownLabel(lines[index + 1])
+                ? candidate
+                : CleanCandidate(lines[index + 1]);
+        }
+        return "";
+    }
+
+    private static string CleanCandidate(string value) => value.Trim().TrimStart(':', '-', '/', '|').Trim();
+
+    private static VocVehicleColumnDiagnostic AnalyzeVehicleColumn(IReadOnlyList<string> lines)
+    {
+        var makeIndex = Array.FindIndex(lines.ToArray(), line => Regex.IsMatch(line, LabelOnlyPattern("BUATAN"), RegexOptions.IgnoreCase));
+        if (makeIndex < 0) return new VocVehicleColumnDiagnostic(0, 0, false, false);
+        var start = makeIndex;
+        while (start > 0 && IsLabelOnly(lines[start - 1])) start--;
+        var end = makeIndex;
+        while (end + 1 < lines.Count && IsLabelOnly(lines[end + 1])) end++;
+        var labelCount = Math.Min(end - start + 1, 20);
+        var valueStart = end + 1;
+        var valueCount = 0;
+        while (valueStart + valueCount < lines.Count && valueCount < 20 && !IsKnownLabel(lines[valueStart + valueCount])) valueCount++;
+        var yearLabelOffset = FindOffset(lines, start, end, LabelOnlyPattern(@"TAHUN\s+DIBUAT"));
+        var dateLabelOffset = FindOffset(lines, start, end, LabelOnlyPattern(@"TARIKH\s+PENDAFTARAN"));
+        return new VocVehicleColumnDiagnostic(
+            labelCount,
+            valueCount,
+            PositionMatches(lines, valueStart, valueCount, yearLabelOffset, @"^(?:19|20)\d{2}$"),
+            PositionMatches(lines, valueStart, valueCount, dateLabelOffset, @"^(?:\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2}|(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2})$"));
+    }
+
+    private static int FindOffset(IReadOnlyList<string> lines, int start, int end, string pattern)
+    {
+        for (var index = start; index <= end; index++)
+            if (Regex.IsMatch(lines[index], pattern, RegexOptions.IgnoreCase)) return index - start;
+        return -1;
+    }
+
+    private static bool PositionMatches(IReadOnlyList<string> lines, int valueStart, int valueCount, int offset, string pattern) =>
+        offset >= 0 && offset < valueCount && Regex.IsMatch(lines[valueStart + offset].Trim().TrimStart(':', '-', '/', '|').Trim(), pattern, RegexOptions.IgnoreCase);
+
+    private static bool IsKnownLabel(string value) =>
+        Regex.IsMatch(value, @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b", RegexOptions.IgnoreCase);
+
+    private static bool IsLabelOnly(string value)
+    {
+        var withoutLabels = Regex.Replace(
+            value,
+            @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b",
+            "",
+            RegexOptions.IgnoreCase);
+        return IsKnownLabel(value) && string.IsNullOrWhiteSpace(withoutLabels.Trim(' ', ':', '-', '/', '|'));
+    }
+
+    private static string LabelOnlyPattern(string labelPattern) => $@"^\s*{labelPattern}\s*[:|/-]?\s*$";
+
+    private static string LengthBucket(int length) => length switch
+    {
+        0 => "none",
+        <= 4 => "1-4",
+        <= 9 => "5-9",
+        <= 17 => "10-17",
+        <= 32 => "18-32",
+        _ => "33-plus"
+    };
 
     private static string ClassifyLayout(IReadOnlyList<string> lines, string labelPattern)
     {
@@ -365,6 +753,522 @@ public sealed record GoogleDocumentAiVocDiagnostic(
 
     private static bool HasField(OcrExtractionResult extraction, string field) =>
         extraction.Fields.TryGetValue(field, out var value) && !string.IsNullOrWhiteSpace(value);
+}
+
+public sealed record VocIdentifierCandidateDiagnostic(string LengthBucket, bool AllowedCharacters, bool HasLetter, bool HasDigit);
+public sealed record VocCompositeIdentifierLayoutDiagnostic(
+    int LabelTokenCount,
+    string LabelTokenBuckets,
+    string LabelDelimiter,
+    int SameBandCount,
+    string SameBandTokenBuckets,
+    int BelowBandCount,
+    string BelowBandTokenBuckets,
+    int WordSameBandCount,
+    string WordSameBandBuckets,
+    int WordBelowBandCount,
+    string WordBelowBandBuckets);
+public sealed record VocVehicleColumnDiagnostic(int LabelBlockCount, int ValueBlockCount, bool YearPositionValid, bool RegistrationDatePositionValid);
+
+public static class GoogleDocumentAiVocLayoutMapper
+{
+    private sealed record FieldSpec(string Field, string[] Labels, Func<string, string?> Validate);
+    private sealed record IdentifierPairParseResult(bool Success, string Chassis, string Engine, string Reason);
+    private sealed record CompositeIdentifierApplyResult(bool SuppressStandalone, string Reason);
+
+    private static readonly FieldSpec[] Fields =
+    [
+        new("plateNumber", ["NO PENDAFTARAN", "NOMBOR PENDAFTARAN"], ValidatePlate),
+        new("chassisNumber", ["NO CHASIS", "NO CHASSIS", "NOMBOR CASIS", "NOMBOR CHASIS"], value => ValidateIdentifier(value, 10)),
+        new("engineNumber", ["NO ENJIN", "NOMBOR ENJIN"], value => ValidateIdentifier(value, 5)),
+        new("make", ["BUATAN"], ValidateDescription),
+        new("model", ["NAMA MODEL"], ValidateDescription),
+        new("year", ["TAHUN DIBUAT"], ValidateYear)
+    ];
+
+    public static OcrExtractionResult Apply(OcrExtractionResult extraction, IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines)
+        => Apply(extraction, layoutLines, [], out _);
+
+    public static OcrExtractionResult Apply(
+        OcrExtractionResult extraction,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines,
+        out string identifierMappingReason) => Apply(extraction, layoutLines, [], out identifierMappingReason);
+
+    public static OcrExtractionResult Apply(
+        OcrExtractionResult extraction,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutLines,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> layoutTokens,
+        out string identifierMappingReason)
+    {
+        if (layoutLines.Count == 0)
+        {
+            identifierMappingReason = "no-layout-lines";
+            return extraction;
+        }
+        var fields = new Dictionary<string, string?>(extraction.Fields, StringComparer.OrdinalIgnoreCase);
+        var confidence = new Dictionary<string, decimal>(extraction.FieldConfidence, StringComparer.OrdinalIgnoreCase);
+        var consumed = new HashSet<GoogleDocumentAiLayoutLine>();
+        var identifierResult = ApplyCompositeIdentifierPair(layoutLines, layoutTokens, fields, confidence, consumed, extraction.Confidence);
+        identifierMappingReason = identifierResult.Reason;
+        var suppressStandaloneIdentifiers = identifierResult.SuppressStandalone;
+        ApplyCompositeTextPair(layoutLines, fields, confidence, consumed, extraction.Confidence);
+        ApplyCompositeYear(layoutLines, fields, confidence, consumed, extraction.Confidence);
+        foreach (var spec in Fields)
+        {
+            if (suppressStandaloneIdentifiers && spec.Field is "chassisNumber" or "engineNumber") continue;
+            if (fields.TryGetValue(spec.Field, out var existing) && !string.IsNullOrWhiteSpace(existing)) continue;
+            var match = FindRelativeValue(layoutLines, spec, consumed);
+            if (match is null) continue;
+            fields[spec.Field] = match.Value.Value;
+            confidence[spec.Field] = extraction.Confidence;
+            consumed.Add(match.Value.Line);
+        }
+        var warnings = extraction.Warnings
+            .Where(warning => !Fields.Any(spec => fields.TryGetValue(spec.Field, out var value)
+                && !string.IsNullOrWhiteSpace(value)
+                && warning.StartsWith($"No {WarningFieldName(spec.Field)} was detected.", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        return extraction with { Fields = fields, FieldConfidence = confidence, Warnings = warnings };
+    }
+
+    private static CompositeIdentifierApplyResult ApplyCompositeIdentifierPair(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> tokens,
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> confidence,
+        HashSet<GoogleDocumentAiLayoutLine> consumed,
+        decimal documentConfidence)
+    {
+        var label = lines
+            .Where(line => Regex.IsMatch(line.Text, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b", RegexOptions.IgnoreCase)
+                && Regex.IsMatch(line.Text, @"\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase))
+            .OrderBy(LineArea)
+            .FirstOrDefault();
+        var match = label;
+        var hasInlineContent = match is not null && HasInlineIdentifierContent(match.Text);
+        var inlinePair = hasInlineContent
+            ? ParseInlineIdentifierPair(match!.Text)
+            : new IdentifierPairParseResult(false, "", "", "no-inline-content");
+        var hasInlinePair = inlinePair.Success;
+        var chassis = inlinePair.Chassis;
+        var engine = inlinePair.Engine;
+        if (hasInlineContent && !hasInlinePair)
+        {
+            var geometryPair = ParseGeometryIdentifierPair(label!, tokens);
+            if (!geometryPair.Success) return new CompositeIdentifierApplyResult(true, geometryPair.Reason);
+            inlinePair = geometryPair;
+            hasInlinePair = true;
+            chassis = geometryPair.Chassis;
+            engine = geometryPair.Engine;
+        }
+        if (!hasInlineContent)
+            match = label is null ? null : FindCompositeRelativeLineFromLabel(lines, label, consumed);
+        if (!hasInlinePair && (match is null || !TrySplitIdentifierPair(match.Text, out chassis, out engine)))
+            return new CompositeIdentifierApplyResult(false, label is null ? "no-combined-label" : "relative-pair-not-mapped");
+        if (!CanFillCompositePair(fields, "chassisNumber", chassis, "engineNumber", engine))
+            return new CompositeIdentifierApplyResult(hasInlineContent, "existing-value-conflict");
+        FillMissingCompositeField(fields, confidence, "chassisNumber", chassis, documentConfidence);
+        FillMissingCompositeField(fields, confidence, "engineNumber", engine, documentConfidence);
+        if (match is not null && !ReferenceEquals(match, label)) consumed.Add(match);
+        return new CompositeIdentifierApplyResult(hasInlineContent, hasInlineContent ? inlinePair.Reason : "mapped-relative-pair");
+    }
+
+    private static void ApplyCompositeTextPair(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> confidence,
+        HashSet<GoogleDocumentAiLayoutLine> consumed,
+        decimal documentConfidence)
+    {
+        var match = FindCompositeRelativeLine(lines, "BUATAN", "NAMA MODEL", consumed);
+        if (match is null) return;
+        var parts = match.Text.Split(['/', '|'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2) return;
+        var make = ValidateDescription(parts[0]);
+        var model = ValidateDescription(parts[1]);
+        if (make is null || model is null) return;
+        // The generic parser can place the unsplit paired cell in Make. That value is
+        // the same layout candidate, not an independent extraction worth preserving.
+        fields.TryGetValue("make", out var existingMake);
+        fields.TryGetValue("model", out var existingModel);
+        var makeIsEcho = IsCompositeTextEcho(existingMake, make, model);
+        var modelIsEcho = IsCompositeTextEcho(existingModel, make, model);
+        if ((!makeIsEcho && HasValue(fields, "make") && !string.Equals(existingMake?.Trim(), make, StringComparison.OrdinalIgnoreCase))
+            || (!modelIsEcho && HasValue(fields, "model") && !string.Equals(existingModel?.Trim(), model, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+        if (makeIsEcho)
+        {
+            fields["make"] = null;
+            confidence.Remove("make");
+        }
+        if (modelIsEcho)
+        {
+            fields["model"] = null;
+            confidence.Remove("model");
+        }
+        FillMissingCompositeField(fields, confidence, "make", make, documentConfidence);
+        FillMissingCompositeField(fields, confidence, "model", model, documentConfidence);
+        consumed.Add(match);
+    }
+
+    private static void ApplyCompositeYear(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> confidence,
+        HashSet<GoogleDocumentAiLayoutLine> consumed,
+        decimal documentConfidence)
+    {
+        var match = FindCompositeRelativeLine(lines, "JENIS BADAN", "TAHUN DIBUAT", consumed);
+        if (match is null) return;
+        var parts = match.Text.Split(['/', '|'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var year = parts.Length == 2 ? ValidateYear(parts[1]) : null;
+        if (year is null || HasValue(fields, "year")) return;
+        FillMissingCompositeField(fields, confidence, "year", year, documentConfidence);
+        consumed.Add(match);
+    }
+
+    private static bool CanFillCompositePair(
+        IReadOnlyDictionary<string, string?> fields,
+        string firstField,
+        string firstCandidate,
+        string secondField,
+        string secondCandidate) =>
+        (!HasValue(fields, firstField) || string.Equals(fields[firstField]?.Trim(), firstCandidate, StringComparison.OrdinalIgnoreCase))
+        && (!HasValue(fields, secondField) || string.Equals(fields[secondField]?.Trim(), secondCandidate, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsCompositeTextEcho(string? existing, string make, string model)
+    {
+        if (string.IsNullOrWhiteSpace(existing)) return false;
+        var normalized = existing.Trim();
+        return normalized.StartsWith(make, StringComparison.OrdinalIgnoreCase)
+            && normalized.Contains(model, StringComparison.OrdinalIgnoreCase)
+            && (normalized.Contains('/') || normalized.Contains('|'));
+    }
+
+    private static bool HasValue(IReadOnlyDictionary<string, string?> fields, string field) =>
+        fields.TryGetValue(field, out var value) && !string.IsNullOrWhiteSpace(value);
+
+    private static void FillMissingCompositeField(
+        Dictionary<string, string?> fields,
+        Dictionary<string, decimal> confidence,
+        string field,
+        string value,
+        decimal documentConfidence)
+    {
+        if (HasValue(fields, field)) return;
+        fields[field] = value;
+        confidence[field] = documentConfidence;
+    }
+
+    private static GoogleDocumentAiLayoutLine? FindCompositeRelativeLine(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        string firstLabel,
+        string secondLabel,
+        HashSet<GoogleDocumentAiLayoutLine> consumed)
+    {
+        var label = FindCompositeLabel(lines, firstLabel, secondLabel);
+        if (label is null) return null;
+        return FindCompositeRelativeLineFromLabel(lines, label, consumed);
+    }
+
+    private static GoogleDocumentAiLayoutLine? FindCompositeRelativeLineFromLabel(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        GoogleDocumentAiLayoutLine label,
+        HashSet<GoogleDocumentAiLayoutLine> consumed)
+    {
+        return lines
+            .Where(line => line.Page == label.Page && !ReferenceEquals(line, label) && !consumed.Contains(line) && !IsKnownLabel(line.Text))
+            .Select(line => new { Line = line, Score = RelativeScore(label, line, lines) })
+            .Where(candidate => candidate.Score is not null)
+            .OrderBy(candidate => candidate.Score)
+            .ThenBy(candidate => LineArea(candidate.Line))
+            .Select(candidate => candidate.Line)
+            .FirstOrDefault();
+    }
+
+    private static GoogleDocumentAiLayoutLine? FindCompositeLabel(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        string firstLabel,
+        string secondLabel) => lines
+        .Where(line => NormalizeWords(line.Text).Contains(firstLabel, StringComparison.Ordinal)
+            && NormalizeWords(line.Text).Contains(secondLabel, StringComparison.Ordinal))
+        .OrderBy(LineArea)
+        .FirstOrDefault();
+
+    private static bool TrySplitIdentifierPair(string value, out string chassis, out string engine)
+    {
+        chassis = engine = "";
+        var delimited = value.Split(['/', '|'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (delimited.Length == 2)
+        {
+            chassis = ValidateIdentifier(delimited[0], 10) ?? "";
+            engine = ValidateIdentifier(delimited[1], 5) ?? "";
+            if (chassis.Length > 0 && engine.Length > 0) return true;
+        }
+        var tokens = Regex.Matches(value.ToUpperInvariant(), @"[A-Z0-9-]{5,32}")
+            .Select(match => match.Value)
+            .Where(token => ValidateIdentifier(token, 5) is not null)
+            .ToList();
+        if (tokens.Count != 2) return false;
+        chassis = ValidateIdentifier(tokens[0], 10) ?? "";
+        engine = ValidateIdentifier(tokens[1], 5) ?? "";
+        return chassis.Length > 0 && engine.Length > 0;
+    }
+
+    public static string DiagnoseInlineIdentifierPair(string value) => ParseInlineIdentifierPair(value).Reason;
+
+    public static string DiagnoseGeometryIdentifierPair(
+        GoogleDocumentAiLayoutLine label,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> tokens) => ParseGeometryIdentifierPair(label, tokens).Reason;
+
+    private static IdentifierPairParseResult ParseGeometryIdentifierPair(
+        GoogleDocumentAiLayoutLine label,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> tokens)
+    {
+        var rowTokens = tokens
+            .Where(token => token.Page == label.Page
+                && token.Right >= label.Left - 0.02
+                && token.Left <= label.Right + 0.02
+                && TokenVerticalOverlap(label, token) >= 0.45)
+            .OrderBy(token => token.Left)
+            .ToList();
+        var chassisLabels = rowTokens
+            .Where(token => NormalizeWords(token.Text) is "CHASIS" or "CHASSIS" or "CASIS")
+            .ToList();
+        var noLabels = rowTokens.Where(token => NormalizeWords(token.Text) is "NO" or "NOMBOR").ToList();
+        var headerPairs = rowTokens
+            .Where(token => NormalizeWords(token.Text) == "ENJIN")
+            .SelectMany(engine => chassisLabels.Select(chassis => new { Engine = engine, Chassis = chassis }))
+            .Where(pair => pair.Chassis.Left < pair.Engine.Left && TokensShareRow(pair.Chassis, pair.Engine))
+            .Where(pair => noLabels.Any(no => no.Left < pair.Chassis.Left && TokensShareRow(no, pair.Chassis))
+                && noLabels.Any(no => no.Left > pair.Chassis.Right && no.Right < pair.Engine.Left && TokensShareRow(no, pair.Engine))
+                && rowTokens.Any(separator => separator.Text.Trim() is "/" or "|"
+                    && separator.Left > pair.Chassis.Right
+                    && separator.Right < pair.Engine.Left
+                    && TokensShareRow(separator, pair.Engine)))
+            .ToList();
+        if (headerPairs.Count != 1) return new IdentifierPairParseResult(false, "", "", "geometry-header-count");
+        var engineLabel = headerPairs[0].Engine;
+
+        var engineHeight = Math.Max(0.001, engineLabel.Bottom - engineLabel.Top);
+        var alignedTokens = rowTokens
+            .Where(token => token.Left >= engineLabel.Right - 0.005
+                && Math.Abs(CenterY(token) - CenterY(engineLabel)) <= Math.Max(0.012, engineHeight * 0.75))
+            .ToList();
+        var candidates = alignedTokens
+            .Select(token => new { Token = token, Value = ValidateIdentifier(token.Text, 5) })
+            .Where(candidate => candidate.Value is not null)
+            .ToList();
+        if (candidates.Count != 2) return new IdentifierPairParseResult(false, "", "", "geometry-candidate-count");
+
+        var separatorPresent = alignedTokens.Any(token =>
+            (token.Text.Trim() is "/" or "|")
+            && CenterX(token) > CenterX(candidates[0].Token)
+            && CenterX(token) < CenterX(candidates[1].Token));
+        if (!separatorPresent) return new IdentifierPairParseResult(false, "", "", "geometry-delimiter-missing");
+
+        var chassis = ValidateIdentifier(candidates[0].Value!, 10) ?? "";
+        var engine = ValidateIdentifier(candidates[1].Value!, 5) ?? "";
+        return chassis.Length > 0 && engine.Length > 0
+            ? new IdentifierPairParseResult(true, chassis, engine, "mapped-geometry-delimited")
+            : new IdentifierPairParseResult(false, "", "", "geometry-validation-failed");
+    }
+
+    private static IdentifierPairParseResult ParseInlineIdentifierPair(string value)
+    {
+        var labelsFirst = Regex.Match(
+            value,
+            @"^\s*(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[/|]\s*(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]\s*(?<values>.+)$",
+            RegexOptions.IgnoreCase);
+        if (labelsFirst.Success)
+        {
+            var cells = labelsFirst.Groups["values"].Value.Split(['/', '|'], StringSplitOptions.TrimEntries);
+            if (cells.Length != 2 || cells.Any(string.IsNullOrWhiteSpace))
+                return new IdentifierPairParseResult(false, "", "", "labels-first-delimiter-count");
+            var chassis = ValidateInlineIdentifier(cells[0], 10) ?? "";
+            var engine = ValidateInlineIdentifier(cells[1], 5) ?? "";
+            return chassis.Length > 0 && engine.Length > 0
+                ? new IdentifierPairParseResult(true, chassis, engine, "mapped-labels-first-delimited")
+                : new IdentifierPairParseResult(false, "", "", "labels-first-validation-failed");
+        }
+
+        var interleaved = Regex.Match(
+            value,
+            @"^\s*(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*[:#-]?\s*(?<chassis>.+?)\s*[/|]?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b\s*[:#-]?\s*(?<engine>.+)$",
+            RegexOptions.IgnoreCase);
+        if (!interleaved.Success) return new IdentifierPairParseResult(false, "", "", "label-pattern-not-matched");
+        var interleavedChassis = ValidateInlineIdentifier(interleaved.Groups["chassis"].Value, 10) ?? "";
+        var interleavedEngine = ValidateInlineIdentifier(interleaved.Groups["engine"].Value, 5) ?? "";
+        return interleavedChassis.Length > 0 && interleavedEngine.Length > 0
+            ? new IdentifierPairParseResult(true, interleavedChassis, interleavedEngine, "mapped-interleaved")
+            : new IdentifierPairParseResult(false, "", "", "interleaved-validation-failed");
+    }
+
+    private static bool HasInlineIdentifierContent(string value)
+    {
+        var withoutLabels = Regex.Replace(
+            value,
+            @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS|ENJIN)\b",
+            " ",
+            RegexOptions.IgnoreCase);
+        return !string.IsNullOrWhiteSpace(withoutLabels.Trim(' ', ':', '#', '-', '/', '|'));
+    }
+
+    private static string? ValidateInlineIdentifier(string value, int minimumLength)
+    {
+        var trimmed = value.Trim().Trim(':', '-', '/', '|').Trim();
+        return Regex.IsMatch(trimmed, @"^[A-Z0-9-]+$", RegexOptions.IgnoreCase)
+            ? ValidateIdentifier(trimmed, minimumLength)
+            : null;
+    }
+
+    private static (string Value, GoogleDocumentAiLayoutLine Line)? FindRelativeValue(
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
+        FieldSpec spec,
+        HashSet<GoogleDocumentAiLayoutLine> consumed)
+    {
+        var label = lines
+            .Where(line => spec.Labels.Any(candidate => IsLabel(line.Text, candidate)))
+            .OrderBy(LineArea)
+            .FirstOrDefault();
+        if (label is null) return null;
+
+        var candidates = lines
+            .Where(line => !ReferenceEquals(line, label)
+                && line.Page == label.Page
+                && !consumed.Contains(line)
+                && !IsKnownLabel(line.Text))
+            .Select(line => new { Line = line, Score = RelativeScore(label, line, lines) })
+            .Where(candidate => candidate.Score is not null)
+            .OrderBy(candidate => candidate.Score)
+            .ThenBy(candidate => LineArea(candidate.Line));
+        foreach (var candidate in candidates)
+        {
+            var validated = spec.Validate(candidate.Line.Text);
+            if (validated is not null) return (validated, candidate.Line);
+        }
+        return null;
+    }
+
+    private static double? RelativeScore(
+        GoogleDocumentAiLayoutLine label,
+        GoogleDocumentAiLayoutLine candidate,
+        IReadOnlyList<GoogleDocumentAiLayoutLine> lines)
+    {
+        var overlapY = Math.Max(0, Math.Min(label.Bottom, candidate.Bottom) - Math.Max(label.Top, candidate.Top));
+        var minHeight = Math.Max(0.001, Math.Min(label.Bottom - label.Top, candidate.Bottom - candidate.Top));
+        if (overlapY / minHeight >= 0.45
+            && candidate.Left >= label.Right - 0.01
+            && candidate.Left - label.Right <= 0.25
+            && !lines.Any(other => IsInterveningRightLabel(label, candidate, other)))
+            return Math.Max(0, candidate.Left - label.Right) * 10 + Math.Abs(CenterY(candidate) - CenterY(label));
+
+        var overlapX = Math.Max(0, Math.Min(label.Right, candidate.Right) - Math.Max(label.Left, candidate.Left));
+        var minWidth = Math.Max(0.001, Math.Min(label.Right - label.Left, candidate.Right - candidate.Left));
+        var verticalGap = candidate.Top - label.Bottom;
+        if (verticalGap >= -0.01 && verticalGap <= 0.12
+            && (overlapX / minWidth >= 0.35 || Math.Abs(CenterX(candidate) - CenterX(label)) <= 0.08)
+            && !lines.Any(other => IsInterveningBelowLabel(label, candidate, other)))
+            return 1 + Math.Max(0, verticalGap) * 10 + Math.Abs(CenterX(candidate) - CenterX(label));
+        return null;
+    }
+
+    private static bool IsInterveningRightLabel(
+        GoogleDocumentAiLayoutLine label,
+        GoogleDocumentAiLayoutLine candidate,
+        GoogleDocumentAiLayoutLine other) =>
+        other.Page == label.Page
+        && !ReferenceEquals(other, label)
+        && IsKnownLabel(other.Text)
+        && CenterX(other) > CenterX(label)
+        && CenterX(other) < CenterX(candidate)
+        && CenterY(other) >= Math.Min(label.Top, candidate.Top) - 0.02
+        && CenterY(other) <= Math.Max(label.Bottom, candidate.Bottom) + 0.02;
+
+    private static bool IsInterveningBelowLabel(
+        GoogleDocumentAiLayoutLine label,
+        GoogleDocumentAiLayoutLine candidate,
+        GoogleDocumentAiLayoutLine other) =>
+        other.Page == label.Page
+        && !ReferenceEquals(other, label)
+        && IsKnownLabel(other.Text)
+        && CenterY(other) > CenterY(label)
+        && CenterY(other) < CenterY(candidate)
+        && CenterX(other) >= Math.Min(label.Left, candidate.Left) - 0.05
+        && CenterX(other) <= Math.Max(label.Right, candidate.Right) + 0.05;
+
+    private static bool IsLabel(string text, string label)
+    {
+        var normalized = NormalizeWords(text);
+        return normalized == label || normalized.StartsWith(label + " ", StringComparison.Ordinal);
+    }
+
+    private static bool IsKnownLabel(string text) => Fields.Any(spec => spec.Labels.Any(label => IsLabel(text, label)))
+        || IsLabel(text, "KEUPAYAAN ENJIN")
+        || IsLabel(text, "JENIS BADAN")
+        || IsLabel(text, "TARIKH PENDAFTARAN");
+
+    private static string NormalizeWords(string value) => Regex.Replace(value.ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim();
+
+    private static string? ValidatePlate(string value)
+    {
+        var normalized = Regex.Replace(value.ToUpperInvariant(), @"[\s-]+", "");
+        return Regex.IsMatch(normalized, @"^[A-Z]{1,3}[A-Z0-9]{1,8}$") && Regex.IsMatch(normalized, @"\d") ? normalized : null;
+    }
+
+    private static string? ValidateIdentifier(string value, int minimumLength)
+    {
+        const string monthName = "(?:JAN|JANUARY|JANUARI|FEB|FEBRUARY|FEBRUARI|MAC|MAR|MARCH|APR|APRIL|MEI|MAY|JUN|JUNE|JUL|JULY|JULAI|OGO|OGOS|AUG|AUGUST|SEP|SEPT|SEPTEMBER|OKT|OKTOBER|OCT|OCTOBER|NOV|NOVEMBER|DIS|DISEMBER|DEC|DECEMBER)";
+        var normalized = Regex.Replace(value.ToUpperInvariant(), @"\s+", "").Trim(':', '-', '/', '|');
+        return normalized.Length >= minimumLength
+            && Regex.IsMatch(normalized, @"^[A-Z0-9-]{5,32}$")
+            && !Regex.IsMatch(normalized, @"^\d{3,5}CC$")
+            && !Regex.IsMatch(normalized, $@"^(?:\d{{1,2}}{monthName}\d{{2,4}}|\d{{4}}{monthName}\d{{1,2}})$")
+            && Regex.IsMatch(normalized, @"[A-Z]")
+            && Regex.IsMatch(normalized, @"\d") ? normalized : null;
+    }
+
+    private static string? ValidateDescription(string value)
+    {
+        var normalized = Regex.Replace(value.Trim(), @"\s+", " ");
+        return normalized.Length is > 0 and <= 80
+            && !IsKnownLabel(normalized)
+            && !Regex.IsMatch(normalized, @"^(?:19|20)\d{2}$") ? normalized : null;
+    }
+
+    private static string? ValidateYear(string value)
+    {
+        var normalized = value.Trim();
+        return Regex.IsMatch(normalized, @"^(?:19|20)\d{2}$")
+            && int.TryParse(normalized, out var year)
+            && year <= DateTime.UtcNow.Year + 1 ? normalized : null;
+    }
+
+    private static double LineArea(GoogleDocumentAiLayoutLine line) => Math.Max(0, line.Right - line.Left) * Math.Max(0, line.Bottom - line.Top);
+    private static double CenterX(GoogleDocumentAiLayoutLine line) => (line.Left + line.Right) / 2;
+    private static double CenterY(GoogleDocumentAiLayoutLine line) => (line.Top + line.Bottom) / 2;
+    private static bool TokensShareRow(GoogleDocumentAiLayoutLine left, GoogleDocumentAiLayoutLine right) =>
+        Math.Abs(CenterY(left) - CenterY(right)) <= Math.Max(
+            0.012,
+            Math.Max(left.Bottom - left.Top, right.Bottom - right.Top) * 0.75);
+    private static double TokenVerticalOverlap(GoogleDocumentAiLayoutLine left, GoogleDocumentAiLayoutLine right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.Bottom, right.Bottom) - Math.Max(left.Top, right.Top));
+        return overlap / Math.Max(0.001, Math.Min(left.Bottom - left.Top, right.Bottom - right.Top));
+    }
+
+    private static string WarningFieldName(string field) => field switch
+    {
+        "plateNumber" => "car plate",
+        "chassisNumber" => "chassis number",
+        "engineNumber" => "engine number",
+        "make" => "vehicle make",
+        "model" => "vehicle model",
+        "year" => "manufacture year",
+        _ => field
+    };
 }
 
 public static class GoogleDocumentAiEntityMapper
@@ -873,14 +1777,17 @@ public static class OcrExtractionParser
         var labelBlockEnd = labelIndex;
         while (labelBlockEnd + 1 < lines.Count && IsJpjLabelLine(lines[labelBlockEnd + 1])) labelBlockEnd++;
 
-        var labelPatterns = new[]
+        var vehicleLabelPatterns = new[]
         {
-            @"^\s*BUATAN\s*$",
-            @"^\s*NAMA\s+MODEL\s*$",
-            @"^\s*JENIS\s+BADAN\s*$",
-            @"^\s*TAHUN\s+DIBUAT\s*$",
-            @"^\s*TARIKH\s+PENDAFTARAN\s*$"
+            JpjLabelOnlyPattern("BUATAN"),
+            JpjLabelOnlyPattern(@"NAMA\s+MODEL"),
+            JpjLabelOnlyPattern(@"JENIS\s+BADAN"),
+            JpjLabelOnlyPattern(@"TAHUN\s+DIBUAT"),
+            JpjLabelOnlyPattern(@"TARIKH\s+PENDAFTARAN")
         };
+        var labelPatterns = labelBlockEnd - labelBlockStart + 1 == vehicleLabelPatterns.Length + 1
+            ? new[] { JpjLabelOnlyPattern(@"KEUPAYAAN\s+ENJIN") }.Concat(vehicleLabelPatterns).ToArray()
+            : vehicleLabelPatterns;
         if (labelBlockEnd - labelBlockStart + 1 != labelPatterns.Length) return null;
         for (var offset = 0; offset < labelPatterns.Length; offset++)
         {
@@ -892,9 +1799,12 @@ public static class OcrExtractionParser
         var values = Enumerable.Range(valueBlockStart, labelPatterns.Length)
             .Select(index => TrimJpjValuePrefix(lines[index]))
             .ToArray();
+        var yearOffset = Array.FindIndex(labelPatterns, pattern => pattern.Contains("TAHUN", StringComparison.Ordinal));
+        var registrationDateOffset = Array.FindIndex(labelPatterns, pattern => pattern.Contains("TARIKH", StringComparison.Ordinal));
         if (values.Any(value => IsJpjLabelLine(value)) ||
-            !Regex.IsMatch(values[3], @"^(?:19|20)\d{2}$") ||
-            !Regex.IsMatch(values[4], @"^(?:\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2}|(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2})$"))
+            yearOffset < 0 || registrationDateOffset < 0 ||
+            !Regex.IsMatch(values[yearOffset], @"^(?:19|20)\d{2}$") ||
+            !Regex.IsMatch(values[registrationDateOffset], @"^(?:\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2}|(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2})$"))
         {
             return null;
         }
@@ -905,25 +1815,57 @@ public static class OcrExtractionParser
     private static bool IsJpjLabelLine(string value) =>
         Regex.IsMatch(value, @"\b(?:NO\.?|NOMBOR)\s*(?:PENDAFTARAN|CHASIS|CHASSIS|CASIS|ENJIN)\b|\b(?:KEUPAYAAN\s+ENJIN|BUATAN|NAMA\s+MODEL|JENIS\s+BADAN|TAHUN\s+DIBUAT|TARIKH\s+PENDAFTARAN)\b", RegexOptions.IgnoreCase);
 
+    private static string JpjLabelOnlyPattern(string labelPattern) => $@"^\s*{labelPattern}\s*[:|/-]?\s*$";
+
     private static (string? ChassisNumber, string? EngineNumber, int Index) FindJpjIdentifierPair(IReadOnlyList<string> lines, int startIndex)
     {
         for (var index = startIndex + 1; index < lines.Count && index <= startIndex + 6; index++)
         {
-            if (!TrySplitJpjPair(lines[index], out var left, out var right)) continue;
-            var chassisNumber = NormalizeJpjIdentifier(left);
-            var engineNumber = NormalizeJpjIdentifier(right);
-            if (Regex.IsMatch(chassisNumber, @"^[A-Z0-9-]{10,32}$", RegexOptions.IgnoreCase) &&
-                Regex.IsMatch(engineNumber, @"^[A-Z0-9-]{5,32}$", RegexOptions.IgnoreCase) &&
-                Regex.IsMatch(chassisNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
-                Regex.IsMatch(chassisNumber, @"\d") &&
-                Regex.IsMatch(engineNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
-                Regex.IsMatch(engineNumber, @"\d"))
-            {
+            if (TrySplitJpjPair(lines[index], out var left, out var right) &&
+                TryValidateJpjIdentifierPair(left, right, out var chassisNumber, out var engineNumber))
                 return (chassisNumber, engineNumber, index);
-            }
+
+            if (startIndex >= 0 && index == startIndex + 1 &&
+                TrySplitJpjIdentifierTokens(lines[index], out left, out right) &&
+                TryValidateJpjIdentifierPair(left, right, out chassisNumber, out engineNumber))
+                return (chassisNumber, engineNumber, index);
         }
 
         return (null, null, -1);
+    }
+
+    private static bool TryValidateJpjIdentifierPair(
+        string left,
+        string right,
+        out string chassisNumber,
+        out string engineNumber)
+    {
+        chassisNumber = NormalizeJpjIdentifier(left);
+        engineNumber = NormalizeJpjIdentifier(right);
+        return Regex.IsMatch(chassisNumber, @"^[A-Z0-9-]{10,32}$", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(engineNumber, @"^[A-Z0-9-]{5,32}$", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(chassisNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(chassisNumber, @"\d") &&
+               Regex.IsMatch(engineNumber, @"[A-Z]", RegexOptions.IgnoreCase) &&
+               Regex.IsMatch(engineNumber, @"\d");
+    }
+
+    private static bool TrySplitJpjIdentifierTokens(string line, out string left, out string right)
+    {
+        var candidates = Regex.Matches(line, @"(?<![\p{L}\p{N}-])[A-Z0-9-]{5,32}(?![\p{L}\p{N}-])", RegexOptions.IgnoreCase)
+            .Select(match => match.Value)
+            .Where(candidate => Regex.IsMatch(candidate, @"[A-Z]", RegexOptions.IgnoreCase) && Regex.IsMatch(candidate, @"\d"))
+            .ToArray();
+        if (candidates.Length == 2)
+        {
+            left = candidates[0];
+            right = candidates[1];
+            return true;
+        }
+
+        left = string.Empty;
+        right = string.Empty;
+        return false;
     }
 
     private static (string? Make, string? Model) FindJpjMakeModelPair(IReadOnlyList<string> lines, int startIndex)
@@ -959,7 +1901,7 @@ public static class OcrExtractionParser
             if (fieldYear.Success) return fieldYear.Groups["year"].Value;
         }
         if (yearLabelIndex >= 0 &&
-            Regex.IsMatch(lines[yearLabelIndex], @"^\s*TAHUN\s+DIBUAT\s*$", RegexOptions.IgnoreCase) &&
+            Regex.IsMatch(lines[yearLabelIndex], JpjLabelOnlyPattern(@"TAHUN\s+DIBUAT"), RegexOptions.IgnoreCase) &&
             yearLabelIndex + 1 < lines.Count &&
             IsJpjLabelLine(lines[yearLabelIndex + 1]))
         {

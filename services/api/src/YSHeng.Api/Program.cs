@@ -474,6 +474,13 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
     vehicle = VehicleApprovalRules.EnforceVisibility(vehicle);
     var validation = VehicleRules.ValidateIntake(vehicle);
     if (!validation.IsValid) return Results.BadRequest(validation);
+    var catalogSelection = VehicleCatalogRules.FindActiveSelection(
+        vehicle.Make,
+        vehicle.Model,
+        await db.VehicleCatalogModels.AsNoTracking().ToListAsync(cancellationToken));
+    var catalogSelectionValidation = VehicleCatalogRules.ValidateSelection(catalogSelection);
+    if (!catalogSelectionValidation.IsValid) return Results.BadRequest(catalogSelectionValidation);
+    vehicle = VehicleCatalogRules.ApplyCanonicalSelection(vehicle, catalogSelection!);
 
     var customers = await db.Customers.AsNoTracking().ToListAsync();
     var owners = await db.Owners.AsNoTracking().ToListAsync();
@@ -574,6 +581,13 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
     vehicle = VehicleApprovalRules.EnforceVisibility(vehicle);
     var validation = VehicleRules.ValidateIntake(vehicle);
     if (!validation.IsValid) return Results.BadRequest(validation);
+    var catalogSelection = VehicleCatalogRules.FindActiveSelection(
+        vehicle.Make,
+        vehicle.Model,
+        await db.VehicleCatalogModels.AsNoTracking().ToListAsync());
+    var catalogSelectionValidation = VehicleCatalogRules.ValidateSelection(catalogSelection);
+    if (!catalogSelectionValidation.IsValid) return Results.BadRequest(catalogSelectionValidation);
+    vehicle = VehicleCatalogRules.ApplyCanonicalSelection(vehicle, catalogSelection!);
     var contactLinkValidation = VehicleRules.ValidateContactLinks(
         vehicle,
          await db.Customers.AsNoTracking().ToListAsync(),
@@ -634,6 +648,16 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     update = VehicleApprovalRules.EnforceVisibility(update);
     var validation = VehicleRules.ValidateIntake(update);
     if (!validation.IsValid) return Results.BadRequest(validation);
+    if (VehicleCatalogRules.HasSelectionChanged(existingSnapshot, update))
+    {
+        var catalogSelection = VehicleCatalogRules.FindActiveSelection(
+            update.Make,
+            update.Model,
+            await db.VehicleCatalogModels.AsNoTracking().ToListAsync());
+        var catalogSelectionValidation = VehicleCatalogRules.ValidateSelection(catalogSelection);
+        if (!catalogSelectionValidation.IsValid) return Results.BadRequest(catalogSelectionValidation);
+        update = VehicleCatalogRules.ApplyCanonicalSelection(update, catalogSelection!);
+    }
     var contactLinkValidation = VehicleRules.ValidateContactLinks(
         update,
         await db.Customers.AsNoTracking().ToListAsync(),
