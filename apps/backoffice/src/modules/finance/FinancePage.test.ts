@@ -1,10 +1,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   canApproveFinanceAdjustment,
   canPrepareFinanceInvoice,
-  customerReceiptTargets,
   createUnpaidDailySpend,
   dailySpendMatchesDashboardAttention,
   FinancePriceAdjustmentSummary,
@@ -29,6 +30,18 @@ import {
   settlementDraftForVehicle,
   settlementMatchesDashboardAttention
 } from "./FinancePage";
+
+describe("official customer receipt workflow", () => {
+  it("uploads evidence only inside payment review and issues the receipt from reconciliation", () => {
+    const source = readFileSync(fileURLToPath(new URL("./FinancePage.tsx", import.meta.url)), "utf8");
+
+    expect(source).not.toContain("Create customer receipt");
+    expect(source).not.toContain("financeReceiptUpload");
+    expect(source).toContain("Reconcile and issue official receipt?");
+    expect(source).toContain("collectionOfficialReceiptContentUrl(collection.id)");
+    expect(source).toContain("Official receipt voided");
+  });
+});
 
 describe("finance module navigation", () => {
   it("keeps legacy cash custody links on the consolidated cash handover tab", () => {
@@ -135,81 +148,6 @@ describe("Purchase invoice accounting review", () => {
     expect(markup).toContain(reason);
     expect(markup).toContain("ant-alert-error");
     expect(markup).toContain('role="alert"');
-  });
-});
-
-describe("Customer receipt targets", () => {
-  it("keeps the selected vehicle, payment, and pending collection linked without exposing reconciled or legacy rows", () => {
-    const invoice = {
-      id: "invoice-1",
-      paymentRecordId: "payment-1",
-      vehicleId: "vehicle-1",
-      customerId: "customer-1",
-      invoiceNumber: "INV-1001",
-      invoiceDate: "2026-09-06",
-      amount: 58_000,
-      salesPrice: 58_000,
-      interestAdditionalCharges: 0,
-      ncdAmount: 0,
-      windscreenCharges: 0,
-      contentMimeType: "application/pdf",
-      createdBy: "finance-1",
-      createdAt: "2026-09-06T00:00:00Z"
-    };
-    const collection = (id: string, status: "Pending" | "Reconciled" | "Reversed") => ({
-      id,
-      paymentRecordId: "payment-1",
-      amount: 10_000,
-      method: "BankTransfer" as const,
-      status,
-      financingStatus: "NotApplicable" as const,
-      receivedDate: "2026-09-06",
-      createdAt: "2026-09-06T00:00:00Z"
-    });
-
-    const targets = customerReceiptTargets([
-      {
-        id: "payment-1",
-        vehicleId: "vehicle-1",
-        nettPrice: 58_000,
-        status: "Pending",
-        bossChecked: false,
-        documentsPrepared: false,
-        checklistValidated: false,
-        financeWorkflowVersion: 2,
-        invoice,
-        collections: [collection("collection-pending", "Pending"), collection("collection-reconciled", "Reconciled"), collection("collection-reversed", "Reversed")],
-        createdAt: "2026-09-06T00:00:00Z"
-      },
-      {
-        id: "legacy-payment",
-        vehicleId: "vehicle-2",
-        nettPrice: 20_000,
-        status: "Pending",
-        bossChecked: false,
-        documentsPrepared: false,
-        checklistValidated: false,
-        collections: [collection("legacy-collection", "Pending")],
-        createdAt: "2026-09-06T00:00:00Z"
-      },
-      {
-        id: "v2-without-invoice",
-        vehicleId: "vehicle-3",
-        nettPrice: 30_000,
-        status: "Pending",
-        bossChecked: false,
-        documentsPrepared: false,
-        checklistValidated: false,
-        financeWorkflowVersion: 2,
-        collections: [collection("uninvoiced-collection", "Pending")],
-        createdAt: "2026-09-06T00:00:00Z"
-      }
-    ]);
-
-    expect(targets).toHaveLength(1);
-    expect(targets[0].payment.id).toBe("payment-1");
-    expect(targets[0].payment.vehicleId).toBe("vehicle-1");
-    expect(targets[0].collection).toMatchObject({ id: "collection-pending", paymentRecordId: "payment-1", amount: 10_000, status: "Pending" });
   });
 });
 

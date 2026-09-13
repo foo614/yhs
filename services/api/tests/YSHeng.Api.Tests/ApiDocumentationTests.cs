@@ -59,6 +59,10 @@ public sealed class ApiDocumentationTests
             program.IndexOf("backOffice.MapPost(\"/collection-transactions/{id:guid}/reconcile\"", StringComparison.Ordinal)..
             program.IndexOf("backOffice.MapPost(\"/collection-transactions/{id:guid}/reverse\"", StringComparison.Ordinal)];
         Assert.Contains("FinanceV2Rules.ValidateReconcile(payment", collectionReconcile);
+        Assert.Contains("OfficialReceiptFactory.CreateForCollection", collectionReconcile);
+        Assert.Contains("officialReceipt.generated", collectionReconcile);
+        Assert.Contains("OfficialReceiptId = receipt.Id", collectionReconcile);
+        Assert.Contains("RequireAuthorization(\"Finance\")", collectionReconcile);
 
         var financeOptions = program[
             program.IndexOf("backOffice.MapGet(\"/finance/vehicle-options\"", StringComparison.Ordinal)..
@@ -330,6 +334,11 @@ public sealed class ApiDocumentationTests
         Assert.DoesNotContain("Sales", policy);
         Assert.DoesNotContain("Delivery", policy);
         Assert.Contains("RequireAuthorization(\"Finance\")", reconcile);
+        Assert.Contains("backOffice.MapGet(\"/collection-transactions/{id:guid}/official-receipt/content\"", program);
+        var receiptDownload = program[
+            program.IndexOf("backOffice.MapGet(\"/collection-transactions/{id:guid}/official-receipt/content\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/cash-handovers\"", StringComparison.Ordinal)];
+        Assert.Contains("RequireAuthorization(\"Finance\")", receiptDownload);
     }
 
     [Fact]

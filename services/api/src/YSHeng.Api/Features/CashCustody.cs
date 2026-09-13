@@ -293,7 +293,7 @@ public static class OfficialReceiptFactory
             CreatedAt = now
         };
 
-        return receipt with { Content = CreatePdf(receipt, vehicle, customer, "Cash", handover.Notes, createdBy) };
+        return receipt with { Content = CreatePdf(receipt, $"{vehicle.PlateNumber} {vehicle.Make} {vehicle.Model} {vehicle.Year}".Trim(), customer.Name, customer.Phone, "Cash", handover.Notes, createdBy) };
     }
 
     public static OfficialReceipt CreateForCollection(
@@ -301,8 +301,6 @@ public static class OfficialReceiptFactory
         PaymentRecord payment,
         FinanceInvoice invoice,
         DocumentBlob evidence,
-        Vehicle vehicle,
-        Customer customer,
         string createdBy,
         DateTime now)
     {
@@ -322,12 +320,27 @@ public static class OfficialReceiptFactory
             : $"{collection.Reference.Trim()} / {evidence.FileName}";
         return receipt with
         {
-            Content = CreatePdf(receipt, vehicle, customer, collection.Method.ToString(), evidenceReference, createdBy)
+            Content = CreatePdf(receipt, $"{invoice.VehiclePlateNumber} {invoice.VehicleDescription}".Trim(), invoice.CustomerName, invoice.CustomerPhone, collection.Method.ToString(), evidenceReference, createdBy)
         };
     }
 
-    private static byte[] CreatePdf(OfficialReceipt receipt, Vehicle vehicle, Customer customer, string method, string? evidenceReference, string acceptedBy)
+    private static byte[] CreatePdf(OfficialReceipt receipt, string vehicle, string customer, string? customerPhone, string method, string? evidenceReference, string acceptedBy)
     {
+        var customerName = Clean(customer);
+        var customerContact = Clean(customerPhone, "Not provided");
+        var vehicleDescription = Clean(vehicle);
+        var paymentMethod = Clean(method);
+        var evidence = Clean(evidenceReference, "Verified payment evidence");
+        var checker = Clean(acceptedBy);
+        var continuationLines = ContinuationLines(
+            ("CUSTOMER", customerName, 220d, 11d, 2),
+            ("CONTACT", customerContact, 220d, 11d, 2),
+            ("VEHICLE", vehicleDescription, 220d, 11d, 2),
+            ("PAYMENT METHOD", paymentMethod, 220d, 11d, 2),
+            ("EVIDENCE REFERENCE", evidence, 470d, 10d, 2),
+            ("CONFIRMED BY", checker, 220d, 11d, 2));
+        var continuationChunks = continuationLines.Chunk(34).ToList();
+        var pageCount = 1 + continuationChunks.Count;
         var page = new StringBuilder();
         BrandedPdf.Header(page, "OFFICIAL RECEIPT", receipt.ReceiptNumber, "PAID");
         BrandedPdf.Text(page, 36, 696, 19, "Official Receipt", bold: true, color: BrandedPdf.Dark);
@@ -336,29 +349,44 @@ public static class OfficialReceiptFactory
         BrandedPdf.Fill(page, 36, 564, 523, 88, BrandedPdf.PaleGray);
         Field(page, 56, 626, "RECEIPT NUMBER", receipt.ReceiptNumber);
         Field(page, 315, 626, "RECEIPT DATE", receipt.CreatedAt.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture));
-        Field(page, 56, 590, "CUSTOMER", Clean(customer.Name));
-        Field(page, 315, 590, "CONTACT", Clean(customer.Phone, "Not provided"));
+        Field(page, 56, 590, "CUSTOMER", Fit(customerName, 220, 11, 2));
+        Field(page, 315, 590, "CONTACT", Fit(customerContact, 220, 11, 2));
 
         BrandedPdf.Text(page, 36, 536, 9, "PAYMENT DETAILS", bold: true, color: BrandedPdf.Navy);
         BrandedPdf.Fill(page, 36, 414, 523, 102, "0.99 0.99 0.99");
-        Field(page, 56, 491, "VEHICLE", Clean($"{vehicle.PlateNumber} {vehicle.Make} {vehicle.Model} {vehicle.Year}".Trim()));
-        Field(page, 315, 491, "PAYMENT METHOD", Clean(method));
+        Field(page, 56, 491, "VEHICLE", Fit(vehicleDescription, 220, 11, 2));
+        Field(page, 315, 491, "PAYMENT METHOD", Fit(paymentMethod, 220, 11, 2));
         BrandedPdf.Text(page, 56, 451, 8, "EVIDENCE REFERENCE", bold: true, color: BrandedPdf.Muted);
-        BrandedPdf.TextBlock(page, 56, 434, 10, Clean(evidenceReference, "Verified payment evidence"), 470, 14, 2, BrandedPdf.Dark);
+        BrandedPdf.TextBlock(page, 56, 434, 10, Fit(evidence, 470, 10, 2), 470, 14, 2, BrandedPdf.Dark);
 
         BrandedPdf.Fill(page, 36, 292, 523, 92, BrandedPdf.PaleBlue);
         BrandedPdf.Text(page, 56, 352, 9, "AMOUNT RECEIVED", bold: true, color: BrandedPdf.Blue);
         BrandedPdf.Text(page, 56, 319, 25, $"RM {receipt.Amount:N2}", bold: true, color: BrandedPdf.Navy);
         BrandedPdf.Text(page, 315, 352, 9, "CONFIRMED BY", bold: true, color: BrandedPdf.Blue);
-        BrandedPdf.TextBlock(page, 315, 329, 11, Clean(acceptedBy), 220, 15, 2, BrandedPdf.Dark);
+        BrandedPdf.TextBlock(page, 315, 329, 11, Fit(checker, 220, 11, 2), 220, 15, 2, BrandedPdf.Dark);
 
         BrandedPdf.Line(page, 36, 258, 559, 258, BrandedPdf.Rule);
         BrandedPdf.Text(page, 36, 232, 10, "PAYMENT ACKNOWLEDGEMENT", bold: true, color: BrandedPdf.Navy);
         BrandedPdf.TextBlock(page, 36, 211, 9, "This receipt acknowledges the amount received for the vehicle shown above. Keep it with the related Sales Invoice for your records.", 523, 14, 3, BrandedPdf.Muted);
-        BrandedPdf.Footer(page, receipt.ReceiptNumber, 1, 1, "YS Heng - Customer copy");
+        BrandedPdf.Footer(page, receipt.ReceiptNumber, 1, pageCount, "YS Heng - Customer copy");
 
-        var searchable = new[] { receipt.ReceiptNumber, customer.Name, customer.Phone, vehicle.PlateNumber, vehicle.Make, vehicle.Model, method, evidenceReference ?? "", acceptedBy };
-        return BrandedPdf.Create([page.ToString()], searchable);
+        var searchable = new[] { receipt.ReceiptNumber, customer, customerPhone ?? "", vehicle, method, evidenceReference ?? "", acceptedBy };
+        var pages = new List<string> { page.ToString() };
+        foreach (var (chunk, index) in continuationChunks.Select((chunk, index) => (chunk, index)))
+        {
+            var continuation = new StringBuilder();
+            BrandedPdf.Header(continuation, "OFFICIAL RECEIPT", receipt.ReceiptNumber, continued: true);
+            BrandedPdf.Text(continuation, 36, 696, 16, "Full receipt details", bold: true, color: BrandedPdf.Dark);
+            var y = 664d;
+            foreach (var line in chunk)
+            {
+                BrandedPdf.Text(continuation, 46, y, 9.5, line, color: BrandedPdf.Dark);
+                y -= 17;
+            }
+            BrandedPdf.Footer(continuation, receipt.ReceiptNumber, index + 2, pageCount, "YS Heng - Customer copy");
+            pages.Add(continuation.ToString());
+        }
+        return BrandedPdf.Create(pages, searchable);
     }
 
     private static void Field(StringBuilder page, double x, double y, string label, string value)
@@ -369,4 +397,28 @@ public static class OfficialReceiptFactory
 
     private static string Clean(string? value, string fallback = "") =>
         string.IsNullOrWhiteSpace(value) ? fallback : value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+
+    private static string Fit(string value, double width, double size, int maximumLines)
+    {
+        var lines = BrandedPdf.WrapToWidth(value, size, width).ToList();
+        if (lines.Count <= maximumLines) return value;
+        var candidate = string.Join(' ', lines.Take(maximumLines)).TrimEnd('.', ' ') + "...";
+        while (candidate.Length > 3 && BrandedPdf.WrapToWidth(candidate, size, width).Count() > maximumLines)
+            candidate = candidate[..^4].TrimEnd() + "...";
+        return candidate;
+    }
+
+    private static IReadOnlyList<string> ContinuationLines(params (string Label, string Value, double Width, double Size, int MaximumLines)[] fields)
+    {
+        var result = new List<string>();
+        foreach (var field in fields)
+        {
+            var wrapped = BrandedPdf.WrapToWidth(field.Value, field.Size, field.Width).ToList();
+            if (wrapped.Count <= field.MaximumLines) continue;
+            result.Add(field.Label);
+            result.AddRange(BrandedPdf.WrapToWidth(field.Value, 9.5, 500));
+            result.Add("");
+        }
+        return result;
+    }
 }

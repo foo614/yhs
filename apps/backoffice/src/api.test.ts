@@ -99,6 +99,7 @@ import {
   getSalesWorkboard,
   humanizeApiError,
   issueFinanceInvoice,
+  collectionOfficialReceiptContentUrl,
   generatePurchaseInvoice,
   vehicleDocumentContentUrl,
   officialReceiptContentUrl,
@@ -577,6 +578,10 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(5, "http://localhost:5000/api/collection-transactions/collection-1/financing-status", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ status: "Approved" }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(6, "http://localhost:5000/api/collection-transactions/collection-1/reconcile", expect.objectContaining({ method: "POST", credentials: "include" }));
     expect(fetchMock).toHaveBeenNthCalledWith(7, "http://localhost:5000/api/collection-transactions/collection-1/reverse", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ reason: "Bank transfer returned" }) }));
+  });
+
+  it("builds the protected collection official receipt URL", () => {
+    expect(collectionOfficialReceiptContentUrl("collection-1")).toBe("http://localhost:5000/api/collection-transactions/collection-1/official-receipt/content");
   });
 
   it("updates vehicle status and public visibility with an authenticated PUT request", async () => {

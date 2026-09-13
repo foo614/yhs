@@ -7,7 +7,6 @@ import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
 import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, filterFinanceRowsByFields, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
-import { PreviewDocumentUpload } from "../shared/PreviewDocumentUpload";
 import { SecureDocumentEvidence } from "../shared/SecureDocumentEvidence";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { OwnerPurchaseInvoiceDetails } from "../vehicles/OwnerPurchaseInvoiceDetails";
@@ -35,6 +34,7 @@ import {
   customerSelectLabel,
   confirmDeliveryAccountingCharge,
   confirmPurchaseInvoiceAccounting,
+  collectionOfficialReceiptContentUrl,
   financeInvoiceContentUrl,
   getDeliveryAccountingCharges,
   getDeliveryInvoiceUpdateRequests,
@@ -235,19 +235,6 @@ export function financeSearchCopy(tab: string) {
 
 type CollectionFormValues = Omit<CollectionCreateInput, "receivedDate" | "idempotencyKey"> & { receivedDate?: Dayjs };
 type SettlementFormValues = SettlementCreateInput & { ownerId?: string };
-
-export type CustomerReceiptTarget = {
-  payment: PaymentRecord;
-  collection: CollectionTransaction;
-};
-
-export function customerReceiptTargets(payments: PaymentRecord[]): CustomerReceiptTarget[] {
-  return payments.flatMap((payment) => isFinanceV2(payment) && payment.invoice
-    ? (payment.collections ?? [])
-      .filter((collection) => collection.status === "Pending")
-      .map((collection) => ({ payment, collection }))
-    : []);
-}
 
 export function InvoiceUpdateRequestQueue({
   requests,
@@ -452,9 +439,6 @@ export function FinancePage({
   const [paymentDocuments, setPaymentDocuments] = useState<VehicleDocument[]>([]);
   const [paymentDocumentsLoadError, setPaymentDocumentsLoadError] = useState<string>();
   const [paymentDocumentsLoading, setPaymentDocumentsLoading] = useState(false);
-  const [customerReceiptOpen, setCustomerReceiptOpen] = useState(false);
-  const [customerReceiptCollectionId, setCustomerReceiptCollectionId] = useState<string>();
-  const [customerReceiptError, setCustomerReceiptError] = useState<string>();
   const [invoiceUpdateRequests, setInvoiceUpdateRequests] = useState<DeliveryInvoiceUpdateRequestItem[]>([]);
   const [invoiceRequestLoading, setInvoiceRequestLoading] = useState(canManageFinance);
   const [invoiceRequestError, setInvoiceRequestError] = useState<string>();
@@ -489,8 +473,6 @@ export function FinancePage({
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
   const selectedCollectionPayment = payments.find((payment) => payment.id === collectionPaymentId);
   const selectedV2DetailsPayment = payments.find((payment) => payment.id === v2DetailsPaymentId);
-  const availableCustomerReceiptTargets = customerReceiptTargets(payments);
-  const selectedCustomerReceiptTarget = availableCustomerReceiptTargets.find((target) => target.collection.id === customerReceiptCollectionId);
   const selectedEditSettlement = settlementEditSnapshot?.id === editSettlementId ? settlementEditSnapshot : settlements.find((settlement) => settlement.id === editSettlementId) ?? settlements[0];
   const selectedEditDailySpend = dailySpends.find((spend) => spend.id === editDailySpendId) ?? dailySpends[0];
   const selectedEditBrokerCommission = brokerCommissions.find((commission) => commission.id === editBrokerCommissionId) ?? brokerCommissions[0];
@@ -759,46 +741,6 @@ export function FinancePage({
       cancelText: "Cancel",
       onOk: () => onApprovePaymentVoucher(voucher.id)
     });
-  };
-
-  const openCustomerReceipt = () => {
-    if (paymentLoadError) {
-      message.warning("Reload Finance records before creating a customer receipt.");
-      return;
-    }
-    if (availableCustomerReceiptTargets.length === 0) {
-      message.warning("Add a pending V2 payment before creating a customer receipt.");
-      return;
-    }
-    setCustomerReceiptCollectionId(undefined);
-    setCustomerReceiptError(undefined);
-    setCustomerReceiptOpen(true);
-  };
-
-  const uploadCustomerReceipt = async (file: File) => {
-    const target = selectedCustomerReceiptTarget;
-    if (!target || target.collection.paymentRecordId !== target.payment.id) {
-      const error = "Select a current pending payment before uploading the customer receipt.";
-      setCustomerReceiptError(error);
-      throw new Error(error);
-    }
-
-    setCustomerReceiptError(undefined);
-    try {
-      await onUploadDocument(target.payment.vehicleId, file, "PaymentReceipt", {
-        paymentRecordId: target.payment.id,
-        collectionTransactionId: target.collection.id
-      });
-      setUploadPaymentId(target.payment.id);
-      setDocumentReloadKey((value) => value + 1);
-      setCustomerReceiptOpen(false);
-      setCustomerReceiptCollectionId(undefined);
-      message.success("Customer receipt uploaded to the selected payment. Reconciliation is still a separate step.");
-    } catch (error) {
-      const errorMessage = humanizeApiError(error, "Customer receipt could not be uploaded.");
-      setCustomerReceiptError(errorMessage);
-      throw new Error(errorMessage);
-    }
   };
 
   const openPrepareInvoice = () => {
@@ -1074,10 +1016,14 @@ export function FinancePage({
             }}><Button size="small">{hasEvidence ? "Add evidence" : "Attach evidence"}</Button></Upload>}
           </Space>}
           {evidence.length > 0 && <div className="financeCollectionEvidenceList">{evidence.map((document) => <div key={document.id}><Typography.Text type="secondary">Uploaded {financeHistoryDateTime(document.uploadedAt)} by {financeRequesterLabel(document.uploadedBy, currentUser?.id)}</Typography.Text><SecureDocumentEvidence vehicleId={payment.vehicleId} document={document} /></div>)}</div>}
+          {collection.officialReceiptNumber && <Space wrap size={6} className="financeCollectionReceipt">
+            <Tag color={collection.officialReceiptVoided ? "red" : "green"}>{collection.officialReceiptVoided ? "Official receipt voided" : "Official receipt issued"}</Tag>
+            <Button size="small" disabled={collection.officialReceiptVoided} href={collection.officialReceiptVoided ? undefined : collectionOfficialReceiptContentUrl(collection.id)} target="_blank">Download {collection.officialReceiptNumber}</Button>
+          </Space>}
           {!physicalCash && collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => Modal.confirm({ title: "Record funds disbursed?", content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.", okText: "Record funds disbursed", cancelText: "Cancel", onOk: () => updateFinancing(collection, "Disbursed") })}>Record funds disbursed</Button>}
-            {collection.status === "Pending" && <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : createdByCurrentUser ? "Another Finance or Admin user must reconcile a payment you recorded." : "Bank financing must be disbursed before reconciliation."}><span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({ title: "Reconcile this payment?", content: "Only reconcile after the amount is visible in the company account.", okText: "Reconcile", cancelText: "Cancel", onOk: () => reconcileV2Collection(collection) })}>Reconcile</Button></span></Tooltip>}
+            {collection.status === "Pending" && <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : createdByCurrentUser ? "Another Finance or Admin user must reconcile a payment you recorded." : "Bank financing must be disbursed before reconciliation."}><span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({ title: "Reconcile and issue official receipt?", content: "Confirm the amount is visible in the company account. Successful reconciliation automatically issues one official Customer Receipt using the linked evidence.", okText: "Reconcile & issue receipt", cancelText: "Cancel", onOk: () => reconcileV2Collection(collection) })}>Reconcile</Button></span></Tooltip>}
             {collection.status === "Reconciled" && canApproveManagementReview && <Button size="small" danger onClick={() => { setReverseCollectionId(collection.id); setReverseReason(""); }}>Reverse</Button>}
           </Space>}
         </article>;
@@ -1547,9 +1493,6 @@ export function FinancePage({
           <Button disabled={Boolean(paymentLoadError)} onClick={handleExportAutoCount}>Export for AutoCount (.xlsx)</Button>
           <Button disabled={Boolean(paymentLoadError)} onClick={handleExportPayments}>Legacy export (.csv)</Button>
           <Button type="primary" disabled={!canPrepareInvoice} onClick={openPrepareInvoice}>Prepare sales invoice</Button>
-          <Tooltip title={paymentLoadError ? "Reload Finance records before creating a customer receipt." : availableCustomerReceiptTargets.length > 0 ? "Attach one receipt to a pending collection before reconciliation." : "Add a pending collection after issuing its sales invoice first."}>
-            <span><Button disabled={Boolean(paymentLoadError) || availableCustomerReceiptTargets.length === 0} onClick={openCustomerReceipt}>Create customer receipt</Button></span>
-          </Tooltip>
         </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
@@ -1700,59 +1643,6 @@ export function FinancePage({
             <Alert type="warning" showIcon message="This adjustment will not issue an invoice now." description="A different Boss/Admin user must review and approve the NCD or adjusted total before the sales invoice can be issued." />
           </>}
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === "prepare-invoice"}>{invoiceSubmitLabel}</Button></Form.Item>
-        </Form>
-      </Modal>
-      <Modal
-        title="Create customer receipt / 创建客户收据"
-        width={620}
-        open={customerReceiptOpen}
-        onCancel={() => {
-          setCustomerReceiptError(undefined);
-          setCustomerReceiptCollectionId(undefined);
-          setCustomerReceiptOpen(false);
-        }}
-        footer={null}
-        destroyOnClose
-        className="recordCreateModal"
-      >
-        <Form name="financeReceiptUpload" layout="vertical" className="modalForm">
-          <Alert
-            type="info"
-            showIcon
-            message="Attach one customer receipt to the matching payment"
-            description="This uploads supporting evidence only. It does not create a payment, change the recorded amount, or reconcile the collection."
-          />
-          {customerReceiptError && <Alert type="error" showIcon message="Customer receipt was not uploaded" description={customerReceiptError} />}
-          <Form.Item label="Pending payment / 待核对收款" required>
-            <Select
-              showSearch
-              optionFilterProp="label"
-              value={customerReceiptCollectionId}
-              onChange={(collectionId) => {
-                setCustomerReceiptCollectionId(collectionId);
-                setCustomerReceiptError(undefined);
-              }}
-              options={availableCustomerReceiptTargets.map((target) => ({
-                value: target.collection.id,
-                label: customerReceiptTargetLabel(target, vehicles, customers, loans)
-              }))}
-            />
-          </Form.Item>
-          {selectedCustomerReceiptTarget ? <>
-            <Descriptions size="small" column={1} bordered>
-              <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedCustomerReceiptTarget.payment.vehicleId)}</Descriptions.Item>
-              <Descriptions.Item label="Customer / 客户">{financePaymentCustomerLabel(selectedCustomerReceiptTarget.payment, vehicles, customers, loans)}</Descriptions.Item>
-              <Descriptions.Item label="Recorded amount / 已记录金额">{formatMoney(selectedCustomerReceiptTarget.collection.amount)}</Descriptions.Item>
-              <Descriptions.Item label="Status / 状态">{collectionStatusLabel(selectedCustomerReceiptTarget.collection.status)}</Descriptions.Item>
-            </Descriptions>
-            <Form.Item label="Customer receipt file / 客户收据文件" required extra="One image or PDF, up to 10 MB. Check the preview before confirming the upload.">
-              <PreviewDocumentUpload
-                documentLabel="customer receipt"
-                buttonLabel="Choose receipt file"
-                onUpload={uploadCustomerReceipt}
-              />
-            </Form.Item>
-          </> : <Alert type="warning" showIcon message="Select a pending collection before choosing a receipt file." />}
         </Form>
       </Modal>
       <Modal
@@ -2733,10 +2623,6 @@ const collectionMethodOptions: Array<{ value: Exclude<CollectionMethod, "Cash">;
   { value: "TradeInCredit", label: "Trade-in credit" },
   { value: "Other", label: "Other non-cash payment" }
 ];
-
-function customerReceiptTargetLabel(target: CustomerReceiptTarget, vehicles: VehicleLookup[], customers: Customer[], loans: LoanApplication[]) {
-  return `${plateFor(vehicles, target.payment.vehicleId)} · ${financePaymentCustomerLabel(target.payment, vehicles, customers, loans)} · ${formatMoney(target.collection.amount)} · ${collectionMethodLabel(target.collection.method)} · ${target.collection.receivedDate}`;
-}
 
 function collectionMethodLabel(method: CollectionMethod) {
   return ({ BookingDeposit: "Booking deposit", DownPayment: "Down payment", BankTransfer: "Bank transfer", BankDisbursement: "Bank financing disbursement", Cheque: "Cheque", Card: "Card", TradeInCredit: "Trade-in credit", Other: "Other", Cash: "Cash custody" } satisfies Record<CollectionMethod, string>)[method];

@@ -2780,22 +2780,24 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reconcile", async (Guid i
     {
         var validation = FinanceV2Rules.ValidateReconcile(payment, collection, actorUserId, evidence is not null);
         if (!validation.IsValid) return Results.BadRequest(validation);
-        var updated = collection with { Status = CollectionStatus.Reconciled, ReconciledBy = actorUserId, ReconciledAt = now };
+        if (invoice is null || vehicle is null || evidence is null) return Results.BadRequest(new ApiError("The reconciled collection is missing its invoice, vehicle, or secured payment evidence."));
+        if (await db.OfficialReceipts.AsNoTracking().AnyAsync(item => item.CollectionTransactionId == collection.Id))
+            return Results.Conflict(new ApiError("This pending collection already has an official receipt. Refresh before continuing."));
+
+        var receipt = OfficialReceiptFactory.CreateForCollection(collection, payment, invoice, evidence, actorUserId, now);
+        db.OfficialReceipts.Add(receipt);
+        var updated = collection with
+        {
+            Status = CollectionStatus.Reconciled,
+            ReconciledBy = actorUserId,
+            ReconciledAt = now,
+            OfficialReceiptId = receipt.Id,
+            OfficialReceiptNumber = receipt.ReceiptNumber,
+            OfficialReceiptVoided = false
+        };
         db.Entry(collection).CurrentValues.SetValues(updated);
         collection = updated;
         ApiAudit.Add(db, context.User, "finance.collectionReconciled", nameof(CollectionTransaction), id);
-    }
-    var receipt = await db.OfficialReceipts.FirstOrDefaultAsync(item => item.CollectionTransactionId == collection.Id);
-    if (receipt is null)
-    {
-        if (invoice is null || vehicle is null || evidence is null) return Results.BadRequest(new ApiError("The reconciled collection is missing its invoice, vehicle, or secured payment evidence."));
-        var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == invoice.CustomerId);
-        if (customer is null) return Results.BadRequest(new ApiError("The reconciled collection customer is unavailable."));
-        receipt = OfficialReceiptFactory.CreateForCollection(collection, payment, invoice, evidence, vehicle, customer, actorUserId, now);
-        db.OfficialReceipts.Add(receipt);
-        var linked = collection with { OfficialReceiptId = receipt.Id, OfficialReceiptNumber = receipt.ReceiptNumber, OfficialReceiptVoided = false };
-        db.Entry(collection).CurrentValues.SetValues(linked);
-        collection = linked;
         ApiAudit.Add(db, context.User, "officialReceipt.generated", nameof(OfficialReceipt), receipt.Id);
     }
     var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
@@ -2855,7 +2857,9 @@ backOffice.MapGet("/collection-transactions/{id:guid}/official-receipt/content",
     var receipt = await db.OfficialReceipts.AsNoTracking().FirstOrDefaultAsync(item => item.CollectionTransactionId == id);
     return receipt is null
         ? Results.NotFound()
-        : Results.File(receipt.Content, receipt.ContentMimeType, $"{receipt.ReceiptNumber}.pdf");
+        : receipt.IsVoided
+            ? Results.Conflict(new ApiError("This official receipt is void and cannot be downloaded as a valid paid receipt."))
+            : Results.File(receipt.Content, receipt.ContentMimeType, $"{receipt.ReceiptNumber}.pdf");
 }).RequireAuthorization("Finance");
 
 
