@@ -19,6 +19,12 @@ body {
   color: inherit;
 }
 
+.ant-pro-sider:not(.ant-layout-sider-collapsed) .ant-pro-base-menu-inline-item-text {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
 .sidebarActionLabel {
   display: flex;
   align-items: center;
