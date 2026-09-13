@@ -4470,6 +4470,21 @@ hr.MapGet("/payslips", async (AppDbContext db, HttpContext context) =>
     return Results.Ok(await query.OrderByDescending(payslip => payslip.GeneratedAt).ToListAsync());
 });
 
+hr.MapGet("/payslips/{id:guid}/pdf", async (Guid id, AppDbContext db, UserManager<AppUser> userManager, HttpContext context) =>
+{
+    var payslip = await db.HrPayslips.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (payslip is null) return Results.NotFound();
+    if (!DepartmentAccess.IsHrManager(context.User) && !string.Equals(payslip.StaffUserId, StaffIdentity.CurrentUserId(context), StringComparison.Ordinal))
+        return Results.Forbid();
+    var period = await db.HrPayPeriods.AsNoTracking().FirstOrDefaultAsync(item => item.Id == payslip.PayPeriodId);
+    if (period is null) return Results.NotFound();
+    var staff = await userManager.FindByIdAsync(payslip.StaffUserId);
+    var pdf = HrPayslipPdfFactory.Create(payslip, period, staff?.DisplayName ?? payslip.StaffUserId, "YS HENG AUTOMOTIVE SDN BHD");
+    ApiAudit.Add(db, context.User, "hr.payslip.pdfDownloaded", nameof(HrPayslip), payslip.Id);
+    await db.SaveChangesAsync();
+    return Results.File(pdf.Content, "application/pdf", pdf.FileName);
+});
+
 hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbContext db, HttpContext context) =>
 {
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();

@@ -1,7 +1,7 @@
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
@@ -88,6 +88,7 @@ type HrSalaryPageProps = {
   onUpdatePayrollProfile: (profile: HrPayrollProfile) => Promise<void>;
   onCreatePayPeriod: (period: HrPayPeriod) => Promise<void>;
   onGeneratePayslips: (payPeriodId: string) => Promise<void>;
+  onDownloadPayslip?: (payslip: HrPayslip) => Promise<void>;
 };
 
 export async function submitHrDecision(action: () => Promise<void>, onError: (message: string) => void) {
@@ -309,7 +310,8 @@ export function HrSalaryPage({
   onCreateAdjustment,
   onUpdatePayrollProfile,
   onCreatePayPeriod,
-  onGeneratePayslips
+  onGeneratePayslips,
+  onDownloadPayslip
 }: HrSalaryPageProps) {
   const isHrManager = Boolean(currentUser?.roles.some((role) => role === "BossAdmin" || role === "HrSalary"));
   const isBossAdmin = Boolean(currentUser?.roles.includes("BossAdmin"));
@@ -318,6 +320,8 @@ export function HrSalaryPage({
   const [selectedMedicalCertificate, setSelectedMedicalCertificate] = useState<File | null>(null);
   const [attendanceNetworkForm] = Form.useForm();
   const [attendanceCorrectionForm] = Form.useForm();
+  const [selectedGeneratePeriodId, setSelectedGeneratePeriodId] = useState<string>();
+  const [previewGeneratePeriodId, setPreviewGeneratePeriodId] = useState<string>();
   const [payrollProfileForm] = Form.useForm();
   const [payPeriodForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -529,7 +533,8 @@ export function HrSalaryPage({
     { title: "Allowance / 津贴", dataIndex: "allowances", render: money },
     { title: "Manual Deduct / 手动扣", dataIndex: "manualDeductions", render: money },
     { title: "Gross / 应发", dataIndex: "grossPay", render: money },
-    { title: "Net Pay / 实发", dataIndex: "netPay", render: (value: number) => <Typography.Text strong>{money(value)}</Typography.Text> }
+    { title: "Net Pay / 实发", dataIndex: "netPay", render: (value: number) => <Typography.Text strong>{money(value)}</Typography.Text> },
+    { title: "Action / 操作", fixed: "right", render: (_, record) => onDownloadPayslip ? <Button size="small" icon={<DownloadOutlined />} onClick={() => void onDownloadPayslip(record)}>PDF</Button> : null }
   ];
 
   const payrollProfileColumns: ColumnsType<HrPayrollProfile> = [
@@ -784,6 +789,7 @@ export function HrSalaryPage({
             <div><span>Manual Deduct / 手动扣</span><strong>{money(record.manualDeductions)}</strong></div>
             <div><span>Gross / 应发</span><strong>{money(record.grossPay)}</strong></div>
           </div>
+          {onDownloadPayslip && <Button size="small" icon={<DownloadOutlined />} onClick={() => void onDownloadPayslip(record)}>Download PDF / 下载薪资单</Button>}
         </article>
       ))}
       {filteredPayslips.length > hrRecordPageSize && <Pagination current={payslipPage.current} pageSize={hrRecordPageSize} total={filteredPayslips.length} showSizeChanger={false} onChange={(page) => setRecordPage("payslips", page)} />}
@@ -1227,7 +1233,8 @@ export function HrSalaryPage({
                     </ProCard>
                     <ProCard title="Generate Payslips / 生成薪资单">
                       <Space className="hrGenerateActions" wrap>
-                        <Select options={payPeriods.map((period) => ({ value: period.id, label: `${period.name} / ${period.workingDays} days / 天` }))} className="hrPeriodSelect" onChange={(id) => void onGeneratePayslips(id)} placeholder="Select period to generate / 选择月份生成" />
+                        <Select options={payPeriods.map((period) => ({ value: period.id, label: `${period.name} / ${period.workingDays} days / 天` }))} className="hrPeriodSelect" value={selectedGeneratePeriodId} onChange={setSelectedGeneratePeriodId} placeholder="Select period / 选择月份" />
+                        <Button type="primary" disabled={!selectedGeneratePeriodId} onClick={() => setPreviewGeneratePeriodId(selectedGeneratePeriodId)}>Preview / 预览</Button>
                         <Typography.Text type="secondary">Monthly: base salary / working days, with approved unpaid leave deduction. Hourly: completed Present, Late and Half Day clock time × hourly rate + allowances − manual deductions. No break or overtime adjustment is applied automatically.</Typography.Text>
                       </Space>
                     </ProCard>
@@ -1250,6 +1257,23 @@ export function HrSalaryPage({
           }
         ]}
       />
+      <Modal
+        title="Review payslip generation / 核对薪资单生成"
+        open={Boolean(previewGeneratePeriodId)}
+        onCancel={() => setPreviewGeneratePeriodId(undefined)}
+        okText="Confirm & Generate / 确认生成"
+        onOk={async () => {
+          if (!previewGeneratePeriodId) return;
+          const periodId = previewGeneratePeriodId;
+          setPreviewGeneratePeriodId(undefined);
+          await onGeneratePayslips(periodId);
+        }}
+      >
+        {(() => {
+          const period = payPeriods.find((item) => item.id === previewGeneratePeriodId);
+          return <Typography.Paragraph>Generate or refresh payslips for <Typography.Text strong>{period?.name ?? "the selected period"}</Typography.Text> ({period?.workingDays ?? 0} working days) for all configured payroll profiles. Existing payslips for this period will be updated. Statutory EPF/SOCSO/EIS/PCB values are not calculated in this MVP.</Typography.Paragraph>;
+        })()}
+      </Modal>
     </Space>
   );
 }

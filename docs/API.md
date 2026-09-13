@@ -395,6 +395,7 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `GET` | `/api/hr/pay-periods` | List pay periods and configured working days. |
 | `POST` | `/api/hr/pay-periods` | HR/Admin create a working-day pay period. |
 | `GET` | `/api/hr/payslips` | List payslips scoped to self, or all staff for HR/Admin. |
+| `GET` | `/api/hr/payslips/{id}/pdf` | Download a one-page payslip PDF when the signed-in staff member owns it or has HR/Admin access; download is audited. |
 | `POST` | `/api/hr/pay-periods/{id}/generate-payslips` | HR/Admin generate or update payslips for a pay period. |
 
 Payslip formula:

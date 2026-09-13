@@ -1968,6 +1968,10 @@ export async function generateHrPayslips(payPeriodId: string): Promise<HrPayslip
   return request<HrPayslip[]>(`/api/hr/pay-periods/${payPeriodId}/generate-payslips`, { method: "POST" });
 }
 
+export async function downloadHrPayslipPdf(payslipId: string): Promise<Blob> {
+  return requestBlob(`/api/hr/payslips/${encodeURIComponent(payslipId)}/pdf`, "Unable to download payslip PDF");
+}
+
 export async function createVehicle(vehicle: Vehicle): Promise<Vehicle> {
   return request<Vehicle>("/api/vehicles", {
     method: "POST",
