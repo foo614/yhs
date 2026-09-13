@@ -1150,6 +1150,7 @@ export default function App() {
         location={{ pathname }}
         menuItemRender={(item, dom) => <button className="menuButton" onClick={() => navigateTo(menuActionBadges[item.path ?? ""]?.target ?? item.path ?? "/dashboard")}>{menuLabel(item, dom)}</button>}
         layout="mix"
+        siderWidth={300}
         actionsRender={() => [
           <div className="headerSession" key="session">
             <span className="headerSessionUser">{currentUser.name ?? "staff"}</span>

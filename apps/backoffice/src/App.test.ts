@@ -6,6 +6,17 @@ import { fileURLToPath } from "node:url";
 import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, consumeExpiredSessionNotice, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, LoginHome, loanIdFromRouteUrl, LoanPage, markExpiredSession, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
+describe("admin sidebar layout", () => {
+  it("reserves expanded space for complete bilingual labels without changing collapsed mode", () => {
+    const app = readFileSync(fileURLToPath(new URL("./App.tsx", import.meta.url)), "utf8");
+    const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
+
+    expect(app).toMatch(/<ProLayout[\s\S]*?siderWidth=\{300\}/);
+    expect(styles).toMatch(/\.ant-pro-sider:not\(\.ant-layout-sider-collapsed\) \.ant-pro-base-menu-inline-item-text\s*\{[^}]*overflow:\s*visible;[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
+    expect(app).toContain("menuItemRender=");
+  });
+});
+
 describe("browser route state", () => {
   it("restores only local routes accessible to the signed-in role", () => {
     expect(restoredSessionRoute("/finance?tab=daily", ["Finance"])).toBe("/finance?tab=daily");
