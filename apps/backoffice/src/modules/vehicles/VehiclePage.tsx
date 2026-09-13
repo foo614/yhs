@@ -567,6 +567,12 @@ export function vehicleCustomerEditPolicy(vehicle: Pick<Vehicle, "id" | "custome
   };
 }
 
+export function vehicleCustomerPath(customerId: string | undefined, customers: Customer[]) {
+  return customerId && customers.some((customer) => customer.id === customerId)
+    ? `/customer-360?customerId=${encodeURIComponent(customerId)}`
+    : undefined;
+}
+
 export function vehicleDetailsPersonCreateFlags(target: "customer" | "owner") {
   return {
     customer: target === "customer",
@@ -1385,6 +1391,17 @@ export function VehiclePage({
     void loadUploads();
   }, [loadUploads]);
 
+  const customerLinkFor = (customerId?: string) => {
+    const customer = customerId ? customers.find((item) => item.id === customerId) : undefined;
+    const customerPath = vehicleCustomerPath(customerId, customers);
+    if (!customer || !customerPath) return contactFor(customers, customerId);
+    return (
+      <Typography.Link href={customerPath} onClick={(event) => { event.preventDefault(); onOpenCustomer(customer.id); }}>
+        {contactFor(customers, customer.id)}
+      </Typography.Link>
+    );
+  };
+
   const columns: ColumnsType<Vehicle> = [
     {
       title: "Plate / 车牌",
@@ -1405,7 +1422,7 @@ export function VehiclePage({
     {
       title: "Customer / 客户",
       dataIndex: "customerId",
-      render: (customerId) => contactFor(customers, customerId),
+      render: (customerId) => customerLinkFor(customerId),
       filters: textFilters(vehicles.map((vehicle) => contactFor(customers, vehicle.customerId))),
       filterSearch: true,
       onFilter: (value, row) => contactFor(customers, row.customerId) === value
@@ -1497,7 +1514,7 @@ export function VehiclePage({
       title: "Buyer / 买家",
       dataIndex: "customerId",
       width: 180,
-      render: (customerId) => contactFor(customers, customerId),
+      render: (customerId) => customerLinkFor(customerId),
       filters: textFilters(vehicles.map((vehicle) => contactFor(customers, vehicle.customerId))),
       filterSearch: true,
       onFilter: (value, row) => contactFor(customers, row.customerId) === value
@@ -1604,7 +1621,7 @@ export function VehiclePage({
       render: (_, row) => (
         <Space direction="vertical" size={0}>
           <Typography.Text>Owner: {contactFor(owners, row.ownerId)}</Typography.Text>
-          <Typography.Text type="secondary">Buyer: {contactFor(customers, row.customerId)}</Typography.Text>
+          <Typography.Text type="secondary">Buyer: {customerLinkFor(row.customerId)}</Typography.Text>
         </Space>
       )
     },
@@ -2214,7 +2231,7 @@ export function VehiclePage({
               <div className="mobileRecordSection">
                 <Typography.Text className="mobileRecordLabel">Contacts / 联系人</Typography.Text>
                 <div className="mobileRecordTextBlock">
-                  <span>Buyer: {contactFor(customers, vehicle.customerId)}</span>
+                  <span>Buyer: {customerLinkFor(vehicle.customerId)}</span>
                   <span>Owner: {contactFor(owners, vehicle.ownerId)}</span>
                 </div>
               </div>
@@ -2411,7 +2428,7 @@ export function VehiclePage({
                 <Descriptions.Item label="Status / 状态"><Tag color={vehicleStatusColor[selectedVehicle.status]}>{selectedVehicle.status}</Tag></Descriptions.Item>
                 <Descriptions.Item label="Chassis Number">{selectedVehicle.chassisNumber || "-"}</Descriptions.Item>
                 <Descriptions.Item label="Engine Number">{selectedVehicle.engineNumber || "-"}</Descriptions.Item>
-                <Descriptions.Item label="Customer / 客户">{selectedVehicleCustomer ? customerSelectLabel(selectedVehicleCustomer) : "-"}</Descriptions.Item>
+                <Descriptions.Item label="Customer / 客户">{selectedVehicleCustomer ? customerLinkFor(selectedVehicleCustomer.id) : "-"}</Descriptions.Item>
                 <Descriptions.Item label="Owner / 原车主">{selectedVehicleOwner ? `${selectedVehicleOwner.name} / ${selectedVehicleOwner.phone}` : "-"}</Descriptions.Item>
                 <Descriptions.Item label="Estimated Profit / 预估利润">{formatMoney(selectedVehicleProfit)}</Descriptions.Item>
               </Descriptions>
