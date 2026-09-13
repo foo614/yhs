@@ -3538,15 +3538,18 @@ function RepairPage({
   const supplierFiltersActive = Boolean(supplierKeyword.trim()) || supplierStatus !== "All";
   const showRepairCompletionConfirmation = (repair: RepairJob, onConfirm: () => Promise<void> | void) => {
     Modal.confirm({
-      title: "Mark repair completed? / 确认完成整备？",
+      title: "Confirm Repair Completed / 确认维修完成",
       content: (
-        <Descriptions size="small" column={1}>
-          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
-          <Descriptions.Item label="Repair title / 整备标题">{repair.whatToDo || repair.repairPart || "Repair"}</Descriptions.Item>
-          <Descriptions.Item label="Cost / 费用">{formatMoney(repair.cost)}</Descriptions.Item>
-        </Descriptions>
+        <Space direction="vertical" size={12} className="fullWidth">
+          <Typography.Text type="secondary">Confirm all repair work is completed and close this repair case. / 确认维修已完成并结束此维修记录。</Typography.Text>
+          <Descriptions size="small" column={1}>
+            <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
+            <Descriptions.Item label="Repair title / 整备标题">{repair.whatToDo || repair.repairPart || "Repair"}</Descriptions.Item>
+            <Descriptions.Item label="Cost / 费用">{formatMoney(repair.cost)}</Descriptions.Item>
+          </Descriptions>
+        </Space>
       ),
-      okText: "Mark completed",
+      okText: "Confirm Repair Completed / 确认维修完成",
       cancelText: "Keep in progress",
       onOk: onConfirm
     });
@@ -3559,16 +3562,19 @@ function RepairPage({
   };
   const confirmRepairApproval = (repair: RepairJob) => {
     Modal.confirm({
-      title: "Approve repair? / 批准整备？",
+      title: "Approve Repair / 批准维修",
       content: (
-        <Descriptions size="small" column={1}>
-          <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
-          <Descriptions.Item label="Repair title / 整备标题">{repair.whatToDo || repair.repairPart || "Repair"}</Descriptions.Item>
-          <Descriptions.Item label="Cost / 费用">{formatMoney(repair.cost)}</Descriptions.Item>
-          <Descriptions.Item label="Approval">Your signed-in account will be recorded as the approver.</Descriptions.Item>
-        </Descriptions>
+        <Space direction="vertical" size={12} className="fullWidth">
+          <Typography.Text type="secondary">Approve the quotation and allow repair work to begin. / 批准报价并允许开始维修。</Typography.Text>
+          <Descriptions size="small" column={1}>
+            <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, repair.vehicleId)}</Descriptions.Item>
+            <Descriptions.Item label="Repair title / 整备标题">{repair.whatToDo || repair.repairPart || "Repair"}</Descriptions.Item>
+            <Descriptions.Item label="Cost / 费用">{formatMoney(repair.cost)}</Descriptions.Item>
+            <Descriptions.Item label="Approval">Your signed-in account will be recorded as the approver.</Descriptions.Item>
+          </Descriptions>
+        </Space>
       ),
-      okText: "Approve Repair",
+      okText: "Approve Repair / 批准维修",
       cancelText: "Cancel",
       onOk: () => onApproveRepair(repair.id, repair.approvalNotes)
     });
@@ -3653,8 +3659,8 @@ function RepairPage({
           {row.kind === "repair" ? (
             <>
               <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(row)}>Details</Button>
-              {canApproveRepairs && row.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(row.repair)}>Approve</Button>}
-              <Button size="small" onClick={() => confirmRepairCompletion(row.repair)} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Mark completed</Button>
+              {canApproveRepairs && row.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(row.repair)}>Approve Repair / 批准维修</Button>}
+              <Button size="small" onClick={() => confirmRepairCompletion(row.repair)} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Confirm Repair Completed / 确认维修完成</Button>
             </>
           ) : (
             <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(row)}>Details</Button>
@@ -3675,7 +3681,7 @@ function RepairPage({
             <Descriptions.Item label="Approved By / 审批人">{selectedRepair.approvedBy || "Not approved"}</Descriptions.Item>
             <Descriptions.Item label="Approved At / 审批时间">{selectedRepair.approvedAt ? new Date(selectedRepair.approvedAt).toLocaleString() : "-"}</Descriptions.Item>
           </Descriptions>
-          {canApproveRepairs && selectedRepair.approvalStatus !== "Approved" && <Button type="primary" onClick={() => confirmRepairApproval(selectedRepair)}>Approve Repair</Button>}
+          {canApproveRepairs && selectedRepair.approvalStatus !== "Approved" && <Button type="primary" onClick={() => confirmRepairApproval(selectedRepair)}>Approve Repair / 批准维修</Button>}
           <Form
             name="repairEdit"
             key={`${selectedRepair.id}-repair-record`}
@@ -4036,8 +4042,8 @@ function RepairPage({
                     {isRepair ? (
                       <>
                         <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(record)}>Details</Button>
-                        {canApproveRepairs && record.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(record.repair)}>Approve</Button>}
-                        <Button size="small" onClick={() => confirmRepairCompletion(record.repair)} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Mark completed</Button>
+                        {canApproveRepairs && record.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(record.repair)}>Approve Repair / 批准维修</Button>}
+                        <Button size="small" onClick={() => confirmRepairCompletion(record.repair)} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Confirm Repair Completed / 确认维修完成</Button>
                       </>
                     ) : (
                       <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(record)}>Details</Button>
