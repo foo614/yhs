@@ -28,7 +28,8 @@ import {
   paymentCollectionEvidence,
   paymentFromEditableDetails,
   settlementDraftForVehicle,
-  settlementMatchesDashboardAttention
+  settlementMatchesDashboardAttention,
+  visibleSalesInvoicePayments
 } from "./FinancePage";
 
 describe("official customer receipt workflow", () => {
@@ -53,9 +54,20 @@ describe("finance module navigation", () => {
   });
 
   it("restricts Sales to cash handover while Finance can select finance workflows", () => {
+    expect(financeTabForUrl("/finance", "", true)).toBe("payments");
+    expect(financeTabForUrl("/finance", "?tab=daily", true)).toBe("daily");
     expect(financeTabForUrl("/finance", "?tab=payments", false)).toBe("cash-custody");
     expect(financeTabForUrl("/finance", "?tab=settlements", true)).toBe("settlements");
     expect(financeTabForUrl("/finance", "?tab=unknown", true)).toBe("payments");
+  });
+
+  it("shows only governed sales invoices while preserving legacy records in memory", () => {
+    const legacy = { id: "legacy", vehicleId: "vehicle-1", nettPrice: 58_000, status: "Pending" as const, bossChecked: false, documentsPrepared: false, checklistValidated: false, createdAt: "2026-01-01" };
+    const governed = { ...legacy, id: "governed", financeWorkflowVersion: 2 as const };
+    const payments = [legacy, governed];
+
+    expect(visibleSalesInvoicePayments(payments)).toEqual([governed]);
+    expect(payments).toEqual([legacy, governed]);
   });
 
   it("describes the actual searchable fields for each finance tab", () => {

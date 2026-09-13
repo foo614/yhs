@@ -1208,7 +1208,8 @@ export function FinancePage({
       )
     }
   ];
-  const filteredPayments = filterFinanceRowsByFields(filterFinanceRows(payments, financeKeyword, financeStatus, (payment) => [
+  const salesInvoicePayments = visibleSalesInvoicePayments(payments);
+  const filteredPayments = filterFinanceRowsByFields(filterFinanceRows(salesInvoicePayments, financeKeyword, financeStatus, (payment) => [
     plateFor(vehicles, payment.vehicleId),
     financePaymentCustomerLabel(payment, vehicles, customers, loans),
     payment.receiptNumber,
@@ -1259,7 +1260,7 @@ export function FinancePage({
           ? { filtered: filteredPaymentVouchers.length, total: paymentVouchers.length }
           : financeTab === "daily"
             ? { filtered: filteredDailySpends.length, total: dailySpends.length }
-            : { filtered: filteredPayments.length, total: payments.length };
+            : { filtered: filteredPayments.length, total: salesInvoicePayments.length };
   const financeFiltersActive = Boolean(financeKeyword.trim() || financeStatus || Object.values(financeFieldFilters).some((value) => String(value ?? "").trim()) || dashboardFocusActive);
   const financeNativeSearch = {
     fields: [
@@ -1340,13 +1341,13 @@ export function FinancePage({
   const visibleBrokerCommissions = pageFinanceRows(filteredBrokerCommissions, brokerCommissionPage);
   const visibleDebtRecoveries = pageFinanceRows(filteredDebtRecoveries, debtRecoveryPage);
   const visiblePaymentVouchers = pageFinanceRows(filteredPaymentVouchers, paymentVoucherPage);
-  const paymentEmptyText = financeEmptyText(payments.length, filteredPayments.length, "bank collection records");
+  const paymentEmptyText = financeEmptyText(salesInvoicePayments.length, filteredPayments.length, "sales invoice records");
   const settlementEmptyText = settlementLoadError ? "Settlements unavailable. Retry to load the current records." : financeEmptyText(settlements.length, filteredSettlements.length, "settlement reminders");
   const dailySpendEmptyText = financeEmptyText(dailySpends.length, filteredDailySpends.length, "daily spend records");
   const brokerCommissionEmptyText = financeEmptyText(brokerCommissions.length, filteredBrokerCommissions.length, "broker commissions");
   const debtRecoveryEmptyText = financeEmptyText(debtRecoveries.length, filteredDebtRecoveries.length, "debt recovery cases");
   const paymentVoucherEmptyText = financeEmptyText(paymentVouchers.length, filteredPaymentVouchers.length, "payment vouchers");
-  const outstanding = payments.reduce((sum, payment) => sum + (isFinanceV2(payment) ? payment.balanceAmount ?? payment.nettPrice : payment.status !== "Reconciled" ? payment.nettPrice : 0), 0);
+  const outstanding = salesInvoicePayments.reduce((sum, payment) => sum + (payment.balanceAmount ?? payment.nettPrice), 0);
   const settlementSummary = settlementTotals(settlements);
   const settlementOutstanding = settlementSummary.toPay;
   const dailySpendOutstanding = dailySpends.filter((spend) => !spend.isPaid).reduce((sum, spend) => sum + spend.amount, 0);
@@ -1393,8 +1394,8 @@ export function FinancePage({
         ];
       default:
         return [
-          { label: "Sales", value: payments.length },
-          { label: "Need collection", value: payments.filter((payment) => isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled").length },
+          { label: "Sales", value: salesInvoicePayments.length },
+          { label: "Need collection", value: salesInvoicePayments.filter((payment) => payment.receivableStatus !== "Paid").length },
           { label: "Balance due", value: formatMoney(outstanding) }
         ];
     }
@@ -2665,6 +2666,10 @@ export function financeTabForUrl(pathname: string, search: string, canManageFina
   if (tab === "cash-custody") return "cash-custody";
   if (!canManageFinance) return "cash-custody";
   return ["payments", "settlements", "commissions", "debt", "vouchers", "daily"].includes(tab ?? "") ? tab ?? "payments" : "payments";
+}
+
+export function visibleSalesInvoicePayments(payments: PaymentRecord[]) {
+  return payments.filter(isFinanceV2);
 }
 
 function matchesDashboardFinanceFocus(focus: DashboardDrilldown, vehicleId: string | undefined, matchesAttention = true) {
