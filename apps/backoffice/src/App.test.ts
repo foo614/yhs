@@ -271,8 +271,8 @@ describe("management dashboard", () => {
     expect(markup).toContain("OCR field accuracy / OCR 字段准确率");
     expect(markup).toContain("Staff-reviewed field outcomes / 员工复核结果");
     expect(markup).toContain("Corrected by staff");
-    expect(markup).toContain("Review workload / 复核工作量");
-    expect(markup).toContain("3 pending staff checks");
+    expect(markup).not.toContain("Review workload / 复核工作量");
+    expect(markup).not.toContain("Pending staff check / 待员工核对");
     expect(markup).toContain("aria-label=\"9 fields unchanged after staff review and 3 fields corrected by staff\"");
     expect(markup).toContain("Invoices &amp; receipts");
     expect(markup).not.toContain("sensitive extracted text");
