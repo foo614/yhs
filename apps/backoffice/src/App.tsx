@@ -2653,9 +2653,7 @@ function DashboardAiDocumentProcessingPanel({
         <Metric label="Scans / 扫描" value={processing.scanCount} meta={analyticsPeriodLabel} />
         <Metric label="Reviewed AI documents / 已复核 AI 文件" value={processing.reviewedCount} meta="Staff-corrected values are retained" tone="profit" />
         <Metric label="OCR field accuracy / OCR 字段准确率" value={processing.accuracyPercent === null || processing.accuracyPercent === undefined ? "Pending" : `${processing.accuracyPercent}%`} meta={processing.comparedFieldCount > 0 ? `${processing.correctFieldCount} unchanged · ${processing.correctedFieldCount} corrected` : "Appears after the first saved review"} tone={processing.correctedFieldCount > 0 ? "work" : "neutral"} />
-        <Metric label="Need checking / 需仔细检查" value={processing.lowConfidenceCount} meta="Below 75% reading confidence" tone={processing.lowConfidenceCount > 0 ? "work" : "neutral"} />
         <Metric label="Failed scans / 失败扫描" value={processing.failedCount} meta={analyticsPeriodLabel} tone={processing.failedCount > 0 ? "risk" : "neutral"} />
-        <Metric label="Pending staff check / 待员工核对" value={processing.pendingReviewCount} meta="Live backlog" tone={processing.pendingReviewCount > 0 ? "work" : "neutral"} />
         <Metric label="OCR capacity / OCR 容量" value={`${processing.remainingThisMonth} left`} meta={`${processing.usedThisMonth} of ${processing.monthlyRequestLimit} used this month`} tone={processing.remainingThisMonth === 0 ? "risk" : "neutral"} />
       </div>
       <div className="dashboardAiCharts">
@@ -2675,25 +2673,6 @@ function DashboardAiDocumentProcessingPanel({
             <span><i className="dashboardAiLegendCorrected" />Corrected by staff <strong>{processing.correctedFieldCount}</strong></span>
           </div>
         </section>
-        <section className="dashboardAiChart" aria-labelledby="ai-operational-signals-title">
-          <div className="dashboardAiChartHeading">
-            <strong id="ai-operational-signals-title">Review workload / 复核工作量</strong>
-            <span>Independent operational signals</span>
-          </div>
-          {[
-            { label: "Pending staff check", value: processing.pendingReviewCount, tone: "pending" },
-            { label: "Need careful checking", value: processing.lowConfidenceCount, tone: "caution" },
-            { label: "Failed scans", value: processing.failedCount, tone: "failed" }
-          ].map((item) => {
-            const maximum = Math.max(processing.pendingReviewCount, processing.lowConfidenceCount, processing.failedCount, 1);
-            return (
-              <div className="dashboardAiSignal" key={item.label}>
-                <div><span>{item.label}</span><strong>{item.value}</strong></div>
-                <div className="dashboardAiSignalTrack" aria-hidden><span className={`dashboardAiSignal-${item.tone}`} style={{ width: `${(item.value / maximum) * 100}%` }} /></div>
-              </div>
-            );
-          })}
-        </section>
       </div>
       <Table
         rowKey="category"
@@ -2708,7 +2687,6 @@ function DashboardAiDocumentProcessingPanel({
           { title: "Reviewed", dataIndex: "reviewedCount", align: "right" },
           { title: "Accuracy", dataIndex: "accuracyPercent", align: "right", render: (value: number | null | undefined) => value === null || value === undefined ? "—" : `${value}%` },
           { title: "Corrected", dataIndex: "correctedFieldCount", align: "right", render: (value: number) => <Tag color={value > 0 ? "orange" : "default"}>{value}</Tag> },
-          { title: "Need checking", dataIndex: "lowConfidenceCount", align: "right", render: (value: number) => <Tag color={value > 0 ? "orange" : "default"}>{value}</Tag> },
           { title: "Failed", dataIndex: "failedCount", align: "right", render: (value: number) => <Tag color={value > 0 ? "red" : "default"}>{value}</Tag> }
         ]}
       />
