@@ -1,6 +1,8 @@
 import { Children, createElement, isValidElement } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { DeliveryWorkboardItem } from "../../api";
 import {
@@ -78,6 +80,16 @@ describe("Delivery picker adapters", () => {
 const noOp = async () => {};
 
 describe("simple delivery workboard", () => {
+  it("keeps both Finance alerts readable across drawer widths", () => {
+    const styles = readFileSync(fileURLToPath(new URL("../../styles.css", import.meta.url)), "utf8");
+
+    expect(styles).toMatch(/\.deliveryFinanceGate\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+    expect(styles).toMatch(/\.deliveryFinanceGate \.ant-alert,\s*\.deliveryFinanceGate \.ant-alert-content\s*{[^}]*min-width:\s*0/s);
+    expect(styles).toMatch(/\.deliveryFinanceGate \.ant-alert\s*{[^}]*flex-wrap:\s*wrap/s);
+    expect(styles).toMatch(/\.deliveryFinanceGate \.ant-alert-action\s*{[^}]*flex:\s*1 0 100%[^}]*margin-inline-start:\s*0/s);
+    expect(styles).toMatch(/@media \(max-width:\s*720px\)[\s\S]*?\.deliveryFinanceGate\s*{[^}]*grid-template-columns:\s*1fr/s);
+  });
+
   it("filters one scannable list by car, stage, and staff-backed PIC", () => {
     const items: DeliveryWorkboardItem[] = [
       baseItem,
