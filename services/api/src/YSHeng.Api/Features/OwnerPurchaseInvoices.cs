@@ -591,11 +591,13 @@ public static class OwnerPurchaseInvoicePdf
             bold: true,
             color: BrandedPdf.Navy);
 
+        var versionBoxX = PageWidth - RightMargin - 145;
+
         BrandedPdf.Line(
             page,
             LeftMargin,
             714,
-            PageWidth - RightMargin,
+            versionBoxX - RightMargin,
             714,
             BrandedPdf.Rule);
 
@@ -625,18 +627,16 @@ public static class OwnerPurchaseInvoicePdf
             else if (line.StartsWith("Total:", StringComparison.Ordinal))
             {
                 // Add extra separation from the previous purchase line
-                baseline -= 10;
-
-                const float totalBoxHeight = 18;
+                baseline -= 7;
 
                 BrandedPdf.Fill(
                     page,
                     LeftMargin - 8,
                     baseline - 5,
                     PageWidth - LeftMargin - RightMargin + 16,
-                    totalBoxHeight,
+                    18,
                     BrandedPdf.PaleBlue);
-                    
+
                 BrandedPdf.Text(
                     page,
                     LeftMargin,
@@ -645,6 +645,9 @@ public static class OwnerPurchaseInvoicePdf
                     line,
                     bold: true,
                     color: BrandedPdf.Navy);
+
+                // slightly more breathing room after total
+                baseline -= 4;
             }
             else
             {
