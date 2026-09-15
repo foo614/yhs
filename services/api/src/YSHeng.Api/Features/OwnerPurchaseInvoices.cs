@@ -457,7 +457,7 @@ public static class OwnerPurchaseInvoicePdf
     private const int RightMargin = 50;
     private const int BodyFontSize = 10;
     private const int BodyLineHeight = 14;
-    private const int FirstBodyBaseline = 708;
+    private const int FirstBodyBaseline = 700;
     private const int FooterBaseline = 35;
     private const int MaximumBodyLinesPerPage = 45;
     private const int PurchaseAmountColumnX = 415;
