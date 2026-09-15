@@ -106,7 +106,8 @@ public sealed class OwnerPurchaseInvoiceTests
         var revised = OwnerPurchaseInvoiceFactory.CreateRevision(initial.Invoice, initial.Revision, preciseRevision, "sales@example.test", DateTime.UtcNow);
         var pdf = Encoding.ASCII.GetString(revised.Revision.Content);
         Assert.Equal(0.03m, revised.Revision.Amount);
-        Assert.Contains("Total: RM 0.03", pdf);
+        Assert.Contains("(TOTAL) Tj", pdf);
+        Assert.Contains("(RM 0.03) Tj", pdf);
         Assert.Contains("RM 0.01", pdf);
     }
 
@@ -248,7 +249,8 @@ public sealed class OwnerPurchaseInvoiceTests
         Assert.Contains("Seller IC: -", pdf);
         Assert.Contains("Seller TIN: -", pdf);
         Assert.Contains("Payment reference: -", pdf);
-        Assert.Contains("Total: RM 90.00", pdf);
+        Assert.Contains("(TOTAL) Tj", pdf);
+        Assert.Contains("(RM 90.00) Tj", pdf);
         Assert.Contains("Prepared by: sales-1", pdf);
         Assert.Contains("Revision reason:", pdf);
         Assert.DoesNotContain("(capitalise)", pdf);
