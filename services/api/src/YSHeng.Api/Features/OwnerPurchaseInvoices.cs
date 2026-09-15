@@ -460,6 +460,8 @@ public static class OwnerPurchaseInvoicePdf
     private const int FirstBodyBaseline = 708;
     private const int FooterBaseline = 35;
     private const int MaximumBodyLinesPerPage = 45;
+    private const int PurchaseAmountColumnX = 415;
+    private const string PurchaseAmountDivider = " — ";
 
     public static byte[] Create(PurchaseInvoiceRevision revision, IReadOnlyList<PurchaseInvoiceRevisionLine> lines)
     {
@@ -479,8 +481,8 @@ public static class OwnerPurchaseInvoicePdf
             "Purchase lines:"
         };
         text.AddRange(lines.OrderBy(line => line.SortOrder).Select(line =>
-            $"{line.SortOrder}. {line.LineType}: {line.Description} — RM {line.Amount.ToString("N2", CultureInfo.InvariantCulture)}"));
-        text.Add($"Total: RM {revision.Amount.ToString("N2", CultureInfo.InvariantCulture)}");
+            $"{line.SortOrder}. {FormatPurchaseLineDescription(line)}{PurchaseAmountDivider}{FormatMoney(line.Amount)}"));
+        text.Add($"Total: {FormatMoney(revision.Amount)}");
         text.Add($"Prepared by: {revision.CreatedBy}");
         text.Add($"Prepared at (UTC): {revision.CreatedAt:yyyy-MM-dd HH:mm:ss}");
         text.Add($"Revision reason: {Display(revision.Reason)}");
@@ -500,6 +502,61 @@ public static class OwnerPurchaseInvoicePdf
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
+    private static string FormatMoney(decimal amount) =>
+        $"RM {amount.ToString("N2", CultureInfo.InvariantCulture)}";
+
+    private static string FormatPurchaseLineDescription(PurchaseInvoiceRevisionLine line)
+    {
+        var label = HumanizeIdentifier(line.LineType.ToString());
+        var description = Regex.Replace(line.Description?.Trim() ?? string.Empty, @"\s+", " ");
+
+        // Older revisions may already contain prefixes such as
+        // "Vehicle purchase -". Remove that prefix before adding the
+        // friendly LineType label so it is not rendered twice.
+        var labelPattern = string.Join(
+            @"\s*",
+            label.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Regex.Escape));
+
+        description = Regex.Replace(
+                description,
+                $@"^\s*{labelPattern}\s*(?:[-:–—]\s*)?",
+                string.Empty,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            .Trim();
+
+        return string.IsNullOrWhiteSpace(description)
+            ? label
+            : $"{label}: {description}";
+    }
+
+    private static string HumanizeIdentifier(string value)
+    {
+        var separatedAcronym = Regex.Replace(value, "([A-Z]+)([A-Z][a-z])", "$1 $2");
+        return Regex.Replace(separatedAcronym, "([a-z0-9])([A-Z])", "$1 $2");
+    }
+
+    private static bool TrySplitPurchaseLine(string value, out string description, out string amount)
+    {
+        var marker = PurchaseAmountDivider + "RM ";
+        var markerIndex = value.LastIndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex <= 0 || !Regex.IsMatch(value, @"^\d+\.\s", RegexOptions.CultureInvariant))
+        {
+            description = string.Empty;
+            amount = string.Empty;
+            return false;
+        }
+
+        description = value[..markerIndex].TrimEnd();
+        amount = value[(markerIndex + PurchaseAmountDivider.Length)..].Trim();
+        return true;
+    }
+
+    private static int RightAlignedX(string value, int fontSize, int rightEdge)
+    {
+        var width = value.Sum(character => TextWidth(character, fontSize));
+        return Math.Max(LeftMargin, (int)Math.Round(rightEdge - width));
+    }
+
     private static IReadOnlyList<IReadOnlyList<string>> Paginate(IReadOnlyList<string> values)
     {
         var wrapped = values.SelectMany(Wrap).ToList();
@@ -515,39 +572,59 @@ public static class OwnerPurchaseInvoicePdf
 
     private static IEnumerable<string> Wrap(string value)
     {
+        if (TrySplitPurchaseLine(value, out var description, out var amount))
+        {
+            var descriptionWidth = PurchaseAmountColumnX - LeftMargin - 12;
+            var wrappedDescription = WrapParagraph(description, descriptionWidth).ToList();
+            if (wrappedDescription.Count == 0) wrappedDescription.Add(string.Empty);
+
+            // Keep the amount attached to the first logical row. PageContent
+            // renders it in a dedicated right-aligned amount column.
+            yield return $"{wrappedDescription[0]}{PurchaseAmountDivider}{amount}";
+            foreach (var continuation in wrappedDescription.Skip(1))
+                yield return $"    {continuation}";
+            yield break;
+        }
+
         foreach (var paragraph in value.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
         {
-            if (paragraph.Length == 0)
+            foreach (var wrappedLine in WrapParagraph(paragraph, PageWidth - LeftMargin - RightMargin))
+                yield return wrappedLine;
+        }
+    }
+
+    private static IEnumerable<string> WrapParagraph(string paragraph, double maximumWidth)
+    {
+        if (paragraph.Length == 0)
+        {
+            yield return string.Empty;
+            yield break;
+        }
+
+        var lineStart = 0;
+        while (lineStart < paragraph.Length)
+        {
+            var width = 0d;
+            var lastBreak = -1;
+            var index = lineStart;
+            for (; index < paragraph.Length; index++)
             {
-                yield return "";
-                continue;
+                var characterWidth = TextWidth(paragraph[index], BodyFontSize);
+                if (width + characterWidth > maximumWidth && index > lineStart) break;
+                width += characterWidth;
+                if (char.IsWhiteSpace(paragraph[index])) lastBreak = index;
             }
 
-            var lineStart = 0;
-            while (lineStart < paragraph.Length)
+            if (index == paragraph.Length)
             {
-                var width = 0d;
-                var lastBreak = -1;
-                var index = lineStart;
-                for (; index < paragraph.Length; index++)
-                {
-                    var characterWidth = TextWidth(paragraph[index], BodyFontSize);
-                    if (width + characterWidth > PageWidth - LeftMargin - RightMargin && index > lineStart) break;
-                    width += characterWidth;
-                    if (char.IsWhiteSpace(paragraph[index])) lastBreak = index;
-                }
-
-                if (index == paragraph.Length)
-                {
-                    yield return paragraph[lineStart..].TrimEnd();
-                    break;
-                }
-
-                var breakAt = lastBreak >= lineStart ? lastBreak + 1 : index;
-                yield return paragraph[lineStart..breakAt].TrimEnd();
-                lineStart = breakAt;
-                while (lineStart < paragraph.Length && char.IsWhiteSpace(paragraph[lineStart])) lineStart++;
+                yield return paragraph[lineStart..].TrimEnd();
+                yield break;
             }
+
+            var breakAt = lastBreak >= lineStart ? lastBreak + 1 : index;
+            yield return paragraph[lineStart..breakAt].TrimEnd();
+            lineStart = breakAt;
+            while (lineStart < paragraph.Length && char.IsWhiteSpace(paragraph[lineStart])) lineStart++;
         }
     }
 
@@ -597,7 +674,7 @@ public static class OwnerPurchaseInvoicePdf
             page,
             LeftMargin,
             714,
-            versionBoxX - RightMargin,
+            versionBoxX - 12,
             714,
             BrandedPdf.Rule);
 
@@ -624,10 +701,29 @@ public static class OwnerPurchaseInvoicePdf
                     bold: true,
                     color: BrandedPdf.Blue);
             }
+            else if (TrySplitPurchaseLine(line, out var description, out var amount))
+            {
+                BrandedPdf.Text(
+                    page,
+                    LeftMargin,
+                    baseline,
+                    BodyFontSize,
+                    description,
+                    color: BrandedPdf.Dark);
+
+                BrandedPdf.Text(
+                    page,
+                    RightAlignedX(amount, BodyFontSize, PageWidth - RightMargin),
+                    baseline,
+                    BodyFontSize,
+                    amount,
+                    color: BrandedPdf.Dark);
+            }
             else if (line.StartsWith("Total:", StringComparison.Ordinal))
             {
-                // Add extra separation from the previous purchase line
+                // Add extra separation from the previous purchase line.
                 baseline -= 7;
+                var totalAmount = line["Total:".Length..].Trim();
 
                 BrandedPdf.Fill(
                     page,
@@ -642,11 +738,20 @@ public static class OwnerPurchaseInvoicePdf
                     LeftMargin,
                     baseline,
                     11,
-                    line,
+                    "TOTAL",
                     bold: true,
                     color: BrandedPdf.Navy);
 
-                // slightly more breathing room after total
+                BrandedPdf.Text(
+                    page,
+                    RightAlignedX(totalAmount, 11, PageWidth - RightMargin),
+                    baseline,
+                    11,
+                    totalAmount,
+                    bold: true,
+                    color: BrandedPdf.Navy);
+
+                // Slightly more breathing room after total.
                 baseline -= 4;
             }
             else
