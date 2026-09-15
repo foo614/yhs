@@ -566,33 +566,108 @@ public static class OwnerPurchaseInvoicePdf
         return units * fontSize / 1000d;
     }
 
-    private static string PageContent(IReadOnlyList<string> lines, int pageNumber, int pageCount, string invoiceNumber, int revisionNumber)
+    private static string PageContent(
+        IReadOnlyList<string> lines,
+        int pageNumber,
+        int pageCount,
+        string invoiceNumber,
+        int revisionNumber)
     {
         var page = new StringBuilder();
-        BrandedPdf.Header(page, pageNumber == 1 ? "PURCHASE INVOICE / 收车发票" : "PURCHASE INVOICE", invoiceNumber, $"Version {revisionNumber}", pageNumber > 1);
 
-        BrandedPdf.Text(page, LeftMargin, 724, 11, pageNumber == 1 ? "Owner acquisition record" : "Invoice details continued", bold: true, color: BrandedPdf.Navy);
-        BrandedPdf.Line(page, LeftMargin, 714, PageWidth - RightMargin, 714, BrandedPdf.Rule);
+        BrandedPdf.Header(
+            page,
+            pageNumber == 1 ? "PURCHASE INVOICE / 收车发票" : "PURCHASE INVOICE",
+            invoiceNumber,
+            $"Version {revisionNumber}",
+            pageNumber > 1);
+
+        BrandedPdf.Text(
+            page,
+            LeftMargin,
+            724,
+            11,
+            pageNumber == 1 ? "Owner acquisition record" : "Invoice details continued",
+            bold: true,
+            color: BrandedPdf.Navy);
+
+        BrandedPdf.Line(
+            page,
+            LeftMargin,
+            714,
+            PageWidth - RightMargin,
+            714,
+            BrandedPdf.Rule);
+
         var baseline = FirstBodyBaseline;
+
         foreach (var line in lines)
         {
             if (line.StartsWith("Purchase lines:", StringComparison.Ordinal))
             {
-                BrandedPdf.Line(page, LeftMargin, baseline + 9, PageWidth - RightMargin, baseline + 9, BrandedPdf.Rule);
-                BrandedPdf.Text(page, LeftMargin, baseline, 10, "PURCHASE DETAILS / 收车明细", bold: true, color: BrandedPdf.Blue);
+                BrandedPdf.Line(
+                    page,
+                    LeftMargin,
+                    baseline + 9,
+                    PageWidth - RightMargin,
+                    baseline + 9,
+                    BrandedPdf.Rule);
+
+                BrandedPdf.Text(
+                    page,
+                    LeftMargin,
+                    baseline,
+                    10,
+                    "PURCHASE DETAILS / 收车明细",
+                    bold: true,
+                    color: BrandedPdf.Blue);
             }
             else if (line.StartsWith("Total:", StringComparison.Ordinal))
             {
-                BrandedPdf.Fill(page, LeftMargin - 8, baseline - 5, PageWidth - LeftMargin - RightMargin + 16, 22, BrandedPdf.PaleBlue);
-                BrandedPdf.Text(page, LeftMargin, baseline, 11, line, bold: true, color: BrandedPdf.Navy);
+                // Add extra separation from the previous purchase line
+                baseline -= 10;
+
+                const float totalBoxHeight = 18;
+
+                BrandedPdf.Fill(
+                    page,
+                    LeftMargin - 8,
+                    baseline - 5,
+                    PageWidth - LeftMargin - RightMargin + 16,
+                    totalBoxHeight,
+                    BrandedPdf.PaleBlue);
+                    
+                BrandedPdf.Text(
+                    page,
+                    LeftMargin,
+                    baseline,
+                    11,
+                    line,
+                    bold: true,
+                    color: BrandedPdf.Navy);
             }
             else
             {
-                BrandedPdf.Text(page, LeftMargin, baseline, BodyFontSize, line, bold: line.StartsWith("Invoice number:", StringComparison.Ordinal), color: BrandedPdf.Dark);
+                BrandedPdf.Text(
+                    page,
+                    LeftMargin,
+                    baseline,
+                    BodyFontSize,
+                    line,
+                    bold: line.StartsWith("Invoice number:", StringComparison.Ordinal),
+                    color: BrandedPdf.Dark);
             }
+
             baseline -= BodyLineHeight;
         }
-        BrandedPdf.Footer(page, $"{invoiceNumber}  |  Version {revisionNumber}", pageNumber, pageCount, "YS Heng - Finance copy");
+
+        BrandedPdf.Footer(
+            page,
+            $"{invoiceNumber}  |  Version {revisionNumber}",
+            pageNumber,
+            pageCount,
+            "YS Heng - Finance copy");
+
         return page.ToString();
     }
 
