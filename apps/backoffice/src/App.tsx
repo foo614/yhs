@@ -431,12 +431,12 @@ export function vehicleLoanCustomerId(vehicle: Pick<Vehicle, "customerId">, exis
 
 /** Preserves the optional reviewed VOC file between the Vehicle intake workflow and multipart API client. */
 export function createVehicleIntakeFromVehiclePage<T>(
-  createIntake: (input: VehicleIntakeCreateInput, identityCard: File, voc?: File) => Promise<T>,
+  createIntake: (input: VehicleIntakeCreateInput, identityCard?: File, voc?: File) => Promise<T>,
   input: VehicleIntakeCreateInput,
-  identityCard: File,
+  identityCard: File | null | undefined,
   voc?: File
 ) {
-  return createIntake(input, identityCard, voc);
+  return createIntake(input, identityCard ?? undefined, voc);
 }
 
 export async function createVehicleIntakeWithRefresh<T>(

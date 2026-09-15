@@ -1979,10 +1979,10 @@ export async function createVehicle(vehicle: Vehicle): Promise<Vehicle> {
   });
 }
 
-export async function createVehicleIntake(input: VehicleIntakeCreateInput, identityCard: File, voc?: File): Promise<VehicleIntakeCreateResponse> {
+export async function createVehicleIntake(input: VehicleIntakeCreateInput, identityCard?: File, voc?: File): Promise<VehicleIntakeCreateResponse> {
   const formData = new FormData();
   formData.append("request", JSON.stringify(input));
-  formData.append("identityCard", identityCard);
+  if (identityCard) formData.append("identityCard", identityCard);
   if (voc) formData.append("voc", voc);
   const response = await fetch(`${apiBaseUrl}/api/vehicle-intakes`, {
     method: "POST",

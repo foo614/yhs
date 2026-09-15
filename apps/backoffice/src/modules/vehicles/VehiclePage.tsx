@@ -779,7 +779,7 @@ export function VehiclePage({
   dashboardFocus?: DashboardVehicleFocus;
   dashboardAnalyticsPeriod?: DashboardAnalyticsPeriod;
   onClearDashboardFocus: () => void;
-  onCreate: (vehicle: Vehicle, settlement: VehicleIntakeSettlementInput | undefined, newOwner: Owner | undefined, identityCard: File, voc?: File) => Promise<VehicleIntakeCreateResponse>;
+  onCreate: (vehicle: Vehicle, settlement: VehicleIntakeSettlementInput | undefined, newOwner: Owner | undefined, identityCard?: File, voc?: File) => Promise<VehicleIntakeCreateResponse>;
   onUpdate: (vehicle: Vehicle) => Promise<void>;
   onStartLoan: (vehicle: Vehicle) => Promise<void>;
   onOpenCustomer: (customerId: string) => void;
@@ -1930,8 +1930,12 @@ export function VehiclePage({
     if (vehicleCreateSavingRef.current) return false;
 
     setVehicleCreateError(null);
-    if (!sellerNricFile || !sellerIdentityConfirmed) {
-      setVehicleCreateError("Attach the previous owner NRIC and confirm the owner details before creating the vehicle.");
+    if (!values.ownerId) {
+      setVehicleCreateError("Select or confirm the previous owner before creating the vehicle.");
+      return false;
+    }
+    if (pendingOwnerDraft && (!sellerNricFile || !sellerIdentityConfirmed)) {
+      setVehicleCreateError("Attach the previous owner NRIC and confirm the owner details before creating a new owner.");
       return false;
     }
 
@@ -1947,7 +1951,7 @@ export function VehiclePage({
     setVehicleCreateSaving(true);
     try {
       const settlement = settlementFromVehicleIntakeValues(values, vehicleId, newId());
-      await onCreate(vehicle, settlement, pendingOwnerDraft ?? undefined, sellerNricFile, sellerVocFile ?? undefined);
+      await onCreate(vehicle, settlement, pendingOwnerDraft ?? undefined, sellerNricFile ?? undefined, sellerVocFile ?? undefined);
       closeVehicleCreate();
       return true;
     } catch (error) {
@@ -2934,7 +2938,7 @@ export function VehiclePage({
                       void loadUploads();
                     }}
                   />
-                ) : (
+                ) : (!selectedIntakeOwner || pendingOwnerDraft) ? (
                   <Upload
                     accept=".pdf,.jpg,.jpeg,.png,.webp"
                     disabled={uploadDisabled || !documentOwnershipReady}
@@ -2952,7 +2956,7 @@ export function VehiclePage({
                   >
                     <Button icon={<UploadOutlined />} disabled={uploadDisabled}>Upload Documents</Button>
                   </Upload>
-                )}
+                ) : null}
               </Form.Item>
               </div>
               </div>

@@ -409,9 +409,9 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
     var requestPayload = form["request"].ToString();
     var identityCard = form.Files.GetFile("identityCard");
     var voc = form.Files.GetFile("voc");
-    if (string.IsNullOrWhiteSpace(requestPayload) || identityCard is null)
+    if (string.IsNullOrWhiteSpace(requestPayload))
     {
-        return Results.BadRequest(new ValidationResult([new ValidationError("seller_identity_card_required", "Upload and review the previous owner NRIC before creating the vehicle.")]));
+        return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_intake_request_required", "The vehicle intake details are required.")]));
     }
 
     VehicleIntakeRequest? request;
@@ -430,19 +430,30 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
         return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_intake_request_invalid", "The vehicle intake details are invalid.")]));
     }
 
+    if (request.NewOwner is not null && identityCard is null)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("seller_identity_card_required", "Upload and review the previous owner NRIC before creating a new owner.")]));
+    }
+
     var roles = SeedData.Roles.Where(context.User.IsInRole);
-    if (!DepartmentAccess.CanUploadDocument(roles, FileCategory.IdentityCard)
+    if ((identityCard is not null && !DepartmentAccess.CanUploadDocument(roles, FileCategory.IdentityCard))
         || (voc is not null && !DepartmentAccess.CanUploadDocument(roles, FileCategory.Voc))) return Results.Forbid();
-    if (!UploadPolicy.IsAllowed(FileCategory.IdentityCard, identityCard.Length))
+    if (identityCard is not null && !UploadPolicy.IsAllowed(FileCategory.IdentityCard, identityCard.Length))
     {
         return Results.BadRequest(new ValidationResult([new ValidationError("identity_card_size_invalid", "Identity card photo must be between 1 byte and 10 MB.")]));
     }
-    await using var identityCardStream = identityCard.OpenReadStream();
-    using var identityCardMemory = new MemoryStream();
-    await identityCardStream.CopyToAsync(identityCardMemory, cancellationToken);
-    var identityCardBytes = identityCardMemory.ToArray();
-    var identityCardValidation = UploadPolicy.ValidateOcrImageContent(identityCard.FileName, identityCard.ContentType, identityCardBytes);
-    if (!identityCardValidation.Result.IsValid) return Results.BadRequest(identityCardValidation.Result);
+    byte[]? identityCardBytes = null;
+    string? identityCardMimeType = null;
+    if (identityCard is not null)
+    {
+        await using var identityCardStream = identityCard.OpenReadStream();
+        using var identityCardMemory = new MemoryStream();
+        await identityCardStream.CopyToAsync(identityCardMemory, cancellationToken);
+        identityCardBytes = identityCardMemory.ToArray();
+        var identityCardValidation = UploadPolicy.ValidateOcrImageContent(identityCard.FileName, identityCard.ContentType, identityCardBytes);
+        if (!identityCardValidation.Result.IsValid) return Results.BadRequest(identityCardValidation.Result);
+        identityCardMimeType = identityCardValidation.MimeType;
+    }
 
     byte[]? vocBytes = null;
     string? vocMimeType = null;
@@ -467,6 +478,10 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
     }
 
     var vehicle = VehicleRules.NormalizeDateTimes(request.Vehicle with { RepairCost = null });
+    if (request.NewOwner is null && vehicle.OwnerId == Guid.Empty)
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError("seller_owner_required", "Select a previous owner before creating the vehicle.")]));
+    }
     var workflowStatusValidation = VehicleWorkflowRules.ValidateCreate(vehicle);
     if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
     var approvalValidation = VehicleApprovalRules.ValidateCreate(vehicle, context.User.IsInRole("BossAdmin"));
@@ -526,21 +541,24 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
         ApiAudit.Add(db, context.User, "settlementReminder.createdFromVehicleIntake", nameof(SettlementReminder), settlement.Id);
     }
 
-    var identityCardDocument = new DocumentBlob
+    if (identityCard is not null && identityCardBytes is not null && identityCardMimeType is not null)
     {
+      var identityCardDocument = new DocumentBlob
+      {
         VehicleId = vehicle.Id,
         OwnerId = vehicle.OwnerId,
         OwnershipType = DocumentOwnershipType.Seller,
         Category = FileCategory.IdentityCard,
         FileName = identityCard.FileName,
-        MimeType = identityCardValidation.MimeType!,
+        MimeType = identityCardMimeType,
         Content = identityCardBytes,
         Checksum = Convert.ToHexString(SHA256.HashData(identityCardBytes)),
         UploadedBy = UploadMetadata.UploaderFrom(context.User)
-    };
+      };
 
-    db.DocumentBlobs.Add(identityCardDocument);
-    ApiAudit.Add(db, context.User, "vehicle.document.uploadedFromVehicleIntake", nameof(DocumentBlob), identityCardDocument.Id);
+      db.DocumentBlobs.Add(identityCardDocument);
+      ApiAudit.Add(db, context.User, "vehicle.document.uploadedFromVehicleIntake", nameof(DocumentBlob), identityCardDocument.Id);
+    }
     if (voc is not null && vocBytes is not null && vocMimeType is not null)
     {
         var vocDocument = new DocumentBlob
