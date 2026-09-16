@@ -17,7 +17,7 @@ import { singaporeTodayIsoDate, type DashboardVehicleFocus } from "../../dashboa
 import { isRepairCostFinal, isSupplierUsable } from "../../repairs";
 import { isMalaysiaPlateFormat, malaysiaPlateFormatMessage, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
-import { isOcrImageMimeType, OcrUploadReview } from "../shared/OcrUploadReview";
+import { isOcrImageMimeType } from "../shared/OcrUploadReview";
 import { VehicleIntakeVocReview, type VehicleIntakeVocPatch } from "./VehicleIntakeVocReview";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
@@ -116,6 +116,10 @@ export function vehicleDocumentOwnershipDefault(category: DocumentCategory): Doc
 
 export function vehicleDocumentAllowsPersonSelection(category: DocumentCategory) {
   return ["Voc", "IdentityCard", "ApDocument", "LoanDocument", "DeliveryDocument", "Policy"].includes(category);
+}
+
+export function vehicleDocumentAccept(category: DocumentCategory) {
+  return category === "IdentityCard" ? ".jpg,.jpeg,.png,.webp" : ".pdf,.jpg,.jpeg,.png,.webp";
 }
 
 export function canStartVehicleUploadLoad(requestedVehicleId: string, selectedVehicleId: string) {
@@ -2869,7 +2873,7 @@ export function VehiclePage({
               <div hidden={vehicleAssetTab !== "documents"}>
               <div className="vehicleDocumentSection">
                 <Typography.Text className="moduleEyebrow">Add a vehicle document</Typography.Text>
-                <Typography.Text type="secondary">Choose a document type to add it and view its history. IC images and VOC PDFs or images are saved as evidence; review and confirm extracted values before applying them to the linked record.</Typography.Text>
+                <Typography.Text type="secondary">Choose a document type and upload the original file directly. The document is saved as evidence with the selected owner or vehicle; no OCR review is required.</Typography.Text>
               </div>
               {selectedVehicleUploadReminders.length > 0 && (
                 <Alert
@@ -2908,7 +2912,7 @@ export function VehiclePage({
                 <Space direction="vertical" size={0} className="fullWidth">
                   <Form.Item
                     label="Document owner / 文件归属"
-                    extra="The active ownership tab is saved with the document and is not changed by OCR review."
+                    extra="The active ownership selection is saved with the document."
                   >
                     <Tag color={documentOwnershipTab === "Seller" ? "gold" : "blue"}>
                       {documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / 买家"}
@@ -2973,106 +2977,23 @@ export function VehiclePage({
               </div>
               <div hidden={documentCategory === "PurchaseInvoice"}>
               <Form.Item label="Document Upload">
-                {documentCategory === "IdentityCard" || documentCategory === "Voc" ? (
-                  <OcrUploadReview
-                    vehicleId={selectedVehicleId}
-                    category={documentCategory}
-                    disabled={uploadDisabled || !documentOwnershipReady}
-                    buttonLabel={documentCategory === "IdentityCard" ? "Add identity card photo" : "Add VOC PDF or photo"}
-                    applyLabel={documentCategory === "IdentityCard"
-                      ? documentOwnershipTab === "Seller" ? "Use details in previous owner record" : "Use details in customer record"
-                      : "Use details in vehicle record"}
-                    uploadOwner={documentUploadOwner}
-                    existingValues={documentCategory === "IdentityCard"
-                      ? documentOwnershipTab === "Seller"
-                        ? selectedVehicleOwner
-                          ? { ownerName: selectedVehicleOwner.name, icNumber: selectedVehicleOwner.icNumber, address: selectedVehicleOwner.address }
-                          : undefined
-                        : selectedVehicleCustomer
-                          ? { customerName: selectedVehicleCustomer.name, icNumber: selectedVehicleCustomer.icNumber, address: selectedVehicleCustomer.address }
-                          : undefined
-                      : documentCategory === "Voc" && selectedVehicle
-                        ? { plateNumber: selectedVehicle.plateNumber, chassisNumber: selectedVehicle.chassisNumber, engineNumber: selectedVehicle.engineNumber, make: selectedVehicle.make, model: selectedVehicle.model, year: selectedVehicle.year }
-                        : undefined}
-                    fields={documentCategory === "IdentityCard"
-                      ? [
-                        { name: documentOwnershipTab === "Seller" ? "ownerName" : "customerName", label: documentOwnershipTab === "Seller" ? "Previous Owner Name" : "Customer Name" },
-                        { name: "icNumber", label: "IC Number" },
-                        { name: "address", label: "Address" }
-                      ]
-                      : documentCategory === "Voc"
-                        ? [
-                          { name: "plateNumber", label: "Registration Number" },
-                          { name: "chassisNumber", label: "Chassis Number" },
-                          { name: "engineNumber", label: "Engine Number" },
-                          { name: "make", label: "Make" },
-                          { name: "model", label: "Model" },
-                          { name: "year", label: "Year", type: "number" },
-                          { name: "ownerName", label: "Registered Owner" }
-                        ]
-                      : []}
-                    onUploaded={() => void loadUploads()}
-                    onApply={async (values) => {
-                      if (documentCategory === "IdentityCard") {
-                        if (documentOwnershipTab === "Seller") {
-                          if (!selectedVehicleOwner) {
-                            throw new Error("Link a previous owner to this vehicle before applying IC values.");
-                          }
-                          await onUpdateOwner({
-                            ...selectedVehicleOwner,
-                            name: ocrText(values.ownerName, selectedVehicleOwner.name),
-                            icNumber: ocrOptionalText(values.icNumber, selectedVehicleOwner.icNumber),
-                            address: ocrOptionalText(values.address, selectedVehicleOwner.address)
-                          });
-                          message.success("Approved IC values were saved to the linked previous owner record.");
-                        } else {
-                          if (!selectedVehicleCustomer) {
-                            throw new Error("Link a customer to this vehicle before applying approved IC values.");
-                          }
-                          await onUpdateCustomer({
-                            ...selectedVehicleCustomer,
-                            name: ocrText(values.customerName, selectedVehicleCustomer.name),
-                            icNumber: ocrOptionalText(values.icNumber, selectedVehicleCustomer.icNumber),
-                            address: ocrOptionalText(values.address, selectedVehicleCustomer.address)
-                          });
-                          message.success("Approved IC values were saved to the linked customer record.");
-                        }
-                      } else if (documentCategory === "Voc") {
-                        if (!selectedVehicle) throw new Error("Open the vehicle record before applying VOC values.");
-                        const ocrYear = Number(values.year);
-                        await onUpdate({
-                          ...selectedVehicle,
-                          plateNumber: ocrText(values.plateNumber, selectedVehicle.plateNumber),
-                          chassisNumber: ocrOptionalText(values.chassisNumber, selectedVehicle.chassisNumber),
-                          engineNumber: ocrOptionalText(values.engineNumber, selectedVehicle.engineNumber),
-                          make: ocrText(values.make, selectedVehicle.make),
-                          model: ocrText(values.model, selectedVehicle.model),
-                          year: Number.isInteger(ocrYear) && ocrYear > 0 ? ocrYear : selectedVehicle.year
-                        });
-                        message.success("Approved VOC registration, chassis, engine, make, model, and year were saved to the vehicle record. Registered owner remains in the reviewed OCR record for audit.");
-                      }
-                      void loadUploads();
-                    }}
-                  />
-                ) : (!selectedIntakeOwner || pendingOwnerDraft) ? (
-                  <Upload
-                    accept=".pdf,.jpg,.jpeg,.png,.webp"
-                    disabled={uploadDisabled || !documentOwnershipReady}
-                    multiple
-                    maxCount={12}
-                    showUploadList
-                    customRequest={(option) => {
-                      void onUploadDocument(selectedVehicleId, option.file as File, documentCategory, documentUploadOwner)
-                        .then(async () => {
-                          await loadUploads();
-                          option.onSuccess?.({}, option.file);
-                        })
-                        .catch((error: Error) => option.onError?.(error));
-                    }}
-                  >
-                    <Button icon={<UploadOutlined />} disabled={uploadDisabled}>Upload Documents</Button>
-                  </Upload>
-                ) : null}
+                <Upload
+                  accept={vehicleDocumentAccept(documentCategory)}
+                  disabled={uploadDisabled || !documentOwnershipReady}
+                  multiple
+                  maxCount={12}
+                  showUploadList
+                  customRequest={(option) => {
+                    void onUploadDocument(selectedVehicleId, option.file as File, documentCategory, documentUploadOwner)
+                      .then(async () => {
+                        await loadUploads();
+                        option.onSuccess?.({}, option.file);
+                      })
+                      .catch((error: Error) => option.onError?.(error));
+                  }}
+                >
+                  <Button icon={<UploadOutlined />} disabled={uploadDisabled || !documentOwnershipReady}>Upload original document</Button>
+                </Upload>
               </Form.Item>
               </div>
               </div>

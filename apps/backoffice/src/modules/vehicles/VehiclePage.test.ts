@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
-import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, compareVehicleIntakeDates, effectiveCommissionCost, effectivePickupAllowanceCost, effectivePurchaseCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleCustomerPath, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, compareVehicleIntakeDates, effectiveCommissionCost, effectivePickupAllowanceCost, effectivePurchaseCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleCustomerPath, vehicleDetailsPersonCreateFlags, vehicleDocumentAccept, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument, VehicleIntakeValues } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -109,6 +109,13 @@ describe("vehicle intake sorting", () => {
     ];
 
     expect(filterOperationIntakeVehicles(sameDayVehicles, [], [], {}).map((vehicle) => vehicle.id)).toEqual(["afternoon", "morning"]);
+  });
+});
+
+describe("vehicle document direct upload", () => {
+  it("accepts original VOC documents and keeps identity-card uploads image-only", () => {
+    expect(vehicleDocumentAccept("Voc")).toBe(".pdf,.jpg,.jpeg,.png,.webp");
+    expect(vehicleDocumentAccept("IdentityCard")).toBe(".jpg,.jpeg,.png,.webp");
   });
 });
 
