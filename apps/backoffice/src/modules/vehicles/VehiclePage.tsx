@@ -85,7 +85,7 @@ function ModifiedPurchaseLabel() {
   );
 }
 export const neutralVehicleDescriptionTemplate = "## Vehicle highlights\n\n- Year:\n- Make & model:\n- Engine:\n- Viewing:";
-export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id">> & {
+export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id" | "intakeAt" | "intakeDate">> & {
   prepareSettlement?: boolean;
   settlementDeadline?: string;
   bankDebtAmount?: number;
@@ -3217,17 +3217,8 @@ export function VehiclePage({
             title="Stock & pricing"
             onFinish={captureVehicleIntakeStep}
             className="formGrid vehicleIntakeStepForm"
-            initialValues={{ intakeAt: dayjs(), contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
+            initialValues={{ contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
           >
-            <Form.Item
-              name="intakeAt"
-              label="Intake date & time / 入库日期时间"
-              rules={[{ required: true, message: "Choose the vehicle intake date and time." }]}
-              getValueProps={(value?: string | Dayjs) => ({ value: value ? dayjs(value) : null })}
-              normalize={(value: Dayjs | null) => value?.toISOString()}
-            >
-              <DatePicker className="fullWidth" showTime={{ format: "HH:mm", minuteStep: 5 }} format="DD MMM YYYY, HH:mm" placeholder="Select intake date and time" />
-            </Form.Item>
             <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item
