@@ -6659,3 +6659,67 @@ body {
     width: 100%;
   }
 }
+
+@media (max-width: 720px) {
+  .dashboardCashAction {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 10px;
+  }
+
+  .dashboardCashAction > .dashboardStatusBadge {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: start;
+  }
+
+  .dashboardCashAction > strong {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .dashboardCashAction > span:not(.ant-tag) {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .dashboardCashAction .ant-btn {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+    align-self: center;
+  }
+
+  .operationsProTable .ant-pro-query-filter {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .operationsProTable .ant-pro-query-filter .ant-row {
+    margin-inline: 0 !important;
+    row-gap: 10px;
+  }
+
+  .operationsProTable .ant-pro-query-filter .ant-col {
+    width: 100% !important;
+    min-width: 0;
+    max-width: 100% !important;
+    flex: 0 0 100% !important;
+  }
+
+  .operationsProTable .ant-pro-query-filter .ant-form-item,
+  .operationsProTable .ant-pro-query-filter .ant-form-item-control,
+  .operationsProTable .ant-pro-query-filter .ant-form-item-control-input,
+  .operationsProTable .ant-pro-query-filter .ant-form-item-control-input-content {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .operationsProTable .ant-pro-query-filter .ant-input,
+  .operationsProTable .ant-pro-query-filter .ant-input-number,
+  .operationsProTable .ant-pro-query-filter .ant-picker,
+  .operationsProTable .ant-pro-query-filter .ant-select {
+    width: 100%;
+    max-width: 100%;
+  }
+}
