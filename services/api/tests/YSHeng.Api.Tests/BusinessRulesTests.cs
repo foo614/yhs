@@ -1459,6 +1459,7 @@ public sealed class BusinessRulesTests
         var vehicle = VehicleSeed.Available(publicVisible: true) with
         {
             PurchasePrice = -1m,
+            ModifiedPurchasePrice = -1m,
             SellingPrice = 0m,
             AdditionalCharges = -1m,
             RefurbishmentTotal = -1m,
@@ -1470,6 +1471,7 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "invalid_purchase_price");
+        Assert.Contains(result.Errors, error => error.Code == "invalid_modified_purchase_price");
         Assert.Contains(result.Errors, error => error.Code == "invalid_selling_price");
         Assert.Contains(result.Errors, error => error.Code == "invalid_additional_charges");
         Assert.Contains(result.Errors, error => error.Code == "invalid_refurbishment_total");
@@ -2620,6 +2622,7 @@ public sealed class BusinessRulesTests
         var vehicle = VehicleSeed.Available(publicVisible: true) with
         {
             PurchasePrice = 42000m,
+            ModifiedPurchasePrice = 40000m,
             SellingPrice = 58000m,
             AdditionalCharges = 600m,
             RefurbishmentTotal = 3500m,
@@ -2627,7 +2630,7 @@ public sealed class BusinessRulesTests
             OutstationPickupAllowance = 180m
         };
 
-        Assert.Equal(11720m, ProfitCalculator.EstimatedProfit(vehicle));
+        Assert.Equal(13720m, ProfitCalculator.EstimatedProfit(vehicle));
     }
 
     [Fact]
@@ -2869,6 +2872,7 @@ public sealed class BusinessRulesTests
         {
             Id = Guid.NewGuid(),
             PurchasePrice = 42000m,
+            ModifiedPurchasePrice = 40000m,
             SellingPrice = 58000m,
             AdditionalCharges = 600m,
             RefurbishmentTotal = 1000m,
@@ -2890,13 +2894,13 @@ public sealed class BusinessRulesTests
             today);
 
         Assert.Equal(1, summary.TotalStock);
-        Assert.Equal(42000m, summary.PurchaseCost);
+        Assert.Equal(40000m, summary.PurchaseCost);
         Assert.Equal(1000m, summary.RepairCost);
-        Assert.Equal(14300m, summary.TotalProfit);
+        Assert.Equal(16300m, summary.TotalProfit);
         Assert.Equal(summary.TotalProfit, summary.EstimatedProfit);
-        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Purchase Cost" && item.Amount == 42000m);
+        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Purchase Cost" && item.Amount == 40000m);
         Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Repair Cost" && item.Amount == 1000m);
-        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Estimated Profit" && item.Amount == 14300m);
+        Assert.Contains(summary.ProfitBreakdown, item => item.Label == "Estimated Profit" && item.Amount == 16300m);
     }
 
     [Fact]

@@ -17,7 +17,9 @@ public sealed class AutoCountExportTests
             Make = "YS",
             Model = "Test",
             IntakeDate = new DateOnly(2026, 8, 1),
-            CustomerId = Guid.NewGuid()
+            CustomerId = Guid.NewGuid(),
+            PurchasePrice = 42000m,
+            ModifiedPurchasePrice = 40000m
         };
         var customer = new Customer { Id = vehicle.CustomerId!.Value, Name = "Test Buyer" };
         var payment = new PaymentRecord { VehicleId = vehicle.Id, NettPrice = 50000m, CreatedAt = new DateTime(2026, 8, 2, 3, 0, 0, DateTimeKind.Utc) };
@@ -38,6 +40,9 @@ public sealed class AutoCountExportTests
         Assert.Contains("Remark", Read(archive, "xl/worksheets/sheet1.xml"));
         Assert.Contains("direct AutoCount import", Read(archive, "xl/worksheets/sheet1.xml"));
         Assert.Contains("ABC1234", Read(archive, "xl/worksheets/sheet3.xml"));
+        var vehicles = Read(archive, "xl/worksheets/sheet3.xml");
+        Assert.Contains("42000", vehicles);
+        Assert.Contains("40000", vehicles);
         Assert.Contains("Test Buyer", Read(archive, "xl/worksheets/sheet2.xml"));
         Assert.Contains("t=\"n\"><v>50000</v>", Read(archive, "xl/worksheets/sheet5.xml"));
     }

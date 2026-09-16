@@ -194,11 +194,11 @@ public static class AutoCountExcel
     {
         var rows = new List<IReadOnlyList<string>>
         {
-            new[] { "SourceId", "CarPlate", "ChassisNumber", "EngineNumber", "Make", "Model", "Year", "StockOwner", "StockLocation", "Status", "PurchasePrice", "SellingPrice", "AdditionalCharges", "RefurbishmentTotal", "CommissionTotal", "CustomerId", "OwnerId", "IntakeDate", RemarkHeader }
+            new[] { "SourceId", "CarPlate", "ChassisNumber", "EngineNumber", "Make", "Model", "Year", "StockOwner", "StockLocation", "Status", "PurchasePrice", "ModifiedPurchasePrice", "SellingPrice", "AdditionalCharges", "RefurbishmentTotal", "CommissionTotal", "CustomerId", "OwnerId", "IntakeDate", RemarkHeader }
         };
         rows.AddRange(vehicles.Select(vehicle => new[] {
             vehicle.Id.ToString(), vehicle.PlateNumber, vehicle.ChassisNumber ?? "", vehicle.EngineNumber ?? "", vehicle.Make, vehicle.Model, vehicle.Year.ToString(CultureInfo.InvariantCulture), vehicle.StockOwner.ToString(), vehicle.StockLocation, vehicle.Status.ToString(),
-            Money(vehicle.PurchasePrice), Money(vehicle.SellingPrice), Money(vehicle.AdditionalCharges), Money(vehicle.RefurbishmentTotal), Money(vehicle.CommissionTotal),
+            Money(vehicle.PurchasePrice), Money(vehicle.ModifiedPurchasePrice ?? vehicle.PurchasePrice), Money(vehicle.SellingPrice), Money(vehicle.AdditionalCharges), Money(vehicle.RefurbishmentTotal), Money(vehicle.CommissionTotal),
             vehicle.CustomerId?.ToString() ?? "", vehicle.OwnerId?.ToString() ?? "", vehicle.IntakeDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             "Vehicle classification 025. TaxCode remains blank until Finance confirms it."
         }));
@@ -488,7 +488,7 @@ public static class AutoCountExcel
     private static string RootRelationshipsXml() => "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>";
     private static string StylesXml() => "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts><fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills><borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs><cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs></styleSheet>";
     private static string Xml(string value) => SecurityElement.Escape(value) ?? "";
-    private static bool IsNumericColumn(string header) => header is "Year" or "PurchasePrice" or "SellingPrice" or "AdditionalCharges" or "RefurbishmentTotal" or "CommissionTotal" or "Amount" or "NettPrice" or "SalesPrice" or "InterestAdditionalCharges" or "NcdAmount" or "WindscreenCharges";
+    private static bool IsNumericColumn(string header) => header is "Year" or "PurchasePrice" or "ModifiedPurchasePrice" or "SellingPrice" or "AdditionalCharges" or "RefurbishmentTotal" or "CommissionTotal" or "Amount" or "NettPrice" or "SalesPrice" or "InterestAdditionalCharges" or "NcdAmount" or "WindscreenCharges";
 
     private static string ColumnName(int column)
     {

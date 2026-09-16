@@ -477,7 +477,7 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
         return Results.Json(new ApiError("Preparing a settlement during vehicle intake requires Finance or Admin access."), statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var vehicle = VehicleRules.NormalizeDateTimes(request.Vehicle with { RepairCost = null });
+    var vehicle = VehicleRules.NormalizeModifiedPurchasePrice(VehicleRules.NormalizeDateTimes(request.Vehicle with { RepairCost = null }));
     if (request.NewOwner is null && vehicle.OwnerId == Guid.Empty)
     {
         return Results.BadRequest(new ValidationResult([new ValidationError("seller_owner_required", "Select a previous owner before creating the vehicle.")]));
@@ -592,6 +592,7 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
 {
     vehicle = vehicle with { RepairCost = null, SalesAgentUserId = null, SalesAgentName = null };
     vehicle = VehicleRules.NormalizeDateTimes(vehicle);
+    vehicle = VehicleRules.NormalizeModifiedPurchasePrice(vehicle);
     var workflowStatusValidation = VehicleWorkflowRules.ValidateCreate(vehicle);
     if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
     var approvalValidation = VehicleApprovalRules.ValidateCreate(vehicle, context.User.IsInRole("BossAdmin"));
@@ -634,6 +635,10 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
     if (existingVehicle is null) return Results.NotFound();
     var existingSnapshot = existingVehicle with { };
+    update = VehicleRules.NormalizeModifiedPurchasePrice(update with
+    {
+        ModifiedPurchasePrice = update.ModifiedPurchasePrice ?? existingSnapshot.ModifiedPurchasePrice
+    });
     var cashHandover = await db.CashHandovers.AsNoTracking().FirstOrDefaultAsync(item => item.VehicleId == id);
     var cashCustomerLockValidation = CashCustodyRules.ValidateVehicleUpdate(existingSnapshot, update, cashHandover);
     if (!cashCustomerLockValidation.IsValid) return Results.BadRequest(cashCustomerLockValidation);
@@ -4657,6 +4662,7 @@ else
     await SeedData.EnsureDeliveryWorkboardSchemaAsync(app);
     await SeedData.EnsureSupplierOperationalStatusSchemaAsync(app);
     await SeedData.EnsureOwnerPurchaseInvoiceSchemaAsync(app);
+    await SeedData.EnsureVehiclePricingSchemaAsync(app);
 }
 
 app.Run();

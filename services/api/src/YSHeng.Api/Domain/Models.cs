@@ -61,6 +61,7 @@ public sealed record Vehicle
     public bool IsPublic { get; init; }
     public string? PublicDescriptionMarkdown { get; init; }
     public decimal PurchasePrice { get; init; }
+    public decimal? ModifiedPurchasePrice { get; init; }
     public decimal SellingPrice { get; init; }
     public decimal AdditionalCharges { get; init; }
     public decimal RefurbishmentTotal { get; init; }
