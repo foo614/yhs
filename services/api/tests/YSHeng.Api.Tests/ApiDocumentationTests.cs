@@ -569,12 +569,15 @@ public sealed class ApiDocumentationTests
         Assert.Contains("await SeedData.EnsureFinanceRepairEnhancementSchemaAsync(app);", startup);
         Assert.Contains("await SeedData.EnsureRepairReceiptSchemaAsync(app);", startup);
         Assert.Contains("await SeedData.EnsureDeliveryWorkboardSchemaAsync(app);", startup);
+        Assert.Contains("await SeedData.EnsureVehiclePricingSchemaAsync(app);", startup);
         Assert.Contains("public static async Task EnsureFinanceV2SchemaAsync(WebApplication app)", seedData);
         Assert.Contains("await EnsureFinanceV2SchemaAsync(db);", seedData);
         Assert.Contains("public static async Task EnsureFinanceRepairEnhancementSchemaAsync(WebApplication app)", seedData);
         Assert.Contains("await EnsureFinanceRepairEnhancementSchemaAsync(db);", seedData);
         Assert.Contains("public static async Task EnsureRepairReceiptSchemaAsync(WebApplication app)", seedData);
         Assert.Contains("await EnsureRepairReceiptSchemaAsync(db);", seedData);
+        Assert.Contains("public static async Task EnsureVehiclePricingSchemaAsync(WebApplication app)", seedData);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"ModifiedPurchasePrice\"", seedData);
         Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"Direction\"", seedData);
         Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"PurchasePriceSnapshot\"", seedData);
         Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"BankDebtAmount\"", seedData);

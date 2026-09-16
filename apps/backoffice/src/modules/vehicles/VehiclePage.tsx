@@ -510,7 +510,8 @@ function VehicleIntakeReview({ draft, customers, owners, pendingOwner, hasSeller
       <ProDescriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
         <ProDescriptions.Item label="Plate / 车牌">{displayValue(draft.plateNumber)}</ProDescriptions.Item>
         <ProDescriptions.Item label="Vehicle / 车辆">{[draft.make, draft.model, draft.year].filter(Boolean).join(" ") || "Not provided"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Purchase / 收车价">{formatMoney(Number(draft.purchasePrice ?? 0))}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Real purchase / 真实收车价">{formatMoney(Number(draft.purchasePrice ?? 0))}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Modified purchase / 修改收车价">{formatMoney(Number(draft.modifiedPurchasePrice ?? draft.purchasePrice ?? 0))}</ProDescriptions.Item>
         <ProDescriptions.Item label="Selling / 售价">{formatMoney(Number(draft.sellingPrice ?? 0))}</ProDescriptions.Item>
         <ProDescriptions.Item label="Confirmed buyer / 已确认买家">{customer ? customerSelectLabel(customer) : "Not linked"}</ProDescriptions.Item>
         <ProDescriptions.Item label="Previous owner / 原车主">{owner ? `${owner.name} / ${owner.phone}` : "Not selected"}</ProDescriptions.Item>
@@ -1539,11 +1540,17 @@ export function VehiclePage({
       onFilter: (value, row) => contactFor(customers, row.customerId) === value
     },
     {
-      title: "Purchase Cost / 收车成本",
+      title: "Real Purchase / 真实收车价",
       dataIndex: "purchasePrice",
       width: 130,
       sorter: (a, b) => a.purchasePrice - b.purchasePrice,
       render: (value) => formatMoney(Number(value ?? 0))
+    },
+    {
+      title: "Modified Cost / 修改成本",
+      width: 140,
+      sorter: (a, b) => effectivePurchaseCost(a) - effectivePurchaseCost(b),
+      render: (_, row) => formatMoney(effectivePurchaseCost(row))
     },
     {
       title: "Repair Cost / 整备费用",
@@ -1657,11 +1664,17 @@ export function VehiclePage({
       valueType: "digit"
     },
     {
-      title: "Purchase Cost / 收车成本",
+      title: "Real Purchase / 真实收车价",
       dataIndex: "purchasePrice",
       width: 130,
       sorter: (a, b) => a.purchasePrice - b.purchasePrice,
       render: (_, row) => formatMoney(Number(row.purchasePrice ?? 0))
+    },
+    {
+      title: "Modified Cost / 修改成本",
+      width: 140,
+      sorter: (a, b) => effectivePurchaseCost(a) - effectivePurchaseCost(b),
+      render: (_, row) => formatMoney(effectivePurchaseCost(row))
     },
     {
       title: "Repair Cost / 整备费用",
@@ -2237,7 +2250,8 @@ export function VehiclePage({
               <div className="mobileRecordSection">
                 <Typography.Text className="mobileRecordLabel">Cost & margin / 成本与利润</Typography.Text>
                 <div className="mobileRecordMeta">
-                  <span><small>Purchase Cost / 收车成本</small><strong>{formatMoney(vehicle.purchasePrice)}</strong></span>
+                  <span><small>Real Purchase / 真实收车价</small><strong>{formatMoney(vehicle.purchasePrice)}</strong></span>
+                  <span><small>Modified Cost / 修改成本</small><strong>{formatMoney(effectivePurchaseCost(vehicle))}</strong></span>
                   <span><small>Repair Cost / 整备费用</small><strong>{formatMoney(repairCostFor(vehicle))}</strong></span>
                   <span><small>Selling / 售价</small><strong>{formatMoney(vehicle.sellingPrice)}</strong></span>
                   <span><small>Est. Profit / 预估利润</small><strong>{formatMoney(profitFor(vehicle))}</strong></span>
@@ -2553,7 +2567,7 @@ export function VehiclePage({
                 : "vehicle-detail-edit"}
               layout="vertical"
               className="formGrid vehicleDetailForm"
-              initialValues={selectedVehicle}
+              initialValues={selectedVehicle ? { ...selectedVehicle, modifiedPurchasePrice: selectedVehicle.modifiedPurchasePrice ?? selectedVehicle.purchasePrice } : undefined}
               onFinish={async (values) => {
                 if (!selectedVehicle) return;
                 const vehicle = vehicleFromEditValues(values as VehicleIntakeValues, selectedVehicle, canApproveVehicles);
@@ -2645,7 +2659,8 @@ export function VehiclePage({
               >
                 <InputNumber className="fullWidth" min={earliestVehicleYear} max={latestVehicleYear} precision={0} step={1} />
               </Form.Item>
-              <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item name="modifiedPurchasePrice" label="Modified purchase / 修改收车价" extra="Internal adjusted cost used for margin and profit. Leave blank to use the real purchase price."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item
                 name="sellingPrice"
                 label="Selling / 售价"
@@ -3212,7 +3227,8 @@ export function VehiclePage({
             className="formGrid vehicleIntakeStepForm"
             initialValues={{ contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
           >
-            <Form.Item name="purchasePrice" label="Purchase / 收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="modifiedPurchasePrice" label="Modified purchase / 修改收车价" extra="Internal adjusted cost used for margin and profit. Leave blank to use the real purchase price."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item
               name="sellingPrice"
               label="Selling / 售价"
@@ -3261,7 +3277,7 @@ export function VehiclePage({
                     <Descriptions.Item label="Previous owner / 原车主">
                       {(owners.find((owner) => owner.id === vehicleIntakeDraft.ownerId) ?? (pendingOwnerDraft?.id === vehicleIntakeDraft.ownerId ? pendingOwnerDraft : undefined))?.name ?? "Not selected"}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Purchase price / 收车价">
+                    <Descriptions.Item label="Real purchase / 真实收车价">
                       {formatMoney(Number(vehicleIntakeDraft.purchasePrice ?? 0))}
                     </Descriptions.Item>
                     <Descriptions.Item label="Settlement / 结算">
@@ -3465,7 +3481,7 @@ export function VehiclePage({
             <Descriptions.Item label="Car plate">{selectedVehicle?.plateNumber || "Not selected"}</Descriptions.Item>
             <Descriptions.Item label="Vehicle">{selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : "Not selected"}</Descriptions.Item>
             <Descriptions.Item label="Previous owner">{selectedVehicleOwner ? `${selectedVehicleOwner.name} · ${selectedVehicleOwner.phone}` : "Missing"}</Descriptions.Item>
-            <Descriptions.Item label="Purchase price">{selectedVehicle ? formatMoney(selectedVehicle.purchasePrice) : "Missing"}</Descriptions.Item>
+            <Descriptions.Item label="Real purchase / 真实收车价">{selectedVehicle ? formatMoney(selectedVehicle.purchasePrice) : "Missing"}</Descriptions.Item>
             <Descriptions.Item label="Intake date">{selectedVehicle?.intakeDate || "Missing"}</Descriptions.Item>
             <Descriptions.Item label="Optional seller data">IC, TIN and address stay blank when the approved Owner record has no value. They are never guessed.</Descriptions.Item>
           </Descriptions>
@@ -4114,13 +4130,17 @@ export function effectivePickupAllowanceCost(vehicle: Pick<Vehicle, "id" | "outs
     : vehicle.outstationPickupAllowance ?? 0;
 }
 
+export function effectivePurchaseCost(vehicle: Pick<Vehicle, "purchasePrice" | "modifiedPurchasePrice">) {
+  return vehicle.modifiedPurchasePrice ?? vehicle.purchasePrice;
+}
+
 export function estimatedVehicleProfit(
   vehicle: Vehicle,
   repairCost = vehicle.refurbishmentTotal,
   commissionCost = vehicle.commissionTotal,
   pickupAllowanceCost = vehicle.outstationPickupAllowance ?? 0
 ) {
-  return vehicle.sellingPrice + vehicle.additionalCharges - vehicle.purchasePrice - repairCost - commissionCost - pickupAllowanceCost;
+  return vehicle.sellingPrice + vehicle.additionalCharges - effectivePurchaseCost(vehicle) - repairCost - commissionCost - pickupAllowanceCost;
 }
 
 export function vehicleSoldInAnalyticsPeriod(vehicle: Vehicle, period?: DashboardAnalyticsPeriod) {

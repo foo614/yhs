@@ -21,6 +21,7 @@ public static class SeedData
         await EnsureDocumentOwnershipSchemaAsync(db);
         await EnsureCashCustodySchemaAsync(db);
         await EnsureVehicleEnhancementSchemaAsync(db);
+        await EnsureVehiclePricingSchemaAsync(db);
         await EnsureVehicleCatalogSchemaAsync(db);
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
         await EnsureFinanceV2SchemaAsync(db);
@@ -249,6 +250,14 @@ public static class SeedData
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
         await EnsureOwnerPurchaseInvoiceSchemaAsync(db);
+    }
+
+    public static async Task EnsureVehiclePricingSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureVehiclePricingSchemaAsync(db);
     }
 
     public static async Task EnsureSupplierOperationalStatusSchemaAsync(WebApplication app)
@@ -565,6 +574,16 @@ public static class SeedData
             );
 
             CREATE INDEX IF NOT EXISTS "IX_StockMovements_VehicleId_CreatedAt" ON "StockMovements" ("VehicleId", "CreatedAt");
+        """);
+    }
+
+    private static async Task EnsureVehiclePricingSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "ModifiedPurchasePrice" numeric NULL;
+            UPDATE "Vehicles"
+            SET "ModifiedPurchasePrice" = "PurchasePrice"
+            WHERE "ModifiedPurchasePrice" IS NULL;
         """);
     }
 

@@ -6174,7 +6174,7 @@ function SystemFlowReference() {
       title: "2. Vehicle Intake & Cost",
       owner: "Sales + Admin",
       records: ["Vehicle", "Previous Owner", "VOC", "Purchase Invoice"],
-      detail: "Create the stock record, verify the previous owner and VOC, record real and modified purchase cost, then obtain management price approval before publishing."
+      detail: "Create the stock record, verify the previous owner and VOC, record the real purchase cost and internal modified purchase cost, then obtain management price approval before publishing."
     },
     {
       title: "3. Refurbishment",
@@ -6285,7 +6285,7 @@ function SystemFlowReference() {
           direction="vertical"
           size="small"
           items={[
-            { title: "Intake and price approval", description: "Sales records the vehicle, previous owner, VOC, real purchase cost, modified cost, and selling price; management approves before publishing." },
+            { title: "Intake and price approval", description: "Sales records the vehicle, previous owner, VOC, real purchase cost, internal modified cost, and selling price; management approves before publishing." },
             { title: "Buyer and invoice confirmed", description: "Sales confirms the buyer and sales agent. Finance reviews the approved amounts and issues the formal sales invoice." },
             { title: "Cash or loan path completed", description: "Financed sales complete the Loan workflow; cash sales proceed directly to collection. Finance records receipts and reconciles cleared money." },
             { title: "Settlement and delivery cleared", description: "Finance completes the previous-owner settlement and payment controls. Delivery releases only after operational evidence and Finance clearance are complete." },

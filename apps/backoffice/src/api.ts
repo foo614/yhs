@@ -142,6 +142,7 @@ export type Vehicle = {
   isPublic: boolean;
   publicDescriptionMarkdown?: string;
   purchasePrice: number;
+  modifiedPurchasePrice?: number;
   sellingPrice: number;
   additionalCharges: number;
   refurbishmentTotal: number;
@@ -2019,6 +2020,7 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
     isPublic: values.isPublic,
     publicDescriptionMarkdown: values.publicDescriptionMarkdown?.trim() || undefined,
     purchasePrice: Number(values.purchasePrice ?? 0),
+    modifiedPurchasePrice: values.modifiedPurchasePrice == null ? Number(values.purchasePrice ?? 0) : Number(values.modifiedPurchasePrice),
     sellingPrice: Number(values.sellingPrice ?? 0),
     additionalCharges: Number(values.additionalCharges ?? 0),
     refurbishmentTotal: Number(values.refurbishmentTotal ?? 0),

@@ -735,6 +735,9 @@ public static class VehicleRules
             : normalized;
     }
 
+    public static Vehicle NormalizeModifiedPurchasePrice(Vehicle vehicle) =>
+        vehicle with { ModifiedPurchasePrice = vehicle.ModifiedPurchasePrice ?? vehicle.PurchasePrice };
+
     public static ValidationResult ValidateIntake(Vehicle vehicle)
     {
         var errors = new List<ValidationError>();
@@ -765,6 +768,11 @@ public static class VehicleRules
         if (vehicle.PurchasePrice < 0)
         {
             errors.Add(new ValidationError("invalid_purchase_price", "Purchase price cannot be negative."));
+        }
+
+        if (vehicle.ModifiedPurchasePrice < 0)
+        {
+            errors.Add(new ValidationError("invalid_modified_purchase_price", "Modified purchase price cannot be negative."));
         }
 
         if (vehicle.SellingPrice <= 0)
@@ -3019,6 +3027,8 @@ public static class PhotoUploadRules
 
 public static class ProfitCalculator
 {
+    public static decimal EffectivePurchaseCost(Vehicle vehicle) => vehicle.ModifiedPurchasePrice ?? vehicle.PurchasePrice;
+
     public static decimal EstimatedProfit(Vehicle vehicle) =>
         EstimatedProfit(vehicle, vehicle.RefurbishmentTotal, vehicle.CommissionTotal, vehicle.OutstationPickupAllowance);
 
@@ -3029,7 +3039,7 @@ public static class ProfitCalculator
         EstimatedProfit(vehicle, repairCost, commissionCost, vehicle.OutstationPickupAllowance);
 
     public static decimal EstimatedProfit(Vehicle vehicle, decimal repairCost, decimal commissionCost, decimal pickupAllowanceCost) =>
-        vehicle.SellingPrice + vehicle.AdditionalCharges - vehicle.PurchasePrice - repairCost - commissionCost - pickupAllowanceCost;
+        vehicle.SellingPrice + vehicle.AdditionalCharges - EffectivePurchaseCost(vehicle) - repairCost - commissionCost - pickupAllowanceCost;
 }
 
 public static class RepairRules
@@ -4154,7 +4164,7 @@ public static class DashboardMetrics
             salesStages,
             analyticsLeadList.Count == 0 ? 0m : decimal.Round(analyticsLeadList.Count(lead => lead.Status == LeadStatus.Closed) * 100m / analyticsLeadList.Count, 1));
         var totalRevenue = unsoldVehicles.Sum(vehicle => vehicle.SellingPrice + vehicle.AdditionalCharges);
-        var purchaseCost = unsoldVehicles.Sum(vehicle => vehicle.PurchasePrice);
+        var purchaseCost = unsoldVehicles.Sum(ProfitCalculator.EffectivePurchaseCost);
         var repairCost = unsoldVehicles.Sum(EffectiveRepairCost);
         var commissionCost = unsoldVehicles.Sum(EffectiveCommissionCost);
         var pickupAllowanceCost = unsoldVehicles.Sum(EffectivePickupAllowanceCost);
