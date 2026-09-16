@@ -451,7 +451,7 @@ public static class OwnerPurchaseInvoiceReader
 
 public static class OwnerPurchaseInvoicePdf
 {
-    private const int FirstPageRowCapacity = 5;
+    private const int FirstPageRowCapacity = 4;
     private const int ContinuationPageRowCapacity = 25;
     private const int FinalPageRowCapacity = 13;
     private const int RowHeight = 21;
@@ -574,34 +574,36 @@ public static class OwnerPurchaseInvoicePdf
         PurchaseInvoiceRevision revision)
     {
         var page = new StringBuilder();
+        var versionBadge = revision.AccountingStatus == AccountingConfirmationStatus.FinanceConfirmed
+            ? $"Version {revision.RevisionNumber} / Confirmed"
+            : $"Version {revision.RevisionNumber} / Draft";
         BrandedPdf.Header(
             page,
             "PURCHASE INVOICE",
             revision.InvoiceNumber,
-            $"Version {revision.RevisionNumber}",
+            versionBadge,
             pageNumber > 1);
 
         if (pageNumber == 1)
         {
             BrandedPdf.Text(page, 36, 704, 19, "Purchase Invoice", bold: true, color: BrandedPdf.Dark);
             BrandedPdf.Text(page, 36, 687, 10, "Owner acquisition record and seller payment summary", color: BrandedPdf.Muted);
-            BrandedPdf.Fill(page, 414, 677, 145, 30, BrandedPdf.PaleBlue);
-            BrandedPdf.Text(page, 428, 687, 9, revision.AccountingStatus == AccountingConfirmationStatus.FinanceConfirmed ? "FINANCE CONFIRMED" : "ACCOUNTING DRAFT", bold: true, color: BrandedPdf.Blue);
 
-            BrandedPdf.Fill(page, 36, 532, 523, 120, BrandedPdf.PaleGray);
+            BrandedPdf.Fill(page, 36, 558, 523, 94, BrandedPdf.PaleGray);
             Field(page, 56, 626, "INVOICE NUMBER", revision.InvoiceNumber);
             Field(page, 315, 626, "ISSUED DATE", revision.InvoiceDate.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture));
-            Field(page, 56, 596, "VEHICLE", $"{revision.VehiclePlateNumber} {revision.VehicleDescription}".Trim());
-            Field(page, 315, 596, "PURCHASE DATE", revision.PurchaseDate.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture));
-            Field(page, 56, 566, "SELLER", revision.SellerName);
-            Field(page, 315, 566, "SELLER PHONE", revision.SellerPhone);
-            Field(page, 56, 536, "SELLER IC", Display(revision.SellerIcNumber));
-            Field(page, 315, 536, "SELLER TIN", Display(revision.SellerTinNumber));
+            Field(page, 56, 592, "VEHICLE", $"{revision.VehiclePlateNumber} {revision.VehicleDescription}".Trim());
+            Field(page, 315, 592, "PURCHASE DATE", revision.PurchaseDate.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture));
 
-            BrandedPdf.Text(page, 36, 508, 9, "SELLER ADDRESS", bold: true, color: BrandedPdf.Muted);
-            BrandedPdf.TextBlock(page, 36, 493, 9.5, Display(revision.SellerAddress), 360, 12, 2, BrandedPdf.Dark);
-            BrandedPdf.TextBlock(page, 36, 465, 9, $"Payment reference: {Display(revision.PaymentReference)}", 523, 12, 1, BrandedPdf.Muted);
-            BrandedPdf.Line(page, 36, 447, 559, 447, BrandedPdf.Rule);
+            BrandedPdf.Text(page, 36, 538, 9, "SELLER DETAILS", bold: true, color: BrandedPdf.Muted);
+            Field(page, 36, 516, "SELLER", revision.SellerName);
+            Field(page, 315, 516, "SELLER PHONE", revision.SellerPhone);
+            Field(page, 36, 480, "SELLER IC", Display(revision.SellerIcNumber));
+            Field(page, 315, 480, "SELLER TIN", Display(revision.SellerTinNumber));
+            BrandedPdf.Text(page, 36, 446, 9, "SELLER ADDRESS", bold: true, color: BrandedPdf.Muted);
+            BrandedPdf.TextBlock(page, 36, 431, 9.5, Display(revision.SellerAddress), 523, 12, 2, BrandedPdf.Dark);
+            BrandedPdf.TextBlock(page, 36, 396, 9, $"Payment reference: {Display(revision.PaymentReference)}", 523, 12, 1, BrandedPdf.Muted);
+            BrandedPdf.Line(page, 36, 376, 559, 376, BrandedPdf.Rule);
         }
         else
         {
@@ -609,7 +611,7 @@ public static class OwnerPurchaseInvoicePdf
             BrandedPdf.Line(page, 36, 690, 559, 690, BrandedPdf.Rule);
         }
 
-        var tableHeaderY = pageNumber == 1 ? 420 : 660;
+        var tableHeaderY = pageNumber == 1 ? 348 : 660;
         var baseline = tableHeaderY - 26;
         BrandedPdf.Fill(page, 36, tableHeaderY, 523, 27, BrandedPdf.Navy);
         BrandedPdf.Text(page, 54, tableHeaderY + 9, 9, "PURCHASE DETAILS", bold: true, color: "1 1 1");
@@ -657,12 +659,9 @@ public static class OwnerPurchaseInvoicePdf
         BrandedPdf.Text(page, 315, totalTop - 25, 9, "AMOUNT IN WORDS", bold: true, color: BrandedPdf.Blue);
         BrandedPdf.TextBlock(page, 315, totalTop - 43, 9.5, AmountInWords(revision.Amount), 220, 12, 3, BrandedPdf.Dark);
 
-        BrandedPdf.Text(page, 36, totalBottom - 18, 8, $"Seller IC: {Display(revision.SellerIcNumber)}", color: BrandedPdf.Muted);
-        BrandedPdf.Text(page, 36, totalBottom - 32, 8, $"Seller TIN: {Display(revision.SellerTinNumber)}", color: BrandedPdf.Muted);
-        BrandedPdf.Text(page, 36, totalBottom - 46, 8, $"Payment reference: {Display(revision.PaymentReference)}", color: BrandedPdf.Muted);
-        BrandedPdf.Text(page, 315, totalBottom - 18, 8, $"Prepared by: {revision.CreatedBy}", color: BrandedPdf.Muted);
-        BrandedPdf.Text(page, 315, totalBottom - 32, 8, $"Prepared at (UTC): {revision.CreatedAt:yyyy-MM-dd HH:mm:ss}", color: BrandedPdf.Muted);
-        BrandedPdf.TextBlock(page, 315, totalBottom - 46, 8, $"Revision reason: {Display(revision.Reason)}", 244, 11, 2, BrandedPdf.Muted);
+        BrandedPdf.Text(page, 36, totalBottom - 18, 8, $"Prepared by: {revision.CreatedBy}", color: BrandedPdf.Muted);
+        BrandedPdf.Text(page, 36, totalBottom - 32, 8, $"Prepared at (UTC): {revision.CreatedAt:yyyy-MM-dd HH:mm:ss}", color: BrandedPdf.Muted);
+        BrandedPdf.TextBlock(page, 315, totalBottom - 18, 8, $"Revision reason: {Display(revision.Reason)}", 244, 11, 2, BrandedPdf.Muted);
 
         var authorizationY = totalBottom - 61;
         BrandedPdf.Text(page, 36, authorizationY, 8, "AUTHORIZATION", bold: true, color: BrandedPdf.Muted);
