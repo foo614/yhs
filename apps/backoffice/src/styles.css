@@ -262,7 +262,23 @@ body {
 }
 
 .ocrReviewFieldLabel {
+  align-items: center;
   gap: 12px;
+  white-space: nowrap;
+}
+
+.ocrReviewFieldLabel > span {
+  white-space: nowrap;
+}
+
+.ocrReviewLineItemsLabel {
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ocrReviewLineItemsLabel .ant-btn {
+  flex: 0 0 auto;
 }
 
 .ocrLineItemsTable {
@@ -3602,6 +3618,7 @@ body {
   display: grid;
   gap: 16px;
   min-width: 0;
+  margin-top: 16px;
 }
 
 .purchaseInvoiceHistory .vehicleContactHeader > div {
@@ -5064,6 +5081,11 @@ body {
   .ocrReviewFieldGrid,
   .repairCreateContextFields {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ocrReviewFieldLabel,
+  .ocrReviewFieldLabel > span {
+    white-space: normal;
   }
 
   .ant-form-item-control,

@@ -1151,7 +1151,7 @@ export default function App() {
         location={{ pathname }}
         menuItemRender={(item, dom) => <button className="menuButton" onClick={() => navigateTo(menuActionBadges[item.path ?? ""]?.target ?? item.path ?? "/dashboard")}>{menuLabel(item, dom)}</button>}
         layout="mix"
-        siderWidth={224}
+        siderWidth={256}
         actionsRender={() => [
           <div className="headerSession" key="session">
             <span className="headerSessionUser">{currentUser.name ?? "staff"}</span>
@@ -3541,7 +3541,7 @@ function RepairPage({
           </Descriptions>
         </Space>
       ),
-      okText: "Confirm Repair Completed / 确认维修完成",
+      okText: "Repair completed",
       cancelText: "Keep in progress",
       onOk: onConfirm
     });
@@ -3652,7 +3652,7 @@ function RepairPage({
             <>
               <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(row)}>Details</Button>
               {canApproveRepairs && row.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(row.repair)}>Approve Repair / 批准维修</Button>}
-              <Button size="small" onClick={() => confirmRepairCompletion(row.repair)} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Confirm Repair Completed / 确认维修完成</Button>
+              <Button size="small" onClick={() => confirmRepairCompletion(row.repair)} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Repair completed</Button>
             </>
           ) : (
             <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(row)}>Details</Button>
@@ -4036,7 +4036,7 @@ function RepairPage({
                       <>
                         <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(record)}>Details</Button>
                         {canApproveRepairs && record.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(record.repair)}>Approve Repair / 批准维修</Button>}
-                        <Button size="small" onClick={() => confirmRepairCompletion(record.repair)} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Confirm Repair Completed / 确认维修完成</Button>
+                        <Button size="small" onClick={() => confirmRepairCompletion(record.repair)} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Repair completed</Button>
                       </>
                     ) : (
                       <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(record)}>Details</Button>

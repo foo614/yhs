@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, DatePicker, Descriptions, Empty, Form, Input, InputNumber, Select, Space, Spin, Switch, Tag, Typography } from "antd";
+import { ProCard, ProDescriptions } from "@ant-design/pro-components";
+import { Alert, Button, DatePicker, Empty, Form, Input, InputNumber, Select, Space, Spin, Switch, Tag, Typography } from "antd";
 import { EditOutlined } from "@ant-design/icons";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
@@ -173,21 +173,21 @@ function RevisionLineFields() {
 
 function SnapshotDetails({ revision, simplified = false }: { revision: PurchaseInvoiceRevision; simplified?: boolean }) {
   return (
-    <Descriptions size="small" column={1} className="purchaseInvoiceSnapshot">
-      <Descriptions.Item label="Invoice number">{revision.invoiceNumber}{simplified ? "" : ` · Version ${revision.revisionNumber}`}</Descriptions.Item>
-      {!simplified && <Descriptions.Item label="Official status"><Tag className="purchaseInvoiceStatusTag" color="blue">Issued official version</Tag></Descriptions.Item>}
-      {!simplified && <Descriptions.Item label="Finance status">{revisionAccountingTag(revision.accountingStatus)}</Descriptions.Item>}
-      {!simplified && <Descriptions.Item label="Finance review evidence">{financeReviewEvidence(revision)}</Descriptions.Item>}
-      <Descriptions.Item label="Invoice date">{revision.invoiceDate}</Descriptions.Item>
-      <Descriptions.Item label="Purchase date">{revision.purchaseDate}</Descriptions.Item>
-      <Descriptions.Item label="Payment reference">{displayValue(revision.paymentReference)}</Descriptions.Item>
-      <Descriptions.Item label="Seller">{revision.sellerName} · {revision.sellerPhone}</Descriptions.Item>
-      <Descriptions.Item label="Seller IC / TIN">{displayValue(revision.sellerIcNumber)} / {displayValue(revision.sellerTinNumber)}</Descriptions.Item>
-      <Descriptions.Item label="Seller address">{displayValue(revision.sellerAddress)}</Descriptions.Item>
-      <Descriptions.Item label="Vehicle">{revision.vehiclePlateNumber} · {revision.vehicleDescription}</Descriptions.Item>
-      <Descriptions.Item label="Classified lines">{lineSummary(revision.lines)}</Descriptions.Item>
-      <Descriptions.Item label="Total">{formatMoney(Number(revision.amount))}</Descriptions.Item>
-    </Descriptions>
+    <ProDescriptions size="small" column={1} className="purchaseInvoiceSnapshot">
+      <ProDescriptions.Item label="Invoice number">{revision.invoiceNumber}{simplified ? "" : ` · Version ${revision.revisionNumber}`}</ProDescriptions.Item>
+      {!simplified && <ProDescriptions.Item label="Official status"><Tag className="purchaseInvoiceStatusTag" color="blue">Issued official version</Tag></ProDescriptions.Item>}
+      {!simplified && <ProDescriptions.Item label="Finance status">{revisionAccountingTag(revision.accountingStatus)}</ProDescriptions.Item>}
+      {!simplified && <ProDescriptions.Item label="Finance review evidence">{financeReviewEvidence(revision)}</ProDescriptions.Item>}
+      <ProDescriptions.Item label="Invoice date">{revision.invoiceDate}</ProDescriptions.Item>
+      <ProDescriptions.Item label="Purchase date">{revision.purchaseDate}</ProDescriptions.Item>
+      <ProDescriptions.Item label="Payment reference">{displayValue(revision.paymentReference)}</ProDescriptions.Item>
+      <ProDescriptions.Item label="Seller">{revision.sellerName} · {revision.sellerPhone}</ProDescriptions.Item>
+      <ProDescriptions.Item label="Seller IC / TIN">{displayValue(revision.sellerIcNumber)} / {displayValue(revision.sellerTinNumber)}</ProDescriptions.Item>
+      <ProDescriptions.Item label="Seller address">{displayValue(revision.sellerAddress)}</ProDescriptions.Item>
+      <ProDescriptions.Item label="Vehicle">{revision.vehiclePlateNumber} · {revision.vehicleDescription}</ProDescriptions.Item>
+      <ProDescriptions.Item label="Classified lines">{lineSummary(revision.lines)}</ProDescriptions.Item>
+      <ProDescriptions.Item label="Total">{formatMoney(Number(revision.amount))}</ProDescriptions.Item>
+    </ProDescriptions>
   );
 }
 
@@ -256,18 +256,23 @@ export function OwnerPurchaseInvoiceDetails({
   return (
     <Space direction="vertical" size={16} className="fullWidth purchaseInvoiceRevisionPanel">
       <Alert type="info" showIcon message={allowCorrections ? "Previous-owner purchase invoice / 原车主收车发票" : "Formal owner-acquisition invoice"} description={allowCorrections ? "Review the invoice details below. Editing this invoice does not change the previous Owner master record." : "This number is already issued. Finance review and exact-version history remain read-only here."} />
-      <ProCard
-        size="small"
-        title={allowCorrections ? "Purchase invoice / 收车发票" : `Current version / 当前版本 · V${currentRevision.revisionNumber}`}
-        extra={<Space wrap><DocumentPreviewButton
-          fileName={`${currentRevision.invoiceNumber}-v${currentRevision.revisionNumber}.pdf`}
-          mimeType="application/pdf"
-          downloadUrl={purchaseInvoiceRevisionContentUrl(invoice.id, currentRevision.revisionNumber)}
-          loadContent={() => getPurchaseInvoiceRevisionContent(invoice.id, currentRevision.revisionNumber)}
-          previewLabel={allowCorrections ? "Preview PDF" : "Preview current PDF"}
-          downloadLabel={allowCorrections ? "Download PDF" : "Download current PDF"}
-        />{allowCorrections && <Button type="primary" icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>{editing ? "Cancel edit" : "Edit"}</Button>}</Space>}
-      >
+      <ProCard size="small" className="purchaseInvoiceDetailCard">
+        <div className="purchaseInvoiceDetailHeader">
+          <Typography.Text strong className="purchaseInvoiceDetailTitle">
+            {allowCorrections ? "Purchase invoice / 收车发票" : `Current version / 当前版本 · V${currentRevision.revisionNumber}`}
+          </Typography.Text>
+          <Space className="purchaseInvoiceDetailActions" size={8} wrap={false}>
+            <DocumentPreviewButton
+              fileName={`${currentRevision.invoiceNumber}-v${currentRevision.revisionNumber}.pdf`}
+              mimeType="application/pdf"
+              downloadUrl={purchaseInvoiceRevisionContentUrl(invoice.id, currentRevision.revisionNumber)}
+              loadContent={() => getPurchaseInvoiceRevisionContent(invoice.id, currentRevision.revisionNumber)}
+              previewLabel={allowCorrections ? "Preview PDF" : "Preview current PDF"}
+              downloadLabel={allowCorrections ? "Download PDF" : "Download current PDF"}
+            />
+            {allowCorrections && <Button type="primary" icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>{editing ? "Cancel edit" : "Edit"}</Button>}
+          </Space>
+        </div>
         <SnapshotDetails revision={currentRevision} simplified={allowCorrections} />
       </ProCard>
 
