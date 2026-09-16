@@ -261,6 +261,19 @@ body {
   margin-inline-end: 0;
 }
 
+.ocrReviewFieldLabel {
+  gap: 12px;
+}
+
+.ocrLineItemsTable {
+  width: 100%;
+  max-width: 100%;
+}
+
+.ocrLineItemsTable .ant-pro-table-search {
+  margin-bottom: 16px;
+}
+
 .ocrReviewActions {
   display: flex;
   justify-content: flex-end;
@@ -2976,6 +2989,10 @@ body {
   min-height: 42px;
   justify-content: center;
   font-weight: 650;
+}
+
+.repairReceiptUploadAction .ant-upload {
+  display: block;
 }
 
 .repairReceiptFinalStep {

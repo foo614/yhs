@@ -462,12 +462,14 @@ export function OcrUploadReview({
                 extra="Check the description, quantity, unit, unit price, and line amount against the receipt before you continue."
               >
                 <OperationsProTable<OcrLineItem>
+                  className="ocrLineItemsTable"
                   size="small"
                   rowKey={(_, index) => String(index)}
                   columns={lineItemColumns as ColumnsType<OcrLineItem>}
                   dataSource={lineItems}
+                  search={false}
                   pagination={false}
-                  scroll={{ x: 1040 }}
+                  scroll={{ x: 840 }}
                   locale={{ emptyText: "No line item descriptions detected. Add one manually." }}
                 />
                 {hasMissingLineItemAmounts ? (
@@ -631,7 +633,7 @@ function fieldLabel(field: OcrFieldConfig, job: OcrJob | null) {
   const confidence = job?.result?.fieldConfidence?.[field.name];
   if (confidence === undefined) return field.label;
   return (
-    <Space size={6}>
+    <Space className="ocrReviewFieldLabel" size={12}>
       <span>{field.label}</span>
       <Tag color={confidenceColor(confidence)}>{confidence >= 0.75 ? "Clear" : "Check carefully"}</Tag>
     </Space>
