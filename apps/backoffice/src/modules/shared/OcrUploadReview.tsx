@@ -396,18 +396,25 @@ export function OcrUploadReview({
           {!failureMessage && job?.warnings?.length ? (
             <Alert type="warning" showIcon message={job.warnings.join(" ")} />
           ) : null}
-          {!failureMessage ? <Space wrap className="ocrReviewSummary">
-            <Tag color="blue">{documentCategoryLabel(job?.category)}</Tag>
-            <Tag color="green">Ready for your check</Tag>
-            <Tag color={confidenceColor(job?.result?.confidence)}>Reading quality: {confidenceLabel(job?.result?.confidence)}</Tag>
-            {vehicleId && previewDocumentId && <DocumentPreviewButton
-              fileName={`${documentCategoryLabel(job.category)} document`}
-              downloadUrl={vehicleDocumentContentUrl(vehicleId!, previewDocumentId!)}
-              loadContent={() => getVehicleDocumentContent(vehicleId!, previewDocumentId!)}
-              previewLabel="Preview document"
-              downloadLabel="Download original"
-            />}
-          </Space> : null}
+          {!failureMessage ? (
+            <>
+              <Space wrap className="ocrReviewSummary">
+                <Tag color="blue">{documentCategoryLabel(job?.category)}</Tag>
+                <Tag color="green">Ready for your check</Tag>
+                <Tag color={confidenceColor(job?.result?.confidence)}>Reading quality: {confidenceLabel(job?.result?.confidence)}</Tag>
+              </Space>
+              {vehicleId && previewDocumentId && <div className="ocrReviewDocumentActions">
+                <DocumentPreviewButton
+                  fullWidth
+                  fileName={`${documentCategoryLabel(job.category)} document`}
+                  downloadUrl={vehicleDocumentContentUrl(vehicleId!, previewDocumentId!)}
+                  loadContent={() => getVehicleDocumentContent(vehicleId!, previewDocumentId!)}
+                  previewLabel="Preview document"
+                  downloadLabel="Download original"
+                />
+              </div>}
+            </>
+          ) : null}
           {!failureMessage ? <Form name={`ocrReview-${job?.id ?? category}`} form={form} disabled={busy || Boolean(savedStep)} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
             {reviewConflicts.length > 0 ? (
               <Form.Item label="Information already on file" extra="The current value is shown below. Edit it if this document proves it should change.">
@@ -453,6 +460,7 @@ export function OcrUploadReview({
             ))}
             {job && ocrSupportsLineItems(category) ? (
               <Form.Item
+                className="ocrReviewLineItemsItem"
                 label={(
                   <Space className="ocrReviewLineItemsLabel" size={12}>
                     <span>Receipt items</span>
