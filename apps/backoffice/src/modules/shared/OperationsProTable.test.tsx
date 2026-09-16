@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ColumnsType } from "antd/es/table";
-import { OperationsProTable, addOperationsColumnFilters, filterOperationsTableData, filterOperationsTableDataByFields, matchesOperationsTableSearch } from "./OperationsProTable";
+import { OperationsProTable, addOperationsColumnFilters, addOperationsDefaultDateSort, filterOperationsTableData, filterOperationsTableDataByFields, matchesOperationsTableSearch } from "./OperationsProTable";
 
 describe("OperationsProTable column filters", () => {
   type Row = {
@@ -30,6 +30,24 @@ describe("OperationsProTable column filters", () => {
     expect(filtered?.[1]).not.toHaveProperty("filters");
     expect(filtered?.[2]).not.toHaveProperty("filters");
     expect(filtered?.[3]).not.toHaveProperty("filters");
+  });
+
+  it("defaults creation timestamps to newest first and keeps missing dates last", () => {
+    type Row = { id: string; createdAt?: string };
+    const columns: ColumnsType<Row> = [{ title: "Created", dataIndex: "createdAt" }];
+    const sorted = addOperationsDefaultDateSort(columns);
+    const column = sorted?.[0];
+
+    expect(column).toMatchObject({ defaultSortOrder: "descend" });
+    expect(typeof (column as { sorter?: unknown }).sorter).toBe("function");
+    expect((column as { sorter: (left: Row, right: Row) => number }).sorter(
+      { id: "older", createdAt: "2026-08-01T00:00:00Z" },
+      { id: "newer", createdAt: "2026-08-02T00:00:00Z" }
+    )).toBeGreaterThan(0);
+    expect((column as { sorter: (left: Row, right: Row) => number }).sorter(
+      { id: "newer", createdAt: "2026-08-02T00:00:00Z" },
+      { id: "missing" }
+    )).toBeLessThan(0);
   });
 
   it("preserves explicit and nested column filters", () => {

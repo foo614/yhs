@@ -45,6 +45,44 @@ export type OperationsProTableProps<
 
 const MAX_AUTO_FILTER_VALUES = 8;
 const MAX_AUTO_FILTER_VALUE_LENGTH = 48;
+const DESCENDING_DATE_KEYS = new Set(["createdAt", "uploadedAt", "submittedAt"]);
+
+export function addOperationsDefaultDateSort<RecordType extends object>(columns: ColumnsType<RecordType> | undefined): ColumnsType<RecordType> | undefined {
+  if (!columns) return columns;
+
+  return columns.map((column) => {
+    if ("children" in column && column.children) {
+      return {
+        ...column,
+        children: addOperationsDefaultDateSort(column.children)
+      };
+    }
+
+    const leafColumn = column as ColumnType<RecordType>;
+    const dataIndex = leafColumn.dataIndex as DataIndex | undefined;
+    const key = Array.isArray(dataIndex) ? dataIndex[dataIndex.length - 1] : dataIndex;
+    if (typeof key !== "string" || !DESCENDING_DATE_KEYS.has(key)) return column;
+
+    return {
+      ...leafColumn,
+      defaultSortOrder: "descend" as const,
+      sorter: leafColumn.sorter ?? ((left: RecordType, right: RecordType) =>
+        compareTableDates(tableCellValue(left, dataIndex as DataIndex), tableCellValue(right, dataIndex as DataIndex)))
+    };
+  }) as ColumnsType<RecordType>;
+}
+
+function compareTableDates(left: unknown, right: unknown) {
+  const leftTime = parseTableDate(left);
+  const rightTime = parseTableDate(right);
+  return rightTime - leftTime;
+}
+
+function parseTableDate(value: unknown) {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const time = Date.parse(String(value));
+  return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+}
 
 /**
  * Adds filters only when a caller explicitly opts in. Existing filter metadata
@@ -369,14 +407,18 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
     () => columnFilters ? addOperationsColumnFilters(columns, dataSource) : columns,
     [columnFilters, columns, dataSource]
   );
+  const sortedTableColumns = useMemo(
+    () => addOperationsDefaultDateSort(tableColumns),
+    [tableColumns]
+  );
   const proColumns = useMemo(
     () => [
-      ...operationsSearchColumns<RecordType>(nativeSearch, tableColumns, (name, value) => {
+      ...operationsSearchColumns<RecordType>(nativeSearch, sortedTableColumns, (name, value) => {
         searchDraftRef.current = { ...searchDraftRef.current, [name]: value };
       }),
-      ...(hideOperationsTableColumnsInSearch(tableColumns) ?? [])
+      ...(hideOperationsTableColumnsInSearch(sortedTableColumns) ?? [])
     ],
-    [nativeSearch, tableColumns]
+    [nativeSearch, sortedTableColumns]
   );
   const nativeSearchValuesKey = JSON.stringify(nativeSearch?.values ?? {});
 

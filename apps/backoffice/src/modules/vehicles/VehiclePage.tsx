@@ -997,6 +997,8 @@ export function VehiclePage({
     filteredVehicles.sort(
       (left, right) => profitFor(right) - profitFor(left)
     );
+  } else {
+    filteredVehicles.sort((left, right) => compareVehicleIntakeDates(right.intakeDate, left.intakeDate));
   }
   const mobileVehiclePageCount = Math.max(1, Math.ceil(filteredVehicles.length / mobileVehiclePageSize));
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
@@ -1650,6 +1652,14 @@ export function VehiclePage({
           <Typography.Text type="secondary">Buyer: {customerLinkFor(row.customerId)}</Typography.Text>
         </Space>
       )
+    },
+    {
+      title: "Intake / 入库日期",
+      dataIndex: "intakeDate",
+      width: 130,
+      defaultSortOrder: "descend",
+      sorter: (a, b) => compareVehicleIntakeDates(a.intakeDate, b.intakeDate),
+      render: (value) => value || "-"
     },
     {
       title: "Model / 车型",
@@ -4169,6 +4179,12 @@ function vehicleAgeInDays(vehicle: Pick<Vehicle, "intakeDate">, todayIsoDate: st
   const today = Date.parse(`${todayIsoDate}T00:00:00Z`);
   const intakeDate = Date.parse(`${vehicle.intakeDate}T00:00:00Z`);
   return Math.max(0, Math.floor((today - intakeDate) / (24 * 60 * 60 * 1000)));
+}
+
+function compareVehicleIntakeDates(left?: string, right?: string) {
+  const leftTime = left ? Date.parse(`${left}T00:00:00Z`) : Number.NEGATIVE_INFINITY;
+  const rightTime = right ? Date.parse(`${right}T00:00:00Z`) : Number.NEGATIVE_INFINITY;
+  return rightTime - leftTime;
 }
 
 function hasOutstationPickup(vehicle: Vehicle) {

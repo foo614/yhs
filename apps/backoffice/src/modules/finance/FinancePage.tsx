@@ -1052,6 +1052,7 @@ export function FinancePage({
         ) : <Typography.Text type="secondary">Not linked / 未关联</Typography.Text>;
       }
     },
+    { title: "Created / 建立时间", dataIndex: "createdAt", render: (value) => String(value).replace("T", " ").slice(0, 16) },
     { title: "Sales Invoice Total / 销售发票总额", dataIndex: "nettPrice", render: (value, row) => formatMoney(isFinanceV2(row) ? row.invoice?.amount ?? value : value) },
     {
       title: "Collected / 已收",
