@@ -1,7 +1,7 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { CheckCircleFilled, DeleteOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
+import { ArrowDownOutlined, ArrowUpOutlined, CheckCircleFilled, DeleteOutlined, DownloadOutlined, HolderOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard, ProDescriptions, ProConfigProvider, StepsForm } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { enUSIntl } from "@ant-design/pro-provider";
@@ -816,7 +816,8 @@ export function VehiclePage({
   const [photoDeleteDialogSubmitting, setPhotoDeleteDialogSubmitting] = useState(false);
   const [photoDeleteError, setPhotoDeleteError] = useState<string | null>(null);
   const [photoGalleryWarning, setPhotoGalleryWarning] = useState<string | null>(null);
-  const [draggedPhotoId, setDraggedPhotoId] = useState<string | null>(null);
+  const [photoOrderSaving, setPhotoOrderSaving] = useState(false);
+  const draggedPhotoId = useRef<string | null>(null);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
   const [uploadsLoading, setUploadsLoading] = useState(false);
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
@@ -1044,8 +1045,28 @@ export function VehiclePage({
         selectedVehicle.status === "Available" && !selectedVehicle.isPublic ? "Website hidden" : ""
       ].filter(Boolean)
     : [];
+  const savePhotoOrder = async (nextPhotos: VehiclePhoto[]) => {
+    const previousPhotos = photos;
+    setPhotos(nextPhotos);
+    setPhotoOrderSaving(true);
+    try {
+      await reorderVehiclePhotos(selectedVehicleId, nextPhotos.map((photo) => photo.id));
+      message.success("Website photo order saved.");
+    } catch (error) {
+      setPhotos(previousPhotos);
+      setPhotoGalleryWarning(humanizeApiError(error, "Unable to save the website photo order."));
+    } finally {
+      setPhotoOrderSaving(false);
+    }
+  };
   const photoPreviewGrid = (
-    <div className="vehiclePhotoPreviewGrid">
+    <>
+      {visiblePhotos.length > 1 && (
+        <Typography.Text type="secondary" className="vehiclePhotoOrderHint">
+          Drag photos into the order shown on the website. Use the arrow buttons for keyboard or touch control.
+        </Typography.Text>
+      )}
+      <div className="vehiclePhotoPreviewGrid">
       {visiblePhotos.length > 0 ? visiblePhotos.map((photo) => {
         const busyKey = `${selectedVehicleId}:${photo.id}`;
         const isDeleting = deletingPhotoIds.has(busyKey);
@@ -1053,25 +1074,32 @@ export function VehiclePage({
           <div
             className="vehiclePhotoPreviewCard"
             key={photo.id}
-            draggable
-            onDragStart={() => setDraggedPhotoId(photo.id)}
-            onDragEnd={() => setDraggedPhotoId(null)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              if (!draggedPhotoId || draggedPhotoId === photo.id) return;
-              const reordered = [...visiblePhotos];
-              const from = reordered.findIndex((item) => item.id === draggedPhotoId);
-              const to = reordered.findIndex((item) => item.id === photo.id);
+            draggable={!photoOrderSaving}
+            onDragStart={(event) => {
+              draggedPhotoId.current = photo.id;
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", photo.id);
+            }}
+            onDragEnd={() => { draggedPhotoId.current = null; }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              const sourceId = draggedPhotoId.current || event.dataTransfer.getData("text/plain");
+              draggedPhotoId.current = null;
+              if (!sourceId || sourceId === photo.id || photoOrderSaving) return;
+              const from = visiblePhotos.findIndex((item) => item.id === sourceId);
+              const to = visiblePhotos.findIndex((item) => item.id === photo.id);
               if (from < 0 || to < 0) return;
-              const [moved] = reordered.splice(from, 1);
-              reordered.splice(to, 0, moved);
-              setPhotos(reordered);
-              void reorderVehiclePhotos(selectedVehicleId, reordered.map((item) => item.id)).catch((error) => {
-                setPhotoGalleryWarning(humanizeApiError(error, "Photo order could not be saved."));
-                void loadUploads(selectedVehicleId, true);
-              });
+              const nextPhotos = [...visiblePhotos];
+              const [moved] = nextPhotos.splice(from, 1);
+              nextPhotos.splice(to, 0, moved);
+              void savePhotoOrder(nextPhotos);
             }}
           >
+            <HolderOutlined className="vehiclePhotoDragHandle" aria-hidden="true" />
             <a
               className="vehiclePhotoPreviewLink"
               href={vehiclePhotoContentUrl(selectedVehicleId, photo.id)}
@@ -1094,6 +1122,37 @@ export function VehiclePage({
               </div>
               <span>{photo.fileName}</span>
             </a>
+            <Space className="vehiclePhotoOrderActions" size={2}>
+              <Typography.Text className="vehiclePhotoOrderNumber">{visiblePhotos.indexOf(photo) + 1}</Typography.Text>
+              <Button
+                type="text"
+                size="small"
+                icon={<ArrowUpOutlined />}
+                aria-label={`Move ${photo.fileName} up`}
+                disabled={photoOrderSaving || visiblePhotos.indexOf(photo) === 0}
+                onClick={() => {
+                  const index = visiblePhotos.indexOf(photo);
+                  if (index <= 0) return;
+                  const nextPhotos = [...visiblePhotos];
+                  [nextPhotos[index - 1], nextPhotos[index]] = [nextPhotos[index], nextPhotos[index - 1]];
+                  void savePhotoOrder(nextPhotos);
+                }}
+              />
+              <Button
+                type="text"
+                size="small"
+                icon={<ArrowDownOutlined />}
+                aria-label={`Move ${photo.fileName} down`}
+                disabled={photoOrderSaving || visiblePhotos.indexOf(photo) === visiblePhotos.length - 1}
+                onClick={() => {
+                  const index = visiblePhotos.indexOf(photo);
+                  if (index < 0 || index >= visiblePhotos.length - 1) return;
+                  const nextPhotos = [...visiblePhotos];
+                  [nextPhotos[index], nextPhotos[index + 1]] = [nextPhotos[index + 1], nextPhotos[index]];
+                  void savePhotoOrder(nextPhotos);
+                }}
+              />
+            </Space>
             <Button
               className="vehiclePhotoDeleteAction"
               danger
@@ -1114,7 +1173,8 @@ export function VehiclePage({
           <span>No website photos uploaded yet.</span>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
   const vehicleStatusColor: Record<Vehicle["status"], string> = {
     Available: "green",

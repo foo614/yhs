@@ -3660,6 +3660,12 @@ body {
   margin-top: -4px;
 }
 
+.vehiclePhotoOrderHint {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
 .vehicleDocumentSection {
   margin-top: 6px;
   padding-top: 14px;
@@ -3748,7 +3754,45 @@ body {
   border-radius: 8px;
   background: #fff;
   color: #14251f;
+  cursor: grab;
+}
+
+.vehiclePhotoPreviewCard:active {
+  cursor: grabbing;
+}
+
+.vehiclePhotoDragHandle {
+  flex: 0 0 auto;
+  color: #77918a;
+  font-size: 16px;
+}
+
+.vehiclePhotoPreviewLink {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
   text-decoration: none;
+}
+
+.vehiclePhotoPreviewLink:focus-visible {
+  outline: 2px solid #0b705c;
+  outline-offset: 2px;
+}
+
+.vehiclePhotoOrderActions {
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.vehiclePhotoOrderNumber {
+  min-width: 18px;
+  color: #0b705c;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .vehiclePhotoPreviewThumb {
