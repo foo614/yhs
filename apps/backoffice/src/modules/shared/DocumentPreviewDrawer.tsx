@@ -56,7 +56,7 @@ export function DocumentPreviewDrawer({
             <Typography.Text type="secondary">{source.mimeType || "Unknown file type"}</Typography.Text>
           </div>
           {kind === "image" && <img src={source.url} alt={`Preview of ${source.fileName}`} />}
-          {kind === "pdf" && <iframe src={source.url} title={`Preview of ${source.fileName}`} sandbox="" />}
+          {kind === "pdf" && <iframe src={source.url} title={`Preview of ${source.fileName}`} />}
           {kind === "unsupported" && (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
