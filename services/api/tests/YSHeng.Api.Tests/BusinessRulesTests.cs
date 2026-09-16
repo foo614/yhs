@@ -1522,6 +1522,21 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Vehicle_intake_timestamp_normalization_uses_utc_and_singapore_intake_date()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: true) with
+        {
+            IntakeAt = new DateTime(2026, 6, 3, 17, 30, 0, DateTimeKind.Unspecified)
+        };
+
+        var result = VehicleRules.NormalizeDateTimes(vehicle);
+
+        Assert.Equal(DateTimeKind.Utc, result.IntakeAt?.Kind);
+        Assert.Equal(new DateTime(2026, 6, 3, 17, 30, 0, DateTimeKind.Utc), result.IntakeAt);
+        Assert.Equal(new DateOnly(2026, 6, 4), result.IntakeDate);
+    }
+
+    [Fact]
     public void Vehicle_intake_validation_rejects_duplicate_plate_number()
     {
         var existing = VehicleSeed.Available(publicVisible: true) with

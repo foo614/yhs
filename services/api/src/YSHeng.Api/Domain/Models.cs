@@ -77,6 +77,7 @@ public sealed record Vehicle
     public DateTime? OutstationPickupScheduledAt { get; init; }
     public string? OutstationPickupBookingSlip { get; init; }
     public DateOnly IntakeDate { get; init; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public DateTime? IntakeAt { get; init; }
     public DateTime? SoldAt { get; init; }
     public string? SalesAgentUserId { get; init; }
     public string? SalesAgentName { get; init; }

@@ -22,6 +22,7 @@ public static class SeedData
         await EnsureCashCustodySchemaAsync(db);
         await EnsureVehicleEnhancementSchemaAsync(db);
         await EnsureVehiclePricingSchemaAsync(db);
+        await EnsureVehicleIntakeTimestampSchemaAsync(db);
         await EnsureVehicleCatalogSchemaAsync(db);
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
         await EnsureFinanceV2SchemaAsync(db);
@@ -149,7 +150,8 @@ public static class SeedData
                 OutstationPickupAllowance = 180m,
                 OutstationPickupScheduledAt = new DateTime(2026, 6, 3, 10, 30, 0, DateTimeKind.Utc),
                 OutstationPickupBookingSlip = "BOOK-DEMO-1001",
-                IntakeDate = new DateOnly(2026, 3, 1)
+                IntakeDate = new DateOnly(2026, 3, 1),
+                IntakeAt = new DateTime(2026, 3, 1, 9, 0, 0, DateTimeKind.Utc)
             });
             db.Customers.Add(new Customer { Id = customerId, Name = "Ali Tan", Phone = "0123456789", IcNumber = "900101-01-1234", Address = "Demo customer address", Notes = "Seed customer for loan and delivery follow-up" });
             db.LoanApplications.Add(new LoanApplication { VehicleId = vehicleId, CustomerId = customerId, Status = LoanStatus.Pending, SubmittedAt = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-3)) });
@@ -584,6 +586,24 @@ public static class SeedData
             UPDATE "Vehicles"
             SET "ModifiedPurchasePrice" = "PurchasePrice"
             WHERE "ModifiedPurchasePrice" IS NULL;
+        """);
+    }
+
+    public static async Task EnsureVehicleIntakeTimestampSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureVehicleIntakeTimestampSchemaAsync(db);
+    }
+
+    private static async Task EnsureVehicleIntakeTimestampSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "IntakeAt" timestamp with time zone NULL;
+            UPDATE "Vehicles"
+            SET "IntakeAt" = ("IntakeDate"::timestamp AT TIME ZONE 'Asia/Singapore')
+            WHERE "IntakeAt" IS NULL;
         """);
     }
 

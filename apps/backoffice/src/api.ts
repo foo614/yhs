@@ -154,6 +154,7 @@ export type Vehicle = {
   customerId?: string;
   ownerId?: string;
   intakeDate?: string;
+  intakeAt?: string;
   soldAt?: string;
   outstationPickupAllowance?: number;
   outstationPickupScheduledAt?: string;
@@ -2038,6 +2039,7 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
     ucdStatus: values.ucdStatus?.trim() || undefined,
     customerId: values.customerId,
     ownerId: values.ownerId,
+    intakeAt: values.intakeAt,
     outstationPickupAllowance: Number(values.outstationPickupAllowance ?? 0),
     outstationPickupScheduledAt: values.outstationPickupScheduledAt,
     outstationPickupBookingSlip: values.outstationPickupBookingSlip?.trim() || undefined

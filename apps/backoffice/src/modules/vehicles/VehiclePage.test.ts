@@ -92,6 +92,24 @@ describe("vehicle intake sorting", () => {
     expect(compareVehicleIntakeDates("2026-09-02", "2026-09-01")).toBeLessThan(0);
     expect(compareVehicleIntakeDates("2026-09-01", "2026-09-02")).toBeGreaterThan(0);
   });
+
+  it("uses the intake time when vehicles share the same intake date", () => {
+    expect(compareVehicleIntakeDates(
+      "2026-09-16",
+      "2026-09-16",
+      "2026-09-16T03:00:00.000Z",
+      "2026-09-16T02:00:00.000Z"
+    )).toBeLessThan(0);
+  });
+
+  it("puts the latest timestamp first on the initial filtered result", () => {
+    const sameDayVehicles = [
+      { ...baseVehicle, id: "morning", intakeDate: "2026-09-16", intakeAt: "2026-09-16T02:00:00.000Z" },
+      { ...baseVehicle, id: "afternoon", intakeDate: "2026-09-16", intakeAt: "2026-09-16T08:00:00.000Z" }
+    ];
+
+    expect(filterOperationIntakeVehicles(sameDayVehicles, [], [], {}).map((vehicle) => vehicle.id)).toEqual(["afternoon", "morning"]);
+  });
 });
 
 describe("vehicleSoldInAnalyticsPeriod", () => {

@@ -639,7 +639,8 @@ describe("backoffice api client", () => {
       ownerId: "00000000-0000-0000-0000-000000000012",
       outstationPickupAllowance: 180,
       outstationPickupScheduledAt: "2026-06-03T10:30:00",
-      outstationPickupBookingSlip: "BOOK-1001"
+      outstationPickupBookingSlip: "BOOK-1001",
+      intakeAt: "2026-06-03T10:30:00.000Z"
     }, "00000000-0000-0000-0000-000000000001");
 
     expect(vehicle.additionalCharges).toBe(650);
@@ -655,6 +656,7 @@ describe("backoffice api client", () => {
     expect(vehicle.outstationPickupAllowance).toBe(180);
     expect(vehicle.outstationPickupScheduledAt).toBe("2026-06-03T10:30:00");
     expect(vehicle.outstationPickupBookingSlip).toBe("BOOK-1001");
+    expect(vehicle.intakeAt).toBe("2026-06-03T10:30:00.000Z");
   });
 
   it("loads and creates customer and owner intake records", async () => {
