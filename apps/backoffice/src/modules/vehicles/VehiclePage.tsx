@@ -733,7 +733,10 @@ export function filterOperationIntakeVehicles(
     if (filters.leadActivity === "none" && hasActiveLead) return false;
 
     return true;
-  });
+  })
+  .sort((a, b) =>
+    (b.intakeDate ?? "").localeCompare(a.intakeDate ?? "")
+  );
 }
 
 export function VehiclePage({
@@ -976,8 +979,18 @@ export function VehiclePage({
   const pickupAllowanceCostFor = (vehicle: Vehicle) => effectivePickupAllowanceCost(vehicle, paymentVouchers);
   const profitFor = (vehicle: Vehicle) => estimatedVehicleProfit(vehicle, repairCostFor(vehicle), commissionCostFor(vehicle), pickupAllowanceCostFor(vehicle));
   const dashboardFocusedVehicles = filterVehiclesForDashboardFocus(vehicles, dashboardFocus, dashboardAnalyticsPeriod);
-  const filteredVehicles = filterOperationIntakeVehicles(dashboardFocusedVehicles, purchaseInvoices, leads, operationFilters)
-    .sort((left, right) => dashboardFocus === "profit" ? profitFor(right) - profitFor(left) : 0);
+  const filteredVehicles = filterOperationIntakeVehicles(
+    dashboardFocusedVehicles,
+    purchaseInvoices,
+    leads,
+    operationFilters
+  );
+
+  if (dashboardFocus === "profit") {
+    filteredVehicles.sort(
+      (left, right) => profitFor(right) - profitFor(left)
+    );
+  }
   const mobileVehiclePageCount = Math.max(1, Math.ceil(filteredVehicles.length / mobileVehiclePageSize));
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
   const mobileVehicles = filteredVehicles.slice((clampedMobileVehiclePage - 1) * mobileVehiclePageSize, clampedMobileVehiclePage * mobileVehiclePageSize);
