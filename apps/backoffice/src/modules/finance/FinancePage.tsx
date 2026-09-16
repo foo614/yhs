@@ -277,7 +277,7 @@ export function InvoiceUpdateRequestQueue({
                   loading={resolvingId === requestItem.id}
                   disabled={Boolean(resolvingId && resolvingId !== requestItem.id)}
                   onClick={() => onResolve(requestItem)}
-                >Mark resolved</Button>
+                >Picked up</Button>
               </article>
             ))}
           </div>}
@@ -1445,7 +1445,7 @@ export function FinancePage({
       <Modal
         title={invoiceRequestToResolve ? `Mark ${invoiceRequestToResolve.plateNumber} invoice request resolved?` : "Mark invoice request resolved?"}
         open={Boolean(invoiceRequestToResolve)}
-        okText="Mark resolved"
+        okText="Picked up"
         cancelText="Keep open"
         confirmLoading={Boolean(invoiceRequestToResolve && resolvingInvoiceRequestId === invoiceRequestToResolve.id)}
         onCancel={() => {

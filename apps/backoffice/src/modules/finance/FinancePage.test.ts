@@ -413,7 +413,7 @@ describe("delivery invoice update handoff", () => {
     expect(markup).toContain("Delivery invoice update requests / 交车发票更新");
     expect(markup).toContain("VPK 1234");
     expect(markup).toContain("Correct the customer address");
-    expect(markup).toContain("Mark resolved");
+    expect(markup).toContain("Picked up");
     expect(markup).not.toContain("Invoice amount");
     expect(markup).not.toContain("Payment status");
   });
