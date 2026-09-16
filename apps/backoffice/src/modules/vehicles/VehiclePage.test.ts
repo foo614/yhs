@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
 import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, effectiveCommissionCost, effectivePickupAllowanceCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleCustomerPath, vehicleDetailsPersonCreateFlags, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
-import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument } from "../../api";
+import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument, VehicleIntakeValues } from "../../api";
 
 const baseVehicle: Vehicle = {
   id: "vehicle-1",
@@ -319,6 +319,12 @@ describe("approved vehicle selling price controls", () => {
     const result = vehicleFromEditValues({ ...baseVehicle, sellingPrice: 57_500 }, baseVehicle, true);
 
     expect(result).toMatchObject({ sellingPrice: 57_500, bossConfirmed: false, isPublic: false });
+  });
+
+  it("preserves linked owner and buyer records when only website visibility changes", () => {
+    const result = vehicleFromEditValues({ isPublic: true, sellingPrice: baseVehicle.sellingPrice } as VehicleIntakeValues, { ...baseVehicle, isPublic: false }, true);
+
+    expect(result).toMatchObject({ isPublic: true, ownerId: "owner-1", customerId: "customer-1", ucdStatus: "Ready" });
   });
 });
 

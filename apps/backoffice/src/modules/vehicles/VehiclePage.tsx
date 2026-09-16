@@ -419,15 +419,21 @@ export function vehicleFromEditValues(values: VehicleIntakeValues, currentVehicl
   const sellingPrice = approvedPriceIsLocked ? currentVehicle.sellingPrice : Number(values.sellingPrice ?? 0);
   const repricingApprovedVehicle = Boolean(currentVehicle.bossConfirmed) && vehicleSellingPriceChanged(currentVehicle.sellingPrice, sellingPrice);
   const bossConfirmed = Boolean(currentVehicle.bossConfirmed) && !repricingApprovedVehicle;
-
-  return vehicleFromIntakeValues({
+  const mergedValues = {
+    ...currentVehicle,
     ...values,
     stockOwner: values.stockOwner || currentVehicle.stockOwner || "YSHeng",
+    stockLocation: values.stockLocation ?? currentVehicle.stockLocation,
     status: currentVehicle.status,
     sellingPrice,
     bossConfirmed,
-    isPublic: bossConfirmed ? Boolean(values.isPublic) : false
-  }, currentVehicle.id);
+    isPublic: bossConfirmed ? values.isPublic ?? currentVehicle.isPublic : false,
+    ucdStatus: values.ucdStatus ?? currentVehicle.ucdStatus,
+    customerId: currentVehicle.customerId,
+    ownerId: currentVehicle.ownerId
+  };
+
+  return vehicleFromIntakeValues(mergedValues as VehicleIntakeValues, currentVehicle.id);
 }
 
 export function settlementFromVehicleIntakeValues(values: VehicleIntakeDraft, _vehicleId?: string, _settlementId?: string): VehicleIntakeSettlementInput | undefined {
@@ -1905,6 +1911,7 @@ export function VehiclePage({
   const ownerColumns: ColumnsType<Owner> = [
     { title: "Owner / 原车主", dataIndex: "name" },
     { title: "Phone / 电话", dataIndex: "phone" },
+    { title: shortformLabel("IC", "Identity card number"), dataIndex: "icNumber", render: (value) => value || "-" },
     { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectOwner(row.id)}>Details</Button></Space> }
   ];
@@ -1986,6 +1993,16 @@ export function VehiclePage({
     setSellerIdentityManualEntry(false);
     setSellerNricFile(null);
     sellerIdentityReviewForm.resetFields();
+  };
+
+  const openManualSellerIdentityEntry = () => {
+    setSellerIdentityManualEntry(true);
+    if (!sellerIdentityPreview) {
+      setSellerNricFile(null);
+      setPendingOwnerDraft(null);
+      sellerIdentityReviewForm.resetFields();
+    }
+    setSellerIdentityReviewOpen(true);
   };
 
   const selectSellerIdentityOwner = (owner: Owner) => {
@@ -3077,7 +3094,7 @@ export function VehiclePage({
             <Form.Item className="vehicleIntakePreviousOwner" label="Previous owner / 原车主" required>
               <div className="vehicleIntakePreviousOwnerControl">
                 <Typography.Text type="secondary">
-                  Search an existing record, or scan NRIC. Scanning searches existing records first and offers creation only when no match is found.
+                  Search an existing record, scan NRIC, or enter the previous owner details manually. Scanning searches existing records first and offers creation only when no match is found.
                 </Typography.Text>
                 <Form.Item
                   name="ownerId"
@@ -3145,16 +3162,19 @@ export function VehiclePage({
                   </div>
                 ) : (
                   <div className="vehicleIntakeNricScanAction">
-                    <Upload
-                      accept="image/jpeg,image/png,image/webp"
-                      maxCount={1}
-                      showUploadList={false}
-                      customRequest={(option) => void handleSellerIdentityUpload(option)}
-                    >
-                      <Button icon={<UploadOutlined />} loading={sellerIdentityBusy}>Scan NRIC / 扫描身份证</Button>
-                    </Upload>
-                    <Typography.Text type="secondary" className="vehicleIntakeScanHint vehicleIntakeScanHintDesktop">Upload image</Typography.Text>
-                    <Typography.Text type="secondary" className="vehicleIntakeScanHint vehicleIntakeScanHintMobile">Take photo or upload</Typography.Text>
+                    <Space wrap>
+                      <Upload
+                        accept="image/jpeg,image/png,image/webp"
+                        maxCount={1}
+                        showUploadList={false}
+                        customRequest={(option) => void handleSellerIdentityUpload(option)}
+                      >
+                        <Button icon={<UploadOutlined />} loading={sellerIdentityBusy}>Scan NRIC / 扫描身份证</Button>
+                      </Upload>
+                      <Button onClick={openManualSellerIdentityEntry}>Enter details manually</Button>
+                    </Space>
+                    <Typography.Text type="secondary" className="vehicleIntakeScanHint vehicleIntakeScanHintDesktop">Upload image or enter the owner details</Typography.Text>
+                    <Typography.Text type="secondary" className="vehicleIntakeScanHint vehicleIntakeScanHintMobile">Take a photo, upload, or enter manually</Typography.Text>
                   </div>
                 )}
               </div>
@@ -3290,7 +3310,7 @@ export function VehiclePage({
         className="recordCreateModal"
       >
         <Space direction="vertical" size={16} className="fullWidth">
-          {!sellerIdentityReadFailed && !reviewedExistingOwner ? (
+          {!sellerIdentityReadFailed && !reviewedExistingOwner && !sellerIdentityManualEntry ? (
             <Alert
               className="compactOcrGuidanceAlert"
               type="info"
@@ -3315,7 +3335,7 @@ export function VehiclePage({
                   >
                     <Button size="small" loading={sellerIdentityBusy}>Try another photo</Button>
                   </Upload>
-                  <Button size="small" onClick={() => setSellerIdentityManualEntry(true)}>Enter details manually</Button>
+                  <Button size="small" onClick={openManualSellerIdentityEntry}>Enter details manually</Button>
                 </Space>
               )}
             />
@@ -3339,7 +3359,7 @@ export function VehiclePage({
                 <Button type="primary" onClick={() => selectSellerIdentityOwner(reviewedExistingOwner)}>Use existing owner</Button>
               </Space>
             </>
-          ) : sellerIdentityPreview ? (
+          ) : sellerIdentityPreview || sellerIdentityManualEntry ? (
             <Form name="sellerIdentityReview" form={sellerIdentityReviewForm} layout="vertical" onFinish={(values) => void confirmNewOwnerFromIdentityCard(values)}>
               <Alert
                 className="compactOcrGuidanceAlert vehicleIntakeOwnerReviewAlert"
@@ -3347,7 +3367,7 @@ export function VehiclePage({
                 showIcon
                 message={sellerIdentityManualEntry ? "Enter previous owner details manually" : "No exact NRIC match was found"}
                 description={sellerIdentityManualEntry
-                  ? "Confirm every field before continuing. The system will stop a duplicate when the NRIC matches an existing record."
+                  ? "Confirm every field before continuing. The system will stop a duplicate when the NRIC matches an existing record. A new owner still needs the NRIC image attached before final vehicle intake submission."
                   : "Review each field before confirming. A similar name may still be an existing owner."}
               />
               {possibleIdentityOwners.length ? (
@@ -3618,7 +3638,8 @@ export function VehiclePage({
                     const owner: Owner = {
                       id: newId(),
                       name: values.name,
-                      phone: values.phone
+                      phone: values.phone,
+                      icNumber: formatIdentityCardNumber(values.icNumber)
                     };
                     const blockReason = ownerCreateBlockReason(owner, owners);
                     if (blockReason) {
@@ -3631,6 +3652,7 @@ export function VehiclePage({
                   }}>
                     <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
+                    <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Owner</Button></Form.Item>
                   </Form>
                   </Modal>
@@ -3645,7 +3667,8 @@ export function VehiclePage({
                       const owner: Owner = {
                         ...selectedOwner,
                         name: values.name,
-                        phone: values.phone
+                        phone: values.phone,
+                        icNumber: formatIdentityCardNumber(values.icNumber)
                       };
                       const blockReason = ownerCreateBlockReason(owner, owners);
                       if (blockReason) {
@@ -3659,6 +3682,7 @@ export function VehiclePage({
                     <Form.Item name="id" label="Edit Owner"><Select options={owners.map((owner) => ({ value: owner.id, label: `${owner.name} / ${owner.phone}` }))} onChange={selectOwner} /></Form.Item>
                     <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true }]}><Input /></Form.Item>
                     <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
+                    <Form.Item name="icNumber" label={shortformLabel("IC / 身份证", "Identity card number")}><Input /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
                   </Form>}
                 </Space>
@@ -3689,7 +3713,7 @@ export function VehiclePage({
             id: newId(),
             name: values.name,
             phone: values.phone,
-            icNumber: values.icNumber,
+            icNumber: formatIdentityCardNumber(values.icNumber),
             tinNumber: values.tinNumber,
             email: values.email,
             address: values.address,
@@ -3848,7 +3872,7 @@ export function VehiclePage({
               ...selectedOwner,
               name: values.name,
               phone: values.phone,
-              icNumber: values.icNumber,
+              icNumber: formatIdentityCardNumber(values.icNumber),
               tinNumber: values.tinNumber,
               address: values.address
             };
