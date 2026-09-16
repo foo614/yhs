@@ -157,32 +157,24 @@ export function dashboardPriorityEntries(reminders: DashboardReminder[], priorit
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || (right.amount ?? 0) - (left.amount ?? 0));
 }
 
-export function sidebarActionBadges(
-  reminders: DashboardReminder[],
-  priorityActions: PriorityActionItem[],
-  today = todayIsoDate()
-) {
-  return dashboardPriorityEntries(reminders, priorityActions, today)
-    .reduce<Record<string, { count: number; urgent: boolean; target: string }>>(
-      (badges, entry) => {
-        const path = entry.target.split("?", 1)[0];
+export function sidebarActionBadges(reminders: DashboardReminder[], priorityActions: PriorityActionItem[], today = todayIsoDate()) {
+  return dashboardPriorityEntries(reminders, priorityActions, today).reduce<Record<string, { count: number; urgent: boolean; target: string }>>((badges, entry) => {
+    const path = entry.target.split("?", 1)[0];
+    const target = path === "/finance" ? "/finance" : entry.target;
+    const current = badges[path] ?? { count: 0, urgent: false, target };
 
-        const current = badges[path] ?? {
-          count: 0,
-          urgent: false,
-          target: path
-        };
+    badges[path] = {
+      count: current.count + 1,
+      urgent: current.urgent || entry.dueDate <= today,
+      target: path === "/finance"
+        ? "/finance"
+        : current.urgent
+          ? current.target
+          : entry.target
+    };
 
-        badges[path] = {
-          count: current.count + 1,
-          urgent: current.urgent || entry.dueDate <= today,
-          target: path
-        };
-
-        return badges;
-      },
-      {}
-    );
+    return badges;
+  }, {});
 }
 
 export function dashboardReminderTarget(reminder: Pick<DashboardReminder, "type" | "vehicleId">) {
