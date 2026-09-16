@@ -436,6 +436,8 @@ export function FinancePage({
   const [financeFieldFilters, setFinanceFieldFilters] = useState<Record<string, unknown>>({});
   const [financeStatus, setFinanceStatus] = useState<string>();
   const [financePage, setFinancePage] = useState(1);
+  const [purchaseInvoiceFieldFilters, setPurchaseInvoiceFieldFilters] = useState<Record<string, unknown>>({});
+  const [purchaseInvoicePage, setPurchaseInvoicePage] = useState(1);
   const [autoCountPeriod, setAutoCountPeriod] = useState<{ from?: string; to?: string }>({});
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [paymentDocuments, setPaymentDocuments] = useState<VehicleDocument[]>([]);
@@ -540,6 +542,25 @@ export function FinancePage({
   };
   useEffect(() => { void reloadPurchaseInvoices(); }, []);
 
+  const confirmPurchaseInvoice = async (invoice: PurchaseInvoice) => {
+    const displayedRevision = invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber;
+    if (invoice.sourceType === "OwnerAcquisition" && displayedRevision === undefined) {
+      message.warning("Reload the issued invoice version before Finance confirmation.");
+      return;
+    }
+    setPurchaseInvoiceConfirmationError(undefined);
+    setConfirmingPurchaseInvoiceId(invoice.id);
+    try {
+      await confirmPurchaseInvoiceAccounting(invoice.id, invoice.sourceType === "OwnerAcquisition" ? displayedRevision : undefined);
+      message.success("Purchase invoice accounting confirmed for the displayed version.");
+      await reloadPurchaseInvoices();
+    } catch (error) {
+      setPurchaseInvoiceConfirmationError({ invoiceId: invoice.id, message: humanizeApiError(error, "Unable to confirm this purchase invoice version.") });
+    } finally {
+      setConfirmingPurchaseInvoiceId(undefined);
+    }
+  };
+
   const confirmInvoiceRequestResolved = (requestItem: DeliveryInvoiceUpdateRequestItem) => {
     setInvoiceRequestResolveError(undefined);
     setInvoiceRequestToResolve(requestItem);
@@ -588,6 +609,8 @@ export function FinancePage({
     setFinanceFieldFilters({});
     setFinanceStatus(undefined);
     setFinancePage(1);
+    setPurchaseInvoiceFieldFilters({});
+    setPurchaseInvoicePage(1);
   }, [financeTab]);
 
   useEffect(() => {
@@ -1232,6 +1255,32 @@ export function FinancePage({
       )
     }
   ];
+  const purchaseInvoiceColumns: ColumnsType<PurchaseInvoice> = [
+    { title: "Car Plate / 车牌", render: (_, invoice) => plateFor(vehicles, invoice.vehicleId) },
+    { title: "Invoice / 发票", dataIndex: "invoiceNumber" },
+    { title: "Version / 版本", render: (_, invoice) => invoice.sourceType === "OwnerAcquisition" ? `V${invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber ?? 1}` : "Legacy" },
+    { title: "Invoice Date / 日期", dataIndex: "invoiceDate", render: (value) => value || "-" },
+    { title: "Lines / 分类", render: (_, invoice) => (invoice.lines ?? []).map((line) => line.lineType).join(", ") || "-" },
+    { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(Number(value)) },
+    { title: "Official / 正式", render: (_, invoice) => invoice.sourceType === "OwnerAcquisition" ? <Tag color="blue">Issued</Tag> : <Tag>Legacy record</Tag> },
+    { title: "Finance Review / 财务审核", dataIndex: "accountingStatus", render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}</Tag> },
+    {
+      title: "Action / 操作",
+      fixed: "right",
+      width: 240,
+      render: (_, invoice) => {
+        const displayedRevision = invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber;
+        const ownerVersionUnavailable = invoice.sourceType === "OwnerAcquisition" && displayedRevision === undefined;
+        return <Space direction="vertical" size={6} className="fullWidth">
+          {purchaseInvoiceConfirmationError?.invoiceId === invoice.id && <PurchaseInvoiceConfirmationError error={purchaseInvoiceConfirmationError.message} onClose={() => setPurchaseInvoiceConfirmationError(undefined)} />}
+          <Space className="tableActionGroup" wrap size={6}>
+            {invoice.sourceType === "OwnerAcquisition" && <Button size="small" type="primary" onClick={() => setPurchaseInvoiceDetailsId(invoice.id)}>Details</Button>}
+            {invoice.accountingStatus !== "FinanceConfirmed" && <Tooltip title={ownerVersionUnavailable ? "Reload the issued invoice version before Finance confirmation." : undefined}><span><Button size="small" loading={confirmingPurchaseInvoiceId === invoice.id} disabled={ownerVersionUnavailable} onClick={() => void confirmPurchaseInvoice(invoice)}>Confirm version</Button></span></Tooltip>}
+          </Space>
+        </Space>;
+      }
+    }
+  ];
   const salesInvoicePayments = visibleSalesInvoicePayments(payments);
   const filteredPayments = filterFinanceRowsByFields(filterFinanceRows(salesInvoicePayments, financeKeyword, financeStatus, (payment) => [
     plateFor(vehicles, payment.vehicleId),
@@ -1271,6 +1320,16 @@ export function FinancePage({
   const filteredPaymentVouchers = filterFinanceRowsByFields(filterFinanceRows(paymentVouchers, financeKeyword, financeStatus, (voucher) => [
     plateFor(vehicles, voucher.vehicleId), voucher.payeeName, voucher.purpose, voucher.issuedDate, voucher.notes
   ], (voucher) => voucher.status), financeFieldFilters, (voucher) => ({ plate: plateFor(vehicles, voucher.vehicleId), payee: voucher.payeeName, purpose: voucher.purpose, issuedDate: voucher.issuedDate })).filter((voucher) => matchesDashboardFinanceFocus(dashboardFocus, voucher.vehicleId, dashboardFocus.attention === "open" ? voucher.status !== "Paid" : dashboardFocus.attention === "due" ? voucher.status !== "Paid" && voucher.issuedDate <= dashboardToday : true));
+  const filteredPurchaseInvoices = filterFinanceRows(
+    purchaseInvoices,
+    String(purchaseInvoiceFieldFilters.invoiceSearch ?? ""),
+    purchaseInvoiceFieldFilters.status ? String(purchaseInvoiceFieldFilters.status) : undefined,
+    (invoice) => [
+      plateFor(vehicles, invoice.vehicleId), invoice.invoiceNumber, invoice.invoiceDate, invoice.purchaseDate,
+      String(invoice.amount), invoice.sourceType, ...(invoice.lines ?? []).flatMap((line) => [line.lineType, line.description, String(line.amount)])
+    ],
+    (invoice) => invoice.accountingStatus === "FinanceConfirmed" ? "Confirmed" : "Draft"
+  );
   const financeStatusOptions = statusOptionsForFinanceTab(financeTab);
   const searchCopy = financeSearchCopy(financeTab);
   const financeKeywordFields = financeKeywordSearchFields(financeTab);
@@ -1353,24 +1412,82 @@ export function FinancePage({
       </Button>}
     </Space>
   );
+  const purchaseInvoiceFiltersActive = Boolean(String(purchaseInvoiceFieldFilters.invoiceSearch ?? "").trim() || String(purchaseInvoiceFieldFilters.status ?? "").trim());
+  const purchaseInvoiceNativeSearch = {
+    fields: [
+      { name: "invoiceSearch", label: "Invoice, plate or date", placeholder: "Invoice number, plate, date or amount" },
+      { name: "status", label: "Finance review", placeholder: "All statuses", options: [
+        { value: "Draft", label: "Draft" },
+        { value: "Confirmed", label: "Confirmed" }
+      ] }
+    ],
+    values: purchaseInvoiceFieldFilters,
+    onSubmit: (values: Record<string, unknown>) => {
+      setPurchaseInvoiceFieldFilters({ invoiceSearch: values.invoiceSearch, status: values.status });
+      setPurchaseInvoicePage(1);
+    },
+    onReset: () => {
+      setPurchaseInvoiceFieldFilters({});
+      setPurchaseInvoicePage(1);
+    }
+  };
+  const purchaseInvoiceFilters = (
+    <Space wrap className="toolbarForm financeToolbarForm pageFilterMobileOnly">
+      <Input.Search
+        allowClear
+        aria-label="Search purchase invoices by invoice number, plate, date, amount, or line"
+        className="financeKeywordFilter"
+        placeholder="Search invoice, plate, date or amount"
+        value={String(purchaseInvoiceFieldFilters.invoiceSearch ?? "")}
+        onChange={(event) => {
+          setPurchaseInvoiceFieldFilters((current) => ({ ...current, invoiceSearch: event.target.value }));
+          setPurchaseInvoicePage(1);
+        }}
+        onSearch={(value) => {
+          setPurchaseInvoiceFieldFilters((current) => ({ ...current, invoiceSearch: value }));
+          setPurchaseInvoicePage(1);
+        }}
+      />
+      <Select
+        allowClear
+        aria-label="Filter purchase invoices by finance review"
+        className="financeStatusFilter"
+        options={[{ value: "Draft", label: "Draft" }, { value: "Confirmed", label: "Confirmed" }]}
+        placeholder="All finance reviews"
+        value={purchaseInvoiceFieldFilters.status}
+        onChange={(value) => {
+          setPurchaseInvoiceFieldFilters((current) => ({ ...current, status: value }));
+          setPurchaseInvoicePage(1);
+        }}
+      />
+      <Tag color={purchaseInvoiceFiltersActive ? "blue" : undefined}>{purchaseInvoiceFiltersActive ? `${filteredPurchaseInvoices.length} of ${purchaseInvoices.length} matching` : `${purchaseInvoices.length} invoice${purchaseInvoices.length === 1 ? "" : "s"}`}</Tag>
+      {purchaseInvoiceFiltersActive && <Button onClick={() => {
+        setPurchaseInvoiceFieldFilters({});
+        setPurchaseInvoicePage(1);
+      }}>Clear filters</Button>}
+    </Space>
+  );
   const paymentPage = financePageFor(filteredPayments.length, financePage);
   const settlementPage = financePageFor(filteredSettlements.length, financePage);
   const dailySpendPage = financePageFor(filteredDailySpends.length, financePage);
   const brokerCommissionPage = financePageFor(filteredBrokerCommissions.length, financePage);
   const debtRecoveryPage = financePageFor(filteredDebtRecoveries.length, financePage);
   const paymentVoucherPage = financePageFor(filteredPaymentVouchers.length, financePage);
+  const purchaseInvoicePageNumber = financePageFor(filteredPurchaseInvoices.length, purchaseInvoicePage);
   const visiblePayments = pageFinanceRows(filteredPayments, paymentPage);
   const visibleSettlements = pageFinanceRows(filteredSettlements, settlementPage);
   const visibleDailySpends = pageFinanceRows(filteredDailySpends, dailySpendPage);
   const visibleBrokerCommissions = pageFinanceRows(filteredBrokerCommissions, brokerCommissionPage);
   const visibleDebtRecoveries = pageFinanceRows(filteredDebtRecoveries, debtRecoveryPage);
   const visiblePaymentVouchers = pageFinanceRows(filteredPaymentVouchers, paymentVoucherPage);
+  const visiblePurchaseInvoices = pageFinanceRows(filteredPurchaseInvoices, purchaseInvoicePageNumber);
   const paymentEmptyText = financeEmptyText(salesInvoicePayments.length, filteredPayments.length, "sales invoice records");
   const settlementEmptyText = settlementLoadError ? "Settlements unavailable. Retry to load the current records." : financeEmptyText(settlements.length, filteredSettlements.length, "settlement reminders");
   const dailySpendEmptyText = financeEmptyText(dailySpends.length, filteredDailySpends.length, "daily spend records");
   const brokerCommissionEmptyText = financeEmptyText(brokerCommissions.length, filteredBrokerCommissions.length, "broker commissions");
   const debtRecoveryEmptyText = financeEmptyText(debtRecoveries.length, filteredDebtRecoveries.length, "debt recovery cases");
   const paymentVoucherEmptyText = financeEmptyText(paymentVouchers.length, filteredPaymentVouchers.length, "payment vouchers");
+  const purchaseInvoiceEmptyText = financeEmptyText(purchaseInvoices.length, filteredPurchaseInvoices.length, "purchase invoices");
   const outstanding = salesInvoicePayments.reduce((sum, payment) => sum + (payment.balanceAmount ?? payment.nettPrice), 0);
   const settlementSummary = settlementTotals(settlements);
   const settlementOutstanding = settlementSummary.toPay;
@@ -2317,37 +2434,53 @@ export function FinancePage({
       </Drawer>
       {financeTab === "vouchers" && <ProCard title="Purchase invoice accounting review / 收车发票审核">
         <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm the displayed official version, invoice date and classified fee lines before AutoCount export." description="Owner-acquisition corrections reset Finance confirmation. An issued official invoice and a pending Finance review are different states." />
-        <OperationsProTable<PurchaseInvoice>
-          rowKey="id"
-          dataSource={purchaseInvoices}
-          pagination={false}
-          columns={[
-            { title: "Car Plate", render: (_, invoice) => plateFor(vehicles, invoice.vehicleId) },
-            { title: "Invoice", dataIndex: "invoiceNumber" },
-            { title: "Version", render: (_, invoice) => invoice.sourceType === "OwnerAcquisition" ? `V${invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber ?? 1}` : "Legacy" },
-            { title: "Invoice date", dataIndex: "invoiceDate" },
-            { title: "Lines", render: (_, invoice) => (invoice.lines ?? []).map((line) => line.lineType).join(", ") || "-" },
-            { title: "Amount", dataIndex: "amount", render: (value) => formatMoney(Number(value)) },
-            { title: "Official", render: (_, invoice) => invoice.sourceType === "OwnerAcquisition" ? <Tag color="blue">Issued</Tag> : <Tag>Legacy record</Tag> },
-            { title: "Finance review", dataIndex: "accountingStatus", render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}</Tag> },
-            {
-              title: "Action",
-              fixed: "right",
-              width: 180,
-              render: (_, invoice) => {
-                const displayedRevision = invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber;
-                const ownerVersionUnavailable = invoice.sourceType === "OwnerAcquisition" && displayedRevision === undefined;
-                return <Space direction="vertical" size={6} className="fullWidth">
-                  {purchaseInvoiceConfirmationError?.invoiceId === invoice.id && <PurchaseInvoiceConfirmationError error={purchaseInvoiceConfirmationError.message} onClose={() => setPurchaseInvoiceConfirmationError(undefined)} />}
-                  <Space className="tableActionGroup" wrap size={6}>
+        <Space direction="vertical" size={12} className="fullWidth">
+          {purchaseInvoiceFilters}
+          <div className="mobileRecordList">
+            {filteredPurchaseInvoices.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={purchaseInvoiceEmptyText} />}
+            {visiblePurchaseInvoices.map((invoice) => {
+              const displayedRevision = invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber;
+              const ownerVersionUnavailable = invoice.sourceType === "OwnerAcquisition" && displayedRevision === undefined;
+              return <article className="mobileRecordCard" key={invoice.id}>
+                <div className="mobileRecordHeader">
+                  <div>
+                    <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
+                    <Typography.Text type="secondary">{plateFor(vehicles, invoice.vehicleId)}</Typography.Text>
+                    <Typography.Title level={5}>{invoice.invoiceNumber}</Typography.Title>
+                  </div>
+                  <Tag color={invoice.accountingStatus === "FinanceConfirmed" ? "green" : "gold"}>{invoice.accountingStatus === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}</Tag>
+                </div>
+                <div className="mobileRecordMeta">
+                  <span><small>Amount / 金额</small><strong>{formatMoney(Number(invoice.amount))}</strong></span>
+                  <span><small>Invoice Date / 日期</small><strong>{invoice.invoiceDate || "-"}</strong></span>
+                </div>
+                <div className="mobileRecordSection">
+                  <Typography.Text className="mobileRecordLabel">Official Version & Lines / 正式版本与分类</Typography.Text>
+                  <div className="mobileRecordTextBlock"><span>{invoice.sourceType === "OwnerAcquisition" ? `V${displayedRevision ?? 1} · Issued` : "Legacy record"}</span><span>{(invoice.lines ?? []).map((line) => `${line.lineType}: ${formatMoney(Number(line.amount))}`).join(" · ") || "-"}</span></div>
+                </div>
+                <div className="mobileRecordFooter">
+                  <Tag>{invoice.purchaseDate ? `Purchased: ${invoice.purchaseDate}` : "Purchase date not recorded"}</Tag>
+                  <Space wrap size={6}>
                     {invoice.sourceType === "OwnerAcquisition" && <Button size="small" type="primary" onClick={() => setPurchaseInvoiceDetailsId(invoice.id)}>Details</Button>}
-                    {invoice.accountingStatus !== "FinanceConfirmed" ? <Tooltip title={ownerVersionUnavailable ? "Reload the issued invoice version before Finance confirmation." : undefined}><span><Button size="small" loading={confirmingPurchaseInvoiceId === invoice.id} disabled={ownerVersionUnavailable} onClick={async () => { setPurchaseInvoiceConfirmationError(undefined); setConfirmingPurchaseInvoiceId(invoice.id); try { await confirmPurchaseInvoiceAccounting(invoice.id, invoice.sourceType === "OwnerAcquisition" ? displayedRevision : undefined); message.success("Purchase invoice accounting confirmed for the displayed version."); await reloadPurchaseInvoices(); } catch (error) { setPurchaseInvoiceConfirmationError({ invoiceId: invoice.id, message: humanizeApiError(error, "Unable to confirm this purchase invoice version.") }); } finally { setConfirmingPurchaseInvoiceId(undefined); } }}>Confirm version</Button></span></Tooltip> : null}
+                    {invoice.accountingStatus !== "FinanceConfirmed" && <Tooltip title={ownerVersionUnavailable ? "Reload the issued invoice version before Finance confirmation." : undefined}><span><Button size="small" loading={confirmingPurchaseInvoiceId === invoice.id} disabled={ownerVersionUnavailable} onClick={() => void confirmPurchaseInvoice(invoice)}>Confirm version</Button></span></Tooltip>}
                   </Space>
-                </Space>;
-              }
-            }
-          ]}
-        />
+                </div>
+                {purchaseInvoiceConfirmationError?.invoiceId === invoice.id && <PurchaseInvoiceConfirmationError error={purchaseInvoiceConfirmationError.message} onClose={() => setPurchaseInvoiceConfirmationError(undefined)} />}
+              </article>;
+            })}
+            <Pagination className="mobileRecordPagination" current={purchaseInvoicePageNumber} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPurchaseInvoices.length} showSizeChanger={false} hideOnSinglePage onChange={setPurchaseInvoicePage} />
+          </div>
+          <OperationsProTable<PurchaseInvoice>
+            className="desktopDataTable nativeSearchDesktopOnly"
+            rowKey="id"
+            dataSource={filteredPurchaseInvoices}
+            pagination={tablePagination(filteredPurchaseInvoices.length, purchaseInvoicePageNumber, setPurchaseInvoicePage)}
+            columns={purchaseInvoiceColumns}
+            nativeSearch={purchaseInvoiceNativeSearch}
+            scroll={{ x: 1240 }}
+            locale={{ emptyText: purchaseInvoiceEmptyText }}
+          />
+        </Space>
       </ProCard>}
       {financeTab === "vouchers" && <ProCard title="Delivery accounting review / 出车会计审核">
         <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm delivery-entered insurance and road-tax drafts before they are eligible for AutoCount review." />
