@@ -11,7 +11,7 @@ describe("admin sidebar layout", () => {
     const app = readFileSync(fileURLToPath(new URL("./App.tsx", import.meta.url)), "utf8");
     const styles = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
 
-    expect(app).toMatch(/<ProLayout[\s\S]*?siderWidth=\{224\}/);
+    expect(app).toMatch(/<ProLayout[\s\S]*?siderWidth=\{256\}/);
     expect(styles).toMatch(/\.ant-pro-sider:not\(\.ant-layout-sider-collapsed\) \.ant-pro-base-menu-inline-item-text\s*\{[^}]*overflow:\s*visible;[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
     expect(app).toContain("menuItemRender=");
   });

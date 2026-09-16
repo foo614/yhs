@@ -3,7 +3,28 @@
   min-width: 0;
 }
 
+.purchaseInvoiceDetailHeader {
+  display: grid;
+  gap: 10px;
+}
+
+.purchaseInvoiceDetailTitle {
+  color: #14251f;
+  font-size: 16px;
+}
+
+.purchaseInvoiceDetailActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.purchaseInvoiceDetailActions .ant-btn {
+  white-space: nowrap;
+}
+
 .purchaseInvoiceSnapshot .ant-descriptions-item-content,
+.purchaseInvoiceSnapshot .ant-pro-descriptions-item-content,
 .purchaseInvoiceChange span {
   overflow-wrap: anywhere;
 }
@@ -91,6 +112,10 @@
   .purchaseInvoiceRevisionPanel .ant-btn,
   .purchaseInvoiceHistoryVersion .ant-btn {
     min-height: 32px;
+  }
+
+  .purchaseInvoiceDetailActions {
+    flex-wrap: wrap;
   }
 
   .purchaseInvoiceChange {

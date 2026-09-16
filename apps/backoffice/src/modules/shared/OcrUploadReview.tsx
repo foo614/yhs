@@ -454,7 +454,7 @@ export function OcrUploadReview({
             {job && ocrSupportsLineItems(category) ? (
               <Form.Item
                 label={(
-                  <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                  <Space className="ocrReviewLineItemsLabel" size={12}>
                     <span>Receipt items</span>
                     <Button size="small" icon={<PlusOutlined />} onClick={addLineItem}>Add item</Button>
                   </Space>
