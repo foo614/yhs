@@ -3002,7 +3002,7 @@ export function VehiclePage({
               <div className="vehicleDocumentHistory">
                 <Typography.Text className="moduleEyebrow">Upload history / 上传记录</Typography.Text>
                 {documentMobileCards}
-                <OperationsProTable className="vehicleDocumentTable desktopDataTable" rowKey="id" columns={documentColumns} dataSource={selectedDocumentHistory} pagination={tablePagination(5)} scroll={{ x: 760 }} locale={{ emptyText: "No documents of this type uploaded yet." }} />
+                <OperationsProTable search={false} className="vehicleDocumentTable desktopDataTable" rowKey="id" columns={documentColumns} dataSource={selectedDocumentHistory} pagination={tablePagination(5)} scroll={{ x: 760 }} locale={{ emptyText: "No documents of this type uploaded yet." }} />
               </div>
             ) : null}
           </ProCard>
