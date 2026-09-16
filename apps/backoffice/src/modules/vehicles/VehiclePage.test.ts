@@ -307,13 +307,16 @@ describe("vehicleFromCreateIntakeValues", () => {
   };
 
   it("keeps new vehicles Available and defaults the stock owner", () => {
-    expect(vehicleFromCreateIntakeValues(intakeValues, false, "vehicle-new")).toMatchObject({
+    const vehicle = vehicleFromCreateIntakeValues(intakeValues, false, "vehicle-new");
+    expect(vehicle).toMatchObject({
       id: "vehicle-new",
       status: "Available",
       stockOwner: "YSHeng",
       bossConfirmed: false,
       isPublic: false
     });
+    expect(vehicle.intakeAt).toBeUndefined();
+    expect(vehicle.intakeDate).toBeUndefined();
   });
 
   it("keeps new vehicles hidden even when management approves intake", () => {
