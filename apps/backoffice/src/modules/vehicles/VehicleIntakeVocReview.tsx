@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { UploadOutlined } from "@ant-design/icons";
+import { EyeOutlined, UploadOutlined } from "@ant-design/icons";
 import { Alert, Button, Space, Upload, message } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { previewVehicleIntakeVoc, type OcrExtractionResult, type VehicleCatalogModel } from "../../api";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
+import { DocumentPreviewDrawer, type DocumentPreviewSource } from "../shared/DocumentPreviewDrawer";
 
 const vocFields = [
   { name: "plateNumber", label: "Plate / 车牌" },
@@ -197,6 +198,9 @@ export function VehicleIntakeVocReview({
 }) {
   const [result, setResult] = useState<OcrExtractionResult | null>(null);
   const [reviewedValues, setReviewedValues] = useState<Record<string, string | null | undefined>>({});
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFileUrl, setSelectedFileUrl] = useState("");
+  const [filePreviewOpen, setFilePreviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const visibleWarnings = vocReviewWarnings(result?.warnings ?? []);
   const catalogResolution = vehicleIntakeVocCatalogResolution(reviewedValues, catalogModels);
@@ -218,6 +222,16 @@ export function VehicleIntakeVocReview({
     return () => gate.dispose();
   }, []);
 
+  useEffect(() => {
+    if (!selectedFile) {
+      setSelectedFileUrl("");
+      return;
+    }
+    const objectUrl = URL.createObjectURL(selectedFile);
+    setSelectedFileUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [selectedFile]);
+
   const scanVoc = async (option: UploadRequestOption) => {
     const nextFile = option.file as File;
     if (disabled || previewInFlight.current) return;
@@ -234,6 +248,7 @@ export function VehicleIntakeVocReview({
     if (!request) return;
     previewInFlight.current = true;
     setBusy(true);
+    setSelectedFile(nextFile);
     try {
       const preview = await previewVehicleIntakeVoc(nextFile);
       if (!gate.isCurrent(request)) return;
@@ -258,6 +273,8 @@ export function VehicleIntakeVocReview({
     if (disabled || busy) return;
     setResult(null);
     setReviewedValues({});
+    setSelectedFile(null);
+    setFilePreviewOpen(false);
     onClear();
   };
 
@@ -320,6 +337,7 @@ export function VehicleIntakeVocReview({
             />
           ) : null}
           <Space wrap>
+            {selectedFile && selectedFileUrl && <Button icon={<EyeOutlined />} onClick={() => setFilePreviewOpen(true)}>Preview VOC</Button>}
             <Button onClick={clear} disabled={disabled || busy}>Remove VOC review</Button>
             <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>
               <Button loading={busy} disabled={disabled || busy}>Choose another file</Button>
@@ -327,6 +345,16 @@ export function VehicleIntakeVocReview({
           </Space>
         </Space>
       )}
+      <DocumentPreviewDrawer
+        open={filePreviewOpen}
+        title="VOC preview / VOC预览"
+        source={selectedFile && selectedFileUrl ? {
+          fileName: selectedFile.name,
+          mimeType: selectedFile.type || "application/octet-stream",
+          url: selectedFileUrl
+        } satisfies DocumentPreviewSource : undefined}
+        onClose={() => setFilePreviewOpen(false)}
+      />
     </div>
   );
 }

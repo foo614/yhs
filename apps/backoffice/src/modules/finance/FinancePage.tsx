@@ -7,6 +7,7 @@ import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
 import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, filterFinanceRowsByFields, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
+import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { SecureDocumentEvidence } from "../shared/SecureDocumentEvidence";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { OwnerPurchaseInvoiceDetails } from "../vehicles/OwnerPurchaseInvoiceDetails";
@@ -36,6 +37,7 @@ import {
   confirmPurchaseInvoiceAccounting,
   collectionOfficialReceiptContentUrl,
   financeInvoiceContentUrl,
+  getProtectedFileContent,
   getDeliveryAccountingCharges,
   getDeliveryInvoiceUpdateRequests,
   getPurchaseInvoices,
@@ -1017,7 +1019,14 @@ export function FinancePage({
           {evidence.length > 0 && <div className="financeCollectionEvidenceList">{evidence.map((document) => <div key={document.id}><Typography.Text type="secondary">Uploaded {financeHistoryDateTime(document.uploadedAt)} by {financeRequesterLabel(document.uploadedBy, currentUser?.id)}</Typography.Text><SecureDocumentEvidence vehicleId={payment.vehicleId} document={document} /></div>)}</div>}
           {collection.officialReceiptNumber && <Space wrap size={6} className="financeCollectionReceipt">
             <Tag color={collection.officialReceiptVoided ? "red" : "green"}>{collection.officialReceiptVoided ? "Official receipt voided" : "Official receipt issued"}</Tag>
-            <Button size="small" disabled={collection.officialReceiptVoided} href={collection.officialReceiptVoided ? undefined : collectionOfficialReceiptContentUrl(collection.id)} target="_blank">Download {collection.officialReceiptNumber}</Button>
+            {collection.officialReceiptVoided ? <Button size="small" disabled>Download {collection.officialReceiptNumber}</Button> : <DocumentPreviewButton
+              fileName={`${collection.officialReceiptNumber}.pdf`}
+              mimeType="application/pdf"
+              downloadUrl={collectionOfficialReceiptContentUrl(collection.id)}
+              loadContent={() => getProtectedFileContent(collectionOfficialReceiptContentUrl(collection.id), "Unable to load official receipt preview")}
+              previewLabel="Preview receipt"
+              downloadLabel="Download receipt"
+            />}
           </Space>}
           {!physicalCash && collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
@@ -1072,7 +1081,14 @@ export function FinancePage({
       render: (_, row) => isFinanceV2(row) ? (
         <Space direction="vertical" size={2}>
           <Tag color={receivableStatusColor(row.receivableStatus)}>{receivableStatusLabel(row.receivableStatus)}</Tag>
-          {row.invoice ? <Typography.Link href={financeInvoiceContentUrl(row.invoice.id)} target="_blank">{row.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
+          {row.invoice ? <DocumentPreviewButton
+            fileName={`${row.invoice.invoiceNumber}.pdf`}
+            mimeType="application/pdf"
+            downloadUrl={financeInvoiceContentUrl(row.invoice.id)}
+            loadContent={() => getProtectedFileContent(financeInvoiceContentUrl(row.invoice!.id), "Unable to load sales invoice preview")}
+            previewLabel="Preview invoice"
+            downloadLabel="Download invoice"
+          /> : <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
         </Space>
       ) : (
         <Space wrap size={4}>
@@ -1202,7 +1218,14 @@ export function FinancePage({
       render: (_, row) => (
         <Space className="tableActionGroup" wrap size={6}>
           <Button size="small" type="primary" onClick={() => selectPaymentVoucher(row.id)}>Details</Button>
-          <Button size="small" href={paymentVoucherPdfUrl(row.id)} target="_blank">PDF</Button>
+          <DocumentPreviewButton
+            fileName={`payment-voucher-${row.id}.pdf`}
+            mimeType="application/pdf"
+            downloadUrl={paymentVoucherPdfUrl(row.id)}
+            loadContent={() => getProtectedFileContent(paymentVoucherPdfUrl(row.id), "Unable to load payment voucher preview")}
+            previewLabel="Preview PDF"
+            downloadLabel="Download PDF"
+          />
           {row.status === "Pending" && <Button size="small" onClick={() => confirmApproveVoucher(row)}>Approve</Button>}
           {row.status === "Approved" && <Button size="small" onClick={() => confirmMarkVoucherPaid(row)}>Mark paid</Button>}
         </Space>
@@ -1525,7 +1548,14 @@ export function FinancePage({
                     <span><small>Balance Due / 未收</small><strong>{formatMoney(payment.balanceAmount ?? payment.nettPrice)}</strong></span>
                   </div>
                   <div className="mobileRecordFooter">
-                    {payment.invoice ? <Typography.Link href={financeInvoiceContentUrl(payment.invoice.id)} target="_blank">{payment.invoice.invoiceNumber} PDF</Typography.Link> : <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
+                    {payment.invoice ? <DocumentPreviewButton
+                      fileName={`${payment.invoice.invoiceNumber}.pdf`}
+                      mimeType="application/pdf"
+                      downloadUrl={financeInvoiceContentUrl(payment.invoice.id)}
+                      loadContent={() => getProtectedFileContent(financeInvoiceContentUrl(payment.invoice!.id), "Unable to load sales invoice preview")}
+                      previewLabel="Preview invoice"
+                      downloadLabel="Download invoice"
+                    /> : <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
                     <div className="financeV2PrimaryAction">{v2PrimaryAction(payment)}</div>
                   </div>
                 </article>
@@ -1712,7 +1742,14 @@ export function FinancePage({
               <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for a different Boss/Admin user"}</Descriptions.Item>
             </Descriptions>
           </ProCard>}
-          {selectedV2DetailsPayment.invoice && <Button block href={financeInvoiceContentUrl(selectedV2DetailsPayment.invoice.id)} target="_blank">Open invoice PDF · {selectedV2DetailsPayment.invoice.invoiceNumber}</Button>}
+          {selectedV2DetailsPayment.invoice && <DocumentPreviewButton
+            fileName={`${selectedV2DetailsPayment.invoice.invoiceNumber}.pdf`}
+            mimeType="application/pdf"
+            downloadUrl={financeInvoiceContentUrl(selectedV2DetailsPayment.invoice.id)}
+            loadContent={() => getProtectedFileContent(financeInvoiceContentUrl(selectedV2DetailsPayment.invoice!.id), "Unable to load sales invoice preview")}
+            previewLabel={`Preview invoice · ${selectedV2DetailsPayment.invoice.invoiceNumber}`}
+            downloadLabel="Download invoice"
+          />}
           {selectedV2DetailsPayment.receivableStatus !== "Paid" && (selectedV2DetailsPayment.availableToAllocate ?? 0) > 0 && <Button block type="primary" onClick={() => { setV2DetailsPaymentId(undefined); openAddPayment(selectedV2DetailsPayment); }}>Add payment</Button>}
           {collectionHistory(selectedV2DetailsPayment)}
         </Space>}

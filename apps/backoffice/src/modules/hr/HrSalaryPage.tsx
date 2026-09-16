@@ -5,12 +5,13 @@ import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Modal, Pagina
 import { ProCard } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
+import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { Calendar, DatePicker } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
-import { humanizeApiError, staffRoleValues } from "../../api";
+import { getHrMedicalCertificateContent, hrPayslipPdfUrl, humanizeApiError, staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
 import "./HrSalaryPage.css";
@@ -88,6 +89,7 @@ type HrSalaryPageProps = {
   onUpdatePayrollProfile: (profile: HrPayrollProfile) => Promise<void>;
   onCreatePayPeriod: (period: HrPayPeriod) => Promise<void>;
   onGeneratePayslips: (payPeriodId: string) => Promise<void>;
+  onLoadPayslip?: (payslip: HrPayslip) => Promise<Blob>;
   onDownloadPayslip?: (payslip: HrPayslip) => Promise<void>;
 };
 
@@ -311,6 +313,7 @@ export function HrSalaryPage({
   onUpdatePayrollProfile,
   onCreatePayPeriod,
   onGeneratePayslips,
+  onLoadPayslip,
   onDownloadPayslip
 }: HrSalaryPageProps) {
   const isHrManager = Boolean(currentUser?.roles.some((role) => role === "BossAdmin" || role === "HrSalary"));
@@ -471,7 +474,13 @@ export function HrSalaryPage({
       title: "MC",
       render: (_, record) => (
         <Space className="tableActionGroup" wrap size={6}>
-          {record.medicalCertificateDocumentId ? <Button icon={<DownloadOutlined />} href={mcContentUrl(record.id)} target="_blank" /> : record.type === "MedicalLeave" ? <Tag color="red">MC Missing / 缺少</Tag> : <Tag>Not required / 不需要</Tag>}
+          {record.medicalCertificateDocumentId ? <DocumentPreviewButton
+            fileName="Medical certificate / 病假单"
+            downloadUrl={mcContentUrl(record.id)}
+            loadContent={() => getHrMedicalCertificateContent(record.id)}
+            previewLabel="Preview MC"
+            downloadLabel="Download MC"
+          /> : record.type === "MedicalLeave" ? <Tag color="red">MC Missing / 缺少</Tag> : <Tag>Not required / 不需要</Tag>}
           <Upload beforeUpload={(file) => { void onUploadMc(record.id, file); return false; }} showUploadList={false}>
             <Button icon={<UploadOutlined />} disabled={record.type !== "MedicalLeave"} />
           </Upload>
@@ -534,7 +543,14 @@ export function HrSalaryPage({
     { title: "Manual Deduct / 手动扣", dataIndex: "manualDeductions", render: money },
     { title: "Gross / 应发", dataIndex: "grossPay", render: money },
     { title: "Net Pay / 实发", dataIndex: "netPay", render: (value: number) => <Typography.Text strong>{money(value)}</Typography.Text> },
-    { title: "Action / 操作", fixed: "right", render: (_, record) => onDownloadPayslip ? <Button size="small" icon={<DownloadOutlined />} onClick={() => void onDownloadPayslip(record)}>PDF</Button> : null }
+    { title: "Action / 操作", fixed: "right", render: (_, record) => onLoadPayslip ? <DocumentPreviewButton
+      fileName={`payslip-${record.id}.pdf`}
+      mimeType="application/pdf"
+      downloadUrl={hrPayslipPdfUrl(record.id)}
+      loadContent={() => onLoadPayslip(record)}
+      previewLabel="Preview PDF"
+      downloadLabel="PDF"
+    /> : onDownloadPayslip ? <Button size="small" icon={<DownloadOutlined />} onClick={() => void onDownloadPayslip(record)}>PDF</Button> : null }
   ];
 
   const payrollProfileColumns: ColumnsType<HrPayrollProfile> = [
@@ -692,7 +708,13 @@ export function HrSalaryPage({
             <div className="mobileRecordTextBlock"><span>{record.reason || "-"}</span></div>
           </div>
           <div className="mobileRecordFooter hrMobileActions">
-            {record.medicalCertificateDocumentId ? <Tooltip title="Medical certificate / 病假单"><Button size="small" icon={<DownloadOutlined />} href={mcContentUrl(record.id)} target="_blank">MC</Button></Tooltip> : <Tooltip title="Medical certificate / 病假单"><Tag color={record.type === "MedicalLeave" ? "red" : undefined}>MC: {record.type === "MedicalLeave" ? "Missing / 缺少" : "Not required / 不需要"}</Tag></Tooltip>}
+            {record.medicalCertificateDocumentId ? <DocumentPreviewButton
+              fileName="Medical certificate / 病假单"
+              downloadUrl={mcContentUrl(record.id)}
+              loadContent={() => getHrMedicalCertificateContent(record.id)}
+              previewLabel="Preview MC"
+              downloadLabel="Download MC"
+            /> : <Tooltip title="Medical certificate / 病假单"><Tag color={record.type === "MedicalLeave" ? "red" : undefined}>MC: {record.type === "MedicalLeave" ? "Missing / 缺少" : "Not required / 不需要"}</Tag></Tooltip>}
             <Upload beforeUpload={(file) => { void onUploadMc(record.id, file); return false; }} showUploadList={false}>
               <Tooltip title="Upload medical certificate / 上传病假单">
                 <Button size="small" icon={<UploadOutlined />} disabled={record.type !== "MedicalLeave"}>Upload MC / 上传MC</Button>
@@ -789,7 +811,14 @@ export function HrSalaryPage({
             <div><span>Manual Deduct / 手动扣</span><strong>{money(record.manualDeductions)}</strong></div>
             <div><span>Gross / 应发</span><strong>{money(record.grossPay)}</strong></div>
           </div>
-          {onDownloadPayslip && <Button size="small" icon={<DownloadOutlined />} onClick={() => void onDownloadPayslip(record)}>Download PDF / 下载薪资单</Button>}
+          {onLoadPayslip ? <DocumentPreviewButton
+            fileName={`payslip-${record.id}.pdf`}
+            mimeType="application/pdf"
+            downloadUrl={hrPayslipPdfUrl(record.id)}
+            loadContent={() => onLoadPayslip(record)}
+            previewLabel="Preview PDF / 预览薪资单"
+            downloadLabel="Download PDF / 下载薪资单"
+          /> : onDownloadPayslip && <Button size="small" icon={<DownloadOutlined />} onClick={() => void onDownloadPayslip(record)}>Download PDF / 下载薪资单</Button>}
         </article>
       ))}
       {filteredPayslips.length > hrRecordPageSize && <Pagination current={payslipPage.current} pageSize={hrRecordPageSize} total={filteredPayslips.length} showSizeChanger={false} onChange={(page) => setRecordPage("payslips", page)} />}

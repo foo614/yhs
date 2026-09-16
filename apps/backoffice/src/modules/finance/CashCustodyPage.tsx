@@ -3,9 +3,11 @@ import { ProCard } from "@ant-design/pro-components";
 import { Alert, Button, Descriptions, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Timeline, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
+import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { FINANCE_LIST_PAGE_SIZE, financeEmptyText, financePageFor, pageFinanceRows } from "./financeList";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import {
+  getProtectedFileContent,
   officialReceiptContentUrl,
   type CashHandover,
   type CashHandoverPaymentLookup,
@@ -174,7 +176,14 @@ export function CashCustodyPage({
       render: (_, handover) => handover.officialReceiptNumber ? (
         <Space wrap>
           <Tag color="green">{handover.officialReceiptNumber}</Tag>
-          <Button size="small" href={officialReceiptContentUrl(handover.id)} target="_blank">Download</Button>
+          <DocumentPreviewButton
+            fileName={`${handover.officialReceiptNumber}.pdf`}
+            mimeType="application/pdf"
+            downloadUrl={officialReceiptContentUrl(handover.id)}
+            loadContent={() => getProtectedFileContent(officialReceiptContentUrl(handover.id), "Unable to load official receipt preview")}
+            previewLabel="Preview"
+            downloadLabel="Download"
+          />
           <Button size="small" onClick={() => composeReceiptEmail(handover, customers)}>Compose Email</Button>
         </Space>
       ) : "-"
@@ -278,7 +287,14 @@ export function CashCustodyPage({
                   {handover.officialReceiptNumber ? (
                     <Space className="cashCustodyReceiptActions" wrap size={6}>
                       <Tag color="green">{handover.officialReceiptNumber}</Tag>
-                      <Button size="small" href={officialReceiptContentUrl(handover.id)} target="_blank">Download</Button>
+                      <DocumentPreviewButton
+                        fileName={`${handover.officialReceiptNumber}.pdf`}
+                        mimeType="application/pdf"
+                        downloadUrl={officialReceiptContentUrl(handover.id)}
+                        loadContent={() => getProtectedFileContent(officialReceiptContentUrl(handover.id), "Unable to load official receipt preview")}
+                        previewLabel="Preview"
+                        downloadLabel="Download"
+                      />
                       <Button size="small" onClick={() => composeReceiptEmail(handover, customers)}>Compose Email</Button>
                     </Space>
                   ) : <Typography.Text type="secondary">Not issued</Typography.Text>}
