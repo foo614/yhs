@@ -272,13 +272,25 @@ body {
 }
 
 .ocrReviewLineItemsLabel {
+  display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
+  justify-content: space-between;
   min-width: 0;
 }
 
 .ocrReviewLineItemsLabel .ant-btn {
   flex: 0 0 auto;
+  margin-left: 12px;
+}
+
+.ocrReviewLineItemsItem {
+  margin-top: 8px;
+}
+
+.ocrReviewDocumentActions {
+  width: 100%;
 }
 
 .ocrLineItemsTable {
@@ -3347,6 +3359,18 @@ body {
   align-items: center;
   justify-content: center;
   line-height: 1.2;
+}
+
+.tableActionGroup.documentPreviewButtonActionsFullWidth {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  gap: 6px;
+}
+
+.tableActionGroup.documentPreviewButtonActionsFullWidth .ant-space-item,
+.tableActionGroup.documentPreviewButtonActionsFullWidth .ant-btn {
+  width: 100%;
 }
 
 .loanActionCell {

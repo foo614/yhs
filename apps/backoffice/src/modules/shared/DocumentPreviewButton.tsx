@@ -10,7 +10,8 @@ export function DocumentPreviewButton({
   downloadUrl,
   loadContent,
   previewLabel = "Preview",
-  downloadLabel = "Download"
+  downloadLabel = "Download",
+  fullWidth = false
 }: {
   fileName: string;
   mimeType?: string;
@@ -18,6 +19,7 @@ export function DocumentPreviewButton({
   loadContent: () => Promise<Blob>;
   previewLabel?: string;
   downloadLabel?: string;
+  fullWidth?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -66,7 +68,7 @@ export function DocumentPreviewButton({
 
   return (
     <>
-      <Space className="tableActionGroup" size={6} wrap>
+      <Space className={fullWidth ? "tableActionGroup documentPreviewButtonActionsFullWidth" : "tableActionGroup"} size={6} wrap>
         <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => void openPreview()}>
           {previewLabel}
         </Button>
