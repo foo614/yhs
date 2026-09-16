@@ -244,6 +244,9 @@ public sealed class OwnerPurchaseInvoiceTests
         Assert.Contains("YS HENG", pdf);
         Assert.Contains("FINANCE OPERATIONS", pdf);
         Assert.Contains("PURCHASE INVOICE", pdf);
+        Assert.Contains("PURCHASE DETAILS", pdf);
+        Assert.Contains("AMOUNT PAYABLE", pdf);
+        Assert.Contains("AMOUNT IN WORDS", pdf);
         Assert.Contains("(PURCHASE INVOICE / CONT.) Tj", pdf);
         Assert.DoesNotContain("CONTINUED", pdf);
         Assert.Contains("Seller IC: -", pdf);

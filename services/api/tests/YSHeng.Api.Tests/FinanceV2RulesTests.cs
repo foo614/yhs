@@ -757,6 +757,8 @@ public sealed class FinanceV2RulesTests
         Assert.Contains("FINANCE OPERATIONS", pdf);
         Assert.Contains("SALES INVOICE", pdf);
         Assert.Contains("YSH-INV-2026-000042", pdf);
+        Assert.Contains("BILL TO / CUSTOMER DETAILS", pdf);
+        Assert.Contains("VEHICLE DETAILS", pdf);
         Assert.Contains("Vehicle: ABC1234 Mercedes Benz Extra Long", pdf);
         Assert.Contains("Executive Edition 2022", pdf);
         Assert.DoesNotContain("(Vehicle: ABC1234 Mercedes Benz Extra Long Executive Edition 2022) Tj", pdf);
@@ -771,6 +773,8 @@ public sealed class FinanceV2RulesTests
         Assert.Contains("Vehicle sales price", pdf);
         Assert.Contains("Less: No Claim Discount", pdf);
         Assert.Contains("RM 50,600.00", pdf);
+        Assert.Contains("AMOUNT PAYABLE", pdf);
+        Assert.Contains("AMOUNT IN WORDS", pdf);
         Assert.Contains("Customer copy", pdf);
         Assert.Contains(Convert.ToHexString(System.Text.Encoding.BigEndianUnicode.GetBytes("王小明")), pdf);
         Assert.Contains("/UniGB-UCS2-H", pdf);
