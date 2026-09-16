@@ -999,7 +999,7 @@ export function VehiclePage({
       (left, right) => profitFor(right) - profitFor(left)
     );
   } else {
-    filteredVehicles.sort((left, right) => compareVehicleIntakeDates(right.intakeDate, left.intakeDate));
+    filteredVehicles.sort((left, right) => compareVehicleIntakeDates(left.intakeDate, right.intakeDate));
   }
   const mobileVehiclePageCount = Math.max(1, Math.ceil(filteredVehicles.length / mobileVehiclePageSize));
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
@@ -4241,7 +4241,7 @@ function vehicleAgeInDays(vehicle: Pick<Vehicle, "intakeDate">, todayIsoDate: st
   return Math.max(0, Math.floor((today - intakeDate) / (24 * 60 * 60 * 1000)));
 }
 
-function compareVehicleIntakeDates(left?: string, right?: string) {
+export function compareVehicleIntakeDates(left?: string, right?: string) {
   const leftTime = left ? Date.parse(`${left}T00:00:00Z`) : Number.NEGATIVE_INFINITY;
   const rightTime = right ? Date.parse(`${right}T00:00:00Z`) : Number.NEGATIVE_INFINITY;
   return rightTime - leftTime;
