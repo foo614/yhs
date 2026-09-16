@@ -247,11 +247,15 @@ public sealed class OwnerPurchaseInvoiceTests
         Assert.Contains("PURCHASE DETAILS", pdf);
         Assert.Contains("AMOUNT PAYABLE", pdf);
         Assert.Contains("AMOUNT IN WORDS", pdf);
+        Assert.Contains("VERSION 2 / DRAFT", pdf);
+        Assert.DoesNotContain("ACCOUNTING DRAFT", pdf);
         Assert.Contains("(PURCHASE INVOICE / CONT.) Tj", pdf);
         Assert.DoesNotContain("CONTINUED", pdf);
-        Assert.Contains("Seller IC: -", pdf);
-        Assert.Contains("Seller TIN: -", pdf);
+        Assert.Contains("SELLER IC", pdf);
+        Assert.Contains("SELLER TIN", pdf);
         Assert.Contains("Payment reference: -", pdf);
+        Assert.DoesNotContain("Seller IC: -", pdf);
+        Assert.DoesNotContain("Seller TIN: -", pdf);
         Assert.Contains("(TOTAL) Tj", pdf);
         Assert.Contains("(RM 90.00) Tj", pdf);
         Assert.Contains("Prepared by: sales-1", pdf);
