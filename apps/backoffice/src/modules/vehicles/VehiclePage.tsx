@@ -934,20 +934,6 @@ export function VehiclePage({
       vehicleDetailForm.setFieldValue("publicDescriptionMarkdown", neutralVehicleDescriptionTemplate);
     }
   }, [selectedVehicle?.id, vehicleDetailForm]);
-  const useVehicleDescriptionTemplate = () => {
-    const applyTemplate = () => vehicleDetailForm.setFieldValue("publicDescriptionMarkdown", neutralVehicleDescriptionTemplate);
-    if (String(vehicleDetailForm.getFieldValue("publicDescriptionMarkdown") ?? "").trim()) {
-      Modal.confirm({
-        title: "Replace the public description?",
-        content: "This replaces the current Markdown with a neutral vehicle-highlights template. Existing copy will not be retained in the form.",
-        okText: "Use template",
-        cancelText: "Keep current copy",
-        onOk: applyTemplate
-      });
-      return;
-    }
-    applyTemplate();
-  };
   const selectedVehiclePricePolicy = vehicleSellingPriceEditPolicy(selectedVehicle, canApproveVehicles);
   const selectedVehicleCustomerPolicy = selectedVehicle ? vehicleCustomerEditPolicy(selectedVehicle, loans) : { locked: false, allowedCustomerIds: [] };
   const selectedVehicleCustomerOptions = selectedVehicleCustomerPolicy.allowedCustomerIds.length > 0
@@ -2763,7 +2749,6 @@ export function VehiclePage({
                 extra={(
                   <Space direction="vertical" size={2}>
                     <span>Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text.</span>
-                    <Button type="link" size="small" onClick={useVehicleDescriptionTemplate}>Use neutral template</Button>
                   </Space>
                 )}
               >
