@@ -1,7 +1,7 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { ArrowDownOutlined, ArrowUpOutlined, CheckCircleFilled, DeleteOutlined, DownloadOutlined, HolderOutlined, UploadOutlined } from "@ant-design/icons";
+import { ArrowDownOutlined, ArrowUpOutlined, CheckCircleFilled, DeleteOutlined, DownloadOutlined, HolderOutlined, InfoCircleOutlined, UploadOutlined } from "@ant-design/icons";
 import { ProCard, ProDescriptions, ProConfigProvider, StepsForm } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { enUSIntl } from "@ant-design/pro-provider";
@@ -71,6 +71,17 @@ const receiptInvoiceDocumentCategories: DocumentCategory[] = ["PurchaseInvoice",
 const mobileVehiclePageSize = 8;
 const earliestVehicleYear = 1990;
 const latestVehicleYear = new Date().getFullYear() + 1;
+
+function ModifiedPurchaseLabel() {
+  return (
+    <span>
+      Modified purchase / 修改收车价{" "}
+      <Tooltip title="Optional. Internal adjusted cost used for margin and profit. Leave blank to use the real purchase price.">
+        <InfoCircleOutlined aria-label="Modified purchase information" />
+      </Tooltip>
+    </span>
+  );
+}
 export const neutralVehicleDescriptionTemplate = "## Vehicle highlights\n\n- Year:\n- Make & model:\n- Engine:\n- Viewing:";
 export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id">> & {
   prepareSettlement?: boolean;
@@ -2716,7 +2727,7 @@ export function VehiclePage({
                 <InputNumber className="fullWidth" min={earliestVehicleYear} max={latestVehicleYear} precision={0} step={1} />
               </Form.Item>
               <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item name="modifiedPurchasePrice" label="Modified purchase / 修改收车价" extra="Internal adjusted cost used for margin and profit. Leave blank to use the real purchase price."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item
                 name="sellingPrice"
                 label="Selling / 售价"
@@ -3283,7 +3294,7 @@ export function VehiclePage({
             initialValues={{ contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
           >
             <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="modifiedPurchasePrice" label="Modified purchase / 修改收车价" extra="Internal adjusted cost used for margin and profit. Leave blank to use the real purchase price."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item
               name="sellingPrice"
               label="Selling / 售价"
