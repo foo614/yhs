@@ -340,7 +340,7 @@ const bilingual = {
   repairs: "Repair / 整备",
   loans: "Loan / 贷款",
   delivery: "Delivery / 出车",
-  finance: "Finance & Collection / 财务收款",
+  finance: "Finance / 财务",
   leads: "Leads / 客户询问",
   auditLog: "Audit Log / 操作记录",
   settings: "Settings / 系统设置"

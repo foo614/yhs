@@ -586,7 +586,7 @@ const deliveryGuide: ModuleGuideDefinition = {
 
 const financeManagementGuide: ModuleGuideDefinition = {
   path: "/finance",
-  title: "Finance & Collection / 财务收款",
+  title: "Finance / 财务",
   roleLabel: "Finance control / 财务管控",
   summary: "Prepare invoices, record and reconcile collections, manage vouchers and costs, review handovers, and export an AutoCount review workbook.",
   quickSteps: [
@@ -817,7 +817,7 @@ const customerGuide: ModuleGuideDefinition = {
       actions: ["Review Payments and balance state.", "Review invoice number, date, amount, and protected PDF.", "Review official receipt number, amount, issue time, and protected PDF.", "Open Finance for any correction or workflow action."],
       requiredItems: ["Finance permission and matching customer receivable"],
       completeWhen: "The displayed finance history agrees with the source record and evidence.",
-      handoff: "Finance & Collection / 财务收款",
+      handoff: "Finance / 财务",
       warnings: ["Downloads are protected.", "This section is hidden from roles without Finance access."]
     },
     {
