@@ -1463,6 +1463,7 @@ export default function App() {
               onUpdatePayrollProfile={(profile) => runUpdate(() => updateHrPayrollProfile(profile), (record) => setHrPayrollProfiles((items) => replaceByIdOrPrepend(items, record)), "Payroll profile updated")}
               onCreatePayPeriod={(period) => runCreate(() => createHrPayPeriod(period), (record) => setHrPayPeriods((items) => [record, ...items]), "Pay period created")}
               onGeneratePayslips={(payPeriodId) => runUpdate(() => generateHrPayslips(payPeriodId), (records) => setHrPayslips((items) => mergeById(items, records)), "Payslips generated")}
+              onLoadPayslip={(payslip) => downloadHrPayslipPdf(payslip.id)}
               onDownloadPayslip={async (payslip) => {
                 try {
                   const url = URL.createObjectURL(await downloadHrPayslipPdf(payslip.id));
@@ -3783,6 +3784,7 @@ function RepairPage({
               categories={repairDocumentCategories}
               repairJobId={selectedRepair.id}
               reloadKey={documentReloadKey}
+              enablePreview
             />
             <Typography.Text strong>Confirmed receipt items / 已确认收据项目</Typography.Text>
             <Table

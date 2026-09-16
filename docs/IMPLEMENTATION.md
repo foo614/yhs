@@ -189,6 +189,7 @@ Final local checks passed: 335 backend tests, 405 back-office tests, type checki
 - The Loan screen exposes the four-category checklist while enforcing category ownership: Loan staff upload Loan Document, Sales supplies shared vehicle evidence, and Boss/Admin may upload all four.
 - Pending loans now use an explicit decision action. Approval and rejection are server-audited with actor/time, rejection requires a reason, and rejected files remain available read-only while the vehicle returns to Available/private unless another workflow owns its state.
 - Loan document uploads now open a review drawer before transfer, show upload progress, and require explicit confirmation; uploaded PDF, JPEG, PNG, and WebP files can be previewed through authenticated content fetches, while other types remain download-only.
+- Uploaded files in Vehicle, Repair, Loan, Delivery, Finance, HR, and Customer 360 views use authenticated content fetches for inline PDF/image previews, with a separate protected original-download action.
 - Active loan workflow records require a submitted date so 3-day follow-up reminders can be calculated reliably.
 - Dashboard repair cost and estimated profit now use detailed repair job costs when repair rows exist for a vehicle, falling back to the vehicle refurbishment total for older intake records.
 - Dashboard `TotalProfit` and the backward-compatible `EstimatedProfit` field both represent projected margin on current unsold stock. Selected-period realised sold profit remains separate in `ActualProfit`.

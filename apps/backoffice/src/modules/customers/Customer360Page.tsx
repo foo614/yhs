@@ -4,7 +4,9 @@ import { Alert, Button, Descriptions, Empty, Select, Space, Spin, Tag, Typograph
 import type { ColumnsType } from "antd/es/table";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { OperationsProTable } from "../shared/OperationsProTable";
+import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import {
+  getProtectedFileContent,
   financeInvoiceContentUrl,
   getCustomerProfile,
   getCustomerProfileOptions,
@@ -190,19 +192,58 @@ export function Customer360Page({
     { title: "Invoice", dataIndex: "invoiceNumber" },
     { title: "Date", dataIndex: "invoiceDate" },
     { title: "Amount", dataIndex: "amount", render: money },
-    { title: "File", render: (_, invoice) => <a href={financeInvoiceContentUrl(invoice.id)} target="_blank" rel="noreferrer">Download protected PDF</a> }
+    {
+      title: "File",
+      render: (_, invoice) => {
+        const downloadUrl = financeInvoiceContentUrl(invoice.id);
+        return <DocumentPreviewButton
+          fileName={`${invoice.invoiceNumber}.pdf`}
+          mimeType="application/pdf"
+          downloadUrl={downloadUrl}
+          loadContent={() => getProtectedFileContent(downloadUrl, "Unable to load invoice preview")}
+          previewLabel="Preview PDF"
+          downloadLabel="Download PDF"
+        />;
+      }
+    }
   ];
   const receiptColumns: ColumnsType<CustomerProfileReceipt> = [
     { title: "Receipt", dataIndex: "receiptNumber" },
     { title: "Amount", dataIndex: "amount", render: money },
     { title: "Issued", dataIndex: "createdAt" },
-    { title: "File", render: (_, receipt) => <a href={officialReceiptContentUrl(receipt.cashHandoverId)} target="_blank" rel="noreferrer">Download protected PDF</a> }
+    {
+      title: "File",
+      render: (_, receipt) => {
+        const downloadUrl = officialReceiptContentUrl(receipt.cashHandoverId);
+        return <DocumentPreviewButton
+          fileName={`${receipt.receiptNumber}.pdf`}
+          mimeType="application/pdf"
+          downloadUrl={downloadUrl}
+          loadContent={() => getProtectedFileContent(downloadUrl, "Unable to load receipt preview")}
+          previewLabel="Preview PDF"
+          downloadLabel="Download PDF"
+        />;
+      }
+    }
   ];
   const documentColumns: ColumnsType<CustomerProfileDocument> = [
     { title: "Category", dataIndex: "category", render: (category: CustomerProfileDocument["category"]) => documentLabels[category] },
     { title: "File", dataIndex: "fileName" },
     { title: "Uploaded", render: (_, document) => `${document.uploadedAt} · ${document.uploadedBy}` },
-    { title: "Action", render: (_: unknown, document: CustomerProfileDocument) => <a href={vehicleDocumentContentUrl(document.vehicleId, document.id)} target="_blank" rel="noreferrer">Download protected file</a> }
+    {
+      title: "Action",
+      render: (_: unknown, document: CustomerProfileDocument) => {
+        const downloadUrl = vehicleDocumentContentUrl(document.vehicleId, document.id);
+        return <DocumentPreviewButton
+          fileName={document.fileName}
+          mimeType={document.mimeType}
+          downloadUrl={downloadUrl}
+          loadContent={() => getProtectedFileContent(downloadUrl, "Unable to load document preview")}
+          previewLabel="Preview"
+          downloadLabel="Download"
+        />;
+      }
+    }
   ];
   const enquiryColumns: ColumnsType<CustomerProfileEnquiry> = [
     { title: "Status", dataIndex: "status", render: (status) => <Tag color={status === "Closed" ? "default" : status === "Contacted" ? "blue" : "orange"}>{status}</Tag> },

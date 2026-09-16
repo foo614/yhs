@@ -1906,6 +1906,10 @@ export function hrMedicalCertificateContentUrl(leaveId: string) {
   return `${apiBaseUrl}/api/hr/leave-requests/${leaveId}/mc/content`;
 }
 
+export async function getHrMedicalCertificateContent(leaveId: string): Promise<Blob> {
+  return getProtectedFileContent(hrMedicalCertificateContentUrl(leaveId), "Unable to load medical certificate preview");
+}
+
 export async function getHrLeaveBalances(): Promise<HrLeaveBalance[]> {
   return getWithNetworkFallback("/api/hr/leave-balances", fallbackHrLeaveBalances());
 }
@@ -1967,6 +1971,10 @@ export async function getHrPayslips(): Promise<HrPayslip[]> {
 
 export async function generateHrPayslips(payPeriodId: string): Promise<HrPayslip[]> {
   return request<HrPayslip[]>(`/api/hr/pay-periods/${payPeriodId}/generate-payslips`, { method: "POST" });
+}
+
+export function hrPayslipPdfUrl(payslipId: string) {
+  return `${apiBaseUrl}/api/hr/payslips/${encodeURIComponent(payslipId)}/pdf`;
 }
 
 export async function downloadHrPayslipPdf(payslipId: string): Promise<Blob> {
@@ -2096,8 +2104,12 @@ export async function getPurchaseInvoiceRevisions(invoiceId: string): Promise<Pu
   return request<PurchaseInvoiceRevision[]>(`/api/purchase-invoices/${invoiceId}/revisions`);
 }
 
+export function purchaseInvoiceRevisionContentUrl(invoiceId: string, revisionNumber: number) {
+  return `${apiBaseUrl}/api/purchase-invoices/${invoiceId}/revisions/${revisionNumber}/content`;
+}
+
 export async function getPurchaseInvoiceRevisionContent(invoiceId: string, revisionNumber: number): Promise<Blob> {
-  return requestBlob(`/api/purchase-invoices/${invoiceId}/revisions/${revisionNumber}/content`, "Unable to download purchase invoice PDF");
+  return getProtectedFileContent(purchaseInvoiceRevisionContentUrl(invoiceId, revisionNumber), "Unable to download purchase invoice PDF");
 }
 
 export async function confirmPurchaseInvoiceAccounting(invoiceId: string, expectedRevision?: number): Promise<PurchaseInvoice> {
@@ -2559,11 +2571,7 @@ export function vehicleDocumentContentUrl(vehicleId: string, documentId: string)
 }
 
 export async function getVehicleDocumentContent(vehicleId: string, documentId: string): Promise<Blob> {
-  const response = await fetch(vehicleDocumentContentUrl(vehicleId, documentId), { credentials: "include" });
-  if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, `Unable to load document preview (${response.status})`));
-  }
-  return response.blob();
+  return getProtectedFileContent(vehicleDocumentContentUrl(vehicleId, documentId), "Unable to load document preview");
 }
 
 export function officialReceiptContentUrl(cashHandoverId: string) {
@@ -2656,6 +2664,15 @@ async function request<T = unknown>(path: string, init: RequestInit = {}, errorM
 
 async function requestBlob(path: string, errorMessage = "Request failed with status"): Promise<Blob> {
   const response = await fetch(`${apiBaseUrl}${path}`, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`));
+  }
+
+  return response.blob();
+}
+
+export async function getProtectedFileContent(url: string, errorMessage = "Unable to load file preview"): Promise<Blob> {
+  const response = await fetch(url, { credentials: "include" });
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`));
   }

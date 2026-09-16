@@ -7,9 +7,11 @@ import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { formatMoneyInputWithTwoDecimals, parseMoneyInput } from "../../money";
 import {
   getOcrJob,
+  getVehicleDocumentContent,
   humanizeApiError,
   reviewOcrJob,
   startOcrJob,
+  vehicleDocumentContentUrl,
   uploadVehicleDocumentWithProgress,
   type DocumentCategory,
   type DocumentUploadOwner,
@@ -17,6 +19,7 @@ import {
   type OcrLineItem,
   type OcrReviewedResult
 } from "../../api";
+import { DocumentPreviewButton } from "./DocumentPreviewButton";
 import { OperationsProTable } from "./OperationsProTable";
 
 export type OcrFieldConfig = {
@@ -215,6 +218,7 @@ export function OcrUploadReview({
   const canApplyReview = !failureMessage && Boolean(job?.result) && !hasMissingLineItemAmounts && lineItemsMatchDeclaredAmount;
   const reviewConflicts = job ? ocrFieldConflicts(fields, existingValues, initialValuesFromJob(job, fields)) : [];
   const reviewFieldGroups = groupOcrFields(fields);
+  const previewDocumentId = job?.documentId;
 
   async function handleUpload(option: UploadRequestOption) {
     if (!vehicleId) {
@@ -396,6 +400,13 @@ export function OcrUploadReview({
             <Tag color="blue">{documentCategoryLabel(job?.category)}</Tag>
             <Tag color="green">Ready for your check</Tag>
             <Tag color={confidenceColor(job?.result?.confidence)}>Reading quality: {confidenceLabel(job?.result?.confidence)}</Tag>
+            {vehicleId && previewDocumentId && <DocumentPreviewButton
+              fileName={`${documentCategoryLabel(job.category)} document`}
+              downloadUrl={vehicleDocumentContentUrl(vehicleId!, previewDocumentId!)}
+              loadContent={() => getVehicleDocumentContent(vehicleId!, previewDocumentId!)}
+              previewLabel="Preview document"
+              downloadLabel="Download original"
+            />}
           </Space> : null}
           {!failureMessage ? <Form name={`ocrReview-${job?.id ?? category}`} form={form} disabled={busy || Boolean(savedStep)} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
             {reviewConflicts.length > 0 ? (

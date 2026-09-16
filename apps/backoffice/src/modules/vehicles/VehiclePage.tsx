@@ -16,6 +16,7 @@ import { customerCreateBlockReason, normalizeIdentityCardNumber, ownerCreateBloc
 import { singaporeTodayIsoDate, type DashboardVehicleFocus } from "../../dashboard";
 import { isRepairCostFinal, isSupplierUsable } from "../../repairs";
 import { isMalaysiaPlateFormat, malaysiaPlateFormatMessage, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
+import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { isOcrImageMimeType, OcrUploadReview } from "../shared/OcrUploadReview";
 import { VehicleIntakeVocReview, type VehicleIntakeVocPatch } from "./VehicleIntakeVocReview";
 import { OperationsProTable } from "../shared/OperationsProTable";
@@ -27,6 +28,7 @@ import "./VehicleDetails.css";
 import {
   customerSelectLabel,
   createVehicleCatalogModel,
+  getVehicleDocumentContent,
   getVehicleDocumentsStrict,
   getVehicleCatalogModels,
   getVehicleOcrJobsStrict,
@@ -1829,16 +1831,14 @@ export function VehiclePage({
     },
     { title: "Checksum / 校验", dataIndex: "checksum", render: (value) => value ? `${String(value).slice(0, 12)}...` : "-" },
     {
-      title: "Download / 下载",
+      title: "Actions / 操作",
       render: (_, row) => (
-        <Button
-          size="small"
-          icon={<DownloadOutlined />}
-          href={vehicleDocumentContentUrl(selectedVehicleId, row.id)}
-          target="_blank"
-        >
-          Open
-        </Button>
+        <DocumentPreviewButton
+          fileName={row.fileName}
+          mimeType={row.mimeType}
+          downloadUrl={vehicleDocumentContentUrl(selectedVehicleId, row.id)}
+          loadContent={() => getVehicleDocumentContent(selectedVehicleId, row.id)}
+        />
       )
     }
   ];
@@ -1932,14 +1932,13 @@ export function VehiclePage({
             <div className="mobileRecordTextBlock"><span>{document.checksum ? `${String(document.checksum).slice(0, 18)}...` : "-"}</span></div>
           </div>
           <div className="mobileRecordFooter">
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              href={vehicleDocumentContentUrl(selectedVehicleId, document.id)}
-              target="_blank"
-            >
-              Open Document
-            </Button>
+            <DocumentPreviewButton
+              fileName={document.fileName}
+              mimeType={document.mimeType}
+              downloadUrl={vehicleDocumentContentUrl(selectedVehicleId, document.id)}
+              loadContent={() => getVehicleDocumentContent(selectedVehicleId, document.id)}
+              previewLabel="Preview document"
+            />
           </div>
         </article>
       ))}

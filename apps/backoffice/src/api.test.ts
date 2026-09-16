@@ -110,6 +110,7 @@ import {
   login,
   logout,
   mergeFinanceVehicleOptions,
+  getHrMedicalCertificateContent,
   hrMedicalCertificateContentUrl,
   acceptCashHandover,
   recordCashHandover,
@@ -1686,6 +1687,22 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(18, "http://localhost:5000/api/hr/pay-periods", expect.objectContaining({ method: "POST", body: JSON.stringify(period) }));
     expect(fetchMock).toHaveBeenNthCalledWith(20, "http://localhost:5000/api/hr/pay-periods/period-1/generate-payslips", expect.objectContaining({ method: "POST" }));
     expect(hrMedicalCertificateContentUrl("leave-1")).toBe("http://localhost:5000/api/hr/leave-requests/leave-1/mc/content");
+  });
+
+  it("loads protected medical certificate content for preview", async () => {
+    const content = new Blob(["medical-certificate"], { type: "application/pdf" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: vi.fn().mockResolvedValue(content)
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getHrMedicalCertificateContent("leave-1")).resolves.toBe(content);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/hr/leave-requests/leave-1/mc/content",
+      { credentials: "include" }
+    );
   });
 
   it("uses protected Boss calendar and office-network HR endpoints", async () => {

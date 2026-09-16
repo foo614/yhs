@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, DatePicker, Descriptions, Empty, Form, Input, InputNumber, Select, Space, Spin, Switch, Tag, Typography, message } from "antd";
-import { DownloadOutlined, EditOutlined } from "@ant-design/icons";
+import { Alert, Button, DatePicker, Descriptions, Empty, Form, Input, InputNumber, Select, Space, Spin, Switch, Tag, Typography } from "antd";
+import { EditOutlined } from "@ant-design/icons";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
+import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import "./OwnerPurchaseInvoiceDetails.css";
 import {
   getPurchaseInvoiceRevisionContent,
   getPurchaseInvoiceRevisions,
   humanizeApiError,
+  purchaseInvoiceRevisionContentUrl,
   type CreatePurchaseInvoiceRevisionInput,
   type PurchaseInvoice,
   type PurchaseInvoiceLineType,
@@ -202,7 +204,6 @@ export function OwnerPurchaseInvoiceDetails({
   const [historyLoad, setHistoryLoad] = useState<{ invoiceId: string; loading: boolean; error?: string }>({ invoiceId: invoice.id, loading: false });
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [downloadingRevision, setDownloadingRevision] = useState<number>();
   const historyGate = useRef(createPurchaseInvoiceHistoryRequestGate(invoice.id));
   const currentRevision = invoice.currentRevision;
 
@@ -248,23 +249,6 @@ export function OwnerPurchaseInvoiceDetails({
       : [currentRevision, ...historyRevisions];
   }, [currentRevision, historyRevisions]);
 
-  const download = async (revision: PurchaseInvoiceRevision) => {
-    setDownloadingRevision(revision.revisionNumber);
-    try {
-      const blob = await getPurchaseInvoiceRevisionContent(invoice.id, revision.revisionNumber);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${revision.invoiceNumber}-v${revision.revisionNumber}.pdf`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      message.error(humanizeApiError(error, "Unable to download this official purchase invoice PDF."));
-    } finally {
-      setDownloadingRevision(undefined);
-    }
-  };
-
   if (!currentRevision) {
     return <Alert type="warning" showIcon message="Current invoice version is unavailable" description="Reload the purchase invoice before correcting or downloading it. No change has been saved." />;
   }
@@ -275,7 +259,14 @@ export function OwnerPurchaseInvoiceDetails({
       <ProCard
         size="small"
         title={allowCorrections ? "Purchase invoice / 收车发票" : `Current version / 当前版本 · V${currentRevision.revisionNumber}`}
-        extra={<Space wrap><Button icon={<DownloadOutlined />} onClick={() => void download(currentRevision)} loading={downloadingRevision === currentRevision.revisionNumber}>{allowCorrections ? "Download PDF" : "Download current PDF"}</Button>{allowCorrections && <Button type="primary" icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>{editing ? "Cancel edit" : "Edit"}</Button>}</Space>}
+        extra={<Space wrap><DocumentPreviewButton
+          fileName={`${currentRevision.invoiceNumber}-v${currentRevision.revisionNumber}.pdf`}
+          mimeType="application/pdf"
+          downloadUrl={purchaseInvoiceRevisionContentUrl(invoice.id, currentRevision.revisionNumber)}
+          loadContent={() => getPurchaseInvoiceRevisionContent(invoice.id, currentRevision.revisionNumber)}
+          previewLabel={allowCorrections ? "Preview PDF" : "Preview current PDF"}
+          downloadLabel={allowCorrections ? "Download PDF" : "Download current PDF"}
+        />{allowCorrections && <Button type="primary" icon={<EditOutlined />} onClick={() => setEditing((value) => !value)}>{editing ? "Cancel edit" : "Edit"}</Button>}</Space>}
       >
         <SnapshotDetails revision={currentRevision} simplified={allowCorrections} />
       </ProCard>
@@ -348,7 +339,14 @@ export function OwnerPurchaseInvoiceDetails({
             const previous = historyWithCurrent[index + 1];
             const changes = purchaseInvoiceRevisionChanges(previous, revision);
             return (
-              <ProCard key={revision.id || revision.revisionNumber} size="small" className="purchaseInvoiceHistoryVersion" title={<Space wrap><Typography.Text strong>Version {revision.revisionNumber}</Typography.Text>{revisionAccountingTag(revision.accountingStatus)}</Space>} extra={<Button size="small" icon={<DownloadOutlined />} onClick={() => void download(revision)} loading={downloadingRevision === revision.revisionNumber}>PDF</Button>}>
+              <ProCard key={revision.id || revision.revisionNumber} size="small" className="purchaseInvoiceHistoryVersion" title={<Space wrap><Typography.Text strong>Version {revision.revisionNumber}</Typography.Text>{revisionAccountingTag(revision.accountingStatus)}</Space>} extra={<DocumentPreviewButton
+                fileName={`${revision.invoiceNumber}-v${revision.revisionNumber}.pdf`}
+                mimeType="application/pdf"
+                downloadUrl={purchaseInvoiceRevisionContentUrl(invoice.id, revision.revisionNumber)}
+                loadContent={() => getPurchaseInvoiceRevisionContent(invoice.id, revision.revisionNumber)}
+                previewLabel="Preview PDF"
+                downloadLabel="Download PDF"
+              />}>
                 <Space direction="vertical" size={4} className="fullWidth">
                   <Typography.Text type="secondary">Created {auditTimestamp(revision.createdAt)} · {revision.createdBy || "Staff account unavailable"}</Typography.Text>
                   <Typography.Text>Reason: {revision.reason || "Initial official issue"}</Typography.Text>
