@@ -1715,7 +1715,7 @@ export function VehiclePage({
       dataIndex: "intakeDate",
       width: 165,
       defaultSortOrder: "descend",
-      sorter: (a, b) => compareVehicleIntakeDates(a.intakeDate, b.intakeDate, a.intakeAt, b.intakeAt),
+      sorter: (a, b) => -compareVehicleIntakeDates(a.intakeDate, b.intakeDate, a.intakeAt, b.intakeAt),
       render: (_, row) => formatVehicleIntakeTimestamp(row.intakeAt, row.intakeDate)
     },
     {
@@ -4141,9 +4141,9 @@ function tablePagination(pageSize = 8): TablePaginationConfig {
   return { pageSize, showSizeChanger: false };
 }
 
-function formatDocumentTimestamp(value: unknown) {
+export function formatDocumentTimestamp(value: unknown) {
   const parsed = dayjs(String(value));
-  return parsed.isValid() ? parsed.format("DD MMM YYYY, HH:mm") : "-";
+  return parsed.isValid() ? parsed.locale("en").format("DD MMM YYYY, HH:mm") : "-";
 }
 
 function documentCategoryLabel(category: DocumentCategory) {
