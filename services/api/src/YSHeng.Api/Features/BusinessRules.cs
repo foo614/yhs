@@ -730,6 +730,16 @@ public static class VehicleRules
                 : vehicle.PublicDescriptionMarkdown.Trim()
         };
 
+        if (normalized.IntakeAt is { } intakeAt)
+        {
+            var normalizedIntakeAt = NormalizeDateTime(intakeAt);
+            normalized = normalized with
+            {
+                IntakeAt = normalizedIntakeAt,
+                IntakeDate = BusinessClock.SingaporeDate(new DateTimeOffset(normalizedIntakeAt))
+            };
+        }
+
         return normalized.OutstationPickupScheduledAt is { } pickupAt
             ? normalized with { OutstationPickupScheduledAt = NormalizeDateTime(pickupAt) }
             : normalized;

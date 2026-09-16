@@ -227,7 +227,12 @@ backOffice.MapGet("/operations-calendar", async (DateOnly from, DateOnly to, App
 
 backOffice.MapGet("/vehicles", async (AppDbContext db) =>
 {
-    var vehicles = await db.Vehicles.AsNoTracking().OrderBy(vehicle => vehicle.PlateNumber).ToListAsync();
+    var vehicles = await db.Vehicles.AsNoTracking()
+        .OrderBy(vehicle => vehicle.IntakeAt == null)
+        .ThenByDescending(vehicle => vehicle.IntakeAt)
+        .ThenByDescending(vehicle => vehicle.IntakeDate)
+        .ThenByDescending(vehicle => vehicle.Id)
+        .ToListAsync();
     var repairCostsByVehicle = VehicleRepairCosts.ByVehicle(await db.RepairJobs.AsNoTracking().ToListAsync());
     return Results.Ok(vehicles.Select(vehicle => vehicle with { RepairCost = VehicleRepairCosts.EffectiveCost(vehicle, repairCostsByVehicle) }));
 }).RequireAuthorization("VehicleRead");
@@ -477,7 +482,11 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
         return Results.Json(new ApiError("Preparing a settlement during vehicle intake requires Finance or Admin access."), statusCode: StatusCodes.Status403Forbidden);
     }
 
-    var vehicle = VehicleRules.NormalizeModifiedPurchasePrice(VehicleRules.NormalizeDateTimes(request.Vehicle with { RepairCost = null }));
+    var vehicle = VehicleRules.NormalizeModifiedPurchasePrice(VehicleRules.NormalizeDateTimes(request.Vehicle with
+    {
+        RepairCost = null,
+        IntakeAt = request.Vehicle.IntakeAt ?? DateTime.UtcNow
+    }));
     if (request.NewOwner is null && vehicle.OwnerId == Guid.Empty)
     {
         return Results.BadRequest(new ValidationResult([new ValidationError("seller_owner_required", "Select a previous owner before creating the vehicle.")]));
@@ -591,7 +600,7 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
 backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpContext context) =>
 {
     vehicle = vehicle with { RepairCost = null, SalesAgentUserId = null, SalesAgentName = null };
-    vehicle = VehicleRules.NormalizeDateTimes(vehicle);
+    vehicle = VehicleRules.NormalizeDateTimes(vehicle with { IntakeAt = vehicle.IntakeAt ?? DateTime.UtcNow });
     vehicle = VehicleRules.NormalizeModifiedPurchasePrice(vehicle);
     var workflowStatusValidation = VehicleWorkflowRules.ValidateCreate(vehicle);
     if (!workflowStatusValidation.IsValid) return Results.BadRequest(workflowStatusValidation);
@@ -635,6 +644,11 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
     var existingVehicle = await db.Vehicles.FirstOrDefaultAsync(item => item.Id == id);
     if (existingVehicle is null) return Results.NotFound();
     var existingSnapshot = existingVehicle with { };
+    update = update with
+    {
+        IntakeAt = update.IntakeAt ?? existingSnapshot.IntakeAt,
+        IntakeDate = update.IntakeAt is null ? existingSnapshot.IntakeDate : update.IntakeDate
+    };
     update = VehicleRules.NormalizeModifiedPurchasePrice(update with
     {
         ModifiedPurchasePrice = update.ModifiedPurchasePrice ?? existingSnapshot.ModifiedPurchasePrice
@@ -4663,6 +4677,7 @@ else
     await SeedData.EnsureSupplierOperationalStatusSchemaAsync(app);
     await SeedData.EnsureOwnerPurchaseInvoiceSchemaAsync(app);
     await SeedData.EnsureVehiclePricingSchemaAsync(app);
+    await SeedData.EnsureVehicleIntakeTimestampSchemaAsync(app);
 }
 
 app.Run();

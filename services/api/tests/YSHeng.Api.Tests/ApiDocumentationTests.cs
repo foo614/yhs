@@ -529,6 +529,8 @@ public sealed class ApiDocumentationTests
         Assert.Contains("ADD COLUMN IF NOT EXISTS \"InvoiceGenerated\" boolean NOT NULL DEFAULT false", seedData);
         Assert.Contains("ADD COLUMN IF NOT EXISTS \"AutoCountKeyed\" boolean NOT NULL DEFAULT false", seedData);
         Assert.Contains("ADD COLUMN IF NOT EXISTS \"ExternalSyncStatus\" integer NOT NULL DEFAULT 0", seedData);
+        Assert.Contains(".OrderBy(vehicle => vehicle.IntakeAt == null)", program);
+        Assert.Contains(".ThenByDescending(vehicle => vehicle.IntakeAt)", program);
     }
 
     [Fact]
@@ -578,6 +580,8 @@ public sealed class ApiDocumentationTests
         Assert.Contains("await EnsureRepairReceiptSchemaAsync(db);", seedData);
         Assert.Contains("public static async Task EnsureVehiclePricingSchemaAsync(WebApplication app)", seedData);
         Assert.Contains("ADD COLUMN IF NOT EXISTS \"ModifiedPurchasePrice\"", seedData);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"IntakeAt\" timestamp with time zone NULL", seedData);
+        Assert.Contains("await SeedData.EnsureVehicleIntakeTimestampSchemaAsync(app);", startup);
         Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"Direction\"", seedData);
         Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"PurchasePriceSnapshot\"", seedData);
         Assert.Contains("ALTER TABLE \"SettlementReminders\" ADD COLUMN IF NOT EXISTS \"BankDebtAmount\"", seedData);

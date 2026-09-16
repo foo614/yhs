@@ -754,9 +754,7 @@ export function filterOperationIntakeVehicles(
 
     return true;
   })
-  .sort((a, b) =>
-    (b.intakeDate ?? "").localeCompare(a.intakeDate ?? "")
-  );
+  .sort((a, b) => compareVehicleIntakeDates(a.intakeDate, b.intakeDate, a.intakeAt, b.intakeAt));
 }
 
 export function VehiclePage({
@@ -998,7 +996,7 @@ export function VehiclePage({
       (left, right) => profitFor(right) - profitFor(left)
     );
   } else {
-    filteredVehicles.sort((left, right) => compareVehicleIntakeDates(left.intakeDate, right.intakeDate));
+    filteredVehicles.sort((left, right) => compareVehicleIntakeDates(left.intakeDate, right.intakeDate, left.intakeAt, right.intakeAt));
   }
   const mobileVehiclePageCount = Math.max(1, Math.ceil(filteredVehicles.length / mobileVehiclePageSize));
   const clampedMobileVehiclePage = Math.min(mobileVehiclePage, mobileVehiclePageCount);
@@ -1713,12 +1711,12 @@ export function VehiclePage({
       )
     },
     {
-      title: "Intake / 入库日期",
+      title: "Intake / 入库日期时间",
       dataIndex: "intakeDate",
-      width: 130,
+      width: 165,
       defaultSortOrder: "descend",
-      sorter: (a, b) => compareVehicleIntakeDates(a.intakeDate, b.intakeDate),
-      render: (value) => value || "-"
+      sorter: (a, b) => compareVehicleIntakeDates(a.intakeDate, b.intakeDate, a.intakeAt, b.intakeAt),
+      render: (_, row) => formatVehicleIntakeTimestamp(row.intakeAt, row.intakeDate)
     },
     {
       title: "Model / 车型",
@@ -2725,6 +2723,14 @@ export function VehiclePage({
               >
                 <InputNumber className="fullWidth" min={earliestVehicleYear} max={latestVehicleYear} precision={0} step={1} />
               </Form.Item>
+              <Form.Item
+                name="intakeAt"
+                label="Intake date & time / 入库日期时间"
+                getValueProps={(value?: string | Dayjs) => ({ value: value ? dayjs(value) : null })}
+                normalize={(value: Dayjs | null) => value?.toISOString()}
+              >
+                <DatePicker className="fullWidth" showTime={{ format: "HH:mm", minuteStep: 5 }} format="DD MMM YYYY, HH:mm" placeholder="Select intake date and time" />
+              </Form.Item>
               <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item
@@ -3290,8 +3296,17 @@ export function VehiclePage({
             title="Stock & pricing"
             onFinish={captureVehicleIntakeStep}
             className="formGrid vehicleIntakeStepForm"
-            initialValues={{ contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
+            initialValues={{ intakeAt: dayjs(), contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
           >
+            <Form.Item
+              name="intakeAt"
+              label="Intake date & time / 入库日期时间"
+              rules={[{ required: true, message: "Choose the vehicle intake date and time." }]}
+              getValueProps={(value?: string | Dayjs) => ({ value: value ? dayjs(value) : null })}
+              normalize={(value: Dayjs | null) => value?.toISOString()}
+            >
+              <DatePicker className="fullWidth" showTime={{ format: "HH:mm", minuteStep: 5 }} format="DD MMM YYYY, HH:mm" placeholder="Select intake date and time" />
+            </Form.Item>
             <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item
@@ -4236,10 +4251,29 @@ function vehicleAgeInDays(vehicle: Pick<Vehicle, "intakeDate">, todayIsoDate: st
   return Math.max(0, Math.floor((today - intakeDate) / (24 * 60 * 60 * 1000)));
 }
 
-export function compareVehicleIntakeDates(left?: string, right?: string) {
-  const leftTime = left ? Date.parse(`${left}T00:00:00Z`) : Number.NEGATIVE_INFINITY;
-  const rightTime = right ? Date.parse(`${right}T00:00:00Z`) : Number.NEGATIVE_INFINITY;
+export function compareVehicleIntakeDates(left?: string, right?: string, leftAt?: string, rightAt?: string) {
+  const leftTime = parseVehicleIntakeTimestamp(leftAt, left);
+  const rightTime = parseVehicleIntakeTimestamp(rightAt, right);
+  if (leftTime === rightTime) return 0;
   return rightTime - leftTime;
+}
+
+function parseVehicleIntakeTimestamp(intakeAt?: string, intakeDate?: string) {
+  if (intakeAt) {
+    const timestamp = Date.parse(intakeAt);
+    if (!Number.isNaN(timestamp)) return timestamp;
+  }
+
+  if (intakeDate) {
+    const date = Date.parse(`${intakeDate}T00:00:00Z`);
+    if (!Number.isNaN(date)) return date;
+  }
+
+  return Number.NEGATIVE_INFINITY;
+}
+
+function formatVehicleIntakeTimestamp(intakeAt?: string, intakeDate?: string) {
+  return intakeAt ? formatDocumentTimestamp(intakeAt) : intakeDate || "-";
 }
 
 function hasOutstationPickup(vehicle: Vehicle) {
