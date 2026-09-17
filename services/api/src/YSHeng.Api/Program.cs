@@ -4669,6 +4669,7 @@ if (RuntimeMode.ShouldSeed(workerEnabled, seedDataEnabled))
 }
 else
 {
+    await SeedData.EnsureHrSchemaAsync(app);
     await SeedData.EnsureCashCustodySchemaAsync(app);
     await SeedData.EnsureFinanceRepairEnhancementSchemaAsync(app);
     await SeedData.EnsureFinanceV2SchemaAsync(app);
