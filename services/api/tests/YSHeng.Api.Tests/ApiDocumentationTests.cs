@@ -104,6 +104,20 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Hr_business_trip_approval_uses_database_translatable_overlap_predicates()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var decisionRoute = program[
+            program.IndexOf("hr.MapPut(\"/business-trips/{id:guid}/decision\"", StringComparison.Ordinal)..
+            program.IndexOf("hr.MapPost(\"/business-trips/{id:guid}/cancel\"", StringComparison.Ordinal)];
+
+        Assert.Contains("leave.StartDate <= existing.EndDate && existing.StartDate <= leave.EndDate", decisionRoute);
+        Assert.Contains("trip.StartDate <= existing.EndDate && existing.StartDate <= trip.EndDate", decisionRoute);
+        Assert.DoesNotContain("HrRules.DatesOverlap(existing.StartDate, existing.EndDate", decisionRoute);
+    }
+
+    [Fact]
     public void Manual_loan_creation_is_boss_admin_only_while_normal_loan_workflow_stays_loans_authorized()
     {
         var root = FindRepositoryRoot();
