@@ -319,6 +319,14 @@ public static class SeedData
         """);
     }
 
+    public static async Task EnsureHrSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureHrSchemaAsync(db);
+    }
+
     private static async Task EnsureHrSchemaAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("""
@@ -369,6 +377,9 @@ public static class SeedData
                 "DecisionNotes" text NULL,
                 CONSTRAINT "PK_HrBusinessTrips" PRIMARY KEY ("Id")
             );
+            ALTER TABLE "HrBusinessTrips" ADD COLUMN IF NOT EXISTS "ApprovedBy" text NULL;
+            ALTER TABLE "HrBusinessTrips" ADD COLUMN IF NOT EXISTS "ApprovedAt" timestamp with time zone NULL;
+            ALTER TABLE "HrBusinessTrips" ADD COLUMN IF NOT EXISTS "DecisionNotes" text NULL;
 
             CREATE TABLE IF NOT EXISTS "HrAttendanceReminderPolicies" (
                 "Id" uuid NOT NULL,

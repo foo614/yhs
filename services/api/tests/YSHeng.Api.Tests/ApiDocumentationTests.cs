@@ -89,6 +89,21 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
+    public void Hr_business_trip_decisions_upgrade_existing_schema_columns()
+    {
+        var root = FindRepositoryRoot();
+        var seed = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Data", "SeedData.cs"));
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var productionStartup = program[program.IndexOf("if (RuntimeMode.ShouldSeed", StringComparison.Ordinal)..program.IndexOf("app.Run();", StringComparison.Ordinal)];
+
+        Assert.Contains("public static async Task EnsureHrSchemaAsync(WebApplication app)", seed);
+        Assert.Contains("ALTER TABLE \"HrBusinessTrips\" ADD COLUMN IF NOT EXISTS \"ApprovedBy\" text NULL;", seed);
+        Assert.Contains("ALTER TABLE \"HrBusinessTrips\" ADD COLUMN IF NOT EXISTS \"ApprovedAt\" timestamp with time zone NULL;", seed);
+        Assert.Contains("ALTER TABLE \"HrBusinessTrips\" ADD COLUMN IF NOT EXISTS \"DecisionNotes\" text NULL;", seed);
+        Assert.Contains("await SeedData.EnsureHrSchemaAsync(app);", productionStartup);
+    }
+
+    [Fact]
     public void Manual_loan_creation_is_boss_admin_only_while_normal_loan_workflow_stays_loans_authorized()
     {
         var root = FindRepositoryRoot();
