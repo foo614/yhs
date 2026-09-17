@@ -1,12 +1,12 @@
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Checkbox, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { Alert, Button, Checkbox, DatePicker, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
-import { Calendar, DatePicker } from "antd";
+import { Calendar } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
@@ -841,18 +841,18 @@ export function HrSalaryPage({
       <ProCard title="Business Trip / Outstation Duty / 出差外勤">
         <Space direction="vertical" size={14} className="fullWidth">
           <Typography.Text type="secondary">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</Typography.Text>
-          <Form name="hrBusinessTrip" form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: today, endDate: today, isUrgentException: false }}>
+          <Form name="hrBusinessTrip" form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: dayjs(today), endDate: dayjs(today), isUrgentException: false }}>
             <div className="leaveDetailsGrid businessTripDetailsGrid">
               {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>}
-              <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><Input type="date" /></Form.Item>
-              <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><Input type="date" /></Form.Item>
+              <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+              <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
               <Form.Item name="location" label="Location / 地点" rules={[{ required: true }]}><Input placeholder="Customer site / 客户地点" /></Form.Item>
               <div className="businessTripPurposeRow">
                 <Form.Item name="purpose" label="Purpose / 目的" rules={[{ required: true }]}><Input placeholder="Sales visit / 跑销" /></Form.Item>
                 <Form.Item name="isUrgentException" label="Urgent exception / 临时外勤例外" valuePropName="checked"><Checkbox>Apply / 申请</Checkbox></Form.Item>
               </div>
             </div>
-            <Button type="primary" htmlType="submit">Submit Outstation Request / 提交外勤申请</Button>
+            <Form.Item className="businessTripActions"><Button type="primary" htmlType="submit">Submit Outstation Request / 提交外勤申请</Button></Form.Item>
           </Form>
           <Space wrap>
             {ownBusinessTrips.slice(0, 4).map((trip) => (
@@ -1591,13 +1591,13 @@ function businessTripStatusColor(status: HrBusinessTripStatus) {
   return status === "Approved" ? "green" : status === "Rejected" ? "red" : status === "Cancelled" ? "default" : "orange";
 }
 
-function businessTripFromValues(values: Record<string, unknown>, fallbackStaffUserId: string): HrBusinessTrip {
+export function businessTripFromValues(values: Record<string, unknown>, fallbackStaffUserId: string): HrBusinessTrip {
   return {
-    id: "",
+    id: crypto.randomUUID(),
     staffUserId: String(values.staffUserId || fallbackStaffUserId),
     status: "Pending",
-    startDate: String(values.startDate || ""),
-    endDate: String(values.endDate || ""),
+    startDate: datePickerValueToDateString(values.startDate),
+    endDate: datePickerValueToDateString(values.endDate),
     location: String(values.location || "").trim(),
     purpose: String(values.purpose || "").trim(),
     isUrgentException: Boolean(values.isUrgentException),
