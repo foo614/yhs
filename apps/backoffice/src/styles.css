@@ -2614,6 +2614,15 @@ body {
   margin-bottom: 0;
 }
 
+.businessTripActions {
+  margin: 14px 0 0;
+}
+
+.businessTripActions .ant-form-item-control-input-content {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .leaveCalculatedDays {
   min-height: 96px;
   display: flex;

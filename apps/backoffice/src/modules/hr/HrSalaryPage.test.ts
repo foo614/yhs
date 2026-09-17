@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import dayjs from "dayjs";
 import type { HrAttendanceDashboardSummary } from "../../api";
-import { HrAttendanceDashboard, HrRecordFilterControls, HrSalaryPage, businessTripSearchText, datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodDefaults, payPeriodFromValues, shouldShowOptionalMcUpload, submitHrDecision, withHrRecordFilterValue } from "./HrSalaryPage";
+import { HrAttendanceDashboard, HrRecordFilterControls, HrSalaryPage, businessTripFromValues, businessTripSearchText, datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodDefaults, payPeriodFromValues, shouldShowOptionalMcUpload, submitHrDecision, withHrRecordFilterValue } from "./HrSalaryPage";
 
 describe("HR record list helpers", () => {
   const records = [
@@ -95,6 +95,28 @@ describe("HR record list helpers", () => {
     expect(defaults.startDate.format("YYYY-MM-DD")).toBe("2026-02-01");
     expect(defaults.endDate.format("YYYY-MM-DD")).toBe("2026-02-28");
     expect(defaults.workingDays).toBe(20);
+  });
+
+  it("maps business trip date pickers to the API shape with a valid request id", () => {
+    const trip = businessTripFromValues({
+      staffUserId: "staff-1",
+      startDate: dayjs("2026-09-24"),
+      endDate: dayjs("2026-09-25"),
+      location: "Kluang Mall",
+      purpose: "Customer visit",
+      isUrgentException: true
+    }, "fallback-staff");
+
+    expect(trip).toMatchObject({
+      staffUserId: "staff-1",
+      startDate: "2026-09-24",
+      endDate: "2026-09-25",
+      location: "Kluang Mall",
+      purpose: "Customer visit",
+      isUrgentException: true
+    });
+    expect(trip.id).toEqual(expect.any(String));
+    expect(trip.id).not.toBe("");
   });
 
   it("shows the optional MC picker only for medical leave", () => {
