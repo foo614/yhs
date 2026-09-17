@@ -4198,10 +4198,10 @@ hr.MapPut("/business-trips/{id:guid}/decision", async (Guid id, HrBusinessTripDe
     {
         var leaveConflict = await db.HrLeaveRequests.AnyAsync(leave =>
             leave.StaffUserId == existing.StaffUserId && leave.Status == HrLeaveStatus.Approved &&
-            HrRules.DatesOverlap(existing.StartDate, existing.EndDate, leave.StartDate, leave.EndDate));
+            leave.StartDate <= existing.EndDate && existing.StartDate <= leave.EndDate);
         var tripConflict = await db.HrBusinessTrips.AnyAsync(trip =>
             trip.Id != existing.Id && trip.StaffUserId == existing.StaffUserId && trip.Status == HrBusinessTripStatus.Approved &&
-            HrRules.DatesOverlap(existing.StartDate, existing.EndDate, trip.StartDate, trip.EndDate));
+            trip.StartDate <= existing.EndDate && existing.StartDate <= trip.EndDate);
         if (leaveConflict || tripConflict) return Results.BadRequest(new ApiError("This business trip overlaps an approved leave or another approved business trip."));
     }
 
