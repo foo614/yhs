@@ -48,6 +48,20 @@ jobs:
       - name: Build web apps
         run: npm run build
 
+      - name: Install responsive test browser
+        run: npm exec --workspace apps/backoffice -- playwright install --with-deps chromium
+
+      - name: Check back-office responsive layouts
+        run: npm --workspace apps/backoffice run test:responsive
+
+      - name: Upload responsive browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backoffice-responsive
+          path: artifacts/responsive
+          if-no-files-found: ignore
+
   api:
     name: .NET API
     runs-on: ubuntu-latest
