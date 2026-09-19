@@ -11,7 +11,8 @@ usage() {
 Usage: deploy-production.sh --release-dir PATH [--env-file PATH] [--components SCOPE]
 
 Deploys a prepared Aspire Docker Compose artifact with the production Caddy and
-build override. SCOPE is full, backoffice, frontoffice, or api-worker. Existing
+build override. SCOPE is full, none, or a comma-separated combination of
+backoffice, frontoffice, and api-worker. Existing
 PostgreSQL data is backed up before full and API/worker deploys.
 EOF
 }
@@ -49,7 +50,11 @@ done
 [[ -f "$ENV_FILE" ]] || fail "Production environment file not found: $ENV_FILE"
 [[ -f "$RELEASE_DIR/infra/aspire-output/docker-compose.yaml" ]] || fail "Release is missing the Aspire Compose artifact."
 [[ -f "$RELEASE_DIR/infra/docker-compose.aspire.production.yml" ]] || fail "Release is missing the Aspire production Compose override."
-[[ "$COMPONENTS" =~ ^(full|backoffice|frontoffice|api-worker)$ ]] || fail "--components must be full, backoffice, frontoffice, or api-worker."
+[[ "$COMPONENTS" =~ ^(full|none|(backoffice|frontoffice|api-worker)(,(backoffice|frontoffice|api-worker))*)$ ]] || fail "Invalid deployment components."
+if [[ "$COMPONENTS" == "none" ]]; then
+  echo "No production application changes; deployment skipped."
+  exit 0
+fi
 command -v docker >/dev/null 2>&1 || fail "Docker is not installed. Run bootstrap-shinjiru.sh first."
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is not available."
 
@@ -73,28 +78,33 @@ COMPOSE=(
 
 "${COMPOSE[@]}" config -q
 
-if [[ "$COMPONENTS" =~ ^(full|api-worker)$ ]] && [[ -L "$APP_ROOT/current" ]] && "${COMPOSE[@]}" ps -q postgres | grep -q .; then
+if [[ "$COMPONENTS" == "full" || ",$COMPONENTS," == *,api-worker,* ]] && [[ -L "$APP_ROOT/current" ]] && "${COMPOSE[@]}" ps -q postgres | grep -q .; then
   bash "$APP_ROOT/current/infra/ubuntu/backup-postgres.sh" --env-file "$ENV_FILE"
 fi
 
-case "$COMPONENTS" in
-  full)
-    "${COMPOSE[@]}" up -d --build --remove-orphans
-    ;;
-  backoffice)
-    "${COMPOSE[@]}" up -d --build --no-deps backoffice
-    ;;
-  frontoffice)
-    "${COMPOSE[@]}" up -d --build --no-deps frontoffice
-    ;;
-  api-worker)
-    "${COMPOSE[@]}" up -d --build --no-deps api worker
-    [[ -n "$("${COMPOSE[@]}" ps -q worker)" ]] || fail "Worker container was not created."
-    [[ "$(docker inspect -f '{{.State.Running}}' "$("${COMPOSE[@]}" ps -q worker)")" == "true" ]] || fail "Worker container is not running."
-    ;;
-esac
+if [[ "$COMPONENTS" == "full" ]]; then
+  "${COMPOSE[@]}" up -d --build --remove-orphans
+else
+  IFS=, read -r -a selected_components <<< "$COMPONENTS"
+  services=()
+  for component in "${selected_components[@]}"; do
+    case "$component" in
+      api-worker) services+=(api worker) ;;
+      *) services+=("$component") ;;
+    esac
+  done
+  "${COMPOSE[@]}" up -d --build --no-deps "${services[@]}"
+fi
+if [[ "$COMPONENTS" == "full" || ",$COMPONENTS," == *,api-worker,* ]]; then
+  [[ -n "$("${COMPOSE[@]}" ps -q worker)" ]] || fail "Worker container was not created."
+  [[ "$(docker inspect -f '{{.State.Running}}' "$("${COMPOSE[@]}" ps -q worker)")" == "true" ]] || fail "Worker container is not running."
+fi
 
-bash "$RELEASE_DIR/infra/ubuntu/production-smoke.sh" --env-file "$ENV_FILE" --components "$COMPONENTS"
+# Reuse the existing single-component smoke checks for every selected component.
+IFS=, read -r -a selected_components <<< "$COMPONENTS"
+for component in "${selected_components[@]}"; do
+  bash "$RELEASE_DIR/infra/ubuntu/production-smoke.sh" --env-file "$ENV_FILE" --components "$component"
+done
 sudo -n ln -sfn -- "$RELEASE_DIR" "$APP_ROOT/current"
 
 echo "Production deployment completed: $(basename "$RELEASE_DIR") ($COMPONENTS)"

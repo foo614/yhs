@@ -1,36 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reads repository-relative changed paths from stdin and emits one deployment
-# scope. Any shared, infrastructure, unknown, or multi-component change falls
-# back to the complete production stack.
-scope=""
-
-while IFS= read -r path; do
+# Emit a stable comma-separated component set, none, or full. Unknown paths
+# remain conservative; documentation must not expand an application rollout.
+backoffice=false
+frontoffice=false
+backend=false
+full=false
+while IFS= read -r path || [[ -n "$path" ]]; do
   [[ -n "$path" ]] || continue
   case "$path" in
-    apps/backoffice/*)
-      candidate="backoffice"
+    docs/*|.codex/*|.agents/*|AGENTS.md|codex-agent.md|README.md|CONTRIBUTING.md|LICENSE)
       ;;
-    apps/frontoffice/*)
-      candidate="frontoffice"
+    services/api/src/YSHeng.AppHost/*)
+      full=true
       ;;
-    services/api/*)
-      candidate="api-worker"
+    apps/frontoffice/app/vehicles/MarketingDescription.*|apps/frontoffice/app/vehicles/marketing-markdown.*)
+      # Imported by the back-office vehicle page as well.
+      backoffice=true
+      frontoffice=true
+      ;;
+    apps/backoffice/*) backoffice=true ;;
+    apps/frontoffice/*) frontoffice=true ;;
+    services/api/*) backend=true ;;
+    package.json|package-lock.json)
+      backoffice=true
+      frontoffice=true
       ;;
     *)
-      echo "full"
-      exit 0
+      full=true
       ;;
   esac
-
-  if [[ -n "$scope" && "$scope" != "$candidate" ]]; then
-    echo "full"
-    exit 0
-  fi
-  scope="$candidate"
 done
-
-# A repeated or otherwise empty comparison is safe but intentionally
-# conservative: run the established full deployment path.
-echo "${scope:-full}"
+components=()
+if $backoffice; then components+=(backoffice); fi
+if $frontoffice; then components+=(frontoffice); fi
+if $backend; then components+=(api-worker); fi
+if $full; then
+  echo "full"
+elif (( ${#components[@]} == 0 )); then
+  echo none
+else
+  (IFS=,; echo "${components[*]}")
+fi

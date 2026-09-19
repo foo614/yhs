@@ -228,7 +228,7 @@ jobs:
             history_ready="false"
           fi
           if [[ "$history_ready" == "true" && "$current_release_sha" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$current_release_sha^{commit}" 2>/dev/null && git merge-base --is-ancestor "$current_release_sha" "$GITHUB_SHA"; then
-            deploy_components="$(git diff --name-only "$current_release_sha" "$GITHUB_SHA" | bash infra/ubuntu/classify-production-components.sh)"
+            deploy_components="$(git diff --name-only --no-renames "$current_release_sha" "$GITHUB_SHA" | bash infra/ubuntu/classify-production-components.sh)"
           else
             echo "Production baseline is unavailable or unsafe to compare; using full deployment."
           fi
@@ -240,6 +240,11 @@ jobs:
             deploy_components="full"
           fi
           echo "Production deployment scope: $deploy_components (baseline: ${current_release_sha:-unknown}, target: $GITHUB_SHA)"
+          printf '### Production deployment scope\n\n- Components: `%s`\n- Baseline: `%s`\n- Target: `%s`\n' "$deploy_components" "${current_release_sha:-unknown}" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$deploy_components" == "none" ]]; then
+            echo "No production application changes; skipping upload, bootstrap, and rollout."
+            exit 0
+          fi
 
           "${ssh_command[@]}" "$ssh_target" "mkdir -p '$remote_stage'"
           git archive --format=tar "$GITHUB_SHA" | "${ssh_command[@]}" "$ssh_target" "tar -xf - -C '$remote_stage'"
