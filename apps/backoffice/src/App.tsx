@@ -2283,7 +2283,7 @@ export function DashboardPage({
       <ProCard
         title="Management snapshot / 管理概览"
         className="dashboardOverviewCard"
-        extra={<Space size={8} wrap><Tag color={reminderLoadError ? "orange" : priorityDueNowCount > 0 ? "red" : "green"}>{reminderLoadError ? "Check incomplete" : `${priorityDueNowCount} due now`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
+        extra={<div className="dashboardSnapshotActions"><Tag color={reminderLoadError ? "orange" : priorityDueNowCount > 0 ? "red" : "green"}>{reminderLoadError ? "Check incomplete" : `${priorityDueNowCount} due now`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></div>}
       >
         <DashboardAnalyticsControls
           period={analyticsPeriod}
@@ -2291,7 +2291,7 @@ export function DashboardPage({
           disabled={refreshing}
           onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)}
         />
-        <Typography.Text type="secondary">Live stock, current-stock cost, projected margin, loan, collection, settlement, and aging figures are current as of now. Sales, realised profit, lead, and refurbishment analysis use {analyticsPeriodLabel}. {lastCheckedAt ? `Last checked ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet."}</Typography.Text>
+        <Typography.Text className="dashboardSnapshotNote" type="secondary">Stock, cost, projected margin, loans, collection, settlement and aging: current. Sales, realised profit, leads and refurbishment: {analyticsPeriodLabel}. {lastCheckedAt ? `Checked ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet."}</Typography.Text>
         <section className="dashboardMetricSection" aria-labelledby="dashboard-performance-title">
           <div className="dashboardMetricSectionHeader">
             <h3 id="dashboard-performance-title">Business performance / 经营表现</h3>
@@ -2352,7 +2352,7 @@ export function DashboardPage({
           className="dashboardPriorityCard"
           extra={<Tag color={priorityStatus.color}>{priorityStatus.label}</Tag>}
         >
-          <Typography.Text type="secondary">Start here: overdue and due-today work comes first; upcoming department actions and Daily Spend due soon follow. / 先处理逾期与今日到期工作，再处理即将到期的部门行动与 Daily Spend 提醒。</Typography.Text>
+          <Typography.Text className="dashboardPriorityIntro" type="secondary">Overdue and due today first. / 优先处理逾期及今日到期事项。</Typography.Text>
           <div className="mobileRecordList dashboardPriorityMobileList">
             {mobilePriorityEntries.map((entry) => (
               <article className="mobileRecordCard" key={entry.key}>
@@ -2361,7 +2361,6 @@ export function DashboardPage({
                     <Typography.Text className="mobileRecordEyebrow">{dashboardLabel(priorityDueLabel(entry))}</Typography.Text>
                     <Typography.Title level={5}>{entry.title}</Typography.Title>
                   </div>
-                  <Tag color={priorityDueColor(entry)}>{prioritySourceLabel(entry.source)}</Tag>
                 </div>
                 <div className="mobileRecordMeta">
                   <span><small>Type / 类型</small><strong>{dashboardLabel(entry.type)} · {entry.subject ?? "General"}</strong></span>
@@ -2643,13 +2642,15 @@ function DashboardAiDocumentProcessingPanel({
   processing: DashboardAiDocumentProcessing;
   analyticsPeriodLabel: string;
 }) {
+  const [categorySearch, setCategorySearch] = useState("");
+  const matchingCategories = processing.categories.filter((category) => category.label.toLowerCase().includes(categorySearch.trim().toLowerCase()));
   return (
     <ProCard
       title="AI document processing / AI 文件处理"
       className="dashboardPriorityCard"
       extra={<Tag color={processing.pendingReviewCount > 0 ? "orange" : "green"}>{processing.pendingReviewCount > 0 ? `${processing.pendingReviewCount} pending staff check${processing.pendingReviewCount === 1 ? "" : "s"}` : "Staff check queue clear"}</Tag>}
     >
-      <Alert className="operationalInfoAlert sectionIntroAlert" type="info" showIcon message="Staff must review AI-extracted values before saving. This dashboard excludes document images, identity details, filenames, and extracted text." />
+      <Alert className="operationalInfoAlert sectionIntroAlert" type="info" showIcon message="Review AI values before saving. Document and personal details are hidden here." />
       <div className="metricGrid dashboardMetricGrid">
         <Metric label="Scans / 扫描" value={processing.scanCount} meta={analyticsPeriodLabel} />
         <Metric label="Reviewed AI documents / 已复核 AI 文件" value={processing.reviewedCount} meta="Staff-corrected values are retained" tone="profit" />
@@ -2675,13 +2676,15 @@ function DashboardAiDocumentProcessingPanel({
           </div>
         </section>
       </div>
+      <Input.Search className="dashboardDocumentSearch" aria-label="Search document types" placeholder="Search document types / 搜索文件类型" allowClear value={categorySearch} onChange={(event) => setCategorySearch(event.target.value)} />
       <Table
+        search={false}
         rowKey="category"
         size="small"
         pagination={false}
         scroll={{ x: 760 }}
-        dataSource={processing.categories}
-        locale={{ emptyText: "No OCR activity in this period." }}
+        dataSource={matchingCategories}
+        locale={{ emptyText: categorySearch.trim() ? "No document types match your search." : "No OCR activity in this period." }}
         columns={[
           { title: "Document type / 文件类型", dataIndex: "label" },
           { title: "Scans", dataIndex: "scanCount", align: "right" },

@@ -47,6 +47,13 @@ const fixtures = {
   "/api/admin/ai-limits/ocr": { limit: { isEnabled: true, monthlyRequestLimit: 100, perStaffDailyRequestLimit: 10, updatedAt: "2026-09-01T00:00:00Z", updatedBy: "Layout Test" }, usedThisMonth: 0, remainingThisMonth: 100 },
   "/api/sales/workboard": { soldThisMonth: 0, inProgressCount: 0, availableAgents: [], items: [] }
 };
+fixtures["/api/dashboard/summary"].agingBuckets = [{ label: "0-30", count: 16 }, { label: "31-60", count: 1 }, { label: "61+", count: 0 }];
+fixtures["/api/dashboard/summary"].aiDocumentProcessing = {
+  scanCount: 8, reviewedCount: 4, comparedFieldCount: 10, correctFieldCount: 9, correctedFieldCount: 1, accuracyPercent: 90,
+  lowConfidenceCount: 0, failedCount: 0, pendingReviewCount: 4, usedThisMonth: 8, monthlyRequestLimit: 100, remainingThisMonth: 92,
+  categories: ["Identity card", "Vehicle ownership certificate"].map((label, index) => ({ category: index ? "Voc" : "IdentityCard", label, scanCount: 4, reviewedCount: 2, comparedFieldCount: 5, correctFieldCount: 4, correctedFieldCount: 1, accuracyPercent: 80, lowConfidenceCount: 0, failedCount: 0 }))
+};
+fixtures["/api/priority-actions"] = [{ type: "SettlementDue", title: "Settlement deadline due", target: "Finance", dueDate: "2026-01-01", subject: "TEST0001", amount: 20000 }];
 // These collection endpoints intentionally exercise empty states. Unknown paths
 // fail the run rather than silently turning a missing fixture into an empty page.
 const emptyCollections = new Set([
@@ -134,6 +141,24 @@ try {
           await closeOverlay();
         }
         if (route === "dashboard") {
+          const snapshotActions = page.locator(".dashboardSnapshotActions");
+          const refreshBox = await snapshotActions.getByRole("button", { name: "Refresh", exact: true }).boundingBox();
+          const actionsBox = await snapshotActions.boundingBox();
+          if (!refreshBox || !actionsBox || refreshBox.width > 110 || Math.abs(refreshBox.x + refreshBox.width - actionsBox.x - actionsBox.width) > 2) throw new Error("Refresh must be compact and right-aligned.");
+          const agingGap = await page.locator(".dashboardAgingCard").evaluate(card => card.querySelector(".agingActionBoard").getBoundingClientRect().top - card.querySelector(".dashboardFocusQueue").getBoundingClientRect().bottom);
+          if (agingGap < 10) throw new Error("Aging summary must have space before its cards.");
+          for (const [name, selector] of [["snapshot", ".dashboardOverviewCard"], ["aging", ".dashboardAgingCard"], ["priority", ".dashboardPriorityCard"]]) {
+            await page.locator(selector).first().screenshot({ path: `${output}/dashboard-${name}-detail-${width}.png` });
+          }
+          const documentSearch = page.getByRole("textbox", { name: "Search document types" });
+          await documentSearch.fill("NO-MATCH");
+          await page.getByText("No document types match your search.", { exact: true }).waitFor();
+          await documentSearch.fill("Identity");
+          await page.getByRole("cell", { name: "Identity card", exact: true }).waitFor();
+          if (await page.getByRole("cell", { name: "Vehicle ownership certificate", exact: true }).count()) throw new Error("Document category search did not filter rows.");
+          await inspect("dashboard-document-search", width);
+          await documentSearch.locator("xpath=ancestor::*[contains(@class,'ant-pro-card-body')][1]").screenshot({ path: `${output}/dashboard-ocr-detail-${width}.png` });
+          await documentSearch.fill("");
           await page.locator(".dashboardAnalyticsControls .ant-select").click();
           await page.getByText("Custom dates", { exact: true }).last().click();
           await inspect("dashboard-custom-dates", width);
@@ -169,6 +194,22 @@ try {
           await details.click();
           await page.waitForTimeout(350);
           await inspect(`${route}-details`, width);
+          if (route === "vehicles") {
+            const documentsTab = page.getByRole("tab", { name: "Documents & photos", exact: true });
+            await documentsTab.focus();
+            await documentsTab.press("Enter");
+            const vehicleTab = page.getByRole("tab", { name: "Vehicle / 车辆", exact: true });
+            await vehicleTab.focus();
+            await vehicleTab.press("Enter");
+            await page.getByText("Saved to this vehicle / 保存至此车辆", { exact: true }).waitFor();
+            const documentLayout = await page.locator(".vehicleDocumentFlow").evaluate(flow => {
+              const banner = [...flow.querySelectorAll(".ant-alert")].find(element => element.textContent.includes("Saved to this vehicle"));
+              const upload = [...flow.querySelectorAll(".ant-form-item")].find(element => element.textContent.includes("Document Upload"));
+              return { height: banner.getBoundingClientRect().height, gap: upload.getBoundingClientRect().top - banner.getBoundingClientRect().bottom };
+            });
+            if (documentLayout.height > 80 || documentLayout.gap < 10) throw new Error("Document banner must be compact and separated from upload.");
+            await inspect("vehicles-documents", width);
+          }
           await closeOverlay();
         }
         if (route === "vehicles" && width <= 720) {
