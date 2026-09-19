@@ -78,12 +78,21 @@ The `.codex/skills/ysheng-*` files remain authoritative for YS Heng architecture
 
 All workflows under `.codex/skills/*` and `.agents/skills/*` inherit this routing:
 
-- Sol (High) handles non-trivial planning, scope, risks, and acceptance criteria. Planning is read-only.
-- Luna (High) is the default implementation model.
-- Terra (XHigh) handles complex, cross-stack, or high-risk implementation.
+- Astra (Low reasoning, `gpt-6-astra`) handles non-trivial planning, scope, risks, and acceptance criteria. Planning is read-only; skip a separate planning pass for obvious fixes.
+- Luna (Max reasoning, `gpt-5.6-luna`) is the default development model, including implementation, debugging, and necessary test changes.
+- Do not automatically escalate development to another model. Report a concrete limitation before proposing a fallback.
 - Use a separate Luna/Terra reviewer at High/XHigh proportionate to risk.
 - Model routing does not bypass approval gates, maker/checker separation, worktree isolation, or proportionality for trivial changes.
 - Report an unavailable requested model or effort as a fallback.
+- Apply these settings when model selection is available; instructions alone do not switch the active model. Do not create extra tasks or agents solely to enforce routing.
+
+## Proportionate verification and token use
+
+- Do not create test files unless critical behavior needs regression coverage that cannot fit an existing suite. Critical examples include auth, permissions, finance calculations, data integrity, public/private data boundaries, and serious recurring bugs.
+- Prefer extending an existing relevant test. Do not add tests that only mirror implementation, assert documentation wording, or cover trivial copy, styling, or reversible presentation changes.
+- Still run focused existing checks appropriate to the change and preserve required CI and release gates. Explain any critical coverage gap.
+- Read only relevant skills, sections, and source files. Use targeted searches and bounded output; avoid repeated reads and broad scans.
+- Keep plans and reports short. Reuse evidence, avoid duplicate reviews, and rerun checks only after relevant changes, failures, or unresolved concerns.
 
 Personal integrations such as external code search, web research, and hosted MCP services may be useful, but do not make required project behavior depend on teammate-specific API keys or global `~/.codex` configuration.
 
