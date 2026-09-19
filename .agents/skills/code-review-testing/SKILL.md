@@ -1,14 +1,14 @@
 ---
 name: code-review-testing
-description: Test authoring guidance
+description: Choose proportionate regression coverage for YS Heng code and agent workflow changes.
 ---
 
-For agent changes prefer integration tests over unit tests. Integration tests are under `core/suite` and use `test_codex` to set up a test instance of codex.
+# YS Heng Test Review
 
-Features that change the agent logic MUST add an integration test:
-- Provide a list of major logic changes and user-facing behaviors that need to be tested.
+Follow the proportionate verification rules in `codex-agent.md`.
 
-If unit tests are needed, put them in a dedicated test file (*_tests.rs).
-Avoid test-only functions in the main implementation.
-
-Check whether there are existing helpers to make tests more streamlined and readable.
+- Identify the observable behavior and material regression risk before adding coverage.
+- Reuse existing xUnit, Vitest, or infra checks and helpers appropriate to the affected path.
+- Create a test file only for critical coverage that cannot fit an existing suite; state the risk it protects.
+- For skill or documentation edits, inspect the diff and instruction consistency. Do not create tests that assert prose or headings.
+- Run focused existing checks and report gaps honestly. Do not weaken required CI or release checks.
