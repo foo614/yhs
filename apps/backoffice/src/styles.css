@@ -1310,6 +1310,43 @@ body {
   grid-column: 1 / -1;
 }
 
+.dashboardAgingCard .dashboardFocusQueue {
+  margin-bottom: 12px;
+}
+
+.dashboardSnapshotActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboardOverviewCard .dashboardSnapshotActions .ant-btn {
+  width: auto;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-inline: 10px;
+}
+
+.dashboardSnapshotNote,
+.dashboardPriorityIntro {
+  display: block;
+  margin-block: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dashboardDocumentSearch {
+  display: block;
+  max-width: 360px;
+  margin-block: 12px;
+}
+
+.dashboardDocumentSearch .ant-input-affix-wrapper,
+.dashboardDocumentSearch .ant-input-search-button {
+  min-height: 44px;
+}
+
 .agingActionBoard {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3734,9 +3771,15 @@ body {
 }
 
 .vehicleDocumentSection {
+  display: grid;
+  gap: 6px;
   margin-top: 6px;
   padding-top: 14px;
   border-top: 1px solid rgba(20, 72, 61, .08);
+}
+
+.vehicleDocumentFlow > :not([hidden]) {
+  margin-top: 12px;
 }
 
 .vehicleDocumentTable {
@@ -6822,6 +6865,15 @@ body {
     width: 100%;
     max-width: 100%;
     overflow: hidden;
+    padding: 12px;
+  }
+
+  .operationsProTable .ant-pro-query-filter .ant-form-item {
+    margin-bottom: 8px;
+  }
+
+  .operationsProTable .ant-pro-query-filter .ant-form-item-label {
+    padding-bottom: 4px;
   }
 
   .operationsProTable .ant-pro-query-filter .ant-row {

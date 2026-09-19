@@ -2870,17 +2870,17 @@ export function VehiclePage({
                 {photoPreviewGrid}
               </div>
               </div>
-              <div hidden={vehicleAssetTab !== "documents"}>
+              <div className="vehicleDocumentFlow" hidden={vehicleAssetTab !== "documents"}>
               <div className="vehicleDocumentSection">
                 <Typography.Text className="moduleEyebrow">Add a vehicle document</Typography.Text>
-                <Typography.Text type="secondary">Choose a document type and upload the original file directly. The document is saved as evidence with the selected owner or vehicle; no OCR review is required.</Typography.Text>
+                <Typography.Text type="secondary">Choose a document type, then upload the original file.</Typography.Text>
               </div>
               {selectedVehicleUploadReminders.length > 0 && (
                 <Alert
                   type="info"
                   showIcon
-                  message="Optional documents"
-                  description="VOC, IC, and AP documents can be added here when they are available."
+                  className="operationalInfoAlert"
+                  message="Optional: add VOC, IC or AP when available."
                 />
               )}
               <Tabs
@@ -2955,10 +2955,10 @@ export function VehiclePage({
                 </Space>
               ) : (
                 <Alert
+                  className="operationalInfoAlert"
                   type="info"
                   showIcon
-                  message="Ownership: Vehicle / 车辆"
-                  description="This document category is stored against the vehicle. No previous owner or buyer selection is required."
+                  message="Saved to this vehicle / 保存至此车辆"
                 />
               )}
               <div hidden={documentCategory !== "PurchaseInvoice"}>
