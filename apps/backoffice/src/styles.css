@@ -5198,11 +5198,42 @@ body {
   }
 
   .ant-input,
+  .ant-input-affix-wrapper,
   .ant-input-number,
   .ant-select,
   .ant-select-selector,
   .ant-picker {
     min-height: 44px;
+  }
+
+  .ant-input-affix-wrapper > input.ant-input {
+    min-height: 0;
+    height: auto;
+    line-height: 1.5;
+  }
+
+  .ant-input-search .ant-input-group {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .ant-input-search .ant-input-group > .ant-input,
+  .ant-input-search .ant-input-group > .ant-input-affix-wrapper {
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 44px;
+  }
+
+  .ant-input-search .ant-input-group-addon {
+    display: flex;
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .ant-input-search .ant-input-search-button {
+    height: 44px;
+    min-height: 44px;
+    min-width: 44px;
   }
 
   .ant-modal .ant-btn,
@@ -6837,6 +6868,48 @@ body {
   .dashboardCashAction {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 10px;
+  }
+
+  .ant-pro-card-header .ant-pro-card-extra:has(.ant-btn) {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .ant-pro-card-header .ant-pro-card-extra > .ant-space {
+    display: flex;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .ant-pro-card-header .ant-pro-card-extra > .ant-space > .ant-space-item:has(.ant-btn) {
+    margin-inline-start: auto;
+  }
+
+  .ant-pro-card-header .ant-pro-card-extra .ant-btn,
+  .tableToolbar > .ant-btn {
+    width: auto !important;
+    max-width: 100%;
+    min-height: 44px;
+    height: auto;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: normal;
+    box-shadow: none;
+  }
+
+  .tableToolbar > .ant-btn {
+    align-self: flex-end;
+  }
+
+  .vehicleOperationFilters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .vehicleOperationFilters > .ant-input-affix-wrapper,
+  .vehicleOperationFilters > .ant-input {
+    grid-column: 1 / -1;
   }
 
   .dashboardCashAction > .dashboardStatusBadge {
