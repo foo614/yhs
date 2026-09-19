@@ -15,7 +15,7 @@ Turn CI output into a focused repo fix. Prefer the failing route, package, proje
 2. Capture the exact failing command, package, file, route, and error message.
 3. Reproduce locally only when validation is requested or needed to understand the failure.
 4. Classify the failure as code, environment, dependency/network, permission, or ambiguous.
-5. Patch the smallest responsible code path and add or update tests only when behavior changed.
+5. Patch the smallest responsible code path. Prefer existing regression tests; create a test file only when critical coverage cannot fit an existing suite, following `codex-agent.md`.
 6. Re-run the failing check or explain why it could not be run.
 
 ## Useful Commands
