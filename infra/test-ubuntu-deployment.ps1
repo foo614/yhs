@@ -177,10 +177,8 @@ foreach ($expected in @(
   "validate-production-env.sh",
   'bash "$APP_ROOT/current/infra/ubuntu/backup-postgres.sh"',
   "up -d --build --remove-orphans",
-  'up -d --build --no-deps backoffice',
-  'up -d --build --no-deps frontoffice',
-  'up -d --build --no-deps api worker',
-  '--components "$COMPONENTS"',
+  'up -d --build --no-deps "${services[@]}"',
+  '--components "$component"',
   "production-smoke.sh",
   "sudo -n ln -sfn --"
 )) {

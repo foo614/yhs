@@ -23,7 +23,16 @@ Before the first deployment:
 
 After the CI checks succeed on `main`, production remains paused. To deploy, open **Actions → Build, test and deploy → Run workflow**, select `main`, set `deploy_production` to true, and complete the `production`-environment approval. The job uploads the verified source commit plus its Aspire Compose artifact, installs Docker Engine/Compose from Docker's signed Ubuntu repository if absent, enables UFW for the configured SSH port plus 80/443, builds the images locally on the VPS, obtains TLS through Caddy, and runs read-only HTTPS smoke checks. Pull requests never receive production secrets.
 
-The production job compares the exact current release SHA on the VPS with the verified target `main` SHA. A change confined to `apps/backoffice` rebuilds and restarts only the back office; a change confined to `apps/frontoffice` does the same for the front office; and a change confined to `services/api` rebuilds and restarts the API and worker together. Shared-root, infrastructure, Docker, Caddy, environment, observability, multi-component, missing-baseline, diverged-baseline, and otherwise unknown changes use the full-stack deployment. Web-only deployments skip the database backup. API/worker and full deployments retain the pre-deployment PostgreSQL backup. Every scope uses the same serialized production environment, exact-SHA release archive, scope-specific readiness and security-header checks, and atomic `current` release link update.
+The production job compares the current successful release SHA on the VPS with the verified target `main` SHA, including all intervening commits and both sides of renamed paths. It selects the union of affected components:
+
+- `apps/backoffice/*`: back office.
+- `apps/frontoffice/*`: front office; the shared `MarketingDescription` component and its `marketing-markdown` parser also select back office because they are imported there.
+- `services/api/*`: API and worker together; `YSHeng.AppHost` changes require the full stack because they generate the Compose topology.
+- Root `package.json` or `package-lock.json`: both web apps, without restarting the backend.
+- Documentation and agent guidance: no deployment. A release containing only these changes, or an unchanged SHA, skips upload, bootstrap, and rollout and retains the existing production baseline.
+- Infrastructure, workflow, unknown paths, changed production environment, or missing/diverged baselines: full stack.
+
+Mixed application changes deploy only their selected services with `--no-deps`; they do not restart unrelated infrastructure. Web-only deployments skip the database backup. Any scope containing API/worker, and full deployments, retains the pre-deployment PostgreSQL backup. Each selected component must pass its existing readiness and security-header checks before the atomic `current` link update. All CI validation jobs remain mandatory. The Actions summary records the selected components and baseline/target SHAs; consult the job logs for full-deployment fallback reasons.
 
 Run titles start with `Production deployment` only for a manual dispatch on `main` with `deploy_production=true`; all other runs start with `Validation`. The title also includes the pull request title, commit message, or selected ref. A production title identifies the requested operation, not successful deployment: check the validation jobs and `Deploy production (Shinjiru Ubuntu)` job for completion. The workflow file remains `ci.yml`, so CLI dispatch commands are unchanged.
 
