@@ -461,7 +461,7 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
       search={search === false || proColumns.every((column) => column.hideInSearch) ? false : {
         labelWidth: "auto",
         defaultCollapsed: (nativeSearch?.fields.length ?? 1) > 3,
-        span: 6,
+        span: { xs: 24, sm: 24, md: 12, lg: 12, xl: 8, xxl: 6 },
         searchText: "Search",
         resetText: "Reset",
         optionRender: () => [
