@@ -86,7 +86,11 @@ describe("operational table UI contract", () => {
     const priorityMarker = appSource.indexOf("dataSource={priorityEntries}");
     const priorityTable = appSource.slice(appSource.lastIndexOf("<Table", priorityMarker), appSource.indexOf("/>", priorityMarker));
     expect(priorityTable, "the paginated Act now queue does not need a duplicate query form").toContain("search={false}");
-    expect(appSource.match(/search=\{false\}/g), "only the parent-filtered nested lead table and paginated Act now queue may disable their own query forms").toHaveLength(2);
+    const documentMarker = appSource.indexOf("dataSource={matchingCategories}");
+    const documentTable = appSource.slice(appSource.lastIndexOf("<Table", documentMarker), appSource.indexOf("/>", documentMarker));
+    expect(documentTable, "OCR summary uses the compact document-type search instead of numeric query fields").toContain("search={false}");
+    expect(appSource).toContain('aria-label="Search document types"');
+    expect(appSource.match(/search=\{false\}/g), "only nested leads, the Act now queue and the compact OCR summary may replace their query forms").toHaveLength(3);
 
     const vehicleSource = readFileSync(join(sourceRoot, "modules/vehicles/VehiclePage.tsx"), "utf8");
     const vehicleMarker = vehicleSource.indexOf("dataSource={filteredVehicles}");
