@@ -114,7 +114,24 @@ async function inspect(name, width) {
       const selector = element.querySelector(".ant-select-selector");
       return selector && selector.getBoundingClientRect().bottom > element.getBoundingClientRect().bottom + 1;
     }).map(element => ({ class: element.className, height: element.getBoundingClientRect().height, selectorHeight: element.querySelector(".ant-select-selector").getBoundingClientRect().height, top: element.getBoundingClientRect().top, selectorTop: element.querySelector(".ant-select-selector").getBoundingClientRect().top }));
-    return { viewport, scrollWidth: document.documentElement.scrollWidth, outside, overlappingSelects };
+    const searchGeometry = viewport <= 1024 ? [...document.querySelectorAll(".ant-input-search")].filter(visible).flatMap(search => {
+      const field = search.querySelector(".ant-input-affix-wrapper") ?? search.querySelector("input.ant-input");
+      const button = search.querySelector(".ant-input-search-button");
+      if (!field || !button) return [];
+      const a = field.getBoundingClientRect();
+      const b = button.getBoundingClientRect();
+      const input = search.querySelector("input.ant-input").getBoundingClientRect();
+      return Math.abs(a.top - b.top) > 2 || Math.abs(a.height - b.height) > 2 || a.height < 44 || input.top < a.top || input.bottom > a.bottom
+        ? [{ placeholder: search.querySelector("input").placeholder, fieldHeight: a.height, buttonHeight: b.height, fieldTop: a.top, buttonTop: b.top }]
+        : [];
+    }) : [];
+    const creationActions = viewport <= 720 ? [...document.querySelectorAll(".ant-pro-card-extra .ant-btn,.tableToolbar > .ant-btn")].filter(visible).filter(button => /^(New |Prepare sales invoice|Manual loan record|Record cash handover|Generate 5-minute QR)/.test(button.textContent.trim())).map(button => {
+      const box = button.getBoundingClientRect();
+      const parent = button.closest(".ant-pro-card-extra,.tableToolbar").getBoundingClientRect();
+      return { text: button.textContent.trim(), width: box.width, height: box.height, rightGap: parent.right - box.right, parentWidth: parent.width };
+    }) : [];
+    const invalidCreationActions = creationActions.filter(action => Math.abs(action.rightGap) > 2 || action.height < 44 || (action.text.length < 30 && action.parentWidth > 240 && action.width >= action.parentWidth - 2));
+    return { viewport, scrollWidth: document.documentElement.scrollWidth, outside, overlappingSelects, searchGeometry, creationActions, invalidCreationActions };
   });
   results.push({ name, width, ...layout, errors: errors.splice(0) });
   if ([360, 820, 1440].includes(width) || layout.outside.length || layout.overlappingSelects.length || layout.scrollWidth > layout.viewport + 1) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
@@ -255,7 +272,7 @@ try {
   await browser.close();
   server?.kill();
 }
-const failed = results.filter(result => result.scrollWidth > result.viewport + 1 || result.outside.length || result.overlappingSelects.length || result.errors.length);
+const failed = results.filter(result => result.scrollWidth > result.viewport + 1 || result.outside.length || result.overlappingSelects.length || result.searchGeometry.length || result.invalidCreationActions.length || result.errors.length);
 // Existing Ant Design warnings are retained in diagnostics, not silently dropped.
 const knownWarnings = new Set([
   "Warning: `disabled` should not set with empty `value`. You should set `allowEmpty` or `value` instead.",
