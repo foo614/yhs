@@ -74,6 +74,32 @@ const emptyCollections = new Set([
   "/api/vehicles/test-vehicle/ocr-jobs", "/api/vehicles/test-vehicle/stock-movements",
   "/api/deliveries/test-delivery/activity", "/api/operations-calendar", "/api/repairs/test-repair/receipts"
 ]);
+// Populated paid/confirmed cards expose mobile action wrapping that empty lists cannot.
+fixtures["/api/daily-spends"] = [{ id: "test-spend", description: "Electricity bill", amount: 480, dueDate: "2026-09-01", isPaid: true }];
+fixtures["/api/settlement-reminders"] = [{ id: "test-settlement", vehicleId: vehicle.id, amount: 80000, deadline: "2026-09-01", isPaid: true, direction: "PaySeller" }];
+fixtures["/api/purchase-invoices"] = [{ id: "test-invoice", vehicleId: vehicle.id, invoiceNumber: "TEST-PINV-2026-000002", sourceType: "OwnerAcquisition", amount: 80000, invoiceDate: "2026-09-01", purchaseDate: "2026-09-01", accountingStatus: "FinanceConfirmed", currentRevisionNumber: 1, lines: [{ lineType: "VehiclePurchase", amount: 80000 }] }];
+fixtures["/api/leads"].push({ ...fixtures["/api/leads"][0], id: "test-contacted-lead", customerName: "Second Synthetic Customer", status: "Contacted", takenByUserId: "responsive-test", takenByName: "Layout Test With A Much Longer Staff Display Name" });
+fixtures["/api/leads"].push({ ...fixtures["/api/leads"][1], id: "test-other-staff-lead", customerName: "Third Synthetic Customer", takenByUserId: "other-staff" });
+fixtures["/api/supplier-master"] = [{ id: "test-supplier", companyName: "Synthetic supplier with a long registered name", address: "Synthetic address", phone: "0000000000", status: "Active" }];
+fixtures["/api/broker-commissions"] = [{ id: "test-commission", vehicleId: vehicle.id, brokerName: "Synthetic broker", amount: 500, isPaid: false, cp58Required: true, cp58Prepared: false }];
+fixtures["/api/debt-recoveries"] = [{ id: "test-debt", vehicleId: vehicle.id, customerId: "test-customer", balanceAmount: 500, status: "Open", followUpDate: "2026-09-01", notes: "Synthetic follow-up note" }];
+fixtures["/api/payment-vouchers"] = [{ id: "test-voucher", vehicleId: vehicle.id, payeeName: "Synthetic payee", amount: 300, purpose: "Synthetic expense", status: "Pending", issuedDate: "2026-09-01" }];
+fixtures["/api/admin/users"] = [{ id: "responsive-test", displayName: "Layout Test With A Longer Staff Name", email: "layout@example.test", roles: ["BossAdmin"], isActive: true }];
+fixtures["/api/hr/staff"] = fixtures["/api/admin/users"];
+fixtures["/api/hr/attendance"] = [{ id: "test-attendance", staffUserId: "responsive-test", attendanceDate: "2026-09-01", checkInAt: "2026-09-01T01:00:00Z", status: "Present", verificationMethod: "OfficeQr" }];
+fixtures["/api/hr/leave-requests"] = [{ id: "test-leave", staffUserId: "responsive-test", type: "AnnualLeave", status: "Pending", startDate: "2026-09-01", endDate: "2026-09-02", days: 2, createdAt: "2026-09-01T00:00:00Z" }];
+fixtures["/api/hr/leave-policies"] = [{ id: "test-policy", role: "Sales", annualLeaveDays: 14, medicalLeaveDays: 14 }];
+fixtures["/api/hr/leave-balances"] = [{ id: "test-balance", staffUserId: "responsive-test", annualLeaveDays: 14, medicalLeaveDays: 14 }];
+fixtures["/api/audit-log"] = [{ id: "test-audit", actor: "Layout Test", action: "Update", entityType: "Vehicle", entityId: vehicle.id, createdAt: "2026-09-01T00:00:00Z", summary: "Synthetic audit entry with a longer description" }];
+fixtures["/api/sales/workboard"].items = [{ vehicleId: vehicle.id, plateNumber: vehicle.plateNumber, vehicleLabel: "2024 Toyota Corolla Cross Hybrid Premium", salesAgentUserId: "responsive-test", salesAgentName: "Layout Test", process: "Available", responsibleDepartment: "Sales", nextAction: "Follow up with the customer" }];
+fixtures["/api/customers/profile-options"] = fixtures["/api/customers"].map(({ id, name }) => ({ id, name }));
+fixtures["/api/customers/test-customer/profile"] = {
+  contact: fixtures["/api/customers"][0], vehicles: [vehicle], loans: fixtures["/api/loans"], deliveries: fixtures["/api/deliveries/workboard"],
+  payments: [], invoices: [{ id: "test-sales-invoice", paymentRecordId: "test-payment", vehicleId: vehicle.id, invoiceNumber: "TEST-SINV-2026-000001", invoiceDate: "2026-09-01", amount: 98000 }],
+  officialReceipts: [], enquiries: fixtures["/api/leads"], missingDocuments: [{ vehicleId: vehicle.id, category: "Voc", message: "Synthetic missing vehicle ownership document" }],
+  documents: [{ id: "test-document", vehicleId: vehicle.id, category: "IdentityCard", fileName: "synthetic-identity-document-with-a-long-file-name.pdf", mimeType: "application/pdf", checksum: "synthetic", uploadedBy: "Layout Test", uploadedAt: "2026-09-01T00:00:00Z" }],
+  permissions: { canViewIdentity: true, canViewLoans: true, canViewDelivery: true, canViewFinance: true, canViewDocuments: true, canViewEnquiries: true }
+};
 for (let index = 0; index < 9; index++) {
   for (const resource of ["photos", "documents", "ocr-jobs"]) emptyCollections.add(`/api/vehicles/test-vehicle-${index}/${resource}`);
 }
@@ -96,6 +122,7 @@ await context.route("**/api/**", async route => {
 });
 const page = await context.newPage();
 page.setDefaultTimeout(15000);
+page.setDefaultNavigationTimeout(45000);
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 page.on("console", message => { if (message.type() === "error") diagnostics.consoleErrors.push(message.text()); });
@@ -126,14 +153,61 @@ async function inspect(name, width) {
         ? [{ placeholder: search.querySelector("input").placeholder, fieldHeight: a.height, buttonHeight: b.height, fieldTop: a.top, buttonTop: b.top }]
         : [];
     }) : [];
-    const creationActions = viewport <= 720 ? [...document.querySelectorAll(".ant-pro-card-extra .ant-btn,.tableToolbar > .ant-btn")].filter(visible).filter(button => /^(New |Prepare sales invoice|Manual loan record|Record cash handover|Generate 5-minute QR)/.test(button.textContent.trim())).map(button => {
+    const creationActions = viewport <= 1024 ? [...document.querySelectorAll(".ant-pro-card-extra .ant-btn,.tableToolbar > .ant-btn")].filter(visible).filter(button => /^(New |Prepare sales invoice|Manual loan record|Record cash handover|Record Cash Received|Generate 5-minute QR)/.test(button.textContent.trim())).map(button => {
       const box = button.getBoundingClientRect();
       const parent = button.closest(".ant-pro-card-extra,.tableToolbar").getBoundingClientRect();
       return { text: button.textContent.trim(), width: box.width, height: box.height, rightGap: parent.right - box.right, parentWidth: parent.width };
     }) : [];
     const invalidCreationActions = creationActions.filter(action => Math.abs(action.rightGap) > 2 || action.height < 44 || (action.text.length < 30 && action.parentWidth > 240 && action.width >= action.parentWidth - 2));
     const oversizedSearchForms = viewport <= 720 ? [...document.querySelectorAll(".operationsProTable .ant-pro-query-filter")].filter(visible).filter(form => form.getBoundingClientRect().height > 220).map(form => ({ height: Math.round(form.getBoundingClientRect().height), text: form.textContent.slice(0, 100) })) : [];
-    return { viewport, scrollWidth: document.documentElement.scrollWidth, outside, overlappingSelects, searchGeometry, creationActions, invalidCreationActions, oversizedSearchForms };
+    const controlIssues = [];
+    if (viewport <= 1024) {
+      const controls = [...document.querySelectorAll(".ant-btn,.ant-radio-button-wrapper")].filter(visible);
+      for (const control of controls) {
+        const box = control.getBoundingClientRect();
+        const walker = document.createTreeWalker(control, NodeFilter.SHOW_TEXT);
+        let textNode;
+        while ((textNode = walker.nextNode())) {
+          if (!textNode.textContent.trim() || textNode.parentElement.closest("svg,.anticon")) continue;
+          const range = document.createRange();
+          range.selectNodeContents(textNode);
+          if ([...range.getClientRects()].some(rect => rect.left < box.left - 2 || rect.right > box.right + 2 || rect.top < box.top - 2 || rect.bottom > box.bottom + 2)) {
+            controlIssues.push({ kind: "text-outside-control", text: control.textContent.trim() });
+            break;
+          }
+        }
+      }
+      const actions = [...document.querySelectorAll(".mobileRecordFooter .ant-btn,.leadMobileActions .ant-btn")].filter(visible);
+      const canvas = document.createElement("canvas").getContext("2d");
+      for (const action of actions) {
+        const box = action.getBoundingClientRect();
+        const text = action.textContent.trim();
+        canvas.font = getComputedStyle(action).font;
+        if (box.height < 43) controlIssues.push({ kind: "small-touch-target", text, height: box.height });
+        if (text.length < 30 && box.width > Math.max(120, canvas.measureText(text).width + 48)) controlIssues.push({ kind: "stretched-action", text, width: box.width });
+      }
+      for (const group of [...document.querySelectorAll(".mobileRecordFooter .tableActionGroup,.leadMobileActions .leadActionGroup")].filter(visible)) {
+        const buttons = [...group.querySelectorAll(".ant-btn")].filter(visible);
+        if (!buttons.length) continue;
+        const container = group.closest(".mobileRecordFooter,.leadMobileActions").getBoundingClientRect();
+        if (Math.abs(container.right - Math.max(...buttons.map(button => button.getBoundingClientRect().right))) > 2) controlIssues.push({ kind: "actions-not-right-aligned", text: group.textContent.trim() });
+      }
+      for (const footer of [...document.querySelectorAll(".hrMobileActions")].filter(visible)) {
+        const rows = new Map();
+        for (const button of [...footer.querySelectorAll(".ant-btn")].filter(visible)) {
+          const box = button.getBoundingClientRect();
+          const row = Math.round(box.top);
+          rows.set(row, Math.max(rows.get(row) ?? 0, box.right));
+        }
+        if ([...rows.values()].some(right => Math.abs(footer.getBoundingClientRect().right - right) > 2)) controlIssues.push({ kind: "hr-actions-not-right-aligned", text: footer.textContent.trim() });
+      }
+      for (let i = 0; i < actions.length; i++) for (let j = i + 1; j < actions.length; j++) {
+        const a = actions[i].getBoundingClientRect();
+        const b = actions[j].getBoundingClientRect();
+        if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2) controlIssues.push({ kind: "overlapping-actions", text: [actions[i].textContent.trim(), actions[j].textContent.trim()] });
+      }
+    }
+    return { viewport, scrollWidth: document.documentElement.scrollWidth, outside, overlappingSelects, searchGeometry, creationActions, invalidCreationActions, oversizedSearchForms, controlIssues };
   });
   results.push({ name, width, ...layout, errors: errors.splice(0) });
   if ([360, 820, 1440].includes(width) || layout.outside.length || layout.overlappingSelects.length || layout.scrollWidth > layout.viewport + 1) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
@@ -180,8 +254,26 @@ try {
       await page.locator(".moduleCommandBar").waitFor({ timeout: 30000 });
       await page.waitForLoadState("networkidle");
       await inspect(route, width);
+      if (process.env.RESPONSIVE_NEGATIVE_CONTROL === "1" && route === "leads" && width === 360) {
+        const oldStyles = await page.addStyleTag({ content: ".salesLeadViewSwitch .ant-radio-button-wrapper { height: 24px !important; min-height: 24px !important; padding-block: 0 !important; } .leadMobileActions .ant-btn { height: 22px !important; min-height: 22px !important; padding-block: 0 !important; }" });
+        try {
+          await inspect("negative-control-old-mobile-styles", width);
+          const rejected = results.pop();
+          const kinds = new Set(rejected.controlIssues.map(issue => issue.kind));
+          if (!kinds.has("text-outside-control") || !kinds.has("small-touch-target")) throw new Error("Responsive guards did not reject the known broken tab/button styles.");
+          diagnostics.negativeControl = "Known broken tab/button styles correctly rejected";
+        } finally {
+          await oldStyles.evaluate(element => element.remove());
+        }
+      }
       const checkInteractions = process.env.RESPONSIVE_INTERACTIONS === "1" || (process.env.RESPONSIVE_INTERACTIONS !== "0" && [360, 820, 1440].includes(width));
       if (checkInteractions) {
+        if (route === "leads") {
+          await page.locator(".salesLeadViewSwitch .ant-radio-button-wrapper").filter({ hasText: "Cars I’m Handling" }).click();
+          await page.getByText("Follow up with the customer", { exact: true }).filter({ visible: true }).first().waitFor();
+          await inspect("leads-my-cars", width);
+          await page.locator(".salesLeadViewSwitch .ant-radio-button-wrapper").filter({ hasText: "Leads / 客户询问" }).click();
+        }
         if (width <= 1024) {
           await page.getByRole("button", { name: "Open navigation", exact: true }).click();
           await inspect(`${route}-navigation`, width);
@@ -303,7 +395,7 @@ try {
   await browser.close();
   server?.kill();
 }
-const failed = results.filter(result => result.scrollWidth > result.viewport + 1 || result.outside.length || result.overlappingSelects.length || result.searchGeometry.length || result.invalidCreationActions.length || result.oversizedSearchForms.length || result.errors.length);
+const failed = results.filter(result => result.scrollWidth > result.viewport + 1 || result.outside.length || result.overlappingSelects.length || result.searchGeometry.length || result.invalidCreationActions.length || result.oversizedSearchForms.length || result.controlIssues.length || result.errors.length);
 // Existing Ant Design warnings are retained in diagnostics, not silently dropped.
 const knownWarnings = new Set([
   "Warning: `disabled` should not set with empty `value`. You should set `allowEmpty` or `value` instead.",

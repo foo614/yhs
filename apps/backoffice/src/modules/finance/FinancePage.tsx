@@ -1626,7 +1626,7 @@ export function FinancePage({
       )}
       {financeTab === "payments" && <ProCard
         title="Sales Invoices & Collections / 销售发票与收款"
-        extra={<Space wrap>
+        extra={<Space className="financeInvoiceToolbar" wrap>
           <DatePicker.RangePicker
             aria-label="AutoCount export period"
             onChange={(dates) => setAutoCountPeriod(dates?.[0] && dates?.[1] ? { from: dates[0].format("YYYY-MM-DD"), to: dates[1].format("YYYY-MM-DD") } : {})}
@@ -1637,7 +1637,7 @@ export function FinancePage({
         </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
-          <Alert type="info" showIcon message="YS Heng issues the sales invoice to the new customer here. Customer receipts record money received; previous-owner payouts remain under Settlement." />
+          <Alert type="info" showIcon message="Sales invoices bill customers. Receipts record collections. Seller payouts are under Settlement." />
           {paymentLoadError && <Alert type="error" showIcon message="Finance records are unavailable" description={`${paymentLoadError} No demo or cached balances are shown.`} action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>} />}
           {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
           {financeFilters}
@@ -2445,11 +2445,11 @@ export function FinancePage({
                 <div className="mobileRecordHeader">
                   <div>
                     <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                    <Typography.Text type="secondary">{plateFor(vehicles, invoice.vehicleId)}</Typography.Text>
-                    <Typography.Title level={5}>{invoice.invoiceNumber}</Typography.Title>
+                    <Typography.Title level={5}>{plateFor(vehicles, invoice.vehicleId)}</Typography.Title>
                   </div>
                   <Tag color={invoice.accountingStatus === "FinanceConfirmed" ? "green" : "gold"}>{invoice.accountingStatus === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}</Tag>
                 </div>
+                <Typography.Text type="secondary" className="mobileInvoiceNumber">{invoice.invoiceNumber}</Typography.Text>
                 <div className="mobileRecordMeta">
                   <span><small>Amount / 金额</small><strong>{formatMoney(Number(invoice.amount))}</strong></span>
                   <span><small>Invoice Date / 日期</small><strong>{invoice.invoiceDate || "-"}</strong></span>
