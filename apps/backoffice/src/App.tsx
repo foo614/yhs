@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "./dateDisplay";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
 import {
@@ -4739,7 +4740,7 @@ export function LoanPage({
       width: 150,
       render: (_, row) => renderLoanDocumentSummary(documentChecks[row.id])
     },
-    { title: "Submitted / 提交", dataIndex: "submittedAt", width: 140, render: (value) => value || "-" },
+    { title: "Submitted / 提交", dataIndex: "submittedAt", width: 140, render: (value) => formatDisplayDate(value) },
     { title: "Follow Up / 跟进", width: 140, render: (_, row) => <Tag color={row.status === "Pending" ? "orange" : "default"}>{row.status === "Pending" ? "3-day active" : "No reminder"}</Tag> },
     {
       title: "Next Action / 操作",
@@ -4794,7 +4795,7 @@ export function LoanPage({
             <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedLoan.vehicleId)}</Descriptions.Item>
             <Descriptions.Item label="Customer / 客户">{contactFor(customers, selectedLoan.customerId)}</Descriptions.Item>
             <Descriptions.Item label="Status / 状态"><Tag color={loanStatusColor[selectedLoan.status]}>{selectedLoan.status === "Done" ? "Loan file complete" : selectedLoan.status}</Tag></Descriptions.Item>
-            <Descriptions.Item label="Submitted / 提交">{selectedLoan.submittedAt}</Descriptions.Item>
+            <Descriptions.Item label="Submitted / 提交">{formatDisplayDate(selectedLoan.submittedAt)}</Descriptions.Item>
             <Descriptions.Item label="LOU approval recorded / LOU 已批准">{selectedLoan.louApproved ? "Yes" : "No"}</Descriptions.Item>
             <Descriptions.Item label="LOU completed / LOU 已完成">{selectedLoan.louDone ? "Yes" : "No"}</Descriptions.Item>
             <Descriptions.Item label="Document Check / 文件检查">
@@ -4998,7 +4999,7 @@ export function LoanPage({
                   </span>
                   <span>
                     <small>Submitted / 提交</small>
-                    <strong>{loan.submittedAt}</strong>
+                    <strong>{formatDisplayDate(loan.submittedAt)}</strong>
                   </span>
                 </div>
                 <div className="mobileRecordSection">

@@ -1,3 +1,4 @@
+import { formatScheduledDateTime } from "../../dateDisplay";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircleOutlined,
@@ -561,7 +562,7 @@ export function DeliveryWorkboardPage({
       width: 190,
       render: (_, item) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>{item.scheduledDate}{item.scheduledTime ? ` · ${deliveryTimeLabel(item.scheduledTime)}` : ""}</Typography.Text>
+          <Typography.Text>{formatScheduledDateTime(item.scheduledDate, item.scheduledTime)}</Typography.Text>
           <Typography.Text type="secondary" title={item.deliveryAddress}>{item.deliveryType === "Outstation" ? `Outstation · ${shortDestination(item.deliveryAddress)}` : "Showroom / 展厅"}</Typography.Text>
         </Space>
       )
@@ -671,7 +672,7 @@ export function DeliveryWorkboardPage({
                 <dl>
                   <div><dt>Customer</dt><dd>{item.customerName}</dd></div>
                   <div><dt>PIC</dt><dd>{item.picName || "Not assigned"}</dd></div>
-                  <div><dt>Delivery</dt><dd>{item.scheduledDate}{item.scheduledTime ? ` · ${deliveryTimeLabel(item.scheduledTime)}` : ""}</dd></div>
+                  <div><dt>Delivery</dt><dd>{formatScheduledDateTime(item.scheduledDate, item.scheduledTime)}</dd></div>
                   <div><dt>Type</dt><dd>{item.deliveryType === "Outstation" ? `Outstation · ${shortDestination(item.deliveryAddress)}` : "Showroom"}</dd></div>
                 </dl>
                 <div className="deliveryWorkboardMobileNext">
@@ -946,7 +947,7 @@ export function DeliveryDrawerContent({
         <Descriptions.Item label="Car / 车辆">{item.plateNumber} · {item.vehicleLabel}</Descriptions.Item>
         <Descriptions.Item label="Customer / 客户">{item.customerName}</Descriptions.Item>
         <Descriptions.Item label="PIC / 负责人">{item.picName || "Not assigned"}</Descriptions.Item>
-        <Descriptions.Item label="Delivery / 交车">{item.scheduledDate}{item.scheduledTime ? ` · ${deliveryTimeLabel(item.scheduledTime)}` : ""}</Descriptions.Item>
+        <Descriptions.Item label="Delivery / 交车">{formatScheduledDateTime(item.scheduledDate, item.scheduledTime)}</Descriptions.Item>
         <Descriptions.Item label="Location / 地点">{item.deliveryType === "Outstation" ? "Outstation / 外坡" : "Showroom / 展厅"}</Descriptions.Item>
         {item.deliveryType === "Outstation" && <Descriptions.Item label="Address / 地址">{item.deliveryAddress || "Not provided"}</Descriptions.Item>}
         {item.deliveryType === "Outstation" && <Descriptions.Item label="Transport / 运输">{item.transportMethod || "Not provided"}</Descriptions.Item>}
@@ -1174,7 +1175,7 @@ function EvidenceUpload({
 
 function StageSummary({ item, stage }: { item: DeliveryWorkboardItem; stage: DeliveryWorkboardStage }) {
   if (stage === "PlanDelivery") {
-    return <Typography.Text type="secondary">{item.scheduledDate}{item.scheduledTime ? ` · ${deliveryTimeLabel(item.scheduledTime)}` : ""} · {item.deliveryType === "Outstation" ? "Outstation" : "Showroom"} · Inspection booked</Typography.Text>;
+    return <Typography.Text type="secondary">{formatScheduledDateTime(item.scheduledDate, item.scheduledTime)} · {item.deliveryType === "Outstation" ? "Outstation" : "Showroom"} · Inspection booked</Typography.Text>;
   }
   if (stage === "PrepareCar") {
     return <Typography.Text type="secondary">Inspection, polish, tint, and wash recorded.</Typography.Text>;

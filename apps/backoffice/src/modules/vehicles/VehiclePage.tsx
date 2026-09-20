@@ -1,3 +1,4 @@
+import { formatDisplayDate, formatDisplayDateTime } from "../../dateDisplay";
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import dayjs, { type Dayjs } from "dayjs";
@@ -4238,8 +4239,7 @@ function tablePagination(pageSize = 8): TablePaginationConfig {
 }
 
 export function formatDocumentTimestamp(value: unknown) {
-  const parsed = dayjs(String(value));
-  return parsed.isValid() ? parsed.locale("en").format("DD MMM YYYY, HH:mm") : "-";
+  return formatDisplayDateTime(typeof value === "string" ? value : undefined);
 }
 
 function documentCategoryLabel(category: DocumentCategory) {
@@ -4369,7 +4369,7 @@ function parseVehicleIntakeTimestamp(intakeAt?: string, intakeDate?: string) {
 }
 
 function formatVehicleIntakeTimestamp(intakeAt?: string, intakeDate?: string) {
-  return intakeAt ? formatDocumentTimestamp(intakeAt) : intakeDate || "-";
+  return intakeAt ? formatDocumentTimestamp(intakeAt) : formatDisplayDate(intakeDate);
 }
 
 function hasOutstationPickup(vehicle: Vehicle) {

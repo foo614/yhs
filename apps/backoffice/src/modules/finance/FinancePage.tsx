@@ -1,3 +1,4 @@
+import { formatDisplayDateTime } from "../../dateDisplay";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
 import { Alert, Badge, Button, Checkbox, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
@@ -184,9 +185,8 @@ export function paymentCollectionEvidence(documents: VehicleDocument[], paymentI
 }
 
 export function financeHistoryDateTime(value?: string) {
-  if (!value) return "-";
-  const parsed = dayjs(value);
-  return parsed.isValid() ? parsed.format("DD MMM YYYY, HH:mm") : value;
+  if (value && !dayjs(value).isValid()) return value;
+  return formatDisplayDateTime(value);
 }
 
 export function financePaymentNeedsAdjustmentApproval(payment: Pick<PaymentRecord, "ncdAmount" | "nettPriceVariance">) {
@@ -1084,7 +1084,7 @@ export function FinancePage({
         ) : <Typography.Text type="secondary">Not linked / 未关联</Typography.Text>;
       }
     },
-    { title: "Created / 建立时间", dataIndex: "createdAt", render: (value) => String(value).replace("T", " ").slice(0, 16) },
+    { title: "Created / 建立时间", dataIndex: "createdAt", render: (value) => formatDisplayDateTime(value) },
     { title: "Sales Invoice Total / 销售发票总额", dataIndex: "nettPrice", render: (value, row) => formatMoney(isFinanceV2(row) ? row.invoice?.amount ?? value : value) },
     {
       title: "Collected / 已收",

@@ -112,7 +112,7 @@ describe("vehicle intake sorting", () => {
   });
 
   it("formats intake timestamps with English month names", () => {
-    expect(formatDocumentTimestamp("2026-08-16T00:00:00Z")).toContain("Aug 2026");
+    expect(formatDocumentTimestamp("2026-08-16T00:00:00Z")).toBe("16 Aug 2026, 08:00");
     expect(formatDocumentTimestamp("2026-08-16T00:00:00Z")).not.toContain("8月");
   });
 });
