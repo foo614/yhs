@@ -128,8 +128,8 @@ Final local checks passed: 335 backend tests, 405 back-office tests, type checki
 - Boss/Admin users can reset staff passwords from the Admin screen without changing the staff member's email, display name, or department roles.
 - Boss/Admin users can disable or enable staff accounts from the Admin screen; disabled staff cannot sign in, while their audit history and role assignments are preserved.
 - HR/Salary now implements the next MVP slice: all authenticated staff can use self-service attendance, leave/MC requests, and own payslips, while HR/Admin can review attendance, approve leave, manage AL/MC balances, configure working-day pay periods, maintain payroll profiles, upload/review MC files, and generate payslips.
-- HR payslips calculate daily salary from monthly base salary divided by configured working days, deduct approved unpaid leave, add overtime and allowances, subtract manual deductions, and intentionally exclude statutory EPF/SOCSO/EIS/PCB calculations for this MVP.
-- HR payslips use an explicit preview-and-confirm generation step and can be downloaded as an audited one-page PDF summary; the endpoint applies the same self-service versus HR/Admin ownership boundary and does not invent statutory deductions or identity numbers that are not stored in payroll data.
+- HR payslips calculate daily salary from monthly base salary divided by configured working days, deduct approved unpaid leave, add overtime and allowances, subtract manual deductions, and support reviewed per-period EPF/SOCSO/EIS/PCB amounts. Automatic statutory assessment is not implemented.
+- HR payslips use an explicit preview-and-confirm generation step and can be downloaded as an audited one-page PDF summary; the endpoint applies the same self-service versus HR/Admin ownership boundary and does not invent statutory deductions or identity numbers that are not stored in payroll data. FOO-177 adds explicit monthly statutory amounts and independent Finance/Boss approval before publication.
 - Authenticated back-office reloads now request only the data sets needed by the staff member's department roles, reducing noisy forbidden calls and keeping role-limited sessions scoped to their modules.
 - Workflow departments now use a narrow back-office vehicle lookup endpoint for car plate selectors instead of loading full vehicle financial/intake records.
 - Full back-office vehicle records remain readable only by Boss/Admin and Sales; Loan, Delivery, Finance, and Repair use lookup DTOs.
@@ -382,3 +382,14 @@ The project targets `.NET 10` as requested. Backend tests have been verified wit
 Docker Compose verification requires Docker Desktop with the Linux engine responding, plus free ports `3000`, `3001`, `5000`, and `5432` before `docker compose up -d` and `.\infra\smoke-test.ps1`.
 
 Delivery scheduling, rescheduling, and insurance/road-tax expiry controls use Ant Design date/time pickers while retaining `YYYY-MM-DD` dates and `HH:mm` times. Historical windscreen fields remain stored for compatibility and are not shown or required by Delivery.
+
+
+### FOO-177 attendance corrections and payroll review
+
+Staff submit actual attendance times with a reason; a separate HR/Admin reviewer approves changes. Dated Malaysian-time schedules enable an early clock-out confirmation and reason. Original times, requests and decisions remain recorded. The legacy direct correction endpoint is retired.
+
+HR previews and prepares payroll drafts, enters period-specific employee/employer EPF, SOCSO and EIS amounts and PCB with an official calculation reference, and submits to Finance. A separate Finance reviewer approves before a separate Boss/Admin publishes. Published and legacy payslips are immutable; drafts may be refreshed, clearing statutory amounts for rechecking. Staff see their own published/legacy slips. Finance can review payroll without access to private HR leave/MC records.
+
+This is reviewed statutory amount entry, not automatic tax assessment or filing. Sources checked 20 September 2026: [KWSP mandatory contributions](https://www.kwsp.gov.my/en/employer/responsibilities/mandatory-contribution), [PERKESO contribution schedules](https://www.perkeso.gov.my/en/contribution-rate/), [HASiL PCB specifications](https://www.hasil.gov.my/majikan/jadual-pcb-dan-spesifikasi-data/). Apply the correct employee category and payroll year externally; never use a flat guessed rate. FOO-162 references the earlier user sample but does not attach it, the payslip now uses English-only labels and the existing Payment Voucher visual style, as approved by the user.
+
+The additive schema is applied by the existing SeedData initialization path; existing records are retained. PostgreSQL HR writes share a transaction-scoped advisory lock so attendance changes and payroll submission cannot race. Version checks prevent stale payroll decisions. No production deployment is implied by this source change.

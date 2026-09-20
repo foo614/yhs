@@ -27,7 +27,7 @@ export type HrAttendanceAction = "CheckIn" | "CheckOut";
 export type HrBusinessTripStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "UnpaidLeave";
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
-export type HrPayslipStatus = "Draft" | "Generated";
+export type HrPayslipStatus = "Draft" | "Generated" | "PendingFinance" | "PendingBoss" | "Published";
 export type HrEmploymentType = "Monthly" | "Hourly";
 export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate" | "InspectionReport" | "WindscreenPolicy";
 export type DocumentOwnershipType = "Seller" | "Buyer" | "Vehicle";
@@ -1072,6 +1072,8 @@ export type CashHandoverPaymentLookup = {
 };
 
 export type HrAttendanceRecord = {
+  scheduledEndAt?: string;
+  earlyCheckOutReason?: string;
   id: string;
   staffUserId: string;
   attendanceDate: string;
@@ -1090,6 +1092,8 @@ export type HrAttendanceQrChallenge = {
 };
 
 export type HrAttendanceQrRedemptionRequest = {
+  confirmEarly?: boolean;
+  reason?: string;
   token: string;
   action: HrAttendanceAction;
 };
@@ -1239,6 +1243,22 @@ export type HrPayPeriod = {
 };
 
 export type HrPayslip = {
+  staffName?: string;
+  employeeEpf?: number | null;
+  employerEpf?: number | null;
+  employeeSocso?: number | null;
+  employerSocso?: number | null;
+  employeeEis?: number | null;
+  employerEis?: number | null;
+  pcb?: number | null;
+  statutoryReference?: string;
+  preparedBy?: string;
+  submittedBy?: string;
+  submittedAt?: string;
+  financeApprovedBy?: string;
+  bossApprovedBy?: string;
+  reviewNotes?: string;
+  version?: number;
   id: string;
   staffUserId: string;
   payPeriodId: string;
@@ -1776,11 +1796,11 @@ export async function updateHrAttendanceNetwork(network: HrAttendanceNetwork): P
 }
 
 export async function checkInHrAttendance(): Promise<HrAttendanceRecord> {
-  return requestWithNetworkFallback("/api/hr/attendance/check-in", { method: "POST" }, fallbackHrCheckInAttendance());
+  return request("/api/hr/attendance/check-in", { method: "POST" });
 }
 
-export async function checkOutHrAttendance(): Promise<HrAttendanceRecord> {
-  return requestWithNetworkFallback("/api/hr/attendance/check-out", { method: "POST" }, fallbackHrCheckOutAttendance());
+export async function checkOutHrAttendance(input: HrCheckOutInput = {}): Promise<HrAttendanceRecord> {
+  return request("/api/hr/attendance/check-out", { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function getHrAttendanceDashboard(): Promise<HrAttendanceDashboardSummary> {
@@ -3023,34 +3043,7 @@ function fallbackHrClockState(): { today: string; now: string } {
   return { today: now.toISOString().slice(0, 10), now: now.toISOString() };
 }
 
-function fallbackHrCheckInAttendance(): HrAttendanceRecord {
-  const clock = fallbackHrClockState();
-  return {
-    id: `attendance-demo-${clock.today}`,
-    staffUserId: fallbackHrStaffUsers()[0]?.id ?? "staff-demo-hr",
-    attendanceDate: clock.today,
-    checkInAt: clock.now,
-    status: "Present",
-    verificationMethod: "OfficeIp",
-    officeNetworkLabel: "Showroom",
-    notes: "Demo check-in"
-  };
-}
 
-function fallbackHrCheckOutAttendance(): HrAttendanceRecord {
-  const clock = fallbackHrClockState();
-  return {
-    id: `attendance-demo-${clock.today}`,
-    staffUserId: fallbackHrStaffUsers()[0]?.id ?? "staff-demo-hr",
-    attendanceDate: clock.today,
-    checkInAt: clock.now,
-    checkOutAt: clock.now,
-    status: "Present",
-    verificationMethod: "OfficeIp",
-    officeNetworkLabel: "Showroom",
-    notes: "Demo check-out"
-  };
-}
 
 function fallbackHrBossCalendar(from: string, to: string): HrCalendarAvailability[] {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return [];
@@ -3312,3 +3305,21 @@ function vehicleLookupFromVehicle(vehicle: Vehicle): VehicleLookup {
     customerId: vehicle.customerId
   };
 }
+
+
+export type HrCheckOutInput = { confirmEarly?: boolean; reason?: string };
+export type HrCheckOutPreview = { attendanceId: string; isEarly: boolean; scheduledEndAt?: string };
+export type HrWorkSchedule = { id: string; staffUserId: string; attendanceDate: string; startAt: string; endAt: string };
+export type HrCorrectionRequest = { attendanceRecordId?: string; staffUserId: string; attendanceDate: string; checkInAt: string; checkOutAt: string; reason: string };
+export type HrAttendanceCorrection = HrCorrectionRequest & { id: string; originalCheckInAt?: string; originalCheckOutAt?: string; status: "Pending" | "Approved" | "Rejected"; requestedBy: string; requestedAt: string; decidedBy?: string; decisionNotes?: string };
+export type HrStatutoryInput = { version: number; employeeEpf: number; employerEpf: number; employeeSocso: number; employerSocso: number; employeeEis: number; employerEis: number; pcb: number; reference: string };
+export type HrPayrollAction = "Submit" | "FinanceApprove" | "BossApprove" | "Return";
+export const getHrCheckOutPreview = () => request<HrCheckOutPreview>("/api/hr/attendance/check-out-preview");
+export const getHrWorkSchedules = () => request<HrWorkSchedule[]>("/api/hr/work-schedules");
+export const saveHrWorkSchedule = (input: Omit<HrWorkSchedule, "id">) => request<HrWorkSchedule>("/api/hr/work-schedules", { method: "PUT", body: JSON.stringify(input) });
+export const getHrAttendanceCorrections = () => request<HrAttendanceCorrection[]>("/api/hr/attendance-corrections");
+export const createHrAttendanceCorrection = (input: HrCorrectionRequest) => request<HrAttendanceCorrection>("/api/hr/attendance-corrections", { method: "POST", body: JSON.stringify(input) });
+export const decideHrAttendanceCorrection = (id: string, approve: boolean, notes?: string) => request<HrAttendanceCorrection>(`/api/hr/attendance-corrections/${id}/decision`, { method: "PUT", body: JSON.stringify({ approve, notes }) });
+export const previewHrPayslips = (id: string) => request<HrPayslip[]>(`/api/hr/pay-periods/${id}/preview`);
+export const saveHrStatutory = (id: string, input: HrStatutoryInput) => request<HrPayslip>(`/api/hr/payslips/${id}/statutory`, { method: "PUT", body: JSON.stringify(input) });
+export const decideHrPayroll = (id: string, version: number, action: HrPayrollAction, notes?: string) => request<HrPayslip>(`/api/hr/payslips/${id}/decision`, { method: "PUT", body: JSON.stringify({ version, action, notes }) });

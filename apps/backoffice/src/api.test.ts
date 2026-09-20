@@ -1737,25 +1737,10 @@ describe("backoffice api client", () => {
     );
   });
 
-  it("falls back to demo data when HR endpoints return 404", async () => {
+  it("does not report a successful clock action when the attendance API is unavailable", async () => {
     mockFetch({ message: "not found" }, false, 404);
-
-    const staff = await getHrStaffUsers();
-    const attendance = await getHrAttendance();
-    const checkIn = await checkInHrAttendance();
-    const checkOut = await checkOutHrAttendance();
-
-    expect(staff).toHaveLength(3);
-    expect(staff[0].id).toBe("staff-demo-hr");
-    expect(attendance).toHaveLength(3);
-    expect(checkIn.id).toContain("attendance-demo-");
-    expect(checkIn.staffUserId).toBe("staff-demo-hr");
-    expect(checkIn.status).toBe("Present");
-    expect(checkIn.checkInAt).toBeTruthy();
-    expect(checkOut.id).toContain("attendance-demo-");
-    expect(checkOut.staffUserId).toBe("staff-demo-hr");
-    expect(checkOut.status).toBe("Present");
-    expect(checkOut.checkOutAt).toBeTruthy();
+    await expect(checkInHrAttendance()).rejects.toThrow();
+    await expect(checkOutHrAttendance()).rejects.toThrow();
   });
 
   it("shows fictional calendar availability when the local API is unavailable", async () => {

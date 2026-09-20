@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using System.Net;
 using System.Text;
@@ -17,6 +19,131 @@ namespace YSHeng.Api.Tests;
 
 public sealed class BusinessRulesTests
 {
+    [Fact]
+    public async Task Hr_payroll_persistence_blocks_incomplete_hours_and_locked_regeneration()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new AppUser { Id = "worker", UserName = "worker", DisplayName = "Test Worker" });
+        var period = new HrPayPeriod { Name = "September 2025", StartDate = new(2025, 9, 1), EndDate = new(2025, 9, 30), WorkingDays = 22 };
+        var profile = new HrPayrollProfile { StaffUserId = "worker", EmploymentType = HrEmploymentType.Hourly, HourlyRate = 10m };
+        var attendance = new HrAttendanceRecord { StaffUserId = "worker", AttendanceDate = new(2025, 9, 1), CheckInAt = new DateTime(2025, 9, 1, 1, 0, 0, DateTimeKind.Utc) };
+        db.HrPayPeriods.Add(period); db.HrPayrollProfiles.Add(profile); db.HrAttendanceRecords.Add(attendance);
+        await db.SaveChangesAsync();
+        Assert.Contains("incomplete", (await HrWorkflowStore.BuildDrafts(db, period)).Error!);
+        db.Entry(attendance).CurrentValues.SetValues(attendance with { CheckOutAt = attendance.CheckInAt!.Value.AddHours(8) });
+        await db.SaveChangesAsync();
+        var (drafts, error) = await HrWorkflowStore.BuildDrafts(db, period);
+        Assert.Null(error); Assert.Equal(80m, Assert.Single(drafts).GrossPay);
+        db.HrPayslips.Add(drafts[0]); await db.SaveChangesAsync();
+        Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "worker", period.StartDate));
+        Assert.Null(await HrWorkflowStore.ValidateDraftSource(db, drafts[0]));
+        db.Entry(period).CurrentValues.SetValues(period with { EndDate = HrWorkflowRules.LocalDate(DateTime.UtcNow).AddDays(1) }); await db.SaveChangesAsync();
+        Assert.Contains("pay period has ended", await HrWorkflowStore.ValidateDraftSource(db, drafts[0]));
+        db.Entry(period).CurrentValues.SetValues(period with { EndDate = new DateOnly(2025, 9, 30) }); await db.SaveChangesAsync();
+        db.Entry(profile).CurrentValues.SetValues(profile with { HourlyRate = 20m }); await db.SaveChangesAsync();
+        Assert.Contains("inputs changed", await HrWorkflowStore.ValidateDraftSource(db, drafts[0]));
+        db.Entry(drafts[0]).CurrentValues.SetValues(drafts[0] with { Status = HrPayslipStatus.PendingFinance }); await db.SaveChangesAsync();
+        Assert.True(await HrWorkflowStore.HasLockedPayroll(db, "worker", period.StartDate));
+        Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "other", period.StartDate));
+        Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "worker", period.EndDate.AddDays(1)));
+        Assert.NotNull((await HrWorkflowStore.BuildDrafts(db, period)).Error);
+    }
+
+    [Fact]
+    public void Hr_statutory_inputs_require_explicit_amounts_and_do_not_deduct_employer_shares()
+    {
+        var input = new HrStatutoryInput(1, 330m, 390m, 14.75m, 51.65m, 5.90m, 5.90m, 25m, "Official assessment September 2026");
+        Assert.Null(HrWorkflowRules.ValidateStatutory(input));
+        Assert.NotNull(HrWorkflowRules.ValidateStatutory(input with { Pcb = null }));
+        Assert.NotNull(HrWorkflowRules.ValidateStatutory(input with { EmployeeEpf = -1 }));
+        Assert.NotNull(HrWorkflowRules.ValidateStatutory(input with { EmployerEpf = 1.001m }));
+        Assert.NotNull(HrWorkflowRules.ValidateStatutory(input with { Reference = " " }));
+        var slip = HrWorkflowRules.ApplyStatutory(new HrPayslip { GrossPay = 3000m, ManualDeductions = 20m, UnpaidLeaveDeduction = 100m, Version = 1 }, input, "hr");
+        Assert.Equal(2504.35m, slip.NetPay);
+        Assert.Equal(390m, slip.EmployerEpf);
+        Assert.Equal(2, slip.Version);
+    }
+
+    [Fact]
+    public void Hr_payroll_requires_separate_finance_then_boss_and_blocks_stale_or_self_approval()
+    {
+        static ClaimsPrincipal User(string role) => new(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "test"));
+        var hr = User("HrSalary"); var finance = User("Finance"); var boss = User("BossAdmin");
+        var draft = HrWorkflowRules.ApplyStatutory(new HrPayslip { StaffUserId = "worker", Status = HrPayslipStatus.Draft, GrossPay = 3000m }, new(0, 0, 0, 0, 0, 0, 0, 0, "Verified exemptions"), "hr");
+        Assert.NotNull(HrWorkflowRules.ValidateDecision(draft, new(draft.Version, "BossApprove", null), boss, "boss"));
+        var submit = new HrPayrollDecision(draft.Version, "Submit", null);
+        Assert.Null(HrWorkflowRules.ValidateDecision(draft, submit, hr, "hr"));
+        var pending = HrWorkflowRules.Decide(draft, submit, "second-hr", DateTime.UtcNow);
+        Assert.Equal("hr", pending.PreparedBy);
+        Assert.Equal("second-hr", pending.SubmittedBy);
+        var check = new HrPayrollDecision(pending.Version, "FinanceApprove", null);
+        Assert.NotNull(HrWorkflowRules.ValidateDecision(pending, check, finance, "hr"));
+        Assert.NotNull(HrWorkflowRules.ValidateDecision(pending, check, finance, "second-hr"));
+        Assert.NotNull(HrWorkflowRules.ValidateDecision(pending, check, finance, "worker"));
+        Assert.NotNull(HrWorkflowRules.ValidateDecision(pending, check with { Version = 0 }, finance, "finance"));
+        Assert.Null(HrWorkflowRules.ValidateDecision(pending, check, finance, "finance"));
+        var checkedSlip = HrWorkflowRules.Decide(pending, check, "finance", DateTime.UtcNow);
+        var final = new HrPayrollDecision(checkedSlip.Version, "BossApprove", null);
+        Assert.NotNull(HrWorkflowRules.ValidateDecision(checkedSlip, final, boss, "finance"));
+        Assert.Null(HrWorkflowRules.ValidateDecision(checkedSlip, final, boss, "boss"));
+        var published = HrWorkflowRules.Decide(checkedSlip, final, "boss", DateTime.UtcNow);
+        Assert.Equal(HrPayslipStatus.Published, published.Status);
+        Assert.True(HrWorkflowRules.IsLocked(published));
+        Assert.NotNull(HrWorkflowRules.ValidateDecision(published, new(published.Version, "Return", "change"), boss, "boss"));
+    }
+
+    [Fact]
+    public void Hr_payroll_return_requires_reason_and_clears_prior_approval()
+    {
+        var slip = new HrPayslip { Status = HrPayslipStatus.PendingBoss, FinanceApprovedBy = "finance", FinanceApprovedAt = DateTime.UtcNow, Version = 3 };
+        var boss = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "BossAdmin")], "test"));
+        Assert.NotNull(HrWorkflowRules.ValidateDecision(slip, new(3, "Return", " "), boss, "boss"));
+        var returned = HrWorkflowRules.Decide(slip, new(3, "Return", "Check amounts"), "boss", DateTime.UtcNow);
+        Assert.Equal(HrPayslipStatus.Draft, returned.Status);
+        Assert.Null(returned.FinanceApprovedBy);
+        Assert.Equal("Check amounts", returned.ReviewNotes);
+    }
+
+    [Fact]
+    public void Hr_clock_out_requires_confirmation_only_before_configured_end()
+    {
+        var now = new DateTime(2026, 9, 20, 9, 0, 0, DateTimeKind.Utc);
+        var record = new HrAttendanceRecord { ScheduledEndAt = now.AddHours(1) };
+        Assert.NotNull(HrWorkflowRules.ValidateEarlyCheckOut(record, now, null));
+        Assert.NotNull(HrWorkflowRules.ValidateEarlyCheckOut(record, now, new(true, " ")));
+        Assert.Null(HrWorkflowRules.ValidateEarlyCheckOut(record, now, new(true, "Appointment")));
+        Assert.Null(HrWorkflowRules.ValidateEarlyCheckOut(record, now.AddHours(1), null));
+        Assert.Null(HrWorkflowRules.ValidateEarlyCheckOut(record with { ScheduledEndAt = null }, now, null));
+    }
+
+    [Fact]
+    public void Hr_correction_times_use_Malaysian_date_and_reject_future_or_invalid_sessions()
+    {
+        var start = new DateTime(2026, 9, 19, 23, 0, 0, DateTimeKind.Utc);
+        var date = new DateOnly(2026, 9, 20);
+        Assert.Equal(date, HrWorkflowRules.LocalDate(start));
+        Assert.Null(HrWorkflowRules.ValidateTimes(date, start, start.AddHours(8), start.AddHours(9)));
+        Assert.NotNull(HrWorkflowRules.ValidateTimes(date.AddDays(-1), start, start.AddHours(8), start.AddHours(9)));
+        Assert.NotNull(HrWorkflowRules.ValidateTimes(date, start, start.AddHours(-1), start.AddHours(9)));
+        Assert.NotNull(HrWorkflowRules.ValidateTimes(date, start, start.AddHours(10), start.AddHours(9)));
+        Assert.NotNull(HrWorkflowRules.ValidateTimes(date, start, start.AddHours(25), start.AddHours(26)));
+    }
+
+    [Fact]
+    public void Hr_payslip_pdf_includes_statutory_deductions_and_employer_contributions()
+    {
+        var slip = new HrPayslip { StaffName = "Original Staff", Status = HrPayslipStatus.Published, GrossPay = 3000m, NetPay = 2600m, EmployeeEpf = 330m, EmployerEpf = 390m, EmployeeSocso = 14.75m, EmployerSocso = 51.65m, EmployeeEis = 5.90m, EmployerEis = 5.90m, Pcb = 25m };
+        var content = Encoding.ASCII.GetString(HrPayslipPdfFactory.Create(slip, new HrPayPeriod { StartDate = new DateOnly(2026, 9, 1) }, "Test Staff", "Test Company").Content);
+        Assert.Contains("Employee EPF", content); Assert.Contains("Employee SOCSO", content); Assert.Contains("Employee EIS", content); Assert.Contains("PCB", content);
+        Assert.Contains("Employer EPF", content); Assert.Contains("Employer SOCSO", content); Assert.Contains("Employer EIS", content);
+        Assert.DoesNotContain("DRAFT - NOT APPROVED", content);
+        Assert.Contains("Original Staff", content);
+        Assert.DoesNotContain("Test Staff", content);
+    }
+
     [Fact]
     public void Operations_calendar_customer_context_obeys_customer_read_access()
     {
@@ -2323,12 +2450,13 @@ public sealed class BusinessRulesTests
         var content = Encoding.ASCII.GetString(HrPayslipPdfFactory.Create(payslip, period, "Example Staff", "YS HENG AUTOMOTIVE SDN BHD").Content);
 
         Assert.StartsWith("%PDF-", content);
-        Assert.Contains("MONTHLY SALARY SUMMARY PAYSLIP", content);
+        Assert.Contains("Monthly Payslip", content);
         Assert.Contains("Example Staff", content);
         Assert.Contains("RM 2,130.00", content);
         Assert.Contains("Manual deductions", content);
-        Assert.DoesNotContain("EPF", content);
-        Assert.DoesNotContain("SOCSO", content);
+        Assert.Contains("EPF", content);
+        Assert.Contains("Not recorded", content);
+        Assert.Contains("SOCSO", content);
     }
 
     [Fact]

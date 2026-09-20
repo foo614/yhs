@@ -1,3 +1,7 @@
+import { HrAttendanceWorkflow, malaysiaDate, malaysiaTime } from "./HrAttendanceWorkflow";
+import { HrPayrollReview, HrStatutorySummary } from "./HrPayrollReview";
+import { getHrCheckOutPreview, previewHrPayslips } from "../../api";
+import type { HrCheckOutInput } from "../../api";
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
@@ -67,7 +71,8 @@ type HrSalaryPageProps = {
   businessTrips: HrBusinessTrip[];
   onClearAttendanceQrToken: () => void;
   onCheckIn: () => Promise<void>;
-  onCheckOut: () => Promise<void>;
+  onCheckOut: (input?: HrCheckOutInput) => Promise<void>;
+  onWorkflowChanged?: () => Promise<void>;
   onCreateQrChallenge: () => Promise<void>;
   onRedeemQr: (request: HrAttendanceQrRedemptionRequest) => Promise<void>;
   onCreateBusinessTrip: (trip: HrBusinessTrip) => Promise<void>;
@@ -76,7 +81,6 @@ type HrSalaryPageProps = {
   onStartOutstation: (request: HrOutstationAttendanceRequest) => Promise<void>;
   onEndOutstation: (request: HrOutstationAttendanceRequest) => Promise<void>;
   onUpdateReminderPolicy: (type: HrAttendanceReminderType, policy: Pick<HrAttendanceReminderPolicy, "isEnabled" | "leadHours">) => Promise<void>;
-  onUpdateAttendance: (attendance: HrAttendanceRecord) => Promise<void>;
   onLoadBossCalendar: (from: string, to: string) => Promise<void>;
   onSaveAttendanceNetwork: (network: HrAttendanceNetwork) => Promise<void>;
   onCreateLeave: (leave: HrLeaveRequest) => Promise<HrLeaveRequest>;
@@ -293,6 +297,7 @@ export function HrSalaryPage({
   onClearAttendanceQrToken,
   onCheckIn,
   onCheckOut,
+  onWorkflowChanged,
   onCreateQrChallenge,
   onRedeemQr,
   onCreateBusinessTrip,
@@ -300,7 +305,6 @@ export function HrSalaryPage({
   onCancelBusinessTrip,
   onStartOutstation,
   onEndOutstation,
-  onUpdateAttendance,
   onLoadBossCalendar,
   onSaveAttendanceNetwork,
   onCreateLeave,
@@ -322,13 +326,19 @@ export function HrSalaryPage({
   const [businessTripForm] = Form.useForm();
   const [selectedMedicalCertificate, setSelectedMedicalCertificate] = useState<File | null>(null);
   const [attendanceNetworkForm] = Form.useForm();
-  const [attendanceCorrectionForm] = Form.useForm();
+  const [earlyForm] = Form.useForm();
+  const [earlyAction, setEarlyAction] = useState<{ qr: boolean; scheduledEndAt?: string }>();
+  const [clockError, setClockError] = useState("");
+  const [clockBusy, setClockBusy] = useState(false);
+  const [payrollPreview, setPayrollPreview] = useState<HrPayslip[]>([]);
+  const [previewError, setPreviewError] = useState("");
+  const [previewBusy, setPreviewBusy] = useState(false);
   const [selectedGeneratePeriodId, setSelectedGeneratePeriodId] = useState<string>();
   const [previewGeneratePeriodId, setPreviewGeneratePeriodId] = useState<string>();
   const [payrollProfileForm] = Form.useForm();
   const [payPeriodForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
-  const [qrRedeeming, setQrRedeeming] = useState(false);
+
   const [decisionSubmitting, setDecisionSubmitting] = useState<string | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const decisionSubmittingRef = useRef(false);
@@ -339,8 +349,8 @@ export function HrSalaryPage({
   const staffOptions = staffUsers.map((staff) => ({ value: staff.id, label: staffLabel(staff) }));
   const selfId = currentUser?.id ?? "";
   const selfName = currentUser?.name ?? "Current staff";
-  const today = new Date().toISOString().slice(0, 10);
-  const openSession = attendance.find((record) => record.staffUserId === selfId && record.attendanceDate === today && record.checkInAt && !record.checkOutAt);
+  const today = malaysiaDate(new Date());
+  const openSession = attendance.find((record) => record.staffUserId === selfId && record.checkInAt && !record.checkOutAt);
   const canCheckInToday = !openSession;
   const canCheckOutToday = Boolean(openSession);
   const attendanceActionText = openSession ? "Checked in now / 已上班" : "Ready to check in / 可以打卡";
@@ -375,14 +385,27 @@ export function HrSalaryPage({
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!attendanceQrToken || qrRedeeming) return;
-    setQrRedeeming(true);
-    void onRedeemQr({ token: attendanceQrToken, action: qrAction }).finally(() => {
-      onClearAttendanceQrToken();
-      setQrRedeeming(false);
-    });
-  }, [attendanceQrToken, onClearAttendanceQrToken, onRedeemQr, openSession, qrAction, qrRedeeming]);
+  const finishClock = async (qr: boolean, input: HrCheckOutInput = {}) => {
+    if (qr && attendanceQrToken) { await onRedeemQr({ token: attendanceQrToken, action: qrAction, ...input }); onClearAttendanceQrToken(); }
+    else await onCheckOut(input);
+  };
+  const clockOut = async (qr = false) => {
+    setClockBusy(true); setClockError("");
+    try {
+      if (!(qr && qrAction === "CheckIn")) {
+        const preview = await getHrCheckOutPreview();
+        if (preview.isEarly) { earlyForm.resetFields(); setEarlyAction({ qr, scheduledEndAt: preview.scheduledEndAt }); return; }
+      }
+      await finishClock(qr);
+    } catch (error) { setClockError(humanizeApiError(error)); } finally { setClockBusy(false); }
+  };
+  const loadPayrollPreview = async () => {
+    if (!selectedGeneratePeriodId) return;
+    setPreviewBusy(true); setPreviewError(""); setPayrollPreview([]); setPreviewGeneratePeriodId(selectedGeneratePeriodId);
+    try { setPayrollPreview(await previewHrPayslips(selectedGeneratePeriodId)); }
+    catch (error) { setPreviewError(humanizeApiError(error)); }
+    finally { setPreviewBusy(false); }
+  };
 
   const updateRecordFilter = (list: HrRecordListKey, key: keyof HrRecordFilters, value?: string) => {
     setRecordFilters((current) => ({
@@ -527,7 +550,7 @@ export function HrSalaryPage({
   ];
 
   const payslipColumns: ColumnsType<HrPayslip> = [
-    { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
+    { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string, record: HrPayslip) => record.staffName || staffName(id, visibleStaff) },
     { title: "Period / 月份", dataIndex: "payPeriodId", render: (id: string) => payPeriodName(id, payPeriods) },
     { title: "Status / 状态", dataIndex: "status", render: (status: HrPayslip["status"]) => <Tag color={status === "Generated" ? "green" : "default"}>{payslipStatusLabel(status)}</Tag> },
     { title: "Type / 类型", dataIndex: "employmentType", render: employmentTypeLabel },
@@ -564,7 +587,7 @@ export function HrSalaryPage({
   const attendanceStatusOptions = ["Present", "Late", "HalfDay", "Absent"].map((value) => ({ value, label: attendanceStatusLabel(value as HrAttendanceRecord["status"]) }));
   const businessTripStatusOptions = ["Pending", "Approved", "Rejected", "Cancelled"].map((value) => ({ value, label: businessTripStatusLabel(value as HrBusinessTripStatus) }));
   const leaveStatusOptions = ["Pending", "Approved", "Rejected", "Cancelled"].map((value) => ({ value, label: leaveStatusLabel(value as HrLeaveStatus) }));
-  const payslipStatusOptions = ["Draft", "Generated"].map((value) => ({ value, label: payslipStatusLabel(value as HrPayslip["status"]) }));
+  const payslipStatusOptions = ["Draft", "Generated", "PendingFinance", "PendingBoss", "Published"].map((value) => ({ value, label: payslipStatusLabel(value as HrPayslip["status"]) }));
   const filteredAttendance = filterHrRecords(
     attendance,
     recordFilters.attendance,
@@ -916,13 +939,15 @@ export function HrSalaryPage({
               <Button icon={<ClockCircleOutlined />} onClick={onCheckIn} disabled={!canCheckInToday}>Manual Check In / 手动上班</Button>
             </Tooltip>
             <Tooltip title={checkOutHelpText}>
-              <Button onClick={onCheckOut} disabled={!canCheckOutToday}>Manual Check Out / 手动放工</Button>
+              <Button onClick={() => void clockOut()} loading={clockBusy} disabled={!canCheckOutToday}>Manual Check Out / 手动放工</Button>
             </Tooltip>
             <Tooltip title="Use your phone camera to scan the rotating QR shown on the office screen.">
               <Button type="primary" icon={<QrcodeOutlined />} disabled={!canCheckInToday && !canCheckOutToday} onClick={() => window.alert("Use your phone camera to scan the QR shown on the office screen. / 请用手机相机扫描办公室屏幕上的二维码。")}>Scan Office QR / 扫码打卡</Button>
             </Tooltip>
           </div>
-          {attendanceQrToken && <Alert type="info" showIcon message="Office QR detected / 已识别办公室二维码" description={`Recording QR ${qrAction === "CheckIn" ? "Check In / 上班" : "Check Out / 放工"} now. / 正在记录二维码${qrAction === "CheckIn" ? "上班" : "放工"}打卡。`} />}
+          {clockError && <Alert type="error" showIcon message={clockError} />}
+          {attendanceQrToken && <Alert type="info" showIcon message="Office QR detected / 已识别办公室二维码" description={<Button loading={clockBusy} onClick={() => void clockOut(true)}>{qrAction === "CheckIn" ? "Confirm QR Check In / 确认上班" : "Confirm QR Check Out / 确认放工"}</Button>} />}
+
         </Space>
       </ProCard>
 
@@ -998,26 +1023,7 @@ export function HrSalaryPage({
             label: tabLabel("Attendance / 打卡记录", attendance.length),
             children: (
               <>
-                {isHrManager && (
-                  <ProCard title="Attendance correction / 打卡更正" className="hrAttendanceCorrection">
-                    <Form
-                      name="hrAttendanceCorrection"
-                      form={attendanceCorrectionForm}
-                      layout="vertical"
-                      className="formGrid"
-                      onFinish={(values) => {
-                        const existing = attendance.find((record) => record.id === values.attendanceId);
-                        if (!existing) return;
-                        void onUpdateAttendance({ ...existing, status: values.status as HrAttendanceRecord["status"], notes: String(values.notes || "") }).then(() => attendanceCorrectionForm.resetFields());
-                      }}
-                    >
-                      <Form.Item name="attendanceId" label="Attendance record / 打卡记录" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={attendance.map((record) => ({ value: record.id, label: `${staffName(record.staffUserId, visibleStaff)} · ${record.attendanceDate}` }))} /></Form.Item>
-                      <Form.Item name="status" label="Corrected status / 更正状态" rules={[{ required: true }]}><Select options={attendanceStatusOptions} /></Form.Item>
-                      <Form.Item name="notes" label="Correction note / 更正说明" rules={[{ required: true, whitespace: true, message: "A correction note is required." }]}><Input /></Form.Item>
-                      <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save correction / 保存更正</Button></Form.Item>
-                    </Form>
-                  </ProCard>
-                )}
+                <HrAttendanceWorkflow currentUser={currentUser} staff={staffUsers} attendance={attendance} onChanged={onWorkflowChanged} />
                 <HrRecordFilterControls
                   filters={recordFilters.attendance}
                   total={attendance.length}
@@ -1262,7 +1268,7 @@ export function HrSalaryPage({
                     <ProCard title="Generate Payslips / 生成薪资单">
                       <Space className="hrGenerateActions" wrap>
                         <Select options={payPeriods.map((period) => ({ value: period.id, label: `${period.name} / ${period.workingDays} days / 天` }))} className="hrPeriodSelect" value={selectedGeneratePeriodId} onChange={setSelectedGeneratePeriodId} placeholder="Select period / 选择月份" />
-                        <Button type="primary" disabled={!selectedGeneratePeriodId} onClick={() => setPreviewGeneratePeriodId(selectedGeneratePeriodId)}>Preview / 预览</Button>
+                        <Button type="primary" disabled={!selectedGeneratePeriodId} onClick={() => void loadPayrollPreview()}>Preview / 预览</Button>
                         <Typography.Text type="secondary">Monthly: base salary / working days, with approved unpaid leave deduction. Hourly: completed Present, Late and Half Day clock time × hourly rate + allowances − manual deductions. No break or overtime adjustment is applied automatically.</Typography.Text>
                       </Space>
                     </ProCard>
@@ -1278,6 +1284,8 @@ export function HrSalaryPage({
                   onStatusChange={(value) => updateRecordFilter("payslips", "status", value)}
                   onClear={() => clearRecordFilters("payslips")}
                 />
+                {(isHrManager || currentUser?.roles.includes("Finance")) && <HrPayrollReview currentUser={currentUser} payslips={payslipPage.items} payPeriods={payPeriods} onChanged={onWorkflowChanged} />}
+                {!isHrManager && !currentUser?.roles.includes("Finance") && payslipPage.items.filter(item => item.status === "Published").map(item => <ProCard key={item.id} title={payPeriodName(item.payPeriodId, payPeriods)}><HrStatutorySummary slip={item} /></ProCard>)}
                 {payslipMobileCards}
                 <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} nativeSearch={recordNativeSearch("payslips", [{ name: "staff", label: "Staff / 员工" }, { name: "payPeriod", label: "Pay period / 薪资月份" }], payslipStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
               </Space>
@@ -1285,21 +1293,32 @@ export function HrSalaryPage({
           }
         ]}
       />
+      <Modal title="Clock out early? / 提早放工？" open={Boolean(earlyAction)} confirmLoading={clockBusy} onCancel={() => setEarlyAction(undefined)} onOk={() => earlyForm.submit()} okText="Confirm clock out / 确认放工">
+        <Typography.Paragraph>Your scheduled finish is {malaysiaTime(earlyAction?.scheduledEndAt)}. Enter a reason to clock out now.</Typography.Paragraph>
+        {clockError && <Alert type="error" message={clockError} />}
+        <Form form={earlyForm} layout="vertical" onFinish={async values => { if (!earlyAction) return; setClockBusy(true); setClockError(""); try { await finishClock(earlyAction.qr, { confirmEarly: true, reason: values.reason }); setEarlyAction(undefined); } catch (error) { setClockError(humanizeApiError(error)); } finally { setClockBusy(false); } }}><Form.Item name="reason" label="Reason / 原因" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item></Form>
+      </Modal>
       <Modal
         title="Review payslip generation / 核对薪资单生成"
         open={Boolean(previewGeneratePeriodId)}
         onCancel={() => setPreviewGeneratePeriodId(undefined)}
-        okText="Confirm & Generate / 确认生成"
+        okText="Confirm & Prepare Drafts / 确认生成草稿"
+        confirmLoading={previewBusy}
+        okButtonProps={{ disabled: previewBusy || Boolean(previewError) || payrollPreview.length === 0 }}
         onOk={async () => {
           if (!previewGeneratePeriodId) return;
           const periodId = previewGeneratePeriodId;
-          setPreviewGeneratePeriodId(undefined);
-          await onGeneratePayslips(periodId);
+          setPreviewBusy(true);
+          try { await onGeneratePayslips(periodId); setPreviewGeneratePeriodId(undefined); }
+          catch (error) { setPreviewError(humanizeApiError(error)); }
+          finally { setPreviewBusy(false); }
         }}
       >
+        {previewError && <Alert type="error" message={previewError} />}
+        {payrollPreview.map(slip => <Typography.Paragraph key={slip.staffUserId}><strong>{slip.staffName}</strong> · Gross {money(slip.grossPay)} · Before statutory deductions {money(slip.netPay)}</Typography.Paragraph>)}
         {(() => {
           const period = payPeriods.find((item) => item.id === previewGeneratePeriodId);
-          return <Typography.Paragraph>Generate or refresh payslips for <Typography.Text strong>{period?.name ?? "the selected period"}</Typography.Text> ({period?.workingDays ?? 0} working days) for all configured payroll profiles. Existing payslips for this period will be updated. Statutory EPF/SOCSO/EIS/PCB values are not calculated in this MVP.</Typography.Paragraph>;
+          return <Typography.Paragraph>Prepare or refresh draft payslips for <Typography.Text strong>{period?.name ?? "the selected period"}</Typography.Text> ({period?.workingDays ?? 0} working days) for all configured payroll profiles. Only drafts can be refreshed. Existing statutory amounts will be cleared for rechecking. Enter EPF/SOCSO/EIS/PCB amounts after preparation, then submit to Finance and Boss for approval.</Typography.Paragraph>;
         })()}
       </Modal>
     </Space>
@@ -1613,7 +1632,7 @@ function calendarMonthRange(value: dayjs.Dayjs): [string, string] {
 }
 
 function payslipStatusLabel(status: HrPayslip["status"]) {
-  return status === "Generated" ? "Generated / 已生成" : "Draft / 草稿";
+  return ({ Draft: "Draft / 草稿", Generated: "Legacy / 旧薪资单", PendingFinance: "Finance review / 财务审核", PendingBoss: "Boss review / 老板审核", Published: "Published / 已发布" })[status];
 }
 
 function leaveAdjustmentTypeLabel(type: HrLeaveAdjustment["type"]) {

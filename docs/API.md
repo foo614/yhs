@@ -373,7 +373,7 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `POST` | `/api/hr/attendance/qr/redeem` | Authenticated staff redeem the office QR for one Check In or Check Out action; each staff member can use a challenge once per action. |
 | `POST` | `/api/hr/attendance/outstation/start` | Reserved for the future outstation workflow; currently refuses attendance bypass. |
 | `POST` | `/api/hr/attendance/outstation/end` | Reserved for the future outstation workflow; currently refuses attendance bypass. |
-| `PUT` | `/api/hr/attendance/{id}` | HR/Admin correction with a required note; records manual verification and audit history. |
+| `PUT` | `/api/hr/attendance/{id}` | Retired direct correction path; HR/Admin receive 409 and must submit a correction request. |
 | `GET` | `/api/hr/business-trips` | List business trip and urgent outstation requests scoped to self, or all staff for HR/Admin. |
 | `POST` | `/api/hr/business-trips` | Submit a business trip or urgent outstation exception request; it remains pending until HR/Admin approval. |
 | `PUT` | `/api/hr/business-trips/{id}/decision` | HR/Admin approve or reject a pending business trip request. Approved trips do not consume leave balance. |
@@ -396,7 +396,20 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `POST` | `/api/hr/pay-periods` | HR/Admin create a working-day pay period. |
 | `GET` | `/api/hr/payslips` | List payslips scoped to self, or all staff for HR/Admin. |
 | `GET` | `/api/hr/payslips/{id}/pdf` | Download a one-page payslip PDF when the signed-in staff member owns it or has HR/Admin access; download is audited. |
-| `POST` | `/api/hr/pay-periods/{id}/generate-payslips` | HR/Admin generate or update payslips for a pay period. |
+| `POST` | `/api/hr/pay-periods/{id}/generate-payslips` | HR/Admin prepare or refresh editable drafts, resetting statutory amounts for rechecking. Reviewed/published/legacy slips are preserved. |
+| `GET` | `/api/hr/attendance/check-out-preview` | Own open session and scheduled finish; early-checkout indicator. |
+| `GET/PUT` | `/api/hr/work-schedules` | Staff see own dated schedules; HR/Admin set future shifts before attendance starts. Timestamps are UTC, attendance date is Malaysian. |
+| `GET/POST` | `/api/hr/attendance-corrections` | Self-scoped requests; HR/Admin may submit for staff. Actual check-in/out and reason required. Original times are snapshotted. |
+| `PUT` | `/api/hr/attendance-corrections/{id}/decision` | Separate HR/Admin approves or rejects; rejection requires notes. Approval updates attendance atomically and refuses overlaps, stale originals and payroll locks. |
+| `GET` | `/api/hr/pay-periods/{id}/preview` | HR/Admin read-only calculation preview before draft preparation. |
+| `PUT` | `/api/hr/payslips/{id}/statutory` | HR/Admin enter all seven monthly employee/employer EPF/SOCSO/EIS and PCB amounts, calculation reference and current version. Null is not zero. Drafts only. |
+| `PUT` | `/api/hr/payslips/{id}/decision` | Versioned `Submit`, `FinanceApprove`, `BossApprove`, `Return`. HR submits, a separate Finance reviewer approves, then a separate Boss/Admin publishes. Return requires a reason and clears approval. |
+
+FOO-177 payroll access: HR/Admin and Finance may read payroll slips/PDFs for review. Finance gains no general attendance, leave, MC or payroll-profile management access. Ordinary staff see only their own published or legacy (`Generated`) slips. New PDFs are marked draft until publication. Legacy slips are retained without inventing statutory amounts. Published slips use snapshotted staff names and cannot be regenerated or returned through this workflow.
+
+Early checkout accepts `{ confirmEarly: true, reason: "..." }` on check-out, including QR redemption. The server enforces the reason against the schedule captured at check-in. No schedule means no early warning; check-out finds open sessions across midnight. Approved time corrections derive early-checkout notes from corrected times. Pending corrections do not affect hourly pay. Payroll submission is allowed only after the period ends and rejects unresolved corrections, pending leave, incomplete hourly attendance and stale calculation inputs. Attendance edits and leave decisions cannot change a period under review or locked. New pay periods cannot overlap.
+
+Statutory amounts are entered per payslip from the official applicable employee/month assessment and independently reviewed. Employee EPF/SOCSO/EIS/PCB reduce net pay; employer EPF/SOCSO/EIS are displayed separately and never reduce net pay. Explicit zero requires supporting context in the calculation reference. Automatic statutory assessment, remittance/file submission, published-payroll amendments and employee tax profiles are not implemented. An approved unpaid-leave request crossing periods blocks preparation rather than deducting its full day total twice; per-period day allocation remains a follow-up.
 
 Payslip formula:
 
@@ -457,7 +470,7 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 - `HrAttendanceStatus`: `Present`, `Late`, `HalfDay`, `Absent`
 - `HrLeaveType`: `AnnualLeave`, `MedicalLeave`, `EmergencyLeave`, `UnpaidLeave`
 - `HrLeaveStatus`: `Pending`, `Approved`, `Rejected`, `Cancelled`
-- `HrPayslipStatus`: `Draft`, `Generated`
+- `HrPayslipStatus`: `Draft`, `Generated` (legacy), `PendingFinance`, `PendingBoss`, `Published`
 - `HrEmploymentType`: `Monthly`, `Hourly`
 - `HrAttendanceVerificationMethod`: `Manual`, `OfficeQr`, `Outstation`, `ManualException`, `OfficeIp`
 - `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`, `InspectionReport`, `WindscreenPolicy`

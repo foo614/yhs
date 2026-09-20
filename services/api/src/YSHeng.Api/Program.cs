@@ -3781,6 +3781,17 @@ admin.MapPut("/users/{id}/roles", async (string id, UpdateStaffUserRolesRequest 
 });
 
 var hr = backOffice.MapGroup("/hr");
+// Serialize HR writes so corrections and approvals cannot race payroll submission.
+hr.AddEndpointFilter(async (invocation, next) =>
+{
+    if (HttpMethods.IsGet(invocation.HttpContext.Request.Method)) return await next(invocation);
+    var db = invocation.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    if (db.Database.IsNpgsql()) await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(1772026)");
+    var result = await next(invocation);
+    await transaction.CommitAsync();
+    return result;
+});
 hr.MapGet("/staff", async (UserManager<AppUser> userManager, HttpContext context) =>
 {
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
@@ -4023,12 +4034,13 @@ hr.MapPost("/attendance/check-in", async (AppDbContext db, HttpContext context) 
     var officeNetwork = HrRules.FindMatchingAttendanceNetwork(context.Connection.RemoteIpAddress, await db.HrAttendanceNetworks.AsNoTracking().Where(network => network.IsActive).ToListAsync());
     if (officeNetwork is null) return Results.BadRequest(new { message = "Attendance must be checked in from an approved office network." });
     var openSession = await db.HrAttendanceRecords
-        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
+        .Where(record => record.StaffUserId == staffUserId && record.CheckInAt != null && record.CheckOutAt == null)
         .OrderByDescending(record => record.CheckInAt)
         .FirstOrDefaultAsync();
     var actionValidation = HrRules.ValidateCheckIn(openSession);
     if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present, VerificationMethod = HrAttendanceVerificationMethod.OfficeIp, OfficeNetworkLabel = officeNetwork.Label };
+    if (await HrWorkflowStore.HasLockedPayroll(db, staffUserId, today)) return Results.Conflict(new ApiError("Payroll is under review or locked for this date."));
+    var attendance = new HrAttendanceRecord { StaffUserId = staffUserId, AttendanceDate = today, CheckInAt = now, Status = HrAttendanceStatus.Present, VerificationMethod = HrAttendanceVerificationMethod.OfficeIp, OfficeNetworkLabel = officeNetwork.Label, ScheduledEndAt = await db.HrWorkSchedules.Where(item => item.StaffUserId == staffUserId && item.AttendanceDate == today).Select(item => (DateTime?)item.EndAt).FirstOrDefaultAsync() };
 
     var validation = HrRules.ValidateAttendance(attendance);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -4038,7 +4050,7 @@ hr.MapPost("/attendance/check-in", async (AppDbContext db, HttpContext context) 
     return Results.Ok(attendance);
 });
 
-hr.MapPost("/attendance/check-out", async (AppDbContext db, HttpContext context) =>
+hr.MapPost("/attendance/check-out", async (HrCheckOutRequest? request, AppDbContext db, HttpContext context) =>
 {
     var staffUserId = StaffIdentity.CurrentUserId(context);
     var today = HrBusinessClock.Today();
@@ -4046,12 +4058,15 @@ hr.MapPost("/attendance/check-out", async (AppDbContext db, HttpContext context)
     var officeNetwork = HrRules.FindMatchingAttendanceNetwork(context.Connection.RemoteIpAddress, await db.HrAttendanceNetworks.AsNoTracking().Where(network => network.IsActive).ToListAsync());
     if (officeNetwork is null) return Results.BadRequest(new { message = "Attendance must be checked out from an approved office network." });
     var openSession = await db.HrAttendanceRecords
-        .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == today && record.CheckInAt != null && record.CheckOutAt == null)
+        .Where(record => record.StaffUserId == staffUserId && record.CheckInAt != null && record.CheckOutAt == null)
         .OrderByDescending(record => record.CheckInAt)
         .FirstOrDefaultAsync();
     var actionValidation = HrRules.ValidateCheckOut(openSession);
     if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
-    var attendance = openSession! with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.OfficeIp, OfficeNetworkLabel = officeNetwork.Label };
+    if (DateTime.UtcNow - openSession!.CheckInAt!.Value > TimeSpan.FromHours(24)) return Results.Conflict(new ApiError("This session is older than 24 hours. Request a correction with the actual check-out time."));
+    if (await HrWorkflowStore.HasLockedPayroll(db, staffUserId, openSession!.AttendanceDate)) return Results.Conflict(new ApiError("Payroll is under review or locked. Return it to HR before changing attendance."));
+    if (HrWorkflowRules.ValidateEarlyCheckOut(openSession, now, request) is { } earlyError) return Results.BadRequest(new ApiError(earlyError));
+    var attendance = openSession with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.OfficeIp, OfficeNetworkLabel = officeNetwork.Label, EarlyCheckOutReason = openSession.ScheduledEndAt > now ? request!.Reason!.Trim() : null };
 
     var validation = HrRules.ValidateAttendance(attendance);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -4105,18 +4120,20 @@ hr.MapPost("/attendance/qr/redeem", async (HrAttendanceQrRedemptionRequest reque
     if (request.Action == HrAttendanceAction.CheckIn)
     {
         var openSession = await db.HrAttendanceRecords
-            .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == DateOnly.FromDateTime(now) && record.CheckInAt != null && record.CheckOutAt == null)
+            .Where(record => record.StaffUserId == staffUserId && record.CheckInAt != null && record.CheckOutAt == null)
             .OrderByDescending(record => record.CheckInAt)
             .FirstOrDefaultAsync();
         var actionValidation = HrRules.ValidateCheckIn(openSession);
         if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
 
+        if (await HrWorkflowStore.HasLockedPayroll(db, staffUserId, HrWorkflowRules.LocalDate(now))) return Results.Conflict(new ApiError("Payroll is under review or locked for this date."));
         attendance = new HrAttendanceRecord
         {
             StaffUserId = staffUserId,
-            AttendanceDate = DateOnly.FromDateTime(now),
+            AttendanceDate = HrWorkflowRules.LocalDate(now),
             CheckInAt = now,
             Status = HrAttendanceStatus.Present,
+            ScheduledEndAt = await db.HrWorkSchedules.Where(item => item.StaffUserId == staffUserId && item.AttendanceDate == HrWorkflowRules.LocalDate(now)).Select(item => (DateTime?)item.EndAt).FirstOrDefaultAsync(),
             VerificationMethod = HrAttendanceVerificationMethod.OfficeQr
         };
         var validation = HrRules.ValidateAttendance(attendance);
@@ -4126,13 +4143,16 @@ hr.MapPost("/attendance/qr/redeem", async (HrAttendanceQrRedemptionRequest reque
     else
     {
         var openSession = await db.HrAttendanceRecords
-            .Where(record => record.StaffUserId == staffUserId && record.AttendanceDate == DateOnly.FromDateTime(now) && record.CheckInAt != null && record.CheckOutAt == null)
+            .Where(record => record.StaffUserId == staffUserId && record.CheckInAt != null && record.CheckOutAt == null)
             .OrderByDescending(record => record.CheckInAt)
             .FirstOrDefaultAsync();
         var actionValidation = HrRules.ValidateCheckOut(openSession);
         if (!actionValidation.IsValid) return Results.BadRequest(actionValidation);
+        if (DateTime.UtcNow - openSession!.CheckInAt!.Value > TimeSpan.FromHours(24)) return Results.Conflict(new ApiError("This session is older than 24 hours. Request a correction with the actual check-out time."));
 
-        attendance = openSession! with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.OfficeQr };
+        if (await HrWorkflowStore.HasLockedPayroll(db, staffUserId, openSession!.AttendanceDate)) return Results.Conflict(new ApiError("Payroll is under review or locked. Return it to HR before changing attendance."));
+        if (HrWorkflowRules.ValidateEarlyCheckOut(openSession, now, new(request.ConfirmEarly, request.Reason)) is { } earlyError) return Results.BadRequest(new ApiError(earlyError));
+        attendance = openSession with { CheckOutAt = now, VerificationMethod = HrAttendanceVerificationMethod.OfficeQr, EarlyCheckOutReason = openSession.ScheduledEndAt > now ? request.Reason!.Trim() : null };
         var validation = HrRules.ValidateAttendance(attendance);
         if (!validation.IsValid) return Results.BadRequest(validation);
         db.Entry(openSession!).CurrentValues.SetValues(attendance);
@@ -4236,20 +4256,90 @@ hr.MapPost("/attendance/outstation/start", () => Results.BadRequest(new ApiError
 
 hr.MapPost("/attendance/outstation/end", () => Results.BadRequest(new ApiError("Outstation attendance is not available yet. HR/Admin can correct attendance with a required note.")));
 
-hr.MapPut("/attendance/{id:guid}", async (Guid id, HrAttendanceRecord attendance, AppDbContext db, HttpContext context) =>
+hr.MapPut("/attendance/{id:guid}", (Guid id, HttpContext context) =>
+    DepartmentAccess.IsHrManager(context.User)
+        ? Results.Conflict(new ApiError("Submit an attendance correction for HR approval using the correction workflow."))
+        : Results.Forbid());
+
+hr.MapGet("/attendance/check-out-preview", async (AppDbContext db, HttpContext context) =>
+{
+    var actor = StaffIdentity.CurrentUserId(context);
+    var record = await db.HrAttendanceRecords.AsNoTracking().Where(item => item.StaffUserId == actor && item.CheckInAt != null && item.CheckOutAt == null).OrderByDescending(item => item.CheckInAt).FirstOrDefaultAsync();
+    if (record is null) return Results.BadRequest(new ApiError("No open attendance session. Refresh attendance."));
+    return Results.Ok(new { attendanceId = record.Id, scheduledEndAt = record.ScheduledEndAt, isEarly = record.ScheduledEndAt > DateTime.UtcNow });
+});
+
+hr.MapGet("/work-schedules", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrWorkSchedules.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User)) query = query.Where(item => item.StaffUserId == StaffIdentity.CurrentUserId(context));
+    return Results.Ok(await query.OrderByDescending(item => item.AttendanceDate).ToListAsync());
+});
+
+hr.MapPut("/work-schedules", async (HrWorkSchedule request, AppDbContext db, HttpContext context) =>
 {
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
-    if (id != attendance.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("attendance"));
-    var existing = await db.HrAttendanceRecords.FirstOrDefaultAsync(record => record.Id == id);
-    if (existing is null) return Results.NotFound();
-    if (string.IsNullOrWhiteSpace(attendance.Notes)) return Results.BadRequest(new { message = "HR attendance corrections require a note." });
-    var corrected = attendance with { VerificationMethod = HrAttendanceVerificationMethod.Manual, OfficeNetworkLabel = null };
-    var validation = HrRules.ValidateAttendance(corrected);
-    if (!validation.IsValid) return Results.BadRequest(validation);
-    db.Entry(existing).CurrentValues.SetValues(corrected);
-    ApiAudit.Add(db, context.User, "hr.attendance.updated", nameof(HrAttendanceRecord), corrected.Id);
+    if (!await db.Users.AnyAsync(user => user.Id == request.StaffUserId)) return Results.BadRequest(new ApiError("Select an existing staff member."));
+    if (request.StartAt.Kind != DateTimeKind.Utc || request.EndAt.Kind != DateTimeKind.Utc || HrWorkflowRules.LocalDate(request.StartAt) != request.AttendanceDate || request.EndAt <= request.StartAt || request.EndAt - request.StartAt > TimeSpan.FromHours(24)) return Results.BadRequest(new ApiError("Provide a valid Malaysian shift date and start/end times within 24 hours."));
+    if (request.StartAt < DateTime.UtcNow || await db.HrAttendanceRecords.AnyAsync(item => item.StaffUserId == request.StaffUserId && item.AttendanceDate == request.AttendanceDate)) return Results.Conflict(new ApiError("Set the schedule before the shift starts. Existing attendance keeps its original schedule."));
+    var existing = await db.HrWorkSchedules.FirstOrDefaultAsync(item => item.StaffUserId == request.StaffUserId && item.AttendanceDate == request.AttendanceDate);
+    var saved = request with { Id = existing?.Id ?? Guid.NewGuid() };
+    if (existing is null) db.HrWorkSchedules.Add(saved); else db.Entry(existing).CurrentValues.SetValues(saved);
+    ApiAudit.Add(db, context.User, "hr.schedule.updated", nameof(HrWorkSchedule), saved.Id);
     await db.SaveChangesAsync();
-    return Results.Ok(corrected);
+    return Results.Ok(saved);
+});
+
+hr.MapGet("/attendance-corrections", async (AppDbContext db, HttpContext context) =>
+{
+    var query = db.HrAttendanceCorrections.AsNoTracking();
+    if (!DepartmentAccess.IsHrManager(context.User)) query = query.Where(item => item.StaffUserId == StaffIdentity.CurrentUserId(context));
+    return Results.Ok(await query.OrderByDescending(item => item.RequestedAt).ToListAsync());
+});
+
+hr.MapPost("/attendance-corrections", async (HrCorrectionRequest request, AppDbContext db, HttpContext context) =>
+{
+    var actor = StaffIdentity.CurrentUserId(context);
+    var staffId = DepartmentAccess.IsHrManager(context.User) ? request.StaffUserId : actor;
+    if (!DepartmentAccess.IsHrManager(context.User) && request.StaffUserId != actor) return Results.Forbid();
+    if (!await db.Users.AnyAsync(user => user.Id == staffId)) return Results.BadRequest(new ApiError("Select an existing staff member."));
+    if (string.IsNullOrWhiteSpace(request.Reason)) return Results.BadRequest(new ApiError("Explain the attendance correction."));
+    if (HrWorkflowRules.ValidateTimes(request.AttendanceDate, request.CheckInAt, request.CheckOutAt, DateTime.UtcNow) is { } error) return Results.BadRequest(new ApiError(error));
+    if (await HrWorkflowStore.HasLockedPayroll(db, staffId, request.AttendanceDate)) return Results.Conflict(new ApiError("Payroll is under review or locked for this date. Return the payroll to HR first."));
+    var original = request.AttendanceRecordId is { } recordId ? await db.HrAttendanceRecords.FirstOrDefaultAsync(item => item.Id == recordId) : null;
+    if (request.AttendanceRecordId is not null && (original is null || original.StaffUserId != staffId || original.AttendanceDate != request.AttendanceDate)) return Results.BadRequest(new ApiError("Select your attendance record for the chosen date."));
+    if (await db.HrAttendanceCorrections.AnyAsync(item => item.StaffUserId == staffId && item.AttendanceDate == request.AttendanceDate && item.Status == HrCorrectionStatus.Pending)) return Results.Conflict(new ApiError("A correction for this date is already awaiting HR review."));
+    if (await db.HrAttendanceRecords.AnyAsync(item => item.StaffUserId == staffId && item.Id != request.AttendanceRecordId && item.CheckInAt < request.CheckOutAt && (item.CheckOutAt == null || item.CheckOutAt > request.CheckInAt))) return Results.Conflict(new ApiError("These times overlap another attendance session."));
+    var correction = new HrAttendanceCorrection { AttendanceRecordId = original?.Id, StaffUserId = staffId, AttendanceDate = request.AttendanceDate, OriginalCheckInAt = original?.CheckInAt, OriginalCheckOutAt = original?.CheckOutAt, OriginalStatus = original?.Status, CheckInAt = request.CheckInAt, CheckOutAt = request.CheckOutAt, Reason = request.Reason.Trim(), RequestedBy = actor };
+    db.HrAttendanceCorrections.Add(correction);
+    ApiAudit.Add(db, context.User, "hr.attendance.correctionRequested", nameof(HrAttendanceCorrection), correction.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(correction);
+});
+
+hr.MapPut("/attendance-corrections/{id:guid}/decision", async (Guid id, HrCorrectionDecision decision, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    var item = await db.HrAttendanceCorrections.FirstOrDefaultAsync(item => item.Id == id);
+    if (item is null) return Results.NotFound();
+    var actor = StaffIdentity.CurrentUserId(context);
+    if (actor == item.StaffUserId || actor == item.RequestedBy) return Results.Forbid();
+    if (item.Status != HrCorrectionStatus.Pending) return Results.Conflict(new ApiError("This correction has already been reviewed."));
+    if (!decision.Approve && string.IsNullOrWhiteSpace(decision.Notes)) return Results.BadRequest(new ApiError("Explain why the correction is rejected."));
+    if (decision.Approve)
+    {
+        if (await HrWorkflowStore.HasLockedPayroll(db, item.StaffUserId, item.AttendanceDate)) return Results.Conflict(new ApiError("Payroll is under review or locked for this date."));
+        var original = item.AttendanceRecordId is { } recordId ? await db.HrAttendanceRecords.FirstOrDefaultAsync(record => record.Id == recordId) : null;
+        if (item.AttendanceRecordId is not null && (original is null || original.StaffUserId != item.StaffUserId || original.AttendanceDate != item.AttendanceDate || original.CheckInAt != item.OriginalCheckInAt || original.CheckOutAt != item.OriginalCheckOutAt || original.Status != item.OriginalStatus)) return Results.Conflict(new ApiError("Attendance changed since this request. Reject it and request a fresh correction."));
+        if (await db.HrAttendanceRecords.AnyAsync(record => record.StaffUserId == item.StaffUserId && record.Id != item.AttendanceRecordId && record.CheckInAt < item.CheckOutAt && (record.CheckOutAt == null || record.CheckOutAt > item.CheckInAt))) return Results.Conflict(new ApiError("These times overlap another attendance session."));
+        var corrected = (original ?? new HrAttendanceRecord { StaffUserId = item.StaffUserId, AttendanceDate = item.AttendanceDate }) with { CheckInAt = item.CheckInAt, CheckOutAt = item.CheckOutAt, Status = original?.Status == HrAttendanceStatus.Absent ? HrAttendanceStatus.Present : original?.Status ?? HrAttendanceStatus.Present, VerificationMethod = HrAttendanceVerificationMethod.Manual, Notes = item.Reason, EarlyCheckOutReason = original?.ScheduledEndAt > item.CheckOutAt ? item.Reason : null };
+        if (original is null) db.HrAttendanceRecords.Add(corrected); else db.Entry(original).CurrentValues.SetValues(corrected);
+    }
+    var saved = item with { Status = decision.Approve ? HrCorrectionStatus.Approved : HrCorrectionStatus.Rejected, DecidedBy = actor, DecidedAt = DateTime.UtcNow, DecisionNotes = decision.Notes };
+    db.Entry(item).CurrentValues.SetValues(saved);
+    ApiAudit.Add(db, context.User, "hr.attendance.correctionDecided", nameof(HrAttendanceCorrection), item.Id);
+    await db.SaveChangesAsync();
+    return Results.Ok(saved);
 });
 
 hr.MapGet("/leave-requests", async (AppDbContext db, HttpContext context) =>
@@ -4291,6 +4381,7 @@ hr.MapPut("/leave-requests/{id:guid}/decision", async (Guid id, HrLeaveDecisionR
     var existing = await db.HrLeaveRequests.FirstOrDefaultAsync(request => request.Id == id);
     if (existing is null) return Results.NotFound();
     if (string.Equals(StaffIdentity.CurrentUserId(context), existing.StaffUserId, StringComparison.Ordinal)) return Results.Forbid();
+    if (await HrWorkflowStore.HasLockedPayrollRange(db, existing.StaffUserId, existing.StartDate, existing.EndDate)) return Results.Conflict(new ApiError("Payroll is under review or locked for these dates."));
     var decisionValidation = HrRules.ValidateLeaveDecision(existing, decision.Status);
     if (!decisionValidation.IsValid) return Results.BadRequest(decisionValidation);
     var decided = existing with
@@ -4490,6 +4581,7 @@ hr.MapPost("/pay-periods", async (HrPayPeriod period, AppDbContext db, HttpConte
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
     var validation = HrRules.ValidatePayPeriod(period);
     if (!validation.IsValid) return Results.BadRequest(validation);
+    if (await db.HrPayPeriods.AnyAsync(item => item.StartDate <= period.EndDate && item.EndDate >= period.StartDate)) return Results.Conflict(new ApiError("This pay period overlaps an existing period. Select the existing period instead."));
     db.HrPayPeriods.Add(period);
     ApiAudit.Add(db, context.User, "hr.payPeriod.created", nameof(HrPayPeriod), period.Id);
     await db.SaveChangesAsync();
@@ -4499,10 +4591,10 @@ hr.MapPost("/pay-periods", async (HrPayPeriod period, AppDbContext db, HttpConte
 hr.MapGet("/payslips", async (AppDbContext db, HttpContext context) =>
 {
     var query = db.HrPayslips.AsNoTracking();
-    if (!DepartmentAccess.IsHrManager(context.User))
+    if (!HrWorkflowRules.CanReviewPayroll(context.User))
     {
         var staffUserId = StaffIdentity.CurrentUserId(context);
-        query = query.Where(payslip => payslip.StaffUserId == staffUserId);
+        query = query.Where(payslip => payslip.StaffUserId == staffUserId && (payslip.Status == HrPayslipStatus.Published || payslip.Status == HrPayslipStatus.Generated));
     }
     return Results.Ok(await query.OrderByDescending(payslip => payslip.GeneratedAt).ToListAsync());
 });
@@ -4511,12 +4603,12 @@ hr.MapGet("/payslips/{id:guid}/pdf", async (Guid id, AppDbContext db, UserManage
 {
     var payslip = await db.HrPayslips.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (payslip is null) return Results.NotFound();
-    if (!DepartmentAccess.IsHrManager(context.User) && !string.Equals(payslip.StaffUserId, StaffIdentity.CurrentUserId(context), StringComparison.Ordinal))
+    if (!HrWorkflowRules.CanReviewPayroll(context.User) && (!string.Equals(payslip.StaffUserId, StaffIdentity.CurrentUserId(context), StringComparison.Ordinal) || payslip.Status != HrPayslipStatus.Published && payslip.Status != HrPayslipStatus.Generated))
         return Results.Forbid();
     var period = await db.HrPayPeriods.AsNoTracking().FirstOrDefaultAsync(item => item.Id == payslip.PayPeriodId);
     if (period is null) return Results.NotFound();
     var staff = await userManager.FindByIdAsync(payslip.StaffUserId);
-    var pdf = HrPayslipPdfFactory.Create(payslip, period, staff?.DisplayName ?? payslip.StaffUserId, "YS HENG AUTOMOTIVE SDN BHD");
+    var pdf = HrPayslipPdfFactory.Create(payslip, period, payslip.StaffName ?? staff?.DisplayName ?? payslip.StaffUserId, "YS HENG AUTOMOTIVE SDN BHD");
     ApiAudit.Add(db, context.User, "hr.payslip.pdfDownloaded", nameof(HrPayslip), payslip.Id);
     await db.SaveChangesAsync();
     return Results.File(pdf.Content, "application/pdf", pdf.FileName);
@@ -4527,21 +4619,62 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
     var period = await db.HrPayPeriods.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (period is null) return Results.NotFound();
-    var profiles = await db.HrPayrollProfiles.AsNoTracking().ToListAsync();
-    var leaves = await db.HrLeaveRequests.AsNoTracking().ToListAsync();
-    var attendance = await db.HrAttendanceRecords.AsNoTracking().ToListAsync();
+    var (drafts, error) = await HrWorkflowStore.BuildDrafts(db, period);
+    if (error is not null) return Results.Conflict(new ApiError(error));
     var generated = new List<HrPayslip>();
-    foreach (var profile in profiles)
+    foreach (var draft in drafts)
     {
-        var existing = await db.HrPayslips.FirstOrDefaultAsync(payslip => payslip.PayPeriodId == id && payslip.StaffUserId == profile.StaffUserId);
-        var payslip = HrRules.GeneratePayslip(profile, period, leaves, attendance, existing?.Id);
-        if (existing is null) db.HrPayslips.Add(payslip);
-        else db.Entry(existing).CurrentValues.SetValues(payslip);
-        generated.Add(payslip);
+        var existing = await db.HrPayslips.FirstOrDefaultAsync(slip => slip.Id == draft.Id);
+        var saved = draft with { PreparedBy = StaffIdentity.CurrentUserId(context) };
+        if (existing is null) db.HrPayslips.Add(saved);
+        else db.Entry(existing).CurrentValues.SetValues(saved);
+        generated.Add(saved);
     }
-    ApiAudit.Add(db, context.User, "hr.payslips.generated", nameof(HrPayPeriod), period.Id);
+    ApiAudit.Add(db, context.User, "hr.payslips.drafted", nameof(HrPayPeriod), period.Id);
     await db.SaveChangesAsync();
     return Results.Ok(generated);
+});
+
+hr.MapGet("/pay-periods/{id:guid}/preview", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    var period = await db.HrPayPeriods.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
+    if (period is null) return Results.NotFound();
+    var (drafts, error) = await HrWorkflowStore.BuildDrafts(db, period);
+    return error is not null ? Results.Conflict(new ApiError(error)) : Results.Ok(drafts);
+});
+
+hr.MapPut("/payslips/{id:guid}/statutory", async (Guid id, HrStatutoryInput input, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
+    var slip = await db.HrPayslips.FirstOrDefaultAsync(item => item.Id == id);
+    if (slip is null) return Results.NotFound();
+    if (slip.Status != HrPayslipStatus.Draft || slip.Version != input.Version) return Results.Conflict(new ApiError("Only the current draft can be edited. Refresh payroll."));
+    if (HrWorkflowRules.ValidateStatutory(input) is { } error) return Results.BadRequest(new ApiError(error));
+    var saved = HrWorkflowRules.ApplyStatutory(slip, input, StaffIdentity.CurrentUserId(context));
+    if (saved.NetPay < 0) return Results.BadRequest(new ApiError("Deductions exceed gross pay. Resolve the amounts before saving."));
+    db.Entry(slip).CurrentValues.SetValues(saved);
+    ApiAudit.Add(db, context.User, "hr.payslip.statutoryUpdated", nameof(HrPayslip), id);
+    await db.SaveChangesAsync();
+    return Results.Ok(saved);
+});
+
+hr.MapPut("/payslips/{id:guid}/decision", async (Guid id, HrPayrollDecision decision, AppDbContext db, HttpContext context) =>
+{
+    if (!HrWorkflowRules.CanReviewPayroll(context.User)) return Results.Forbid();
+    var slip = await db.HrPayslips.FirstOrDefaultAsync(item => item.Id == id);
+    if (slip is null) return Results.NotFound();
+    var actor = StaffIdentity.CurrentUserId(context);
+    if (HrWorkflowRules.ValidateDecision(slip, decision, context.User, actor) is { } error) return Results.BadRequest(new ApiError(error));
+    if (decision.Action == "Submit")
+    {
+        if (await HrWorkflowStore.ValidateDraftSource(db, slip) is { } sourceError) return Results.Conflict(new ApiError(sourceError));
+    }
+    var saved = HrWorkflowRules.Decide(slip, decision, actor, DateTime.UtcNow);
+    db.Entry(slip).CurrentValues.SetValues(saved);
+    ApiAudit.Add(db, context.User, $"hr.payslip.{decision.Action}", nameof(HrPayslip), id);
+    await db.SaveChangesAsync();
+    return Results.Ok(saved);
 });
 
 backOffice.MapGet("/dashboard/summary", async (AppDbContext db, AiUsageQuotaService aiUsageQuota, string? from, string? to, CancellationToken cancellationToken) =>
