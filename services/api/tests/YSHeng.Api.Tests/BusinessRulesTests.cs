@@ -487,8 +487,8 @@ public sealed class BusinessRulesTests
         var options = CustomerProfileFactory.CreateOptions([first, second]);
 
         Assert.Equal(2, options.Count);
-        Assert.Contains(options, option => option.Id == first.Id && option.Name == "Alex Lim");
-        Assert.Contains(options, option => option.Id == second.Id && option.Name == "Alex Lim");
+        Assert.Contains(options, option => option.Id == first.Id && option.Name == "Alex Lim" && option.Phone == first.Phone);
+        Assert.Contains(options, option => option.Id == second.Id && option.Name == "Alex Lim" && option.Phone == second.Phone);
     }
 
     [Fact]

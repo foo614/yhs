@@ -2,7 +2,7 @@ using YSHeng.Api.Domain;
 
 namespace YSHeng.Api.Features;
 
-public sealed record CustomerProfileOption(Guid Id, string Name);
+public sealed record CustomerProfileOption(Guid Id, string Name, string? Phone);
 public sealed record CustomerProfileContact(Guid Id, string Name, string? Phone, string? IcNumber, string? TinNumber, string? Email, string? Address, string? Notes);
 public sealed record CustomerProfileVehicle(Guid Id, string PlateNumber, string Make, string Model, int Year, VehicleStatus Status);
 public sealed record CustomerProfileLoan(Guid Id, Guid VehicleId, LoanStatus Status, bool LouApproved, bool LouDone, DateOnly? SubmittedAt);
@@ -78,7 +78,7 @@ public static class CustomerProfileFactory
     public static IReadOnlyList<CustomerProfileOption> CreateOptions(IEnumerable<Customer> customers) =>
         customers
             .OrderBy(customer => customer.Name)
-            .Select(customer => new CustomerProfileOption(customer.Id, customer.Name))
+            .Select(customer => new CustomerProfileOption(customer.Id, customer.Name, customer.Phone))
             .ToList();
 
     public static CustomerProfile Create(

@@ -5865,6 +5865,97 @@ body {
   min-width: 190px;
 }
 
+.financeInvoiceToolbar {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.financeInvoiceExportGroup {
+  min-width: 0;
+}
+
+.financeInvoiceExportGroup .ant-picker {
+  min-width: 220px;
+}
+
+.financeInvoiceReview {
+  display: grid;
+  gap: 12px;
+}
+
+.financeInvoiceReviewIdentity,
+.financeInvoiceReviewAmounts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.financeInvoiceReviewIdentityRow,
+.financeInvoiceReviewAmountRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.financeInvoiceReviewIdentityRow dt,
+.financeInvoiceReviewAmountRow dt {
+  min-width: 0;
+  color: #60746e;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.financeInvoiceReviewIdentityRow dd,
+.financeInvoiceReviewAmountRow dd {
+  min-width: 0;
+  margin: 0;
+  color: #243831;
+  text-align: end;
+}
+
+.financeInvoiceReviewIdentityRow dd {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.financeInvoiceReviewIdentityRow {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.financeInvoiceReviewIdentityRow dd {
+  text-align: start;
+}
+
+.financeInvoiceReviewAmountRow dd {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.financeInvoiceReviewFinalRow {
+  padding-top: 8px;
+  border-top: 1px solid #e3ebe7;
+}
+
+.financeInvoiceReview .ant-alert {
+  margin: 0;
+}
+
+.financeInvoiceToolbar .ant-btn:focus-visible,
+.financeInvoiceReviewModal .ant-btn:focus-visible {
+  outline: 2px solid #0b705c;
+  outline-offset: 2px;
+}
+
+.financeInvoiceToolbar .ant-btn:focus:not(:focus-visible),
+.financeInvoiceReviewModal .ant-btn:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
 @media (max-width: 720px) {
   .financeToolbarForm {
     display: flex !important;
@@ -6777,6 +6868,59 @@ body {
     min-height: 44px;
   }
 
+  .financeV2Modal .ant-modal-header,
+  .financeV2Modal .ant-modal-body {
+    padding-inline: 14px !important;
+  }
+
+  .financeV2Modal .ant-modal-content,
+  .financeInvoiceReviewModal .ant-modal-content {
+    padding: 0;
+  }
+
+  .financeV2Modal .ant-modal-header {
+    padding-block: 12px !important;
+  }
+
+  .financeV2Modal .ant-modal-body {
+    padding-block: 12px 16px !important;
+  }
+
+  .financeV2Modal .modalForm {
+    gap: 10px;
+  }
+
+  .financeV2Modal .financeV2AmountGrid {
+    gap: 10px;
+  }
+
+  .financeV2Modal .ant-pro-card-body,
+  .financeV2Modal .financeV2CalculatedTotal {
+    padding: 10px 12px;
+  }
+
+  .financeInvoiceReviewModal .ant-modal-header {
+    padding: 12px 14px !important;
+  }
+
+  .financeInvoiceReviewModal .ant-modal-body {
+    padding: 12px 14px 16px !important;
+  }
+
+  .financeInvoiceReviewModal .ant-modal-footer {
+    margin-top: 0;
+    padding: 0 14px 14px !important;
+  }
+
+  .financeInvoiceReview {
+    gap: 10px;
+  }
+
+  .financeInvoiceReviewIdentity,
+  .financeInvoiceReviewAmounts {
+    gap: 7px;
+  }
+
   .financeCollectionActions {
     display: grid;
     grid-template-columns: 1fr;
@@ -6964,33 +7108,59 @@ body {
 
   .ant-pro-card-header .ant-pro-card-extra > .financeInvoiceToolbar {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    justify-items: stretch;
   }
 
-  .financeInvoiceToolbar > .ant-space-item:first-child,
-  .financeInvoiceToolbar > .ant-space-item:last-child {
-    grid-column: 1 / -1;
-  }
-
-  .financeInvoiceToolbar .ant-picker {
+  .financeInvoiceToolbar > .ant-space-item,
+  .financeInvoiceToolbar .financeInvoiceExportGroup {
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
-  .financeInvoiceToolbar > .ant-space-item:has(.ant-btn) {
+  .financeInvoiceToolbar .financeInvoiceNewButton {
+    width: auto;
+  }
+
+  .financeInvoiceToolbar > .ant-space-item:has(.financeInvoiceNewButton) {
+    grid-row: 1;
+    width: auto;
     justify-self: end;
+    margin-inline-start: 0 !important;
+  }
+
+  .financeInvoiceToolbar > .ant-space-item:has(.financeInvoiceExportGroup) {
+    grid-row: 2;
+    justify-self: stretch;
+    margin-inline-start: 0 !important;
+  }
+
+  .financeInvoiceToolbar .financeInvoiceExportGroup {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0;
+  }
+
+  .financeInvoiceToolbar .financeInvoiceExportGroup .ant-picker {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .financeInvoiceToolbar .financeInvoiceExportGroup .ant-dropdown-trigger,
+  .financeInvoiceToolbar .financeInvoiceExportGroup .ant-btn {
+    width: auto !important;
+    min-width: 0;
+  }
+
+  .financeInvoiceToolbar .financeInvoiceExportGroup .ant-btn {
+    padding-inline: 12px;
   }
 
   .financeInvoiceToolbar > .ant-space-item {
     min-width: 0;
     max-width: 100%;
-  }
-
-  .ant-pro-card-header .financeInvoiceToolbar > .ant-space-item:nth-child(2) .ant-btn,
-  .ant-pro-card-header .financeInvoiceToolbar > .ant-space-item:nth-child(3) .ant-btn {
-    display: flex;
-    width: 100% !important;
-    white-space: normal;
   }
 
   .financeInvoiceToolbar .ant-btn > span {
