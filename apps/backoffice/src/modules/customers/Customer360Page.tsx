@@ -28,10 +28,20 @@ import "./Customer360Page.css";
 
 export type Customer360SourcePath = "/vehicles" | "/loans" | "/delivery" | "/finance" | "/leads";
 
-export function customerProfileOptionLabel(option: { id: string; name: string }) {
-  const stableId = option.id.length > 8 ? `…${option.id.slice(-8)}` : option.id;
-  return `${option.name} · ID ${stableId}`;
+function shortCustomerId(id: string) {
+  return id.length > 8 ? `…${id.slice(-8)}` : id;
 }
+
+export function customerProfileOptionLabel(option: { id: string; name: string }) {
+  return `${option.name} · ID ${shortCustomerId(option.id)}`;
+}
+
+type CustomerProfileSelectOption = {
+  value: string;
+  label: string;
+  name: string;
+  id: string;
+};
 
 export function canShowCustomer360SourceLink(
   path: Customer360SourcePath,
@@ -403,6 +413,12 @@ export function Customer360Page({
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [optionsRequestVersion, setOptionsRequestVersion] = useState(0);
+  const customerSelectOptions: CustomerProfileSelectOption[] = options.map((option) => ({
+    value: option.id,
+    label: customerProfileOptionLabel(option),
+    name: option.name,
+    id: option.id
+  }));
 
   useEffect(() => {
     setSelectedCustomerId(customerId ?? "");
@@ -560,25 +576,44 @@ export function Customer360Page({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
-      <ProCard title="Customer 360 / 客户全景" extra={(
-        <Select
-          aria-label="Customer profile"
-          className="customerProfileSelect"
-          loading={loadingOptions}
-          notFoundContent={loadingOptions ? <Spin size="small" /> : optionsError ? "Customer options unavailable" : "No customer records"}
-          options={options.map((option) => ({ value: option.id, label: customerProfileOptionLabel(option) }))}
-          placeholder="Choose a customer"
-          showSearch
-          optionFilterProp="label"
-          value={selectedCustomerId || undefined}
-          onChange={(value) => {
-            setProfile(null);
-            setProfileError(null);
-            setSelectedCustomerId(value);
-            onCustomerChange(value);
-          }}
-        />
-      )}>
+      <ProCard title="Customer 360 / 客户全景">
+        <div className="customer360CustomerPicker">
+          <label className="customer360CustomerPickerLabel" htmlFor="customer360-customer-select">Customer profile / 客户档案</label>
+          <Select
+            id="customer360-customer-select"
+            aria-label="Customer profile"
+            className="customerProfileSelect"
+            loading={loadingOptions}
+            notFoundContent={loadingOptions ? <Spin size="small" /> : optionsError ? "Customer options unavailable" : "No customer records"}
+            options={customerSelectOptions}
+            optionRender={(option) => {
+              const customer = option.data as CustomerProfileSelectOption;
+              return (
+                <div className="customerProfileOption" title={customer.name}>
+                  <Typography.Text strong className="customerProfileOptionName">{customer.name}</Typography.Text>
+                  <Typography.Text type="secondary" className="customerProfileOptionId">ID {shortCustomerId(customer.id)}</Typography.Text>
+                </div>
+              );
+            }}
+            labelRender={(selected) => {
+              const selectedLabel = typeof selected.label === "string" ? selected.label : "Selected customer";
+              return <Tooltip title={selectedLabel}><span className="customerProfileSelectedLabel">{selectedLabel}</span></Tooltip>;
+            }}
+            placeholder="Choose a customer"
+            popupClassName="customerProfileDropdown"
+            popupMatchSelectWidth
+            showSearch
+            virtual={false}
+            optionFilterProp="label"
+            value={selectedCustomerId || undefined}
+            onChange={(value) => {
+              setProfile(null);
+              setProfileError(null);
+              setSelectedCustomerId(value);
+              onCustomerChange(value);
+            }}
+          />
+        </div>
         <Alert className="operationalInfoAlert" showIcon type="info" message="Live source records are shown only where your role already has access; this view does not copy or merge customer data." />
       </ProCard>
 
