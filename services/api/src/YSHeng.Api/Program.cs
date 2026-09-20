@@ -4223,7 +4223,8 @@ hr.MapPost("/business-trips/{id:guid}/cancel", async (Guid id, AppDbContext db, 
     var existing = await db.HrBusinessTrips.FirstOrDefaultAsync(trip => trip.Id == id);
     if (existing is null) return Results.NotFound();
     if (!DepartmentAccess.IsHrManager(context.User) && existing.StaffUserId != StaffIdentity.CurrentUserId(context)) return Results.Forbid();
-    if (existing.Status is HrBusinessTripStatus.Rejected or HrBusinessTripStatus.Cancelled) return Results.BadRequest(new ApiError("This business trip cannot be cancelled in its current state."));
+    var cancellationValidation = HrRules.ValidateBusinessTripCancellation(existing, HrBusinessClock.Today());
+    if (!cancellationValidation.IsValid) return Results.BadRequest(cancellationValidation);
 
     var cancelled = existing with { Status = HrBusinessTripStatus.Cancelled };
     db.Entry(existing).CurrentValues.SetValues(cancelled);

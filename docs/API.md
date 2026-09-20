@@ -377,7 +377,7 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `GET` | `/api/hr/business-trips` | List business trip and urgent outstation requests scoped to self, or all staff for HR/Admin. |
 | `POST` | `/api/hr/business-trips` | Submit a business trip or urgent outstation exception request; it remains pending until HR/Admin approval. |
 | `PUT` | `/api/hr/business-trips/{id}/decision` | HR/Admin approve or reject a pending business trip request. Approved trips do not consume leave balance. |
-| `POST` | `/api/hr/business-trips/{id}/cancel` | Staff cancel their own pending/approved request, or HR/Admin cancel any request. |
+| `POST` | `/api/hr/business-trips/{id}/cancel` | Staff cancel their own pending/approved request, or HR/Admin cancel any request, while the request end date is today or later in Malaysia. Ended, rejected, and already cancelled requests return structured validation errors. |
 | `GET` | `/api/hr/leave-requests` | List leave and MC requests scoped to the current staff user, or all staff for HR/Admin. |
 | `POST` | `/api/hr/leave-requests` | Submit a leave request. |
 | `PUT` | `/api/hr/leave-requests/{id}/decision` | HR/Admin approve or reject a leave request. A staff member cannot approve their own request. |
