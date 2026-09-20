@@ -1291,7 +1291,7 @@ export function HrSalaryPage({
                       <OperationsProTable className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
                     </ProCard>
                     <ProCard title="Working Day Pay Period / 薪资月份">
-                      <Form name="hrPayPeriod" form={payPeriodForm} layout="vertical" className="formGrid" onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={payPeriodDefaults(dayjs(today))}>
+                      <Form name="hrPayPeriod" form={payPeriodForm} layout="vertical" className="formGrid" style={{ alignItems: "start" }} onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={payPeriodDefaults(dayjs(today))}>
                         <Form.Item name="payPeriod" label="Pay Period / 薪资月份" rules={[{ required: true }]}><DatePicker picker="month" className="fullWidth" format="MMMM YYYY" onChange={(value) => value && payPeriodForm.setFieldsValue(payPeriodDefaults(value))} /></Form.Item>
                         <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" disabled /></Form.Item>
                         <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" disabled /></Form.Item>
