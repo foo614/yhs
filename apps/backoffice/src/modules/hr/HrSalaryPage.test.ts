@@ -3,9 +3,29 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import dayjs from "dayjs";
 import type { HrAttendanceDashboardSummary } from "../../api";
+import { canCancelBusinessTrip, malaysiaBusinessDate } from "./HrSalaryPage";
 import { HrAttendanceDashboard, HrRecordFilterControls, HrSalaryPage, businessTripFromValues, businessTripSearchText, datePickerValueToDateString, filterHrRecords, leavePolicyTableConfig, paginateHrRecords, payPeriodDefaults, payPeriodFromValues, shouldShowOptionalMcUpload, submitHrDecision, withHrRecordFilterValue } from "./HrSalaryPage";
 
 describe("HR record list helpers", () => {
+  it.each([
+    ["Pending", "2026-09-19", false],
+    ["Approved", "2026-09-19", false],
+    ["Pending", "2026-09-20", true],
+    ["Approved", "2026-09-20", true],
+    ["Approved", "2026-09-21", true],
+    ["Rejected", "2026-09-21", false],
+    ["Cancelled", "2026-09-21", false]
+  ] as const)("cancellation eligibility for %s ending %s is %s", (status, endDate, allowed) => {
+    const trip = { id: "trip-1", staffUserId: "staff-1", status, startDate: "2026-09-18", endDate, location: "Kulai", purpose: "Customer visit", isUrgentException: false, requestedAt: "2026-09-18T00:00:00Z" };
+    expect(canCancelBusinessTrip(trip, "2026-09-20")).toBe(allowed);
+  });
+
+  it("uses the Malaysia date across UTC midnight boundaries", () => {
+    expect(malaysiaBusinessDate(new Date("2026-09-19T15:59:59Z"))).toBe("2026-09-19");
+    expect(malaysiaBusinessDate(new Date("2026-09-19T16:00:00Z"))).toBe("2026-09-20");
+    expect(malaysiaBusinessDate(new Date("2026-09-20T00:00:00Z"))).toBe("2026-09-20");
+  });
+
   const records = [
     { label: "Alicia Tan annual leave", status: "Pending" },
     { label: "Ben Lim medical leave", status: "Approved" },

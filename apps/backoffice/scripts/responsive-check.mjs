@@ -86,6 +86,12 @@ fixtures["/api/debt-recoveries"] = [{ id: "test-debt", vehicleId: vehicle.id, cu
 fixtures["/api/payment-vouchers"] = [{ id: "test-voucher", vehicleId: vehicle.id, payeeName: "Synthetic payee", amount: 300, purpose: "Synthetic expense", status: "Pending", issuedDate: "2026-09-01" }];
 fixtures["/api/admin/users"] = [{ id: "responsive-test", displayName: "Layout Test With A Longer Staff Name", email: "layout@example.test", roles: ["BossAdmin"], isActive: true }];
 fixtures["/api/hr/staff"] = fixtures["/api/admin/users"];
+fixtures["/api/hr/business-trips"] = [
+  { id: "trip-approved", status: "Approved", startDate: "2099-09-20", endDate: "2099-09-20", location: "Future approved trip" },
+  { id: "trip-pending", status: "Pending", startDate: "2099-09-20", endDate: "2099-09-20", location: "Future pending trip" },
+  { id: "trip-past", status: "Approved", startDate: "2020-09-19", endDate: "2020-09-19", location: "Past approved trip" },
+  { id: "trip-rejected", status: "Rejected", startDate: "2099-09-20", endDate: "2099-09-20", location: "Rejected trip", decisionNotes: "Synthetic rejection note" }
+].map(trip => ({ staffUserId: "responsive-test", purpose: "Synthetic customer visit", isUrgentException: false, requestedAt: "2026-09-20T00:00:00Z", ...trip }));
 fixtures["/api/hr/attendance"] = [{ id: "test-attendance", staffUserId: "responsive-test", attendanceDate: "2026-09-01", checkInAt: "2026-09-01T01:00:00Z", status: "Present", verificationMethod: "OfficeQr" }];
 fixtures["/api/hr/leave-requests"] = [{ id: "test-leave", staffUserId: "responsive-test", type: "AnnualLeave", status: "Pending", startDate: "2026-09-01", endDate: "2026-09-02", days: 2, createdAt: "2026-09-01T00:00:00Z" }];
 fixtures["/api/hr/leave-policies"] = [{ id: "test-policy", role: "Sales", annualLeaveDays: 14, medicalLeaveDays: 14 }];
@@ -268,6 +274,23 @@ try {
       }
       const checkInteractions = process.env.RESPONSIVE_INTERACTIONS === "1" || (process.env.RESPONSIVE_INTERACTIONS !== "0" && [360, 820, 1440].includes(width));
       if (checkInteractions) {
+        if (route === "hr-salary") {
+          const rowSelector = ".mobileRecordCard, .ant-table-tbody > tr";
+          const tripRow = location => page.locator(rowSelector).filter({ hasText: location }).filter({ visible: true });
+          const cancel = tripRow("Future approved trip").getByRole("button", { name: "Cancel / 取消", exact: true });
+          await cancel.waitFor();
+          if (await page.getByRole("button", { name: "Cancel / 取消", exact: true }).filter({ visible: true }).count() !== 2) throw new Error("Cancellation must appear only in eligible table/card rows, not the manager's personal strip.");
+          for (const location of ["Past approved trip", "Rejected trip"]) {
+            if (await tripRow(location).getByRole("button", { name: "Cancel / 取消", exact: true }).count()) throw new Error(`${location} must not offer cancellation.`);
+          }
+          await cancel.click();
+          const confirmation = page.locator(".ant-popconfirm").filter({ visible: true });
+          await confirmation.waitFor();
+          await inspect("hr-trip-cancel-confirmation", width);
+          await confirmation.getByRole("button", { name: "Keep / 保留", exact: true }).click();
+          await confirmation.waitFor({ state: "hidden" });
+          await page.locator(".ant-pro-card").filter({ has: page.getByText("Business Trip / Outstation Duty / 出差外勤", { exact: true }) }).first().screenshot({ path: `${output}/hr-trips-${width}.png` });
+        }
         if (route === "leads") {
           await page.locator(".salesLeadViewSwitch .ant-radio-button-wrapper").filter({ hasText: "Cars I’m Handling" }).click();
           await page.getByText("Follow up with the customer", { exact: true }).filter({ visible: true }).first().waitFor();
