@@ -30,7 +30,7 @@ const output = process.env.RESPONSIVE_OUTPUT ?? "../../artifacts/responsive";
 await mkdir(output, { recursive: true });
 const routes = (process.env.RESPONSIVE_ROUTES ?? "dashboard,vehicles,repairs,loans,delivery,finance,customer-360,leads,audit-log,hr-salary,admin").split(",");
 const widths = (process.env.RESPONSIVE_WIDTHS ?? "360,390,720,721,767,768,820,1024,1025,1440").split(",").map(Number);
-const vehicle = { id: "test-vehicle", plateNumber: "TEST1234", make: "Toyota", model: "Corolla Cross Hybrid Premium", year: 2024, stockOwner: "YSHeng", status: "Available", isPublic: false, purchasePrice: 80000, sellingPrice: 98000, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, bossConfirmed: true };
+const vehicle = { id: "test-vehicle", plateNumber: "TEST1234", make: "Toyota", model: "Corolla Cross Hybrid Premium", year: 2024, stockOwner: "YSHeng", customerId: "test-customer", status: "Available", isPublic: false, purchasePrice: 80000, sellingPrice: 98000, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, bossConfirmed: true };
 const fixtures = {
   "/api/auth/me": { isAuthenticated: true, id: "responsive-test", name: "Layout Test", roles: ["BossAdmin"] },
   "/api/vehicles": [vehicle],
@@ -85,6 +85,7 @@ fixtures["/api/broker-commissions"] = [{ id: "test-commission", vehicleId: vehic
 fixtures["/api/debt-recoveries"] = [{ id: "test-debt", vehicleId: vehicle.id, customerId: "test-customer", balanceAmount: 500, status: "Open", followUpDate: "2026-09-01", notes: "Synthetic follow-up note" }];
 fixtures["/api/payment-vouchers"] = [{ id: "test-voucher", vehicleId: vehicle.id, payeeName: "Synthetic payee", amount: 300, purpose: "Synthetic expense", status: "Pending", issuedDate: "2026-09-01" }];
 fixtures["/api/admin/users"] = [{ id: "responsive-test", displayName: "Layout Test With A Longer Staff Name", email: "layout@example.test", roles: ["BossAdmin"], isActive: true }];
+fixtures["/api/sales-agents"] = [{ id: "test-sales-agent", displayName: "Synthetic salesperson", email: "sales@example.test", roles: ["Sales"], isActive: true }];
 fixtures["/api/hr/staff"] = fixtures["/api/admin/users"];
 fixtures["/api/hr/attendance"] = [{ id: "test-attendance", staffUserId: "responsive-test", attendanceDate: "2026-09-01", checkInAt: "2026-09-01T01:00:00Z", status: "Present", verificationMethod: "OfficeQr" }];
 fixtures["/api/hr/leave-requests"] = [{ id: "test-leave", staffUserId: "responsive-test", type: "AnnualLeave", status: "Pending", startDate: "2026-09-01", endDate: "2026-09-02", days: 2, createdAt: "2026-09-01T00:00:00Z" }];
@@ -92,7 +93,7 @@ fixtures["/api/hr/leave-policies"] = [{ id: "test-policy", role: "Sales", annual
 fixtures["/api/hr/leave-balances"] = [{ id: "test-balance", staffUserId: "responsive-test", annualLeaveDays: 14, medicalLeaveDays: 14 }];
 fixtures["/api/audit-log"] = [{ id: "test-audit", actor: "Layout Test", action: "Update", entityType: "Vehicle", entityId: vehicle.id, createdAt: "2026-09-01T00:00:00Z", summary: "Synthetic audit entry with a longer description" }];
 fixtures["/api/sales/workboard"].items = [{ vehicleId: vehicle.id, plateNumber: vehicle.plateNumber, vehicleLabel: "2024 Toyota Corolla Cross Hybrid Premium", salesAgentUserId: "responsive-test", salesAgentName: "Layout Test", process: "Available", responsibleDepartment: "Sales", nextAction: "Follow up with the customer" }];
-fixtures["/api/customers/profile-options"] = fixtures["/api/customers"].map(({ id, name }) => ({ id, name }));
+fixtures["/api/customers/profile-options"] = fixtures["/api/customers"].map(({ id, name, phone }) => ({ id, name, phone }));
 fixtures["/api/customers/test-customer/profile"] = {
   contact: fixtures["/api/customers"][0], vehicles: [vehicle], loans: fixtures["/api/loans"], deliveries: fixtures["/api/deliveries/workboard"],
   payments: [], invoices: [{ id: "test-sales-invoice", paymentRecordId: "test-payment", vehicleId: vehicle.id, invoiceNumber: "TEST-SINV-2026-000001", invoiceDate: "2026-09-01", amount: 98000 }],
@@ -268,6 +269,19 @@ try {
       }
       const checkInteractions = process.env.RESPONSIVE_INTERACTIONS === "1" || (process.env.RESPONSIVE_INTERACTIONS !== "0" && [360, 820, 1440].includes(width));
       if (checkInteractions) {
+        if (route === "loans" && width <= 720) {
+          const status = page.locator(".pageFilterMobileOnly .ant-select").first();
+          if (!(await status.innerText()).includes("All loan statuses")) throw new Error("Loan status default must be visible.");
+        }
+        if (route === "customer-360") {
+          const customerSearch = page.getByRole("combobox", { name: "Customer profile", exact: true });
+          await customerSearch.fill(fixtures["/api/customers"][0].phone);
+          await page.locator(".customerProfileDropdown:visible .customerProfileOptionName").first().waitFor();
+          if (!(await page.locator(".customerProfileDropdown:visible").innerText()).includes(fixtures["/api/customers"][0].phone)) throw new Error("Customer phone must be displayed and searchable.");
+          await inspect("customer-phone-search", width);
+          await customerSearch.fill("");
+          await page.keyboard.press("Escape");
+        }
         if (route === "leads") {
           await page.locator(".salesLeadViewSwitch .ant-radio-button-wrapper").filter({ hasText: "Cars I’m Handling" }).click();
           await page.getByText("Follow up with the customer", { exact: true }).filter({ visible: true }).first().waitFor();
@@ -302,6 +316,14 @@ try {
           await page.getByText("Custom dates", { exact: true }).last().click();
           await inspect("dashboard-custom-dates", width);
         }
+        if (route === "finance") {
+          await page.getByRole("button", { name: "Export sales invoice data", exact: true }).click();
+          await page.getByRole("menuitem", { name: "Export for AutoCount (.xlsx)", exact: true }).waitFor();
+          await page.getByRole("menuitem", { name: "Legacy export (.csv)", exact: true }).waitFor();
+          await inspect("finance-export-menu", width);
+          await page.keyboard.press("Escape");
+          await page.getByRole("button", { name: "Export sales invoice data", exact: true }).click();
+        }
         const range = page.locator(".ant-picker-range:visible input").first();
         if (await range.isVisible().catch(() => false)) {
           await range.click();
@@ -315,12 +337,19 @@ try {
           await page.keyboard.press("Escape");
           await inspect(`${route}-selected-dates`, width);
         }
-        for (const label of ["New Vehicle", "New Supplier", "New Repair", "Manual loan record"]) {
+        for (const label of ["New Vehicle", "New Supplier", "New Repair", "Manual loan record", "New sales invoice"]) {
           const button = page.getByRole("button", { name: label, exact: true });
           if (!await button.isVisible().catch(() => false)) continue;
           await button.click();
           await page.locator(".ant-modal:visible,.ant-drawer-content:visible").first().waitFor();
           await inspect(`${route}-${label.replaceAll(" ", "-")}`, width);
+          if (label === "New sales invoice") {
+            await page.getByRole("button", { name: "Review invoice", exact: true }).click();
+            await page.locator(".financeInvoiceReviewModal:visible").waitFor();
+            await page.getByRole("button", { name: "Generate invoice", exact: true }).waitFor();
+            await inspect("finance-invoice-review", width);
+            await page.getByRole("button", { name: "Back to edit", exact: true }).click();
+          }
           if (label === "New Vehicle") {
             await page.getByRole("button", { name: "Next / 下一步", exact: true }).click();
             await page.locator(".ant-form-item-explain-error").first().waitFor();

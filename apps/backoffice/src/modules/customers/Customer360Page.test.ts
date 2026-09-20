@@ -8,11 +8,15 @@ import {
 } from "./Customer360Page";
 
 describe("Customer360Page", () => {
-  it("adds a stable identifier to duplicate customer names in the selector", () => {
-    expect(customerProfileOptionLabel({ id: "00000000-0000-0000-0000-000000000011", name: "Ali Tan" }))
-      .toBe("Ali Tan · ID …00000011");
-    expect(customerProfileOptionLabel({ id: "00000000-0000-0000-0000-000000000022", name: "Ali Tan" }))
-      .toBe("Ali Tan · ID …00000022");
+  it("uses phone numbers to distinguish duplicate customer names in the selector", () => {
+    expect(customerProfileOptionLabel({ id: "00000000-0000-0000-0000-000000000011", name: "Ali Tan", phone: "0123456789" }))
+      .toBe("Ali Tan · 0123456789");
+    expect(customerProfileOptionLabel({ id: "00000000-0000-0000-0000-000000000022", name: "Ali Tan", phone: "0198765432" }))
+      .toBe("Ali Tan · 0198765432");
+  });
+
+  it("shows a clear fallback when phone is missing", () => {
+    expect(customerProfileOptionLabel({ id: "customer", name: "Ali Tan", phone: "" })).toBe("Ali Tan · No phone recorded");
   });
 
   it("shows source navigation only for routes available to the current role", () => {
