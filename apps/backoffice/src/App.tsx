@@ -5446,10 +5446,10 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
                         <small>{leadSourceSummary(lead, vehicles)}</small>
                         {leadOwnerLabel(lead) ? <small>{leadOwnerLabel(lead)}</small> : null}
                       </div>
-                      <Space wrap size={4}>
+                      <div className="leadMobileActions">
                         <Tag color={lead.status === "New" ? "orange" : lead.status === "Contacted" ? "blue" : "green"}>{lead.status}</Tag>
                         {renderLeadActions(lead)}
-                      </Space>
+                      </div>
                     </div>
                   ))}
                 </div>

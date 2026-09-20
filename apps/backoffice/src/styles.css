@@ -3284,7 +3284,7 @@ body {
   background: #fff;
 }
 
-.leadMobileGroupItem > div {
+.leadMobileGroupItem > div:first-child {
   min-width: 0;
   display: grid;
   gap: 2px;
@@ -4619,7 +4619,7 @@ body {
   .leaveIdentityGrid,
   .leaveDateGrid,
   .leaveDetailsGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .leaveDatePanel {
@@ -4762,6 +4762,15 @@ body {
     white-space: normal;
     text-align: right;
     line-height: 1.35;
+  }
+
+  .mobileRecordHeader > .ant-space {
+    flex-shrink: 0;
+  }
+
+  .mobileRecordHeader > .ant-space .ant-tag {
+    max-width: none;
+    white-space: nowrap;
   }
 
   .mobileRecordHeader h5.ant-typography {
@@ -4907,6 +4916,23 @@ body {
     justify-content: flex-start;
   }
 
+  .mobileRecordFooter .ant-space:has(.ant-btn) {
+    justify-content: flex-end;
+  }
+
+  .mobileInvoiceNumber {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+
+  .mobileRecordFooter > .ant-tag {
+    justify-self: start;
+  }
+
+  .mobileRecordFooter > .ant-btn {
+    justify-self: end;
+  }
+
   .mobileRecordFooter .ant-btn {
     display: inline-grid;
     grid-auto-columns: auto;
@@ -4917,11 +4943,15 @@ body {
     padding-block: 8px;
     white-space: normal;
     overflow-wrap: anywhere;
+    font-size: 13px;
+    padding-inline: 12px;
+    box-shadow: none;
   }
 
   .mobileRecordFooter .tableActionGroup {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 8px !important;
   }
 
@@ -4930,7 +4960,7 @@ body {
   }
 
   .mobileRecordFooter .tableActionGroup .ant-btn {
-    width: 100%;
+    width: auto;
     min-width: 0;
     padding-inline: 8px;
   }
@@ -4940,12 +4970,49 @@ body {
   }
 
   .leadMobileGroupItem .leadActionGroup {
-    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    width: auto;
+    margin-inline-start: auto;
+    justify-content: flex-end;
   }
 
   .leadMobileGroupItem .leadActionGroup .ant-space-item,
   .leadMobileGroupItem .leadActionGroup .ant-btn {
-    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    width: auto;
+  }
+
+  .leadMobileActions {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .leadMobileGroupItem .leadActionGroup .ant-btn > span {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .leadMobileActions .ant-tag {
+    margin: 0;
+  }
+
+  .leadMobileGroupItem .leadActionGroup .ant-btn {
+    display: flex;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+    min-height: 44px;
+    height: auto;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.4;
+    box-shadow: none;
   }
 
   .mobileRecordFooter .ant-btn {
@@ -5041,6 +5108,7 @@ body {
   }
 
   .hrMobileActions {
+    justify-content: flex-end;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -5686,7 +5754,7 @@ body {
   }
 
   .mobileRecordFooter .ant-btn {
-    min-height: 0;
+    min-height: 44px;
   }
 
   .ant-table-cell .ant-btn {
@@ -6547,6 +6615,15 @@ body {
 
   .salesLeadViewSwitch .ant-radio-button-wrapper {
     flex: 1 1 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    height: auto;
+    min-height: 44px;
+    padding: 6px 8px;
+    white-space: normal;
+    line-height: 1.4;
     text-align: center;
   }
 
@@ -6885,6 +6962,42 @@ body {
     margin-inline-start: auto;
   }
 
+  .ant-pro-card-header .ant-pro-card-extra > .financeInvoiceToolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .financeInvoiceToolbar > .ant-space-item:first-child,
+  .financeInvoiceToolbar > .ant-space-item:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .financeInvoiceToolbar .ant-picker {
+    width: 100%;
+  }
+
+  .financeInvoiceToolbar > .ant-space-item:has(.ant-btn) {
+    justify-self: end;
+  }
+
+  .financeInvoiceToolbar > .ant-space-item {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .ant-pro-card-header .financeInvoiceToolbar > .ant-space-item:nth-child(2) .ant-btn,
+  .ant-pro-card-header .financeInvoiceToolbar > .ant-space-item:nth-child(3) .ant-btn {
+    display: flex;
+    width: 100% !important;
+    white-space: normal;
+  }
+
+  .financeInvoiceToolbar .ant-btn > span {
+    min-width: 0;
+    white-space: normal;
+  }
+
   .ant-pro-card-header .ant-pro-card-extra .ant-btn,
   .tableToolbar > .ant-btn {
     width: auto !important;
@@ -7016,5 +7129,22 @@ body {
   .operationsProTable .ant-pro-query-filter .ant-select {
     width: 100%;
     max-width: 100%;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1024px) {
+  .ant-pro-card-header .ant-pro-card-extra:has(.ant-btn) {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .ant-pro-card-header .ant-pro-card-extra > .ant-space {
+    display: flex;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .ant-pro-card-header .ant-pro-card-extra > .ant-space > .ant-space-item:has(.ant-btn) {
+    margin-inline-start: auto;
   }
 }

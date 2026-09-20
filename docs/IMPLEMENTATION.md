@@ -18,6 +18,13 @@ Normal Loan updates now track the post-lock reload so successful responses match
 
 Final local checks passed: 335 backend tests, 405 back-office tests, type checking and production build, 37 focused real Loan API/browser checks, and mounted Vehicle wizard/tab checks at four widths. Broader acceptance and known limitations are recorded separately in the plan; local acceptance is not deployment proof.
 
+## Back-office responsive acceptance
+
+- Use the shared mobile card and action styles. Record actions are content-width, right-aligned and at least 44px tall; status metadata remains separate. Bilingual labels may wrap only inside their controls.
+- Reproduce reported layout problems with populated synthetic records, including long names, multiple actions, disabled actions and terminal states. Empty lists alone do not demonstrate a working record layout.
+- Extend `apps/backoffice/scripts/responsive-check.mjs` for new page or drawer/tab surfaces. It runs in existing web CI at phone, breakpoint, tablet and desktop widths, and rejects page overflow, clipped control text, overlapping or stretched record actions, small record-action touch targets, incorrect alignment and oversized collapsed search forms.
+- Keep the fixture requests local and mutation-free. The suite covers the BossAdmin-accessible surfaces and representative data; it does not replace targeted role-specific, upload-preview, error-state or physical Safari checks when those paths change. Passing geometry checks is not a complete visual design review.
+
 ## Applications
 
 - `apps/frontoffice`: public Next.js vehicle inventory and lead capture.
