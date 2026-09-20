@@ -614,8 +614,8 @@ public sealed class BusinessRulesTests
         var options = CustomerProfileFactory.CreateOptions([first, second]);
 
         Assert.Equal(2, options.Count);
-        Assert.Contains(options, option => option.Id == first.Id && option.Name == "Alex Lim");
-        Assert.Contains(options, option => option.Id == second.Id && option.Name == "Alex Lim");
+        Assert.Contains(options, option => option.Id == first.Id && option.Name == "Alex Lim" && option.Phone == first.Phone);
+        Assert.Contains(options, option => option.Id == second.Id && option.Name == "Alex Lim" && option.Phone == second.Phone);
     }
 
     [Fact]
@@ -1052,6 +1052,26 @@ public sealed class BusinessRulesTests
 
         Assert.Equal(6m, unpaid.AnnualLeaveDays);
         Assert.Equal(13m, unpaid.MedicalLeaveDays);
+    }
+
+    [Theory]
+    [InlineData(HrBusinessTripStatus.Pending, -1, false)]
+    [InlineData(HrBusinessTripStatus.Approved, -1, false)]
+    [InlineData(HrBusinessTripStatus.Pending, 0, true)]
+    [InlineData(HrBusinessTripStatus.Approved, 0, true)]
+    [InlineData(HrBusinessTripStatus.Pending, 1, true)]
+    [InlineData(HrBusinessTripStatus.Approved, 1, true)]
+    [InlineData(HrBusinessTripStatus.Rejected, 1, false)]
+    [InlineData(HrBusinessTripStatus.Cancelled, 1, false)]
+    public void Hr_business_trip_cancellation_preserves_past_and_terminal_records(HrBusinessTripStatus status, int endOffset, bool allowed)
+    {
+        var today = new DateOnly(2026, 9, 20);
+        var trip = new HrBusinessTrip { Status = status, StartDate = today.AddDays(-2), EndDate = today.AddDays(endOffset) };
+
+        var result = HrRules.ValidateBusinessTripCancellation(trip, today);
+
+        Assert.Equal(allowed, result.IsValid);
+        if (!allowed) Assert.NotEmpty(result.Errors);
     }
 
     [Fact]

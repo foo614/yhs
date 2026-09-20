@@ -18,6 +18,10 @@ Normal Loan updates now track the post-lock reload so successful responses match
 
 Final local checks passed: 335 backend tests, 405 back-office tests, type checking and production build, 37 focused real Loan API/browser checks, and mounted Vehicle wizard/tab checks at four widths. Broader acceptance and known limitations are recorded separately in the plan; local acceptance is not deployment proof.
 
+## Mobile form and selector polish
+
+Loan status filters retain a visible All loan statuses default. Customer 360 choices show name and phone, with a No phone recorded fallback; customer IDs remain selection values. Existing CustomerProfile authorization and delivery-linked scoping apply to the options response.
+
 ## Back-office responsive acceptance
 
 - Use the shared mobile card and action styles. Record actions are content-width, right-aligned and at least 44px tall; status metadata remains separate. Bilingual labels may wrap only inside their controls.

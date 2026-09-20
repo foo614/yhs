@@ -1,7 +1,7 @@
 import { formatDisplayDateTime } from "../../dateDisplay";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, Checkbox, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, Badge, Button, Checkbox, DatePicker, Descriptions, Drawer, Dropdown, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -169,10 +169,85 @@ export function payDailySpend(spend: DailySpend): DailySpend {
   return { ...spend, isPaid: true };
 }
 
-export function financeInvoiceSubmitLabel(calculatedTotal: number, agreedTotal: number | null | undefined, adjusting: boolean, ncdAmount = 0) {
-  const hasVariance = adjusting && agreedTotal !== null && agreedTotal !== undefined &&
-    Math.round(Number(agreedTotal) * 100) !== Math.round(calculatedTotal * 100);
-  return hasVariance || ncdAmount > 0 ? "Review & send for approval" : "Review & generate sales invoice";
+export function financeInvoiceSubmitLabel() {
+  return "Review invoice";
+}
+
+export function financeInvoiceReviewAmounts(input: FinanceSaleInput) {
+  const additionalCharges = Number(input.interestAdditionalCharges ?? 0)
+    + Number(input.windscreenCharges ?? 0)
+    + Number(input.insurancePaidOnBehalfAmount ?? 0)
+    + Number(input.roadTaxPaidOnBehalfAmount ?? 0)
+    + Number(input.advancePaidOnBehalfAmount ?? 0);
+  const calculatedTotal = calculateFinanceNettPrice(input);
+  const finalTotal = input.nettPrice ?? calculatedTotal;
+
+  return {
+    additionalCharges,
+    calculatedTotal,
+    finalTotal,
+    variance: finalTotal - calculatedTotal
+  };
+}
+
+export function FinanceInvoiceReviewSummary({ input, vehicle, customerName }: {
+  input: FinanceSaleInput;
+  vehicle?: Pick<VehicleLookup, "plateNumber">;
+  customerName: string;
+}) {
+  const { additionalCharges, calculatedTotal, finalTotal, variance } = financeInvoiceReviewAmounts(input);
+  const hasVariance = Math.round(variance * 100) !== 0;
+  const approvalRequired = financeSaleNeedsApproval(input);
+  const signedVariance = variance > 0
+    ? `+${formatMoney(variance)}`
+    : variance < 0 ? `-${formatMoney(Math.abs(variance))}` : formatMoney(0);
+
+  return (
+    <div className="financeInvoiceReview">
+      <dl className="financeInvoiceReviewIdentity">
+        <div className="financeInvoiceReviewIdentityRow">
+          <dt>Customer / 客户</dt>
+          <dd>{customerName}</dd>
+        </div>
+        <div className="financeInvoiceReviewIdentityRow">
+          <dt>Car plate / 车牌</dt>
+          <dd>{vehicle?.plateNumber ?? "Unknown"}</dd>
+        </div>
+      </dl>
+      <dl className="financeInvoiceReviewAmounts">
+        <div className="financeInvoiceReviewAmountRow">
+          <dt>Selling price / 售价</dt>
+          <dd>{formatMoney(input.salesPrice)}</dd>
+        </div>
+        <div className="financeInvoiceReviewAmountRow">
+          <dt>Additional charges / 附加费用</dt>
+          <dd>{formatMoney(additionalCharges)}</dd>
+        </div>
+        <div className="financeInvoiceReviewAmountRow">
+          <dt>Deductions / 扣减</dt>
+          <dd>{formatMoney(input.ncdAmount)}</dd>
+        </div>
+        {hasVariance && <div className="financeInvoiceReviewAmountRow">
+          <dt>Price adjustment / 价格调整</dt>
+          <dd>{signedVariance}</dd>
+        </div>}
+        {hasVariance && <div className="financeInvoiceReviewAmountRow">
+          <dt>Calculated total / 计算总额</dt>
+          <dd>{formatMoney(calculatedTotal)}</dd>
+        </div>}
+        <div className="financeInvoiceReviewAmountRow financeInvoiceReviewFinalRow">
+          <dt>Final total / 最终总额</dt>
+          <dd><Typography.Text strong>{formatMoney(finalTotal)}</Typography.Text></dd>
+        </div>
+      </dl>
+      {approvalRequired && <Alert
+        type="warning"
+        showIcon
+        message="Approval required before issuing the invoice"
+        description="A different Boss/Admin user must review and approve this NCD or adjusted total. No invoice is issued until approval is complete."
+      />}
+    </div>
+  );
 }
 
 export function financeRequesterLabel(requestedBy?: string, currentUserId?: string) {
@@ -505,7 +580,7 @@ export function FinancePage({
   });
   const invoiceRequiresApproval = Number(invoiceNcdAmount) > 0 || (adjustInvoicePrice && invoiceAgreedTotal !== null && invoiceAgreedTotal !== undefined &&
     Math.round(Number(invoiceAgreedTotal) * 100) !== Math.round(invoiceCalculatedTotal * 100));
-  const invoiceSubmitLabel = financeInvoiceSubmitLabel(invoiceCalculatedTotal, invoiceAgreedTotal, adjustInvoicePrice, Number(invoiceNcdAmount));
+  const invoiceSubmitLabel = financeInvoiceSubmitLabel();
 
   const loadInvoiceUpdateRequests = useCallback(async () => {
     if (!canManageFinance) return;
@@ -1627,13 +1702,26 @@ export function FinancePage({
       {financeTab === "payments" && <ProCard
         title="Sales Invoices & Collections / 销售发票与收款"
         extra={<Space className="financeInvoiceToolbar" wrap>
-          <DatePicker.RangePicker
-            aria-label="AutoCount export period"
-            onChange={(dates) => setAutoCountPeriod(dates?.[0] && dates?.[1] ? { from: dates[0].format("YYYY-MM-DD"), to: dates[1].format("YYYY-MM-DD") } : {})}
-          />
-          <Button disabled={Boolean(paymentLoadError)} onClick={handleExportAutoCount}>Export for AutoCount (.xlsx)</Button>
-          <Button disabled={Boolean(paymentLoadError)} onClick={handleExportPayments}>Legacy export (.csv)</Button>
-          <Button type="primary" disabled={!canPrepareInvoice} onClick={openPrepareInvoice}>Prepare sales invoice</Button>
+          <Space.Compact className="financeInvoiceExportGroup">
+            <DatePicker.RangePicker
+              aria-label="AutoCount export period"
+              onChange={(dates) => setAutoCountPeriod(dates?.[0] && dates?.[1] ? { from: dates[0].format("YYYY-MM-DD"), to: dates[1].format("YYYY-MM-DD") } : {})}
+            />
+            <Dropdown
+              disabled={Boolean(paymentLoadError)}
+              menu={{
+                className: "financeInvoiceExportMenu",
+                items: [
+                  { key: "autocount", label: "Export for AutoCount (.xlsx)", onClick: () => { void handleExportAutoCount(); } },
+                  { key: "legacy", label: "Legacy export (.csv)", onClick: () => { void handleExportPayments(); } }
+                ]
+              }}
+              trigger={["click"]}
+            >
+              <Button aria-label="Export sales invoice data">Export</Button>
+            </Dropdown>
+          </Space.Compact>
+          <Button className="financeInvoiceNewButton" type="primary" disabled={!canPrepareInvoice} onClick={openPrepareInvoice}>New sales invoice</Button>
         </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
@@ -1795,26 +1883,24 @@ export function FinancePage({
       </Modal>
       <Modal
         title={invoiceReviewInput && financeSaleNeedsApproval(invoiceReviewInput)
-          ? "Send NCD or nett-price adjustment for approval?"
-          : "Generate this sales invoice?"}
+          ? "Review invoice · approval required"
+          : "Review invoice"}
         open={Boolean(invoiceReviewInput)}
         okText={invoiceReviewInput && financeSaleNeedsApproval(invoiceReviewInput)
           ? "Send for approval"
-          : "Generate sales invoice"}
-        cancelText="Check again"
+          : "Generate invoice"}
+        cancelText="Back to edit"
         confirmLoading={v2MutationKey === "prepare-invoice"}
         onCancel={() => setInvoiceReviewInput(undefined)}
         onOk={confirmFinanceSale}
         destroyOnClose
+        className="financeInvoiceReviewModal"
       >
-        {invoiceReviewInput && <Typography.Text>
-          {vehicles.find((item) => item.id === invoiceReviewInput.vehicleId)?.plateNumber ?? "Selected vehicle"}
-          {" · "}
-          {formatMoney(invoiceReviewInput.nettPrice ?? calculateFinanceNettPrice(invoiceReviewInput))}
-          {financeSaleNeedsApproval(invoiceReviewInput)
-            ? " · No invoice is issued now; a different Boss/Admin user must approve this adjustment first."
-            : ""}
-        </Typography.Text>}
+        {invoiceReviewInput && <FinanceInvoiceReviewSummary
+          input={invoiceReviewInput}
+          vehicle={vehicles.find((item) => item.id === invoiceReviewInput.vehicleId)}
+          customerName={customerLabel(customers, vehicles.find((item) => item.id === invoiceReviewInput.vehicleId)?.customerId)}
+        />}
       </Modal>
       <Drawer
         title="Add payment / 新增收款"

@@ -127,7 +127,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `GET` | `/api/vehicle-lookup` | `VehicleRead` | Plate/year/make/model/status and linked customer ID lookup for authorized workflow selectors and customer-profile hand-off. |
 | `GET` | `/api/vehicles/{id}/stock-movements` | `VehicleRead` | List stock owner, status, location, selling-price, approval, and visibility movement history with actor, timestamp, previous value, new value, and reason. |
 | `GET` | `/api/customers` | `CustomerRead` | Customer lookup/list. |
-| `GET` | `/api/customers/profile-options` | `CustomerProfile` | Minimal canonical customer ID and name choices for the Customer 360 selector. Delivery-only users receive only customers with a linked delivery schedule. |
+| `GET` | `/api/customers/profile-options` | `CustomerProfile` | Canonical customer ID, name and phone choices for the Customer 360 selector. Delivery-only users receive only customers with a linked delivery schedule. |
 | `GET` | `/api/customers/{id}/profile` | `CustomerProfile` | Read-only Customer 360 aggregate over linked source records. Identity, loan, delivery, finance, enquiries, and document metadata are returned only for sections the caller's role is already allowed to access. Delivery-only users receive a `404` unless the customer has a linked delivery schedule. Delivery evidence must match both a delivery shown in the profile and that customer. Document and receipt content remains on its existing protected download URL. |
 | `POST` | `/api/customers` | `Vehicles` | Create customer. |
 | `PUT` | `/api/customers/{id}` | `Vehicles` | Update customer. |
@@ -377,7 +377,7 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `GET` | `/api/hr/business-trips` | List business trip and urgent outstation requests scoped to self, or all staff for HR/Admin. |
 | `POST` | `/api/hr/business-trips` | Submit a business trip or urgent outstation exception request; it remains pending until HR/Admin approval. |
 | `PUT` | `/api/hr/business-trips/{id}/decision` | HR/Admin approve or reject a pending business trip request. Approved trips do not consume leave balance. |
-| `POST` | `/api/hr/business-trips/{id}/cancel` | Staff cancel their own pending/approved request, or HR/Admin cancel any request. |
+| `POST` | `/api/hr/business-trips/{id}/cancel` | Staff cancel their own pending/approved request, or HR/Admin cancel any request, while the request end date is today or later in Malaysia. Ended, rejected, and already cancelled requests return structured validation errors. |
 | `GET` | `/api/hr/leave-requests` | List leave and MC requests scoped to the current staff user, or all staff for HR/Admin. |
 | `POST` | `/api/hr/leave-requests` | Submit a leave request. |
 | `PUT` | `/api/hr/leave-requests/{id}/decision` | HR/Admin approve or reject a leave request. A staff member cannot approve their own request. |

@@ -4532,7 +4532,7 @@ export function LoanPage({
     } satisfies LoanFilters;
     setLoanFilters(nextFilters);
     loanFilterForm.resetFields();
-    loanFilterForm.setFieldsValue(nextFilters);
+    loanFilterForm.setFieldsValue({ ...nextFilters, status: nextFilters.status ?? "All" });
     setMobileLoanPage(1);
   }, [dashboardFocus.loanStatus, dashboardFocus.vehicleId, loanFilterForm]);
 
@@ -4948,9 +4948,9 @@ export function LoanPage({
             <Input allowClear aria-label="Search loans by plate, customer, phone, or status" placeholder="Search plate, customer, phone, status" style={{ width: 280 }} />
           </Form.Item>
           <Form.Item name="status" initialValue="All">
-            <Select
+            <Select aria-label="Loan status" placeholder="All loan statuses / 全部贷款状态"
               options={[
-                { value: "All", label: "All statuses" },
+                { value: "All", label: "All loan statuses / 全部贷款状态" },
                 ...(["Draft", "Pending", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value }))
               ]}
               style={{ width: 160 }}

@@ -1244,6 +1244,22 @@ public static class HrRules
         return new ValidationResult(errors);
     }
 
+    public static ValidationResult ValidateBusinessTripCancellation(HrBusinessTrip trip, DateOnly today)
+    {
+        var errors = new List<ValidationError>();
+        if (trip.Status is not (HrBusinessTripStatus.Pending or HrBusinessTripStatus.Approved))
+        {
+            errors.Add(new ValidationError("business_trip_cancellation_status_invalid", "Only pending or approved business trips can be cancelled."));
+        }
+
+        if (trip.EndDate < today)
+        {
+            errors.Add(new ValidationError("business_trip_cancellation_past", "Business trips cannot be cancelled after their end date."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
     public static bool BusinessTripCoversDate(HrBusinessTrip trip, DateOnly date) => trip.Status == HrBusinessTripStatus.Approved && trip.StartDate <= date && trip.EndDate >= date;
 
     public static bool DatesOverlap(DateOnly firstStart, DateOnly firstEnd, DateOnly secondStart, DateOnly secondEnd) => firstStart <= secondEnd && secondStart <= firstEnd;

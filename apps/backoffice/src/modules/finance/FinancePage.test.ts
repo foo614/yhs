@@ -9,9 +9,11 @@ import {
   createUnpaidDailySpend,
   dailySpendMatchesDashboardAttention,
   FinancePriceAdjustmentSummary,
+  FinanceInvoiceReviewSummary,
   FinanceV2BalanceSummary,
   financeApprovedBuyerVehicles,
   financeInvoiceSubmitLabel,
+  financeInvoiceReviewAmounts,
   financeInvoiceVehicleDefaults,
   financePaymentNeedsAdjustmentApproval,
   financeHistoryDateTime,
@@ -292,7 +294,7 @@ describe("Finance V2 review copy", () => {
       ncdAmount: 500,
       nettPriceOverrideReason: "Customer NCD entitlement verified"
     });
-    expect(financeInvoiceSubmitLabel(57_500, undefined, false, 500)).toBe("Review & send for approval");
+    expect(financeInvoiceSubmitLabel()).toBe("Review invoice");
   });
 
   it("disables invoice preparation until both finance records and canonical vehicle prices are available", () => {
@@ -312,10 +314,58 @@ describe("Finance V2 review copy", () => {
     ]).map((vehicle) => vehicle.id)).toEqual(["vehicle-1"]);
   });
 
-  it("distinguishes immediate invoice generation from a real price-variance approval", () => {
-    expect(financeInvoiceSubmitLabel(60_000, undefined, false)).toBe("Review & generate sales invoice");
-    expect(financeInvoiceSubmitLabel(60_000, 60_000, true)).toBe("Review & generate sales invoice");
-    expect(financeInvoiceSubmitLabel(60_000, 59_500, true)).toBe("Review & send for approval");
+  it("uses one review step before generation or approval", () => {
+    expect(financeInvoiceSubmitLabel()).toBe("Review invoice");
+  });
+
+  it("shows the complete invoice basis before generation or approval", () => {
+    const input = {
+      vehicleId: "vehicle-1",
+      salesPrice: 58_000,
+      interestAdditionalCharges: 750,
+      ncdAmount: 500,
+      windscreenCharges: 200,
+      insurancePaidOnBehalfAmount: 400,
+      roadTaxPaidOnBehalfAmount: 100,
+      advancePaidOnBehalfAmount: 50,
+      nettPrice: 59_250
+    };
+
+    expect(financeInvoiceReviewAmounts(input)).toEqual({
+      additionalCharges: 1_500,
+      calculatedTotal: 59_000,
+      finalTotal: 59_250,
+      variance: 250
+    });
+
+    const markup = renderToStaticMarkup(createElement(FinanceInvoiceReviewSummary, {
+      input,
+      vehicle: { plateNumber: "VPK1234" },
+      customerName: "Ali Tan"
+    }));
+
+    expect(markup).toContain("Ali Tan");
+    expect(markup).toContain("VPK1234");
+    expect(markup).toContain("Selling price");
+    expect(markup).toContain("RM 58,000.00");
+    expect(markup).toContain("Additional charges");
+    expect(markup).toContain("RM 1,500.00");
+    expect(markup).toContain("Deductions");
+    expect(markup).toContain("RM 500.00");
+    expect(markup).toContain("Final total");
+    expect(markup).toContain("RM 59,250.00");
+    expect(markup).toContain("Approval required before issuing the invoice");
+  });
+
+  it("keeps the invoice review and export controls keyboard-readable", () => {
+    const source = readFileSync(fileURLToPath(new URL("./FinancePage.tsx", import.meta.url)), "utf8");
+
+    expect(source).toContain("New sales invoice");
+    expect(source).toContain("financeInvoiceExportGroup");
+    expect(source).toContain("aria-label=\"Export sales invoice data\"");
+    expect(source).toContain("Review invoice");
+    expect(source).toContain("Back to edit");
+    expect(source).toContain("Generate invoice");
   });
 
   it("does not expose internal requester identifiers", () => {

@@ -942,7 +942,7 @@ export type VehicleCatalogModel = {
 
 export type VehicleCatalogModelInput = Omit<VehicleCatalogModel, "id">;
 
-export type CustomerProfileOption = Pick<Customer, "id" | "name">;
+export type CustomerProfileOption = Pick<Customer, "id" | "name" | "phone">;
 
 export type CustomerProfileContact = {
   id: string;

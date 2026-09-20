@@ -14,6 +14,7 @@ import {
   officialReceiptContentUrl,
   vehicleDocumentContentUrl,
   type CustomerProfile,
+  type CustomerProfileOption,
   type CustomerProfileDelivery,
   type CustomerProfileDocument,
   type CustomerProfileEnquiry,
@@ -28,12 +29,8 @@ import "./Customer360Page.css";
 
 export type Customer360SourcePath = "/vehicles" | "/loans" | "/delivery" | "/finance" | "/leads";
 
-function shortCustomerId(id: string) {
-  return id.length > 8 ? `…${id.slice(-8)}` : id;
-}
-
-export function customerProfileOptionLabel(option: { id: string; name: string }) {
-  return `${option.name} · ID ${shortCustomerId(option.id)}`;
+export function customerProfileOptionLabel(option: CustomerProfileOption) {
+  return `${option.name} · ${option.phone?.trim() || "No phone recorded"}`;
 }
 
 type CustomerProfileSelectOption = {
@@ -41,6 +38,7 @@ type CustomerProfileSelectOption = {
   label: string;
   name: string;
   id: string;
+  phone?: string | null;
 };
 
 export function canShowCustomer360SourceLink(
@@ -404,7 +402,7 @@ export function Customer360Page({
   onNavigate: (path: string) => void;
   canAccessPath: (path: Customer360SourcePath) => boolean;
 }) {
-  const [options, setOptions] = useState<{ id: string; name: string }[]>([]);
+  const [options, setOptions] = useState<CustomerProfileOption[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(customerId ?? "");
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState("all");
@@ -417,7 +415,8 @@ export function Customer360Page({
     value: option.id,
     label: customerProfileOptionLabel(option),
     name: option.name,
-    id: option.id
+    id: option.id,
+    phone: option.phone
   }));
 
   useEffect(() => {
@@ -591,7 +590,7 @@ export function Customer360Page({
               return (
                 <div className="customerProfileOption" title={customer.name}>
                   <Typography.Text strong className="customerProfileOptionName">{customer.name}</Typography.Text>
-                  <Typography.Text type="secondary" className="customerProfileOptionId">ID {shortCustomerId(customer.id)}</Typography.Text>
+                  <Typography.Text type="secondary" className="customerProfileOptionId">{customer.phone?.trim() || "No phone recorded"}</Typography.Text>
                 </div>
               );
             }}
@@ -599,7 +598,7 @@ export function Customer360Page({
               const selectedLabel = typeof selected.label === "string" ? selected.label : "Selected customer";
               return <Tooltip title={selectedLabel}><span className="customerProfileSelectedLabel">{selectedLabel}</span></Tooltip>;
             }}
-            placeholder="Choose a customer"
+            placeholder="Search customer name or phone"
             popupClassName="customerProfileDropdown"
             popupMatchSelectWidth
             showSearch

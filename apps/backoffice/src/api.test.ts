@@ -695,7 +695,7 @@ describe("backoffice api client", () => {
 
   it("loads the protected Customer 360 selector and canonical profile endpoint", async () => {
     const customerId = "00000000-0000-0000-0000-000000000011";
-    const optionsFetch = mockFetch([{ id: customerId, name: "Ali Tan" }]);
+    const optionsFetch = mockFetch([{ id: customerId, name: "Ali Tan", phone: "0123456789" }]);
     const profile = {
       contact: { id: customerId, name: "Ali Tan", phone: "0123456789" },
       vehicles: [],
@@ -710,7 +710,7 @@ describe("backoffice api client", () => {
       permissions: { canViewIdentity: true, canViewLoans: false, canViewDelivery: false, canViewFinance: false, canViewDocuments: true, canViewEnquiries: true }
     };
 
-    await expect(getCustomerProfileOptions()).resolves.toEqual([{ id: customerId, name: "Ali Tan" }]);
+    await expect(getCustomerProfileOptions()).resolves.toEqual([{ id: customerId, name: "Ali Tan", phone: "0123456789" }]);
     expect(optionsFetch).toHaveBeenCalledWith("http://localhost:5000/api/customers/profile-options", { credentials: "include" });
 
     const profileFetch = mockFetch(profile);

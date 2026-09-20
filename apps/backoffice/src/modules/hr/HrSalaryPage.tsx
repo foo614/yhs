@@ -5,7 +5,7 @@ import type { HrCheckOutInput } from "../../api";
 ﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Checkbox, DatePicker, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { Alert, Button, Checkbox, DatePicker, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
@@ -349,8 +349,14 @@ export function HrSalaryPage({
   const staffOptions = staffUsers.map((staff) => ({ value: staff.id, label: staffLabel(staff) }));
   const selfId = currentUser?.id ?? "";
   const selfName = currentUser?.name ?? "Current staff";
+<<<<<<< HEAD
   const today = malaysiaDate(new Date());
   const openSession = attendance.find((record) => record.staffUserId === selfId && record.checkInAt && !record.checkOutAt);
+=======
+  const today = new Date().toISOString().slice(0, 10);
+  const cancellationBusinessDate = malaysiaBusinessDate(clockNow);
+  const openSession = attendance.find((record) => record.staffUserId === selfId && record.attendanceDate === today && record.checkInAt && !record.checkOutAt);
+>>>>>>> origin/main
   const canCheckInToday = !openSession;
   const canCheckOutToday = Boolean(openSession);
   const attendanceActionText = openSession ? "Checked in now / 已上班" : "Ready to check in / 可以打卡";
@@ -475,6 +481,20 @@ export function HrSalaryPage({
       <Button size={compact ? "small" : undefined} type="primary" loading={decisionSubmitting === approveAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(approveAction, () => onDecideBusinessTrip(trip.id, "Approved")); }}>Approve / 批准</Button>
       <Button size={compact ? "small" : undefined} danger loading={decisionSubmitting === rejectAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(rejectAction, () => onDecideBusinessTrip(trip.id, "Rejected")); }}>Reject / 拒绝</Button>
     </>;
+  };
+  const businessTripCancellationButton = (trip: HrBusinessTrip, compact = false) => {
+    const cancelAction = `businessTrip:${trip.id}:Cancelled`;
+    return (
+      <Popconfirm
+        title="Cancel outstation request? / 取消外勤申请？"
+        description="This request will be marked cancelled. / 此申请将标记为已取消。"
+        okText="Cancel request / 确认取消"
+        cancelText="Keep / 保留"
+        onConfirm={() => { void runDecision(cancelAction, () => onCancelBusinessTrip(trip.id)); }}
+      >
+        <Button size={compact ? "small" : undefined} loading={decisionSubmitting === cancelAction} disabled={Boolean(decisionSubmitting)}>Cancel / 取消</Button>
+      </Popconfirm>
+    );
   };
 
   const attendanceColumns: ColumnsType<HrAttendanceRecord> = [
@@ -697,10 +717,10 @@ export function HrSalaryPage({
           </div>
           <div className="mobileRecordFooter hrMobileActions">
             {trip.isUrgentException && <Tag color="red">Urgent / 紧急</Tag>}
-            {trip.status === "Pending" && <>
-              {businessTripDecisionButtons(trip, true)}
-            </>}
+            {trip.status === "Pending" && businessTripDecisionButtons(trip, true)}
+            {canCancelBusinessTrip(trip, cancellationBusinessDate) && businessTripCancellationButton(trip, true)}
             {trip.status !== "Pending" && trip.decisionNotes && <Typography.Text type="secondary">{trip.decisionNotes}</Typography.Text>}
+            {!canCancelBusinessTrip(trip, cancellationBusinessDate) && <Typography.Text type="secondary">{businessTripCancellationMessage(trip, cancellationBusinessDate)}</Typography.Text>}
           </div>
         </article>
       ))}
@@ -884,7 +904,8 @@ export function HrSalaryPage({
                 <Typography.Text>{trip.startDate} to {trip.endDate} · {trip.location}</Typography.Text>
                 {trip.status === "Approved" && approvedTripForToday?.id === trip.id && !openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>Start Duty / 开始外勤</Button></Tooltip>}
                 {trip.status === "Approved" && approvedTripForToday?.id === trip.id && openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>End Duty / 结束外勤</Button></Tooltip>}
-                {(trip.status === "Pending" || trip.status === "Approved") && <Button size="small" onClick={() => onCancelBusinessTrip(trip.id)}>Cancel / 取消</Button>}
+                {!isHrManager && canCancelBusinessTrip(trip, cancellationBusinessDate) && businessTripCancellationButton(trip, true)}
+                {!isHrManager && !canCancelBusinessTrip(trip, cancellationBusinessDate) && <Typography.Text type="secondary">{businessTripCancellationMessage(trip, cancellationBusinessDate)}</Typography.Text>}
               </Space>
             ))}
             {ownBusinessTrips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No outstation requests / 暂无外勤申请" />}
@@ -915,7 +936,25 @@ export function HrSalaryPage({
                 { title: "Location / 地点", dataIndex: "location" },
                 { title: "Purpose / 目的", dataIndex: "purpose" },
                 { title: "Status / 状态", dataIndex: "status", render: (status: HrBusinessTripStatus) => <Tag color={businessTripStatusColor(status)}>{businessTripStatusLabel(status)}</Tag> },
-                { title: "Action / 操作", fixed: "right", width: 220, render: (_: unknown, trip: HrBusinessTrip) => trip.status === "Pending" ? <Space className="tableActionGroup" wrap size={6}>{businessTripDecisionButtons(trip, true)}</Space> : trip.decisionNotes || "-" }
+                {
+                  title: "Action / 操作",
+                  fixed: "right",
+                  width: 260,
+                  render: (_: unknown, trip: HrBusinessTrip) => {
+                    const canCancel = canCancelBusinessTrip(trip, cancellationBusinessDate);
+                    const hasWorkflowActions = trip.status === "Pending" || canCancel;
+                    return (
+                      <Space direction="vertical" size={4} className="tableActionGroup">
+                        {hasWorkflowActions && <Space wrap size={6}>
+                          {trip.status === "Pending" && businessTripDecisionButtons(trip, true)}
+                          {canCancel && businessTripCancellationButton(trip, true)}
+                        </Space>}
+                        {trip.decisionNotes && <Typography.Text type="secondary">{trip.decisionNotes}</Typography.Text>}
+                        {!canCancel && <Typography.Text type="secondary">{businessTripCancellationMessage(trip, cancellationBusinessDate)}</Typography.Text>}
+                      </Space>
+                    );
+                  }
+                }
               ]}
             />
           </>}
@@ -1595,6 +1634,21 @@ function attendanceStatusColor(status: HrAttendanceRecord["status"]) {
 
 function attendanceVerificationMethodLabel(method: HrAttendanceRecord["verificationMethod"]) {
   return method === "OfficeIp" ? "Office IP / 办公室网络" : method === "OfficeQr" ? "Office QR / 办公室二维码" : method === "Outstation" ? "Outstation / 外勤" : method === "ManualException" ? "Manual Exception / 人工例外" : "Manual / 手动";
+}
+
+export function malaysiaBusinessDate(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+export function canCancelBusinessTrip(trip: HrBusinessTrip, malaysiaDate: string) {
+  return (trip.status === "Pending" || trip.status === "Approved") && trip.endDate >= malaysiaDate;
+}
+
+export function businessTripCancellationMessage(trip: HrBusinessTrip, malaysiaDate: string) {
+  if (trip.status === "Rejected") return "No action — request was rejected / 无可操作项，申请已拒绝";
+  if (trip.status === "Cancelled") return "No action — request was cancelled / 无可操作项，申请已取消";
+  if (trip.endDate < malaysiaDate) return "Cancellation unavailable — trip has ended / 无法取消，行程已结束";
+  return "No action available / 无可用操作";
 }
 
 function businessTripCoversDate(trip: HrBusinessTrip, date: string) {
