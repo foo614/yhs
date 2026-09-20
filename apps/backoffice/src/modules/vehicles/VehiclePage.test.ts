@@ -521,7 +521,8 @@ describe("structured purchase invoice entry", () => {
       invoices: [],
       columns: [],
       pagination: { pageSize: 5 },
-      onGenerate: () => undefined
+      onGenerate: () => undefined,
+      onOpen: () => undefined
     }));
     const initialValues = purchaseInvoiceCreateInitialValues("vehicle-2", [inactiveSupplier, activeSupplier]);
 

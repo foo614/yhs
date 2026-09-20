@@ -255,14 +255,20 @@ export function PurchaseInvoiceHistory({
   invoices,
   columns,
   pagination,
-  onGenerate
+  onGenerate,
+  onOpen
 }: {
   invoices: PurchaseInvoice[];
   columns: ColumnsType<PurchaseInvoice>;
   pagination: TablePaginationConfig;
   onGenerate: () => void;
+  onOpen: (id: string) => void;
 }) {
+  const [mobilePage, setMobilePage] = useState(1);
   const generatedOwnerInvoice = invoices.find((invoice) => invoice.sourceType === "OwnerAcquisition");
+  const pageSize = typeof pagination === "object" && pagination.pageSize ? pagination.pageSize : Math.max(invoices.length, 1);
+  const currentPage = Math.min(pagination.current ?? mobilePage, Math.max(1, Math.ceil(invoices.length / pageSize)));
+  const visibleInvoices = invoices.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   return (
     <section className="purchaseInvoiceHistory">
       <div className="vehicleContactHeader">
@@ -272,8 +278,41 @@ export function PurchaseInvoiceHistory({
         </div>
         <Button type="primary" onClick={onGenerate}>{generatedOwnerInvoice ? "Open current purchase invoice" : "Generate Purchase Invoice"}</Button>
       </div>
+      <div className="mobileRecordList purchaseInvoiceMobileList">
+        {invoices.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No purchase invoice linked to this vehicle yet." />}
+        {visibleInvoices.map((invoice) => (
+          <article className="mobileRecordCard" key={invoice.id}>
+            <div className="mobileRecordHeader">
+              <div>
+                <Typography.Text className="mobileRecordEyebrow">Purchase invoice / 收车发票</Typography.Text>
+                <Typography.Title level={5}>{invoice.invoiceNumber}</Typography.Title>
+              </div>
+              <Tag color={invoice.accountingStatus === "FinanceConfirmed" ? "green" : "gold"}>
+                {invoice.accountingStatus === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}
+              </Tag>
+            </div>
+            <div className="mobileRecordGrid">
+              <div><span>Invoice date / 日期</span><strong>{invoice.invoiceDate || "-"}</strong></div>
+              <div><span>Amount / 金额</span><strong>{formatMoney(invoice.amount)}</strong></div>
+              <div><span>Source / 来源</span><strong>{invoice.sourceType === "OwnerAcquisition" ? "Previous owner" : "Legacy supplier"}</strong></div>
+              <div><span>Version / 版本</span><strong>{invoice.sourceType === "OwnerAcquisition" ? `V${invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber ?? 1}` : "Legacy"}</strong></div>
+            </div>
+            <div className="mobileRecordFooter">
+              <Button size="small" type="primary" onClick={() => onOpen(invoice.id)}>Details</Button>
+            </div>
+          </article>
+        ))}
+        {invoices.length > pageSize && <Pagination
+          className="mobileRecordPagination"
+          current={currentPage}
+          pageSize={pageSize}
+          total={invoices.length}
+          showSizeChanger={false}
+          onChange={(page) => { setMobilePage(page); pagination.onChange?.(page, pageSize); }}
+        />}
+      </div>
       <OperationsProTable
-        className="purchaseInvoiceTable"
+        className="purchaseInvoiceTable desktopDataTable"
         rowKey="id"
         columns={columns}
         dataSource={invoices}
@@ -880,6 +919,9 @@ export function VehiclePage({
   const [ownerEditorOpen, setOwnerEditorOpen] = useState(false);
   const [vehicleDetailOpen, setVehicleDetailOpen] = useState(false);
   const [vehicleDetailTab, setVehicleDetailTab] = useState("overview");
+  const [vehicleLeadKeyword, setVehicleLeadKeyword] = useState("");
+  const [vehicleLeadStatus, setVehicleLeadStatus] = useState<Lead["status"] | undefined>();
+  const [mobileVehicleLeadPage, setMobileVehicleLeadPage] = useState(1);
   const [vehicleAssetTab, setVehicleAssetTab] = useState("documents");
   const [vehicleCreateOpen, setVehicleCreateOpen] = useState(false);
   const [vehicleIntakeDraft, setVehicleIntakeDraft] = useState<VehicleIntakeDraft>({});
@@ -993,6 +1035,24 @@ export function VehiclePage({
   const selectedOwner = owners.find((owner) => owner.id === editOwnerId) ?? owners[0];
   const selectedVehicleInvoices = selectedVehicle ? purchaseInvoices.filter((invoice) => invoice.vehicleId === selectedVehicle.id) : [];
   const selectedVehicleLeads = selectedVehicle ? leads.filter((lead) => lead.vehicleId === selectedVehicle.id) : [];
+  const filteredVehicleLeads = useMemo(() => {
+    const query = vehicleLeadKeyword.trim().toLocaleLowerCase();
+    const tokens = query.split(/\s+/).filter(Boolean);
+    return selectedVehicleLeads.filter((lead) => {
+      if (vehicleLeadStatus && lead.status !== vehicleLeadStatus) return false;
+      if (tokens.length === 0) return true;
+      const text = [lead.customerName, lead.phone, lead.message, lead.createdAt].filter(Boolean).join(" ").toLocaleLowerCase();
+      const compactText = text.replace(/[^\p{L}\p{N}]/gu, "");
+      return tokens.every((token) => text.includes(token) || compactText.includes(token.replace(/[^\p{L}\p{N}]/gu, "")));
+    });
+  }, [selectedVehicleLeads, vehicleLeadKeyword, vehicleLeadStatus]);
+  const mobileVehicleLeadPageSize = 5;
+  const mobileVehicleLeadPageCount = Math.max(1, Math.ceil(filteredVehicleLeads.length / mobileVehicleLeadPageSize));
+  const clampedMobileVehicleLeadPage = Math.min(mobileVehicleLeadPage, mobileVehicleLeadPageCount);
+  const mobileVehicleLeads = filteredVehicleLeads.slice(
+    (clampedMobileVehicleLeadPage - 1) * mobileVehicleLeadPageSize,
+    clampedMobileVehicleLeadPage * mobileVehicleLeadPageSize
+  );
   const selectedVehicleActiveLeads = selectedVehicleLeads.filter((lead) => lead.status !== "Closed");
   const selectedVehicleCustomer = selectedVehicle?.customerId ? customers.find((customer) => customer.id === selectedVehicle.customerId) : undefined;
   const selectedVehicleOwner = selectedVehicle?.ownerId ? owners.find((owner) => owner.id === selectedVehicle.ownerId) : undefined;
@@ -1011,6 +1071,16 @@ export function VehiclePage({
     const linkedPerson = defaultOwnership === "Seller" ? selectedVehicleOwner : defaultOwnership === "Buyer" ? selectedVehicleCustomer : undefined;
     setDocumentPersonId(linkedPerson?.id ?? "");
   }, [documentCategory, documentOwnershipTab, selectedVehicle?.id, selectedVehicle?.customerId, selectedVehicle?.ownerId]);
+
+  useEffect(() => {
+    setVehicleLeadKeyword("");
+    setVehicleLeadStatus(undefined);
+    setMobileVehicleLeadPage(1);
+  }, [selectedVehicle?.id]);
+
+  useEffect(() => {
+    setMobileVehicleLeadPage((page) => Math.min(page, Math.max(1, Math.ceil(filteredVehicleLeads.length / mobileVehicleLeadPageSize))));
+  }, [filteredVehicleLeads.length]);
   const loanHandoffVehicle = vehicles.find((vehicle) => vehicle.id === loanHandoffVehicleId);
   const loanHandoffStep = loanHandoffVehicle ? vehicleLoanHandoffStep(loanHandoffVehicle) : undefined;
   const loanHandoffBuyerPolicy = loanHandoffVehicle ? vehicleLoanHandoffBuyerPolicy(loanHandoffVehicle) : { locked: false, allowedCustomerIds: [] };
@@ -2829,10 +2899,88 @@ export function VehiclePage({
             <Typography.Text type="secondary">
               Multiple customers can enquire about the same car. The confirmed buyer is shown in Overview.
             </Typography.Text>
+            {selectedVehicleLeads.length > 0 && <Space className="toolbarForm pageFilterMobileOnly vehicleLeadFilters" wrap>
+              <Input.Search
+                allowClear
+                aria-label="Search leads for this vehicle"
+                placeholder="Customer, phone or message"
+                value={vehicleLeadKeyword}
+                onChange={(event) => {
+                  setVehicleLeadKeyword(event.target.value);
+                  setMobileVehicleLeadPage(1);
+                }}
+              />
+              <Select
+                allowClear
+                aria-label="Filter leads for this vehicle by status"
+                placeholder="Status / 状态"
+                value={vehicleLeadStatus}
+                options={["New", "Contacted", "Closed"].map((status) => ({ value: status, label: status }))}
+                onChange={(value) => {
+                  setVehicleLeadStatus(value as Lead["status"] | undefined);
+                  setMobileVehicleLeadPage(1);
+                }}
+              />
+              <Tag color={vehicleLeadKeyword.trim() || vehicleLeadStatus ? "blue" : undefined}>
+                {vehicleLeadKeyword.trim() || vehicleLeadStatus ? `${filteredVehicleLeads.length} of ${selectedVehicleLeads.length} matching` : `${selectedVehicleLeads.length} lead${selectedVehicleLeads.length === 1 ? "" : "s"}`}
+              </Tag>
+              {(vehicleLeadKeyword.trim() || vehicleLeadStatus) && <Button size="small" onClick={() => {
+                setVehicleLeadKeyword("");
+                setVehicleLeadStatus(undefined);
+                setMobileVehicleLeadPage(1);
+              }}>Clear filters</Button>}
+            </Space>}
+            <div className="mobileRecordList vehicleLeadMobileList">
+              {filteredVehicleLeads.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={vehicleLeadKeyword.trim() || vehicleLeadStatus ? "No leads match these filters." : "No leads yet for this vehicle."} />}
+              {mobileVehicleLeads.map((lead) => (
+                <article className="mobileRecordCard" key={lead.id}>
+                  <div className="mobileRecordHeader">
+                    <div>
+                      <Typography.Text className="mobileRecordEyebrow">Customer / 客户</Typography.Text>
+                      <Typography.Title level={5}>{lead.customerName}</Typography.Title>
+                    </div>
+                    <Tag color={lead.status === "New" ? "orange" : lead.status === "Contacted" ? "blue" : "green"}>{lead.status}</Tag>
+                  </div>
+                  <div className="mobileRecordGrid">
+                    <div><span>Phone / 电话</span><strong>{lead.phone}</strong></div>
+                    <div><span>Received / 收到</span><strong>{String(lead.createdAt).slice(0, 10)}</strong></div>
+                  </div>
+                  <div className="mobileRecordSection">
+                    <Typography.Text className="mobileRecordLabel">Message / 留言</Typography.Text>
+                    <div className="mobileRecordTextBlock"><span>{lead.message || "-"}</span></div>
+                  </div>
+                </article>
+              ))}
+              {filteredVehicleLeads.length > mobileVehicleLeadPageSize && <Pagination
+                className="mobileRecordPagination"
+                current={clampedMobileVehicleLeadPage}
+                pageSize={mobileVehicleLeadPageSize}
+                total={filteredVehicleLeads.length}
+                showSizeChanger={false}
+                onChange={setMobileVehicleLeadPage}
+              />}
+            </div>
             <OperationsProTable
+              className="desktopDataTable nativeSearchDesktopOnly"
               rowKey="id"
               size="small"
-              search={{ span: { xs: 24, sm: 12, md: 8, lg: 6, xl: 6, xxl: 6 } }}
+              nativeSearch={{
+                fields: [
+                  { name: "leadQuery", label: "Customer, phone or message", placeholder: "Name, phone or message" },
+                  { name: "status", label: "Status", options: ["New", "Contacted", "Closed"].map((value) => ({ value, label: value })) }
+                ],
+                values: { leadQuery: vehicleLeadKeyword, status: vehicleLeadStatus },
+                onSubmit: (values) => {
+                  setVehicleLeadKeyword(String(values.leadQuery ?? ""));
+                  setVehicleLeadStatus(values.status as Lead["status"] | undefined);
+                  setMobileVehicleLeadPage(1);
+                },
+                onReset: () => {
+                  setVehicleLeadKeyword("");
+                  setVehicleLeadStatus(undefined);
+                  setMobileVehicleLeadPage(1);
+                }
+              }}
               columns={[
                 { title: "Customer", dataIndex: "customerName" },
                 { title: "Phone", dataIndex: "phone" },
@@ -2840,10 +2988,10 @@ export function VehiclePage({
                 { title: "Received", dataIndex: "createdAt", render: (value) => String(value).slice(0, 10) },
                 { title: "Message", dataIndex: "message", render: (value) => value || "-" }
               ]}
-              dataSource={selectedVehicleLeads}
+              dataSource={filteredVehicleLeads}
               pagination={tablePagination(5)}
               scroll={{ x: 720 }}
-              locale={{ emptyText: "No leads yet for this vehicle" }}
+              locale={{ emptyText: vehicleLeadKeyword.trim() || vehicleLeadStatus ? "No leads match these filters." : "No leads yet for this vehicle" }}
             />
           </ProCard>
             </Space>
@@ -3001,6 +3149,7 @@ export function VehiclePage({
                 invoices={selectedVehicleInvoices}
                 columns={purchaseInvoiceColumns}
                 pagination={tablePagination(5)}
+                onOpen={selectPurchaseInvoice}
                 onGenerate={() => {
                   if (selectedOwnerPurchaseInvoice) {
                     selectPurchaseInvoice(selectedOwnerPurchaseInvoice.id);

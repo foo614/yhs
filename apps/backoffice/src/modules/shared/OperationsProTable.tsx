@@ -1,6 +1,6 @@
 import { ProConfigProvider, ProTable, type ProColumns, type ProFormInstance, type ProTableProps } from "@ant-design/pro-components";
 import { enUSIntl } from "@ant-design/pro-provider";
-import { Button, type TableProps } from "antd";
+import { Button, Input, Select, type TableProps } from "antd";
 import type { ColumnType, ColumnsType } from "antd/es/table";
 import { isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -384,6 +384,17 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
 }: OperationsProTableProps<RecordType, Params>) {
   const [searchValues, setSearchValues] = useState<Record<string, unknown>>({});
   const [searchPage, setSearchPage] = useState(1);
+  const [mobile, setMobile] = useState(false);
+  const [mobileKeyword, setMobileKeyword] = useState("");
+  const [mobileDraft, setMobileDraft] = useState<Record<string, unknown>>(nativeSearch?.values ?? {});
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 720px)");
+    const update = () => setMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const compactSearch = mobile && search !== false && !request && !className?.includes("nativeSearchDesktopOnly") && Array.isArray(dataSource);
   const searchFormRef = useRef<ProFormInstance<Record<string, unknown>> | undefined>(undefined);
   const searchDraftRef = useRef<Record<string, unknown>>(nativeSearch?.values ?? {});
   const submitSearch = (values: Record<string, unknown>) => {
@@ -395,6 +406,8 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
     setSearchValues(values);
   };
   const resetSearch = () => {
+    setMobileKeyword("");
+    setMobileDraft({});
     searchDraftRef.current = {};
     setSearchPage(1);
     if (nativeSearch) {
@@ -425,6 +438,7 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
   useEffect(() => {
     if (!nativeSearch) return;
     searchDraftRef.current = nativeSearch.values;
+    setMobileDraft(nativeSearch.values);
     searchFormRef.current?.setFieldsValue(nativeSearch.values as Record<string, {} | undefined>);
   }, [nativeSearchValuesKey]);
 
@@ -432,11 +446,11 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
     () => Array.isArray(dataSource)
       ? nativeSearch
         ? dataSource
-        : filterOperationsTableDataByFields(dataSource, searchValues, tableColumns)
+        : filterOperationsTableData(filterOperationsTableDataByFields(dataSource, searchValues, tableColumns), mobile ? mobileKeyword : "", tableColumns)
       : dataSource,
-    [dataSource, nativeSearch, searchValues, tableColumns]
+    [dataSource, nativeSearch, searchValues, mobile, mobileKeyword, tableColumns]
   );
-  const defaultSearchActive = Object.values(searchValues).some((value) => value !== undefined && value !== null && String(value).trim() !== "");
+  const defaultSearchActive = Boolean(mobile && mobileKeyword.trim()) || Object.values(searchValues).some((value) => value !== undefined && value !== null && String(value).trim() !== "");
   const filteredPagination = defaultSearchActive && pagination && typeof pagination === "object"
     ? {
       ...pagination,
@@ -451,6 +465,36 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
 
   return (
     <ProConfigProvider intl={enUSIntl}>
+    {compactSearch && <div className="operationsMobileSearch">
+      {nativeSearch ? <>
+        <details>
+          <summary>Search & filters{Object.values(nativeSearch.values).some(value => value !== undefined && value !== null && String(value).trim()) ? " · Active" : ""}</summary>
+          <div className="operationsMobileSearchFields">
+            {nativeSearch.fields.map(field => <label key={field.name}>
+              <span>{field.label}</span>
+              {field.options ? <Select
+                allowClear showSearch optionFilterProp="label"
+                placeholder={field.placeholder ?? "All"}
+                options={field.options}
+                value={mobileDraft[field.name] as string | undefined}
+                onChange={value => setMobileDraft(current => ({ ...current, [field.name]: value }))}
+              /> : <Input
+                allowClear placeholder={field.placeholder}
+                value={String(mobileDraft[field.name] ?? "")}
+                onChange={event => setMobileDraft(current => ({ ...current, [field.name]: event.target.value }))}
+                onPressEnter={() => submitSearch(mobileDraft)}
+              />}
+            </label>)}
+            <div className="operationsMobileSearchActions"><Button onClick={resetSearch}>Reset</Button><Button type="primary" onClick={() => submitSearch(mobileDraft)}>Search</Button></div>
+          </div>
+        </details>
+      </> : <Input.Search
+        allowClear aria-label="Search table records" placeholder="Search records"
+        value={mobileKeyword}
+        onChange={event => { setMobileKeyword(event.target.value); setSearchPage(1); }}
+      />}
+      {!nativeSearch && Object.keys(searchValues).length > 0 && <Button onClick={resetSearch}>Clear filters</Button>}
+    </div>}
     <ProTable
       {...props}
       className={["operationsProTable", className].filter(Boolean).join(" ")}
@@ -458,7 +502,7 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
       columns={proColumns}
       dataSource={filteredDataSource}
       pagination={filteredPagination}
-      search={search === false || proColumns.every((column) => column.hideInSearch) ? false : {
+      search={compactSearch || search === false || proColumns.every((column) => column.hideInSearch) ? false : {
         labelWidth: "auto",
         defaultCollapsed: (nativeSearch?.fields.length ?? defaultOperationsSearchFields(sortedTableColumns).length) > 3,
         span: { xs: 24, sm: 24, md: 12, lg: 12, xl: 8, xxl: 6 },

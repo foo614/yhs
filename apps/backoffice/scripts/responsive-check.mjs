@@ -95,6 +95,7 @@ await context.route("**/api/**", async route => {
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(status === 200 ? (path in fixtures ? fixtures[path] : []) : { message: "Synthetic test response: no record was saved." }) });
 });
 const page = await context.newPage();
+page.setDefaultTimeout(15000);
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 page.on("console", message => { if (message.type() === "error") diagnostics.consoleErrors.push(message.text()); });
@@ -131,7 +132,8 @@ async function inspect(name, width) {
       return { text: button.textContent.trim(), width: box.width, height: box.height, rightGap: parent.right - box.right, parentWidth: parent.width };
     }) : [];
     const invalidCreationActions = creationActions.filter(action => Math.abs(action.rightGap) > 2 || action.height < 44 || (action.text.length < 30 && action.parentWidth > 240 && action.width >= action.parentWidth - 2));
-    return { viewport, scrollWidth: document.documentElement.scrollWidth, outside, overlappingSelects, searchGeometry, creationActions, invalidCreationActions };
+    const oversizedSearchForms = viewport <= 720 ? [...document.querySelectorAll(".operationsProTable .ant-pro-query-filter")].filter(visible).filter(form => form.getBoundingClientRect().height > 220).map(form => ({ height: Math.round(form.getBoundingClientRect().height), text: form.textContent.slice(0, 100) })) : [];
+    return { viewport, scrollWidth: document.documentElement.scrollWidth, outside, overlappingSelects, searchGeometry, creationActions, invalidCreationActions, oversizedSearchForms };
   });
   results.push({ name, width, ...layout, errors: errors.splice(0) });
   if ([360, 820, 1440].includes(width) || layout.outside.length || layout.overlappingSelects.length || layout.scrollWidth > layout.viewport + 1) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
@@ -141,6 +143,34 @@ async function closeOverlay() {
   if (await close.isVisible().catch(() => false)) await close.click();
   else await page.keyboard.press("Escape");
   await page.locator(".ant-modal:visible,.ant-drawer-content:visible").waitFor({ state: "hidden" });
+}
+async function inspectDetailTabs(route, width) {
+  const overlay = page.locator(".ant-modal:visible,.ant-drawer-content:visible").last();
+  if (!await overlay.isVisible().catch(() => false)) return;
+  const visited = new Set();
+  while (true) {
+    const ids = await overlay.getByRole("tab").evaluateAll(tabs => tabs.filter(tab => tab.getClientRects().length).map(tab => tab.id));
+    const id = ids.find(value => value && !visited.has(value));
+    if (!id) break;
+    visited.add(id);
+    const tab = overlay.locator(`[id="${id}"]`);
+    const label = await tab.innerText();
+    await tab.focus();
+    await tab.press("Enter");
+    await page.waitForLoadState("networkidle");
+    await inspect(`${route}-detail-tab-${visited.size}-${label.replace(/[^a-zA-Z0-9]+/g, "-")}`, width);
+    if (route === "vehicles" && label === "Leads") {
+      if (width <= 720) {
+        const search = page.getByRole("textbox", { name: "Search leads for this vehicle", exact: true });
+        await search.fill("NO-MATCH");
+        await page.locator(".vehicleLeadMobileList").getByText("No leads match these filters.", { exact: true }).waitFor();
+        await inspect("vehicles-leads-empty-search", width);
+        await search.fill("");
+        await page.locator(".vehicleLeadMobileList .mobileRecordCard").first().waitFor();
+      }
+      await page.locator("#vehicle-leads-card").screenshot({ path: `${output}/vehicle-leads-detail-${width}.png` });
+    }
+  }
 }
 try {
   for (const width of widths) {
@@ -227,6 +257,7 @@ try {
             if (documentLayout.height > 80 || documentLayout.gap < 10) throw new Error("Document banner must be compact and separated from upload.");
             await inspect("vehicles-documents", width);
           }
+          await inspectDetailTabs(route, width);
           await closeOverlay();
         }
         if (route === "vehicles" && width <= 720) {
@@ -272,7 +303,7 @@ try {
   await browser.close();
   server?.kill();
 }
-const failed = results.filter(result => result.scrollWidth > result.viewport + 1 || result.outside.length || result.overlappingSelects.length || result.searchGeometry.length || result.invalidCreationActions.length || result.errors.length);
+const failed = results.filter(result => result.scrollWidth > result.viewport + 1 || result.outside.length || result.overlappingSelects.length || result.searchGeometry.length || result.invalidCreationActions.length || result.oversizedSearchForms.length || result.errors.length);
 // Existing Ant Design warnings are retained in diagnostics, not silently dropped.
 const knownWarnings = new Set([
   "Warning: `disabled` should not set with empty `value`. You should set `allowEmpty` or `value` instead.",

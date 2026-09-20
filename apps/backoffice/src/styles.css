@@ -6934,6 +6934,46 @@ body {
     align-self: center;
   }
 
+  .operationsMobileSearch {
+    margin-block: 12px;
+  }
+
+  .vehicleLeadFilters,
+  .vehicleLeadFilters > .ant-space-item,
+  .vehicleLeadFilters .ant-select {
+    width: 100%;
+  }
+
+  .vehicleLeadFilters {
+    margin-top: 12px;
+  }
+
+  .operationsMobileSearch summary {
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid var(--ant-color-border, #d9d9d9);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .operationsMobileSearchFields {
+    display: grid;
+    gap: 10px;
+    padding-block: 10px;
+  }
+
+  .operationsMobileSearchFields > label {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .operationsMobileSearchActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
   .operationsProTable .ant-pro-query-filter {
     width: 100%;
     max-width: 100%;
