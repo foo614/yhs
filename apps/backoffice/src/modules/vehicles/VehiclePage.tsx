@@ -84,7 +84,37 @@ function ModifiedPurchaseLabel() {
     </span>
   );
 }
-export const neutralVehicleDescriptionTemplate = "## Vehicle highlights\n\n- Year:\n- Make & model:\n- Engine:\n- Viewing:";
+export const neutralVehicleDescriptionTemplate = `## Vehicle highlights
+
+- Year:
+- Make & model:
+- Variant:
+- Mileage (km):
+- Engine:
+- Transmission:
+- Fuel type:
+- Exterior colour:
+- Seating capacity:
+
+## Features & equipment
+
+- Safety:
+- Comfort & convenience:
+- Audio & connectivity:
+- Other equipment:
+
+## Condition & maintenance
+
+- Exterior condition:
+- Interior condition:
+- Recent maintenance (date & mileage):
+- Known wear or items to note:
+
+## Viewing & enquiries
+
+- Viewing:
+- Location:
+- Contact:`;
 export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id" | "intakeAt" | "intakeDate">> & {
   prepareSettlement?: boolean;
   settlementDeadline?: string;
@@ -439,6 +469,10 @@ export function vehicleFromEditValues(values: VehicleIntakeValues, currentVehicl
   const mergedValues = {
     ...currentVehicle,
     ...values,
+    publicDescriptionMarkdown: !currentVehicle.publicDescriptionMarkdown?.trim()
+      && values.publicDescriptionMarkdown?.trim() === neutralVehicleDescriptionTemplate
+      ? undefined
+      : values.publicDescriptionMarkdown ?? currentVehicle.publicDescriptionMarkdown,
     stockOwner: values.stockOwner || currentVehicle.stockOwner || "YSHeng",
     stockLocation: values.stockLocation ?? currentVehicle.stockLocation,
     status: currentVehicle.status,
@@ -2768,11 +2802,12 @@ export function VehiclePage({
                 label="Public Listing Description (Markdown)"
                 extra={(
                   <Space direction="vertical" size={2}>
+                    <span>Fill in verified details and remove unused lines or sections before saving. This description is visible to customers when the vehicle is published.</span>
                     <span>Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text.</span>
                   </Space>
                 )}
               >
-                <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: "## Ready stock\n\n- Key feature\n- Viewing by appointment" }} />
+                <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: neutralVehicleDescriptionTemplate }} />
               </Form.Item>
               <div className="vehicleMarkdownPreviewField">
                 <Form.Item noStyle shouldUpdate={(previous, current) => previous.publicDescriptionMarkdown !== current.publicDescriptionMarkdown}>
