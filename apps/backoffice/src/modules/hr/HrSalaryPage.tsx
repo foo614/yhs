@@ -1172,7 +1172,6 @@ export function HrSalaryPage({
                   <>
                     <ProCard title="Leave Policies / 假期政策">
                       <OperationsProTable<HrLeavePolicy>
-                        className="desktopDataTable"
                         rowKey="id"
                         columns={policyColumns as ColumnsType<HrLeavePolicy>}
                         dataSource={leavePolicies}
