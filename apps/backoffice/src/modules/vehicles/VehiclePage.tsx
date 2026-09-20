@@ -469,6 +469,10 @@ export function vehicleFromEditValues(values: VehicleIntakeValues, currentVehicl
   const mergedValues = {
     ...currentVehicle,
     ...values,
+    publicDescriptionMarkdown: !currentVehicle.publicDescriptionMarkdown?.trim()
+      && values.publicDescriptionMarkdown?.trim() === neutralVehicleDescriptionTemplate
+      ? undefined
+      : values.publicDescriptionMarkdown ?? currentVehicle.publicDescriptionMarkdown,
     stockOwner: values.stockOwner || currentVehicle.stockOwner || "YSHeng",
     stockLocation: values.stockLocation ?? currentVehicle.stockLocation,
     status: currentVehicle.status,
