@@ -24,13 +24,15 @@ describe("vehicle detail tab layout", () => {
     expect(section.match(/<div hidden=\{vehicleDetailTab !== "(?:overview|vehicle|people|documents)"\}>/g)).toHaveLength(4);
   });
 
-  it("uses responsive query-filter columns for the narrow Leads drawer", () => {
+  it("uses mobile lead cards and compact filters while retaining the desktop table", () => {
     const section = vehicleDetailTabSection();
     const leadsStart = section.indexOf('id="vehicle-leads-card"');
     const documentsStart = section.indexOf('hidden={vehicleDetailTab !== "documents"}', leadsStart);
     const leadsSection = section.slice(leadsStart, documentsStart);
 
-    expect(leadsSection).toContain("search={{ span: { xs: 24, sm: 12, md: 8, lg: 6, xl: 6, xxl: 6 } }}");
+    expect(leadsSection).toContain('aria-label="Search leads for this vehicle"');
+    expect(leadsSection).toContain('className="mobileRecordList vehicleLeadMobileList"');
+    expect(leadsSection).toContain('className="desktopDataTable nativeSearchDesktopOnly"');
     expect(leadsSection).toContain("scroll={{ x: 720 }}");
   });
 
