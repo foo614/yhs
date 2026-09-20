@@ -67,6 +67,7 @@ const emptyCollections = new Set([
   "/api/audit-log", "/api/admin/users", "/api/sales-agents", "/api/priority-actions",
   "/api/dashboard/reminders", "/api/hr/staff", "/api/hr/attendance", "/api/hr/boss-calendar",
   "/api/hr/attendance-networks", "/api/hr/availability-calendar", "/api/hr/reminders",
+  "/api/hr/attendance-corrections", "/api/hr/work-schedules",
   "/api/hr/reminder-policies", "/api/hr/business-trips", "/api/hr/leave-requests",
   "/api/hr/leave-balances", "/api/hr/leave-policies", "/api/hr/leave-adjustments",
   "/api/hr/payroll-profiles", "/api/hr/pay-periods", "/api/hr/payslips",
