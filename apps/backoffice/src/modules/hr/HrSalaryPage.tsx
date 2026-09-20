@@ -349,14 +349,9 @@ export function HrSalaryPage({
   const staffOptions = staffUsers.map((staff) => ({ value: staff.id, label: staffLabel(staff) }));
   const selfId = currentUser?.id ?? "";
   const selfName = currentUser?.name ?? "Current staff";
-<<<<<<< HEAD
   const today = malaysiaDate(new Date());
-  const openSession = attendance.find((record) => record.staffUserId === selfId && record.checkInAt && !record.checkOutAt);
-=======
-  const today = new Date().toISOString().slice(0, 10);
   const cancellationBusinessDate = malaysiaBusinessDate(clockNow);
-  const openSession = attendance.find((record) => record.staffUserId === selfId && record.attendanceDate === today && record.checkInAt && !record.checkOutAt);
->>>>>>> origin/main
+  const openSession = attendance.find((record) => record.staffUserId === selfId && record.checkInAt && !record.checkOutAt);
   const canCheckInToday = !openSession;
   const canCheckOutToday = Boolean(openSession);
   const attendanceActionText = openSession ? "Checked in now / 已上班" : "Ready to check in / 可以打卡";
