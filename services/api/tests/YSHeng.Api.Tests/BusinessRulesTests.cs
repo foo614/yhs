@@ -53,6 +53,44 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public async Task Hr_legacy_generated_payroll_reopens_only_active_or_premature_periods()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+
+        db.Users.Add(new AppUser { Id = "worker", UserName = "worker", DisplayName = "Test Worker" });
+        var today = HrWorkflowRules.LocalDate(DateTime.UtcNow);
+        var activePeriod = new HrPayPeriod { Name = "Active", StartDate = today.AddDays(-1), EndDate = today.AddDays(1), WorkingDays = 3 };
+        var prematurePeriod = new HrPayPeriod { Name = "Premature", StartDate = new(2025, 9, 1), EndDate = new(2025, 9, 30), WorkingDays = 22 };
+        var finalizedPeriod = new HrPayPeriod { Name = "Finalized", StartDate = new(2025, 10, 1), EndDate = new(2025, 10, 31), WorkingDays = 23 };
+        db.HrPayPeriods.AddRange(activePeriod, prematurePeriod, finalizedPeriod);
+        db.HrPayrollProfiles.Add(new HrPayrollProfile { StaffUserId = "worker", EmploymentType = HrEmploymentType.Monthly });
+        db.HrPayslips.AddRange(
+            new HrPayslip { StaffUserId = "worker", PayPeriodId = activePeriod.Id, Status = HrPayslipStatus.Generated, GeneratedAt = DateTime.UtcNow.AddDays(-1) },
+            new HrPayslip { StaffUserId = "worker", PayPeriodId = prematurePeriod.Id, Status = HrPayslipStatus.Generated, GeneratedAt = new DateTime(2025, 9, 30, 15, 0, 0, DateTimeKind.Utc) },
+            new HrPayslip { StaffUserId = "worker", PayPeriodId = finalizedPeriod.Id, Status = HrPayslipStatus.Generated, GeneratedAt = new DateTime(2025, 11, 1, 1, 0, 0, DateTimeKind.Utc) });
+        await db.SaveChangesAsync();
+
+        Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "worker", activePeriod.StartDate));
+        Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "worker", prematurePeriod.StartDate));
+        Assert.True(await HrWorkflowStore.HasLockedPayroll(db, "worker", finalizedPeriod.StartDate));
+
+        var (activeDrafts, activeError) = await HrWorkflowStore.BuildDrafts(db, activePeriod);
+        Assert.Null(activeError);
+        Assert.Equal(HrPayslipStatus.Draft, Assert.Single(activeDrafts).Status);
+
+        var (prematureDrafts, prematureError) = await HrWorkflowStore.BuildDrafts(db, prematurePeriod);
+        Assert.Null(prematureError);
+        Assert.Equal(HrPayslipStatus.Draft, Assert.Single(prematureDrafts).Status);
+
+        var (finalizedDrafts, finalizedError) = await HrWorkflowStore.BuildDrafts(db, finalizedPeriod);
+        Assert.Empty(finalizedDrafts);
+        Assert.Contains("No editable drafts", finalizedError);
+    }
+
+    [Fact]
     public void Hr_statutory_inputs_require_explicit_amounts_and_do_not_deduct_employer_shares()
     {
         var input = new HrStatutoryInput(1, 330m, 390m, 14.75m, 51.65m, 5.90m, 5.90m, 25m, "Official assessment September 2026");

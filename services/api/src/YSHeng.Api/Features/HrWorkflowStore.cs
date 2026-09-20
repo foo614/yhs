@@ -25,11 +25,15 @@ public static class HrWorkflowStore
     }
     public static Task<bool> HasLockedPayroll(AppDbContext db, string staffId, DateOnly date) => HasLockedPayrollRange(db, staffId, date, date);
 
-    public static Task<bool> HasLockedPayrollRange(AppDbContext db, string staffId, DateOnly start, DateOnly end) =>
-        (from slip in db.HrPayslips
-         join period in db.HrPayPeriods on slip.PayPeriodId equals period.Id
-         where slip.StaffUserId == staffId && slip.Status != HrPayslipStatus.Draft && period.StartDate <= end && period.EndDate >= start
-         select slip.Id).AnyAsync();
+    public static async Task<bool> HasLockedPayrollRange(AppDbContext db, string staffId, DateOnly start, DateOnly end)
+    {
+        var candidates = await (from slip in db.HrPayslips.AsNoTracking()
+                                join period in db.HrPayPeriods.AsNoTracking() on slip.PayPeriodId equals period.Id
+                                where slip.StaffUserId == staffId && slip.Status != HrPayslipStatus.Draft && period.StartDate <= end && period.EndDate >= start
+                                select new { Slip = slip, Period = period }).ToListAsync();
+        var today = HrWorkflowRules.LocalDate(DateTime.UtcNow);
+        return candidates.Any(item => IsLocked(item.Slip, item.Period, today));
+    }
 
     public static async Task<(List<HrPayslip> Drafts, string? Error)> BuildDrafts(AppDbContext db, HrPayPeriod period)
     {
@@ -41,10 +45,11 @@ public static class HrWorkflowStore
         var attendance = await db.HrAttendanceRecords.AsNoTracking().Where(record => record.AttendanceDate >= period.StartDate && record.AttendanceDate <= period.EndDate).ToListAsync();
         var corrections = await db.HrAttendanceCorrections.AsNoTracking().Where(item => item.AttendanceDate >= period.StartDate && item.AttendanceDate <= period.EndDate && item.Status == HrCorrectionStatus.Pending).ToListAsync();
         var result = new List<HrPayslip>();
+        var today = HrWorkflowRules.LocalDate(DateTime.UtcNow);
         foreach (var profile in profiles)
         {
             var old = existing.FirstOrDefault(item => item.StaffUserId == profile.StaffUserId);
-            if (old is not null && old.Status != HrPayslipStatus.Draft) continue;
+            if (old is not null && IsLocked(old, period, today)) continue;
             if (await (from slip in db.HrPayslips join other in db.HrPayPeriods on slip.PayPeriodId equals other.Id where slip.StaffUserId == profile.StaffUserId && other.Id != period.Id && other.StartDate <= period.EndDate && other.EndDate >= period.StartDate select slip.Id).AnyAsync()) return ([], "An overlapping period already contains payroll for this staff member.");
             if (corrections.Any(item => item.StaffUserId == profile.StaffUserId)) return ([], "Resolve pending attendance corrections before preparing payroll.");
             if (profile.EmploymentType == HrEmploymentType.Hourly && attendance.Any(item => item.StaffUserId == profile.StaffUserId && item.CheckInAt != null && item.CheckOutAt == null)) return ([], "Resolve incomplete attendance sessions before preparing hourly payroll.");
@@ -56,4 +61,11 @@ public static class HrWorkflowStore
         }
         return result.Count == 0 ? ([], "No editable drafts remain in this period. Reviewed and legacy payslips are preserved.") : (result, null);
     }
+
+    private static bool IsLocked(HrPayslip slip, HrPayPeriod period, DateOnly today) =>
+        slip.Status != HrPayslipStatus.Draft && !IsLegacyGeneratedRebuildable(slip, period, today);
+
+    private static bool IsLegacyGeneratedRebuildable(HrPayslip slip, HrPayPeriod period, DateOnly today) =>
+        slip.Status == HrPayslipStatus.Generated &&
+        (period.EndDate >= today || HrWorkflowRules.LocalDate(slip.GeneratedAt) <= period.EndDate);
 }
