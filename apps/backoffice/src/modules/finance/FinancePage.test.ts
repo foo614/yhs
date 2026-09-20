@@ -179,7 +179,8 @@ describe("Payment history evidence", () => {
   });
 
   it("renders stored timestamps as date and time while retaining invalid source text", () => {
-    expect(financeHistoryDateTime("2026-09-12T03:04:00Z")).toMatch(/12 Sep 2026/);
+    expect(financeHistoryDateTime("2026-09-12T03:04:00Z")).toBe("12 Sep 2026, 11:04");
+    expect(financeHistoryDateTime("2026-09-12T20:04:00Z")).toBe("13 Sep 2026, 04:04");
     expect(financeHistoryDateTime("not-a-date")).toBe("not-a-date");
     expect(financeHistoryDateTime()).toBe("-");
   });
