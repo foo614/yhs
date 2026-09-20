@@ -521,6 +521,42 @@ public static class SeedData
             ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "WorkedHours" numeric NOT NULL DEFAULT 0;
             ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "AttendancePay" numeric NOT NULL DEFAULT 0;
 
+            CREATE TABLE IF NOT EXISTS "HrWorkSchedules" (
+                "Id" uuid PRIMARY KEY, "StaffUserId" text NOT NULL, "AttendanceDate" date NOT NULL,
+                "StartAt" timestamp with time zone NOT NULL, "EndAt" timestamp with time zone NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrWorkSchedules_StaffUserId_AttendanceDate" ON "HrWorkSchedules" ("StaffUserId", "AttendanceDate");
+            CREATE TABLE IF NOT EXISTS "HrAttendanceCorrections" (
+                "Id" uuid PRIMARY KEY, "AttendanceRecordId" uuid NULL, "StaffUserId" text NOT NULL,
+                "AttendanceDate" date NOT NULL, "OriginalCheckInAt" timestamp with time zone NULL,
+                "OriginalCheckOutAt" timestamp with time zone NULL, "OriginalStatus" integer NULL,
+                "CheckInAt" timestamp with time zone NOT NULL, "CheckOutAt" timestamp with time zone NOT NULL,
+                "Reason" text NOT NULL, "Status" integer NOT NULL, "RequestedBy" text NOT NULL,
+                "RequestedAt" timestamp with time zone NOT NULL, "DecidedBy" text NULL,
+                "DecidedAt" timestamp with time zone NULL, "DecisionNotes" text NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_HrAttendanceCorrections_StaffUserId_AttendanceDate" ON "HrAttendanceCorrections" ("StaffUserId", "AttendanceDate");
+            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "ScheduledEndAt" timestamp with time zone NULL;
+            ALTER TABLE "HrAttendanceRecords" ADD COLUMN IF NOT EXISTS "EarlyCheckOutReason" text NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "EmployeeEpf" numeric NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "EmployerEpf" numeric NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "EmployeeSocso" numeric NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "EmployerSocso" numeric NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "EmployeeEis" numeric NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "EmployerEis" numeric NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "Pcb" numeric NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "StatutoryReference" text NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "PreparedBy" text NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "SubmittedBy" text NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "SubmittedAt" timestamp with time zone NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "FinanceApprovedBy" text NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "BossApprovedBy" text NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "ReviewNotes" text NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "FinanceApprovedAt" timestamp with time zone NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "BossApprovedAt" timestamp with time zone NULL;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "Version" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "HrPayslips" ADD COLUMN IF NOT EXISTS "StaffName" text NULL;
+
             DROP INDEX IF EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate";
             CREATE INDEX IF NOT EXISTS "IX_HrAttendanceRecords_StaffUserId_AttendanceDate" ON "HrAttendanceRecords" ("StaffUserId", "AttendanceDate");
             CREATE INDEX IF NOT EXISTS "IX_HrAttendanceQrChallenges_ExpiresAt" ON "HrAttendanceQrChallenges" ("ExpiresAt");

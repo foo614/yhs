@@ -35,7 +35,7 @@ public enum HrLeaveType { AnnualLeave, MedicalLeave, EmergencyLeave, UnpaidLeave
 public enum HrLeaveStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrBusinessTripStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrAttendanceReminderType { PendingApproval, UpcomingOutstation, MissingCheckOut }
-public enum HrPayslipStatus { Draft, Generated }
+public enum HrPayslipStatus { Draft, Generated, PendingFinance, PendingBoss, Published }
 public enum HrEmploymentType { Monthly, Hourly }
 public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate, InspectionReport, WindscreenPolicy }
 public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
@@ -661,6 +661,8 @@ public sealed record HrAttendanceRecord
     public HrAttendanceStatus Status { get; init; } = HrAttendanceStatus.Present;
     public HrAttendanceVerificationMethod VerificationMethod { get; init; } = HrAttendanceVerificationMethod.Manual;
     public string? OfficeNetworkLabel { get; init; }
+    public DateTime? ScheduledEndAt { get; init; }
+    public string? EarlyCheckOutReason { get; init; }
     public string? Notes { get; init; }
 }
 
@@ -808,6 +810,7 @@ public sealed record HrPayPeriod
 
 public sealed record HrPayslip
 {
+    public string? StaffName { get; init; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public string StaffUserId { get; init; } = "";
     public Guid PayPeriodId { get; init; }
@@ -827,6 +830,54 @@ public sealed record HrPayslip
     public decimal GrossPay { get; init; }
     public decimal NetPay { get; init; }
     public DateTime GeneratedAt { get; init; } = DateTime.UtcNow;
+    public decimal? EmployeeEpf { get; init; }
+    public decimal? EmployerEpf { get; init; }
+    public decimal? EmployeeSocso { get; init; }
+    public decimal? EmployerSocso { get; init; }
+    public decimal? EmployeeEis { get; init; }
+    public decimal? EmployerEis { get; init; }
+    public decimal? Pcb { get; init; }
+    public string? StatutoryReference { get; init; }
+    public string? PreparedBy { get; init; }
+    public string? SubmittedBy { get; init; }
+    public DateTime? SubmittedAt { get; init; }
+    public string? FinanceApprovedBy { get; init; }
+    public DateTime? FinanceApprovedAt { get; init; }
+    public string? BossApprovedBy { get; init; }
+    public DateTime? BossApprovedAt { get; init; }
+    public string? ReviewNotes { get; init; }
+    public int Version { get; init; }
+}
+
+public sealed record HrWorkSchedule
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public DateOnly AttendanceDate { get; init; }
+    public DateTime StartAt { get; init; }
+    public DateTime EndAt { get; init; }
+}
+
+public enum HrCorrectionStatus { Pending, Approved, Rejected }
+
+public sealed record HrAttendanceCorrection
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid? AttendanceRecordId { get; init; }
+    public string StaffUserId { get; init; } = "";
+    public DateOnly AttendanceDate { get; init; }
+    public DateTime? OriginalCheckInAt { get; init; }
+    public DateTime? OriginalCheckOutAt { get; init; }
+    public HrAttendanceStatus? OriginalStatus { get; init; }
+    public DateTime CheckInAt { get; init; }
+    public DateTime CheckOutAt { get; init; }
+    public string Reason { get; init; } = "";
+    public HrCorrectionStatus Status { get; init; }
+    public string RequestedBy { get; init; } = "";
+    public DateTime RequestedAt { get; init; } = DateTime.UtcNow;
+    public string? DecidedBy { get; init; }
+    public DateTime? DecidedAt { get; init; }
+    public string? DecisionNotes { get; init; }
 }
 
 public sealed record AuditLog { public Guid Id { get; init; } = Guid.NewGuid(); public string Actor { get; init; } = ""; public string Action { get; init; } = ""; public string EntityName { get; init; } = ""; public Guid EntityId { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }

@@ -134,3 +134,6 @@ docker compose -p yshengproof -f infra\docker-compose.yml build
 docker compose -p yshengproof -f infra\docker-compose.yml up -d
 .\infra\smoke-test.ps1 -ApiBaseUrl http://localhost:5200 -FrontOfficeUrl http://localhost:3200 -BackOfficeUrl http://localhost:3201
 ```
+
+
+FOO-177 extends HR with staff-requested attendance corrections, independent HR approval, dated schedules, early-checkout confirmation, and Finance then Boss payroll approval/publication. Statutory EPF/SOCSO/EIS/PCB fields are reviewed monthly inputs, not an automatic assessment engine. Published-payroll amendments and automatic statutory calculation/filing remain outside this release. The original FOO-162 salary sample attachment remains unavailable.

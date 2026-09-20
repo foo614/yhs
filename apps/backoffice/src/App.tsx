@@ -206,7 +206,6 @@ import {
   markPaymentVoucherPaid,
   hrMedicalCertificateContentUrl,
   updateHrLeaveBalance,
-  updateHrAttendance,
   updateHrLeavePolicy,
   updateHrAttendanceNetwork,
   updateHrPayrollProfile,
@@ -1426,7 +1425,8 @@ export default function App() {
                 window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
               }}
               onCheckIn={() => runUpdate(() => checkInHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked in")}
-              onCheckOut={() => runUpdate(() => checkOutHrAttendance(), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked out")}
+              onWorkflowChanged={() => loadBackOfficeData(currentRoles)}
+              onCheckOut={(input) => runUpdate(() => checkOutHrAttendance(input), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Attendance checked out")}
   onCreateQrChallenge={() => runCreate(createHrAttendanceQrChallenge, setHrAttendanceQrChallenge, "Office QR created")}
   onRedeemQr={(requestBody) => runUpdate(() => redeemHrAttendanceQr(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), requestBody.action === "CheckIn" ? "Attendance checked in by QR" : "Attendance checked out by QR")}
   onCreateBusinessTrip={(trip) => runCreate(() => createHrBusinessTrip(trip), (record) => setHrBusinessTrips((items) => [record, ...items]), "Outstation request submitted")}
@@ -1435,7 +1435,6 @@ export default function App() {
   onStartOutstation={(requestBody) => runUpdate(() => startHrOutstation(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Outstation duty started")}
   onEndOutstation={(requestBody) => runUpdate(() => endHrOutstation(requestBody), (record) => setHrAttendance((items) => replaceByIdOrPrepend(items, record)), "Outstation duty ended")}
   onUpdateReminderPolicy={(type, policy) => runUpdate(() => updateHrAttendanceReminderPolicy(type, policy), (record) => setHrAttendanceReminderPolicies((items) => replaceById(items, record)), "Attendance reminder updated")}
-  onUpdateAttendance={(attendance) => runUpdate(() => updateHrAttendance(attendance), (record) => setHrAttendance((items) => replaceById(items, record)), "Attendance correction saved")}
               onLoadBossCalendar={async (from, to) => {
                 try {
                   setHrBossCalendar(await getHrBossCalendar(from, to));

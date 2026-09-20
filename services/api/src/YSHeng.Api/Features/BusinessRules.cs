@@ -18,7 +18,12 @@ public sealed record ContactEnquiryRequest(string CustomerName, string Phone, st
 public sealed record ShowroomEnquiryRequest(string VehicleType, string? PreferredBrand, string? PreferredModel, string BudgetRange, string CustomerName, string Phone, string? Email);
 public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
 public sealed record HrAttendanceQrChallengeResponse(Guid Id, string Token, DateTime ExpiresAt);
-public sealed record HrAttendanceQrRedemptionRequest(string Token, HrAttendanceAction Action);
+public sealed record HrAttendanceQrRedemptionRequest(string Token, HrAttendanceAction Action, bool ConfirmEarly = false, string? Reason = null);
+public sealed record HrCheckOutRequest(bool ConfirmEarly = false, string? Reason = null);
+public sealed record HrCorrectionRequest(Guid? AttendanceRecordId, string StaffUserId, DateOnly AttendanceDate, DateTime CheckInAt, DateTime CheckOutAt, string Reason);
+public sealed record HrCorrectionDecision(bool Approve, string? Notes);
+public sealed record HrStatutoryInput(int Version, decimal? EmployeeEpf, decimal? EmployerEpf, decimal? EmployeeSocso, decimal? EmployerSocso, decimal? EmployeeEis, decimal? EmployerEis, decimal? Pcb, string Reference);
+public sealed record HrPayrollDecision(int Version, string Action, string? Notes);
 public sealed record HrBusinessTripDecisionRequest(HrBusinessTripStatus Status, string? DecisionNotes = null);
 public sealed record HrOutstationAttendanceRequest(Guid BusinessTripId);
 public sealed record HrAttendanceDashboardSummary(
@@ -4283,4 +4288,65 @@ public static class DashboardMetrics
     }
 
     private static int AgeInDays(Vehicle vehicle, DateOnly today) => Math.Max(0, today.DayNumber - vehicle.IntakeDate.DayNumber);
+}
+
+public static class HrWorkflowRules
+{
+    public static DateOnly LocalDate(DateTime utc) => DateOnly.FromDateTime(utc.AddHours(8));
+    public static bool CanReviewPayroll(ClaimsPrincipal user) => DepartmentAccess.IsHrManager(user) || user.IsInRole("Finance");
+    public static bool IsLocked(HrPayslip slip) => slip.Status is HrPayslipStatus.PendingFinance or HrPayslipStatus.PendingBoss or HrPayslipStatus.Published;
+    public static decimal StatutoryDeductions(HrPayslip slip) => (slip.EmployeeEpf ?? 0) + (slip.EmployeeSocso ?? 0) + (slip.EmployeeEis ?? 0) + (slip.Pcb ?? 0);
+    public static string? ValidateTimes(DateOnly date, DateTime start, DateTime end, DateTime now) =>
+        start.Kind != DateTimeKind.Utc || end.Kind != DateTimeKind.Utc ? "Use UTC timestamps for attendance times." :
+        LocalDate(start) != date ? "The attendance date must match the Malaysian check-in date." :
+        end <= start || end - start > TimeSpan.FromHours(24) ? "End time must follow start time within 24 hours." :
+        end > now ? "Attendance cannot be recorded in the future." : null;
+    public static string? ValidateEarlyCheckOut(HrAttendanceRecord record, DateTime now, HrCheckOutRequest? request) =>
+        record.ScheduledEndAt > now && (request?.ConfirmEarly != true || string.IsNullOrWhiteSpace(request.Reason))
+            ? "You are leaving before your scheduled finish. Confirm early check-out and enter a reason." : null;
+    public static string? ValidateStatutory(HrStatutoryInput input)
+    {
+        decimal?[] amounts = [input.EmployeeEpf, input.EmployerEpf, input.EmployeeSocso, input.EmployerSocso, input.EmployeeEis, input.EmployerEis, input.Pcb];
+        if (amounts.Any(amount => amount is null || amount < 0 || decimal.Round(amount.Value, 2) != amount))
+            return "Enter all seven statutory amounts to two decimal places, including an explicit zero where applicable.";
+        return string.IsNullOrWhiteSpace(input.Reference) ? "Record the calculation source and payroll month, including a reason for any exemption." : null;
+    }
+    public static HrPayslip ApplyStatutory(HrPayslip slip, HrStatutoryInput input, string actor) => slip with
+    {
+        EmployeeEpf = input.EmployeeEpf, EmployerEpf = input.EmployerEpf,
+        EmployeeSocso = input.EmployeeSocso, EmployerSocso = input.EmployerSocso,
+        EmployeeEis = input.EmployeeEis, EmployerEis = input.EmployerEis, Pcb = input.Pcb,
+        StatutoryReference = input.Reference.Trim(), PreparedBy = actor,
+        NetPay = slip.GrossPay - slip.UnpaidLeaveDeduction - slip.ManualDeductions
+            - input.EmployeeEpf!.Value - input.EmployeeSocso!.Value - input.EmployeeEis!.Value - input.Pcb!.Value,
+        Version = slip.Version + 1
+    };
+    public static string? ValidateDecision(HrPayslip slip, HrPayrollDecision decision, ClaimsPrincipal user, string actor)
+    {
+        if (slip.Version != decision.Version) return "Payroll has changed. Refresh before reviewing.";
+        if (decision.Action == "Submit")
+        {
+            if (!DepartmentAccess.IsHrManager(user) || slip.Status != HrPayslipStatus.Draft) return "Only HR can submit a draft payroll.";
+            if (ValidateStatutory(new(slip.Version, slip.EmployeeEpf, slip.EmployerEpf, slip.EmployeeSocso, slip.EmployerSocso, slip.EmployeeEis, slip.EmployerEis, slip.Pcb, slip.StatutoryReference ?? "")) is { } error) return error;
+            return slip.NetPay < 0 ? "Resolve negative net pay before submission." : null;
+        }
+        if (decision.Action == "FinanceApprove")
+            return !user.IsInRole("Finance") || slip.Status != HrPayslipStatus.PendingFinance || actor == slip.PreparedBy || actor == slip.SubmittedBy || actor == slip.StaffUserId
+                ? "A separate Finance reviewer must approve this payroll." : null;
+        if (decision.Action == "BossApprove")
+            return !user.IsInRole("BossAdmin") || slip.Status != HrPayslipStatus.PendingBoss || actor == slip.PreparedBy || actor == slip.SubmittedBy || actor == slip.FinanceApprovedBy || actor == slip.StaffUserId
+                ? "A separate Boss reviewer must give final approval." : null;
+        if (decision.Action == "Return")
+            return string.IsNullOrWhiteSpace(decision.Notes) || !(slip.Status == HrPayslipStatus.PendingFinance && user.IsInRole("Finance") || slip.Status == HrPayslipStatus.PendingBoss && user.IsInRole("BossAdmin"))
+                ? "The current reviewer must provide a reason to return payroll to HR." : null;
+        return "Unknown payroll action.";
+    }
+    public static HrPayslip Decide(HrPayslip slip, HrPayrollDecision decision, string actor, DateTime now) => decision.Action switch
+    {
+        "Submit" => slip with { Status = HrPayslipStatus.PendingFinance, SubmittedBy = actor, SubmittedAt = now, Version = slip.Version + 1, ReviewNotes = null },
+        "FinanceApprove" => slip with { Status = HrPayslipStatus.PendingBoss, FinanceApprovedBy = actor, FinanceApprovedAt = now, Version = slip.Version + 1 },
+        "BossApprove" => slip with { Status = HrPayslipStatus.Published, BossApprovedBy = actor, BossApprovedAt = now, Version = slip.Version + 1 },
+        "Return" => slip with { Status = HrPayslipStatus.Draft, SubmittedBy = null, SubmittedAt = null, FinanceApprovedBy = null, FinanceApprovedAt = null, BossApprovedBy = null, BossApprovedAt = null, ReviewNotes = decision.Notes, Version = slip.Version + 1 },
+        _ => throw new InvalidOperationException("Validate the payroll action before applying it.")
+    };
 }

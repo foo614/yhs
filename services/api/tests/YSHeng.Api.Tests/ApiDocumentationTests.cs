@@ -677,7 +677,7 @@ public sealed class ApiDocumentationTests
         Assert.Contains("app.UseForwardedHeaders();", program);
         Assert.Contains("options.ForwardLimit = 1;", program);
         Assert.Contains("FindMatchingAttendanceNetwork(context.Connection.RemoteIpAddress", program);
-        Assert.Contains("if (string.IsNullOrWhiteSpace(attendance.Notes))", program);
+        Assert.Contains("if (string.IsNullOrWhiteSpace(request.Reason))", program);
         Assert.Contains("if (string.Equals(StaffIdentity.CurrentUserId(context), existing.StaffUserId, StringComparison.Ordinal)) return Results.Forbid();", program);
     }
 

@@ -1,3 +1,6 @@
+import { malaysiaDate, malaysiaInput, malaysiaUtc } from "./HrAttendanceWorkflow";
+import { payrollActions, HrStatutorySummary } from "./HrPayrollReview";
+import type { CurrentUser, HrPayslip } from "../../api";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -212,7 +215,6 @@ describe("HR attendance dashboard", () => {
       onStartOutstation: noOp,
       onEndOutstation: noOp,
       onUpdateReminderPolicy: noOp,
-      onUpdateAttendance: noOp,
       onLoadBossCalendar: noOp,
       onSaveAttendanceNetwork: noOp,
       onCreateLeave: async (leave) => leave,
@@ -232,5 +234,32 @@ describe("HR attendance dashboard", () => {
     expect(markup).not.toContain("Attendance Reminders / 打卡提醒");
     expect(markup).not.toContain("Reminder settings / 提醒设置");
     expect(markup).toContain("Attendance Dashboard / 打卡概览");
+  });
+});
+
+
+describe("HR attendance corrections and payroll review", () => {
+  it("keeps Malaysian date and entered clock times independent of browser timezone", () => {
+    expect(malaysiaDate(new Date("2026-09-19T23:00:00Z"))).toBe("2026-09-20");
+    expect(malaysiaInput("2026-09-19T23:00:00Z")?.format("YYYY-MM-DD HH:mm")).toBe("2026-09-20 07:00");
+    expect(malaysiaUtc(dayjs("2026-09-20T07:00:00"))).toBe("2026-09-19T23:00:00.000Z");
+  });
+  it("offers Finance then Boss approval and prevents the same reviewer or employee approving", () => {
+    const slip = { status: "PendingFinance", staffUserId: "worker", preparedBy: "hr" } as HrPayslip;
+    const finance = { id: "finance", roles: ["Finance"] } as CurrentUser;
+    const boss = { id: "boss", roles: ["BossAdmin"] } as CurrentUser;
+    expect(payrollActions(slip, finance)).toEqual(["FinanceApprove", "Return"]);
+    expect(payrollActions(slip, boss)).toEqual([]);
+    expect(payrollActions(slip, { ...finance, id: "hr" })).toEqual(["Return"]);
+    expect(payrollActions(slip, { ...finance, id: "worker" })).toEqual(["Return"]);
+    expect(payrollActions({ ...slip, status: "PendingBoss", financeApprovedBy: "finance" }, boss)).toEqual(["BossApprove", "Return"]);
+    expect(payrollActions({ ...slip, status: "Published" }, boss)).toEqual([]);
+  });
+  it("shows missing statutory inputs distinctly from explicit zero", () => {
+    const markup = renderToStaticMarkup(createElement(HrStatutorySummary, { slip: { employeeEpf: 0 } as HrPayslip }));
+    expect(markup).toContain("RM 0.00");
+    expect(markup).toContain("Not entered");
+    expect(markup).toContain("Employer SOCSO");
+    expect(markup).toContain("PCB");
   });
 });

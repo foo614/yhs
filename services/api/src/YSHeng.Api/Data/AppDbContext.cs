@@ -50,6 +50,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<HrPayrollProfile> HrPayrollProfiles => Set<HrPayrollProfile>();
     public DbSet<HrPayPeriod> HrPayPeriods => Set<HrPayPeriod>();
     public DbSet<HrPayslip> HrPayslips => Set<HrPayslip>();
+    public DbSet<HrWorkSchedule> HrWorkSchedules => Set<HrWorkSchedule>();
+    public DbSet<HrAttendanceCorrection> HrAttendanceCorrections => Set<HrAttendanceCorrection>();
     public DbSet<OcrJob> OcrJobs => Set<OcrJob>();
     public DbSet<AiServiceLimit> AiServiceLimits => Set<AiServiceLimit>();
     public DbSet<AiUsageRecord> AiUsageRecords => Set<AiUsageRecord>();
@@ -146,6 +148,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<HrPayrollProfile>().HasIndex(profile => profile.StaffUserId).IsUnique();
         builder.Entity<HrPayPeriod>().HasIndex(period => period.Name).IsUnique();
         builder.Entity<HrPayslip>().HasIndex(payslip => new { payslip.StaffUserId, payslip.PayPeriodId }).IsUnique();
+        builder.Entity<HrPayslip>().Property(payslip => payslip.Version).IsConcurrencyToken();
+        builder.Entity<HrWorkSchedule>().HasIndex(schedule => new { schedule.StaffUserId, schedule.AttendanceDate }).IsUnique();
+        builder.Entity<HrAttendanceCorrection>().HasIndex(correction => new { correction.StaffUserId, correction.AttendanceDate });
         builder.Entity<OcrJob>().HasIndex(job => job.DocumentId);
         builder.Entity<AiServiceLimit>().HasIndex(limit => limit.Service).IsUnique();
         builder.Entity<AiUsageRecord>().HasIndex(record => new { record.Service, record.RequestedAt });
