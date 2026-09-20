@@ -1,0 +1,82 @@
+.customer360SectionNav {
+  display: flex;
+  margin-top: 12px;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 10px;
+}
+
+.customer360SectionNav .ant-btn-link {
+  padding-inline: 4px;
+}
+
+.customer360ActiveSummary {
+  margin-top: 10px;
+}
+
+.customer360ProfileTable .ant-table-cell {
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.customer360VehicleFilter,
+.customer360DocumentFilters {
+  margin-top: 12px;
+}
+
+.customer360VehicleSelect {
+  min-width: 260px;
+}
+
+.customer360DocumentFilters .ant-input {
+  width: min(320px, 100%);
+}
+
+.customer360DocumentCategoryFilter {
+  min-width: 190px;
+}
+
+.customer360DocumentThumbnail {
+  display: inline-flex;
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.customer360DocumentThumbnailPlaceholder {
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d9d9d9;
+  color: #8c8c8c;
+}
+
+.customer360MissingDocuments {
+  border-color: #ffd591;
+  background: #fffbe6;
+}
+
+.customer360MissingGroup {
+  display: grid;
+  gap: 6px;
+}
+
+.customer360MissingGroup .ant-space-vertical {
+  padding-left: 8px;
+}
+
+@media (max-width: 767px) {
+  .customer360VehicleFilter,
+  .customer360DocumentFilters {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .customer360VehicleSelect,
+  .customer360DocumentCategoryFilter,
+  .customer360DocumentFilters .ant-input {
+    width: 100%;
+    min-width: 0;
+  }
+}
