@@ -1,3 +1,61 @@
+.customer360CustomerPicker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  max-width: 560px;
+  margin-bottom: 14px;
+}
+
+.customer360CustomerPickerLabel {
+  font-weight: 600;
+}
+
+.customerProfileSelect {
+  width: 100%;
+  max-width: 560px;
+}
+
+.customerProfileSelectedLabel {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customerProfileOption {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.35;
+}
+
+.customerProfileOptionName {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.customerProfileOptionId {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.customerProfileDropdown {
+  max-width: calc(100vw - 24px);
+}
+
+.customerProfileDropdown .ant-select-item-option-content {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
 .customer360SectionNav {
   display: flex;
   margin-top: 12px;
@@ -67,6 +125,12 @@
 }
 
 @media (max-width: 767px) {
+  .customer360CustomerPicker,
+  .customerProfileSelect {
+    width: 100%;
+    max-width: none;
+  }
+
   .customer360VehicleFilter,
   .customer360DocumentFilters {
     align-items: stretch;

@@ -63,10 +63,8 @@ export const routeAccess: RouteAccess[] = [
   { path: "/admin", roles: ["BossAdmin"] }
 ];
 
-const hiddenNavigationPaths = new Set<AppRoutePath>(["/customer-360"]);
-
-export function isRouteVisibleInNavigation(path: AppRoutePath) {
-  return !hiddenNavigationPaths.has(path);
+export function isRouteVisibleInNavigation(_path: AppRoutePath) {
+  return true;
 }
 
 const allDataKeys: BackOfficeDataKey[] = [
