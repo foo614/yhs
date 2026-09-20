@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import { backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation } from "./access";
 
 describe("backoffice role access", () => {
-  it("hides Customer 360 from module navigation without removing route access", () => {
-    expect(isRouteVisibleInNavigation("/customer-360")).toBe(false);
+  it("shows Customer 360 in module navigation for authorized roles", () => {
+    expect(isRouteVisibleInNavigation("/customer-360")).toBe(true);
     expect(isRouteVisibleInNavigation("/vehicles")).toBe(true);
     expect(canAccessRoute(["BossAdmin"], "/customer-360")).toBe(true);
+    for (const role of ["Sales", "Loan", "Delivery", "Finance"]) {
+      expect(canAccessRoute([role], "/customer-360")).toBe(true);
+    }
+    expect(canAccessRoute(["Repair"], "/customer-360")).toBe(false);
+    expect(canAccessRoute(["HrSalary"], "/customer-360")).toBe(false);
   });
 
   it("allows Boss/Admin to access every implemented module", () => {
