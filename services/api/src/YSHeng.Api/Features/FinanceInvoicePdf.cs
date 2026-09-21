@@ -61,11 +61,11 @@ public static class FinanceInvoiceFactory
         BrandedPdf.Text(page, 36, 704, 19, "Sales Invoice", bold: true, color: BrandedPdf.Dark);
         BrandedPdf.Text(page, 36, 687, 10, "Vehicle sale and customer payment summary", color: BrandedPdf.Muted);
 
-        BrandedPdf.Fill(page, 36, 582, 523, 76, BrandedPdf.PaleGray);
+        BrandedPdf.Fill(page, 36, 564, 523, 94, BrandedPdf.PaleGray);
         Field(page, 56, 632, "INVOICE NUMBER", invoice.InvoiceNumber);
         Field(page, 315, 632, "ISSUED DATE", invoice.InvoiceDate.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture));
-        Field(page, 56, 596, "CUSTOMER", Display(invoice.CustomerName));
-        Field(page, 315, 596, "PHONE", Display(invoice.CustomerPhone));
+        Field(page, 56, 602, "CUSTOMER", Display(invoice.CustomerName));
+        Field(page, 315, 602, "PHONE", Display(invoice.CustomerPhone));
 
         BrandedPdf.Text(page, 36, 550, 9, "BILL TO / CUSTOMER DETAILS", bold: true, color: BrandedPdf.Muted);
         BrandedPdf.Text(page, 315, 550, 9, "VEHICLE DETAILS", bold: true, color: BrandedPdf.Muted);
@@ -91,23 +91,32 @@ public static class FinanceInvoiceFactory
         };
         var agreedAdjustment = invoice.Amount - rows.Sum(row => row.Amount);
         if (agreedAdjustment != 0) rows.Add(("Agreed price adjustment", agreedAdjustment));
-        var y = 404;
+        const double rowSpacing = 24;
+        const double rowBottomGap = 12;
+        const double totalPanelHeight = 78;
+
+        var y = 404d;
+        var lastRowBottom = y;
         foreach (var row in rows)
         {
             BrandedPdf.Text(page, 54, y, 10, row.Label, color: BrandedPdf.Dark);
             BrandedPdf.Text(page, 478, y, 10, $"{row.Amount:N2}", color: BrandedPdf.Dark);
             BrandedPdf.Line(page, 36, y - 9, 559, y - 9, BrandedPdf.Rule);
-            y -= 30;
+            lastRowBottom = y - 9;
+            y -= rowSpacing;
         }
 
-        BrandedPdf.Fill(page, 36, 146, 523, 78, BrandedPdf.PaleBlue);
-        BrandedPdf.Text(page, 56, 199, 9, "AMOUNT PAYABLE", bold: true, color: BrandedPdf.Blue);
-        BrandedPdf.Text(page, 56, 169, 25, $"RM {invoice.Amount:N2}", bold: true, color: BrandedPdf.Navy);
-        BrandedPdf.Text(page, 315, 199, 9, "AMOUNT IN WORDS", bold: true, color: BrandedPdf.Blue);
-        BrandedPdf.TextBlock(page, 315, 181, 10, AmountInWords(invoice.Amount), 220, 13, 3, BrandedPdf.Dark);
-        BrandedPdf.Text(page, 36, 119, 9, "PAYMENT SUMMARY", bold: true, color: BrandedPdf.Muted);
-        BrandedPdf.Text(page, 36, 101, 10, "The total shown is the agreed nett price for this sale.", color: BrandedPdf.Dark);
-        BrandedPdf.Text(page, 36, 82, 8, $"Generated {invoice.CreatedAt:yyyy-MM-dd HH:mm:ss} UTC", color: BrandedPdf.Muted);
+        var totalPanelTop = lastRowBottom - rowBottomGap;
+        var totalPanelBottom = totalPanelTop - totalPanelHeight;
+        BrandedPdf.Fill(page, 36, totalPanelBottom, 523, totalPanelHeight, BrandedPdf.PaleBlue);
+        BrandedPdf.Text(page, 56, totalPanelTop - 25, 9, "AMOUNT PAYABLE", bold: true, color: BrandedPdf.Blue);
+        BrandedPdf.Text(page, 56, totalPanelTop - 55, 25, $"RM {invoice.Amount:N2}", bold: true, color: BrandedPdf.Navy);
+        BrandedPdf.Text(page, 315, totalPanelTop - 25, 9, "AMOUNT IN WORDS", bold: true, color: BrandedPdf.Blue);
+        BrandedPdf.TextBlock(page, 315, totalPanelTop - 43, 10, AmountInWords(invoice.Amount), 220, 13, 3, BrandedPdf.Dark);
+        var paymentSummaryY = totalPanelBottom - 27;
+        BrandedPdf.Text(page, 36, paymentSummaryY, 9, "PAYMENT SUMMARY", bold: true, color: BrandedPdf.Muted);
+        BrandedPdf.Text(page, 36, paymentSummaryY - 18, 10, "The total shown is the agreed nett price for this sale.", color: BrandedPdf.Dark);
+        BrandedPdf.Text(page, 36, paymentSummaryY - 37, 8, $"Generated {invoice.CreatedAt:yyyy-MM-dd HH:mm:ss} UTC", color: BrandedPdf.Muted);
         BrandedPdf.Footer(page, invoice.InvoiceNumber, 1, 1, "YS Heng - Customer copy");
 
         var searchable = new[] { invoice.InvoiceNumber, invoice.CustomerName, Display(invoice.CustomerPhone), Display(invoice.CustomerAddress), Display(invoice.CustomerTinNumber), Display(invoice.SalesAgentName), Display(invoice.LoanBankReference), invoice.VehiclePlateNumber, invoice.VehicleDescription };

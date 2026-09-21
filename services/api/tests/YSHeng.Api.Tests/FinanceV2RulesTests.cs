@@ -789,6 +789,56 @@ public sealed class FinanceV2RulesTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Sales_invoice_pdf_keeps_detail_rows_above_moving_total_panel_and_metadata_inside_band(bool adjusted)
+    {
+        var payment = V2Payment(adjusted ? 120m : 100m) with { SalesPrice = 100m };
+        var vehicle = new Vehicle { Id = payment.VehicleId, PlateNumber = "ABC1234", Make = "Toyota", Model = "Vios", Year = 2022, CustomerId = payment.CustomerId };
+        var customer = new Customer
+        {
+            Id = payment.CustomerId!.Value,
+            Name = "Tan Wei Ming Christopher Alexander bin Abdullah",
+            Address = "No 123 Jalan Damai Perdana Taman Bukit Indah Kuala Lumpur Malaysia"
+        };
+
+        var invoice = FinanceInvoiceFactory.Create(payment, vehicle, customer, "YSH-INV-2026-000046", "finance-1", DateTime.UtcNow);
+        using var document = UglyToad.PdfPig.PdfDocument.Open(invoice.Content, UglyToad.PdfPig.ParsingOptions.LenientParsingOff);
+        var page = document.GetPage(1);
+
+        var metadataBand = page.Paths
+            .Where(path => path.IsFilled)
+            .Select(path => path.GetBoundingRectangle())
+            .Where(rect => rect.HasValue)
+            .Select(rect => rect.GetValueOrDefault())
+            .Single(rect => Math.Abs(rect.Width - 523) < 0.01 && Math.Abs(rect.Height - 94) < 0.01);
+        var totalPanel = page.Paths
+            .Where(path => path.IsFilled)
+            .Select(path => path.GetBoundingRectangle())
+            .Where(rect => rect.HasValue)
+            .Select(rect => rect.GetValueOrDefault())
+            .Single(rect => Math.Abs(rect.Width - 523) < 0.01 && Math.Abs(rect.Height - 78) < 0.01 && rect.Bottom < 300);
+
+        var words = page.GetWords().ToList();
+        var lastRowWords = words.Where(word => word.Text is "Other" or "advance" or "paid" or "on" or "behalf" or "Agreed" or "adjustment").ToList();
+        Assert.NotEmpty(lastRowWords);
+        Assert.True(lastRowWords.Min(word => word.BoundingBox.Bottom) > totalPanel.Top);
+
+        var customerNameWords = words.Where(word => word.Text is "Tan" or "Wei" or "Ming" or "Christopher" or "Alexander" or "bin" or "Abdullah").ToList();
+        Assert.Equal(7, customerNameWords.Count);
+        Assert.All(customerNameWords, word =>
+            Assert.True(word.BoundingBox.Bottom >= metadataBand.Bottom && word.BoundingBox.Top <= metadataBand.Top));
+
+        var addressWords = words.Where(word => word.Text is "No" or "123" or "Jalan" or "Damai" or "Perdana" or "Taman" or "Bukit" or "Indah" or "Kuala" or "Lumpur" or "Malaysia").ToList();
+        Assert.Contains(addressWords, word => word.Text == "Kuala");
+        Assert.All(addressWords, word => Assert.True(word.BoundingBox.Top < metadataBand.Bottom));
+
+        var generated = Assert.Single(words, word => word.Text == "Generated");
+        Assert.True(generated.BoundingBox.Bottom > 52);
+        Assert.Equal(adjusted, words.Any(word => word.Text == "adjustment"));
+    }
+
+    [Theory]
     [InlineData(120, "20.00")]
     [InlineData(80, "-20.00")]
     public void Sales_invoice_pdf_reconciles_both_signs_of_agreed_price_adjustment(int agreedTotal, string expectedAdjustment)
