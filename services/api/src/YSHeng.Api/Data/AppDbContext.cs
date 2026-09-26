@@ -56,10 +56,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<AiServiceLimit> AiServiceLimits => Set<AiServiceLimit>();
     public DbSet<AiUsageRecord> AiUsageRecords => Set<AiUsageRecord>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<WhatsAppConsent> WhatsAppConsents => Set<WhatsAppConsent>();
+    public DbSet<WhatsAppOutbox> WhatsAppOutbox => Set<WhatsAppOutbox>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        builder.Entity<WhatsAppConsent>().HasKey(item => item.Recipient);
+        builder.Entity<WhatsAppConsent>().Property(item => item.Recipient).HasMaxLength(15);
+        builder.Entity<WhatsAppOutbox>().HasIndex(item => item.IdempotencyKey).IsUnique();
+        builder.Entity<WhatsAppOutbox>().HasIndex(item => item.ProviderMessageId).IsUnique();
+        builder.Entity<WhatsAppOutbox>().HasIndex(item => new { item.State, item.NextAttemptAt });
         builder.Entity<Vehicle>().HasIndex(vehicle => vehicle.PlateNumber).IsUnique();
         builder.Entity<VehicleCatalogModel>().HasIndex(item => new { item.Make, item.Model }).IsUnique();
         builder.Entity<StockMovement>().HasIndex(movement => new { movement.VehicleId, movement.CreatedAt });

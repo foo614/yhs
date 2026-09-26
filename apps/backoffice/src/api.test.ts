@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  getWhatsAppQueue,
+  actOnWhatsAppQueue,
+  saveWhatsAppConsent,
   approveNettPriceOverride,
   approvePaymentManagementReview,
   approveRepair,
@@ -205,6 +208,20 @@ function mockEmptyFetch(ok = true, status = ok ? 200 : 500) {
 }
 
 describe("backoffice api client", () => {
+  it("preserves WhatsApp authorization failures instead of returning demo notifications", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => JSON.stringify({ message: "Admin access required" }) }));
+    await expect(getWhatsAppQueue()).rejects.toThrow("Admin access required");
+  });
+
+  it("uses authenticated WhatsApp mutations with explicit consent and action", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => "{}" });
+    vi.stubGlobal("fetch", fetchMock);
+    await saveWhatsAppConsent({ recipient: "60123456789", optedIn: false, language: "ms", evidence: "withdrawal" });
+    await actOnWhatsAppQueue("test-id", "suppress");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: "include", method: "POST", body: JSON.stringify({ recipient: "60123456789", optedIn: false, language: "ms", evidence: "withdrawal" }) });
+    expect(fetchMock.mock.calls[1][0]).toContain("/api/whatsapp/queue/test-id/suppress");
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ credentials: "include", method: "POST" });
+  });
   it("turns technical API failures into clear staff messages", () => {
     expect(humanizeApiError(new Error("Failed to fetch"))).toBe("We could not connect to the server. Please check your connection and try again.");
     expect(humanizeApiError(new Error("Request failed with status (500)"))).toContain("The server could not complete this request.");

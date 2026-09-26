@@ -111,6 +111,7 @@ fixtures["/api/customers/test-customer/profile"] = {
 for (let index = 0; index < 9; index++) {
   for (const resource of ["photos", "documents", "ocr-jobs"]) emptyCollections.add(`/api/vehicles/test-vehicle-${index}/${resource}`);
 }
+fixtures["/api/whatsapp/queue"] = { captureEnabled: false, sendingEnabled: false, items: [] };
 const unknownRequests = new Set();
 const diagnostics = { consoleErrors: [], failedRequests: [] };
 

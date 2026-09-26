@@ -79,6 +79,7 @@ import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
 import { AiUsageSnapshotDescriptions, OcrOperationalGuidance } from "./modules/settings/AiUsagePanel";
 import { ShowroomEnquiryQrSettings } from "./modules/settings/ShowroomEnquiryQrSettings";
 import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSettings";
+import { WhatsAppSettings } from "./modules/settings/WhatsAppSettings";
 import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { DocumentPreviewDrawer, documentPreviewKind, type DocumentPreviewSource } from "./modules/shared/DocumentPreviewDrawer";
 import { PreviewDocumentUpload } from "./modules/shared/PreviewDocumentUpload";
@@ -6159,6 +6160,7 @@ function AdminPage({
           },
           { key: "showroom-enquiry", label: "QR Enquiry / 二维码询问", children: <ShowroomEnquiryQrSettings /> },
           { key: "vehicle-catalog", label: "Make & Model / 品牌车型", children: <VehicleCatalogSettings /> },
+          { key: "whatsapp", label: "WhatsApp", children: <WhatsAppSettings /> },
           { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
           { key: "audit", label: "Audit Log / 操作记录", children: <AuditLogRecords auditLog={auditLog} filters={auditLogFilters} onSearch={onSearchAuditLog} /> }
         ]}
