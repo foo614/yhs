@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { MotionEnhancer } from "./MotionEnhancer";
+import { BuyerFaq } from "./BuyerFaq";
 import { organizationStructuredData, pageMetadata, structuredDataJson } from "./seo";
 import "./styles.css";
 
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataJson(organizationStructuredData()) }} />
         <MotionEnhancer>{children}</MotionEnhancer>
+        <BuyerFaq />
       </body>
     </html>
   );
