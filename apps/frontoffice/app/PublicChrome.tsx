@@ -143,8 +143,8 @@ export function PublicFooter({ language }: { language: Language }) {
 
 function BrandLogo({ language, footer = false }: { language: Language; footer?: boolean }) {
   return (
-    <Link href={hrefWithLanguage("/", language)} className={footer ? "atelierBrand footerBrand" : "atelierBrand"} aria-label="YS Heng Auto home">
-      <img src={`${publicBasePath}/ys-heng-logo.png`} alt="YS Heng Auto" />
+    <Link href={hrefWithLanguage("/", language)} className={footer ? "atelierBrand footerBrand" : "atelierBrand"} aria-label="YS Heng Automotive home">
+      <img src={`${publicBasePath}/ys-heng-logo.png`} alt="YS Heng Automotive Sdn Bhd" width={875} height={784} />
     </Link>
   );
 }
