@@ -61,7 +61,7 @@ export function ShowroomEnquiryFlow() {
     <main className="showroomEnquiryPage">
       <div className={`showroomEnquiryShell${isDirectionOne ? " showroomDirectionOne" : ""}`}>
         <header className="showroomEnquiryHeader">
-          <Image src="/ys-heng-logo.png" alt="YS Heng Auto" width={125} height={56} priority />
+          <Image src="/ys-heng-logo.png" alt="YS Heng Automotive Sdn Bhd" width={875} height={784} priority />
           <p>Showroom enquiry</p>
         </header>
 

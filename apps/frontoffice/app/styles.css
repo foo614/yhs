@@ -92,18 +92,13 @@ textarea:focus-visible {
 .atelierBrand {
   display: inline-flex;
   align-items: center;
-  width: 152px;
-  min-width: 152px;
-  padding: 4px 8px;
-  background: #fff;
-  border-radius: 999px;
-  box-shadow: inset 0 0 0 1px rgba(186, 0, 47, .08);
+  width: 72px;
+  min-width: 72px;
 }
 
 .atelierBrand img {
   width: 100%;
   height: auto;
-  max-height: 54px;
   object-fit: contain;
   display: block;
 }
@@ -2923,8 +2918,9 @@ textarea:focus-visible {
 }
 
 .footerBrand {
-  width: 210px;
-  min-width: 210px;
+  width: 160px;
+  max-width: 100%;
+  min-width: 0;
   margin-bottom: 14px;
 }
 
@@ -3197,8 +3193,8 @@ textarea:focus-visible {
   }
 
   .atelierHeader .atelierBrand {
-    width: 128px;
-    min-width: 128px;
+    width: 60px;
+    min-width: 60px;
   }
 
   .mobileDrawerBackdrop {
@@ -3510,8 +3506,8 @@ textarea:focus-visible {
 }
 
 .heroMedia {
-  inset: 92px -8px auto auto;
-  width: min(66vw, 960px);
+  inset: 92px 8px auto auto;
+  width: min(52vw, 760px);
   height: auto;
   aspect-ratio: 1672 / 941;
   object-fit: contain;
@@ -3804,7 +3800,7 @@ textarea:focus-visible {
   .heroMedia {
     top: 62px;
     right: max(40px, calc((100vw - 1680px) / 2));
-    width: min(58vw, 1040px);
+    width: min(52vw, 936px);
   }
 
   .heroCopy {
@@ -3845,13 +3841,17 @@ textarea:focus-visible {
 
   .heroMedia {
     top: 142px;
-    right: -7%;
-    width: min(76vw, 820px);
+    right: 12px;
+    width: 43vw;
   }
 
   .heroCopy {
     width: min(500px, 50vw);
     padding-top: 180px;
+  }
+
+  .atelierHero h1 {
+    font-size: clamp(40px, 4.5vw, 50px);
   }
 
   .atelierSearch {
@@ -3883,9 +3883,9 @@ textarea:focus-visible {
   }
 
   .heroMedia {
-    top: 92px;
-    right: -30%;
-    width: 840px;
+    top: 124px;
+    right: 0;
+    width: 38vw;
     opacity: .86;
   }
 
@@ -3959,6 +3959,23 @@ textarea:focus-visible {
   }
 }
 
+@media (min-width: 1121px) and (max-width: 1250px) {
+  .heroMedia {
+    top: 144px;
+  }
+}
+
+@media (max-width: 480px) {
+  .heroMedia {
+    width: 44vw;
+    opacity: 1;
+  }
+
+  .heroOverlay {
+    background: none;
+  }
+}
+
 /* Landscape phones and compact tablets need a shorter chrome and denser content
    rhythm than portrait mobile, even when their width crosses tablet breakpoints. */
 @media (orientation: landscape) and (max-height: 700px) and (max-width: 1120px) {
@@ -3970,13 +3987,12 @@ textarea:focus-visible {
   }
 
   .atelierHeader .atelierBrand {
-    width: 112px;
-    min-width: 112px;
-    padding: 2px 6px;
+    width: 48px;
+    min-width: 48px;
   }
 
   .atelierHeader .atelierBrand img {
-    max-height: 42px;
+    max-height: none;
   }
 
   .mobileMenu {
