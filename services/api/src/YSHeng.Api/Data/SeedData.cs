@@ -238,6 +238,36 @@ public static class SeedData
         await EnsureFinanceRepairEnhancementSchemaAsync(db);
     }
 
+    public static async Task EnsureWhatsAppSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await EnsureWhatsAppSchemaAsync(db);
+    }
+
+    public static async Task EnsureWhatsAppSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "WhatsAppConsents" (
+                "Recipient" varchar(15) PRIMARY KEY, "Id" uuid NOT NULL,
+                "OptedIn" boolean NOT NULL, "Language" text NOT NULL DEFAULT 'ms',
+                "Evidence" text NOT NULL, "UpdatedAt" bigint NOT NULL);
+            ALTER TABLE "WhatsAppConsents" ADD COLUMN IF NOT EXISTS "Language" text NOT NULL DEFAULT 'ms';
+            CREATE TABLE IF NOT EXISTS "WhatsAppOutbox" (
+                "Id" uuid PRIMARY KEY, "IdempotencyKey" text NOT NULL, "Recipient" text NOT NULL,
+                "TemplateVersion" text NOT NULL, "Language" text NOT NULL, "Body" text NOT NULL,
+                "EventKind" text NOT NULL DEFAULT 'test', "BusinessReference" text NOT NULL DEFAULT '',
+                "State" text NOT NULL, "Attempts" integer NOT NULL, "CreatedAt" bigint NOT NULL,
+                "NextAttemptAt" bigint NOT NULL, "ExpiresAt" bigint NOT NULL, "LeaseUntil" bigint NOT NULL,
+                "ProviderMessageId" text NULL);
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "EventKind" text NOT NULL DEFAULT 'test';
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "BusinessReference" text NOT NULL DEFAULT '';
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_IdempotencyKey" ON "WhatsAppOutbox" ("IdempotencyKey");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_ProviderMessageId" ON "WhatsAppOutbox" ("ProviderMessageId");
+            CREATE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_State_NextAttemptAt" ON "WhatsAppOutbox" ("State", "NextAttemptAt");
+            """);
+    }
+
     public static async Task EnsureRepairReceiptSchemaAsync(WebApplication app)
     {
         using var scope = app.Services.CreateScope();

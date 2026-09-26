@@ -17,6 +17,7 @@ using YSHeng.Api.Features;
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
+var whatsappCaptureEnabled = builder.Configuration.GetValue("WhatsApp:CaptureEnabled", false);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -172,9 +173,12 @@ app.MapPost("/api/public/leads", async (LeadRequest request, AppDbContext db) =>
     if (!validation.IsValid) return Results.BadRequest(validation);
 
     var lead = LeadCapture.Create(request);
+    await using var notificationTransaction = await db.Database.BeginTransactionAsync();
     db.Leads.Add(lead);
     ApiAudit.Add(db, "public", "lead.created", nameof(Lead), lead.Id);
+    await WhatsAppBusinessEvents.StageEnquiryAsync(db, lead, whatsappCaptureEnabled);
     await db.SaveChangesAsync();
+    await notificationTransaction.CommitAsync();
     return Results.Created($"/api/leads/{lead.Id}", lead);
 });
 
@@ -184,9 +188,12 @@ app.MapPost("/api/public/contact-enquiries", async (ContactEnquiryRequest reques
     if (!validation.IsValid) return Results.BadRequest(validation);
 
     var lead = LeadCapture.CreateContactEnquiry(request);
+    await using var notificationTransaction = await db.Database.BeginTransactionAsync();
     db.Leads.Add(lead);
     ApiAudit.Add(db, "public", "contactEnquiry.created", nameof(Lead), lead.Id);
+    await WhatsAppBusinessEvents.StageEnquiryAsync(db, lead, whatsappCaptureEnabled);
     await db.SaveChangesAsync();
+    await notificationTransaction.CommitAsync();
     return Results.Created($"/api/public/contact-enquiries/{lead.Id}", new { id = lead.Id });
 });
 
@@ -196,13 +203,54 @@ app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest requ
     if (!validation.IsValid) return Results.BadRequest(validation);
 
     var lead = LeadCapture.CreateShowroomEnquiry(request);
+    await using var notificationTransaction = await db.Database.BeginTransactionAsync();
     db.Leads.Add(lead);
     ApiAudit.Add(db, "public", "showroomEnquiry.created", nameof(Lead), lead.Id);
+    await WhatsAppBusinessEvents.StageEnquiryAsync(db, lead, whatsappCaptureEnabled);
     await db.SaveChangesAsync();
+    await notificationTransaction.CommitAsync();
     return Results.Created($"/api/public/showroom-enquiries/{lead.Id}", new { id = lead.Id });
 });
 
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
+
+backOffice.MapGet("/whatsapp/queue", async (AppDbContext db, string? state, int? page) =>
+{
+    var items = whatsappCaptureEnabled
+        ? await WhatsAppAdministration.ListAsync(db, state, page ?? 1, app.Configuration["WhatsApp:TestRecipient"])
+        : Array.Empty<WhatsAppQueueItem>();
+    return Results.Ok(new { captureEnabled = whatsappCaptureEnabled, sendingEnabled = false, items });
+}).RequireAuthorization("BossAdmin");
+
+backOffice.MapPost("/whatsapp/consent", async (WhatsAppConsentRequest request, AppDbContext db, HttpContext context) =>
+{
+    if (!whatsappCaptureEnabled) return Results.Conflict(new ApiError("WhatsApp event capture is disabled."));
+    try
+    {
+        await WhatsAppOutboxStore.SetConsentAsync(db, request.Recipient, request.OptedIn, request.Evidence,
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds(), context.RequestAborted, request.Language, AuditTrail.ActorFrom(context.User));
+        return Results.Ok(new { message = "WhatsApp consent and language recorded. Production sending remains disabled." });
+    }
+    catch (ArgumentException) { return Results.BadRequest(new ApiError("Use an international phone number, ms or en_US language, and consent evidence of at most 160 characters.")); }
+}).RequireAuthorization("BossAdmin");
+
+backOffice.MapPost("/whatsapp/queue/{id:guid}/retry", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    var testRecipient = WhatsAppAdministration.ConfiguredTestRecipient(app.Configuration["WhatsApp:TestRecipient"]);
+    if (!whatsappCaptureEnabled || string.IsNullOrWhiteSpace(testRecipient)) return Results.Conflict(new ApiError("Test notification retry is unavailable."));
+    var changed = await WhatsAppOutboxStore.RetryDeadLetterTestAsync(db, id, testRecipient,
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds(), context.RequestAborted, AuditTrail.ActorFrom(context.User));
+    return changed ? Results.Ok(new { message = "Eligible test notification queued. Production sending remains disabled." })
+        : Results.Conflict(new ApiError("Retry requires an unexpired, consented test-recipient dead letter with no provider acceptance. Business drafts and unknown outcomes cannot be retried."));
+}).RequireAuthorization("BossAdmin");
+
+backOffice.MapPost("/whatsapp/queue/{id:guid}/suppress", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    if (!whatsappCaptureEnabled) return Results.Conflict(new ApiError("WhatsApp event capture is disabled."));
+    return await WhatsAppAdministration.SuppressAsync(db, id, AuditTrail.ActorFrom(context.User), context.RequestAborted)
+        ? Results.Ok(new { message = "Pending notification suppressed." })
+        : Results.Conflict(new ApiError("Only pending notifications can be suppressed. A submitted message cannot be recalled."));
+}).RequireAuthorization("BossAdmin");
 
 // Shared staff calendar excludes finance, leave reason and trip details; customer contact remains role-scoped.
 backOffice.MapGet("/operations-calendar", async (DateOnly from, DateOnly to, AppDbContext db, UserManager<AppUser> userManager, HttpContext context) =>
@@ -1657,6 +1705,7 @@ backOffice.MapPost("/loans/{id:guid}/decision", async (Guid id, LoanDecisionRequ
     var financeInvoices = await db.FinanceInvoices.AsNoTracking().ToListAsync();
     var collections = await db.CollectionTransactions.AsNoTracking().ToListAsync();
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments, deliveries, financeInvoices, collections));
+    await WhatsAppBusinessEvents.StageLoanStatusAsync(db, existingLoan, updated, whatsappCaptureEnabled, AuditTrail.ActorFrom(context.User));
     db.Entry(existingLoan).CurrentValues.SetValues(updated);
     ApiAudit.Add(db, context.User, updated.Status == LoanStatus.Approved ? "loan.approved" : "loan.rejected", nameof(LoanApplication), id);
     await db.SaveChangesAsync();
@@ -1701,6 +1750,7 @@ backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppD
     var vehicle = await db.Vehicles.FirstAsync(item => item.Id == existingLoan.VehicleId);
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, updatedLoans, payments, deliveries, financeInvoices, collections));
 
+    await WhatsAppBusinessEvents.StageLoanStatusAsync(db, existingLoan, loan, whatsappCaptureEnabled, AuditTrail.ActorFrom(context.User));
     db.Entry(existingLoan).CurrentValues.SetValues(loan);
     ApiAudit.Add(db, context.User, "loan.updated", nameof(LoanApplication), loan.Id);
     await db.SaveChangesAsync();
@@ -2823,6 +2873,7 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reconcile", async (Guid i
 
         var receipt = OfficialReceiptFactory.CreateForCollection(collection, payment, invoice, evidence, actorUserId, now);
         db.OfficialReceipts.Add(receipt);
+        await WhatsAppBusinessEvents.StageReceiptAsync(db, receipt, whatsappCaptureEnabled, AuditTrail.ActorFrom(context.User));
         var updated = collection with
         {
             Status = CollectionStatus.Reconciled,
@@ -2882,6 +2933,7 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reverse", async (Guid id,
         db.Entry(collection).CurrentValues.SetValues(linked);
         collection = linked;
         ApiAudit.Add(db, context.User, "officialReceipt.voided", nameof(OfficialReceipt), receipt.Id);
+        await WhatsAppBusinessEvents.StageReceiptVoidedAsync(db, receipt.Id, whatsappCaptureEnabled, AuditTrail.ActorFrom(context.User));
     }
     var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
     await db.SaveChangesAsync();
@@ -3125,6 +3177,7 @@ backOffice.MapPost("/cash-handovers/{id:guid}/accept", async (Guid id, AppDbCont
         ApiAudit.Add(db, context.User, "finance.cashCollectionReconciled", nameof(CollectionTransaction), collection.Id);
     }
     db.OfficialReceipts.Add(receipt);
+    await WhatsAppBusinessEvents.StageReceiptAsync(db, receipt, whatsappCaptureEnabled, AuditTrail.ActorFrom(context.User));
     db.Entry(handover).CurrentValues.SetValues(updated);
     ApiAudit.Add(db, context.User, "cashHandover.accepted", nameof(CashHandover), id);
     ApiAudit.Add(db, context.User, "officialReceipt.generated", nameof(OfficialReceipt), receipt.Id);
@@ -4814,6 +4867,8 @@ else
     await SeedData.EnsureVehiclePricingSchemaAsync(app);
     await SeedData.EnsureVehicleIntakeTimestampSchemaAsync(app);
 }
+
+if (whatsappCaptureEnabled) await SeedData.EnsureWhatsAppSchemaAsync(app);
 
 app.Run();
 

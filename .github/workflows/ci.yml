@@ -65,6 +65,20 @@ jobs:
   api:
     name: .NET API
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: whatsapp_ci
+          POSTGRES_PASSWORD: isolated_ci_only
+          POSTGRES_DB: whatsapp_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U whatsapp_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
 
     steps:
       - name: Check out repository
@@ -79,6 +93,8 @@ jobs:
         run: dotnet restore services/api/YSHeng.sln
 
       - name: Test API solution
+        env:
+          WHATSAPP_TEST_POSTGRES: Host=127.0.0.1;Port=5432;Database=whatsapp_ci;Username=whatsapp_ci;Password=isolated_ci_only
         run: dotnet test services/api/YSHeng.sln --no-restore
 
   deployment-contracts:

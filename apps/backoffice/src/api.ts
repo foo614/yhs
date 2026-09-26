@@ -1574,6 +1574,27 @@ export async function getVehicleCatalogModels(): Promise<VehicleCatalogModel[]> 
   return getWithNetworkFallback("/api/vehicle-catalog/models", []);
 }
 
+export type WhatsAppQueueItem = {
+  id: string; recipient: string; eventKind: string; businessReference: string;
+  templateVersion: string; language: string; state: string; attempts: number;
+  createdAt: number; canRetry: boolean; canSuppress: boolean;
+};
+export type WhatsAppQueue = { captureEnabled: boolean; sendingEnabled: boolean; items: WhatsAppQueueItem[] };
+export type WhatsAppConsentInput = { recipient: string; optedIn: boolean; language: "ms" | "en_US"; evidence: string };
+
+export async function getWhatsAppQueue(state = "", page = 1): Promise<WhatsAppQueue> {
+  return request<WhatsAppQueue>(`/api/whatsapp/queue?state=${encodeURIComponent(state)}&page=${page}`);
+}
+
+export async function saveWhatsAppConsent(input: WhatsAppConsentInput): Promise<void> {
+  await request("/api/whatsapp/consent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+}
+
+export async function actOnWhatsAppQueue(id: string, action: "retry" | "suppress"): Promise<void> {
+  const path = action === "retry" ? `/api/whatsapp/queue/${encodeURIComponent(id)}/retry` : `/api/whatsapp/queue/${encodeURIComponent(id)}/suppress`;
+  await request(path, { method: "POST" });
+}
+
 export async function getVehicleLookup(): Promise<VehicleLookup[]> {
   return getWithNetworkFallback("/api/vehicle-lookup", [vehicleLookupFromVehicle(sampleVehicle)]);
 }

@@ -881,3 +881,32 @@ public sealed record HrAttendanceCorrection
 }
 
 public sealed record AuditLog { public Guid Id { get; init; } = Guid.NewGuid(); public string Actor { get; init; } = ""; public string Action { get; init; } = ""; public string EntityName { get; init; } = ""; public Guid EntityId { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
+
+public sealed record WhatsAppConsent
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string Recipient { get; init; } = "";
+    public bool OptedIn { get; init; }
+    public string Language { get; init; } = "ms";
+    public string Evidence { get; init; } = "";
+    public long UpdatedAt { get; init; }
+}
+
+public sealed record WhatsAppOutbox
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string IdempotencyKey { get; init; } = "";
+    public string Recipient { get; init; } = "";
+    public string TemplateVersion { get; init; } = "test-text-v1";
+    public string EventKind { get; init; } = "test";
+    public string BusinessReference { get; init; } = "";
+    public string Language { get; init; } = "en_US";
+    public string Body { get; init; } = "";
+    public string State { get; init; } = "Queued";
+    public int Attempts { get; init; }
+    public long CreatedAt { get; init; }
+    public long NextAttemptAt { get; init; }
+    public long ExpiresAt { get; init; }
+    public long LeaseUntil { get; init; }
+    public string? ProviderMessageId { get; init; }
+}
