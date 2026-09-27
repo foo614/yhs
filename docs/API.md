@@ -25,6 +25,11 @@ http://localhost:5000
 | `POST` | `/api/whatsapp/queue/{id}/suppress` | BackOffice + BossAdmin | Suppress held/queued/retry-scheduled work; cannot recall submitted messages. |
 | `GET` | `/api/whatsapp/webhook` | Verified callback token | Meta callback challenge; inactive by default. |
 | `POST` | `/api/whatsapp/webhook` | Raw-body HMAC + configured WABA/sender | Apply opt-outs and monotonic statuses for known provider IDs; body limit 256 KiB. |
+| `GET` | `/api/whatsapp/assistant/connection?staffUserId=...` | BackOffice + current account/roles | Read one's masked staff connection state. Only current BossAdmin may select another staff account. No-store response. |
+| `POST` | `/api/whatsapp/assistant/connection` | BackOffice + current account/roles | Confirm phone, language and consent; issue a ten-minute single-use `link <code>`. Does not change staff roles or passwords. |
+| `POST` | `/api/whatsapp/assistant/disconnect` | BackOffice + current account/roles | Confirm disconnect for self or, for BossAdmin, selected staff. Revoke binding/pending challenge and suppress queued queries. |
+| `GET` | `/api/whatsapp/assistant/webhook` | Separate verified callback token | Staff assistant challenge, independently disabled by default. |
+| `POST` | `/api/whatsapp/assistant/webhook` | Raw-body HMAC + configured WABA/sender + verified staff | One-time linking, read-only queries, language selection, staff STOP and correlated statuses. Customer consent remains separate. |
 
 Capture, callback hosting and sending require separate explicit configuration. Approved customer templates, sender evidence and positive daily/monthly limits are required before the worker starts. Receipt notices send a safe reference only, not a document or public download URL. Legacy drafts without a dedicated template reference stay held. See [dispatch configuration and activation boundary](plans/2026-09-27-foo-40-dispatch.md). No production switch is enabled by deployment.
 

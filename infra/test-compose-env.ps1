@@ -7,6 +7,30 @@ $validator = Join-Path $repoRoot "infra/validate-compose-env.ps1"
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ysheng-compose-env-tests"
 
 New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+$bash = if (Test-Path 'C:\Program Files\Git\bin\bash.exe') { 'C:\Program Files\Git\bin\bash.exe' } else { (Get-Command bash -ErrorAction SilentlyContinue).Source }
+$syntheticCredentials = Join-Path $tempRoot 'synthetic-google-credentials.json'
+Set-Content -LiteralPath $syntheticCredentials -Value '{}' -Encoding utf8
+function ConvertTo-BashPath([string]$Path) {
+  $normalized = $Path.Replace('\', '/')
+  if ($normalized -match '^([A-Za-z]):/(.*)$') { return '/' + $Matches[1].ToLowerInvariant() + '/' + $Matches[2] }
+  return $normalized
+}
+function Assert-BashValidation([string]$Path, [bool]$ShouldPass) {
+  if (-not $bash) { Write-Warning 'Bash validator check unavailable; CI requires Bash.'; return }
+  $bashEnv = Join-Path $tempRoot ([System.IO.Path]::GetFileName($Path) + '.bash.env')
+  $lines = Get-Content -LiteralPath $Path | ForEach-Object {
+    if ($_ -ceq 'GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH=/opt/ysheng/shared/google-document-ai.json') {
+      'GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH=' + (ConvertTo-BashPath $syntheticCredentials)
+    } else { $_ }
+  }
+  [System.IO.File]::WriteAllText($bashEnv, ($lines -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+  $bashLog = $bashEnv + '.log'
+  & $bash (ConvertTo-BashPath (Join-Path $repoRoot 'infra/ubuntu/validate-production-env.sh')) --env-file (ConvertTo-BashPath $bashEnv) *> $bashLog
+  $bashExitCode = $LASTEXITCODE
+  # Expected rejection cases must not become the successful test script's CI exit code.
+  $global:LASTEXITCODE = 0
+  if (($bashExitCode -eq 0) -ne $ShouldPass) { throw "Bash validation disagreed for synthetic case $([System.IO.Path]::GetFileName($Path)). See its test log." }
+}
 
 function New-TestEnvFile {
   param(
@@ -67,6 +91,8 @@ function Assert-ValidationPasses {
     [switch]$AllowExampleValues
   )
 
+  if (-not $AllowExampleValues) { Assert-BashValidation $Path $true }
+
   try {
     if ($AllowExampleValues) {
       & $validator -EnvPath $Path -AllowExampleValues | Out-Null
@@ -88,6 +114,8 @@ function Assert-ValidationFails {
     [switch]$AllowExampleValues
   )
 
+  if (-not $AllowExampleValues) { Assert-BashValidation $Path $false }
+
   try {
     if ($AllowExampleValues) {
       & $validator -EnvPath $Path -AllowExampleValues | Out-Null
@@ -108,6 +136,31 @@ function Assert-ValidationFails {
 
 $validProduction = New-TestEnvFile -Name "valid-production"
 Assert-ValidationPasses -Name "Production env" -Path $validProduction
+
+$assistantValues = @{
+  WHATSAPP_ASSISTANT_ENABLED = 'true'; WHATSAPP_ASSISTANT_WEBHOOK_ENABLED = 'true'
+  WHATSAPP_ASSISTANT_TEST_RECIPIENT = '60199999999'; WHATSAPP_ASSISTANT_PHONE_NUMBER_ID = '123'; WHATSAPP_ASSISTANT_BUSINESS_ACCOUNT_ID = '456'
+  WHATSAPP_ASSISTANT_ACCESS_TOKEN = 'synthetic-token'; WHATSAPP_ASSISTANT_APP_SECRET = ('s' * 32); WHATSAPP_ASSISTANT_VERIFY_TOKEN = ('v' * 32)
+}
+Assert-ValidationPasses 'Enabled staff assistant' (New-TestEnvFile 'valid-assistant' $assistantValues)
+foreach ($case in @(
+  @{ Key = 'WHATSAPP_ASSISTANT_ACCESS_TOKEN'; Value = $null; Message = 'WHATSAPP_ASSISTANT_ACCESS_TOKEN is required' },
+  @{ Key = 'WHATSAPP_ASSISTANT_APP_SECRET'; Value = 'short'; Message = 'WHATSAPP_ASSISTANT_APP_SECRET must contain' },
+  @{ Key = 'WHATSAPP_ASSISTANT_VERIFY_TOKEN'; Value = 'short'; Message = 'WHATSAPP_ASSISTANT_VERIFY_TOKEN must contain' },
+  @{ Key = 'WHATSAPP_ASSISTANT_APP_SECRET'; Value = (' ' * 32); Message = 'WHATSAPP_ASSISTANT_APP_SECRET must contain' },
+  @{ Key = 'WHATSAPP_ASSISTANT_VERIFY_TOKEN'; Value = (' ' * 32); Message = 'WHATSAPP_ASSISTANT_VERIFY_TOKEN must contain' },
+  @{ Key = 'WHATSAPP_ASSISTANT_TEST_RECIPIENT'; Value = $null; Message = 'WHATSAPP_ASSISTANT_TEST_RECIPIENT is required' },
+  @{ Key = 'WHATSAPP_ASSISTANT_PHONE_NUMBER_ID'; Value = 'not-numeric'; Message = 'WHATSAPP_ASSISTANT_PHONE_NUMBER_ID must be' },
+  @{ Key = 'WHATSAPP_ASSISTANT_GRAPH_API_VERSION'; Value = 'V25.0'; Message = 'WHATSAPP_ASSISTANT_GRAPH_API_VERSION is invalid' },
+  @{ Key = 'WHATSAPP_ASSISTANT_TEST_MODE'; Value = 'maybe'; Message = 'WHATSAPP_ASSISTANT_TEST_MODE must be' },
+  @{ Key = 'WHATSAPP_ASSISTANT_WEBHOOK_ENABLED'; Value = 'false'; Message = 'activation requires both' },
+  @{ Key = 'WHATSAPP_ASSISTANT_PER_STAFF_DAILY_LIMIT'; Value = '0'; Message = 'WHATSAPP_ASSISTANT_PER_STAFF_DAILY_LIMIT must be' },
+  @{ Key = 'WHATSAPP_ASSISTANT_WORKSPACE_DAILY_LIMIT'; Value = '99999999999999999999'; Message = 'WHATSAPP_ASSISTANT_WORKSPACE_DAILY_LIMIT must be' }
+)) {
+  $overrides = $assistantValues.Clone(); $overrides[$case.Key] = $case.Value
+  $path = New-TestEnvFile -Name ('invalid-assistant-' + $case.Key) -Overrides $overrides
+  Assert-ValidationFails -Name $case.Key -Path $path -ExpectedMessage $case.Message
+}
 
 $missingRequired = New-TestEnvFile -Name "missing-public-api" -Overrides @{ PUBLIC_API_BASE_URL = $null }
 Assert-ValidationFails -Name "Missing required URL" -Path $missingRequired -ExpectedMessage "PUBLIC_API_BASE_URL is required."

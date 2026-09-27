@@ -59,10 +59,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<WhatsAppConsent> WhatsAppConsents => Set<WhatsAppConsent>();
     public DbSet<WhatsAppOutbox> WhatsAppOutbox => Set<WhatsAppOutbox>();
     public DbSet<WhatsAppDispatchUsage> WhatsAppDispatchUsage => Set<WhatsAppDispatchUsage>();
+    public DbSet<WhatsAppStaffBinding> WhatsAppStaffBindings => Set<WhatsAppStaffBinding>();
+    public DbSet<WhatsAppStaffChallenge> WhatsAppStaffChallenges => Set<WhatsAppStaffChallenge>();
+    public DbSet<WhatsAppStaffRequest> WhatsAppStaffRequests => Set<WhatsAppStaffRequest>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        builder.Entity<WhatsAppStaffBinding>().HasIndex(item => item.StaffUserId).IsUnique().HasFilter("\"RevokedAt\" IS NULL");
+        builder.Entity<WhatsAppStaffBinding>().HasIndex(item => new { item.PhoneNumberId, item.Recipient }).IsUnique().HasFilter("\"RevokedAt\" IS NULL");
+        builder.Entity<WhatsAppStaffBinding>().HasOne<AppUser>().WithMany().HasForeignKey(item => item.StaffUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<WhatsAppStaffChallenge>().HasKey(item => item.StaffUserId);
+        builder.Entity<WhatsAppStaffChallenge>().HasOne<AppUser>().WithMany().HasForeignKey(item => item.StaffUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<WhatsAppStaffRequest>().HasIndex(item => item.EventKey).IsUnique();
+        builder.Entity<WhatsAppStaffRequest>().HasIndex(item => item.ProviderMessageId).IsUnique();
+        builder.Entity<WhatsAppStaffRequest>().HasIndex(item => new { item.State, item.CreatedAt });
+        builder.Entity<WhatsAppStaffRequest>().HasOne<WhatsAppStaffBinding>().WithMany().HasForeignKey(item => item.BindingId).OnDelete(DeleteBehavior.Restrict);
         builder.Entity<WhatsAppDispatchUsage>().HasKey(item => item.Period);
         builder.Entity<WhatsAppDispatchUsage>().Property(item => item.Period).HasMaxLength(32);
         builder.Entity<WhatsAppConsent>().HasKey(item => item.Recipient);

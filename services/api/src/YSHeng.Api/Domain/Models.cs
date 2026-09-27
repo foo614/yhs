@@ -880,6 +880,49 @@ public sealed record HrAttendanceCorrection
     public string? DecisionNotes { get; init; }
 }
 
+public sealed record WhatsAppStaffBinding
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StaffUserId { get; init; } = "";
+    public string Recipient { get; init; } = "";
+    public string PhoneNumberId { get; init; } = "";
+    public string SecurityStampHash { get; init; } = "";
+    public string Language { get; init; } = "ms";
+    public long VerifiedAt { get; init; }
+    public long? RevokedAt { get; init; }
+}
+
+public sealed record WhatsAppStaffChallenge
+{
+    public string StaffUserId { get; init; } = "";
+    public string Recipient { get; init; } = "";
+    public string PhoneNumberId { get; init; } = "";
+    public string CodeHash { get; init; } = "";
+    public string SecurityStampHash { get; init; } = "";
+    public string Language { get; init; } = "ms";
+    public long CreatedAt { get; init; }
+    public long ExpiresAt { get; init; }
+    public int FailedAttempts { get; init; }
+    public long? ConsumedAt { get; init; }
+    public long IssueWindowStart { get; init; }
+    public int IssuesInWindow { get; init; }
+}
+
+public sealed record WhatsAppStaffRequest
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string EventKey { get; init; } = "";
+    public Guid BindingId { get; init; }
+    public string Intent { get; init; } = "";
+    public string Argument { get; init; } = "";
+    public string State { get; init; } = "Queued";
+    public long CreatedAt { get; init; }
+    public long ExpiresAt { get; init; }
+    public long LeaseUntil { get; init; }
+    public int Attempts { get; init; }
+    public string? ProviderMessageId { get; init; }
+}
+
 public sealed record AuditLog { public Guid Id { get; init; } = Guid.NewGuid(); public string Actor { get; init; } = ""; public string Action { get; init; } = ""; public string EntityName { get; init; } = ""; public Guid EntityId { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
 
 public sealed record WhatsAppConsent

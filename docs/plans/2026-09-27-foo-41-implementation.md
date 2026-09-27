@@ -1,0 +1,27 @@
+# Staff WhatsApp assistant implementation
+
+User approved continuing on 27 Sep 2026 after Astra planning. Keep linking simple: an authenticated staff or BossAdmin selects the staff account and phone, receives a single-use `link <code>`, then sends that command from the intended WhatsApp number. No repeated login for chat queries. Preserve existing full-record and mutation permissions.
+
+Use an independently disabled-by-default `WhatsAppAssistant` configuration and `/api/whatsapp/assistant/webhook`; do not enable customer capture or notification dispatch to obtain staff chat. A test fence restricts the callback to the configured single recipient. Stable production hosting/configuration remains a separate activation step.
+
+Persist bindings, ten-minute high-entropy challenges and durable request metadata in the application database. Enforce binding uniqueness in the database. Hash challenges and security stamps, limit challenge issuance and failed attempts, reject wrong-phone and stale callbacks, consume links atomically, and audit metadata without raw commands/codes. STOP revokes the binding and suppresses queued requests. Account disablement, changed security stamp, role changes and unlinking apply before retrieval and again before send.
+
+An assistant worker regenerates minimum projected replies from current authorized data instead of storing private outbound bodies. Use a dedicated no-redirect/no-retry HTTP client. Deduplicate provider messages, expire queued work, quarantine ambiguous sends and correlate signed status callbacks. Quotas and kill switch apply independently of customer notifications.
+
+First operational adapters: public stock, internal vehicle status, minimal loan progress, delivery dates/status and bounded upcoming deliveries, available to all active verified staff. Financial collections/settlement and profit/dashboard remain separate restricted adapters; do not advertise them as available until implemented and verified. English and Bahasa Malaysia are supported; customer template defaults remain unchanged.
+
+Settings/staff details provide Connect, connection state and confirmed Disconnect. No automatic transfer of an occupied number. Existing phone fields alone are not proof of binding.
+
+Verification covers actual binding/query/dispatch interfaces: link collision/expiry/replay/limits, wrong-phone denial, current account/stamp/role changes, STOP, duplicate callbacks/restart, private-field exclusion, plate ambiguity, delivery status/date edge cases, deterministic BM/English, quota gates and unknown sends. Use an isolated database and synthetic records before any real private query. Run focused backend and UI checks, separate security review, CI and deployment gates. Keep the full FOO-41 ticket unfinished until all scope and activation evidence exist.
+
+## Configuration and activation
+
+`WhatsAppAssistant:Enabled` and `WhatsAppAssistant:WebhookEnabled` default to false. `TestMode` defaults to true and restricts incoming links, queries and replies to `TestRecipient`. Transport values (`PhoneNumberId`, `BusinessAccountId`, `GraphApiVersion`, `AccessToken`, `AppSecret`, `VerifyToken`) may be configured in this section or inherited from `WhatsApp`; secrets stay server-side. Both account IDs must match the owned Meta application. Independent limits default to 100 requests per staff and 1000 per workspace per Malaysia business day. Enabling the assistant registers its worker and adds only its tables; it does not enable customer capture, notification sending or customer webhook processing.
+
+The first release can ship disabled. Activation still requires isolated PostgreSQL and real application startup/authentication evidence, verified sender configuration, then one-time linking from the consenting employee's phone and a real query round trip. Do not redirect the existing test callback to the assistant until those checks pass. A request already submitted cannot be recalled by disconnecting; queued work is suppressed and ambiguous submissions are never automatically replayed. STOP with a timestamp older than verification does not withdraw that newer link. Meta provides second-level timestamps: for a same-second ordering ambiguity, STOP wins and the employee may need to reconnect.
+
+The portal header/mobile navigation provides My WhatsApp connection; BossAdmin can also open a selected employee in Staff Details. Setup shows only a masked number after verification, requires consent and confirmation before creating the command, and offers confirmed disconnect including cancellation of pending setup. Reply language can be chosen during connection or changed in WhatsApp with `language ms` / `language en`.
+
+The production Compose override maps the optional `WHATSAPP_ASSISTANT_*` environment variables only into the API container, which owns both the callback and assistant reply worker. The separate general worker container receives no assistant credentials or enablement. `infra/compose.env.example` lists the disabled defaults; populate real credentials only in the protected production environment secret and do not print resolved Compose configuration. The normal release workflow then validates/builds the same source and starts the gated service.
+
+Private answers are not persisted. Durable state contains the parsed command/plate, account binding and provider status; apply the existing database backup/access controls to those records. Finance query adapters and retention automation are follow-up scope, not available commands in this first slice.
