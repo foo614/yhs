@@ -170,7 +170,8 @@ app.MapPost("/webhooks/whatsapp", async (HttpContext context) =>
                 continue;
             }
             string reply;
-            if (command.Inventory)
+            if (command.Help) reply = WhatsAppWebhookProbe.HelpReply;
+            else if (command.Inventory)
             {
                 try
                 {
