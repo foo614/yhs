@@ -527,9 +527,13 @@ public sealed class WhatsAppOutboxTests
         context.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("{}"));
         var result = await WhatsAppNotificationWebhook.ReceiveAsync(context.Request, db, WhatsAppDispatchTestData.Options(), default);
         Assert.Equal(401, ((Microsoft.AspNetCore.Http.IStatusCodeHttpResult)result).StatusCode);
-        context.Request.ContentLength = WhatsAppWebhookProbe.MaxBodyBytes + 1;
+        context.Request.Body = new MemoryStream(new byte[WhatsAppWebhookProbe.MaxBodyBytes + 1]);
         result = await WhatsAppNotificationWebhook.ReceiveAsync(context.Request, db, WhatsAppDispatchTestData.Options(), default);
         Assert.Equal(413, ((Microsoft.AspNetCore.Http.IStatusCodeHttpResult)result).StatusCode);
+        context.Request.ContentLength = WhatsAppWebhookProbe.MaxBodyBytes + 1;
+        context.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("{}"));
+        result = await WhatsAppNotificationWebhook.ReceiveAsync(context.Request, db, WhatsAppDispatchTestData.Options(), default);
+        Assert.Equal(401, ((Microsoft.AspNetCore.Http.IStatusCodeHttpResult)result).StatusCode);
         result = WhatsAppNotificationWebhook.Challenge(WhatsAppDispatchTestData.Options(), "subscribe", "wrong", "123");
         Assert.Equal(401, ((Microsoft.AspNetCore.Http.IStatusCodeHttpResult)result).StatusCode);
     }

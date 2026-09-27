@@ -15,7 +15,6 @@ public static class WhatsAppNotificationWebhook
         WhatsAppDispatchOptions options, CancellationToken ct)
     {
         if (!options.WebhookReady) return Results.NotFound();
-        if (request.ContentLength > WhatsAppWebhookProbe.MaxBodyBytes) return Results.StatusCode(413);
         using var stream = new MemoryStream();
         var buffer = new byte[8192];
         int read;
