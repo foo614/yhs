@@ -19,6 +19,13 @@ builder.AddServiceDefaults();
 var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 var whatsappCaptureEnabled = builder.Configuration.GetValue("WhatsApp:CaptureEnabled", false);
 var whatsappDispatch = builder.Configuration.GetSection("WhatsApp").Get<WhatsAppDispatchOptions>() ?? new();
+var whatsappAssistant = WhatsAppAssistantOptions.Load(builder.Configuration);
+builder.Services.AddSingleton(whatsappAssistant);
+if (whatsappAssistant.Ready)
+{
+    builder.Services.AddSingleton<WhatsAppStaffSender>();
+    builder.Services.AddHostedService<WhatsAppStaffWorker>();
+}
 builder.Services.AddSingleton(whatsappDispatch);
 if (whatsappDispatch.Ready)
 {
@@ -103,6 +110,10 @@ app.MapGet("/api/whatsapp/webhook", (HttpRequest request) => WhatsAppNotificatio
     request.Query["hub.mode"], request.Query["hub.verify_token"], request.Query["hub.challenge"]));
 app.MapPost("/api/whatsapp/webhook", (HttpRequest request, AppDbContext db, CancellationToken ct) =>
     WhatsAppNotificationWebhook.ReceiveAsync(request, db, whatsappDispatch, ct));
+app.MapGet("/api/whatsapp/assistant/webhook", (HttpRequest request) => WhatsAppStaffWebhook.Challenge(whatsappAssistant,
+    request.Query["hub.mode"], request.Query["hub.verify_token"], request.Query["hub.challenge"]));
+app.MapPost("/api/whatsapp/assistant/webhook", (HttpRequest request, AppDbContext db, CancellationToken ct) =>
+    WhatsAppStaffWebhook.ReceiveAsync(request, db, whatsappAssistant, ct));
 app.MapGet("/health/ready", async (AppDbContext db) =>
 {
     var databaseConnected = await db.Database.CanConnectAsync();
@@ -224,6 +235,12 @@ app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest requ
 });
 
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
+backOffice.MapGet("/whatsapp/assistant/connection", (HttpContext context, AppDbContext db, string? staffUserId, CancellationToken ct) =>
+    WhatsAppStaffApi.StatusAsync(context, db, whatsappAssistant, staffUserId, ct));
+backOffice.MapPost("/whatsapp/assistant/connection", (HttpContext context, AppDbContext db, WhatsAppStaffConnectRequest request, CancellationToken ct) =>
+    WhatsAppStaffApi.ConnectAsync(context, db, whatsappAssistant, request, ct));
+backOffice.MapPost("/whatsapp/assistant/disconnect", (HttpContext context, AppDbContext db, WhatsAppStaffDisconnectRequest request, CancellationToken ct) =>
+    WhatsAppStaffApi.DisconnectAsync(context, db, whatsappAssistant, request, ct));
 
 backOffice.MapGet("/whatsapp/queue", async (AppDbContext db, string? state, int? page) =>
 {
@@ -4883,6 +4900,11 @@ else
 }
 
 if (whatsappCaptureEnabled) await SeedData.EnsureWhatsAppSchemaAsync(app);
+if (whatsappAssistant.Ready)
+{
+    using var assistantScope = app.Services.CreateScope();
+    await WhatsAppAssistantSchema.EnsureAsync(assistantScope.ServiceProvider.GetRequiredService<AppDbContext>());
+}
 
 app.Run();
 

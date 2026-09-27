@@ -1389,6 +1389,25 @@ export type StaffUser = {
   isActive: boolean;
 };
 
+export type StaffWhatsAppConnection = {
+  enabled: boolean;
+  state: "Disabled" | "Disconnected" | "AwaitingVerification" | "Connected" | "RelinkRequired";
+  maskedNumber?: string;
+  language: "ms" | "en_US";
+  verifiedAt?: number;
+};
+export type StaffWhatsAppLink = { command: string; expiresAt: number };
+export type StaffWhatsAppConnectInput = { recipient: string; language: "ms" | "en_US"; consentConfirmed: boolean; staffUserId?: string };
+export function getStaffWhatsAppConnection(staffUserId?: string): Promise<StaffWhatsAppConnection> {
+  return request<StaffWhatsAppConnection>(staffUserId ? `/api/whatsapp/assistant/connection?staffUserId=${encodeURIComponent(staffUserId)}` : "/api/whatsapp/assistant/connection");
+}
+export function connectStaffWhatsApp(input: StaffWhatsAppConnectInput): Promise<StaffWhatsAppLink> {
+  return request<StaffWhatsAppLink>("/api/whatsapp/assistant/connection", { method: "POST", body: JSON.stringify(input) });
+}
+export function disconnectStaffWhatsApp(staffUserId?: string): Promise<{ message: string }> {
+  return request<{ message: string }>("/api/whatsapp/assistant/disconnect", { method: "POST", body: JSON.stringify({ staffUserId }) });
+}
+
 export type AiServiceLimit = {
   id: string;
   service: "Ocr";
