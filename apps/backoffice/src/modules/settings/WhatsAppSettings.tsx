@@ -25,8 +25,8 @@ export function WhatsAppSettings() {
   useEffect(() => { void load(); }, [load]);
 
   const act = (row: WhatsAppQueueItem, action: "retry" | "suppress") => modal.confirm({
-    title: action === "retry" ? "Retry this test notification?" : "Suppress this pending notification?",
-    content: action === "retry" ? "Consent, test recipient and expiry will be checked again. Unknown outcomes and business drafts cannot be retried. Production sending is disabled." : "This prevents the pending notification from being sent. Messages already submitted cannot be recalled.",
+    title: action === "retry" ? (row.eventKind === "test" ? "Retry this test notification?" : "Retry this customer notification?") : "Suppress this pending notification?",
+    content: action === "retry" ? (row.eventKind === "test" ? "Consent, test recipient and expiry will be checked again. This queues only the separate test flow." : "This can send a real WhatsApp notification to the customer. Consent, approved template, expiry, remaining attempts and sending limits will be checked again. Unknown outcomes cannot be retried.") : "This prevents the pending notification from being sent. Messages already submitted cannot be recalled.",
     okText: action === "retry" ? "Confirm retry" : "Confirm suppression",
     onOk: async () => {
       setBusy(true);
@@ -36,7 +36,7 @@ export function WhatsAppSettings() {
     }
   });
   const actions = (row: WhatsAppQueueItem) => <Space wrap className="tableActionGroup">
-    {row.canRetry && <Button disabled={busy} onClick={() => act(row, "retry")}>Retry test</Button>}
+    {row.canRetry && <Button disabled={busy} onClick={() => act(row, "retry")}>{row.eventKind === "test" ? "Retry test" : "Retry notification"}</Button>}
     {row.canSuppress && <Button disabled={busy} onClick={() => act(row, "suppress")}>Suppress</Button>}
     {!row.canRetry && !row.canSuppress && <Typography.Text type="secondary">No action</Typography.Text>}
   </Space>;
@@ -53,7 +53,7 @@ export function WhatsAppSettings() {
   });
   return <Space direction="vertical" size="middle" className="fullWidth">
     {contextHolder}
-    <Alert type="info" showIcon message="Production sending is disabled" description="Business notifications remain held for template approval. This view does not include messages in the separate local WhatsApp test probe." />
+    <Alert type={queue?.sendingEnabled ? "warning" : "info"} showIcon message={queue?.sendingEnabled ? "Production sending is enabled" : "Production sending is disabled"} description={queue?.sendingEnabled ? "Approved customer templates can be sent within the configured limits. This view does not include messages in the separate local WhatsApp test probe." : "Business notifications remain held until approved templates, sender and sending limits are configured. This view does not include messages in the separate local WhatsApp test probe."} />
     {error && <Alert type="error" showIcon message={error} />}
     {queue && !queue.captureEnabled && <Alert type="warning" showIcon message="Business event capture is disabled" description="No business notifications or consent changes are recorded until capture is configured." />}
     <Space wrap>
@@ -79,7 +79,7 @@ export function WhatsAppSettings() {
     </Space>}
     <Space><Button disabled={page === 1 || loading} onClick={() => setPage(page - 1)}>Previous</Button><Typography.Text>Page {page}</Typography.Text><Button disabled={loading || (queue?.items.length ?? 0) < 25} onClick={() => setPage(page + 1)}>Next</Button></Space>
     <Card title="Record consent and language">
-      <Typography.Paragraph type="secondary">Use evidence of the recipient's agreement or withdrawal. Language changes here do not release held notifications.</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">Use evidence of the recipient's agreement or withdrawal. Only the selected, approved language can be sent when production sending is enabled.</Typography.Paragraph>
       <Form form={form} layout="vertical" initialValues={{ language: "ms", optedIn: false }} onFinish={saveConsent} disabled={!queue?.captureEnabled || busy}>
         <div className="formGrid">
           <Form.Item name="recipient" label="International phone number" rules={[{ required: true, pattern: /^\+?[1-9][0-9]{7,14}$/, message: "Use country code and digits, for example +60123456789." }]}><Input autoComplete="off" /></Form.Item>

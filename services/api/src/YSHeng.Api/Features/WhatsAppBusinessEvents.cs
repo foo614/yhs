@@ -64,6 +64,6 @@ public static class WhatsAppBusinessEvents
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         WhatsAppOutboxStore.Stage(db, kind + ":" + eventReference + (occurrence is null ? "" : ":" + occurrence), recipient,
             WhatsAppNotificationTemplates.Render(template, language, reference), now, now + 86400,
-            template, language, kind, eventReference, actor);
+            template, language, kind, eventReference, actor, templateReference: reference);
     }
 }

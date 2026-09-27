@@ -898,6 +898,7 @@ public sealed record WhatsAppOutbox
     public string IdempotencyKey { get; init; } = "";
     public string Recipient { get; init; } = "";
     public string TemplateVersion { get; init; } = "test-text-v1";
+    public string TemplateReference { get; init; } = "";
     public string EventKind { get; init; } = "test";
     public string BusinessReference { get; init; } = "";
     public string Language { get; init; } = "en_US";
@@ -909,4 +910,11 @@ public sealed record WhatsAppOutbox
     public long ExpiresAt { get; init; }
     public long LeaseUntil { get; init; }
     public string? ProviderMessageId { get; init; }
+}
+
+public sealed record WhatsAppDispatchUsage
+{
+    public string Period { get; init; } = "";
+    public long Attempts { get; init; }
+    public long ReservedCostSen { get; init; }
 }

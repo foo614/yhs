@@ -1,5 +1,7 @@
 # WhatsApp notification event contract
 
+Historical capture-only plan, superseded by [the dispatch continuation and activation boundary](2026-09-27-foo-40-dispatch.md). The implementation and verification statements below describe the earlier capture release, not the current release candidate. The current API registers a production sender and worker when all dispatch approval, callback and budget gates are satisfied. Keep capture, sending and callbacks disabled until the separate activation review is complete.
+
 This is the remaining production design for FOO-40, not enabled automation. The isolated stock probe is separate. Meta Cloud API is selected. All template names and wording below are drafts, not approved Meta templates.
 
 ## Event matrix
