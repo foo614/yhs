@@ -18,6 +18,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 var workerEnabled = builder.Configuration.GetValue("Worker:Enabled", false);
 var whatsappCaptureEnabled = builder.Configuration.GetValue("WhatsApp:CaptureEnabled", false);
+var whatsappDispatch = builder.Configuration.GetSection("WhatsApp").Get<WhatsAppDispatchOptions>() ?? new();
+builder.Services.AddSingleton(whatsappDispatch);
+if (whatsappDispatch.Ready)
+{
+    builder.Services.AddSingleton<WhatsAppTemplateSender>();
+    builder.Services.AddHostedService<WhatsAppNotificationWorker>();
+}
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -92,6 +99,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", () => HealthStatus.Create(DateTimeOffset.UtcNow));
+app.MapGet("/api/whatsapp/webhook", (HttpRequest request) => WhatsAppNotificationWebhook.Challenge(whatsappDispatch,
+    request.Query["hub.mode"], request.Query["hub.verify_token"], request.Query["hub.challenge"]));
+app.MapPost("/api/whatsapp/webhook", (HttpRequest request, AppDbContext db, CancellationToken ct) =>
+    WhatsAppNotificationWebhook.ReceiveAsync(request, db, whatsappDispatch, ct));
 app.MapGet("/health/ready", async (AppDbContext db) =>
 {
     var databaseConnected = await db.Database.CanConnectAsync();
@@ -217,9 +228,9 @@ var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
 backOffice.MapGet("/whatsapp/queue", async (AppDbContext db, string? state, int? page) =>
 {
     var items = whatsappCaptureEnabled
-        ? await WhatsAppAdministration.ListAsync(db, state, page ?? 1, app.Configuration["WhatsApp:TestRecipient"])
+        ? await WhatsAppAdministration.ListAsync(db, state, page ?? 1, app.Configuration["WhatsApp:TestRecipient"], options: whatsappDispatch)
         : Array.Empty<WhatsAppQueueItem>();
-    return Results.Ok(new { captureEnabled = whatsappCaptureEnabled, sendingEnabled = false, items });
+    return Results.Ok(new { captureEnabled = whatsappCaptureEnabled, sendingEnabled = whatsappDispatch.Ready, items });
 }).RequireAuthorization("BossAdmin");
 
 backOffice.MapPost("/whatsapp/consent", async (WhatsAppConsentRequest request, AppDbContext db, HttpContext context) =>
@@ -229,18 +240,21 @@ backOffice.MapPost("/whatsapp/consent", async (WhatsAppConsentRequest request, A
     {
         await WhatsAppOutboxStore.SetConsentAsync(db, request.Recipient, request.OptedIn, request.Evidence,
             DateTimeOffset.UtcNow.ToUnixTimeSeconds(), context.RequestAborted, request.Language, AuditTrail.ActorFrom(context.User));
-        return Results.Ok(new { message = "WhatsApp consent and language recorded. Production sending remains disabled." });
+        return Results.Ok(new { message = "WhatsApp consent and language recorded." });
     }
     catch (ArgumentException) { return Results.BadRequest(new ApiError("Use an international phone number, ms or en_US language, and consent evidence of at most 160 characters.")); }
 }).RequireAuthorization("BossAdmin");
 
 backOffice.MapPost("/whatsapp/queue/{id:guid}/retry", async (Guid id, AppDbContext db, HttpContext context) =>
 {
+    if (await WhatsAppAdministration.RetryBusinessAsync(db, id, whatsappDispatch, AuditTrail.ActorFrom(context.User),
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds(), context.RequestAborted))
+        return Results.Ok(new { message = "Eligible notification queued within existing consent, approval and sending limits." });
     var testRecipient = WhatsAppAdministration.ConfiguredTestRecipient(app.Configuration["WhatsApp:TestRecipient"]);
     if (!whatsappCaptureEnabled || string.IsNullOrWhiteSpace(testRecipient)) return Results.Conflict(new ApiError("Test notification retry is unavailable."));
     var changed = await WhatsAppOutboxStore.RetryDeadLetterTestAsync(db, id, testRecipient,
         DateTimeOffset.UtcNow.ToUnixTimeSeconds(), context.RequestAborted, AuditTrail.ActorFrom(context.User));
-    return changed ? Results.Ok(new { message = "Eligible test notification queued. Production sending remains disabled." })
+    return changed ? Results.Ok(new { message = "Eligible test notification queued in the separate test flow." })
         : Results.Conflict(new ApiError("Retry requires an unexpired, consented test-recipient dead letter with no provider acceptance. Business drafts and unknown outcomes cannot be retried."));
 }).RequireAuthorization("BossAdmin");
 

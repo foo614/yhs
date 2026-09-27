@@ -15,6 +15,19 @@ http://localhost:5000
 | `GET` | `/health` | Public | Lightweight service health. |
 | `GET` | `/health/ready` | Public | Readiness check including PostgreSQL connectivity. |
 
+## WhatsApp notifications
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/whatsapp/queue` | BackOffice + BossAdmin | Masked paged queue; reports capture and validated sending readiness. Defaults disabled. |
+| `POST` | `/api/whatsapp/consent` | BackOffice + BossAdmin | Record explicit consent/withdrawal and BM/English preference with evidence and staff audit. |
+| `POST` | `/api/whatsapp/queue/{id}/retry` | BackOffice + BossAdmin | Requeue eligible known non-acceptance within remaining attempts, expiry, consent and approval gates; never unknown outcomes. |
+| `POST` | `/api/whatsapp/queue/{id}/suppress` | BackOffice + BossAdmin | Suppress held/queued/retry-scheduled work; cannot recall submitted messages. |
+| `GET` | `/api/whatsapp/webhook` | Verified callback token | Meta callback challenge; inactive by default. |
+| `POST` | `/api/whatsapp/webhook` | Raw-body HMAC + configured WABA/sender | Apply opt-outs and monotonic statuses for known provider IDs; body limit 256 KiB. |
+
+Capture, callback hosting and sending require separate explicit configuration. Approved customer templates, sender evidence and positive daily/monthly limits are required before the worker starts. Receipt notices send a safe reference only, not a document or public download URL. Legacy drafts without a dedicated template reference stay held. See [dispatch configuration and activation boundary](plans/2026-09-27-foo-40-dispatch.md). No production switch is enabled by deployment.
+
 ## Authentication
 
 ASP.NET Identity cookie authentication is mounted under `/api/auth`.

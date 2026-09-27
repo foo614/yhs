@@ -34,6 +34,7 @@ public sealed class WhatsAppPostgresTests
                 ALTER TABLE "WhatsAppConsents" DROP COLUMN "Language";
                 ALTER TABLE "WhatsAppOutbox" DROP COLUMN "EventKind";
                 ALTER TABLE "WhatsAppOutbox" DROP COLUMN "BusinessReference";
+                ALTER TABLE "WhatsAppOutbox" DROP COLUMN "TemplateReference";
                 """);
             await SeedData.EnsureWhatsAppSchemaAsync(db);
             await SeedData.EnsureWhatsAppSchemaAsync(db);
@@ -74,6 +75,40 @@ public sealed class WhatsAppPostgresTests
             Assert.False((await db.WhatsAppConsents.AsNoTracking().SingleAsync(row => row.Recipient == recipient)).OptedIn);
             Assert.Equal("Suppressed", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
             Assert.Equal("ms", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).Language);
+            // One provider request can be in flight while another replica tries to claim work.
+            // A durable limit of one must prevent the second replica from submitting anything.
+            await WhatsAppOutboxStore.SetConsentAsync(db, recipient, true, "isolated dispatch approval", now + 2);
+            db.WhatsAppOutbox.AddRange(WhatsAppDispatchTestData.Item(), WhatsAppDispatchTestData.Item()); await db.SaveChangesAsync();
+            var submitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var first = Task.Run(async () =>
+            {
+                await using var replica = new AppDbContext(options);
+                return await WhatsAppNotificationDispatcher.DispatchOneAsync(replica, WhatsAppDispatchTestData.Options(daily: 1), async (_, _) =>
+                {
+                    submitted.SetResult();
+                    await finish.Task.WaitAsync(TimeSpan.FromSeconds(20));
+                    return new WhatsAppSendResult("Accepted", "wamid.pg.first");
+                }, 1800000000);
+            });
+            try
+            {
+                await submitted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                await using var second = new AppDbContext(options);
+                Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(second, WhatsAppDispatchTestData.Options(daily: 1),
+                    (_, _) => throw new Exception("second replica exceeded cap"), 1800000000));
+                var withdrawal = Task.Run(async () =>
+                {
+                    await using var revoked = new AppDbContext(options);
+                    await WhatsAppOutboxStore.SetConsentAsync(revoked, recipient, false, "concurrent dispatch withdrawal", now + 3);
+                });
+                await Task.Delay(150);
+                Assert.False(withdrawal.IsCompleted); // Consent lock defines submission before committed withdrawal.
+                finish.SetResult(); await first; await withdrawal.WaitAsync(TimeSpan.FromSeconds(15));
+                Assert.Single(await db.WhatsAppOutbox.Where(row => row.State == "Accepted").ToListAsync());
+                Assert.Equal(2, await db.WhatsAppDispatchUsage.CountAsync(row => row.Attempts == 1 && row.ReservedCostSen == 10));
+            }
+            finally { finish.TrySetResult(); await first; }
         }
         finally
         {

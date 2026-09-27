@@ -252,6 +252,9 @@ public static class SeedData
                 "Recipient" varchar(15) PRIMARY KEY, "Id" uuid NOT NULL,
                 "OptedIn" boolean NOT NULL, "Language" text NOT NULL DEFAULT 'ms',
                 "Evidence" text NOT NULL, "UpdatedAt" bigint NOT NULL);
+            CREATE TABLE IF NOT EXISTS "WhatsAppDispatchUsage" (
+                "Period" varchar(32) PRIMARY KEY, "Attempts" bigint NOT NULL,
+                "ReservedCostSen" bigint NOT NULL);
             ALTER TABLE "WhatsAppConsents" ADD COLUMN IF NOT EXISTS "Language" text NOT NULL DEFAULT 'ms';
             CREATE TABLE IF NOT EXISTS "WhatsAppOutbox" (
                 "Id" uuid PRIMARY KEY, "IdempotencyKey" text NOT NULL, "Recipient" text NOT NULL,
@@ -262,6 +265,7 @@ public static class SeedData
                 "ProviderMessageId" text NULL);
             ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "EventKind" text NOT NULL DEFAULT 'test';
             ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "BusinessReference" text NOT NULL DEFAULT '';
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "TemplateReference" text NOT NULL DEFAULT '';
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_IdempotencyKey" ON "WhatsAppOutbox" ("IdempotencyKey");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_ProviderMessageId" ON "WhatsAppOutbox" ("ProviderMessageId");
             CREATE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_State_NextAttemptAt" ON "WhatsAppOutbox" ("State", "NextAttemptAt");

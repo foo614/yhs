@@ -58,10 +58,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<WhatsAppConsent> WhatsAppConsents => Set<WhatsAppConsent>();
     public DbSet<WhatsAppOutbox> WhatsAppOutbox => Set<WhatsAppOutbox>();
+    public DbSet<WhatsAppDispatchUsage> WhatsAppDispatchUsage => Set<WhatsAppDispatchUsage>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        builder.Entity<WhatsAppDispatchUsage>().HasKey(item => item.Period);
+        builder.Entity<WhatsAppDispatchUsage>().Property(item => item.Period).HasMaxLength(32);
         builder.Entity<WhatsAppConsent>().HasKey(item => item.Recipient);
         builder.Entity<WhatsAppConsent>().Property(item => item.Recipient).HasMaxLength(15);
         builder.Entity<WhatsAppOutbox>().HasIndex(item => item.IdempotencyKey).IsUnique();

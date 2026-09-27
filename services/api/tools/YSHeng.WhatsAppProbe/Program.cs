@@ -88,6 +88,7 @@ await using (var db = new AppDbContext(dbOptions))
             while (await reader.ReadAsync()) columns.Add(reader.GetString(1));
         if (!columns.Contains("EventKind")) await db.Database.ExecuteSqlRawAsync("ALTER TABLE WhatsAppOutbox ADD COLUMN EventKind TEXT NOT NULL DEFAULT 'test'");
         if (!columns.Contains("BusinessReference")) await db.Database.ExecuteSqlRawAsync("ALTER TABLE WhatsAppOutbox ADD COLUMN BusinessReference TEXT NOT NULL DEFAULT ''");
+        if (!columns.Contains("TemplateReference")) await db.Database.ExecuteSqlRawAsync("ALTER TABLE WhatsAppOutbox ADD COLUMN TemplateReference TEXT NOT NULL DEFAULT ''");
     }
     if (!await db.WhatsAppConsents.AnyAsync(row => row.Recipient == recipient))
         await WhatsAppOutboxStore.SetConsentAsync(db, recipient, !File.Exists(optOutPath), "User-authorized isolated WhatsApp API test", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
