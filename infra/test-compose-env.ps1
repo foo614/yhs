@@ -26,7 +26,10 @@ function Assert-BashValidation([string]$Path, [bool]$ShouldPass) {
   [System.IO.File]::WriteAllText($bashEnv, ($lines -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
   $bashLog = $bashEnv + '.log'
   & $bash (ConvertTo-BashPath (Join-Path $repoRoot 'infra/ubuntu/validate-production-env.sh')) --env-file (ConvertTo-BashPath $bashEnv) *> $bashLog
-  if (($LASTEXITCODE -eq 0) -ne $ShouldPass) { throw "Bash validation disagreed for synthetic case $([System.IO.Path]::GetFileName($Path)). See its test log." }
+  $bashExitCode = $LASTEXITCODE
+  # Expected rejection cases must not become the successful test script's CI exit code.
+  $global:LASTEXITCODE = 0
+  if (($bashExitCode -eq 0) -ne $ShouldPass) { throw "Bash validation disagreed for synthetic case $([System.IO.Path]::GetFileName($Path)). See its test log." }
 }
 
 function New-TestEnvFile {
