@@ -57,6 +57,8 @@ After testing, remove or replace this temporary app callback before stopping the
 
 ## Production slices remaining
 
+Current scope and delivery order are maintained in [the WhatsApp roadmap](2026-09-27-whatsapp-roadmap.md). The isolated probe also accepts trimmed, case-insensitive `help`, returning an English menu through the same consented, deduplicated test queue. It labels notification previews as demos and explains persistent STOP behavior. Unknown messages remain ignored; the production callback does not handle these conversational commands.
+
 1. Persist consent, opt-out, approved template versions and outbox records. Enqueue alongside eligible business changes in the same transaction, with a unique event/recipient/template idempotency key.
 2. Implement worker claiming, send caps, bounded retries and dead letters. Re-check consent and template eligibility immediately before sending; ambiguous provider acceptance needs reconciliation rather than blind resend.
 3. Verify webhook signatures against the raw request body, deduplicate callbacks, and reconcile delivery states without regressing terminal outcomes. Process opt-out before further sending.
