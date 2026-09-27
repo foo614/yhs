@@ -22,4 +22,6 @@ The first release can ship disabled. Activation still requires isolated PostgreS
 
 The portal header/mobile navigation provides My WhatsApp connection; BossAdmin can also open a selected employee in Staff Details. Setup shows only a masked number after verification, requires consent and confirmation before creating the command, and offers confirmed disconnect including cancellation of pending setup. Reply language can be chosen during connection or changed in WhatsApp with `language ms` / `language en`.
 
+The production Compose override maps the optional `WHATSAPP_ASSISTANT_*` environment variables only into the API container, which owns both the callback and assistant reply worker. The separate general worker container receives no assistant credentials or enablement. `infra/compose.env.example` lists the disabled defaults; populate real credentials only in the protected production environment secret and do not print resolved Compose configuration. The normal release workflow then validates/builds the same source and starts the gated service.
+
 Private answers are not persisted. Durable state contains the parsed command/plate, account binding and provider status; apply the existing database backup/access controls to those records. Finance query adapters and retention automation are follow-up scope, not available commands in this first slice.

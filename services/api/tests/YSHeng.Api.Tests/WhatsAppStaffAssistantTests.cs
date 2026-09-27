@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
@@ -340,6 +341,24 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.False(await WhatsAppStaffQueue.EnqueueAsync(db, disabled, "60199999999", new("help"), "disabled", 1));
         Assert.False(await WhatsAppStaffQueue.DispatchOneAsync(db, disabled, (_, _, _) => throw new Exception("disabled assistant attempted a send"), 1));
         Assert.Equal(404, Assert.IsAssignableFrom<IStatusCodeHttpResult>(await WhatsAppStaffWebhook.ReceiveAsync(new DefaultHttpContext().Request, db, disabled, default)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("AppSecret")]
+    [InlineData("VerifyToken")]
+    public void Whitespace_only_credentials_keep_the_assistant_disabled(string key)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["WhatsAppAssistant:Enabled"] = "true", ["WhatsAppAssistant:WebhookEnabled"] = "true",
+            ["WhatsAppAssistant:TestRecipient"] = "60199999999", ["WhatsAppAssistant:PhoneNumberId"] = "123",
+            ["WhatsAppAssistant:BusinessAccountId"] = "456", ["WhatsAppAssistant:GraphApiVersion"] = "v25.0",
+            ["WhatsAppAssistant:AccessToken"] = "synthetic-token", ["WhatsAppAssistant:AppSecret"] = new('s', 32),
+            ["WhatsAppAssistant:VerifyToken"] = new('v', 32)
+        };
+        Assert.True(WhatsAppAssistantOptions.Load(new ConfigurationBuilder().AddInMemoryCollection(values).Build()).Ready);
+        values["WhatsAppAssistant:" + key] = new(' ', 32);
+        Assert.False(WhatsAppAssistantOptions.Load(new ConfigurationBuilder().AddInMemoryCollection(values).Build()).Ready);
     }
 
     [Theory]

@@ -40,6 +40,7 @@ public sealed class WhatsAppAssistantOptions
     public bool Ready => Enabled && WebhookEnabled &&
         Regex.IsMatch(PhoneNumberId, @"\A[0-9]{1,32}\z") && Regex.IsMatch(BusinessAccountId, @"\A[0-9]{1,32}\z") &&
         Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z") && AppSecret.Length is >= 32 and <= 256 && VerifyToken.Length is >= 32 and <= 256 &&
+        !string.IsNullOrWhiteSpace(AppSecret) && !string.IsNullOrWhiteSpace(VerifyToken) &&
         !string.IsNullOrWhiteSpace(AccessToken) && AccessToken.Length <= 4096 && !AccessToken.Any(char.IsWhiteSpace) &&
         PerStaffDailyLimit is > 0 and <= 10000 && WorkspaceDailyLimit is > 0 and <= 100000 &&
         (!TestMode || Regex.IsMatch(TestRecipient, @"\A[1-9][0-9]{7,14}\z"));
