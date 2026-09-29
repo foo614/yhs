@@ -442,6 +442,33 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     [Fact]
+    public async Task Production_mode_allows_self_links_for_distinct_staff_numbers_and_keeps_role_scope()
+    {
+        await using var fixture = await Fixture.Create(testMode: false);
+        await fixture.AddStaff("second", "Sales");
+        const string firstRecipient = "60111111111";
+        const string secondRecipient = "60122222222";
+
+        var firstContext = fixture.Context("staff");
+        var firstResult = Assert.IsType<WhatsAppStaffLinkResult>(Assert.IsAssignableFrom<IValueHttpResult>(await WhatsAppStaffApi.ConnectAsync(
+            firstContext, fixture.Db, fixture.Options, new(firstRecipient, "en_US", true), default)).Value);
+        var secondContext = fixture.Context("second");
+        var secondResult = Assert.IsType<WhatsAppStaffLinkResult>(Assert.IsAssignableFrom<IValueHttpResult>(await WhatsAppStaffApi.ConnectAsync(
+            secondContext, fixture.Db, fixture.Options, new(secondRecipient, "en_US", true), default)).Value);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult>(await WhatsAppStaffApi.ConnectAsync(
+            firstContext, fixture.Db, fixture.Options, new(secondRecipient, "en_US", true, "second"), default));
+        Assert.True(await fixture.Verify(firstResult, "production-first-link", recipient: firstRecipient));
+        Assert.True(await fixture.Verify(secondResult, "production-second-link", recipient: secondRecipient));
+
+        const string unboundRecipient = "60133333333";
+        using var unbound = fixture.Payload(unboundRecipient, ("help", fixture.Now));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, unbound.RootElement, fixture.Now));
+        Assert.DoesNotContain(await fixture.Db.WhatsAppStaffRequests.AsNoTracking().ToListAsync(), item => item.Intent == "help");
+        Assert.False(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["Sales"]));
+    }
+
+    [Fact]
     public async Task Upcoming_deliveries_use_the_Malaysia_date_and_exclude_preliminary_or_terminal_records()
     {
         await using var fixture = await Fixture.Create();
@@ -587,7 +614,7 @@ public sealed class WhatsAppStaffAssistantTests
         public AppDbContext Db { get; } = db;
         public WhatsAppAssistantOptions Options { get; } = options;
         public long Now { get; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        public static async Task<Fixture> Create(int limit = 100)
+        public static async Task<Fixture> Create(bool testMode = true, int limit = 100)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -597,6 +624,7 @@ public sealed class WhatsAppStaffAssistantTests
             {
                 Enabled = true, WebhookEnabled = true, TestRecipient = "60199999999", PhoneNumberId = "123", BusinessAccountId = "456",
                 GraphApiVersion = "v25.0", AppSecret = new string('s', 32), VerifyToken = new string('v', 32), AccessToken = "synthetic-token",
+                TestMode = testMode,
                 PerStaffDailyLimit = limit
             });
             await fixture.AddStaff("staff", "Sales");
@@ -611,10 +639,10 @@ public sealed class WhatsAppStaffAssistantTests
             Db.UserRoles.Add(new IdentityUserRole<string> { UserId = id, RoleId = existing.Id });
             await Db.SaveChangesAsync();
         }
-        public Task<WhatsAppStaffLinkResult> Issue(string user = "staff", string language = "en_US") =>
-            WhatsAppStaffBindings.IssueAsync(Db, Options, user, new(Options.TestRecipient, language, true), "synthetic-actor", Now);
-        public Task<bool> Verify(WhatsAppStaffLinkResult issued, string key = "link-event", long? now = null) =>
-            WhatsAppStaffBindings.VerifyAsync(Db, Options, Options.TestRecipient, issued.Command[5..], key, now ?? Now);
+        public Task<WhatsAppStaffLinkResult> Issue(string user = "staff", string language = "en_US", string? recipient = null) =>
+            WhatsAppStaffBindings.IssueAsync(Db, Options, user, new(recipient ?? Options.TestRecipient, language, true), "synthetic-actor", Now);
+        public Task<bool> Verify(WhatsAppStaffLinkResult issued, string key = "link-event", long? now = null, string? recipient = null) =>
+            WhatsAppStaffBindings.VerifyAsync(Db, Options, recipient ?? Options.TestRecipient, issued.Command[5..], key, now ?? Now);
         public async Task<string> DispatchAccepted()
         {
             var reply = "";
@@ -622,15 +650,22 @@ public sealed class WhatsAppStaffAssistantTests
             { reply = body; return Task.FromResult(new WhatsAppSendResult("Accepted", "synthetic-" + Guid.NewGuid())); }, Now);
             return reply;
         }
-        public JsonDocument Payload(params (string Text, long Timestamp)[] messages) => JsonDocument.Parse(JsonSerializer.Serialize(new
+        public JsonDocument Payload(params (string Text, long Timestamp)[] messages) => Payload(Options.TestRecipient, messages);
+        public JsonDocument Payload(string recipient, params (string Text, long Timestamp)[] messages) => JsonDocument.Parse(JsonSerializer.Serialize(new
         {
             @object = "whatsapp_business_account",
             entry = new[] { new { id = Options.BusinessAccountId, changes = new[] { new { field = "messages", value = new
             {
                 metadata = new { phone_number_id = Options.PhoneNumberId },
-                messages = messages.Select((message, index) => new { id = "synthetic-" + index, from = Options.TestRecipient, type = "text", timestamp = message.Timestamp.ToString(), text = new { body = message.Text } }).ToArray()
+                messages = messages.Select((message, index) => new { id = "synthetic-" + index, from = recipient, type = "text", timestamp = message.Timestamp.ToString(), text = new { body = message.Text } }).ToArray()
             } } } } }
         }));
+        public DefaultHttpContext Context(string userId, params string[] roles)
+        {
+            var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId) };
+            claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+            return new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(claims, "synthetic")) };
+        }
         public async ValueTask DisposeAsync() { await Db.DisposeAsync(); await connection.DisposeAsync(); }
     }
 }

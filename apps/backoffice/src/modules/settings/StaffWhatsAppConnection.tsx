@@ -26,10 +26,11 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
     } catch (failure) { setError(humanizeApiError(failure)); }
   }, [staffUserId]);
   useEffect(() => { void load(); }, [load]);
+  const isSelf = !staffUserId;
 
   const connect = (values: StaffWhatsAppConnectInput) => modal.confirm({
-    title: "Connect this number to the staff account?",
-    content: "The employee must send the connection command from this number. Once verified, WhatsApp queries use this account's current access. No role or password is changed.",
+    title: isSelf ? "Connect your WhatsApp number?" : "Connect this number to the selected staff account?",
+    content: isSelf ? "Send the one-time connection command to the company WhatsApp assistant chat from your own number. Once verified, WhatsApp queries use your current account access. No admin approval, role change or password change is needed." : "The selected employee must consent and send the one-time connection command to the company WhatsApp assistant chat from this number. Once verified, WhatsApp queries use that employee's current account access. No role or password is changed.",
     okText: "Create connection command",
     onOk: async () => {
       setBusy(true);
@@ -42,7 +43,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
   });
   const disconnect = () => modal.confirm({
     title: "Disconnect WhatsApp?",
-    content: "Future queries and queued replies will stop. Reconnecting requires a new one-time verification.",
+    content: isSelf ? "Future queries and queued replies for your account will stop. Reconnecting requires a new one-time verification." : "Future queries and queued replies for this employee will stop. Reconnecting requires a new one-time verification.",
     okText: "Disconnect",
     okButtonProps: { danger: true },
     onOk: async () => {
@@ -55,8 +56,22 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
   const hasBinding = connection?.state === "Connected" || connection?.state === "RelinkRequired" || connection?.state === "AwaitingVerification";
   return <Space direction="vertical" size="middle" className="fullWidth">
     {contextHolder}
-    <Typography.Title level={5}>Staff WhatsApp / WhatsApp 员工连接</Typography.Title>
-    <Typography.Paragraph type="secondary">Verify once, then query in WhatsApp without signing in each time. Customer notifications and staff queries use separate consent controls.</Typography.Paragraph>
+    <Typography.Title level={5}>{isSelf ? "My WhatsApp assistant" : "Staff WhatsApp assistant"}</Typography.Title>
+    <Typography.Paragraph type="secondary">Use one-time number verification to query read-only operational summaries in WhatsApp. Your existing role access continues to control what you can see; customer outbound notifications are managed separately.</Typography.Paragraph>
+    {connection?.state !== "Connected" && <Alert
+      type="info"
+      showIcon
+      message={isSelf ? "Set up your staff assistant" : "Admin-assisted staff setup"}
+      description={<>
+        <Typography.Paragraph>{isSelf ? "This connects your signed-in account. No admin approval is needed, and your existing roles stay in force." : "This connects the selected employee's account. The employee must consent and verify their own number; admin assistance does not change roles or passwords."}</Typography.Paragraph>
+        <ol style={{ margin: 0, paddingInlineStart: 20 }}>
+          <li>Enter the WhatsApp number you will use, including its country code.</li>
+          <li>Choose a reply language and confirm consent for staff WhatsApp queries.</li>
+          <li>Review the confirmation, create the one-time command, and send it to the company WhatsApp assistant chat from that number within 10 minutes.</li>
+          <li>Refresh the status after WhatsApp accepts the command.</li>
+        </ol>
+      </>}
+    />}
     <Space wrap><Tag>{connection ? labels[connection.state] : "Loading connection…"}</Tag>
       {connection?.maskedNumber && <Typography.Text>{connection.maskedNumber}</Typography.Text>}
       <Button onClick={() => void load()} disabled={busy}>Refresh status</Button>
@@ -68,13 +83,14 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
         <Form.Item name="recipient" label="WhatsApp number (with country code)" rules={[{ required: true, pattern: /^\+?[1-9][0-9]{7,14}$/, message: "Enter the country code and digits, for example +60123456789." }]}><Input aria-label="WhatsApp number (with country code)" autoComplete="off" inputMode="tel" /></Form.Item>
         <Form.Item name="language" label="Reply language" rules={[{ required: true }]}><Select options={[{ value: "ms", label: "Bahasa Malaysia" }, { value: "en_US", label: "English" }]} /></Form.Item>
         <Form.Item name="consentConfirmed" valuePropName="checked" rules={[{ validator: (_, value) => value ? Promise.resolve() : Promise.reject(new Error("Confirm agreement before connecting.")) }]}>
-          <Checkbox>The employee agrees to use this number for staff WhatsApp queries.</Checkbox>
+          <Checkbox>{isSelf ? "I agree to use this number for staff WhatsApp queries." : "The selected employee agrees to use this number for staff WhatsApp queries."}</Checkbox>
         </Form.Item>
         <Button type="primary" htmlType="submit" loading={busy}>Connect WhatsApp</Button>
       </Form>}
-    {link && <Alert type="info" showIcon message="Send this command from the entered WhatsApp number" description={<Space direction="vertical" className="fullWidth">
+    {connection?.state === "Connected" && <Alert type="success" showIcon message="Connected — next step" description="Send help to the company WhatsApp assistant chat from this verified number to see the commands available to your existing role. Staff replies are read-only operational summaries; finance queries are not available yet." />}
+    {link && <Alert type="info" showIcon message="Send the one-time command to the company assistant" description={<Space direction="vertical" className="fullWidth">
       <Typography.Text code copyable style={{ overflowWrap: "anywhere" }}>{link.command}</Typography.Text>
-      <Typography.Text>Expires at {new Date(link.expiresAt * 1000).toLocaleTimeString()}. Keep this one-time command private. After sending, refresh the status.</Typography.Text>
+      <Typography.Text>Expires at {new Date(link.expiresAt * 1000).toLocaleTimeString()}. Use it once, keep it private, then refresh the status after sending.</Typography.Text>
     </Space>} />}
   </Space>;
 }
