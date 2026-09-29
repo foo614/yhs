@@ -22,6 +22,9 @@ public static class WhatsAppStaffQueue
             .Join(db.WhatsAppStaffBindings, item => item.BindingId, item => item.Id, (request, linked) => linked.StaffUserId)
             .CountAsync(userId => userId == binding.StaffUserId, ct);
         if (workspace >= options.WorkspaceDailyLimit || staff >= options.PerStaffDailyLimit) return false;
+        if (intent.Name == "usage" && await db.WhatsAppStaffRequests.Where(item => item.Intent == "usage" && item.CreatedAt > now - 60)
+            .Join(db.WhatsAppStaffBindings, item => item.BindingId, item => item.Id, (_, linked) => linked.StaffUserId)
+            .AnyAsync(userId => userId == binding.StaffUserId, ct)) return false;
         // Permission is checked again by the worker; a denied query stores only its allowlisted intent/reference.
         if (intent.Name == "language")
         {
@@ -62,7 +65,8 @@ public static class WhatsAppStaffQueue
             return true;
         }
         var reply = WhatsAppStaffQueries.Permitted(intent, identity.Value.Roles)
-            ? await WhatsAppStaffQueries.ReplyAsync(db, intent, identity.Value.Binding.Language, now, ct)
+            ? intent.Name == "usage" ? WhatsAppStaffCommandHelp.Reply(intent.Argument, identity.Value.Binding.Language)
+                : await WhatsAppStaffQueries.ReplyAsync(db, intent, identity.Value.Binding.Language, now, ct, options.PublicSiteUrl)
             : WhatsAppStaffQueries.Text(identity.Value.Binding.Language, "Your role cannot access this query.", "Peranan anda tidak dibenarkan mengakses pertanyaan ini.");
         var currentTime = Math.Max(now, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         // Re-read account, stamp, binding and roles after retrieval, immediately before provider submission.

@@ -19,6 +19,93 @@ namespace YSHeng.Api.Tests;
 
 public sealed class BusinessRulesTests
 {
+    [Theory]
+    [InlineData("en_US")]
+    [InlineData("ms")]
+    public async Task WhatsApp_loan_progress_selects_current_buyer_and_keeps_private_history_out(string language)
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var buyer = Guid.NewGuid();
+        var vehicle = new Vehicle { PlateNumber = "TEST123", CustomerId = buyer };
+        var loan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = buyer, Status = LoanStatus.Approved };
+        var oldLoan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = Guid.NewGuid(), Status = LoanStatus.Done };
+        db.Vehicles.Add(vehicle);
+        db.LoanApplications.AddRange(loan, oldLoan, new LoanApplication { VehicleId = vehicle.Id, CustomerId = buyer, Status = LoanStatus.Rejected, RejectionReason = "PRIVATE-REASON" });
+        db.DocumentBlobs.AddRange(new DocumentBlob { VehicleId = vehicle.Id, CustomerId = oldLoan.CustomerId, LoanApplicationId = oldLoan.Id, Category = FileCategory.Voc, FileName = "PRIVATE-FILE" },
+            new DocumentBlob { VehicleId = vehicle.Id, CustomerId = buyer, LoanApplicationId = loan.Id, Category = FileCategory.LoanDocument });
+        await db.SaveChangesAsync();
+        var reply = await WhatsAppStaffProgressQueries.ReplyLoanAsync(db, vehicle.Id, language, default);
+        Assert.Contains(language == "ms" ? "Diluluskan" : "Approved", reply);
+        Assert.Contains("VOC", reply);
+        Assert.DoesNotContain("PRIVATE", reply);
+        Assert.DoesNotContain(buyer.ToString(), reply);
+        db.LoanApplications.Add(new LoanApplication { VehicleId = vehicle.Id, CustomerId = buyer, Status = LoanStatus.Pending });
+        await db.SaveChangesAsync();
+        reply = await WhatsAppStaffProgressQueries.ReplyLoanAsync(db, vehicle.Id, language, default);
+        Assert.Contains(language == "ms" ? "Beberapa rekod" : "Multiple loan records", reply);
+        Assert.DoesNotContain("Approved", reply);
+    }
+
+    [Fact]
+    public async Task WhatsApp_loan_progress_does_not_treat_an_old_buyers_loan_as_current()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var vehicle = new Vehicle { PlateNumber = "TEST456", CustomerId = Guid.NewGuid() };
+        db.Vehicles.Add(vehicle);
+        db.LoanApplications.Add(new LoanApplication { VehicleId = vehicle.Id, CustomerId = Guid.NewGuid(), Status = LoanStatus.Done });
+        await db.SaveChangesAsync();
+        Assert.Contains("No loan record for the current buyer", await WhatsAppStaffProgressQueries.ReplyLoanAsync(db, vehicle.Id, "en_US", default));
+        db.Entry(vehicle).CurrentValues.SetValues(vehicle with { CustomerId = null });
+        await db.SaveChangesAsync();
+        Assert.Contains("Current buyer not confirmed", await WhatsAppStaffProgressQueries.ReplyLoanAsync(db, vehicle.Id, "en_US", default));
+    }
+
+    [Theory]
+    [InlineData("en_US")]
+    [InlineData("ms")]
+    public async Task WhatsApp_delivery_preparation_checks_owned_documents_and_current_expiry_without_approving_release(string language)
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var today = new DateOnly(2026, 9, 29);
+        var vehicle = new Vehicle { PlateNumber = "TEST789", CustomerId = Guid.NewGuid() };
+        var delivery = new DeliverySchedule { VehicleId = vehicle.Id, CustomerId = vehicle.CustomerId, Status = DeliveryStatus.ReadyForRelease,
+            ScheduledDate = today.AddDays(-2), InsuranceExpiryDate = today.AddDays(1), RoadTaxExpiryDate = today.AddDays(1),
+            InspectionDone = true, DocumentsPrepared = true, PolishDone = true, TintedDone = true, WashDone = true,
+            InsuranceHandled = true, RoadTaxHandled = true, TwoDayNoticeSent = true, CustomerAcknowledged = true, FinalChecklistConfirmed = true,
+            DeliveryAddress = "PRIVATE-ADDRESS", InsurancePolicyReference = "PRIVATE-POLICY", Pic = "PRIVATE-NAME" };
+        db.Vehicles.Add(vehicle); db.DeliverySchedules.Add(delivery);
+        foreach (var category in new[] { FileCategory.DeliveryDocument, FileCategory.InspectionReport, FileCategory.HandoverPhoto, FileCategory.SignedHandover, FileCategory.Policy, FileCategory.RoadTaxReceipt })
+            db.DocumentBlobs.Add(new DocumentBlob { VehicleId = vehicle.Id, CustomerId = vehicle.CustomerId, DeliveryScheduleId = delivery.Id, Category = category, FileName = "PRIVATE-FILE" });
+        await db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 9, 29, 4, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        var reply = await WhatsAppStaffProgressQueries.ReplyDeliveryAsync(db, vehicle.Id, language, now, default);
+        Assert.Contains(language == "ms" ? "persediaan lengkap" : "Preparation checklist complete", reply);
+        Assert.Contains(language == "ms" ? "tidak meluluskan" : "does not approve release", reply);
+        Assert.DoesNotContain("PRIVATE", reply);
+        db.Entry(delivery).CurrentValues.SetValues(delivery with { InsuranceExpiryDate = today.AddDays(-1) });
+        var document = await db.DocumentBlobs.FirstAsync(item => item.Category == FileCategory.InspectionReport);
+        db.Entry(document).CurrentValues.SetValues(document with { DeliveryScheduleId = Guid.NewGuid() });
+        await db.SaveChangesAsync();
+        reply = await WhatsAppStaffProgressQueries.ReplyDeliveryAsync(db, vehicle.Id, language, now, default);
+        Assert.Contains(language == "ms" ? "Persediaan belum lengkap" : "Preparation incomplete", reply);
+        Assert.Contains(language == "ms" ? "laporan pemeriksaan" : "inspection report", reply);
+        Assert.Contains(language == "ms" ? "kesahan" : "validity", reply);
+        db.Entry(vehicle).CurrentValues.SetValues(vehicle with { CustomerId = Guid.NewGuid() });
+        await db.SaveChangesAsync();
+        reply = await WhatsAppStaffProgressQueries.ReplyDeliveryAsync(db, vehicle.Id, language, now, default);
+        Assert.Contains(language == "ms" ? "pembeli semasa" : "current buyer", reply);
+        Assert.DoesNotContain(language == "ms" ? "persediaan lengkap" : "checklist complete", reply);
+    }
+
     [Fact]
     public async Task Hr_payroll_persistence_blocks_incomplete_hours_and_locked_regeneration()
     {
