@@ -18,7 +18,7 @@ description: Work on the YS Heng .NET 10 backend API. Use for Minimal API endpoi
 
 ## Architecture
 
-- Use .NET 10 Minimal APIs.
+- Use .NET 10 Minimal APIs; keep endpoint wiring in `Program.cs` unless a focused refactor is requested.
 - Put pure business logic in `Features/BusinessRules.cs`.
 - Keep persisted types as records in `Domain/Models.cs`.
 - Keep enum spellings aligned with TypeScript client unions.
@@ -47,13 +47,13 @@ description: Work on the YS Heng .NET 10 backend API. Use for Minimal API endpoi
 
 ## Verification
 
-Run from `services/api` when backend validation is requested:
+Use the narrowest existing test selection for the affected behavior first. Follow the critical-coverage policy in `codex-agent.md` before adding any test case. Run the full backend suite for broad changes or required CI/release verification, from `services/api`:
 
 ```powershell
 dotnet test YSHeng.sln
 ```
 
-For endpoint, persistence, deployment, or cross-stack changes, also run Docker smoke verification from the workspace root when Docker is available:
+For endpoint, persistence, deployment, or cross-stack changes that need runtime proof, use Docker smoke verification from the workspace root when Docker is available and the relevant operations are authorized:
 
 ```powershell
 docker compose -f infra/docker-compose.yml build

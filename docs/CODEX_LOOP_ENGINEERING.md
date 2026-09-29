@@ -9,7 +9,7 @@ Use this as the project-shared operating guide for Codex automations, worktrees,
 - Keep project behavior in repo-local files: `AGENTS.md`, `codex-agent.md`, `.codex/skills/`, `.codex/agents/`, and `docs/`.
 - Define the method in a skill before scheduling it as an automation.
 - Keep recurring loops read-only until a human approves a specific finding for implementation.
-- Use a dedicated worktree or thread for implementation so parallel agents do not modify the same checkout.
+- Use a dedicated worktree for independent implementation. Child agent threads share the workspace unless explicitly isolated; separate chats alone do not prevent overlapping edits.
 - Split maker and checker roles for non-trivial work.
 - Keep high-risk gates from `codex-agent.md` active for every loop.
 - Record durable decisions in repo docs, GitHub issues, pull requests, or Codex automation triage, not in teammate-specific global config.
@@ -20,8 +20,8 @@ Use this as the project-shared operating guide for Codex automations, worktrees,
 | --- | --- |
 | Discovery | `.codex/skills/ysheng-loop-triage/SKILL.md` |
 | Project knowledge | `AGENTS.md`, `codex-agent.md`, `.codex/skills/ysheng-*` |
-| Isolation | Codex app worktrees or one thread per approved finding |
-| Review | `.codex/agents/ysheng-reviewer.toml`, `/review`, or a fresh review thread |
+| Isolation | Codex app worktrees for independent implementation; bounded ownership within a shared task |
+| Review | One appropriate `.codex/agents/` reviewer or `/review`; a new standalone chat only when requested |
 | Security review | `.codex/agents/ysheng-security-reviewer.toml` and `.codex/skills/ysheng-security-review/SKILL.md` |
 | State | Codex Triage, GitHub issues/PRs, or a small repo doc when a loop needs shared state |
 | Guardrails | `.codex/config.toml` hooks plus the high-risk gates in `codex-agent.md` |
@@ -139,10 +139,10 @@ If there are no findings, say that and archive the automation run.
 
 1. Triage loop reports a finding.
 2. Human accepts, rejects, or asks for more detail.
-3. Accepted finding gets its own thread or worktree.
+3. Accepted independent implementation gets its own worktree; bounded subtasks may use child agents with explicit ownership.
 4. Codex uses the matching YS Heng skill to implement the smallest fix.
-5. Codex runs focused verification when allowed by the repo rules.
-6. A separate reviewer pass checks correctness, security, and missing tests before merge or PR.
+5. Codex runs focused existing verification and adds cases only under the critical-coverage policy in `codex-agent.md`.
+6. A separate reviewer checks non-trivial changes for correctness, relevant security risks, and critical coverage gaps before merge or PR. Do not request tests merely because code changed.
 7. Repeated mistakes become updates to `codex-agent.md` or the relevant `.codex/skills/ysheng-*` file.
 
 ## Risk Gates
@@ -160,4 +160,6 @@ Do not automate these actions without explicit user approval:
 
 ## Review Bandwidth
 
-Keep concurrent implementation loops low. Two active worktrees is usually enough for this repo because the API, back office, front office, and docs share contracts. Prefer finishing and reviewing one finding before starting another that touches the same module.
+Follow the model, delegation, and token-use policies in `codex-agent.md`; the TOML files hold executable model and concurrency defaults. Small tasks stay with the main agent. For larger tasks, delegate only bounded independent work or a justified reviewer pass, and return short results to the main chat. Do not duplicate exploration or launch every specialist for each change.
+
+Two active implementation worktrees are usually enough for this repo because the API, back office, front office, and docs share contracts. Prefer finishing and reviewing one finding before starting another that touches the same module.

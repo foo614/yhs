@@ -7,7 +7,7 @@ description: Improve YS Heng frontend UI quality and interaction design. Use whe
 
 ## Overview
 
-Design YS Heng interfaces that match their job: public vehicle sales pages should be clear and persuasive, while the back office should be dense, calm, and efficient for repeated staff work.
+Design YS Heng interfaces that match their job: public vehicle sales pages should be clear and persuasive, while the back office should support efficient repeated staff work on mobile, tablet, and desktop.
 
 ## Front Office
 
@@ -18,15 +18,15 @@ Design YS Heng interfaces that match their job: public vehicle sales pages shoul
 
 ## Back Office
 
-- Prefer Ant Design and Pro Components patterns already in the app.
-- Use tables, filters, forms, tags, alerts, and compact summaries for operational scanning.
+- Follow the mobile-first acceptance, spacing, and version-aware component-selection rules in `.codex/skills/ysheng-backoffice/SKILL.md`.
+- Reuse Ant Design and Pro Components patterns already in the app; adapt the presentation for mobile task completion and useful desktop scanning.
 - Keep finance, role, document, and payment UI explicit about permission-sensitive actions.
 - Surface backend validation messages rather than hiding failures behind demo data.
 
 ## Design Rules
 
 - Match the existing app's typography, spacing, components, and color system unless the task is a redesign.
-- Use icons, toggles, segmented controls, menus, tabs, sliders, and status indicators where they make controls clearer.
+- Choose controls by the user's task and the installed component APIs. Prefer an existing direct interaction over adding a new wizard, nested panel, or custom control.
 - Keep responsive layouts stable; text must fit within buttons, cards, tables, and forms on mobile and desktop.
 - Do not create marketing landing pages for operational tasks.
 - Avoid decorative gradients, generic hero sections, and over-carded layouts in the back office.
@@ -35,4 +35,4 @@ Design YS Heng interfaces that match their job: public vehicle sales pages shoul
 
 ## Verification
 
-For visual changes, run the relevant build or tests when requested, then inspect the app in a browser when a dev server is available.
+Use the verification policy in `codex-agent.md`: run focused existing checks for the authorized change and inspect visual changes in a browser. Back-office work uses the responsive acceptance in its domain skill. Do not add unit tests for trivial styling or copy; report blocked browser verification honestly.
