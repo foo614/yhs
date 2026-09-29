@@ -49,7 +49,25 @@ These commands use the verified staff assistant callback and current account che
 | `language en` / `language ms` | Saved reply-language preference. |
 | `test` / `stop` | Check staff connection / disconnect it. Reconnection requires a new verified link. |
 
-Pages are explicit and stateless; send the continuation command shown in the reply. Results reflect the current records at each query, so changes to stock or schedules can change later pages. Finance commands remain unavailable.
+Pages are explicit and stateless; send the continuation command shown in the reply. Results reflect the current records at each query, so changes to stock or schedules can change later pages.
+
+### Staff WhatsApp finance commands
+
+Finance commands require a verified, active staff connection and current database roles. Help lists only commands allowed for the employee. Authorization is checked before retrieval and again before sending; self-onboarding never grants a role.
+
+| Command | Role | Read-only answer |
+| --- | --- | --- |
+| `collections ABC1234` | Finance or BossAdmin | Current receivable, reconciled collections, pending collections separately, and outstanding balance. Uses canonical buyer/invoice authority; missing or conflicting data requires Back Office review. Legacy records do not imply reconciled amounts. |
+| `settlement ABC1234` | Finance or BossAdmin | Seller settlement direction, recorded amount, deadline and marked completion status. Supplier invoices and bank-loan payment evidence are not included. |
+| `profit` / `profit month` / `profit today` | BossAdmin | Period sales and sold-vehicle margin on the dashboard calculation basis, not accounting or cash profit. |
+| `profit 2026-08` / `profit 2026-08-01 2026-08-31` | BossAdmin | Named-month or inclusive date-range sales and margin. |
+| `dashboard` with the same periods | BossAdmin | Selected-period sales/margin, separated from current operational balances. |
+
+Bare `profit`/`dashboard` defaults to month-to-date; `pastmonth` or `past month` selects the previous calendar month. Dates use Malaysia UTC+08; the reply echoes the resolved period. Current-month queries end today. Invalid/reversed ranges, future periods and custom ranges over 366 days are rejected. A historical period does not create historical outstanding-balance snapshots. Sold-vehicle margin uses recorded costs and can change when those costs change; it does not measure cash received.
+
+Only reconciled collections reduce balances. Pending and reversed collections, receipts, and cash handovers are not counted again as separate cash. A loan approval is not a bank disbursement; a reversal is not proof of a refund. Replies omit customer identity, bank references, private record IDs, notes and documents. No financial writes, approvals or exports are supported.
+
+Ambiguous plate-level finance records return review guidance. Dashboard balances identify validated V2 receivables and seller settlement records; if legacy, mismatched or ambiguous records are excluded, replies label the amounts as partial subtotals with review counts rather than complete balances. Internal offsets never imply a seller cash transfer.
 
 `WhatsAppAssistant:PublicSiteUrl` is an optional HTTPS public website origin used for listing links. Invalid or absent configuration yields no guessed URL. This value is not a webhook or API URL. Existing sender/identity configuration and enable switches remain unchanged.
 

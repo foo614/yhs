@@ -87,7 +87,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
         </Form.Item>
         <Button type="primary" htmlType="submit" loading={busy}>Connect WhatsApp</Button>
       </Form>}
-    {connection?.state === "Connected" && <Alert type="success" showIcon message="Connected — next step" description="Send help to the company WhatsApp assistant chat from this verified number to see the commands available to your existing role. Staff replies are read-only operational summaries; finance queries are not available yet." />}
+    {connection?.state === "Connected" && <Alert type="success" showIcon message="Connected — next step" description="Send help to the company WhatsApp assistant chat from this verified number to see your available commands. Queries are read-only. Collections and seller settlement require Finance or Admin; profit and dashboard summaries require Admin." />}
     {link && <Alert type="info" showIcon message="Send the one-time command to the company assistant" description={<Space direction="vertical" className="fullWidth">
       <Typography.Text code copyable style={{ overflowWrap: "anywhere" }}>{link.command}</Typography.Text>
       <Typography.Text>Expires at {new Date(link.expiresAt * 1000).toLocaleTimeString()}. Use it once, keep it private, then refresh the status after sending.</Typography.Text>

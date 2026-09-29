@@ -65,8 +65,8 @@ public static class WhatsAppStaffQueue
             return true;
         }
         var reply = WhatsAppStaffQueries.Permitted(intent, identity.Value.Roles)
-            ? intent.Name == "usage" ? WhatsAppStaffCommandHelp.Reply(intent.Argument, identity.Value.Binding.Language)
-                : await WhatsAppStaffQueries.ReplyAsync(db, intent, identity.Value.Binding.Language, now, ct, options.PublicSiteUrl)
+            ? intent.Name == "usage" ? WhatsAppStaffCommandHelp.Reply(intent.Argument, identity.Value.Binding.Language, identity.Value.Roles)
+                : await WhatsAppStaffQueries.ReplyAsync(db, intent, identity.Value.Binding.Language, now, ct, options.PublicSiteUrl, identity.Value.Roles)
             : WhatsAppStaffQueries.Text(identity.Value.Binding.Language, "Your role cannot access this query.", "Peranan anda tidak dibenarkan mengakses pertanyaan ini.");
         var currentTime = Math.Max(now, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         // Re-read account, stamp, binding and roles after retrieval, immediately before provider submission.

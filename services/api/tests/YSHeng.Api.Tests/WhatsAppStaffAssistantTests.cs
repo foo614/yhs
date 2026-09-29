@@ -144,6 +144,157 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.False(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("collections", "TEST123"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["BossAdmin"]));
+        Assert.DoesNotContain("collections <plate>", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
+        Assert.Contains("collections <plate>", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
+        Assert.DoesNotContain("profit [period]", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
+        Assert.Contains("profit [period]", WhatsAppStaffQueries.Help("en_US", ["BossAdmin"]));
+        Assert.Contains("cannot access", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("profit", "month"), ["Finance"], "en_US", fixture.Now));
+    }
+
+    [Fact]
+    public async Task Finance_plate_queries_use_authoritative_collection_states_and_saved_settlement_snapshots()
+    {
+        // Prevents pending, reversed, void-receipt metadata or legacy rows from changing a Finance V2 receivable balance.
+        await using var fixture = await Fixture.Create();
+        var customerId = Guid.NewGuid();
+        var owner = new Owner { Name = "Synthetic seller", Phone = "PRIVATE OWNER PHONE" };
+        var vehicle = new Vehicle { PlateNumber = "FIN-123", Year = 2022, Make = "Toyota", Model = "Vios", CustomerId = customerId };
+        var payment = new PaymentRecord { VehicleId = vehicle.Id, CustomerId = customerId, FinanceWorkflowVersion = 2, NettPrice = 50_000m, FormulaVersion = FinanceV2Rules.FormulaVersion };
+        fixture.Db.Owners.Add(owner);
+        fixture.Db.Vehicles.Add(vehicle);
+        fixture.Db.PaymentRecords.AddRange(
+            new PaymentRecord { VehicleId = vehicle.Id, FinanceWorkflowVersion = 1, NettPrice = 999_999m, Status = PaymentStatus.Reconciled },
+            payment);
+        fixture.Db.FinanceInvoices.Add(new FinanceInvoice
+        {
+            PaymentRecordId = payment.Id, VehicleId = vehicle.Id, CustomerId = customerId, Amount = payment.NettPrice,
+            CustomerName = "PRIVATE CUSTOMER", CustomerPhone = "PRIVATE PHONE", LoanBankReference = "PRIVATE BANK", InvoiceNumber = "SYN-FIN-1"
+        });
+        fixture.Db.CollectionTransactions.AddRange(
+            new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 45_000m, Status = CollectionStatus.Reconciled, OfficialReceiptVoided = true, Notes = "PRIVATE RECONCILED" },
+            new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 2_000m, Status = CollectionStatus.Pending, Notes = "PRIVATE PENDING" },
+            new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 3_000m, Status = CollectionStatus.Reversed, Notes = "PRIVATE REVERSED" });
+        fixture.Db.SettlementReminders.Add(new SettlementReminder
+        {
+            VehicleId = vehicle.Id, OwnerId = owner.Id, Direction = SettlementDirection.CollectFromSeller, PurchasePriceSnapshot = 20_000m,
+            BankDebtAmount = 20_800m, Amount = 800m, Deadline = new DateOnly(2026, 9, 29)
+        });
+        await fixture.Db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
+
+        var collections = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("collections", "FIN123"), ["Finance"], "en_US", now);
+        Assert.Contains("Receivable: RM 50,000.00", collections);
+        Assert.Contains("Reconciled: RM 45,000.00", collections);
+        Assert.Contains("Outstanding: RM 5,000.00", collections);
+        Assert.Contains("Pending collections: RM 2,000.00 (not deducted)", collections);
+        Assert.DoesNotContain("999,999", collections);
+        Assert.DoesNotContain("PRIVATE", collections);
+
+        var settlement = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "FIN123"), ["Finance"], "en_US", now);
+        Assert.Contains("Direction: Collect from seller", settlement);
+        Assert.Contains("Recorded amount: RM 800.00", settlement);
+        Assert.Contains("Status: Overdue — outstanding", settlement);
+        Assert.DoesNotContain("20,800", settlement);
+    }
+
+    [Fact]
+    public async Task Finance_queries_distinguish_missing_records_from_saved_zero_and_reject_canonical_mismatch()
+    {
+        // Prevents an absent or mismatched money record from being reported as a trustworthy zero balance.
+        await using var fixture = await Fixture.Create();
+        var empty = new Vehicle { PlateNumber = "EMPTY1", Year = 2020, Make = "Perodua", Model = "Myvi" };
+        var offset = new Vehicle { PlateNumber = "OFFSET1", Year = 2021, Make = "Honda", Model = "City" };
+        var customerId = Guid.NewGuid();
+        var owner = new Owner { Name = "Synthetic seller", Phone = "PRIVATE OWNER PHONE" };
+        var mismatch = new Vehicle { PlateNumber = "MISMATCH1", Year = 2022, Make = "Toyota", Model = "Vios", CustomerId = customerId };
+        var orphan = new Vehicle { PlateNumber = "ORPHAN1", Year = 2022, Make = "Toyota", Model = "Yaris" };
+        var legacyZero = new Vehicle { PlateNumber = "LEGACY0", Year = 2019, Make = "Proton", Model = "Saga" };
+        var payment = new PaymentRecord { VehicleId = mismatch.Id, CustomerId = customerId, FinanceWorkflowVersion = 2, NettPrice = 10_000m };
+        fixture.Db.Owners.Add(owner);
+        fixture.Db.Vehicles.AddRange(empty, offset, mismatch, orphan, legacyZero);
+        fixture.Db.SettlementReminders.Add(new SettlementReminder
+        {
+            VehicleId = offset.Id, OwnerId = owner.Id, Direction = SettlementDirection.InternalOffset, PurchasePriceSnapshot = 20_000m,
+            BankDebtAmount = 20_000m, Amount = 0m, Deadline = new DateOnly(2026, 9, 30)
+        });
+        fixture.Db.SettlementReminders.AddRange(
+            new SettlementReminder { VehicleId = orphan.Id, OwnerId = Guid.NewGuid(), Direction = SettlementDirection.PaySeller, PurchasePriceSnapshot = 20_000m, BankDebtAmount = 19_000m, Amount = 1_000m, Deadline = new DateOnly(2026, 9, 30) },
+            new SettlementReminder { VehicleId = legacyZero.Id, Direction = SettlementDirection.LegacyPaySeller, Amount = 0m, Deadline = new DateOnly(2026, 9, 30) });
+        fixture.Db.PaymentRecords.Add(payment);
+        fixture.Db.FinanceInvoices.Add(new FinanceInvoice { PaymentRecordId = payment.Id, VehicleId = mismatch.Id, CustomerId = Guid.NewGuid(), Amount = payment.NettPrice, InvoiceNumber = "SYN-MISMATCH" });
+        await fixture.Db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
+
+        Assert.Contains("No seller settlement recorded", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "EMPTY1"), ["Finance"], "en_US", now));
+        var zero = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "OFFSET1"), ["Finance"], "en_US", now);
+        Assert.Contains("Direction: Internal offset", zero);
+        Assert.Contains("Recorded amount: RM 0.00", zero);
+        Assert.Contains("Review Finance in Back Office", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "ORPHAN1"), ["Finance"], "en_US", now));
+        Assert.Contains("Review Finance in Back Office", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "LEGACY0"), ["Finance"], "en_US", now));
+        var invalid = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("collections", "MISMATCH1"), ["Finance"], "en_US", now);
+        Assert.Contains("Review Finance in Back Office", invalid);
+        Assert.DoesNotContain("RM 0.00", invalid);
+    }
+
+    [Fact]
+    public void Finance_periods_are_inclusive_bounded_and_use_month_to_date()
+    {
+        // Prevents future, reversed or overlong ranges from returning a plausible but wrong management figure.
+        var today = new DateOnly(2026, 9, 30);
+        Assert.True(WhatsAppStaffFinanceQueries.TryParsePeriod("", today, out var month));
+        Assert.Equal(new DateOnly(2026, 9, 1), month.From);
+        Assert.Equal(today, month.To);
+        Assert.True(WhatsAppStaffFinanceQueries.TryParsePeriod("2026-09", today, out var current));
+        Assert.Equal(today, current.To);
+        Assert.True(WhatsAppStaffFinanceQueries.TryParsePeriod("past month", today, out var past));
+        Assert.Equal(new DateOnly(2026, 8, 1), past.From);
+        Assert.Equal(new DateOnly(2026, 8, 31), past.To);
+        Assert.True(WhatsAppStaffFinanceQueries.TryParsePeriod("2025-09-30 2026-09-30", today, out _));
+        Assert.False(WhatsAppStaffFinanceQueries.TryParsePeriod("2025-09-29 2026-09-30", today, out _));
+        Assert.False(WhatsAppStaffFinanceQueries.TryParsePeriod("2026-09-30 2026-09-29", today, out _));
+        Assert.False(WhatsAppStaffFinanceQueries.TryParsePeriod("2026-10", today, out _));
+        Assert.False(WhatsAppStaffFinanceQueries.TryParsePeriod("9999-12", today, out _));
+        Assert.False(WhatsAppStaffFinanceQueries.TryParsePeriod("2026-02-30 2026-03-01", today, out _));
+    }
+
+    [Fact]
+    public async Task Profit_uses_Malaysia_sold_date_and_period_actual_margin_instead_of_all_time_profit()
+    {
+        // Prevents a dated Boss reply from leaking the existing all-time RealisedProfit value into a period result.
+        await using var fixture = await Fixture.Create();
+        var inside = new Vehicle
+        {
+            PlateNumber = "SOLDIN", Year = 2021, Make = "Toyota", Model = "Vios", Status = VehicleStatus.Sold,
+            PurchasePrice = 20_000m, SellingPrice = 30_000m, SoldAt = new DateTime(2026, 9, 29, 16, 0, 0, DateTimeKind.Utc)
+        };
+        var outside = new Vehicle
+        {
+            PlateNumber = "SOLDOUT", Year = 2020, Make = "Honda", Model = "City", Status = VehicleStatus.Sold,
+            PurchasePrice = 10_000m, SellingPrice = 20_000m, SoldAt = new DateTime(2026, 9, 29, 15, 59, 59, DateTimeKind.Utc)
+        };
+        var missingDate = new Vehicle { PlateNumber = "NODATE", Year = 2019, Make = "Perodua", Model = "Myvi", Status = VehicleStatus.Sold, PurchasePrice = 1_000m, SellingPrice = 9_000m };
+        fixture.Db.Vehicles.AddRange(inside, outside, missingDate);
+        fixture.Db.RepairJobs.Add(new RepairJob { VehicleId = inside.Id, WhatToDo = "Synthetic repair", Cost = 1_000m });
+        fixture.Db.BrokerCommissions.Add(new BrokerCommission { VehicleId = inside.Id, BrokerName = "Synthetic broker", Amount = 500m });
+        fixture.Db.PaymentVouchers.Add(new PaymentVoucher { VehicleId = inside.Id, PayeeName = "Synthetic driver", Purpose = "Pickup", Amount = 100m, IssuedDate = new DateOnly(2026, 9, 1) });
+        var owner = new Owner { Name = "Synthetic seller", Phone = "PRIVATE OWNER PHONE" };
+        fixture.Db.Owners.Add(owner);
+        fixture.Db.SettlementReminders.AddRange(
+            new SettlementReminder { VehicleId = inside.Id, OwnerId = owner.Id, Direction = SettlementDirection.PaySeller, PurchasePriceSnapshot = 20_000m, BankDebtAmount = 19_000m, Amount = 1_000m, Deadline = new DateOnly(2026, 9, 30) },
+            new SettlementReminder { VehicleId = inside.Id, OwnerId = owner.Id, Direction = SettlementDirection.PaySeller, PurchasePriceSnapshot = 20_000m, BankDebtAmount = 19_000m, Amount = 1_000m, Deadline = new DateOnly(2026, 9, 30) });
+        await fixture.Db.SaveChangesAsync();
+        var now = new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
+
+        var reply = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("profit", "today"), ["BossAdmin"], "en_US", now);
+        Assert.Contains("Vehicles sold: 1", reply);
+        Assert.Contains("Margin: RM 8,400.00", reply);
+        Assert.Contains("not cash profit", reply);
+        Assert.Contains("Historical margins can change", reply);
+        Assert.DoesNotContain("18,400", reply);
+        var dashboard = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("dashboard", "today"), ["BossAdmin"], "en_US", now);
+        Assert.Contains("Validated current balances (partial)", dashboard);
+        Assert.Contains("Validated seller settlements to pay: RM 0.00", dashboard);
+        Assert.Contains("1 ambiguous or inconsistent settlement vehicle(s)", dashboard);
     }
 
     [Fact]
