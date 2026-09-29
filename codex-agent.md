@@ -8,106 +8,73 @@ Official alignment:
 - Command approval rules are represented by `.rules` files under a `rules/` folder beside an active Codex config layer. This document describes command boundaries and approval expectations, but it is not a `.rules` file.
 - Markdown must stay plain and parse-safe: headings, bullets, fenced code blocks, and simple tables only.
 
-## Agent identity
+## Outcome and simplest solution
 
-The Codex agent is a project-aware engineering collaborator for the YS Heng vehicle sales platform.
+- State the requested outcome, material constraints, and checkable completion criteria before non-trivial work. Skip formal planning for obvious fixes.
+- Inspect the relevant source, nearby tests, and project instructions before editing. Preserve API/frontend contracts and unrelated user work.
+- Challenge unclear or contradictory requirements when different interpretations change behavior, permissions, data, architecture, or acceptance criteria. Ask one focused question, explain the consequence, and recommend the simplest option. Continue independent work while awaiting a required answer.
+- For minor details, state a reasonable assumption and proceed. Reuse decisions and approvals already given in the conversation.
+- Prefer an existing component, flow, API client, or direct implementation. Introduce an abstraction, dependency, or configurable framework only when the requested behavior needs it; explain that need.
+- Keep every changed line tied to the requested outcome. Avoid speculative features, unrelated cleanup, and broad rewrites.
 
-The agent must:
+## Repository map and skills
 
-- Preserve the repository architecture and API/frontend contracts.
-- Prefer small, focused changes over broad rewrites.
-- Explain risks, assumptions, and validation gaps clearly.
-- Avoid changing user work that is unrelated to the requested task.
-- Treat security, finance, auth, uploads, backups, and deployment as high-risk areas.
-- Keep implementation, documentation, and tests aligned when behavior changes.
+Use the skill catalog in `AGENTS.md`; load only the skills and reference sections needed for the task. The `.codex/skills/ysheng-*` files own domain guidance. Ecosystem skills under `.agents/skills/` are auxiliary and must preserve YS Heng architecture, contracts, and risk gates.
 
-## Project architecture
+| Area | Path | Stack / domain skill |
+| --- | --- | --- |
+| Public app | `apps/frontoffice` | Next.js 16, React 19, TypeScript; `ysheng-frontoffice` |
+| Operations portal | `apps/backoffice` | Vite, React 19, Ant Design/Pro Components, Vitest; `ysheng-backoffice` |
+| API | `services/api` | .NET 10, EF Core, ASP.NET Identity, PostgreSQL; `ysheng-api` |
+| Infrastructure | `infra` | Docker Compose, PowerShell verification/deployment; `ysheng-project` |
+| References | `docs` | API, implementation, requirements, and runbooks; read relevant sections |
 
-Repository root:
-
-```text
-apps/frontoffice      Public Next.js vehicle inventory and lead capture app
-apps/backoffice       Vite React operations portal using Ant Design and Pro Components
-services/api          .NET 10 Minimal API, EF Core, ASP.NET Identity, PostgreSQL
-infra                 Docker Compose, smoke tests, deployment, backup, and validation scripts
-docs                  API, implementation, deployment, source requirement, and trace docs
-.codex/skills         Project-local Codex workflow skills
-.codex/agents         Project-local custom Codex subagents for bounded review and exploration
-```
-
-Local service URLs:
-
-```text
-Front office: http://localhost:3000
-Back office:  http://localhost:3001
-API:          http://localhost:5000
-```
-
-Core stack:
-
-- Front office: Next.js 16, React 19, TypeScript.
-- Back office: Vite, React 19, Ant Design, Ant Design Pro Components, TypeScript, Vitest.
-- API: .NET 10 Minimal APIs, EF Core, ASP.NET Identity cookie auth, PostgreSQL.
-- Infrastructure: Docker Compose, PowerShell smoke and deployment scripts.
-
-## Project-local skill catalog
-
-Use these project-local skills for repeatable YS Heng workflows:
-
-- `.codex/skills/ysheng-project/SKILL.md`: repository orientation, local URLs, Docker, deployment, and cross-stack verification.
-- `.codex/skills/ysheng-api/SKILL.md`: backend API, EF Core, auth policies, uploads, business rules, and backend tests.
-- `.codex/skills/ysheng-backoffice/SKILL.md`: operations portal, Ant Design UI, API client contracts, finance-sensitive flows, and portal tests.
-- `.codex/skills/ysheng-frontoffice/SKILL.md`: public vehicle sales app, public API usage, lead capture, photos, and public-data safety.
-- `.codex/skills/ysheng-plan-change/SKILL.md`: substantial, multi-file, or high-risk work before implementation.
-- `.codex/skills/ysheng-fix-ci/SKILL.md`: CI, build, lint, test, or smoke-check failures.
-- `.codex/skills/ysheng-loop-triage/SKILL.md`: read-only loop-engineering discovery, recurring automation triage, and guidance-drift checks.
-- `.codex/skills/ysheng-address-review/SKILL.md`: PR review feedback and requested changes.
-- `.codex/skills/ysheng-frontend-design/SKILL.md`: front-office and back-office UI or interaction design.
-- `.codex/skills/ysheng-polish-prose/SKILL.md`: docs, comments, commit text, skill text, and user-facing copy.
-- `.codex/skills/ysheng-security-review/SKILL.md`: security reviews involving auth, finance, uploads, public data, persistence, deployment, secrets, or backups.
-
-Project-installed ecosystem skills:
-
-- `.agents/skills/prd-development/SKILL.md`: auxiliary PRD workflow for major product initiatives, especially when requirements are still scattered.
-- `.agents/skills/code-review-testing/SKILL.md`: auxiliary review/testing checklist for agent or workflow logic changes.
-- `.agents/skills/shadcn-ui/SKILL.md`: optional shadcn/ui reference for projects that already use shadcn and Tailwind.
-
-The `.codex/skills/ysheng-*` files remain authoritative for YS Heng architecture, contracts, validation, and risk gates. Ecosystem skills may shape process, but must not override repository-specific rules.
+Local URLs and validation commands live in the domain skills. Project-shared behavior belongs in this file, `.codex/skills/`, `.codex/agents/`, and `docs/`, not personal global configuration.
 
 ## Repo-wide workflow routing
 
-All workflows under `.codex/skills/*` and `.agents/skills/*` inherit this routing:
+This is the shared model policy for all project and auxiliary workflows. Choose by scope and consequence; the primary session defaults to GPT-5.6 Sol at Medium when no explicit user selection overrides it. These shared defaults were verified against the installed CLI catalog. Desktop and CLI catalogs can differ; verify availability in the intended client before changing model IDs.
 
-- Astra (Low reasoning, `gpt-6-astra`) handles non-trivial planning, scope, risks, and acceptance criteria. Planning is read-only; skip a separate planning pass for obvious fixes.
-- Luna (Max reasoning, `gpt-5.6-luna`) is the default development model, including implementation, debugging, and necessary test changes.
-- Do not automatically escalate development to another model. Report a concrete limitation before proposing a fallback.
-- Use a separate Luna/Terra reviewer at High/XHigh proportionate to risk.
-- Model routing does not bypass approval gates, maker/checker separation, worktree isolation, or proportionality for trivial changes.
-- Report an unavailable requested model or effort as a fallback.
-- Apply these settings when model selection is available; instructions alone do not switch the active model. Do not create extra tasks or agents solely to enforce routing.
+| Work | Model | Reasoning |
+| --- | --- | --- |
+| Bounded file discovery or straightforward documentation | `gpt-5.6-luna` | Low |
+| Small implementation with clear behavior and existing patterns | `gpt-5.6-luna` | High |
+| Features across several files or substantial debugging | `gpt-5.6-sol` | Medium |
+| Independent correctness, UX, business-process, or security review | `gpt-5.6-sol` | High |
+| Difficult architecture or an investigation blocked after focused attempts | `gpt-6-astra` when available; otherwise `gpt-5.6-sol` | Low for Astra; High for Sol; increase only when justified |
+
+- Set both `model` and `model_reasoning_effort` in `.codex/agents/*.toml`; `.codex/config.toml` supplies primary and generic subagent defaults. Keep these settings aligned with this table.
+- Respect the user's selected model. Markdown cannot switch an active session. Apply routing when selecting a supported session or subagent model; do not create extra chats or agents just to change models.
+- Escalate only for a concrete reasoning limitation or consequential unresolved risk. Report the reason and any unavailable model/effort fallback. Do not default ordinary work to Max, XHigh, or Ultra.
+- Evaluate efficiency by completed, verified work, including retries and coordination. More subagents can reduce elapsed time while increasing total tokens.
+- Configuration semantics and supported settings: [official Codex subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents).
 
 ## Proportionate verification and token use
 
-- Do not create test files unless critical behavior needs regression coverage that cannot fit an existing suite. Critical examples include auth, permissions, finance calculations, data integrity, public/private data boundaries, and serious recurring bugs.
-- Prefer extending an existing relevant test. Do not add tests that only mirror implementation, assert documentation wording, or cover trivial copy, styling, or reversible presentation changes.
-- Still run focused existing checks appropriate to the change and preserve required CI and release gates. Explain any critical coverage gap.
-- Read only relevant skills, sections, and source files. Use targeted searches and bounded output; avoid repeated reads and broad scans.
-- Keep plans and reports short. Reuse evidence, avoid duplicate reviews, and rerun checks only after relevant changes, failures, or unresolved concerns.
+- Before adding any test case, including one in an existing file, identify a critical failure or serious regression that current coverage cannot detect. Critical examples include auth, permissions, money calculations, data integrity, public/private boundaries, and consequential workflow transitions. State the failure the test prevents.
+- Prefer correcting or extending existing coverage. Create a new test file only when justified critical coverage cannot fit an existing suite. Preserve useful existing tests; test count alone is not a reason to remove them.
+- Do not add tests that mirror implementation, assert prose or headings, or cover trivial copy, spacing, styling, or reversible presentation changes. Use existing checks and browser inspection for those changes.
+- For bugs, reproduce the observable failure and verify the fix through the real behavior when practical. Use the narrowest relevant existing check first; run broader checks only for affected shared behavior, unresolved risk, or required CI/release gates.
+- Once relevant checks pass, repeat or broaden them only after relevant changes, failures, or new evidence. Explain critical coverage gaps and verification that could not run.
+- For documentation and skill edits, inspect instruction consistency, links, and the diff; validate changed configuration and skill metadata. Do not add tests for the wording.
+- Read only relevant skills, sections, and source files. Use targeted searches and bounded output; reuse findings instead of repeating exploration. Keep plans and reports short.
 
 Personal integrations such as external code search, web research, and hosted MCP services may be useful, but do not make required project behavior depend on teammate-specific API keys or global `~/.codex` configuration.
 
-## Loop engineering
+## Delegation and loop engineering
 
-Use `docs/CODEX_LOOP_ENGINEERING.md` for project-shared loop design, automation prompts, worktree expectations, subagent roles, and state handling.
+- Use the main agent alone for small tasks. For larger work, delegate only a bounded independent subtask or a justified independent review; normally use at most two concurrent subagents.
+- Give each subagent a concrete question or deliverable, required context, scope or owned files, and a short result format. Prefer a small brief over copying the full conversation when it is sufficient.
+- Reuse an existing subagent for related work. The main agent integrates its findings, resolves disagreements, verifies the result, and returns one combined response; do not repeat the same exploration or review without a reason.
+- Subagents run in child agent threads. A separate thread does not isolate the filesystem: avoid overlapping edits, and tell workers to preserve others' changes. Independent feature work needs separate worktrees under the branching strategy.
+- Create a standalone user-visible chat only when the user asks. Do not create one merely to delegate a subtask.
 
-Loop defaults:
+Use `docs/CODEX_LOOP_ENGINEERING.md` for automation prompts and durable loop state.
 
-- Define the workflow in a project skill first; use automations only after the workflow is predictable.
-- Keep scheduled discovery loops read-only unless the user explicitly approves implementation.
-- Run implementation loops in isolated worktrees or dedicated Codex threads so parallel work does not modify the main checkout.
-- Keep maker/checker roles separate for non-trivial changes by using a reviewer subagent, `/review`, or a fresh review thread.
+- Define the workflow in a project skill before scheduling it. Keep scheduled discovery read-only unless the user explicitly approves implementation.
+- Run independent implementation loops in isolated worktrees. Keep maker/checker roles separate for non-trivial changes using one appropriate reviewer or `/review`; add a specialist only for distinct unresolved risk.
 - Record durable decisions in repo-local docs or issue/PR systems, not personal global configuration.
-- Do not let loops bypass high-risk gates for auth, finance, uploads, database, deployment, backups, public data exposure, secrets, staging, commits, pushes, or pull requests.
+- Loops retain every high-risk gate and the authorization requirements for staging, commits, pushes, pull requests, deployment, and destructive operations.
 
 ## Allowed actions
 
@@ -115,8 +82,8 @@ Codex may:
 
 - Read project files needed to understand the requested task.
 - Edit files under the repository when the user requests implementation.
-- Add focused tests or documentation when behavior, public contracts, workflows, or validation rules change.
-- Run project commands only when requested or when validation is explicitly approved.
+- Update documentation and existing coverage when affected; add test cases only under the critical-coverage rule above.
+- Run focused local verification needed for an authorized change. Preserve approval boundaries for commands that affect shared data, production, or destructive operations.
 - Use Docker, browser inspection, or smoke tests when the user requests runtime/deployment validation or when the task specifically requires it.
 - Propose `.rules` entries or project config only when the user asks for executable policy automation.
 
@@ -133,33 +100,11 @@ Codex must not:
 - Move required project behavior into a teammate-specific global `~/.codex` file.
 - Treat `codex-agent.md` alone as auto-loaded by Codex; root `AGENTS.md` is the compatibility entrypoint.
 
-## Scope boundaries
-
-File access and modification scope:
-
-- Root project instructions belong in `AGENTS.md` and `codex-agent.md`.
-- Task-specific reusable workflows belong in `.codex/skills/*/SKILL.md`.
-- Loop-engineering prompts and operating rules belong in `docs/CODEX_LOOP_ENGINEERING.md`.
-- Project-scoped custom subagents belong in `.codex/agents/*.toml`.
-- Front-office work belongs primarily under `apps/frontoffice`.
-- Back-office work belongs primarily under `apps/backoffice`.
-- Backend API work belongs primarily under `services/api`.
-- Deployment, smoke, backup, and compose work belongs primarily under `infra`.
-- Contract and implementation references belong primarily under `docs`.
-
-Generated or installed directories should be ignored unless the user asks otherwise:
-
-```text
-node_modules
-.next
-dist
-bin
-obj
-```
+Ignore generated or installed directories unless needed for the task: `node_modules`, `.next`, `dist`, `bin`, and `obj`.
 
 ## High-risk review gates
 
-Pause, explain the risk, and get explicit user approval before changes that:
+Explain the risk and obtain explicit user approval before the following changes, unless the conversation already authorizes that specific scope:
 
 - Alter authentication, authorization, ASP.NET Identity, cookie behavior, CORS, or role policies.
 - Change finance permissions, finance workflows, reconciliation rules, or payment validation.
@@ -196,53 +141,12 @@ Uploads:
 - Preserve uploader, MIME type, checksum, linked vehicle, and metadata behavior.
 - Preserve public photo fallback behavior: latest thumbnail first, then full content when appropriate.
 
-## Backend implementation rules
+## Domain implementation rules
 
-Use `.codex/skills/ysheng-api/SKILL.md` for backend tasks.
-
-- Keep .NET 10 Minimal API endpoint wiring in `Program.cs` unless a focused refactor is requested.
-- Keep persisted records and enums in `Domain/Models.cs`.
-- Keep pure business logic in `Features/BusinessRules.cs`.
-- Keep TypeScript enum/string unions aligned with backend enum spellings.
-- Use EF Core through `AppDbContext`.
-- Use ASP.NET Identity cookie auth under `/api/auth/*`.
-- Update xUnit tests when changing business rules, uploads, dashboard metrics, auth, validation, or API contracts.
-
-Business rules to preserve:
-
-- Public inventory includes only public available vehicles.
-- Supplier invoices require an existing vehicle and unique supplier plus invoice number.
-- Loan completeness requires status receipt, VOC, and loan document.
-- Delivery release requires readiness status plus all required checklist and document conditions.
-- Dashboard metrics aggregate stock, loan, payment, settlement, repair, profit, reminders, and vehicle aging data.
-
-## Back-office implementation rules
-
-Use `.codex/skills/ysheng-backoffice/SKILL.md` for back-office tasks.
-
-- Use the existing Vite React and Ant Design/Pro Components patterns.
-- Keep dense, scannable operational UI for staff workflows.
-- Use `VITE_API_BASE_URL`, defaulting to `http://localhost:5000`.
-- Send authenticated API requests with `credentials: "include"`.
-- Keep create/update flows centralized through `apps/backoffice/src/api.ts` unless the existing local pattern requires otherwise.
-- Surface backend validation messages to users.
-- Do not let fallback/demo data hide mutation failures.
-- Treat finance screens, payment mutations, and staff role management as permission-sensitive.
-- Do not introduce shadcn/ui into the back office unless the user explicitly requests a design-system migration; current screens are Ant Design-first.
-
-## Front-office implementation rules
-
-Use `.codex/skills/ysheng-frontoffice/SKILL.md` for front-office tasks.
-
-- Use the existing Next.js App Router structure.
-- Use `NEXT_PUBLIC_API_BASE_URL`, defaulting to `http://localhost:5000`.
-- Fetch public inventory from `GET /api/public/vehicles`.
-- Fetch vehicle details from `GET /api/public/vehicles/{id}`.
-- Fetch public vehicle photos from `/api/public/vehicles/{id}/photo`.
-- Submit leads to `POST /api/public/leads`.
-- Prioritize clear vehicle details, price, photo handling, and lead capture.
-- Keep public copy practical and sales-focused.
-- Never expose internal prices, refurbishment, commission, audit, finance, or back-office operational details.
+- Backend: use `ysheng-api` for endpoint wiring, persistence, business invariants, and verification. Keep contracts aligned across TypeScript and C#; apply the critical-coverage rule when considering new xUnit cases.
+- Back office: use `ysheng-backoffice` for API usage and Ant Design component choices. Always design mobile first, then adapt for useful tablet and desktop views. Preserve information, permitted actions, and validation across sizes; verify UX, spacing, and populated states.
+- Keep the back office Ant Design-first. Introduce shadcn/ui only when the user explicitly requests a design-system migration. Check the installed Ant Design version before using documentation examples.
+- Front office: use `ysheng-frontoffice` for Next.js App Router, public API routes, photos, and lead capture. Prioritize clear vehicle details, price, and practical sales copy while preserving public/private data boundaries.
 
 ## Infrastructure and deployment rules
 
@@ -257,131 +161,12 @@ Follow `docs/BRANCHING_STRATEGY.md` for every branch, commit, pull request, merg
 - Treat restore operations as destructive and require explicit confirmation.
 - Report Docker Desktop or Linux engine failures as environment blockers when code-independent checks pass.
 
-## Code generation constraints
+## Review, failures, and reporting
 
-Codex must:
-
-- Preserve existing style and patterns in each subsystem.
-- Prefer TypeScript and C# types that align with existing domain models.
-- Keep changes minimal and behavior-focused.
-- Avoid speculative abstractions, broad rewrites, and unrelated cleanup.
-- Avoid embedding direct fetch calls in UI components when the API client already owns the flow.
-- Keep enum spellings, API paths, validation shapes, and DTO fields aligned across backend and frontend.
-- Keep public and private data boundaries explicit in code.
-- Update docs when public APIs, deployment, smoke behavior, source requirements, or user-visible workflows change.
-
-## Output formatting requirements
-
-For implementation responses:
-
-- Start with the outcome.
-- Mention files changed.
-- Mention validation run only if it was actually run.
-- If validation was not run, say so plainly.
-- Suggest the smallest useful next validation step when appropriate.
-
-For code review responses:
-
-- List findings first, ordered by severity.
-- Include file and line references when available.
-- If there are no findings, state that explicitly and mention residual risk.
-
-For blocked work:
-
-- State the blocker.
-- Explain whether it is a code issue, environment issue, missing user decision, or permission issue.
-- Give the next concrete action.
-
-## Error handling protocol
-
-When a command fails:
-
-- Read the error output.
-- Classify it as code failure, environment failure, dependency/network failure, permission failure, or ambiguous.
-- Do not retry repeatedly without new information.
-- If sandboxing or restricted network access blocks an essential command, request scoped escalation.
-- If Docker is unavailable because the Linux engine is not responding, report it as an environment blocker.
-
-When implementation risk is unclear:
-
-- Pause before high-risk changes.
-- Explain the tradeoff.
-- Ask only for decisions that cannot be safely inferred from the repository or user request.
-
-## Validation commands
-
-Run only when requested or explicitly approved.
-
-Root frontend workspace:
-
-```powershell
-npm run build
-npm run lint
-```
-
-Front office:
-
-```powershell
-npm --workspace apps/frontoffice run build
-```
-
-Back office:
-
-```powershell
-npm --workspace apps/backoffice run test
-npm --workspace apps/backoffice run build
-```
-
-Backend:
-
-```powershell
-cd services/api
-dotnet test YSHeng.sln
-```
-
-Docker deployment proof:
-
-```powershell
-docker compose -f infra/docker-compose.yml build
-docker compose -f infra/docker-compose.yml up -d
-.\infra\smoke-test.ps1
-```
-
-Local Docker-independent verification may use the infra validation scripts documented in `docs/IMPLEMENTATION.md` when Docker Desktop is unavailable.
-
-## Official compatibility checklist
-
-- Root `AGENTS.md` exists as the Codex-discovered project instruction entrypoint.
-- `AGENTS.md` points to this ruleset and project-local skills.
-- `codex-agent.md` uses plain Markdown headings, bullets, tables, and fenced code blocks.
-- The ruleset does not pretend to be a `.rules` file.
-- Command approval expectations are documented separately from executable Starlark `.rules` policy.
-- Project behavior is not dependent on teammate-specific `~/.codex` files.
-- Scope boundaries are clear for root docs, front office, back office, API, infra, and skills.
-- Forbidden operations and high-risk review gates are explicit.
-- Output templates and error handling expectations are explicit.
-
-## Project-specific validation checklist
-
-- Technology stack is documented: Next.js, Vite React, Ant Design, .NET 10, EF Core, PostgreSQL, Docker Compose.
-- Public/private API boundaries are documented.
-- Auth and finance policy boundaries are documented.
-- Upload limits and document ownership safety are documented.
-- Public data exposure restrictions are documented.
-- Required quality gates are documented.
-- Docker, smoke, backup, restore, and deployment risk gates are documented.
-- Local skill files exist for project, API, back office, front office, planning, CI repair, loop triage, review feedback, frontend design, prose cleanup, and security review workflows.
-
-## Summary of project-specific customizations
-
-This ruleset customizes the official Codex project-instruction pattern for YS Heng by:
-
-- Using a root `AGENTS.md` shim for automatic Codex loading.
-- Keeping a comprehensive `codex-agent.md` specification for teammate readability.
-- Adding project-local skills for repeatable YS Heng workflows.
-- Adding project-local workflow skills for planning, CI repair, review feedback, frontend design, prose cleanup, and security review.
-- Adding a project-local loop triage workflow and scoped subagents for controlled recurring discovery.
-- Encoding the monorepo architecture and local service URLs.
-- Capturing strict public/private data boundaries for vehicle sales operations.
-- Capturing role-policy expectations for Boss/Admin, Sales, Loan, Delivery, Finance, Repair, Dashboard, and HR-adjacent extension areas.
-- Capturing upload, audit, validation, dashboard, Docker, and deployment guardrails.
+- Preserve subsystem style, domain types, enum spellings, API paths, validation shapes, and DTO fields. Use the existing API client rather than embedding fetch calls in UI components when it owns the flow.
+- Review the final diff for requested behavior, repository conventions, unnecessary complexity, unrelated edits, and verification gaps. Keep docs aligned with changed public APIs, workflows, deployment, smoke behavior, and source requirements.
+- Use domain skills for validation commands. When Docker is unavailable, use the relevant Docker-independent infra checks documented in `docs/IMPLEMENTATION.md` and report runtime proof separately.
+- Read failures before retrying. Distinguish code, environment, dependency/network, permission, and missing-decision blockers. Retry only with new evidence or a changed approach; use scoped escalation only when the environment permits it.
+- For implementation, report the outcome, changed files, checks actually run, material assumptions, and remaining limits. State clearly when checks were not run.
+- For reviews, list actionable findings first by severity with file/line evidence. If none are found, say so and identify any residual verification gap.
+- For blocked work, name the blocker and the next concrete action. Never claim a build, browser check, merge, or deployment passed without evidence from this run.

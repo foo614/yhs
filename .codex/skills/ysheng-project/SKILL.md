@@ -9,7 +9,7 @@ description: Work in the YS Heng MVP monorepo. Use for repository orientation, l
 
 - Treat the repository root as the workspace root.
 - Read `AGENTS.md` and `codex-agent.md` before making project changes.
-- Read `docs/IMPLEMENTATION.md` for the current implementation slice, local URLs, Docker notes, default admin, and deployment details.
+- Read only the relevant sections of `docs/IMPLEMENTATION.md` when implementation status, runtime setup, or deployment evidence is needed. Do not load its full history for routine edits.
 - Ignore generated or installed directories unless the user asks otherwise: `node_modules`, `.next`, `dist`, `bin`, and `obj`.
 - Do not rely on teammate-specific global `~/.codex` files for project behavior.
 
@@ -50,9 +50,9 @@ When the user asks to get or implement a Linear ticket:
 
 ## Model and task routing
 
-- Keep one implementation task, Linear ticket, branch, and worktree aligned. Use a user-visible Codex task when work is split into a separate feature so its progress remains easy to follow.
+- Keep one implementation task, Linear ticket, branch, and worktree aligned. Delegate subtasks through child agents; create a separate user-visible chat only when the user asks.
 - Run implementation tasks in parallel only when their ticket scopes and owned files do not overlap and neither depends on the other's result. Keep work serial when tasks touch the same files, share a contract change, or use the same merge and production deployment chain.
-- Follow `codex-agent.md` routing: Astra (Low) mainly for planning; Luna (Max) for development. Follow its proportionate verification and token-use rules; create new test files only for critical coverage that cannot fit an existing suite.
+- Follow the model, delegation, and verification policies in `codex-agent.md`. Keep model IDs and effort defaults in `.codex/config.toml` and `.codex/agents/*.toml` aligned with that single policy.
 - Before opening a pull request, normally run a read-only Codex CLI review against the local branch diff. Resolve every merge-blocking finding and rerun the relevant checks before creating the pull request. This local review must not require the Codex GitHub App or permission to comment, push, or merge. An explicit user instruction to pause model review temporarily overrides this step; required repository CI and CodeQL remain mandatory.
 - After the pull request opens, require its repository CI and CodeQL checks to pass before merging to `main`; a successful local review does not replace these protected checks.
 - After a production deployment and its smoke checks succeed, create and push a date-based Git tag on the exact deployed `main` commit. Use the tag as the durable release and rollback reference, and never tag a branch commit, an unverified deployment, or a different revision from the one production is running.
@@ -76,4 +76,4 @@ If Docker fails because the Linux engine is unavailable, report that as an envir
 - Keep public endpoints unauthenticated under `/api/public/*`.
 - Keep back-office endpoints under `/api` protected by the `BackOffice` policy unless intentionally public.
 - Keep finance/payment operations behind the `Finance` policy.
-- Update tests and docs when changing business rules, upload limits, dashboard metrics, auth behavior, API contracts, deployment behavior, or smoke-test expectations.
+- Keep affected contracts and documentation current. Reuse existing verification; justify every new test case under the critical-coverage policy in `codex-agent.md`, including cases added to existing suites.
