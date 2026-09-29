@@ -53,7 +53,9 @@ export function WhatsAppSettings() {
   });
   return <Space direction="vertical" size="middle" className="fullWidth">
     {contextHolder}
-    <Alert type={queue?.sendingEnabled ? "warning" : "info"} showIcon message={queue?.sendingEnabled ? "Production sending is enabled" : "Production sending is disabled"} description={queue?.sendingEnabled ? "Approved customer templates can be sent within the configured limits. This view does not include messages in the separate local WhatsApp test probe." : "Business notifications remain held until approved templates, sender and sending limits are configured. This view does not include messages in the separate local WhatsApp test probe."} />
+    <Typography.Title level={5}>Customer WhatsApp Notifications</Typography.Title>
+    <Typography.Paragraph type="secondary">This page manages outbound WhatsApp notifications to customers, including consent, approved templates and delivery status. Employee assistant links and staff queries are managed separately under My WhatsApp.</Typography.Paragraph>
+    <Alert type={queue?.sendingEnabled ? "warning" : "info"} showIcon message={queue?.sendingEnabled ? "Customer notification sending is enabled" : "Customer notification sending is disabled"} description={queue?.sendingEnabled ? "Approved customer templates can be sent within the configured limits. Employee assistant links and staff queries are managed separately under My WhatsApp." : "Customer notification events remain held until approved templates, sender and sending limits are configured. Employee assistant links and staff queries are managed separately under My WhatsApp."} />
     {error && <Alert type="error" showIcon message={error} />}
     {queue && !queue.captureEnabled && <Alert type="warning" showIcon message="Business event capture is disabled" description="No business notifications or consent changes are recorded until capture is configured." />}
     <Space wrap>

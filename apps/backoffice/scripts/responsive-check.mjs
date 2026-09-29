@@ -293,9 +293,9 @@ try {
           fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, state: "Disconnected", language: "ms" };
           if (width <= 1024) {
             await page.getByRole("button", { name: "Open navigation", exact: true }).click();
-            await page.getByRole("button", { name: "My WhatsApp connection", exact: true }).click();
-          } else await page.getByRole("button", { name: "WhatsApp", exact: true }).click();
-          const drawer = page.locator(".ant-drawer-content").filter({ has: page.getByText("My WhatsApp connection", { exact: true }) });
+            await page.getByRole("button", { name: "My WhatsApp", exact: true }).click();
+          } else await page.getByRole("button", { name: "My WhatsApp", exact: true }).click();
+          const drawer = page.locator(".ant-drawer-content").filter({ has: page.getByText("My WhatsApp", { exact: true }) });
           await drawer.getByText("Not connected", { exact: true }).waitFor();
           await drawer.getByRole("textbox", { name: "WhatsApp number (with country code)", exact: true }).fill("60123456789");
           await drawer.getByRole("button", { name: "Connect WhatsApp", exact: true }).click();
