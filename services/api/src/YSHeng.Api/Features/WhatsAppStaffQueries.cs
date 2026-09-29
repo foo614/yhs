@@ -28,7 +28,11 @@ public static class WhatsAppStaffQueries
             var plate = argument.ToUpperInvariant().Replace(" ", "").Replace("-", "");
             return Regex.IsMatch(plate, @"\A[A-Z0-9]{1,20}\z") ? new(name, plate) : null;
         }
-        if (name is "profit" or "dashboard") return argument.ToLowerInvariant() is "today" or "month" ? new(name, argument.ToLowerInvariant()) : null;
+        if (name is "profit" or "dashboard")
+        {
+            var period = string.Join(' ', argument.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            return Regex.IsMatch(period, @"\A(?:|today|month|past ?month|\d{4}-\d{2}|\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2})\z") ? new(name, period) : null;
+        }
         return null;
     }
 
@@ -54,18 +58,20 @@ public static class WhatsAppStaffQueries
     } : Regex.Replace(value, "([a-z])([A-Z])", "$1 $2");
 
     public static async Task<string> ReplyAsync(AppDbContext db, WhatsAppStaffIntent intent, string language, long now,
-        CancellationToken ct = default, string? publicSiteUrl = null)
+        CancellationToken ct = default, string? publicSiteUrl = null, IReadOnlyCollection<string>? roles = null)
     {
         var bm = language == "ms";
         var culture = CultureInfo.GetCultureInfo(bm ? "ms-MY" : "en-MY");
         if (intent.Name == "linked") return Text(language, "WhatsApp connected. Send help to see available commands.", "WhatsApp disambungkan. Hantar help untuk melihat arahan yang tersedia.");
         if (intent.Name == "test") return Text(language, "YS Heng staff connection is working.", "Sambungan kakitangan YS Heng berfungsi.");
         if (intent.Name == "language") return Text(language, "Assistant language set to English.", "Bahasa pembantu ditetapkan kepada Bahasa Malaysia.");
-        if (intent.Name == "help") return Text(language,
-            "YS Heng staff commands\nhelp / menu - Show this menu\nstock [words] [under 50000] [page N] - Public stock\nvehicle <plate> - Status, asking price and stock location\nshare <plate> - Share-safe vehicle details\nloan <plate> - Loan progress and next action\ndelivery <plate> - Delivery readiness and next action\ndeliveries today / tomorrow / next 7 [page N] - Upcoming handovers\nlanguage en / language ms - Change language\ntest - Check connection\nstop - Disconnect WhatsApp\n\nExamples: stock Toyota Vios under 50000 page 1; share ABC1234; deliveries tomorrow page 1\nThe under amount is inclusive. Queries are read-only. Finance queries are not available here.",
-            "Arahan kakitangan YS Heng\nhelp / menu - Paparkan menu\nstock [kata carian] [under 50000] [page N] - Stok awam\nvehicle <plat> - Status, harga jualan dan lokasi stok\nshare <plat> - Butiran kenderaan selamat untuk dikongsi\nloan <plat> - Kemajuan pinjaman dan tindakan seterusnya\ndelivery <plat> - Persediaan penyerahan dan tindakan seterusnya\ndeliveries today / tomorrow / next 7 [page N] - Jadual penyerahan\nlanguage en / language ms - Tukar bahasa\ntest - Semak sambungan\nstop - Putuskan sambungan WhatsApp\n\nContoh: stock Toyota Vios under 50000 page 1; share ABC1234; deliveries tomorrow page 1\nJumlah under adalah inklusif. Pertanyaan baca sahaja. Pertanyaan kewangan tidak tersedia di sini.");
+        if (intent.Name == "help") return Help(language, roles ?? []);
         if (intent.Name is "collections" or "settlement" or "profit" or "dashboard")
-            return Text(language, "This finance query is not available yet.", "Pertanyaan kewangan ini belum tersedia.");
+        {
+            try { return await WhatsAppStaffFinanceQueries.ReplyAsync(db, intent, roles ?? [], language, now, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception) { return Text(language, "Finance data is temporarily unavailable. Try again later.", "Data kewangan tidak tersedia buat sementara waktu. Cuba lagi kemudian."); }
+        }
         var vehicles = db.Vehicles.AsNoTracking();
         if (intent.Name == "stock")
         {
@@ -153,6 +159,21 @@ public static class WhatsAppStaffQueries
         if (intent.Name == "delivery")
             return heading + await WhatsAppStaffProgressQueries.ReplyDeliveryAsync(db, found.Id, language, now, ct);
         return Text(language, "Unsupported query. Send help.", "Pertanyaan tidak disokong. Hantar help.");
+    }
+
+    public static string Help(string language, IReadOnlyCollection<string> roles)
+    {
+        var finance = roles.Contains("Finance") || roles.Contains("BossAdmin")
+            ? Text(language, "\ncollections <plate> - Current customer collections\nsettlement <plate> - Seller settlement", "\ncollections <plat> - Kutipan pelanggan semasa\nsettlement <plat> - Penyelesaian penjual")
+            : "";
+        var boss = roles.Contains("BossAdmin")
+            ? Text(language, "\nprofit [period] - Sold-vehicle margin\ndashboard [period] - Margin and current balances\nPeriods: today, month, pastmonth, YYYY-MM, or YYYY-MM-DD YYYY-MM-DD", "\nprofit [tempoh] - Margin kenderaan dijual\ndashboard [tempoh] - Margin dan baki semasa\nTempoh: today, month, pastmonth, YYYY-MM, atau YYYY-MM-DD YYYY-MM-DD")
+            : "";
+        return Text(language,
+            "YS Heng staff commands\nhelp / menu - Show this menu\nstock [words] [under 50000] [page N] - Public stock\nvehicle <plate> - Status, asking price and stock location\nshare <plate> - Share-safe vehicle details\nloan <plate> - Loan progress and next action\ndelivery <plate> - Delivery readiness and next action\ndeliveries today / tomorrow / next 7 [page N] - Upcoming handovers\nlanguage en / language ms - Change language\ntest - Check connection\nstop - Disconnect WhatsApp",
+            "Arahan kakitangan YS Heng\nhelp / menu - Paparkan menu\nstock [kata carian] [under 50000] [page N] - Stok awam\nvehicle <plat> - Status, harga jualan dan lokasi stok\nshare <plat> - Butiran kenderaan selamat untuk dikongsi\nloan <plat> - Kemajuan pinjaman dan tindakan seterusnya\ndelivery <plat> - Persediaan penyerahan dan tindakan seterusnya\ndeliveries today / tomorrow / next 7 [page N] - Jadual penyerahan\nlanguage en / language ms - Tukar bahasa\ntest - Semak sambungan\nstop - Putuskan sambungan WhatsApp") + finance + boss + Text(language,
+            "\n\nExamples: stock Toyota Vios under 50000 page 1; share ABC1234; deliveries tomorrow page 1\nQueries are read-only.",
+            "\n\nContoh: stock Toyota Vios under 50000 page 1; share ABC1234; deliveries tomorrow page 1\nPertanyaan baca sahaja.");
     }
 
     private static string StockLabel(WhatsAppVehicleSummary vehicle, string language) =>

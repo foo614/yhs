@@ -89,6 +89,7 @@ public sealed class WhatsAppPostgresTests
                 Assert.True(await staffDispatch);
             }
             finally { finishStaff.TrySetResult(); await staffDispatch; }
+            await VerifyFinanceQueryJoinsAsync(db, assistantNow);
             var retained = new WhatsAppConsent { Recipient = "60199999999", OptedIn = false, Evidence = "retained CI withdrawal", UpdatedAt = 1 };
             db.WhatsAppConsents.Add(retained);
             await db.SaveChangesAsync();
@@ -180,6 +181,29 @@ public sealed class WhatsAppPostgresTests
             await using var drop = new NpgsqlCommand($"DROP DATABASE \"{database}\" WITH (FORCE)", admin);
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task VerifyFinanceQueryJoinsAsync(AppDbContext db, long now)
+    {
+        // Prevents SQLite-only coverage from missing PostgreSQL translation errors in the authoritative receivable joins.
+        var customerId = Guid.NewGuid();
+        var vehicle = new Vehicle { PlateNumber = "PGFIN1", Year = 2022, Make = "Synthetic", Model = "Finance", CustomerId = customerId };
+        var payment = new PaymentRecord { VehicleId = vehicle.Id, CustomerId = customerId, FinanceWorkflowVersion = 2, NettPrice = 12_000m };
+        db.Vehicles.Add(vehicle);
+        db.PaymentRecords.Add(payment);
+        db.FinanceInvoices.Add(new FinanceInvoice
+        {
+            PaymentRecordId = payment.Id, VehicleId = vehicle.Id, CustomerId = customerId, Amount = payment.NettPrice, InvoiceNumber = "PG-FIN-1"
+        });
+        db.CollectionTransactions.AddRange(
+            new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 5_000m, Status = CollectionStatus.Reconciled },
+            new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 1_000m, Status = CollectionStatus.Pending });
+        await db.SaveChangesAsync();
+
+        var reply = await WhatsAppStaffFinanceQueries.ReplyAsync(db, new("collections", "PGFIN1"), ["Finance"], "en_US", now);
+        Assert.Contains("Reconciled: RM 5,000.00", reply);
+        Assert.Contains("Outstanding: RM 7,000.00", reply);
+        Assert.Contains("Pending collections: RM 1,000.00 (not deducted)", reply);
     }
 
     private static async Task VerifyApplicationAsync(string connectionString)
