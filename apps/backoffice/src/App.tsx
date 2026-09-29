@@ -1145,7 +1145,7 @@ export default function App() {
               {menuActionBadges[item.path] ? <Badge count={menuActionBadges[item.path].count} overflowCount={99} color={menuActionBadges[item.path].urgent ? "red" : "blue"} /> : null}
             </button>
           ))}
-          <Button onClick={() => { setMobileNavOpen(false); setWhatsAppConnectionOpen(true); }}>My WhatsApp connection</Button>
+          <Button onClick={() => { setMobileNavOpen(false); setWhatsAppConnectionOpen(true); }}>My WhatsApp</Button>
         </Space>
       </Drawer>
       <ProLayout
@@ -1160,13 +1160,13 @@ export default function App() {
           <div className="headerSession" key="session">
             <span className="headerSessionUser">{currentUser.name ?? "staff"}</span>
             <span className="headerSessionRole">{currentRoles.map(displayRoleLabel).join(", ") || "none"}</span>
-            <Button size="small" onClick={() => setWhatsAppConnectionOpen(true)}>WhatsApp</Button>
+            <Button size="small" onClick={() => setWhatsAppConnectionOpen(true)}>My WhatsApp</Button>
             <Button size="small" icon={<LogoutOutlined />} onClick={handleLogout}>Logout</Button>
           </div>
         ]}
       >
       {notificationContextHolder}
-      <Drawer title="My WhatsApp connection" width={520} open={whatsAppConnectionOpen} onClose={() => setWhatsAppConnectionOpen(false)} destroyOnClose className="recordEditDrawer">
+      <Drawer title="My WhatsApp" width={520} open={whatsAppConnectionOpen} onClose={() => setWhatsAppConnectionOpen(false)} destroyOnClose className="recordEditDrawer">
         {whatsAppConnectionOpen && <StaffWhatsAppConnection key={currentUser.id} />}
       </Drawer>
       <PageContainer title={false}>
@@ -6168,7 +6168,7 @@ function AdminPage({
           },
           { key: "showroom-enquiry", label: "QR Enquiry / 二维码询问", children: <ShowroomEnquiryQrSettings /> },
           { key: "vehicle-catalog", label: "Make & Model / 品牌车型", children: <VehicleCatalogSettings /> },
-          { key: "whatsapp", label: "WhatsApp", children: <WhatsAppSettings /> },
+          { key: "whatsapp", label: "Customer WhatsApp Notifications", children: <WhatsAppSettings /> },
           { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
           { key: "audit", label: "Audit Log / 操作记录", children: <AuditLogRecords auditLog={auditLog} filters={auditLogFilters} onSearch={onSearchAuditLog} /> }
         ]}
