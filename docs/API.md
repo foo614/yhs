@@ -33,6 +33,30 @@ http://localhost:5000
 
 Capture, callback hosting and sending require separate explicit configuration. Approved customer templates, sender evidence and positive daily/monthly limits are required before the worker starts. Receipt notices send a safe reference only, not a document or public download URL. Legacy drafts without a dedicated template reference stay held. See [dispatch configuration and activation boundary](plans/2026-09-27-foo-40-dispatch.md). No production switch is enabled by deployment.
 
+## Staff WhatsApp sales commands
+
+These commands use the verified staff assistant callback and current account checks, independently of customer notifications. They do not grant access to the full vehicle, loan or delivery workboards. English command words work with English or Bahasa Malaysia replies.
+
+| Command | Read-only answer |
+| --- | --- |
+| `help` / `menu` | Command examples and connection controls. |
+| `stock toyota vios under 50000 page 1` | Public available stock matching every search word, asking price at or below RM50,000, five results per page. Budget and page are optional; unset prices are excluded when a budget is provided. |
+| `vehicle ABC1234` | Internal vehicle status, asking price and stock location. |
+| `share ABC1234` | Customer-safe text for a management-approved, public, available listing; returns to the employee for manual forwarding. |
+| `loan ABC1234` | Current confirmed buyer's loan stage, required document categories and next team action. Historical buyers are excluded and ambiguous applications require Loan-team clarification. |
+| `delivery ABC1234` | Planned/scheduled or actual handover date plus preparation blockers. Preparation completeness is not release authorization. |
+| `deliveries today` / `deliveries tomorrow` / `deliveries next 7 page 2` | Paged scheduled handovers, Malaysia dates and times, excluding preliminary/cancelled/released schedules. |
+| `language en` / `language ms` | Saved reply-language preference. |
+| `test` / `stop` | Check staff connection / disconnect it. Reconnection requires a new verified link. |
+
+Pages are explicit and stateless; send the continuation command shown in the reply. Results reflect the current records at each query, so changes to stock or schedules can change later pages. Finance commands remain unavailable.
+
+`WhatsAppAssistant:PublicSiteUrl` is an optional HTTPS public website origin used for listing links. Invalid or absent configuration yields no guessed URL. This value is not a webhook or API URL. Existing sender/identity configuration and enable switches remain unchanged.
+
+Bounded invalid text from verified staff receives command guidance at most once per employee per minute, within existing daily quotas. Only an allowlisted command name is retained for recovery; raw unrecognised text is not persisted or echoed. Unbound senders receive no business replies. At the daily quota, further replies remain suppressed.
+
+Loan and delivery summaries omit customer identity, private reasons, document names/references and financial amounts. Delivery preparation uses the existing document-ownership and expiry rules; the Delivery team must still verify all release gates, assignment and authorization in its protected workboard.
+
 ## Authentication
 
 ASP.NET Identity cookie authentication is mounted under `/api/auth`.

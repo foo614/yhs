@@ -147,6 +147,194 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     [Fact]
+    public async Task Stock_search_uses_all_words_and_pages_with_inclusive_budget_and_price_on_request()
+    {
+        await using var fixture = await Fixture.Create();
+        var vehicles = Enumerable.Range(1, 7).Select(index => new Vehicle
+        {
+            Id = Guid.NewGuid(), PlateNumber = $"P{index:000}", Year = 2020 + index, Make = "Toyota", Model = "Vios",
+            SellingPrice = index switch { 1 => 50000m, 2 => 49999.99m, 3 => 0m, _ => 51000m },
+            Status = VehicleStatus.Available, IsPublic = true, BossConfirmed = true
+        }).ToArray();
+        fixture.Db.Vehicles.AddRange(vehicles);
+        fixture.Db.Vehicles.Add(new Vehicle { PlateNumber = "CITY01", Year = 2022, Make = "Toyota", Model = "City", SellingPrice = 40000, Status = VehicleStatus.Available, IsPublic = true, BossConfirmed = true });
+        await fixture.Db.SaveChangesAsync();
+
+        var budget = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("stock Toyota Vios under 50000 page 1"));
+        var budgetReply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, budget, "en_US", fixture.Now);
+        Assert.Contains("1-2 of 2", budgetReply);
+        Assert.Contains("RM 50,000", budgetReply);
+        Assert.Contains("RM 49,999.99", budgetReply);
+        Assert.DoesNotContain("P003", budgetReply);
+
+        var first = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("stock Toyota Vios"));
+        var firstReply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, first, "en_US", fixture.Now);
+        Assert.Contains("1-5 of 7", firstReply);
+        Assert.Contains("Price on request", firstReply);
+        Assert.Contains("Next: stock Toyota Vios page 2", firstReply);
+
+        var second = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("stock Toyota Vios page 2"));
+        var secondReply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, second, "en_US", fixture.Now);
+        Assert.Contains("6-7 of 7", secondReply);
+        Assert.Contains("P006", secondReply);
+        Assert.Contains("P007", secondReply);
+        Assert.DoesNotContain("Next:", secondReply);
+    }
+
+    [Fact]
+    public async Task Vehicle_and_share_show_safe_sales_details_and_validate_public_listing_origin()
+    {
+        await using var fixture = await Fixture.Create();
+        var vehicle = new Vehicle
+        {
+            Id = Guid.NewGuid(), PlateNumber = "SAFE123", Year = 2021, Make = "Toyota", Model = "Vios", SellingPrice = 55000,
+            PurchasePrice = 777777, StockLocation = "PRIVATE-BAY", Status = VehicleStatus.Available, IsPublic = true, BossConfirmed = true,
+            CustomerId = Guid.NewGuid()
+        };
+        fixture.Db.Vehicles.Add(vehicle);
+        fixture.Db.Vehicles.AddRange(
+            new Vehicle { PlateNumber = "PRIVATE1", Year = 2021, Make = "Toyota", Model = "Vios", SellingPrice = 50000, Status = VehicleStatus.Available, IsPublic = false, BossConfirmed = true },
+            new Vehicle { PlateNumber = "SOLD001", Year = 2021, Make = "Toyota", Model = "Vios", SellingPrice = 50000, Status = VehicleStatus.Sold, IsPublic = true, BossConfirmed = true },
+            new Vehicle { PlateNumber = "UNCONF1", Year = 2021, Make = "Toyota", Model = "Vios", SellingPrice = 50000, Status = VehicleStatus.Available, IsPublic = true, BossConfirmed = false });
+        await fixture.Db.SaveChangesAsync();
+
+        var internalReply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("vehicle", "SAFE123"), "en_US", fixture.Now);
+        Assert.Contains("RM 55,000", internalReply);
+        Assert.Contains("PRIVATE-BAY", internalReply);
+        Assert.DoesNotContain("777777", internalReply);
+
+        var shareReply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("share", "SAFE123"), "en_US", fixture.Now, publicSiteUrl: "https://sales.example.com");
+        Assert.Contains("2021 Toyota Vios", shareReply);
+        Assert.Contains("RM 55,000", shareReply);
+        Assert.Contains($"https://sales.example.com/vehicles/{vehicle.Id:D}", shareReply);
+        Assert.DoesNotContain("PRIVATE-BAY", shareReply);
+        Assert.DoesNotContain("777777", shareReply);
+        var malayShare = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("share", "SAFE123"), "ms", fixture.Now, publicSiteUrl: "https://sales.example.com");
+        Assert.Contains("Harga jualan", malayShare);
+        foreach (var plate in new[] { "PRIVATE1", "SOLD001", "UNCONF1" })
+            Assert.Contains("No matching public vehicle", await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("share", plate), "en_US", fixture.Now));
+
+        var invalid = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("share", "SAFE123"), "en_US", fixture.Now, publicSiteUrl: "http://localhost:3000");
+        Assert.Contains("unavailable", invalid, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("localhost", invalid, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Deliveries_support_tomorrow_only_and_include_the_last_page()
+    {
+        await using var fixture = await Fixture.Create();
+        var today = BusinessClock.SingaporeDate(DateTimeOffset.FromUnixTimeSeconds(fixture.Now));
+        var vehicle = new Vehicle { PlateNumber = "DEL001", Year = 2022, Make = "Toyota", Model = "Vios", Status = VehicleStatus.Available };
+        fixture.Db.Vehicles.Add(vehicle);
+        fixture.Db.DeliverySchedules.Add(new DeliverySchedule { VehicleId = vehicle.Id, ScheduledDate = today, Status = DeliveryStatus.Scheduled });
+        for (var index = 0; index < 6; index++)
+        {
+            var next = new Vehicle { PlateNumber = $"TMR{index:000}", Year = 2020, Make = "Honda", Model = "City", Status = VehicleStatus.Available };
+            fixture.Db.Vehicles.Add(next);
+            fixture.Db.DeliverySchedules.Add(new DeliverySchedule { VehicleId = next.Id, ScheduledDate = today.AddDays(1), ScheduledTime = new TimeOnly(9 + index, 0), Status = DeliveryStatus.Scheduled });
+        }
+        await fixture.Db.SaveChangesAsync();
+
+        var pageOne = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("deliveries", "tomorrow page 1"), "en_US", fixture.Now);
+        Assert.Contains("1-5 of 6", pageOne);
+        Assert.DoesNotContain("DEL001", pageOne);
+        Assert.Contains("Next: deliveries tomorrow page 2", pageOne);
+
+        var pageTwo = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("deliveries", "tomorrow page 2"), "en_US", fixture.Now);
+        Assert.Contains("6-6 of 6", pageTwo);
+        Assert.Contains("TMR005", pageTwo);
+        Assert.DoesNotContain("Next:", pageTwo);
+    }
+
+    [Theory]
+    [InlineData("stock under 0")]
+    [InlineData("stock under fifty")]
+    [InlineData("stock under 50000 page 0")]
+    [InlineData("stock page two")]
+    [InlineData("deliveries tomorrow page 0")]
+    [InlineData("next")]
+    public void Sales_command_filters_reject_invalid_price_and_bare_continuation(string command) => Assert.Null(WhatsAppStaffQueries.Parse(command));
+
+    [Fact]
+    public void Menu_alias_maps_to_help_and_delivery_pages_are_canonical()
+    {
+        Assert.Equal("help", Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("menu")).Name);
+        Assert.Equal("next 7 page 2", Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("deliveries next 7 page 2")).Argument);
+        Assert.Equal("page 2", Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("stock page 2")).Argument);
+    }
+
+    [Fact]
+    public async Task Verified_staff_mistype_gets_bounded_usage_without_storing_raw_text()
+    {
+        await using var fixture = await Fixture.Create();
+        Assert.True(await fixture.Verify(await fixture.Issue()));
+        await fixture.DispatchAccepted();
+        using var payload = fixture.Payload(("vehicle", fixture.Now));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, payload.RootElement, fixture.Now));
+        var request = await fixture.Db.WhatsAppStaffRequests.AsNoTracking().SingleAsync(item => item.Intent == "usage");
+        Assert.Equal("usage", request.Intent);
+        Assert.Equal("vehicle", request.Argument);
+        Assert.DoesNotContain("vehicle\n", request.Argument);
+        var reply = await fixture.DispatchAccepted();
+        Assert.Contains("vehicle ABC1234", reply);
+    }
+
+    [Fact]
+    public async Task Recovery_never_replies_before_binding_or_after_revocation()
+    {
+        await using var fixture = await Fixture.Create();
+        using var unbound = fixture.Payload(("what is PRIVATE-RAW", fixture.Now));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, unbound.RootElement, fixture.Now));
+        Assert.Empty(await fixture.Db.WhatsAppStaffRequests.AsNoTracking().ToListAsync());
+
+        Assert.True(await fixture.Verify(await fixture.Issue()));
+        await fixture.DispatchAccepted();
+        await WhatsAppStaffBindings.RevokeAsync(fixture.Db, "staff", "test", fixture.Now + 1);
+        using var revoked = fixture.Payload(("what is PRIVATE-RAW", fixture.Now + 1));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, revoked.RootElement, fixture.Now + 1));
+        Assert.Empty(await fixture.Db.WhatsAppStaffRequests.AsNoTracking().Where(item => item.Intent == "usage").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Bound_unknown_text_is_recovered_without_persisting_or_echoing_raw_content()
+    {
+        await using var fixture = await Fixture.Create();
+        Assert.True(await fixture.Verify(await fixture.Issue()));
+        await fixture.DispatchAccepted();
+        using var payload = fixture.Payload(("please reveal PRIVATE-RAW", fixture.Now));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, payload.RootElement, fixture.Now));
+        var request = await fixture.Db.WhatsAppStaffRequests.AsNoTracking().SingleAsync(item => item.Intent == "usage");
+        Assert.Equal("", request.Argument);
+        Assert.DoesNotContain("PRIVATE-RAW", JsonSerializer.Serialize(request));
+        var reply = await fixture.DispatchAccepted();
+        Assert.DoesNotContain("PRIVATE-RAW", reply);
+        Assert.Contains("help", reply, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Recovery_is_rate_limited_per_staff_for_one_minute()
+    {
+        await using var fixture = await Fixture.Create();
+        Assert.True(await fixture.Verify(await fixture.Issue()));
+        await fixture.DispatchAccepted();
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, new("usage", ""), "usage-one", fixture.Now));
+        Assert.False(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, new("usage", ""), "usage-two", fixture.Now + 1));
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, new("usage", ""), "usage-three", fixture.Now + 61));
+        var requests = await fixture.Db.WhatsAppStaffRequests.AsNoTracking().Where(item => item.Intent == "usage").ToListAsync();
+        Assert.Equal(2, requests.Count);
+    }
+
+    [Fact]
+    public async Task Recovery_remains_inside_the_staff_daily_quota()
+    {
+        await using var fixture = await Fixture.Create(limit: 2);
+        Assert.True(await fixture.Verify(await fixture.Issue()));
+        await fixture.DispatchAccepted();
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, new("usage", ""), "daily-one", fixture.Now));
+        Assert.False(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, new("usage", ""), "daily-two", fixture.Now + 61));
+    }
+
+    [Fact]
     public void Delivery_dates_distinguish_planned_cancelled_and_actual_release()
     {
         var date = new DateOnly(2026, 10, 2);

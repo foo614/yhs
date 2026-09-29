@@ -22,7 +22,8 @@ public sealed class WhatsAppAssistantOptions
             PhoneNumberId = Value("PhoneNumberId"), BusinessAccountId = Value("BusinessAccountId"),
             GraphApiVersion = Value("GraphApiVersion"), AccessToken = Value("AccessToken"), AppSecret = Value("AppSecret"),
             VerifyToken = Value("VerifyToken"), PerStaffDailyLimit = assistant.GetValue("PerStaffDailyLimit", 100),
-            WorkspaceDailyLimit = assistant.GetValue("WorkspaceDailyLimit", 1000)
+            WorkspaceDailyLimit = assistant.GetValue("WorkspaceDailyLimit", 1000),
+            PublicSiteUrl = assistant["PublicSiteUrl"] ?? ""
         };
     }
     public bool Enabled { get; init; }
@@ -37,6 +38,7 @@ public sealed class WhatsAppAssistantOptions
     public string VerifyToken { get; init; } = "";
     public int PerStaffDailyLimit { get; init; } = 100;
     public int WorkspaceDailyLimit { get; init; } = 1000;
+    public string PublicSiteUrl { get; init; } = "";
     public bool Ready => Enabled && WebhookEnabled &&
         Regex.IsMatch(PhoneNumberId, @"\A[0-9]{1,32}\z") && Regex.IsMatch(BusinessAccountId, @"\A[0-9]{1,32}\z") &&
         Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z") && AppSecret.Length is >= 32 and <= 256 && VerifyToken.Length is >= 32 and <= 256 &&

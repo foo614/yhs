@@ -51,7 +51,8 @@ public static class WhatsAppStaffWebhook
                     var id = String(message, "id");
                     if (recipient is null || !options.Allows(recipient) || id is not { Length: > 0 and <= 512 } ||
                         String(message, "type") != "text" || !Object(message, "text", out var text)) continue;
-                    var intent = WhatsAppStaffQueries.Parse(String(text, "body") ?? "");
+                    var body = String(text, "body") ?? "";
+                    var intent = WhatsAppStaffQueries.Parse(body) ?? WhatsAppStaffCommandHelp.RecoveryIntent(body);
                     if (intent is null) continue;
                     var validTime = long.TryParse(String(message, "timestamp"), NumberStyles.None, CultureInfo.InvariantCulture, out var timestamp) && timestamp <= now + 30;
                     var fresh = validTime && timestamp >= now - 300;

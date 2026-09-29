@@ -17,12 +17,13 @@ public static class WhatsAppStaffQueries
         var parts = text.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
         var name = parts[0].ToLowerInvariant();
         var argument = parts.Length == 2 ? parts[1].Trim() : "";
-        if (name is "help" or "test" or "stop" or "berhenti") return argument.Length == 0 ? new(name == "berhenti" ? "stop" : name) : null;
+        if (name is "help" or "menu" or "test" or "stop" or "berhenti")
+            return argument.Length == 0 ? new(name is "menu" or "help" ? "help" : name == "berhenti" ? "stop" : name) : null;
         if (name == "link") return Regex.IsMatch(argument, @"\A[A-Fa-f0-9]{32}\z") ? new(name, argument.ToUpperInvariant()) : null;
         if (name == "language") return argument.ToLowerInvariant() switch { "en" => new(name, "en_US"), "ms" => new(name, "ms"), _ => null };
-        if (name == "stock") return argument.Length <= 80 ? new(name, argument) : null;
-        if (name == "deliveries") return argument.ToLowerInvariant() switch { "today" => new(name, "today"), "next7" or "next 7" => new(name, "next 7"), _ => null };
-        if (name is "vehicle" or "loan" or "delivery" or "collections" or "settlement")
+        if (name == "stock") return WhatsAppStaffSalesQueries.TryParseStock(argument, out var stock) ? new(name, stock.CommandArgument) : null;
+        if (name == "deliveries") return WhatsAppStaffSalesQueries.TryParseDeliveries(argument, out var deliveries) ? new(name, deliveries.CommandArgument) : null;
+        if (name is "vehicle" or "share" or "loan" or "delivery" or "collections" or "settlement")
         {
             var plate = argument.ToUpperInvariant().Replace(" ", "").Replace("-", "");
             return Regex.IsMatch(plate, @"\A[A-Z0-9]{1,20}\z") ? new(name, plate) : null;
@@ -40,11 +41,7 @@ public static class WhatsAppStaffQueries
         });
 
     public static string Text(string language, string english, string malay) => language == "ms" ? malay : english;
-    private static string Clean(string value)
-    {
-        var cleaned = Regex.Replace(value, @"[\p{C}\s]+", " ").Trim();
-        return cleaned[..Math.Min(80, cleaned.Length)];
-    }
+    private static string Clean(string value) => WhatsAppStaffSalesQueries.Clean(value);
     private static string Label(WhatsAppVehicleSummary vehicle) => $"{Clean(vehicle.Plate)} | {vehicle.Year} {Clean(vehicle.Make)} {Clean(vehicle.Model)}";
     private static string Status(string value, string language) => language == "ms" ? value switch
     {
@@ -56,7 +53,8 @@ public static class WhatsAppStaffQueries
         _ => value
     } : Regex.Replace(value, "([a-z])([A-Z])", "$1 $2");
 
-    public static async Task<string> ReplyAsync(AppDbContext db, WhatsAppStaffIntent intent, string language, long now, CancellationToken ct = default)
+    public static async Task<string> ReplyAsync(AppDbContext db, WhatsAppStaffIntent intent, string language, long now,
+        CancellationToken ct = default, string? publicSiteUrl = null)
     {
         var bm = language == "ms";
         var culture = CultureInfo.GetCultureInfo(bm ? "ms-MY" : "en-MY");
@@ -64,58 +62,102 @@ public static class WhatsAppStaffQueries
         if (intent.Name == "test") return Text(language, "YS Heng staff connection is working.", "Sambungan kakitangan YS Heng berfungsi.");
         if (intent.Name == "language") return Text(language, "Assistant language set to English.", "Bahasa pembantu ditetapkan kepada Bahasa Malaysia.");
         if (intent.Name == "help") return Text(language,
-            "YS Heng staff commands\nhelp - Show this menu\nstock [search] - Public stock\nvehicle <plate> - Vehicle status\nloan <plate> - Loan progress\ndelivery <plate> - Delivery date and status\ndeliveries today / deliveries next 7 - Upcoming handovers\nlanguage en / language ms - Change language\ntest - Check connection\nstop - Disconnect WhatsApp\n\nQueries are read-only. Finance queries are not yet available.",
-            "Arahan kakitangan YS Heng\nhelp - Paparkan menu\nstock [carian] - Stok awam\nvehicle <plat> - Status kenderaan\nloan <plat> - Kemajuan pinjaman\ndelivery <plat> - Tarikh dan status penyerahan\ndeliveries today / deliveries next 7 - Jadual penyerahan\nlanguage en / language ms - Tukar bahasa\ntest - Semak sambungan\nstop - Putuskan sambungan WhatsApp\n\nPertanyaan baca sahaja. Pertanyaan kewangan belum tersedia.");
+            "YS Heng staff commands\nhelp / menu - Show this menu\nstock [words] [under 50000] [page N] - Public stock\nvehicle <plate> - Status, asking price and stock location\nshare <plate> - Share-safe vehicle details\nloan <plate> - Loan progress and next action\ndelivery <plate> - Delivery readiness and next action\ndeliveries today / tomorrow / next 7 [page N] - Upcoming handovers\nlanguage en / language ms - Change language\ntest - Check connection\nstop - Disconnect WhatsApp\n\nExamples: stock Toyota Vios under 50000 page 1; share ABC1234; deliveries tomorrow page 1\nThe under amount is inclusive. Queries are read-only. Finance queries are not available here.",
+            "Arahan kakitangan YS Heng\nhelp / menu - Paparkan menu\nstock [kata carian] [under 50000] [page N] - Stok awam\nvehicle <plat> - Status, harga jualan dan lokasi stok\nshare <plat> - Butiran kenderaan selamat untuk dikongsi\nloan <plat> - Kemajuan pinjaman dan tindakan seterusnya\ndelivery <plat> - Persediaan penyerahan dan tindakan seterusnya\ndeliveries today / tomorrow / next 7 [page N] - Jadual penyerahan\nlanguage en / language ms - Tukar bahasa\ntest - Semak sambungan\nstop - Putuskan sambungan WhatsApp\n\nContoh: stock Toyota Vios under 50000 page 1; share ABC1234; deliveries tomorrow page 1\nJumlah under adalah inklusif. Pertanyaan baca sahaja. Pertanyaan kewangan tidak tersedia di sini.");
         if (intent.Name is "collections" or "settlement" or "profit" or "dashboard")
             return Text(language, "This finance query is not available yet.", "Pertanyaan kewangan ini belum tersedia.");
         var vehicles = db.Vehicles.AsNoTracking();
         if (intent.Name == "stock")
         {
-            var search = intent.Argument.ToUpperInvariant();
+            if (!WhatsAppStaffSalesQueries.TryParseStock(intent.Argument, out var filter))
+                return Text(language, "Unsupported stock query. Send help.", "Pertanyaan stok tidak disokong. Hantar help.");
             var available = vehicles.Where(item => item.BossConfirmed && item.IsPublic && item.Status == VehicleStatus.Available);
-            if (search.Length > 0) available = available.Where(item => item.PlateNumber.ToUpper().Contains(search) || item.Make.ToUpper().Contains(search) || item.Model.ToUpper().Contains(search));
-            var rows = await available.OrderBy(item => item.PlateNumber).Take(5).Select(item => new WhatsAppVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.Status)).ToListAsync(ct);
-            return rows.Count == 0 ? Text(language, "No matching public stock.", "Tiada stok awam yang sepadan.") :
-                Text(language, "Public stock (up to 5):", "Stok awam (sehingga 5):") + "\n" + string.Join("\n", rows.Select(Label));
+            var filtered = WhatsAppStaffSalesQueries.ApplyStockFilter(available, filter);
+            var count = await filtered.CountAsync(ct);
+            var rows = await filtered.OrderBy(item => item.PlateNumber).ThenBy(item => item.Id)
+                .Skip((filter.Page - 1) * WhatsAppStockFilter.PageSize).Take(WhatsAppStockFilter.PageSize)
+                .Select(item => new WhatsAppVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.Status, item.SellingPrice, item.StockLocation))
+                .ToListAsync(ct);
+            if (rows.Count == 0)
+                return count == 0 ? Text(language, "No matching public stock.", "Tiada stok awam yang sepadan.") :
+                    Text(language, $"No public stock on page {filter.Page}. There are {count} matching vehicles.", $"Tiada stok awam pada halaman {filter.Page}. Terdapat {count} kenderaan yang sepadan.");
+            var first = (filter.Page - 1) * WhatsAppStockFilter.PageSize + 1;
+            var last = first + rows.Count - 1;
+            var reply = Text(language, $"Public stock ({first}-{last} of {count}):", $"Stok awam ({first}-{last} daripada {count}):") + "\n" +
+                string.Join("\n", rows.Select(item => StockLabel(item, language)));
+            if (last < count)
+                reply += filter.Page < 1000
+                    ? "\n" + Text(language, "Next: ", "Seterusnya: ") + "stock " + new WhatsAppStockFilter(filter.Search, filter.MaximumPrice, filter.Page + 1).CommandArgument
+                    : "\n" + Text(language, "More matches remain; narrow the search.", "Masih ada padanan; kecilkan carian.");
+            return reply;
         }
         if (intent.Name == "deliveries")
         {
+            if (!WhatsAppStaffSalesQueries.TryParseDeliveries(intent.Argument, out var filter))
+                return Text(language, "Unsupported deliveries query. Send help.", "Pertanyaan penyerahan tidak disokong. Hantar help.");
             var today = BusinessClock.SingaporeDate(DateTimeOffset.FromUnixTimeSeconds(now));
-            var end = intent.Argument == "today" ? today : today.AddDays(6);
-            var query = db.DeliverySchedules.AsNoTracking().Where(item => item.ScheduledDate >= today && item.ScheduledDate <= end &&
+            var end = filter.Period switch
+            {
+                "today" => today,
+                "tomorrow" => today.AddDays(1),
+                _ => today.AddDays(6)
+            };
+            var start = filter.Period == "tomorrow" ? today.AddDays(1) : today;
+            var query = db.DeliverySchedules.AsNoTracking().Where(item => item.ScheduledDate >= start && item.ScheduledDate <= end &&
                 item.Status != DeliveryStatus.BookingInspection && item.Status != DeliveryStatus.Cancelled && item.Status != DeliveryStatus.Released);
             var summaries = query.Join(vehicles, delivery => delivery.VehicleId, vehicle => vehicle.Id, (delivery, vehicle) => new
                 { delivery.Id, vehicle.PlateNumber, delivery.ScheduledDate, delivery.ScheduledTime, delivery.Status });
             var count = await summaries.CountAsync(ct);
-            var rows = await summaries.OrderBy(item => item.ScheduledDate).ThenBy(item => item.ScheduledTime).ThenBy(item => item.Id).Take(5).ToListAsync(ct);
-            if (rows.Count == 0) return Text(language, "No scheduled handovers in this period.", "Tiada penyerahan dijadualkan dalam tempoh ini.");
-            return Text(language, $"Scheduled handovers ({rows.Count} of {count}, Malaysia time):", $"Penyerahan dijadualkan ({rows.Count} daripada {count}, waktu Malaysia):") + "\n" +
+            var rows = await summaries.OrderBy(item => item.ScheduledDate).ThenBy(item => item.ScheduledTime).ThenBy(item => item.Id)
+                .Skip((filter.Page - 1) * WhatsAppDeliveryFilter.PageSize).Take(WhatsAppDeliveryFilter.PageSize).ToListAsync(ct);
+            if (rows.Count == 0)
+                return count == 0 ? Text(language, "No scheduled handovers in this period.", "Tiada penyerahan dijadualkan dalam tempoh ini.") :
+                    Text(language, $"No handovers on page {filter.Page}. There are {count} matching handovers.", $"Tiada penyerahan pada halaman {filter.Page}. Terdapat {count} penyerahan yang sepadan.");
+            var first = (filter.Page - 1) * WhatsAppDeliveryFilter.PageSize + 1;
+            var last = first + rows.Count - 1;
+            var reply = Text(language, $"Scheduled handovers ({first}-{last} of {count}, Malaysia time):", $"Penyerahan dijadualkan ({first}-{last} daripada {count}, waktu Malaysia):") + "\n" +
                 string.Join("\n", rows.Select(item => $"{Clean(item.PlateNumber)} | {item.ScheduledDate.ToString("dd MMM yyyy", culture)} | {item.ScheduledTime?.ToString("HH:mm", culture) ?? Text(language, "Time not set", "Masa belum ditetapkan")} | {Status(item.Status.ToString(), language)}"));
+            if (last < count)
+                reply += filter.Page < 1000
+                    ? "\n" + Text(language, "Next: ", "Seterusnya: ") + "deliveries " + new WhatsAppDeliveryFilter(filter.Period, filter.Page + 1).CommandArgument
+                    : "\n" + Text(language, "More handovers remain; narrow the period.", "Masih ada penyerahan; kecilkan tempoh.");
+            return reply;
+        }
+        if (intent.Name == "share")
+        {
+            var shared = await vehicles.Where(item => item.BossConfirmed && item.IsPublic && item.Status == VehicleStatus.Available &&
+                    item.PlateNumber.ToUpper().Replace(" ", "").Replace("-", "") == intent.Argument)
+                .Select(item => new WhatsAppPublicVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.SellingPrice))
+                .Take(2).ToListAsync(ct);
+            if (shared.Count == 0) return Text(language, "No matching public vehicle.", "Tiada kenderaan awam yang sepadan.");
+            if (shared.Count > 1) return Text(language, "Multiple public vehicles match. Check the vehicle workboard.", "Beberapa kenderaan awam sepadan. Semak papan kerja kenderaan.");
+            var vehicle = shared[0];
+            var listing = WhatsAppStaffSalesQueries.TryBuildPublicListingUrl(publicSiteUrl, vehicle.Id, out var url)
+                ? Text(language, "Public listing: ", "Senarai awam: ") + url
+                : Text(language, "Public listing link is unavailable.", "Pautan senarai awam tidak tersedia.");
+            return Text(language, "Share-ready vehicle\n", "Kenderaan sedia untuk dikongsi\n") +
+                $"{Clean(vehicle.Plate)} | {vehicle.Year} {Clean(vehicle.Make)} {Clean(vehicle.Model)}\n" +
+                Text(language, "Asking price: ", "Harga jualan: ") + WhatsAppStaffSalesQueries.Price(vehicle.SellingPrice, language) + "\n" + listing;
         }
         var matches = await vehicles.Where(item => item.PlateNumber.ToUpper().Replace(" ", "").Replace("-", "") == intent.Argument).Take(2)
-            .Select(item => new WhatsAppVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.Status)).ToListAsync(ct);
+            .Select(item => new WhatsAppVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.Status, item.SellingPrice, item.StockLocation)).ToListAsync(ct);
         if (matches.Count == 0) return Text(language, "No matching vehicle.", "Tiada kenderaan yang sepadan.");
         if (matches.Count > 1) return Text(language, "Multiple vehicles match. Check the vehicle workboard.", "Beberapa kenderaan sepadan. Semak papan kerja kenderaan.");
         var found = matches[0];
         var heading = Label(found) + "\n";
-        if (intent.Name == "vehicle") return heading + "Status: " + Status(found.Status.ToString(), language);
+        if (intent.Name == "vehicle") return heading + "Status: " + Status(found.Status.ToString(), language) + "\n" +
+            Text(language, "Asking price: ", "Harga jualan: ") + WhatsAppStaffSalesQueries.Price(found.SellingPrice, language) + "\n" +
+            Text(language, "Stock location: ", "Lokasi stok: ") + WhatsAppStaffSalesQueries.Location(found.StockLocation, language);
         if (intent.Name == "loan")
-        {
-            var loans = await db.LoanApplications.AsNoTracking().Where(item => item.VehicleId == found.Id).Take(2)
-                .Select(item => new { item.Status, item.SubmittedAt }).ToListAsync(ct);
-            if (loans.Count == 0) return heading + Text(language, "No loan record.", "Tiada rekod pinjaman.");
-            if (loans.Count > 1) return heading + Text(language, "Multiple loan records. Check the loan workboard.", "Beberapa rekod pinjaman. Semak papan kerja pinjaman.");
-            return heading + "Status: " + Status(loans[0].Status.ToString(), language) + (loans[0].SubmittedAt is { } date
-                ? "\n" + Text(language, "Submitted: ", "Dihantar: ") + date.ToString("dd MMM yyyy", culture) : "");
-        }
+            return heading + await WhatsAppStaffProgressQueries.ReplyLoanAsync(db, found.Id, language, ct);
         if (intent.Name == "delivery")
-        {
-            var schedules = await db.DeliverySchedules.AsNoTracking().Where(item => item.VehicleId == found.Id)
-                .Select(item => new WhatsAppDeliverySummary(item.ScheduledDate, item.ScheduledTime, item.Status, item.ReleasedAt)).ToListAsync(ct);
-            return heading + FormatDelivery(schedules, language);
-        }
+            return heading + await WhatsAppStaffProgressQueries.ReplyDeliveryAsync(db, found.Id, language, now, ct);
         return Text(language, "Unsupported query. Send help.", "Pertanyaan tidak disokong. Hantar help.");
     }
+
+    private static string StockLabel(WhatsAppVehicleSummary vehicle, string language) =>
+        $"{Clean(vehicle.Plate)} | {vehicle.Year} {Clean(vehicle.Make)} {Clean(vehicle.Model)} | " +
+        Text(language, "Asking price: ", "Harga jualan: ") + WhatsAppStaffSalesQueries.Price(vehicle.SellingPrice, language);
 
     public static string FormatDelivery(IReadOnlyList<WhatsAppDeliverySummary> rows, string language)
     {
@@ -139,5 +181,6 @@ public static class WhatsAppStaffQueries
     }
 }
 
-public sealed record WhatsAppVehicleSummary(Guid Id, string Plate, int Year, string Make, string Model, VehicleStatus Status);
+public sealed record WhatsAppVehicleSummary(Guid Id, string Plate, int Year, string Make, string Model, VehicleStatus Status, decimal SellingPrice = 0, string StockLocation = "");
+public sealed record WhatsAppPublicVehicleSummary(Guid Id, string Plate, int Year, string Make, string Model, decimal SellingPrice);
 public sealed record WhatsAppDeliverySummary(DateOnly ScheduledDate, TimeOnly? ScheduledTime, DeliveryStatus Status, DateTime? ReleasedAt);
