@@ -2438,7 +2438,9 @@ backOffice.MapGet("/payments/export-autocount", async (DateOnly? from, DateOnly?
         await db.CollectionTransactions.AsNoTracking().ToListAsync(),
         await db.Suppliers.AsNoTracking().ToListAsync(),
         await db.DeliveryAccountingCharges.AsNoTracking().ToListAsync(),
-        await db.Owners.AsNoTracking().ToListAsync()));
+        await db.Owners.AsNoTracking().ToListAsync(),
+        await db.RepairReceipts.AsNoTracking().ToListAsync(),
+        await db.RepairReceiptItems.AsNoTracking().ToListAsync()));
 
     var periodLabel = AutoCountDateRules.PeriodLabel(from, to);
     ApiAudit.Add(db, context.User, "finance.autoCountExported", $"AutoCountExport[{periodLabel}]", Guid.Empty);

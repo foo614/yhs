@@ -1047,7 +1047,7 @@ export function FinancePage({
       link.download = `autocount-v2-${period}.xlsx`;
       link.click();
       URL.revokeObjectURL(url);
-      message.success("AutoCount Excel workbook exported for manual submission");
+      message.success("AutoCount Excel downloaded. Open PasteGuide, check codes and amounts, then paste one invoice at a time.");
     } catch (error) {
       message.error(humanizeApiError(error, "AutoCount workbook export failed. Please try again."));
     }
@@ -1725,7 +1725,7 @@ export function FinancePage({
         </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
-          <Alert type="info" showIcon message="Sales invoices bill customers. Receipts record collections. Seller payouts are under Settlement." />
+          <Alert type="info" showIcon message="Sales invoices bill customers. Receipts record collections. Seller payouts are under Settlement." description="Open PasteGuide in the AutoCount Excel. Fill the client account codes and check amounts, then paste each PI/RI/SI sheet once into an empty Purchase Invoice or Sales > Invoice draft. Copy purchase supplier reference numbers separately. Resolve blocked rows before entry." />
           {paymentLoadError && <Alert type="error" showIcon message="Finance records are unavailable" description={`${paymentLoadError} No demo or cached balances are shown.`} action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>} />}
           {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
           {financeFilters}
