@@ -283,3 +283,11 @@ and saved by the user. It does not prove the client's REFURBISHMENT Item
 configuration or saved purchase/sales examples. No additional invoice was
 saved by the agent after the user's successful save; the record remains in
 DEMO. No production code changed. Work is uncommitted, unmerged and undeployed.
+
+## Production release authorized - 3 October 2026
+
+The user explicitly requested immediate production release after reviewing
+DEMO evidence. Publish the scoped exporter change through current-main
+integration, independent review, protected PR CI/CodeQL, merge and the
+production workflow. Preserve the documented customer-code review, separate
+supplier reference paste and the limited scope of DEMO Save proof.
