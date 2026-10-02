@@ -291,3 +291,9 @@ DEMO evidence. Publish the scoped exporter change through current-main
 integration, independent review, protected PR CI/CodeQL, merge and the
 production workflow. Preserve the documented customer-code review, separate
 supplier reference paste and the limited scope of DEMO Save proof.
+
+Release review found and fixed a confirmed receipt header total conflict:
+RM189 receipt total with RM190 invoice/items previously produced a native
+paste sheet. Extended the existing mismatch theory, observed the new case
+fail, then blocked that source-total conflict. All 34 export tests pass on
+current-main integration. FinancePage tests: 29 passed; TypeScript passed.

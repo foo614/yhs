@@ -197,6 +197,7 @@ public static class AutoCountExcel
                 var invoiceLines = lines.Where(line => line[sales ? "SourceId" : "InvoiceSourceId"] == header["SourceId"]).ToList();
                 var problems = new List<string>();
                 if (decimal.Parse(header["Difference"], CultureInfo.InvariantCulture) != 0) problems.Add("Invoice total 跟明细不一样；先修正原始资料。");
+                if (header[RemarkHeader].Contains("Receipt total differs from supplier invoice total", StringComparison.Ordinal)) problems.Add("Receipt total 跟 supplier invoice total 不一样；先修正原始资料。");
                 if (string.IsNullOrWhiteSpace(header["InvoiceDate"])) problems.Add("缺少 invoice date。");
                 if (header["InvoiceNumber"].Length > 80 || header["CarPlate"].Length > 40) problems.Add("Invoice number / 车牌超过已验证的 Remark 长度；先核对。");
                 if (header[RemarkHeader].Contains("Inactive supplier", StringComparison.Ordinal)) problems.Add("Supplier 已 inactive。");

@@ -655,14 +655,18 @@ public sealed class AutoCountExportTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Inconsistent_invoice_or_receipt_amount_cannot_produce_a_paste_document(bool headerMismatch)
+    [InlineData("InvoiceTotal")]
+    [InlineData("ItemPrice")]
+    [InlineData("ReceiptTotal")]
+    public void Inconsistent_invoice_or_receipt_amount_cannot_produce_a_paste_document(string mismatch)
     {
         var input = RepairInput();
-        input = headerMismatch
-            ? input with { SupplierInvoices = [input.SupplierInvoices[0] with { Amount = 999m }] }
-            : input with { RepairReceiptItems = [input.RepairReceiptItems![0] with { UnitPrice = 999m }, input.RepairReceiptItems[1]] };
+        input = mismatch switch
+        {
+            "InvoiceTotal" => input with { SupplierInvoices = [input.SupplierInvoices[0] with { Amount = 999m }] },
+            "ReceiptTotal" => input with { RepairReceipts = [input.RepairReceipts![0] with { TotalAmount = 189m }] },
+            _ => input with { RepairReceiptItems = [input.RepairReceiptItems![0] with { UnitPrice = 999m }, input.RepairReceiptItems[1]] }
+        };
         using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(input)), ZipArchiveMode.Read);
         var document = Assert.Single(Rows(archive, "PasteGuide"), row => row["SourceId"] != "");
         Assert.Equal("BlockedForPaste", document["ReviewStatus"]);
