@@ -95,6 +95,37 @@ for pair in "PUBLIC_API_BASE_URL API_DOMAIN" "FRONTOFFICE_ORIGIN FRONTOFFICE_DOM
   [[ "$(read_env "$url_key")" == "$expected" ]] || failures+=("$url_key must equal $expected for Caddy TLS.")
 done
 
+assistant_enabled="$(read_env WHATSAPP_ASSISTANT_ENABLED)"
+assistant_webhook="$(read_env WHATSAPP_ASSISTANT_WEBHOOK_ENABLED)"
+for key in WHATSAPP_ASSISTANT_ENABLED WHATSAPP_ASSISTANT_WEBHOOK_ENABLED WHATSAPP_ASSISTANT_TEST_MODE; do
+  value="$(read_env "$key")"
+  [[ -z "$value" || "$value" =~ ^(true|false)$ ]] || failures+=("$key must be true or false.")
+done
+if [[ "$assistant_enabled" == "true" || "$assistant_webhook" == "true" ]]; then
+  [[ "$assistant_enabled" == "true" && "$assistant_webhook" == "true" ]] || failures+=("Staff assistant activation requires both ENABLED and WEBHOOK_ENABLED to be true.")
+  for key in WHATSAPP_ASSISTANT_PHONE_NUMBER_ID WHATSAPP_ASSISTANT_BUSINESS_ACCOUNT_ID; do
+    [[ "$(read_env "$key")" =~ ^[0-9]{1,32}$ ]] || failures+=("$key must be a numeric account ID.")
+  done
+  version="$(read_env WHATSAPP_ASSISTANT_GRAPH_API_VERSION)"
+  [[ "${version:-v25.0}" =~ ^v[0-9]{1,3}\.0$ ]] || failures+=("WHATSAPP_ASSISTANT_GRAPH_API_VERSION is invalid.")
+  for key in WHATSAPP_ASSISTANT_APP_SECRET WHATSAPP_ASSISTANT_VERIFY_TOKEN; do
+    value="$(read_env "$key")"
+    [[ "$value" =~ [^[:space:]] && ${#value} -ge 32 && ${#value} -le 256 ]] || failures+=("$key must contain 32 to 256 characters.")
+  done
+  value="$(read_env WHATSAPP_ASSISTANT_ACCESS_TOKEN)"
+  [[ -n "$value" && ${#value} -le 4096 && ! "$value" =~ [[:space:]] ]] || failures+=("WHATSAPP_ASSISTANT_ACCESS_TOKEN is required and must not contain whitespace.")
+  if [[ "$(read_env WHATSAPP_ASSISTANT_TEST_MODE)" != "false" ]]; then
+    [[ "$(read_env WHATSAPP_ASSISTANT_TEST_RECIPIENT)" =~ ^[1-9][0-9]{7,14}$ ]] || failures+=("WHATSAPP_ASSISTANT_TEST_RECIPIENT is required in test mode.")
+  fi
+  for quota in "WHATSAPP_ASSISTANT_PER_STAFF_DAILY_LIMIT 10000" "WHATSAPP_ASSISTANT_WORKSPACE_DAILY_LIMIT 100000"; do
+    read -r key maximum <<< "$quota"
+    value="$(read_env "$key")"
+    if [[ -n "$value" ]]; then
+      if [[ ! "$value" =~ ^[0-9]{1,6}$ ]] || (( 10#$value <= 0 || 10#$value > maximum )); then failures+=("$key must be positive and at most $maximum."); fi
+    fi
+  done
+fi
+
 if (( ${#failures[@]} > 0 )); then
   printf 'Production environment validation failed:\n' >&2
   printf -- '- %s\n' "${failures[@]}" >&2

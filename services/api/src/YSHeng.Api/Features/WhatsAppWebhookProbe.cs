@@ -8,6 +8,23 @@ namespace YSHeng.Api.Features;
 public static class WhatsAppWebhookProbe
 {
     public const int MaxBodyBytes = 262144;
+    public const string HelpReply = """
+        YS Heng WhatsApp test commands
+
+        help - Show this menu.
+        stock - List up to 5 public vehicles for sale.
+        stock <make, model or plate> - Search public stock. Example: stock toyota
+        test - Check the connection.
+        stop - Stop all test replies. Contact the operator to resume.
+
+        Notification previews (demo only):
+        language en / language ms - Choose English / Bahasa Malaysia for previews.
+        notify enquiry - Preview an enquiry acknowledgement.
+        notify receipt - Preview a receipt notification; no receipt is sent.
+        notify update - Preview a business update.
+
+        These commands use public stock and demo notifications only. Staff, loan and finance queries are not available.
+        """;
 
     public static bool VerifySignature(ReadOnlySpan<byte> body, string? signature, string appSecret)
     {
@@ -50,12 +67,13 @@ public static class WhatsAppWebhookProbe
                 var language = normalized switch { "language ms" => "ms", "language en" => "en_US", _ => null };
                 var template = normalized switch { "notify enquiry" => "enquiry_ack_v1", "notify receipt" => "receipt_ready_v1", "notify update" => "business_update_v1", _ => null };
                 var inventory = body.Equals("stock", StringComparison.OrdinalIgnoreCase) || body.StartsWith("stock ", StringComparison.OrdinalIgnoreCase);
+                var help = body.Equals("help", StringComparison.OrdinalIgnoreCase);
                 var query = inventory && body.StartsWith("stock ", StringComparison.OrdinalIgnoreCase) ? body[6..].Trim() : "";
                 if (query.Length > 80 || query.Any(char.IsControl)) continue;
-                if (!(inventory || language is not null || template is not null || body.Equals("test", StringComparison.OrdinalIgnoreCase))) continue;
+                if (!(inventory || help || language is not null || template is not null || body.Equals("test", StringComparison.OrdinalIgnoreCase))) continue;
                 if (!long.TryParse(Text(message, "timestamp"), NumberStyles.None, CultureInfo.InvariantCulture, out var seconds) ||
                     seconds < now.ToUnixTimeSeconds() - 300 || seconds > now.ToUnixTimeSeconds() + 30) continue;
-                commands.Add(new(id, false, inventory, query, language, template));
+                commands.Add(new(id, false, inventory, query, language, template, help));
             }
         }
         return commands;
@@ -105,5 +123,5 @@ public static class WhatsAppWebhookProbe
         item.ValueKind == JsonValueKind.Object && item.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Array ? value.EnumerateArray() : [];
 }
 
-public sealed record WhatsAppProbeCommand(string MessageId, bool OptOut, bool Inventory = false, string Query = "", string? Language = null, string? Template = null);
+public sealed record WhatsAppProbeCommand(string MessageId, bool OptOut, bool Inventory = false, string Query = "", string? Language = null, string? Template = null, bool Help = false);
 public sealed record WhatsAppProbeStatus(string MessageId, string Status);

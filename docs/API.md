@@ -15,6 +15,66 @@ http://localhost:5000
 | `GET` | `/health` | Public | Lightweight service health. |
 | `GET` | `/health/ready` | Public | Readiness check including PostgreSQL connectivity. |
 
+## WhatsApp notifications
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/whatsapp/queue` | BackOffice + BossAdmin | Masked paged queue; reports capture and validated sending readiness. Defaults disabled. |
+| `POST` | `/api/whatsapp/consent` | BackOffice + BossAdmin | Record explicit consent/withdrawal and BM/English preference with evidence and staff audit. |
+| `POST` | `/api/whatsapp/queue/{id}/retry` | BackOffice + BossAdmin | Requeue eligible known non-acceptance within remaining attempts, expiry, consent and approval gates; never unknown outcomes. |
+| `POST` | `/api/whatsapp/queue/{id}/suppress` | BackOffice + BossAdmin | Suppress held/queued/retry-scheduled work; cannot recall submitted messages. |
+| `GET` | `/api/whatsapp/webhook` | Verified callback token | Meta callback challenge; inactive by default. |
+| `POST` | `/api/whatsapp/webhook` | Raw-body HMAC + configured WABA/sender | Apply opt-outs and monotonic statuses for known provider IDs; body limit 256 KiB. |
+| `GET` | `/api/whatsapp/assistant/connection?staffUserId=...` | BackOffice + current account/roles | Read one's masked staff connection state. Only current BossAdmin may select another staff account. No-store response. |
+| `POST` | `/api/whatsapp/assistant/connection` | BackOffice + current account/roles | Confirm phone, language and consent; issue a ten-minute single-use `link <code>`. Does not change staff roles or passwords. |
+| `POST` | `/api/whatsapp/assistant/disconnect` | BackOffice + current account/roles | Confirm disconnect for self or, for BossAdmin, selected staff. Revoke binding/pending challenge and suppress queued queries. |
+| `GET` | `/api/whatsapp/assistant/webhook` | Separate verified callback token | Staff assistant challenge, independently disabled by default. |
+| `POST` | `/api/whatsapp/assistant/webhook` | Raw-body HMAC + configured WABA/sender + verified staff | One-time linking, read-only queries, language selection, staff STOP and correlated statuses. Customer consent remains separate. |
+
+Capture, callback hosting and sending require separate explicit configuration. Approved customer templates, sender evidence and positive daily/monthly limits are required before the worker starts. Receipt notices send a safe reference only, not a document or public download URL. Legacy drafts without a dedicated template reference stay held. See [dispatch configuration and activation boundary](plans/2026-09-27-foo-40-dispatch.md). No production switch is enabled by deployment.
+
+## Staff WhatsApp sales commands
+
+These commands use the verified staff assistant callback and current account checks, independently of customer notifications. They do not grant access to the full vehicle, loan or delivery workboards. English command words work with English or Bahasa Malaysia replies.
+
+| Command | Read-only answer |
+| --- | --- |
+| `help` / `menu` | Command examples and connection controls. |
+| `stock toyota vios under 50000 page 1` | Public available stock matching every search word, asking price at or below RM50,000, five results per page. Budget and page are optional; unset prices are excluded when a budget is provided. |
+| `vehicle ABC1234` | Internal vehicle status, asking price and stock location. |
+| `share ABC1234` | Customer-safe text for a management-approved, public, available listing; returns to the employee for manual forwarding. |
+| `loan ABC1234` | Current confirmed buyer's loan stage, required document categories and next team action. Historical buyers are excluded and ambiguous applications require Loan-team clarification. |
+| `delivery ABC1234` | Planned/scheduled or actual handover date plus preparation blockers. Preparation completeness is not release authorization. |
+| `deliveries today` / `deliveries tomorrow` / `deliveries next 7 page 2` | Paged scheduled handovers, Malaysia dates and times, excluding preliminary/cancelled/released schedules. |
+| `language en` / `language ms` | Saved reply-language preference. |
+| `test` / `stop` | Check staff connection / disconnect it. Reconnection requires a new verified link. |
+
+Pages are explicit and stateless; send the continuation command shown in the reply. Results reflect the current records at each query, so changes to stock or schedules can change later pages.
+
+### Staff WhatsApp finance commands
+
+Finance commands require a verified, active staff connection and current database roles. Help lists only commands allowed for the employee. Authorization is checked before retrieval and again before sending; self-onboarding never grants a role.
+
+| Command | Role | Read-only answer |
+| --- | --- | --- |
+| `collections ABC1234` | Finance or BossAdmin | Current receivable, reconciled collections, pending collections separately, and outstanding balance. Uses canonical buyer/invoice authority; missing or conflicting data requires Back Office review. Legacy records do not imply reconciled amounts. |
+| `settlement ABC1234` | Finance or BossAdmin | Seller settlement direction, recorded amount, deadline and marked completion status. Supplier invoices and bank-loan payment evidence are not included. |
+| `profit` / `profit month` / `profit today` | BossAdmin | Period sales and sold-vehicle margin on the dashboard calculation basis, not accounting or cash profit. |
+| `profit 2026-08` / `profit 2026-08-01 2026-08-31` | BossAdmin | Named-month or inclusive date-range sales and margin. |
+| `dashboard` with the same periods | BossAdmin | Selected-period sales/margin, separated from current operational balances. |
+
+Bare `profit`/`dashboard` defaults to month-to-date; `pastmonth` or `past month` selects the previous calendar month. Dates use Malaysia UTC+08; the reply echoes the resolved period. Current-month queries end today. Invalid/reversed ranges, future periods and custom ranges over 366 days are rejected. A historical period does not create historical outstanding-balance snapshots. Sold-vehicle margin uses recorded costs and can change when those costs change; it does not measure cash received.
+
+Only reconciled collections reduce balances. Pending and reversed collections, receipts, and cash handovers are not counted again as separate cash. A loan approval is not a bank disbursement; a reversal is not proof of a refund. Replies omit customer identity, bank references, private record IDs, notes and documents. No financial writes, approvals or exports are supported.
+
+Ambiguous plate-level finance records return review guidance. Dashboard balances identify validated V2 receivables and seller settlement records; if legacy, mismatched or ambiguous records are excluded, replies label the amounts as partial subtotals with review counts rather than complete balances. Internal offsets never imply a seller cash transfer.
+
+`WhatsAppAssistant:PublicSiteUrl` is an optional HTTPS public website origin used for listing links. Invalid or absent configuration yields no guessed URL. This value is not a webhook or API URL. Existing sender/identity configuration and enable switches remain unchanged.
+
+Bounded invalid text from verified staff receives command guidance at most once per employee per minute, within existing daily quotas. Only an allowlisted command name is retained for recovery; raw unrecognised text is not persisted or echoed. Unbound senders receive no business replies. At the daily quota, further replies remain suppressed.
+
+Loan and delivery summaries omit customer identity, private reasons, document names/references and financial amounts. Delivery preparation uses the existing document-ownership and expiry rules; the Delivery team must still verify all release gates, assignment and authorization in its protected workboard.
+
 ## Authentication
 
 ASP.NET Identity cookie authentication is mounted under `/api/auth`.

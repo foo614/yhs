@@ -77,7 +77,7 @@ public static class WhatsAppOutboxStore
     }
 
     // Domain integrations can stage in their own unit of work; caller owns SaveChanges and transaction.
-    public static WhatsAppOutbox Stage(AppDbContext db, string eventKey, string recipient, string body, long now, long expiresAt, string templateVersion = "test-text-v1", string language = "en_US", string eventKind = "test", string businessReference = "", string actor = "whatsapp-test")
+    public static WhatsAppOutbox Stage(AppDbContext db, string eventKey, string recipient, string body, long now, long expiresAt, string templateVersion = "test-text-v1", string language = "en_US", string eventKind = "test", string businessReference = "", string actor = "whatsapp-test", string templateReference = "")
     {
         recipient = NormalizeRecipient(recipient);
         if (string.IsNullOrWhiteSpace(eventKey) || eventKey.Length > 512 || string.IsNullOrWhiteSpace(body) || body.Length > 3500 || expiresAt <= now)
@@ -85,7 +85,7 @@ public static class WhatsAppOutboxStore
         language = WhatsAppNotificationTemplates.Language(language);
         if (string.IsNullOrWhiteSpace(templateVersion) || templateVersion.Length > 80) throw new ArgumentException("Invalid template version.");
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { eventKey, recipient, templateVersion }))));
-        var item = new WhatsAppOutbox { IdempotencyKey = key, Recipient = recipient, Body = body, TemplateVersion = templateVersion, Language = language, EventKind = eventKind, BusinessReference = businessReference, State = eventKind == "test" ? "Queued" : "HeldForApproval", CreatedAt = now, NextAttemptAt = now, ExpiresAt = expiresAt };
+        var item = new WhatsAppOutbox { IdempotencyKey = key, Recipient = recipient, Body = body, TemplateVersion = templateVersion, TemplateReference = templateReference, Language = language, EventKind = eventKind, BusinessReference = businessReference, State = eventKind == "test" ? "Queued" : "HeldForApproval", CreatedAt = now, NextAttemptAt = now, ExpiresAt = expiresAt };
         db.WhatsAppOutbox.Add(item);
         Audit(db, item.Id, eventKind == "test" ? "queued" : "HeldForApproval", actor: actor);
         return item;
@@ -180,18 +180,23 @@ public static class WhatsAppOutboxStore
         return changed > 0;
     }
 
-    public static async Task ApplyStatusAsync(AppDbContext db, string recipient, WhatsAppProbeStatus status, CancellationToken ct = default)
+    public static async Task ApplyStatusAsync(AppDbContext db, string recipient, WhatsAppProbeStatus status, CancellationToken ct = default, string actor = "whatsapp-test")
     {
-        var row = await db.WhatsAppOutbox.AsNoTracking().SingleOrDefaultAsync(item => item.Recipient == recipient && item.ProviderMessageId == status.MessageId, ct);
-        if (row is null) return;
-        var merged = WhatsAppWebhookProbe.MergeStatus(row.State.ToLowerInvariant(), status.Status);
-        var next = merged switch { "sent" => "Sent", "delivered" => "Delivered", "read" => "Read", "failed" => "Failed", _ => row.State };
-        if (next == row.State) return;
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var changed = await db.WhatsAppOutbox.Where(item => item.Id == row.Id && item.State == row.State)
-            .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, next), ct);
-        if (changed > 0) { Audit(db, row.Id, next); await db.SaveChangesAsync(ct); }
-        await transaction.CommitAsync(ct);
+        while (true)
+        {
+            var row = await db.WhatsAppOutbox.AsNoTracking().SingleOrDefaultAsync(item => item.Recipient == recipient && item.ProviderMessageId == status.MessageId, ct);
+            if (row is null) return;
+            var merged = WhatsAppWebhookProbe.MergeStatus(row.State.ToLowerInvariant(), status.Status);
+            var next = merged switch { "sent" => "Sent", "delivered" => "Delivered", "read" => "Read", "failed" => "Failed", _ => row.State };
+            if (next == row.State) return;
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var changed = await db.WhatsAppOutbox.Where(item => item.Id == row.Id && item.State == row.State)
+                .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, next), ct);
+            if (changed > 0) { Audit(db, row.Id, next, actor: actor); await db.SaveChangesAsync(ct); }
+            await transaction.CommitAsync(ct);
+            if (changed > 0) return;
+            // A competing callback won. Re-read and merge so a later Read cannot be lost to Delivered.
+        }
     }
 
     private static void Audit(AppDbContext db, Guid id, string action, string entity = nameof(WhatsAppOutbox), string actor = "whatsapp-test") => db.AuditLogs.Add(new AuditLog

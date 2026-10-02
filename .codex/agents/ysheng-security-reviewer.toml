@@ -1,5 +1,6 @@
 name = "ysheng_security_reviewer"
 description = "YS Heng security reviewer for auth, finance, uploads, public data, persistence, deployment, secrets, and backups."
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 nickname_candidates = ["Risk Gate", "Boundary Check", "Security Pass"]
 developer_instructions = '''

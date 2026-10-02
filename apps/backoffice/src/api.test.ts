@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  getStaffWhatsAppConnection,
+  connectStaffWhatsApp,
+  disconnectStaffWhatsApp,
   getWhatsAppQueue,
   actOnWhatsAppQueue,
   saveWhatsAppConsent,
@@ -208,6 +211,21 @@ function mockEmptyFetch(ok = true, status = ok ? 200 : 500) {
 }
 
 describe("backoffice api client", () => {
+  it("keeps staff WhatsApp management authenticated and preserves authorization failures", async () => {
+    const fetchMock = mockFetch({ enabled: true, state: "Disconnected" });
+    await getStaffWhatsAppConnection("staff & other");
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/whatsapp/assistant/connection?staffUserId=staff%20%26%20other");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: "include" });
+    const input = { recipient: "60123456789", language: "ms" as const, consentConfirmed: true, staffUserId: "synthetic" };
+    await connectStaffWhatsApp(input);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ credentials: "include", method: "POST", body: JSON.stringify(input) });
+    await disconnectStaffWhatsApp("synthetic");
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ credentials: "include", method: "POST", body: JSON.stringify({ staffUserId: "synthetic" }) });
+    mockFetch({ message: "Staff access denied" }, false, 403);
+    await expect(getStaffWhatsAppConnection()).rejects.toThrow("Staff access denied");
+    await expect(connectStaffWhatsApp(input)).rejects.toThrow("Staff access denied");
+    await expect(disconnectStaffWhatsApp()).rejects.toThrow("Staff access denied");
+  });
   it("preserves WhatsApp authorization failures instead of returning demo notifications", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => JSON.stringify({ message: "Admin access required" }) }));
     await expect(getWhatsAppQueue()).rejects.toThrow("Admin access required");

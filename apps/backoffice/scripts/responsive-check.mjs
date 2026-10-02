@@ -120,10 +120,20 @@ const context = await browser.newContext();
 await context.addInitScript(({ routes }) => {
   for (const route of routes) localStorage.setItem(`ysheng:module-guide:v2:${encodeURIComponent("responsive-test:BossAdmin")}:${encodeURIComponent(`/${route}`)}`, "seen");
 }, { routes });
-// Requests never reach a real API. Mutations are deliberately rejected.
+fixtures["/api/whatsapp/assistant/connection"] = { enabled: false, state: "Disabled", language: "ms" };
+let connectionChecks = false;
+const connectionMutations = [];
+// Requests never reach a real API. Only the explicitly selected synthetic connection flow accepts mutations.
 await context.route("**/api/**", async route => {
   const request = route.request();
   const path = new URL(request.url()).pathname;
+  if (connectionChecks && request.method() === "POST" && ["/api/whatsapp/assistant/connection", "/api/whatsapp/assistant/disconnect"].includes(path)) {
+    connectionMutations.push({ path, body: request.postDataJSON() });
+    const linking = path.endsWith("/connection");
+    fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, state: linking ? "AwaitingVerification" : "Disconnected", language: "ms", ...(linking ? { maskedNumber: "***6789" } : {}) };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(linking ? { command: "link " + "A".repeat(32), expiresAt: Math.floor(Date.now() / 1000) + 600 } : { message: "Synthetic disconnect" }) });
+    return;
+  }
   const known = path in fixtures || emptyCollections.has(path);
   if (request.method() === "GET" && !known) unknownRequests.add(path);
   const status = request.method() !== "GET" ? 422 : known ? 200 : 404;
@@ -277,6 +287,46 @@ try {
       }
       const checkInteractions = process.env.RESPONSIVE_INTERACTIONS === "1" || (process.env.RESPONSIVE_INTERACTIONS !== "0" && [360, 820, 1440].includes(width));
       if (checkInteractions) {
+        if (route === "admin" && [360, 820, 1440].includes(width)) {
+          connectionChecks = true;
+          connectionMutations.length = 0;
+          fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, state: "Disconnected", language: "ms" };
+          if (width <= 1024) {
+            await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+            await page.getByRole("button", { name: "My WhatsApp", exact: true }).click();
+          } else await page.getByRole("button", { name: "My WhatsApp", exact: true }).click();
+          const drawer = page.locator(".ant-drawer-content").filter({ has: page.getByText("My WhatsApp", { exact: true }) });
+          await drawer.getByText("Not connected", { exact: true }).waitFor();
+          await drawer.getByRole("textbox", { name: "WhatsApp number (with country code)", exact: true }).fill("60123456789");
+          await drawer.getByRole("button", { name: "Connect WhatsApp", exact: true }).click();
+          await drawer.getByText("Confirm agreement before connecting.", { exact: true }).waitFor();
+          if (connectionMutations.length) throw new Error("Missing consent must not issue a connection command.");
+          await drawer.getByRole("checkbox").check();
+          await drawer.getByRole("button", { name: "Connect WhatsApp", exact: true }).click();
+          const confirm = page.locator(".ant-modal-confirm").filter({ visible: true });
+          await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+          if (connectionMutations.length) throw new Error("Cancelled linking must not issue a command.");
+          await drawer.getByRole("button", { name: "Connect WhatsApp", exact: true }).click();
+          await confirm.getByRole("button", { name: "Create connection command", exact: true }).click();
+          await drawer.getByText("link " + "A".repeat(32), { exact: true }).waitFor();
+          if (connectionMutations.length !== 1 || connectionMutations[0].body.consentConfirmed !== true || connectionMutations[0].body.language !== "ms" || connectionMutations[0].body.staffUserId) throw new Error("Self linking must require consent and preserve its language without assigning another employee.");
+          await inspect("whatsapp-connection-command", width);
+          fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, state: "Connected", language: "ms", maskedNumber: "***6789" };
+          await drawer.getByRole("button", { name: "Refresh status", exact: true }).click();
+          await drawer.getByText("Connected", { exact: true }).waitFor();
+          if (await drawer.getByText("link " + "A".repeat(32), { exact: true }).count()) throw new Error("Verified connections must clear the command.");
+          await drawer.getByRole("button", { name: "Disconnect WhatsApp", exact: true }).click();
+          await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+          if (connectionMutations.length !== 1) throw new Error("Cancelled disconnect must preserve the connection.");
+          await drawer.getByRole("button", { name: "Disconnect WhatsApp", exact: true }).click();
+          await confirm.getByRole("button", { name: "Disconnect", exact: true }).click();
+          await drawer.getByText("Not connected", { exact: true }).waitFor();
+          if (connectionMutations.length !== 2) throw new Error("Confirmed disconnect must make exactly one request.");
+          await inspect("whatsapp-disconnected", width);
+          await closeOverlay();
+          connectionChecks = false;
+          fixtures["/api/whatsapp/assistant/connection"] = { enabled: false, state: "Disabled", language: "ms" };
+        }
         if (route === "hr-salary") {
           const rowSelector = ".mobileRecordCard, .ant-table-tbody > tr";
           const tripRow = location => page.locator(rowSelector).filter({ hasText: location }).filter({ visible: true });

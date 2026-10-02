@@ -13,9 +13,11 @@ Create a short implementation plan before making risky or multi-file YS Heng cha
 
 1. Read `AGENTS.md`, `codex-agent.md`, and the domain skill that matches the task.
 2. Inspect only the files needed to understand the current behavior.
-3. Identify the smallest coherent change, likely files, API or data contracts, and validation commands.
-4. Call out any high-risk gate from `codex-agent.md` and pause for approval when required.
-5. Present the plan briefly, then proceed when the user asked for execution or has already approved the direction.
+3. Challenge unclear or conflicting requirements when the answer changes behavior, permissions, data, architecture, or acceptance criteria. Ask one focused question and recommend the simplest option; state assumptions and proceed for minor details.
+4. Identify the smallest coherent change, likely files, API or data contracts, and validation commands. Prefer existing components and direct solutions; explain why any new abstraction or dependency is necessary.
+5. Apply the model and critical-coverage policies in `codex-agent.md`. Planning does not require a separate agent or the highest reasoning effort.
+6. Call out any high-risk gate and ask only for authorization or decisions not already supplied in the conversation. Continue independent work while awaiting a required answer.
+7. Present the plan briefly, then proceed when the user asked for execution or has already approved the direction.
 
 ## Product Briefs
 
@@ -24,6 +26,7 @@ For major new modules, cross-role workflows, or unclear product scope, use `.age
 ## Plan Shape
 
 - Scope: what behavior changes and what stays untouched.
+- Acceptance: the observable result, material assumptions, and unresolved decisions.
 - Files: likely edit and test/doc locations.
 - Risks: public/private data, auth, finance, upload, persistence, deployment, or contract concerns.
 - Validation: the smallest commands that prove the change.

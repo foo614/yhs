@@ -84,6 +84,18 @@ public sealed class WhatsAppWebhookProbeTests
         Assert.Empty(WhatsAppWebhookProbe.ReadCommands(payload.RootElement, "sender", "recipient", Now));
     }
 
+    [Fact]
+    public void Help_routes_to_the_menu_instead_of_inventory_or_notification_previews()
+    {
+        using var payload = Payload(" HELP ", "sender", "recipient", 0);
+        var command = Assert.Single(WhatsAppWebhookProbe.ReadCommands(payload.RootElement, "sender", "recipient", Now));
+        Assert.True(command.Help);
+        Assert.False(command.Inventory);
+        Assert.False(command.OptOut);
+        Assert.Null(command.Language);
+        Assert.Null(command.Template);
+    }
+
     [Theory]
     [InlineData("audi q7", true)]
     [InlineData("vcc3321", true)]
@@ -138,6 +150,12 @@ public sealed class WhatsAppWebhookProbeTests
 
     [Theory]
     [InlineData("test", "sender", "recipient", 0, 1)]
+    [InlineData("help", "sender", "recipient", 0, 1)]
+    [InlineData("HELP", "sender", "recipient", 0, 1)]
+    [InlineData("help", "other", "recipient", 0, 0)]
+    [InlineData("help", "sender", "other", 0, 0)]
+    [InlineData("help", "sender", "recipient", -301, 0)]
+    [InlineData("help", "sender", "recipient", 31, 0)]
     [InlineData("测试", "sender", "recipient", 0, 0)]
     [InlineData("language ms", "sender", "recipient", 0, 1)]
     [InlineData("language en", "sender", "recipient", 0, 1)]

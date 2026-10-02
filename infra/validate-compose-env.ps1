@@ -193,6 +193,32 @@ if ($values.ContainsKey("GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH") -and -not $v
   $errors.Add("GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH must be an absolute VPS path.")
 }
 
+$assistantEnabled = $values["WHATSAPP_ASSISTANT_ENABLED"]
+$assistantWebhook = $values["WHATSAPP_ASSISTANT_WEBHOOK_ENABLED"]
+foreach ($key in @("WHATSAPP_ASSISTANT_ENABLED", "WHATSAPP_ASSISTANT_WEBHOOK_ENABLED", "WHATSAPP_ASSISTANT_TEST_MODE")) {
+  if (-not [string]::IsNullOrEmpty($values[$key]) -and $values[$key] -cnotin @("true", "false")) { $errors.Add("$key must be true or false.") }
+}
+if ($assistantEnabled -ceq "true" -or $assistantWebhook -ceq "true") {
+  if ($assistantEnabled -cne "true" -or $assistantWebhook -cne "true") { $errors.Add("Staff assistant activation requires both ENABLED and WEBHOOK_ENABLED to be true.") }
+  foreach ($key in @("WHATSAPP_ASSISTANT_PHONE_NUMBER_ID", "WHATSAPP_ASSISTANT_BUSINESS_ACCOUNT_ID")) {
+    if ($values[$key] -notmatch '\A[0-9]{1,32}\z') { $errors.Add("$key must be a numeric account ID.") }
+  }
+  $version = if ([string]::IsNullOrEmpty($values["WHATSAPP_ASSISTANT_GRAPH_API_VERSION"])) { "v25.0" } else { $values["WHATSAPP_ASSISTANT_GRAPH_API_VERSION"] }
+  if ($version -cnotmatch '\Av[0-9]{1,3}\.0\z') { $errors.Add("WHATSAPP_ASSISTANT_GRAPH_API_VERSION is invalid.") }
+  foreach ($key in @("WHATSAPP_ASSISTANT_APP_SECRET", "WHATSAPP_ASSISTANT_VERIFY_TOKEN")) {
+    if ([string]::IsNullOrWhiteSpace($values[$key]) -or $values[$key].Length -lt 32 -or $values[$key].Length -gt 256) { $errors.Add("$key must contain 32 to 256 characters.") }
+  }
+  $token = $values["WHATSAPP_ASSISTANT_ACCESS_TOKEN"]
+  if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -gt 4096 -or $token -match '\s') { $errors.Add("WHATSAPP_ASSISTANT_ACCESS_TOKEN is required and must not contain whitespace.") }
+  if ($values["WHATSAPP_ASSISTANT_TEST_MODE"] -cne "false" -and $values["WHATSAPP_ASSISTANT_TEST_RECIPIENT"] -notmatch '\A[1-9][0-9]{7,14}\z') { $errors.Add("WHATSAPP_ASSISTANT_TEST_RECIPIENT is required in test mode.") }
+  foreach ($quota in @(@{ Key = "WHATSAPP_ASSISTANT_PER_STAFF_DAILY_LIMIT"; Maximum = 10000 }, @{ Key = "WHATSAPP_ASSISTANT_WORKSPACE_DAILY_LIMIT"; Maximum = 100000 })) {
+    if (-not [string]::IsNullOrEmpty($values[$quota.Key])) {
+      $number = 0
+      if (-not [int]::TryParse($values[$quota.Key], [ref]$number) -or $number -le 0 -or $number -gt $quota.Maximum) { $errors.Add("$($quota.Key) must be positive and at most $($quota.Maximum).") }
+    }
+  }
+}
+
 if ($errors.Count -gt 0) {
   throw "Compose environment validation failed:`n- $($errors -join "`n- ")"
 }

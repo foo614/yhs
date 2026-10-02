@@ -80,6 +80,7 @@ import { AiUsageSnapshotDescriptions, OcrOperationalGuidance } from "./modules/s
 import { ShowroomEnquiryQrSettings } from "./modules/settings/ShowroomEnquiryQrSettings";
 import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSettings";
 import { WhatsAppSettings } from "./modules/settings/WhatsAppSettings";
+import { StaffWhatsAppConnection } from "./modules/settings/StaffWhatsAppConnection";
 import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { DocumentPreviewDrawer, documentPreviewKind, type DocumentPreviewSource } from "./modules/shared/DocumentPreviewDrawer";
 import { PreviewDocumentUpload } from "./modules/shared/PreviewDocumentUpload";
@@ -550,6 +551,7 @@ export default function App() {
   const [logoutSucceeded, setLogoutSucceeded] = useState(false);
   const [sessionExpiredNotice, setSessionExpiredNotice] = useState(() => consumeExpiredSessionNotice(sessionStorage));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [whatsAppConnectionOpen, setWhatsAppConnectionOpen] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [moduleGuideOpen, setModuleGuideOpen] = useState(false);
@@ -1143,6 +1145,7 @@ export default function App() {
               {menuActionBadges[item.path] ? <Badge count={menuActionBadges[item.path].count} overflowCount={99} color={menuActionBadges[item.path].urgent ? "red" : "blue"} /> : null}
             </button>
           ))}
+          <Button onClick={() => { setMobileNavOpen(false); setWhatsAppConnectionOpen(true); }}>My WhatsApp</Button>
         </Space>
       </Drawer>
       <ProLayout
@@ -1157,11 +1160,15 @@ export default function App() {
           <div className="headerSession" key="session">
             <span className="headerSessionUser">{currentUser.name ?? "staff"}</span>
             <span className="headerSessionRole">{currentRoles.map(displayRoleLabel).join(", ") || "none"}</span>
+            <Button size="small" onClick={() => setWhatsAppConnectionOpen(true)}>My WhatsApp</Button>
             <Button size="small" icon={<LogoutOutlined />} onClick={handleLogout}>Logout</Button>
           </div>
         ]}
       >
       {notificationContextHolder}
+      <Drawer title="My WhatsApp" width={520} open={whatsAppConnectionOpen} onClose={() => setWhatsAppConnectionOpen(false)} destroyOnClose className="recordEditDrawer">
+        {whatsAppConnectionOpen && <StaffWhatsAppConnection key={currentUser.id} />}
+      </Drawer>
       <PageContainer title={false}>
         <Space direction="vertical" size={16} className="fullWidth">
           <ModuleCommandBar
@@ -6026,6 +6033,7 @@ function AdminPage({
                       <Button type="primary" htmlType="submit" disabled={!selectedEditStaffUser}>Update Staff</Button>
                     </Form.Item>
                   </Form>
+                  {staffEditorOpen && selectedEditStaffUser && <StaffWhatsAppConnection key={selectedEditStaffUser.id} staffUserId={selectedEditStaffUser.id} />}
                 </Drawer>
                 <Drawer
                   title="Reset Password / 重设密码"
@@ -6160,7 +6168,7 @@ function AdminPage({
           },
           { key: "showroom-enquiry", label: "QR Enquiry / 二维码询问", children: <ShowroomEnquiryQrSettings /> },
           { key: "vehicle-catalog", label: "Make & Model / 品牌车型", children: <VehicleCatalogSettings /> },
-          { key: "whatsapp", label: "WhatsApp", children: <WhatsAppSettings /> },
+          { key: "whatsapp", label: "Customer WhatsApp Notifications", children: <WhatsAppSettings /> },
           { key: "roles", label: "RBAC Listing / 角色权限", children: <RbacListing /> },
           { key: "audit", label: "Audit Log / 操作记录", children: <AuditLogRecords auditLog={auditLog} filters={auditLogFilters} onSearch={onSearchAuditLog} /> }
         ]}

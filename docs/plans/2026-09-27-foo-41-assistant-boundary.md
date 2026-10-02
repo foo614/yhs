@@ -8,17 +8,26 @@ Support Bahasa Malaysia by default and English by explicit preference. No Chines
 
 ## Intent and minimum-field policy
 
-The existing API policies in Program.cs are authoritative. Approved adapters must return projections, not current bulk endpoint records or arbitrary model-selected URLs.
+Existing API full-record and mutation policies in Program.cs remain authoritative. At the user's request on 2026-09-27, new minimal non-financial operational-summary adapters are planned for all active verified staff, including Sales. These separate query policies must not broaden existing endpoint/mutation access. Approved adapters return projections, not bulk records or arbitrary model-selected URLs.
 
 | Intent | Current policy boundary | Permitted response draft |
 | --- | --- | --- |
-| Vehicle availability/status | VehicleRead and any record visibility checks | Vehicle reference, plate, make/model, status |
-| Loan progress | Loans (BossAdmin, Loan) | Vehicle/reference, current progress; exclude documents, identity numbers, rejection reasons |
+| Vehicle availability/status | Proposed minimal operational-summary policy (all active verified staff) | Vehicle reference, plate, make/model, status |
+| Loan progress | Proposed minimal operational-summary policy (all active verified staff); existing Loans endpoints unchanged | Vehicle/reference, current progress; exclude documents, identity numbers, rejection reasons |
+| Delivery date/status | Proposed minimal operational-summary policy (all active verified staff, including Sales); existing Deliveries mutation/full-record policy unchanged | Exact plate, year/make/model, readable status, scheduled date/time and actual release time when recorded; exclude customer/address/document/clearance data |
 | Outstanding collection/debt | Finance (BossAdmin, Finance) | Authorized case reference, outstanding total and due date; no bank details or full customer profile |
 | Settlement due | Finance | Vehicle/reference, deadline, authorized outstanding amount |
 | Realized profit/dashboard | Dashboard (BossAdmin) | Approved aggregate metric and period; no underlying transaction export |
 
 No writes, approvals, exports, downloads, arbitrary SQL or direct model database access. Ambiguous references require clarification before retrieval. Unsupported intents return a short localized refusal or human handoff.
+
+## Delivery query requested on 2026-09-27
+
+Prioritize `delivery <plate>` after verified staff binding. Use `DeliverySchedule.ScheduledDate`, optional `ScheduledTime`, `Status` and `ReleasedAt`, not a payment's outstation date. At the user's request, introduce a separate minimal read-only query policy for all active verified staff, including Sales. Keep the existing `Deliveries` full-record/mutation policy unchanged. Exact normalized plate lookup returns a minimum projection; never feed the complete `/api/deliveries` response to the assistant.
+
+Label preliminary booking dates as planned and active handover dates as scheduled. State when date/time is unset. Cancelled history is not an active plan. Released status uses the recorded actual release time; if absent, say it was not recorded rather than substituting the schedule. Multiple matching vehicles or non-cancelled schedules require clarification. Optional later `deliveries today` / `deliveries next 7` list at most five scheduled handovers with a count and authenticated workboard link, excluding preliminary, cancelled, released and unset-date records and using Malaysia business dates.
+
+Prove unbound/unauthorized denial, all intended verified staff roles allowed the limited schedule projection, unchanged delivery mutation/approval/full-record permissions, role/account changes before reply, ambiguity, date/status edge cases, bounded results/date rollover, forbidden-field filtering, duplicate callbacks and opt-out. This is a planned private query, not a public test command. See [the overall roadmap](2026-09-27-whatsapp-roadmap.md).
 
 ## Threat model and privacy design
 

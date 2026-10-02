@@ -26,7 +26,7 @@ Loan status filters retain a visible All loan statuses default. Customer 360 cho
 
 - Use the shared mobile card and action styles. Record actions are content-width, right-aligned and at least 44px tall; status metadata remains separate. Bilingual labels may wrap only inside their controls.
 - Reproduce reported layout problems with populated synthetic records, including long names, multiple actions, disabled actions and terminal states. Empty lists alone do not demonstrate a working record layout.
-- Extend `apps/backoffice/scripts/responsive-check.mjs` for new page or drawer/tab surfaces. It runs in existing web CI at phone, breakpoint, tablet and desktop widths, and rejects page overflow, clipped control text, overlapping or stretched record actions, small record-action touch targets, incorrect alignment and oversized collapsed search forms.
+- Reuse `apps/backoffice/scripts/responsive-check.mjs`; extend its coverage when a new or changed page, drawer, or tab leaves a critical task-completion regression uncovered, following `codex-agent.md`. It runs in existing web CI at phone, breakpoint, tablet and desktop widths, and rejects page overflow, clipped control text, overlapping or stretched record actions, small record-action touch targets, incorrect alignment and oversized collapsed search forms.
 - Keep the fixture requests local and mutation-free. The suite covers the BossAdmin-accessible surfaces and representative data; it does not replace targeted role-specific, upload-preview, error-state or physical Safari checks when those paths change. Passing geometry checks is not a complete visual design review.
 
 ## Applications
