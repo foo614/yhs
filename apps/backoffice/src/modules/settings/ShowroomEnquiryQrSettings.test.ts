@@ -9,7 +9,7 @@ describe("showroom enquiry QR settings", () => {
   it("uses the YS Heng logo with high QR error correction", () => {
     expect(showroomEnquiryQrBranding).toEqual({
       icon: "/ys-heng-logo.png",
-      iconSize: { width: 60, height: 26 },
+      iconSize: { width: 48, height: 43 },
       errorLevel: "H"
     });
   });
