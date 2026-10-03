@@ -4,7 +4,7 @@ export function showroomEnquiryUrl(frontofficeOrigin = import.meta.env.VITE_FRON
 
 export const showroomEnquiryQrBranding = {
   icon: "/ys-heng-logo.png",
-  iconSize: { width: 60, height: 26 },
+  iconSize: { width: 48, height: 43 },
   errorLevel: "H" as const
 };
 
