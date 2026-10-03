@@ -1,35 +1,9 @@
-import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 
 const baseURL = process.env.RESPONSIVE_BASE_URL ?? "http://127.0.0.1:4176";
-let server;
 if (!["localhost", "127.0.0.1"].includes(new URL(baseURL).hostname)) throw new Error("Use a local test server only.");
-if (!process.env.RESPONSIVE_BASE_URL) {
-  let occupied = false;
-  try { await fetch(baseURL, { signal: AbortSignal.timeout(1000) }); occupied = true; } catch { /* No server yet. */ }
-  if (occupied) throw new Error("Port 4176 is already in use. Set RESPONSIVE_BASE_URL explicitly to test an existing local server.");
-  const require = createRequire(import.meta.url);
-  const vite = path.join(path.dirname(require.resolve("vite/package.json")), "bin/vite.js");
-  server = spawn(process.execPath, [vite, "--host", "127.0.0.1", "--port", "4176", "--strictPort"], { cwd: fileURLToPath(new URL("..", import.meta.url)), stdio: "ignore", windowsHide: true });
-  server.unref();
-  process.once("exit", () => server.kill());
-  let ready = false;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (server.exitCode !== null) throw new Error("Responsive test server exited. Check that port 4176 is free.");
-    try { ready = (await fetch(baseURL)).ok; } catch { /* Vite is starting. */ }
-    if (ready) break;
-    await new Promise(resolve => setTimeout(resolve, 200));
-  }
-  if (!ready) throw new Error("Responsive test server did not become ready.");
-}
-const output = process.env.RESPONSIVE_OUTPUT ?? "../../artifacts/responsive";
-await mkdir(output, { recursive: true });
-const routes = (process.env.RESPONSIVE_ROUTES ?? "dashboard,vehicles,repairs,loans,delivery,finance,customer-360,leads,audit-log,hr-salary,admin").split(",");
-const widths = (process.env.RESPONSIVE_WIDTHS ?? "360,390,720,721,767,768,820,1024,1025,1440").split(",").map(Number);
+export const routes = (process.env.RESPONSIVE_ROUTES ?? "dashboard,vehicles,repairs,loans,delivery,finance,customer-360,leads,audit-log,hr-salary,admin").split(",");
+export const widths = (process.env.RESPONSIVE_WIDTHS ?? "360,390,720,721,767,768,820,1024,1025,1440").split(",").map(Number);
 const vehicle = { id: "test-vehicle", plateNumber: "TEST1234", make: "Toyota", model: "Corolla Cross Hybrid Premium", year: 2024, stockOwner: "YSHeng", customerId: "test-customer", status: "Available", isPublic: false, purchasePrice: 80000, sellingPrice: 98000, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, bossConfirmed: true };
 const fixtures = {
   "/api/auth/me": { isAuthenticated: true, id: "responsive-test", name: "Layout Test", roles: ["BossAdmin"] },
@@ -112,14 +86,22 @@ for (let index = 0; index < 9; index++) {
   for (const resource of ["photos", "documents", "ocr-jobs"]) emptyCollections.add(`/api/vehicles/test-vehicle-${index}/${resource}`);
 }
 fixtures["/api/whatsapp/queue"] = { captureEnabled: false, sendingEnabled: false, items: [] };
-const unknownRequests = new Set();
-const diagnostics = { consoleErrors: [], failedRequests: [] };
+const fixtureTemplate = fixtures;
+const emptyCollectionTemplate = emptyCollections;
 
-const browser = await chromium.launch(process.env.RESPONSIVE_CHANNEL ? { channel: process.env.RESPONSIVE_CHANNEL } : {});
-const context = await browser.newContext();
-await context.addInitScript(({ routes }) => {
+export async function runResponsiveWidth({ page, context, width, output, visualEvidence = false }) {
+  const fixtureState = structuredClone(fixtureTemplate);
+  const fixtures = fixtureState;
+  const emptyCollectionState = new Set(emptyCollectionTemplate);
+  const emptyCollections = emptyCollectionState;
+  const unknownRequests = new Set();
+  const diagnostics = { consoleErrors: [], failedRequests: [] };
+  const errors = [];
+  const results = [];
+  await mkdir(output, { recursive: true });
+  await context.addInitScript(({ routes }) => {
   for (const route of routes) localStorage.setItem(`ysheng:module-guide:v2:${encodeURIComponent("responsive-test:BossAdmin")}:${encodeURIComponent(`/${route}`)}`, "seen");
-}, { routes });
+  }, { routes });
 fixtures["/api/whatsapp/assistant/connection"] = { enabled: false, state: "Disabled", language: "ms" };
 let connectionChecks = false;
 const connectionMutations = [];
@@ -139,19 +121,31 @@ await context.route("**/api/**", async route => {
   const status = request.method() !== "GET" ? 422 : known ? 200 : 404;
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(status === 200 ? (path in fixtures ? fixtures[path] : []) : { message: "Synthetic test response: no record was saved." }) });
 });
-const page = await context.newPage();
 page.setDefaultTimeout(15000);
 page.setDefaultNavigationTimeout(45000);
-const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 page.on("console", message => { if (message.type() === "error") diagnostics.consoleErrors.push(message.text()); });
 page.on("requestfailed", request => { if (request.failure()?.errorText !== "net::ERR_ABORTED") diagnostics.failedRequests.push({ url: request.url(), error: request.failure()?.errorText }); });
-const results = [];
 async function inspect(name, width) {
-  await page.waitForTimeout(400);
+  await page.evaluate(async () => {
+    const animations = document.getAnimations().filter(animation => {
+      const duration = animation.effect?.getComputedTiming().activeDuration;
+      return animation.playState === "running" && Number.isFinite(duration);
+    });
+    await Promise.all(animations.map(animation => animation.finished.catch(() => undefined)));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const layout = await page.evaluate(() => {
     const viewport = document.documentElement.clientWidth;
-    const visible = element => element.getClientRects().length && getComputedStyle(element).visibility !== "hidden";
+    const visible = element => element.getClientRects().length
+      && (() => {
+        const wrapper = element.closest(".ant-drawer-content-wrapper");
+        if (!wrapper) return true;
+        const rect = wrapper.getBoundingClientRect();
+        return rect.right > -1 && rect.left < document.documentElement.clientWidth + 1;
+      })()
+      && (element.checkVisibility?.() ?? true)
+      && getComputedStyle(element).visibility !== "hidden";
     const outside = [...document.querySelectorAll("button,a,input,.ant-select,.ant-picker,.ant-form-item,.moduleCommandBar,.mobileRecordCard > *,.ant-picker-panel-container,.ant-modal-content")].filter(visible).filter(element => {
       if (!element.matches(".ant-picker-panel-container") && element.closest(".ant-table,.ant-tabs-nav-list,.ant-select-dropdown,.ant-picker-dropdown")) return false;
       const r = element.getBoundingClientRect();
@@ -228,8 +222,10 @@ async function inspect(name, width) {
     }
     return { viewport, scrollWidth: document.documentElement.scrollWidth, outside, overlappingSelects, searchGeometry, creationActions, invalidCreationActions, oversizedSearchForms, controlIssues };
   });
-  results.push({ name, width, ...layout, errors: errors.splice(0) });
-  if ([360, 820, 1440].includes(width) || layout.outside.length || layout.overlappingSelects.length || layout.scrollWidth > layout.viewport + 1) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
+  const currentErrors = errors.splice(0);
+  results.push({ name, width, ...layout, errors: currentErrors });
+  const hasLayoutFailure = layout.outside.length || layout.overlappingSelects.length || layout.scrollWidth > layout.viewport + 1 || layout.controlIssues.length || currentErrors.length;
+  if ((visualEvidence && [360, 820, 1440].includes(width)) || hasLayoutFailure) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
 }
 async function closeOverlay() {
   const close = page.locator(".ant-modal-close:visible,.ant-drawer-close:visible").last();
@@ -250,7 +246,6 @@ async function inspectDetailTabs(route, width) {
     const label = await tab.innerText();
     await tab.focus();
     await tab.press("Enter");
-    await page.waitForLoadState("networkidle");
     await inspect(`${route}-detail-tab-${visited.size}-${label.replace(/[^a-zA-Z0-9]+/g, "-")}`, width);
     if (route === "vehicles" && label === "Leads") {
       if (width <= 720) {
@@ -261,17 +256,18 @@ async function inspectDetailTabs(route, width) {
         await search.fill("");
         await page.locator(".vehicleLeadMobileList .mobileRecordCard").first().waitFor();
       }
-      await page.locator("#vehicle-leads-card").screenshot({ path: `${output}/vehicle-leads-detail-${width}.png` });
+      if (visualEvidence) await page.locator("#vehicle-leads-card").screenshot({ path: `${output}/vehicle-leads-detail-${width}.png` });
     }
   }
 }
 try {
-  for (const width of widths) {
-    await page.setViewportSize({ width, height: Number(process.env.RESPONSIVE_HEIGHT ?? 900) });
-    for (const route of routes) {
-      await page.goto(`${baseURL}/${route}`);
+  await page.setViewportSize({ width, height: Number(process.env.RESPONSIVE_HEIGHT ?? 900) });
+  for (const route of routes) {
+      await page.goto(`${baseURL}/${route}`, { waitUntil: "domcontentloaded" });
       await page.locator(".moduleCommandBar").waitFor({ timeout: 30000 });
-      await page.waitForLoadState("networkidle");
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const spinner = page.locator(".ant-spin-spinning");
+      if (await spinner.count()) await spinner.first().waitFor({ state: "hidden" });
       await inspect(route, width);
       if (process.env.RESPONSIVE_NEGATIVE_CONTROL === "1" && route === "leads" && width === 360) {
         const oldStyles = await page.addStyleTag({ content: ".salesLeadViewSwitch .ant-radio-button-wrapper { height: 24px !important; min-height: 24px !important; padding-block: 0 !important; } .leadMobileActions .ant-btn { height: 22px !important; min-height: 22px !important; padding-block: 0 !important; }" });
@@ -342,7 +338,7 @@ try {
           await inspect("hr-trip-cancel-confirmation", width);
           await confirmation.getByRole("button", { name: "Keep / 保留", exact: true }).click();
           await confirmation.waitFor({ state: "hidden" });
-          await page.locator(".ant-pro-card").filter({ has: page.getByText("Business Trip / Outstation Duty / 出差外勤", { exact: true }) }).first().screenshot({ path: `${output}/hr-trips-${width}.png` });
+          if (visualEvidence) await page.locator(".ant-pro-card").filter({ has: page.getByText("Business Trip / Outstation Duty / 出差外勤", { exact: true }) }).first().screenshot({ path: `${output}/hr-trips-${width}.png` });
         }
         if (route === "loans" && width <= 720) {
           const status = page.locator(".pageFilterMobileOnly .ant-select").first();
@@ -376,7 +372,7 @@ try {
           const agingGap = await page.locator(".dashboardAgingCard").evaluate(card => card.querySelector(".agingActionBoard").getBoundingClientRect().top - card.querySelector(".dashboardFocusQueue").getBoundingClientRect().bottom);
           if (agingGap < 10) throw new Error("Aging summary must have space before its cards.");
           for (const [name, selector] of [["snapshot", ".dashboardOverviewCard"], ["aging", ".dashboardAgingCard"], ["priority", ".dashboardPriorityCard"]]) {
-            await page.locator(selector).first().screenshot({ path: `${output}/dashboard-${name}-detail-${width}.png` });
+            if (visualEvidence) await page.locator(selector).first().screenshot({ path: `${output}/dashboard-${name}-detail-${width}.png` });
           }
           const documentSearch = page.getByRole("textbox", { name: "Search document types" });
           await documentSearch.fill("NO-MATCH");
@@ -385,7 +381,7 @@ try {
           await page.getByRole("cell", { name: "Identity card", exact: true }).waitFor();
           if (await page.getByRole("cell", { name: "Vehicle ownership certificate", exact: true }).count()) throw new Error("Document category search did not filter rows.");
           await inspect("dashboard-document-search", width);
-          await documentSearch.locator("xpath=ancestor::*[contains(@class,'ant-pro-card-body')][1]").screenshot({ path: `${output}/dashboard-ocr-detail-${width}.png` });
+          if (visualEvidence) await documentSearch.locator("xpath=ancestor::*[contains(@class,'ant-pro-card-body')][1]").screenshot({ path: `${output}/dashboard-ocr-detail-${width}.png` });
           await documentSearch.fill("");
           await page.locator(".dashboardAnalyticsControls .ant-select").click();
           await page.getByText("Custom dates", { exact: true }).last().click();
@@ -416,7 +412,7 @@ try {
           const button = page.getByRole("button", { name: label, exact: true });
           if (!await button.isVisible().catch(() => false)) continue;
           await button.click();
-          await page.locator(".ant-modal:visible,.ant-drawer-content:visible").first().waitFor();
+          await page.locator(".ant-modal:visible,.ant-drawer-content:visible").first().waitFor({ timeout: 5000 });
           await inspect(`${route}-${label.replaceAll(" ", "-")}`, width);
           if (label === "New sales invoice") {
             await page.getByRole("button", { name: "Review invoice", exact: true }).click();
@@ -435,7 +431,10 @@ try {
         const details = page.getByRole("button", { name: route === "delivery" ? "Continue" : "Details", exact: true }).filter({ visible: true }).first();
         if (await details.isVisible().catch(() => false)) {
           await details.click();
-          await page.waitForTimeout(350);
+          const detailSurface = page.locator(".ant-modal:visible,.ant-drawer-content:visible")
+            .or(page.getByRole("button", { name: /^Back to .* List$/ }))
+            .first();
+          await detailSurface.waitFor({ timeout: 5000 });
           await inspect(`${route}-details`, width);
           if (route === "vehicles") {
             const documentsTab = page.getByRole("tab", { name: "Documents & photos", exact: true });
@@ -482,12 +481,9 @@ try {
           await tab.focus();
           await tab.press("Enter");
           if (await tab.getAttribute("aria-selected") !== "true") throw new Error(`Tab did not activate: ${id}`);
-          await page.waitForLoadState("networkidle");
           await inspect(`${route}-tab-${index}`, width);
         }
       }
-    }
-    console.log(`Checked ${width}px (${results.length} states so far).`);
   }
 } catch (error) {
   await writeFile(`${output}/failure.txt`, `${error.stack ?? error}\nBrowser errors: ${JSON.stringify(errors)}`);
@@ -496,8 +492,6 @@ try {
 } finally {
   await writeFile(`${output}/results.json`, JSON.stringify(results, null, 2));
   await writeFile(`${output}/diagnostics.json`, JSON.stringify({ ...diagnostics, unknownRequests: [...unknownRequests] }, null, 2));
-  await browser.close();
-  server?.kill();
 }
 const failed = results.filter(result => result.scrollWidth > result.viewport + 1 || result.outside.length || result.overlappingSelects.length || result.searchGeometry.length || result.invalidCreationActions.length || result.oversizedSearchForms.length || result.controlIssues.length || result.errors.length);
 // Existing Ant Design warnings are retained in diagnostics, not silently dropped.
@@ -506,5 +500,10 @@ const knownWarnings = new Set([
   "Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?"
 ]);
 const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message));
-console.log(JSON.stringify({ checks: results.length, failed, unknownRequests: [...unknownRequests], failedRequests: diagnostics.failedRequests, unexpectedConsoleErrors }, null, 2));
-process.exitCode = failed.length || unknownRequests.size || diagnostics.failedRequests.length || unexpectedConsoleErrors.length ? 1 : 0;
+const summary = { width, checks: results.length, failed, unknownRequests: [...unknownRequests], failedRequests: diagnostics.failedRequests, unexpectedConsoleErrors };
+console.log(JSON.stringify(summary, null, 2));
+if (failed.length || unknownRequests.size || diagnostics.failedRequests.length || unexpectedConsoleErrors.length) {
+  throw new Error(`Responsive layout checks failed at ${width}px.`);
+}
+return summary;
+}
