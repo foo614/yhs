@@ -26,7 +26,7 @@ npm exec --workspace apps/backoffice -- playwright install chromium
 npm --workspace apps/backoffice run test:responsive
 ```
 
-The script starts its own loopback-only Vite server on port 4176 and stops it when finished. It requires no backend, login credentials or database. Every API request is intercepted with synthetic fixtures; mutations return a synthetic validation failure and never reach an API.
+Playwright Test starts and stops a loopback-only Vite server on port 4176. Each width is an isolated Playwright test context, so widths can be sharded without shared fixture state. It requires no backend, login credentials or database. Every API request is intercepted with synthetic fixtures; mutations return a synthetic validation failure and never reach an API.
 
 For an installed Edge browser on Windows:
 
@@ -46,10 +46,11 @@ Optional environment variables:
 | `RESPONSIVE_INTERACTIONS` | `1` checks interactions at every supplied width; `0` disables them. Default checks 360,820,1440. |
 | `RESPONSIVE_TABS` | Same width selection for module tab checks. Tabs are activated through their keyboard interface. |
 | `RESPONSIVE_OUTPUT` | Screenshot and JSON directory; defaults to ignored `artifacts/responsive` at repository root. |
+| `RESPONSIVE_VISUAL_EVIDENCE` | Set to `1` to retain representative-width success screenshots; ordinary runs keep screenshots only for failures. |
 
 The check covers page-level horizontal overflow, controls outside the viewport (even where page overflow is hidden), select-height overlap and uncaught browser errors. Unspecified GET fixtures, non-aborted failed requests and unexpected console errors fail the run. Intentional empty collections are explicitly listed. Two existing Ant Design warnings (empty disabled date values and unattached form instances) are retained in diagnostics but allowlisted; their underlying behavior is outside this styling change. Tables retain intentional internal horizontal scrolling. Representative widths also cover navigation, available create forms and details drawers, vehicle validation, empty search/reset/pagination, date range opening/selection and module tabs. Long synthetic labels exercise wrapping; empty datasets exercise empty states.
 
-CI's Web apps job installs Chromium, runs the same command and uploads screenshots and results. No deployment job or production wiring changes.
+CI's responsive job runs the ten width tests as three Playwright shards with one worker per shard, one retry in CI, first-retry traces and failure-only screenshots. Each shard uploads a blob report and browser evidence; a follow-up job merges the blobs into one HTML report. Production deployment still waits for every responsive shard.
 
 ## Acceptance and limitations
 

@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
   web:
     name: Web apps
@@ -48,19 +52,99 @@ jobs:
       - name: Build web apps
         run: npm run build
 
+  responsive:
+    name: Responsive layouts (shard ${{ matrix.shard }}/${{ matrix.total }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1
+            total: 3
+          - shard: 2
+            total: 3
+          - shard: 3
+            total: 3
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
       - name: Install responsive test browser
-        run: npm exec --workspace apps/backoffice -- playwright install --with-deps chromium
+        run: npm exec --workspace apps/backoffice -- playwright install --with-deps --only-shell chromium
 
       - name: Check back-office responsive layouts
-        run: npm --workspace apps/backoffice run test:responsive
+        env:
+          RESPONSIVE_OUTPUT: ../../artifacts/responsive/${{ matrix.shard }}
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: ../../artifacts/responsive/${{ matrix.shard }}/blob-report
+          PLAYWRIGHT_BLOB_OUTPUT_FILE: ../../artifacts/responsive/${{ matrix.shard }}/blob-report/report-${{ matrix.shard }}.zip
+          RESPONSIVE_VISUAL_EVIDENCE: ${{ (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && '1' || '0' }}
+        run: npm --workspace apps/backoffice run test:responsive -- --shard=${{ matrix.shard }}/${{ matrix.total }}
 
       - name: Upload responsive browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backoffice-responsive
-          path: artifacts/responsive
+          name: backoffice-responsive-${{ matrix.shard }}
+          path: |
+            artifacts/responsive/${{ matrix.shard }}
+            !artifacts/responsive/${{ matrix.shard }}/blob-report
           if-no-files-found: ignore
+
+      - name: Upload responsive Playwright blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backoffice-responsive-blob-${{ matrix.shard }}
+          path: artifacts/responsive/${{ matrix.shard }}/blob-report
+          if-no-files-found: ignore
+
+  responsive-report:
+    name: Merge responsive Playwright report
+    if: ${{ !cancelled() }}
+    needs: responsive
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Download responsive shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backoffice-responsive-blob-*
+          path: artifacts/responsive-blob-reports
+          merge-multiple: true
+
+      - name: Merge Playwright blob reports
+        working-directory: apps/backoffice
+        run: npm exec -- playwright merge-reports --reporter html ../../artifacts/responsive-blob-reports
+
+      - name: Upload merged responsive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backoffice-responsive-report
+          path: apps/backoffice/playwright-report
+          if-no-files-found: error
 
   api:
     name: .NET API
@@ -195,6 +279,7 @@ jobs:
     name: Deploy production (Shinjiru Ubuntu)
     needs:
       - web
+      - responsive
       - api
       - deployment-contracts
     if: >-
