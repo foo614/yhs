@@ -139,6 +139,8 @@ async function inspect(name, width) {
     const viewport = document.documentElement.clientWidth;
     const visible = element => element.getClientRects().length
       && (() => {
+        const drawer = element.closest(".ant-drawer");
+        if (drawer && !drawer.classList.contains("ant-drawer-open")) return false;
         const wrapper = element.closest(".ant-drawer-content-wrapper");
         if (!wrapper) return true;
         const rect = wrapper.getBoundingClientRect();
