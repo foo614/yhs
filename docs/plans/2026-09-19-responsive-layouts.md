@@ -52,6 +52,8 @@ The check covers page-level horizontal overflow, controls outside the viewport (
 
 CI's responsive job runs the ten width tests as three Playwright shards with one worker per shard, one retry in CI, first-retry traces and failure-only screenshots. Each shard uploads a blob report and browser evidence; a follow-up job merges the blobs into one HTML report. Production deployment still waits for every responsive shard.
 
+CI first classifies the changed paths. Public front-office changes run only that app's type-check, tests and build; back-office changes run that app's checks plus the responsive shards; API changes run the .NET suite; deployment files run deployment contracts. Root npm dependencies exercise both web apps, while workflow changes and unknown shared configuration stay conservative and exercise every stack. Manual production validation always runs the full suite.
+
 ## Acceptance and limitations
 
 Review screenshots as well as numeric results: overflow assertions cannot detect every visual defect, overlap or obscured control. Future responsive changes should extend this existing scenario runner when a concrete recurring defect needs coverage.

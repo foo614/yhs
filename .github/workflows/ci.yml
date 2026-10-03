@@ -23,8 +23,52 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
+  changes:
+    name: Detect CI scope
+    runs-on: ubuntu-latest
+    outputs:
+      frontoffice: ${{ steps.scope.outputs.frontoffice }}
+      backoffice: ${{ steps.scope.outputs.backoffice }}
+      api: ${{ steps.scope.outputs.api }}
+      deployment: ${{ steps.scope.outputs.deployment }}
+
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            printf 'frontoffice=true\nbackoffice=true\napi=true\ndeployment=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_files="$RUNNER_TEMP/ysheng-ci-changed-files.txt"
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" > "$changed_files"
+          elif [[ -n "$BEFORE_SHA" && ! "$BEFORE_SHA" =~ ^0+$ ]] && git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            git diff --name-only --no-renames "$BEFORE_SHA" "$HEAD_SHA" > "$changed_files"
+          else
+            git diff-tree --no-commit-id --name-only -r "$HEAD_SHA" > "$changed_files"
+          fi
+
+          cat "$changed_files"
+          bash .github/scripts/classify-ci-scope.sh < "$changed_files" | tee -a "$GITHUB_OUTPUT"
+
   web:
     name: Web apps
+    needs: changes
+    if: ${{ needs.changes.outputs.frontoffice == 'true' || needs.changes.outputs.backoffice == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -40,20 +84,34 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Type-check web apps
-        run: npm run lint
+      - name: Type-check front office
+        if: ${{ needs.changes.outputs.frontoffice == 'true' }}
+        run: npm --workspace apps/frontoffice run lint
 
       - name: Test front office
+        if: ${{ needs.changes.outputs.frontoffice == 'true' }}
         run: npm --workspace apps/frontoffice run test
 
+      - name: Build front office
+        if: ${{ needs.changes.outputs.frontoffice == 'true' }}
+        run: npm --workspace apps/frontoffice run build
+
+      - name: Type-check back office
+        if: ${{ needs.changes.outputs.backoffice == 'true' }}
+        run: npm --workspace apps/backoffice run lint
+
       - name: Test back office
+        if: ${{ needs.changes.outputs.backoffice == 'true' }}
         run: npm --workspace apps/backoffice run test
 
-      - name: Build web apps
-        run: npm run build
+      - name: Build back office
+        if: ${{ needs.changes.outputs.backoffice == 'true' }}
+        run: npm --workspace apps/backoffice run build
 
   responsive:
     name: Responsive layouts (shard ${{ matrix.shard }}/${{ matrix.total }})
+    needs: changes
+    if: ${{ needs.changes.outputs.backoffice == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -111,7 +169,7 @@ jobs:
 
   responsive-report:
     name: Merge responsive Playwright report
-    if: ${{ !cancelled() }}
+    if: ${{ always() && (needs.responsive.result == 'success' || needs.responsive.result == 'failure') }}
     needs: responsive
     runs-on: ubuntu-latest
 
@@ -148,6 +206,8 @@ jobs:
 
   api:
     name: .NET API
+    needs: changes
+    if: ${{ needs.changes.outputs.api == 'true' }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -183,6 +243,8 @@ jobs:
 
   deployment-contracts:
     name: Deployment contracts
+    needs: changes
+    if: ${{ needs.changes.outputs.deployment == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -243,6 +305,10 @@ jobs:
       - name: Check deployment scripts
         shell: pwsh
         run: ./infra/test-deployment-scripts.ps1
+
+      - name: Check CI scope classifier
+        shell: bash
+        run: bash infra/test-ci-scope.sh
 
       - name: Check deployment runbook
         shell: pwsh
