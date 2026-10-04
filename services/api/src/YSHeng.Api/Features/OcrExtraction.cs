@@ -1677,7 +1677,8 @@ public static class OcrExtractionParser
 
         var plateNumber = FindJpjLabeledPlate(lines[plateLabelIndex])
             ?? (plateLabelIndex > 0 ? FindJpjPlateNumber(lines[plateLabelIndex - 1]) : null)
-            ?? (plateLabelIndex + 1 < lines.Count ? FindJpjPlateNumber(lines[plateLabelIndex + 1]) : null);
+            ?? (plateLabelIndex + 1 < lines.Count ? FindJpjPlateNumber(lines[plateLabelIndex + 1]) : null)
+            ?? FindDisplayedVehicleInformationPlate(lines);
         var labeledIdentifiers = chassisEngineLabelIndex >= 0
             ? FindJpjLabeledIdentifierPair(lines[chassisEngineLabelIndex])
             : null;
@@ -1958,6 +1959,19 @@ public static class OcrExtractionParser
         return match.Success
             ? match.Groups["plate"].Value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant()
             : null;
+    }
+
+    private static string? FindDisplayedVehicleInformationPlate(IReadOnlyList<string> lines)
+    {
+        var candidates = Enumerable.Range(0, Math.Max(0, lines.Count - 1))
+            .Where(index => Regex.IsMatch(lines[index], @"^\s*VEHICLE\s+INFORMATION\s*$", RegexOptions.IgnoreCase))
+            .Select(index => Regex.Match(lines[index + 1], @"^\s*:?\s*(?<plate>[A-Z]{1,3}\s?\d{1,4}(?:[A-Z])?)\s*$", RegexOptions.IgnoreCase))
+            .Where(match => match.Success)
+            .Select(match => match.Groups["plate"].Value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .ToList();
+        return candidates.Count == 1 ? candidates[0] : null;
     }
 
     private static string? FindJpjLabeledPlate(string line)
