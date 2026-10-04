@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { EyeOutlined, UploadOutlined } from "@ant-design/icons";
-import { Alert, Button, Space, Upload, message } from "antd";
+import { Alert, Button, Space, Typography, Upload, message } from "antd";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { previewVehicleIntakeVoc, type OcrExtractionResult, type VehicleCatalogModel } from "../../api";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
@@ -176,11 +176,73 @@ export function vehicleIntakeVocPreviewApplication(
   const detectedValues = catalogMatch && canApplyVehicleIntakeVocCatalogPair(draft, catalogMatch)
     ? { ...reviewedValues, make: catalogMatch.make, model: catalogMatch.model }
     : reviewedValues;
+  const patch = vehicleIntakeVocPatch(draft, reviewedValues, {}, catalogModels);
   return {
     reviewedValues,
     detectedFields: vehicleIntakeVocDetectedFields(detectedValues),
-    patch: vehicleIntakeVocPatch(draft, reviewedValues, {}, catalogModels)
+    patch,
+    nextAppliedPatch: trackedVehicleIntakeVocPatch(patch)
   };
+}
+
+function vehicleIntakeVocUnchangedAppliedPatch(
+  draft: VehicleIntakeVocDraft,
+  appliedPatch: VehicleIntakeVocPatch
+) {
+  return vocFields.reduce<VehicleIntakeVocPatch>((patch, field) => {
+    const applied = appliedPatch[field.name];
+    if (normalized(applied) && normalized(draft[field.name]) === normalized(applied)) {
+      patch[field.name] = undefined;
+    }
+    return patch;
+  }, {});
+}
+
+export function vehicleIntakeVocReplacementApplication(
+  draft: VehicleIntakeVocDraft,
+  previousAppliedPatch: VehicleIntakeVocPatch,
+  result: OcrExtractionResult,
+  catalogModels: readonly VehicleCatalogModel[]
+) {
+  const protectedFields = new Set(vocFields
+    .filter((field) => normalized(previousAppliedPatch[field.name])
+      && normalized(draft[field.name]) !== normalized(previousAppliedPatch[field.name]))
+    .map((field) => field.name));
+  if (protectedFields.has("make") || protectedFields.has("model")) {
+    protectedFields.add("make");
+    protectedFields.add("model");
+  }
+  const clearPatch = vehicleIntakeVocUnchangedAppliedPatch(draft, previousAppliedPatch);
+  protectedFields.forEach((field) => delete clearPatch[field]);
+  const replacementDraft = { ...draft, ...clearPatch };
+  const application = vehicleIntakeVocPreviewApplication(replacementDraft, result, catalogModels);
+  const patch = { ...clearPatch, ...application.patch };
+  protectedFields.forEach((field) => delete patch[field]);
+  const retainedProtectedPatch = Object.fromEntries([...protectedFields]
+    .filter((field) => normalized(previousAppliedPatch[field]))
+    .map((field) => [field, previousAppliedPatch[field]])) as VehicleIntakeVocPatch;
+  return {
+    ...application,
+    patch,
+    nextAppliedPatch: { ...retainedProtectedPatch, ...trackedVehicleIntakeVocPatch(patch) }
+  };
+}
+
+export function vehicleIntakeVocClearPatch(
+  draft: VehicleIntakeVocDraft,
+  appliedPatch: VehicleIntakeVocPatch
+) {
+  return vehicleIntakeVocUnchangedAppliedPatch(draft, appliedPatch);
+}
+
+export function vehicleIntakeVocClearedFields(patch: VehicleIntakeVocPatch) {
+  return vocFields
+    .filter((field) => Object.prototype.hasOwnProperty.call(patch, field.name) && patch[field.name] === undefined)
+    .map((field) => field.name);
+}
+
+function trackedVehicleIntakeVocPatch(patch: VehicleIntakeVocPatch) {
+  return Object.fromEntries(Object.entries(patch).filter(([, value]) => normalized(value))) as VehicleIntakeVocPatch;
 }
 
 export function VehicleIntakeVocReview({
@@ -193,8 +255,8 @@ export function VehicleIntakeVocReview({
   draft: VehicleIntakeVocDraft;
   catalogModels: readonly VehicleCatalogModel[];
   disabled?: boolean;
-  onReviewReady: (patch: VehicleIntakeVocPatch, file: File, detectedFields: VehicleIntakeVocField[]) => void;
-  onClear: () => void;
+  onReviewReady: (patch: VehicleIntakeVocPatch, file: File, detectedFields: VehicleIntakeVocField[], mode: "initial" | "replacement") => void;
+  onClear: (patch: VehicleIntakeVocPatch) => void;
 }) {
   const [result, setResult] = useState<OcrExtractionResult | null>(null);
   const [reviewedValues, setReviewedValues] = useState<Record<string, string | null | undefined>>({});
@@ -214,6 +276,9 @@ export function VehicleIntakeVocReview({
   const hasCatalogConflict = Boolean(hasExtractedCatalogText && catalogMatch && !catalogPairAccepted);
   const previewRequestGate = useRef<ReturnType<typeof createVehicleIntakeVocPreviewRequestGate> | null>(null);
   const previewInFlight = useRef(false);
+  const appliedVocPatch = useRef<VehicleIntakeVocPatch>({});
+  const currentDraft = useRef(draft);
+  currentDraft.current = draft;
 
   useEffect(() => {
     const gate = createVehicleIntakeVocPreviewRequestGate();
@@ -248,14 +313,19 @@ export function VehicleIntakeVocReview({
     if (!request) return;
     previewInFlight.current = true;
     setBusy(true);
-    setSelectedFile(nextFile);
     try {
       const preview = await previewVehicleIntakeVoc(nextFile);
       if (!gate.isCurrent(request)) return;
-      const application = vehicleIntakeVocPreviewApplication(draft, preview.result, catalogModels);
+      const mode = result ? "replacement" : "initial";
+      const application = mode === "replacement"
+        ? vehicleIntakeVocReplacementApplication(currentDraft.current, appliedVocPatch.current, preview.result, catalogModels)
+        : vehicleIntakeVocPreviewApplication(currentDraft.current, preview.result, catalogModels);
       setResult(preview.result);
       setReviewedValues(application.reviewedValues);
-      onReviewReady(application.patch, nextFile, application.detectedFields);
+      setSelectedFile(nextFile);
+      setFilePreviewOpen(false);
+      appliedVocPatch.current = application.nextAppliedPatch;
+      onReviewReady(application.patch, nextFile, application.detectedFields, mode);
       option.onSuccess?.({ ok: true });
     } catch (error) {
       if (!gate.isCurrent(request)) return;
@@ -271,11 +341,13 @@ export function VehicleIntakeVocReview({
 
   const clear = () => {
     if (disabled || busy) return;
+    const clearPatch = vehicleIntakeVocClearPatch(draft, appliedVocPatch.current);
+    appliedVocPatch.current = {};
     setResult(null);
     setReviewedValues({});
     setSelectedFile(null);
     setFilePreviewOpen(false);
-    onClear();
+    onClear(clearPatch);
   };
 
   return (
@@ -285,7 +357,7 @@ export function VehicleIntakeVocReview({
         type="info"
         showIcon
         message="Optional VOC check / 可选 VOC 核对"
-        description="Upload an English VOC (PDF: 1–15 readable, unencrypted pages; JPG, PNG, or WebP; maximum 10 MB). Suggestions fill empty fields only. Review them before Create Vehicle."
+        description="Upload an English VOC (PDF: 1–15 readable, unencrypted pages; JPG, PNG, or WebP; maximum 10 MB). The first scan fills empty fields only. Replacing the VOC updates only unchanged suggestions from the previous scan."
       />
       {!result ? (
         <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>
@@ -299,7 +371,7 @@ export function VehicleIntakeVocReview({
             showIcon
             message={result.confidence > 0 ? "VOC draft prepared — review the vehicle fields below" : "VOC could not be read automatically"}
             description={result.confidence > 0
-              ? "Existing entries were preserved. Nothing is saved until you review the full intake and confirm Create Vehicle."
+              ? "Manual entries are kept. Nothing is saved until you review the full intake and confirm Create Vehicle."
               : "Keep or enter the vehicle details manually. You can choose another clear VOC file."}
           />
           {visibleWarnings.length ? (
@@ -336,12 +408,15 @@ export function VehicleIntakeVocReview({
               description={`OCR reference: ${ocrCatalogReference}. The detailed OCR variant remains visible for review; the vehicle will use the existing canonical catalogue model.`}
             />
           ) : null}
+          <Typography.Text type="secondary">
+            Replace scans a new VOC and updates unchanged suggestions. Remove detaches the VOC and clears only unchanged suggestions; manual edits stay.
+          </Typography.Text>
           <Space wrap>
             {selectedFile && selectedFileUrl && <Button icon={<EyeOutlined />} onClick={() => setFilePreviewOpen(true)}>Preview VOC</Button>}
-            <Button onClick={clear} disabled={disabled || busy}>Remove VOC review</Button>
             <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>
-              <Button loading={busy} disabled={disabled || busy}>Choose another file</Button>
+              <Button icon={<UploadOutlined />} loading={busy} disabled={disabled || busy}>Replace VOC file</Button>
             </Upload>
+            <Button danger onClick={clear} disabled={disabled || busy}>Remove VOC</Button>
           </Space>
         </Space>
       )}
