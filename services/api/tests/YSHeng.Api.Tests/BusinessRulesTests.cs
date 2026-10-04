@@ -5452,6 +5452,90 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Ocr_parser_uses_unambiguous_displayed_plate_when_certificate_plate_is_misread()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "jpj-voc-with-displayed-plate.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "Vehicle Information\n" +
+                    "VLL8215\n" +
+                    "Vehicle Ownership Certificate\n" +
+                    "No. Pendaftaran : VLLB215\n" +
+                    "No. Chasis / No. Enjin : PMHRV3870ND714542 / L15C36214453\n" +
+                    "Buatan\n" +
+                    "HONDA\n" +
+                    "Nama Model\n" +
+                    "X70\n" +
+                    "Jenis Badan / Tahun Dibuat : MOTOKAR / 2023\n" +
+                    "Tarikh Pendaftaran : 16/11/2023")
+            },
+            []);
+
+        Assert.Equal("VLL8215", result.Fields["plateNumber"]);
+        Assert.DoesNotContain(result.Warnings, warning => warning.StartsWith("No car plate", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Ocr_parser_does_not_guess_when_multiple_standalone_plates_are_visible()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "jpj-voc-with-conflicting-displayed-plates.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "Vehicle Information\n" +
+                    "VLL8215\n" +
+                    "Previous vehicle\n" +
+                    "Vehicle Information\n" +
+                    "ABC1234\n" +
+                    "Vehicle Ownership Certificate\n" +
+                    "No. Pendaftaran : VLLB215\n" +
+                    "No. ID : 900101010101\n" +
+                    "No. Chasis / No. Enjin : PMHRV3870ND714542 / L15C36214453\n" +
+                    "Buatan / Nama Model : HONDA / HR-V 1.5T V\n" +
+                    "Jenis Badan / Tahun Dibuat : MOTOKAR / 2023\n" +
+                    "Tarikh Pendaftaran : 16/11/2023")
+            },
+            []);
+
+        Assert.Null(result.Fields["plateNumber"]);
+        Assert.Contains(result.Warnings, warning => warning.StartsWith("No car plate", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Ocr_parser_does_not_treat_standalone_model_as_displayed_plate()
+    {
+        var result = AnalyzeOcrFixture(
+            new DocumentBlob
+            {
+                Category = FileCategory.Voc,
+                FileName = "jpj-voc-with-unreadable-plate-and-short-model.txt",
+                MimeType = "text/plain",
+                Content = System.Text.Encoding.UTF8.GetBytes(
+                    "Vehicle Ownership Certificate\n" +
+                    "No. Pendaftaran : VLLB215\n" +
+                    "No. ID : 900101010101\n" +
+                    "No. Chasis / No. Enjin : PMHRV3870ND714542 / L15C36214453\n" +
+                    "Buatan\n" +
+                    "HONDA\n" +
+                    "Nama Model\n" +
+                    "X70\n" +
+                    "Jenis Badan / Tahun Dibuat : MOTOKAR / 2023\n" +
+                    "Tarikh Pendaftaran : 16/11/2023")
+            },
+            []);
+
+        Assert.Null(result.Fields["plateNumber"]);
+        Assert.Contains(result.Warnings, warning => warning.StartsWith("No car plate", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Ocr_parser_maps_full_malay_jpj_labels_without_treating_engine_capacity_as_engine_number()
     {
         var result = AnalyzeOcrFixture(
