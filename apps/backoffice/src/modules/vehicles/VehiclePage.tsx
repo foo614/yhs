@@ -19,7 +19,7 @@ import { isRepairCostFinal, isSupplierUsable } from "../../repairs";
 import { isMalaysiaPlateFormat, malaysiaPlateFormatMessage, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
-import { VehicleIntakeVocReview, type VehicleIntakeVocPatch } from "./VehicleIntakeVocReview";
+import { VehicleIntakeVocReview, vehicleIntakeVocClearedFields, type VehicleIntakeVocPatch } from "./VehicleIntakeVocReview";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
@@ -3244,15 +3244,28 @@ export function VehiclePage({
               <VehicleIntakeVocReview
                 draft={vehicleIntakeDraft}
                 catalogModels={catalogModels}
-                onReviewReady={(patch: VehicleIntakeVocPatch, file) => {
-                  vehicleIntakeIdentityFormRef.current?.setFieldsValue(patch);
+                onReviewReady={(patch: VehicleIntakeVocPatch, file, _detectedFields, mode) => {
+                  const form = vehicleIntakeIdentityFormRef.current;
+                  form?.resetFields(vehicleIntakeVocClearedFields(patch));
+                  form?.setFieldsValue(patch);
                   setVehicleIntakeDraft((current) => ({ ...current, ...patch }));
                   setSellerVocFile(file);
-                  message.success(Object.keys(patch).length
-                    ? "VOC suggestions filled the empty vehicle fields. Review or edit them before creating the vehicle."
-                    : "VOC review is attached. Existing entries were preserved; review the vehicle fields before continuing.");
+                  message.success(mode === "replacement"
+                    ? "VOC replaced. Unchanged suggestions were updated; manual edits were kept."
+                    : Object.keys(patch).length
+                      ? "VOC suggestions filled the empty vehicle fields. Review or edit them before creating the vehicle."
+                      : "VOC review is attached. Existing entries were preserved; review the vehicle fields before continuing.");
                 }}
-                onClear={() => setSellerVocFile(null)}
+                onClear={(patch) => {
+                  const form = vehicleIntakeIdentityFormRef.current;
+                  form?.resetFields(vehicleIntakeVocClearedFields(patch));
+                  form?.setFieldsValue(patch);
+                  setVehicleIntakeDraft((current) => ({ ...current, ...patch }));
+                  setSellerVocFile(null);
+                  message.success(Object.keys(patch).length
+                    ? "VOC removed. Unchanged suggestions were cleared; manual edits were kept."
+                    : "VOC removed. Your vehicle entries were kept.");
+                }}
               />
             </Form.Item>
             <Form.Item

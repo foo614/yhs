@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { OcrExtractionResult, VehicleCatalogModel } from "../../api";
 import { VehicleMakeModelFields } from "./VehiclePage";
-import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocCatalogReference, vehicleIntakeVocCatalogResolution, vehicleIntakeVocDetectedFields, vehicleIntakeVocPatch, vehicleIntakeVocPreviewApplication, vocReviewWarnings } from "./VehicleIntakeVocReview";
+import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocCatalogReference, vehicleIntakeVocCatalogResolution, vehicleIntakeVocClearPatch, vehicleIntakeVocDetectedFields, vehicleIntakeVocPatch, vehicleIntakeVocPreviewApplication, vehicleIntakeVocReplacementApplication, vocReviewWarnings } from "./VehicleIntakeVocReview";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -22,6 +22,7 @@ describe("vehicle intake VOC review", () => {
   const catalogModels: VehicleCatalogModel[] = [
     { id: "proton-x70", make: "Proton", model: "X70", isActive: true },
     { id: "honda-civic", make: "Honda", model: "Civic", isActive: true },
+    { id: "honda-hr-v", make: "Honda", model: "HR-V", isActive: true },
     { id: "nissan-civic", make: "Nissan", model: "Civic", isActive: true }
   ];
   const reviewedValues = {
@@ -113,6 +114,90 @@ describe("vehicle intake VOC review", () => {
     expect(applied.detectedFields).toEqual(["plateNumber", "chassisNumber", "engineNumber", "make", "model", "year"]);
     expect(markup).toMatch(/ant-select-selection-item[^>]*title="Honda"[^>]*>Honda/);
     expect(markup).toMatch(/ant-select-selection-item[^>]*title="Civic"[^>]*>Civic/);
+  });
+
+  it("replaces unchanged values from the first VOC without overwriting staff edits", () => {
+    const firstApplied = {
+      plateNumber: "VMW9796",
+      chassisNumber: "PMHFE1650RD401993",
+      engineNumber: "L15BG2102023",
+      make: "Honda",
+      model: "Civic",
+      year: 2024
+    };
+    const secondResult: OcrExtractionResult = {
+      documentCategory: "Voc",
+      confidence: 0.9,
+      fieldConfidence: {},
+      fields: {
+        plateNumber: "VLL8215",
+        chassisNumber: "PMHRV3870ND714542",
+        engineNumber: "L15C36214453",
+        make: "Honda",
+        model: "HR-V 1.5T V",
+        year: "2023"
+      },
+      rawText: "redacted provider fixture",
+      warnings: []
+    };
+
+    expect(vehicleIntakeVocReplacementApplication(firstApplied, firstApplied, secondResult, catalogModels).patch).toEqual({
+      plateNumber: "VLL8215",
+      chassisNumber: "PMHRV3870ND714542",
+      engineNumber: "L15C36214453",
+      make: "Honda",
+      model: "HR-V",
+      year: 2023
+    });
+
+    const staffEditedDraft = { ...firstApplied, plateNumber: "JQK1234" };
+    expect(vehicleIntakeVocReplacementApplication(staffEditedDraft, firstApplied, secondResult, catalogModels).patch).toEqual({
+      chassisNumber: "PMHRV3870ND714542",
+      engineNumber: "L15C36214453",
+      make: "Honda",
+      model: "HR-V",
+      year: 2023
+    });
+
+    const staffClearedDraft = { ...firstApplied, engineNumber: "" };
+    const secondApplication = vehicleIntakeVocReplacementApplication(staffClearedDraft, firstApplied, secondResult, catalogModels);
+    expect(secondApplication.patch).toEqual({
+      plateNumber: "VLL8215",
+      chassisNumber: "PMHRV3870ND714542",
+      make: "Honda",
+      model: "HR-V",
+      year: 2023
+    });
+
+    const thirdResult: OcrExtractionResult = {
+      ...secondResult,
+      fields: { ...secondResult.fields, plateNumber: "VAA3000", engineNumber: "THIRDENGINE" }
+    };
+    const draftAfterSecondReplacement = { ...staffClearedDraft, ...secondApplication.patch };
+    expect(vehicleIntakeVocReplacementApplication(
+      draftAfterSecondReplacement,
+      secondApplication.nextAppliedPatch,
+      thirdResult,
+      catalogModels
+    ).patch).not.toHaveProperty("engineNumber");
+  });
+
+  it("clears stale unchanged OCR values when replacement or removal has no new value", () => {
+    const firstApplied = { plateNumber: "VMW9796", engineNumber: "L15BG2102023" };
+    const replacement: OcrExtractionResult = {
+      documentCategory: "Voc",
+      confidence: 0.7,
+      fieldConfidence: {},
+      fields: { plateNumber: "VLL8215" },
+      rawText: "redacted provider fixture",
+      warnings: []
+    };
+
+    expect(vehicleIntakeVocReplacementApplication(firstApplied, firstApplied, replacement, catalogModels).patch).toEqual({
+      plateNumber: "VLL8215",
+      engineNumber: undefined
+    });
+    expect(vehicleIntakeVocClearPatch({ ...firstApplied, plateNumber: "MANUAL1" }, firstApplied)).toEqual({ engineNumber: undefined });
   });
 
   it("does not report or apply a canonical Model when the existing Make conflicts", () => {
