@@ -9,7 +9,8 @@ using YSHeng.Api.Domain;
 namespace YSHeng.Api.Features;
 
 public sealed record WhatsAppStaffPolicyView(string Category, bool Enabled, int LocalMinuteOfDay,
-    int LeadDays, int ThresholdPercent, bool SenderReady, bool TemplateReady, bool CategoryReady);
+    int LeadDays, int ThresholdPercent, bool SenderReady, bool TemplateReady, bool CategoryReady,
+    IReadOnlyList<string> SenderIssues, IReadOnlyList<WhatsAppTemplateReadiness> TemplateReadiness);
 public sealed record WhatsAppStaffPolicyUpdate(bool Enabled, int LocalMinuteOfDay, int LeadDays, int ThresholdPercent);
 public sealed record WhatsAppStaffHistoryItem(Guid Id, string StaffUserId, string StaffName, string MaskedNumber,
     string Category, string? SubmittedBody, string? SubmittedTemplateName, string? SubmittedLanguage,
@@ -131,9 +132,11 @@ public static class WhatsAppStaffNotifications
             var minute = category is "OutstandingDigest" or "LeaveApproval" ? 540 : category == "AttendanceSummary" ? 600 : 0;
             return new WhatsAppStaffPolicyView(category, row?.Enabled ?? false, row?.LocalMinuteOfDay ?? minute,
                 row?.LeadDays ?? (category == "OutstandingDigest" ? 3 : 0),
-                row?.ThresholdPercent ?? (category == "OcrUsage" ? 90 : 0), dispatch.StaffReady,
-                dispatch.Templates.Any(item => item.Key == "staff_notice_v1" && item.Valid),
-                true);
+                row?.ThresholdPercent ?? (category == "OcrUsage" ? 90 : 0), dispatch.StaffSenderReady,
+                dispatch.TemplateFor("staff_notice_v1", "ms") is not null ||
+                    dispatch.TemplateFor("staff_notice_v1", "en_US") is not null,
+                true, dispatch.StaffSenderIssues(),
+                [dispatch.TemplateReadiness("staff_notice_v1", "ms"), dispatch.TemplateReadiness("staff_notice_v1", "en_US")]);
         }).ToArray();
     }
 

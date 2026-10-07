@@ -41,8 +41,10 @@ public static class WhatsAppNotificationDispatcher
                     .ExecuteUpdateAsync(set => set.SetProperty(row => row.State, "UnknownOutcome"), ct);
                 Audit(db, id, "UnknownOutcome");
             }
-            var ms = options.Templates.Where(template => template.Language == "ms").Select(template => template.Key).ToArray();
-            var en = options.Templates.Where(template => template.Language == "en_US").Select(template => template.Key).ToArray();
+            var ms = options.Templates.Where(template => template.Language == "ms" &&
+                options.TemplateFor(template.Key, "ms") is not null).Select(template => template.Key).Distinct().ToArray();
+            var en = options.Templates.Where(template => template.Language == "en_US" &&
+                options.TemplateFor(template.Key, "en_US") is not null).Select(template => template.Key).Distinct().ToArray();
             candidate = await db.WhatsAppOutbox.AsNoTracking().Where(row => row.EventKind != "test" && row.ProviderMessageId == null &&
                 ((row.Audience == "Customer" && options.Ready) || (row.Audience == "Staff" && options.StaffReady) ||
                  (row.Audience == "Enrollment" && options.InvitationReady)) &&
@@ -118,6 +120,7 @@ public static class WhatsAppNotificationDispatcher
             await WhatsAppStaffInvitation.EligibleAsync(db, candidate, assistant, options, now, ct, lockChallenge: true);
         var owned = await db.WhatsAppOutbox.AnyAsync(row => row.Id == candidate.Id && row.Attempts == attempt && row.State == "Sending", ct);
         var eligible = (consented || staffEligible || invitationEligible) && owned && candidate.ExpiresAt > now &&
+            options.TemplateFor(candidate) is not null &&
             (candidate.Audience != "Customer" || await ReceiptEligibleAsync(db, candidate, ct, lockReceipt: true));
         WhatsAppSendResult result;
         if (!eligible) result = new("Suppressed");

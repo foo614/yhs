@@ -54,7 +54,7 @@ public sealed class WhatsAppAssistantOptions
 
 public sealed record WhatsAppStaffConnection(bool Enabled, string State, string? MaskedNumber = null, string Language = "ms", long? VerifiedAt = null,
     long? ExpiresAt = null, string? InvitationState = null, string? BusinessDisplayNumber = null, bool InvitationAvailable = false,
-    long? InvitationCreatedAt = null);
+    long? InvitationCreatedAt = null, IReadOnlyList<string>? InvitationLanguages = null);
 public sealed record WhatsAppStaffLinkRequest(string Recipient, string Language = "ms", bool ConsentConfirmed = false);
 public sealed record WhatsAppStaffLinkResult(string Command, long ExpiresAt, string InvitationState, string? BusinessDisplayNumber);
 
@@ -89,14 +89,18 @@ public static class WhatsAppStaffBindings
     public static async Task<WhatsAppStaffConnection> StatusAsync(AppDbContext db, WhatsAppAssistantOptions options,
         string userId, long now, CancellationToken ct = default, WhatsAppDispatchOptions? dispatch = null)
     {
-        if (!options.Ready) return new(false, "Disabled");
+        if (!options.Ready) return new(false, "Disabled", InvitationLanguages: []);
+        string[] languages = dispatch?.InvitationReady == true
+            ? [.. new[] { "ms", "en_US" }.Where(language => dispatch.TemplateFor(WhatsAppStaffInvitation.TemplateKey, language) is not null)]
+            : [];
         var binding = await db.WhatsAppStaffBindings.AsNoTracking().SingleOrDefaultAsync(item => item.StaffUserId == userId && item.RevokedAt == null, ct);
         if (binding is not null)
         {
             var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(item => item.Id == userId, ct);
             var verified = Active(user, now) && EqualHash(binding.SecurityStampHash, Hash(user!.SecurityStamp!)) &&
                 (await RolesAsync(db, userId, ct)).Length > 0 && options.Allows(binding.Recipient) && binding.PhoneNumberId == options.PhoneNumberId;
-            return new(true, verified ? "Connected" : "RelinkRequired", Mask(binding.Recipient), binding.Language, binding.VerifiedAt);
+            return new(true, verified ? "Connected" : "RelinkRequired", Mask(binding.Recipient), binding.Language,
+                binding.VerifiedAt, InvitationLanguages: []);
         }
         var challenge = await db.WhatsAppStaffChallenges.AsNoTracking().SingleOrDefaultAsync(item => item.StaffUserId == userId, ct);
         if (challenge is { ConsumedAt: null } && challenge.ExpiresAt > now && challenge.FailedAttempts < 5)
@@ -106,9 +110,9 @@ public static class WhatsAppStaffBindings
                 .OrderByDescending(item => item.CreatedAt).Select(item => new { item.State, item.CreatedAt }).FirstOrDefaultAsync(ct);
             return new(true, "AwaitingVerification", Mask(challenge.Recipient), challenge.Language, null,
                 challenge.ExpiresAt, invite?.State, options.HasBusinessDisplayNumber ? options.BusinessDisplayNumber : null,
-                dispatch?.InvitationReady == true, invite?.CreatedAt);
+                languages.Contains(challenge.Language), invite?.CreatedAt, languages);
         }
-        return new(true, "Disconnected", InvitationAvailable: dispatch?.InvitationReady == true);
+        return new(true, "Disconnected", InvitationAvailable: languages.Length > 0, InvitationLanguages: languages);
     }
 
     public static async Task<WhatsAppStaffLinkResult> IssueAsync(AppDbContext db, WhatsAppAssistantOptions options,
@@ -118,8 +122,7 @@ public static class WhatsAppStaffBindings
         var recipient = WhatsAppOutboxStore.NormalizeRecipient(request.Recipient);
         if (!options.Allows(recipient) || !request.ConsentConfirmed || request.Language is not ("ms" or "en_US"))
             throw new ArgumentException("Confirm consent, a supported language and an eligible phone number.");
-        if (dispatch is not null && !dispatch.Templates.Any(template => template.Key == WhatsAppStaffInvitation.TemplateKey &&
-            template.Language == request.Language && template.Valid))
+        if (dispatch is not null && dispatch.TemplateFor(WhatsAppStaffInvitation.TemplateKey, request.Language) is null)
             throw new ArgumentException("An approved invitation template is unavailable for the selected language.");
         await using var transaction = await LockAsync(db, ct);
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(item => item.Id == userId, ct);

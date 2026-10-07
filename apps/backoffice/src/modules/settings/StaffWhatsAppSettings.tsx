@@ -39,14 +39,31 @@ function timestamp(value: number | null) {
 }
 function readiness(policy: StaffWhatsAppPolicy) {
   const missing: string[] = [];
-  if (!policy.senderReady) missing.push("staff sender is unavailable; check its configuration");
-  if (!policy.templateReady) missing.push("approved template is missing; arrange approval for this category");
+  if (!policy.senderReady) missing.push("resolve the shared sender checks above");
+  if (!policy.templateReady) missing.push("no staff-notice language is configured as ready");
   if (!policy.categoryReady) missing.push("reminder integration is pending for this category");
   if (!policy.enabled) return missing.length
-    ? `This category is off. Before enabling, resolve: ${missing.join("; ")}.`
+    ? `Category off. Before enabling: ${missing.join("; ")}.`
     : "This category is off. Enable it only after reviewing recipients and timing.";
   if (missing.length) return `Sending is blocked: ${missing.join("; ")}. Staff also need an active My WhatsApp connection.`;
-  return "Sender and template are ready. Delivery also requires an eligible staff member with an active My WhatsApp connection and current role access.";
+  return "Configuration allows sending only in ready languages. Each recipient still needs a verified connection and current role access. This is not a live delivery check.";
+}
+
+function SenderReadiness({ policy }: { policy: StaffWhatsAppPolicy }) {
+  const issues = policy.senderIssues ?? (policy.senderReady ? [] : ["Detailed sender checks are unavailable. Ask an operator to check the server configuration."]);
+  return <Alert showIcon type={policy.senderReady ? "info" : "warning"}
+    message="Shared sender and template configuration"
+    description={<Space direction="vertical" className="fullWidth">
+      <Typography.Text>These checks are shared by all reminder categories. They do not contact Meta or verify token validity or live template approval.</Typography.Text>
+      {issues.length > 0 ? <ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul> :
+        <Typography.Text>Shared sender configuration is complete.</Typography.Text>}
+      {(policy.templateReadiness ?? []).map(template => <div key={template.language}>
+        <Tag color={template.ready ? "green" : "orange"}>{template.language === "ms" ? "Bahasa Malaysia" : "English"}: {template.ready ? "Configured" : "Action needed"}</Tag>
+        {template.issues.length > 0 && <ul>{template.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>}
+      </div>)}
+      {!policy.templateReadiness && <Typography.Text>Staff-notice template: {policy.templateReady ? "at least one language configured" : "not configured as ready"}. Language details are unavailable.</Typography.Text>}
+      <Typography.Text type="secondary">An unavailable language does not block another ready language. An operator must verify approvals and update server settings securely; do not enter access tokens here.</Typography.Text>
+    </Space>} />;
 }
 
 type PolicyFormValues = { enabled: boolean; time?: Dayjs; leadDays: number; thresholdPercent: number };
@@ -170,6 +187,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       </div>
       {policiesError && <Alert type="error" showIcon message={policiesError} />}
       {diagnosticsError && <Alert type="warning" showIcon message={diagnosticsError} />}
+      {policyRows[0] && <SenderReadiness policy={policyRows[0]} />}
       {diagnostics && <Alert showIcon type={diagnostics.missingRequiredDate + diagnostics.unassignedDelivery + diagnostics.missingCommissionDate + diagnostics.unroutableWorkflowEvents > 0 || diagnostics.connectedStaff < diagnostics.eligibleStaff ? "warning" : "info"}
         message="Recipient and data checks"
         description={<Space direction="vertical">
@@ -297,7 +315,8 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
         {editing.category === "OcrUsage" && <Form.Item name="thresholdPercent" label="OCR usage threshold (%)" rules={[{ required: true, type: "number", min: 1, max: 100 }]}>
           <InputNumber min={1} max={100} precision={0} className="fullWidth" />
         </Form.Item>}
-        <Alert type={editing.senderReady && editing.templateReady && editing.categoryReady ? "info" : "warning"} showIcon message="Readiness" description={readiness(editing)} />
+        <SenderReadiness policy={editing} />
+        <Alert type={editing.senderReady && editing.templateReady && editing.categoryReady ? "info" : "warning"} showIcon message="Category readiness" description={readiness(editing)} />
         <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={saving}>Review and save</Button></Form.Item>
       </Form>}
     </Drawer>

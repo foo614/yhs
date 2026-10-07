@@ -34,26 +34,74 @@ public sealed class WhatsAppDispatchOptions
     public bool WebhookReady => (CaptureEnabled || StaffCaptureEnabled || InvitationEnabled) && WebhookEnabled &&
         Id(PhoneNumberId) && Id(BusinessAccountId) && Secret(AppSecret) && Secret(VerifyToken);
 
-    public bool Ready => CaptureEnabled && SendingEnabled && TransportReady;
-    public bool StaffReady => StaffCaptureEnabled && StaffSendingEnabled && TransportReady &&
-        Templates.Any(template => template.Key == "staff_notice_v1" && template.Valid);
-    public bool InvitationReady => InvitationEnabled && TransportReady &&
-        Templates.Any(template => template.Key == WhatsAppStaffInvitation.TemplateKey && template.Valid);
+    // Preserve the customer rollout's all-template manifest requirement.
+    public bool Ready => CaptureEnabled && SendingEnabled && TransportReady && Templates.Length > 0 &&
+        Templates.All(template => template.Valid) &&
+        Templates.Select(template => (template.Key, template.Language)).Distinct().Count() == Templates.Length;
+    public bool StaffSenderReady => StaffCaptureEnabled && StaffSendingEnabled && TransportReady;
+    public bool StaffReady => StaffSenderReady && HasTemplate("staff_notice_v1");
+    public bool InvitationSenderReady => InvitationEnabled && TransportReady;
+    public bool InvitationReady => InvitationSenderReady && HasTemplate(WhatsAppStaffInvitation.TemplateKey);
 
     private bool TransportReady => WebhookReady && SenderApproved && Evidence(SenderApprovalEvidence) &&
         Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z") && Secret(AccessToken) && Evidence(BudgetOwner) &&
         DailyAttemptLimit > 0 && MonthlyBudgetSen > 0 && MaximumCostPerAttemptSen > 0 &&
-        MaximumCostPerAttemptSen <= MonthlyBudgetSen && CostCeilingConfirmed && Templates.Length > 0 &&
-        Templates.All(template => template.Valid) &&
-        Templates.Select(template => (template.Key, template.Language)).Distinct().Count() == Templates.Length;
+        MaximumCostPerAttemptSen <= MonthlyBudgetSen && CostCeilingConfirmed;
 
-    public WhatsAppApprovedTemplate? TemplateFor(WhatsAppOutbox item) => Templates.SingleOrDefault(template =>
-        template.Valid && template.Key == item.TemplateVersion && template.Language == item.Language);
+    public WhatsAppApprovedTemplate? TemplateFor(WhatsAppOutbox item) => TemplateFor(item.TemplateVersion, item.Language);
+
+    public WhatsAppApprovedTemplate? TemplateFor(string key, string language)
+    {
+        var matches = Templates.Where(template => template.Key == key && template.Language == language).Take(2).ToArray();
+        return matches.Length == 1 && matches[0].Valid ? matches[0] : null;
+    }
+
+    private bool HasTemplate(string key) => TemplateFor(key, "ms") is not null || TemplateFor(key, "en_US") is not null;
+
+    public WhatsAppTemplateReadiness TemplateReadiness(string key, string language)
+    {
+        var matches = Templates.Where(template => template.Key == key && template.Language == language).Take(2).ToArray();
+        var issues = new List<string>();
+        if (matches.Length == 0) issues.Add("Template is not configured for this language.");
+        else if (matches.Length > 1) issues.Add("Duplicate template entries exist for this language.");
+        else
+        {
+            if (!matches[0].Approved) issues.Add("Template approval flag is off.");
+            if (!matches[0].ValidName) issues.Add("Template name is missing or invalid.");
+            if (!Evidence(matches[0].ApprovalEvidence)) issues.Add("Template approval evidence is missing or invalid.");
+        }
+        return new(language, issues.Count == 0, issues);
+    }
+
+    public IReadOnlyList<string> StaffSenderIssues()
+    {
+        var issues = new List<string>();
+        if (!StaffCaptureEnabled) issues.Add("Staff WhatsApp capture is disabled.");
+        if (!StaffSendingEnabled) issues.Add("Staff WhatsApp sending is disabled.");
+        if (!WebhookEnabled) issues.Add("WhatsApp webhook is disabled.");
+        if (!Id(PhoneNumberId)) issues.Add("Meta phone number ID is missing or invalid.");
+        if (!Id(BusinessAccountId)) issues.Add("Meta business account ID is missing or invalid.");
+        if (!Secret(AppSecret)) issues.Add("Webhook app secret is missing or invalid.");
+        if (!Secret(VerifyToken)) issues.Add("Webhook verify token is missing or invalid.");
+        if (!SenderApproved) issues.Add("Sender approval flag is off.");
+        if (!Evidence(SenderApprovalEvidence)) issues.Add("Sender approval evidence is missing or invalid.");
+        if (!Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z")) issues.Add("Graph API version is missing or invalid.");
+        if (!Secret(AccessToken)) issues.Add("Graph API access token is missing or invalid.");
+        if (!Evidence(BudgetOwner)) issues.Add("Budget owner is missing or invalid.");
+        if (DailyAttemptLimit <= 0) issues.Add("Daily attempt limit must be positive.");
+        if (MonthlyBudgetSen <= 0) issues.Add("Monthly budget must be positive.");
+        if (MaximumCostPerAttemptSen <= 0 || MaximumCostPerAttemptSen > MonthlyBudgetSen)
+            issues.Add("Maximum cost per attempt must be positive and within the monthly budget.");
+        if (!CostCeilingConfirmed) issues.Add("Cost ceiling confirmation is off.");
+        return issues;
+    }
 
     private static bool Id(string value) => Regex.IsMatch(value, @"\A[0-9]{1,32}\z");
     private static bool Secret(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 4096 && !value.Any(char.IsWhiteSpace);
     internal static bool Evidence(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 160 && !value.Any(char.IsControl);
 }
+
+public sealed record WhatsAppTemplateReadiness(string Language, bool Ready, IReadOnlyList<string> Issues);
 
 public sealed class WhatsAppApprovedTemplate
 {
@@ -62,8 +110,9 @@ public sealed class WhatsAppApprovedTemplate
     public string Language { get; init; } = "";
     public bool Approved { get; init; }
     public string ApprovalEvidence { get; init; } = "";
+    public bool ValidName => Regex.IsMatch(Name, @"\A[a-z][a-z0-9_]{0,79}\z");
     public bool Valid => Approved && Key is "enquiry_ack_v1" or "business_update_v1" or "receipt_ready_v1" or "staff_notice_v1" or "staff_invite_v1" &&
-        Language is "ms" or "en_US" && Regex.IsMatch(Name, @"\A[a-z][a-z0-9_]{0,79}\z") &&
+        Language is "ms" or "en_US" && ValidName &&
         WhatsAppDispatchOptions.Evidence(ApprovalEvidence);
 }
 
@@ -79,7 +128,7 @@ public sealed class WhatsAppTemplateSender : IDisposable
 
     public async Task<WhatsAppSendResult> SendAsync(WhatsAppDispatchOptions options, WhatsAppOutbox item, CancellationToken ct = default)
     {
-        if (item.Audience switch { "Staff" => !options.StaffReady, "Enrollment" => !options.InvitationReady, _ => !options.Ready }) return new("Disabled");
+        if (item.Audience switch { "Staff" => !options.StaffSenderReady, "Enrollment" => !options.InvitationSenderReady, _ => !options.Ready }) return new("Disabled");
         var template = options.TemplateFor(item);
         if (template is null || !WhatsAppNotificationDispatcher.Supported(item) ||
             (item.Audience == "Customer" && !Guid.TryParseExact(item.BusinessReference, "D", out _)) || string.IsNullOrWhiteSpace(item.TemplateReference) ||
