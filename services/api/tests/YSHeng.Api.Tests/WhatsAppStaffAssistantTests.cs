@@ -679,6 +679,27 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     [Fact]
+    public async Task Invitation_status_advertises_only_exact_ready_languages()
+    {
+        await using var fixture = await Fixture.Create();
+        var dispatch = InvitationDispatchFor("en_US");
+        var disconnected = await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options, "staff", fixture.Now,
+            dispatch: dispatch);
+        Assert.True(disconnected.InvitationAvailable);
+        Assert.Equal(["en_US"], disconnected.InvitationLanguages);
+        await Assert.ThrowsAsync<ArgumentException>(() => WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options,
+            "staff", new(fixture.Options.TestRecipient, "ms", true), "synthetic", fixture.Now, dispatch: dispatch));
+        Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
+        var issued = await WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options, "staff",
+            new(fixture.Options.TestRecipient, "en_US", true), "synthetic", fixture.Now, dispatch: dispatch);
+        Assert.Equal("Queued", issued.InvitationState);
+        var awaiting = await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options, "staff", fixture.Now,
+            dispatch: dispatch);
+        Assert.True(awaiting.InvitationAvailable);
+        Assert.Equal(["en_US"], awaiting.InvitationLanguages);
+    }
+
+    [Fact]
     public async Task Invitation_requires_approved_gate_and_rechecks_role_before_send()
     {
         await using var fixture = await Fixture.Create();
@@ -693,6 +714,13 @@ public sealed class WhatsAppStaffAssistantTests
             new(fixture.Options.TestRecipient, "en_US", true), default);
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.BadRequest<ApiError>>(missingLanguage);
         Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
+        var duplicate = InvitationDispatch(new WhatsAppApprovedTemplate { Key = "staff_invite_v1",
+            Name = "duplicate_invite", Language = "ms", Approved = true, ApprovalEvidence = "synthetic approval" });
+        var duplicateLanguage = await WhatsAppStaffApi.ConnectAsync(context, fixture.Db, fixture.Options, duplicate,
+            new(fixture.Options.TestRecipient, "ms", true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(duplicateLanguage);
+        Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
+        Assert.Empty(await fixture.Db.WhatsAppOutbox.ToListAsync());
         var accepted = await WhatsAppStaffApi.ConnectAsync(context, fixture.Db, fixture.Options, dispatch,
             new(fixture.Options.TestRecipient, "ms", true), default);
         Assert.IsType<WhatsAppStaffLinkResult>(Assert.IsAssignableFrom<IValueHttpResult>(accepted).Value);
@@ -732,7 +760,8 @@ public sealed class WhatsAppStaffAssistantTests
     public async Task Approved_invitation_payload_contains_generic_localized_text_but_never_the_command()
     {
         await using var fixture = await Fixture.Create();
-        var dispatch = InvitationDispatch();
+        var dispatch = InvitationDispatch(new WhatsAppApprovedTemplate { Key = "staff_notice_v1",
+            Name = "unapproved_notice", Language = "en_US" });
         var issued = await WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options, "staff",
             new(fixture.Options.TestRecipient, "ms", true), "synthetic", fixture.Now, dispatch: dispatch);
         var item = await fixture.Db.WhatsAppOutbox.AsNoTracking().SingleAsync();
@@ -784,7 +813,10 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.NotNull(Assert.Single(sent.Items).SentAt);
     }
 
-    private static WhatsAppDispatchOptions InvitationDispatch() => new()
+    private static WhatsAppDispatchOptions InvitationDispatch(params WhatsAppApprovedTemplate[] extraTemplates) =>
+        InvitationDispatchFor("ms", extraTemplates);
+
+    private static WhatsAppDispatchOptions InvitationDispatchFor(string language, params WhatsAppApprovedTemplate[] extraTemplates) => new()
     {
         InvitationEnabled = true, WebhookEnabled = true, SenderApproved = true,
         SenderApprovalEvidence = "synthetic approval", GraphApiVersion = "v25.0", PhoneNumberId = "123",
@@ -792,7 +824,7 @@ public sealed class WhatsAppStaffAssistantTests
         VerifyToken = new string('v', 32), BudgetOwner = "synthetic budget", DailyAttemptLimit = 10,
         MonthlyBudgetSen = 100, MaximumCostPerAttemptSen = 10, CostCeilingConfirmed = true,
         Templates = [new WhatsAppApprovedTemplate { Key = "staff_invite_v1", Name = "approved_staff_invite",
-            Language = "ms", Approved = true, ApprovalEvidence = "synthetic template approval" }]
+            Language = language, Approved = true, ApprovalEvidence = "synthetic template approval" }, ..extraTemplates]
     };
 
     [Fact]

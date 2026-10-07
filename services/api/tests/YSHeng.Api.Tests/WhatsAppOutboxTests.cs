@@ -931,6 +931,40 @@ public sealed class WhatsAppOutboxTests
         Assert.Equal(1, await db.WhatsAppOutbox.CountAsync());
     }
 
+    [Fact]
+    public async Task Staff_dispatch_skips_older_unapproved_language_and_submits_exact_approved_template()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await db.WhatsAppStaffBindings.ExecuteUpdateAsync(set => set.SetProperty(row => row.Language, "en_US"));
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        var approved = await WhatsAppStaffNotifications.StageAsync(db, assistant, binding.Id,
+            "OutstandingDigest", "BossAdmin", "today", 1, "Current synthetic reminder", Now, Now + 3600, Now,
+            "scheduler");
+        Assert.NotNull(approved);
+        db.WhatsAppOutbox.Add(approved! with { Id = Guid.NewGuid(), IdempotencyKey = Guid.NewGuid().ToString("N"),
+            Language = "ms", CreatedAt = Now - 1 });
+        await db.SaveChangesAsync();
+        var options = StaffDispatch(new WhatsAppApprovedTemplate
+            { Key = "staff_notice_v1", Language = "ms", Name = "draft_staff_notice" },
+            new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Language = "en_US", Name = "approved_staff_notice",
+                Approved = true, ApprovalEvidence = "synthetic approval" });
+        var calls = 0;
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options, (_, _) =>
+        {
+            calls++;
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.synthetic-exact"));
+        }, Now, assistant: assistant, currentStaffFacts: (_, _, _) => Task.FromResult(true)));
+        Assert.Equal(1, calls);
+        var rows = await db.WhatsAppOutbox.AsNoTracking().ToListAsync();
+        Assert.Equal("Queued", Assert.Single(rows, row => row.Language == "ms").State);
+        var sent = Assert.Single(rows, row => row.Language == "en_US");
+        Assert.Equal("Accepted", sent.State);
+        Assert.Equal("approved_staff_notice", sent.SubmittedTemplateName);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -979,15 +1013,17 @@ public sealed class WhatsAppOutboxTests
         AppSecret = new string('s', 32), VerifyToken = new string('v', 32), AccessToken = "synthetic-token"
     };
 
-    private static WhatsAppDispatchOptions StaffDispatch() => new()
+    private static WhatsAppDispatchOptions StaffDispatch(params WhatsAppApprovedTemplate[] templates) => new()
     {
         StaffCaptureEnabled = true, StaffSendingEnabled = true, WebhookEnabled = true, SenderApproved = true,
         SenderApprovalEvidence = "synthetic approved sender", GraphApiVersion = "v25.0", PhoneNumberId = "12345",
         BusinessAccountId = "45678", AccessToken = "synthetic-token", AppSecret = "synthetic-secret",
         VerifyToken = "synthetic-verify", BudgetOwner = "synthetic budget", DailyAttemptLimit = 10,
         MonthlyBudgetSen = 100, MaximumCostPerAttemptSen = 10, CostCeilingConfirmed = true,
-        Templates = [new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Name = "approved_staff_notice",
-            Language = "ms", Approved = true, ApprovalEvidence = "synthetic approved template" }]
+        Templates = templates.Length == 0
+            ? [new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Name = "approved_staff_notice",
+                Language = "ms", Approved = true, ApprovalEvidence = "synthetic approved template" }]
+            : templates
     };
 
     private static async Task AddStaffBinding(AppDbContext db, WhatsAppAssistantOptions assistant)

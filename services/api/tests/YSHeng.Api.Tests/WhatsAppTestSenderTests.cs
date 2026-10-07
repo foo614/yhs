@@ -72,6 +72,78 @@ public sealed class WhatsAppTestSenderTests
         Assert.Equal("UnknownOutcome", (await sender.SendAsync(WhatsAppDispatchTestData.Options(), item with { Language = "ms" })).Outcome);
         Assert.Equal(1, handler.Calls);
     }
+
+    [Fact]
+    public async Task Staff_sender_uses_exact_approved_language_even_with_unrelated_invalid_template()
+    {
+        using var handler = new StubHandler();
+        using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
+        var item = StaffItem();
+        var options = StaffOptions(
+            Approved("staff_notice_v1", "ms"),
+            new WhatsAppApprovedTemplate { Key = "staff_invite_v1", Language = "en_US", Name = "unapproved_invite" });
+
+        Assert.Equal("Accepted", (await sender.SendAsync(options, item)).Outcome);
+        Assert.Equal(1, handler.Calls);
+        using var payload = JsonDocument.Parse(handler.Body!);
+        Assert.Equal("approved_staff_notice", payload.RootElement.GetProperty("template").GetProperty("name").GetString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Staff_sender_never_submits_missing_or_duplicate_exact_template(bool duplicate)
+    {
+        using var handler = new StubHandler();
+        using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
+        var options = duplicate
+            ? StaffOptions(Approved("staff_notice_v1", "ms"), Approved("staff_notice_v1", "ms"))
+            : StaffOptions(Approved("staff_notice_v1", "en_US"));
+
+        Assert.Equal("TemplateNotApproved", (await sender.SendAsync(options, StaffItem())).Outcome);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public void Staff_readiness_explains_exact_gates_without_disclosing_configuration_values()
+    {
+        var ready = StaffOptions(Approved("staff_notice_v1", "ms"),
+            new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Language = "en_US", Name = "draft_name" });
+        Assert.True(ready.StaffSenderReady);
+        Assert.Empty(ready.StaffSenderIssues());
+        Assert.True(ready.TemplateReadiness("staff_notice_v1", "ms").Ready);
+        var english = ready.TemplateReadiness("staff_notice_v1", "en_US");
+        Assert.False(english.Ready);
+        Assert.Contains("Template approval flag is off.", english.Issues);
+        Assert.Contains("Template approval evidence is missing or invalid.", english.Issues);
+        var disabled = new WhatsAppDispatchOptions { AccessToken = "PRIVATE_TOKEN_VALUE", AppSecret = "PRIVATE_APP_SECRET" };
+        Assert.False(disabled.StaffSenderReady);
+        Assert.Contains("Daily attempt limit must be positive.", disabled.StaffSenderIssues());
+        Assert.DoesNotContain("PRIVATE_TOKEN_VALUE", string.Join(" ", disabled.StaffSenderIssues()));
+        Assert.DoesNotContain("PRIVATE_APP_SECRET", string.Join(" ", disabled.StaffSenderIssues()));
+    }
+
+    private static WhatsAppApprovedTemplate Approved(string key, string language) => new()
+    {
+        Key = key, Language = language, Name = "approved_staff_notice", Approved = true,
+        ApprovalEvidence = "synthetic template approval"
+    };
+
+    private static WhatsAppDispatchOptions StaffOptions(params WhatsAppApprovedTemplate[] templates) => new()
+    {
+        StaffCaptureEnabled = true, StaffSendingEnabled = true, WebhookEnabled = true, SenderApproved = true,
+        SenderApprovalEvidence = "synthetic sender approval", GraphApiVersion = "v25.0", PhoneNumberId = "12345",
+        BusinessAccountId = "45678", AccessToken = "synthetic-token", AppSecret = "synthetic-secret",
+        VerifyToken = "synthetic-verify", BudgetOwner = "synthetic budget", DailyAttemptLimit = 10,
+        MonthlyBudgetSen = 100, MaximumCostPerAttemptSen = 10, CostCeilingConfirmed = true, Templates = templates
+    };
+
+    private static YSHeng.Api.Domain.WhatsAppOutbox StaffItem() => new()
+    {
+        Audience = "Staff", EventKind = "staff.notification", MessageKind = "OutstandingDigest",
+        TemplateVersion = "staff_notice_v1", Language = "ms", TemplateReference = "Synthetic reminder",
+        Recipient = "60123456789"
+    };
     [Fact]
     public async Task Inventory_reply_uses_text_contract_without_a_retry()
     {

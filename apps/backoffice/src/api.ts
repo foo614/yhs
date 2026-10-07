@@ -1400,6 +1400,7 @@ export type StaffWhatsAppConnection = {
   invitationState?: "Queued" | "Sending" | "Accepted" | "Sent" | "Delivered" | "Read" | "RetryScheduled" | "DeadLetter" | "Failed" | "Suppressed" | "UnknownOutcome";
   businessDisplayNumber?: string;
   invitationAvailable: boolean;
+  invitationLanguages?: ("ms" | "en_US")[];
   invitationCreatedAt?: number;
 };
 export type StaffWhatsAppLink = { command: string; expiresAt: number; invitationState: string; businessDisplayNumber?: string };
@@ -1432,6 +1433,8 @@ export type StaffWhatsAppPolicy = {
   senderReady: boolean;
   templateReady: boolean;
   categoryReady: boolean;
+  senderIssues?: string[];
+  templateReadiness?: { language: "ms" | "en_US"; ready: boolean; issues: string[] }[];
 };
 export type StaffWhatsAppPolicyInput = Pick<StaffWhatsAppPolicy,
   "enabled" | "localMinuteOfDay" | "leadDays" | "thresholdPercent">;

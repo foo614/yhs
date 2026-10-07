@@ -24,6 +24,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
   currentStaff.current = staffUserId;
   const [form] = Form.useForm<StaffWhatsAppConnectInput>();
   const [modal, contextHolder] = Modal.useModal();
+  const invitationLanguages = connection?.invitationLanguages ?? (connection?.invitationAvailable ? ["ms", "en_US"] : []);
   const load = useCallback(async () => {
     const requestId = ++requestSequence.current;
     statusInFlight.current = requestId;
@@ -132,10 +133,14 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
       {connection.invitationState && ["Accepted", "DeadLetter", "Failed", "Suppressed"].includes(connection.invitationState) &&
         <Button onClick={resend} disabled={busy || !connection.invitationAvailable || !connection.invitationCreatedAt || Date.now() < (connection.invitationCreatedAt + 60) * 1000}>Resend invitation</Button>}
     </Space>} />}
-    {hasBinding ? <Button danger disabled={busy} onClick={disconnect}>Disconnect WhatsApp</Button> :
-      <Form form={form} name={`staffWhatsApp-${staffUserId ?? "self"}`} layout="vertical" initialValues={{ language: "ms", consentConfirmed: false }} disabled={!connection?.enabled || !connection.invitationAvailable || busy} onFinish={connect}>
+    {hasBinding ? <Button danger disabled={busy} onClick={disconnect}>Disconnect WhatsApp</Button> : connection &&
+      <Form form={form} name={`staffWhatsApp-${staffUserId ?? "self"}`} layout="vertical" initialValues={{ language: invitationLanguages[0], consentConfirmed: false }} disabled={!connection.enabled || !connection.invitationAvailable || invitationLanguages.length === 0 || busy} onFinish={connect}>
         <Form.Item name="recipient" label="WhatsApp number (with country code)" rules={[{ required: true, pattern: /^\+?[1-9][0-9]{7,14}$/, message: "Enter the country code and digits, for example +60123456789." }]}><Input aria-label="WhatsApp number (with country code)" autoComplete="off" inputMode="tel" /></Form.Item>
-        <Form.Item name="language" label="Reply language" rules={[{ required: true }]}><Select options={[{ value: "ms", label: "Bahasa Malaysia" }, { value: "en_US", label: "English" }]} /></Form.Item>
+        <Form.Item name="language" label="Reply language" extra="Only languages with a configured invitation template are available."
+          rules={[{ required: true }, { validator: (_, value) => invitationLanguages.includes(value) ? Promise.resolve() : Promise.reject(new Error("Choose an available invitation language.")) }]}>
+          <Select options={[{ value: "ms", label: "Bahasa Malaysia" }, { value: "en_US", label: "English" }]
+            .filter(option => invitationLanguages.some(language => language === option.value))} />
+        </Form.Item>
         <Form.Item name="consentConfirmed" valuePropName="checked" rules={[{ validator: (_, value) => value ? Promise.resolve() : Promise.reject(new Error("Confirm agreement before connecting.")) }]}>
           <Checkbox>{isSelf ? "I agree to use this number for staff WhatsApp queries." : "The selected employee agrees to use this number for staff WhatsApp queries."}</Checkbox>
         </Form.Item>

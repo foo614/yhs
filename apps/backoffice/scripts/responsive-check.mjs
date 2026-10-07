@@ -86,7 +86,16 @@ for (let index = 0; index < 9; index++) {
   for (const resource of ["photos", "documents", "ocr-jobs"]) emptyCollections.add(`/api/vehicles/test-vehicle-${index}/${resource}`);
 }
 fixtures["/api/whatsapp/queue"] = { captureEnabled: false, sendingEnabled: false, items: [] };
-fixtures["/api/whatsapp/staff/policies"] = ["OutstandingDigest", "AttendanceSummary", "LeaveApproval", "OcrUsage", "VehicleEvent", "DeliveryEvent", "FinanceEvent"].map(category => ({ category, enabled: false, localMinuteOfDay: category === "AttendanceSummary" ? 600 : ["OutstandingDigest", "LeaveApproval"].includes(category) ? 540 : 0, leadDays: category === "OutstandingDigest" ? 3 : 0, thresholdPercent: category === "OcrUsage" ? 90 : 0, senderReady: false, templateReady: false, categoryReady: ["OutstandingDigest", "AttendanceSummary", "LeaveApproval", "OcrUsage"].includes(category) }));
+fixtures["/api/whatsapp/staff/policies"] = ["OutstandingDigest", "AttendanceSummary", "LeaveApproval", "OcrUsage", "VehicleEvent", "DeliveryEvent", "FinanceEvent"].map(category => ({
+  category, enabled: false, localMinuteOfDay: category === "AttendanceSummary" ? 600 : ["OutstandingDigest", "LeaveApproval"].includes(category) ? 540 : 0,
+  leadDays: category === "OutstandingDigest" ? 3 : 0, thresholdPercent: category === "OcrUsage" ? 90 : 0,
+  senderReady: false, templateReady: true, categoryReady: true,
+  senderIssues: ["Staff sending is disabled.", "Sender approval evidence is missing.", "A positive monthly messaging budget is required."],
+  templateReadiness: [
+    { language: "ms", ready: false, issues: ["No approved staff-notice template is configured for this language."] },
+    { language: "en_US", ready: true, issues: [] }
+  ]
+}));
 fixtures["/api/whatsapp/staff/diagnostics"] = { missingRequiredDate: 2, unassignedDelivery: 1, missingCommissionDate: 1, eligibleStaff: 4, connectedStaff: 2, unroutableWorkflowEvents: 1 };
 fixtures["/api/whatsapp/staff/history"] = { page: 1, total: 1, items: [{ id: "synthetic-message", staffUserId: "responsive-test", staffName: "Layout Test With A Longer Staff Name", maskedNumber: "***6789", category: "OutstandingDigest", state: "Delivered", scheduledAt: 1791334800, acceptedAt: 1791334801, sentAt: 1791334802, deliveredAt: 1791334803, readAt: null, failedAt: null, suppressedAt: null, failureReason: null, submittedBody: "Synthetic due reminder. No real customer or financial data.", submittedTemplateName: "synthetic_staff_notice", submittedLanguage: "en_US", canRetry: false }] };
 const fixtureTemplate = fixtures;
@@ -295,7 +304,7 @@ try {
         if (route === "admin" && [360, 820, 1440].includes(width)) {
           connectionChecks = true;
           connectionMutations.length = 0;
-          fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, invitationAvailable: true, state: "Disconnected", language: "ms" };
+          fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, invitationAvailable: true, invitationLanguages: ["en_US"], state: "Disconnected", language: "ms" };
           if (width <= 1024) {
             await page.getByRole("button", { name: "Open navigation", exact: true }).click();
             await page.getByRole("button", { name: "My WhatsApp", exact: true }).click();
@@ -314,7 +323,7 @@ try {
           await drawer.getByRole("button", { name: "Send invitation", exact: true }).click();
           await confirm.getByRole("button", { name: "Queue invitation and create command", exact: true }).click();
           await drawer.getByText("link " + "A".repeat(32), { exact: true }).waitFor();
-          if (connectionMutations.length !== 1 || connectionMutations[0].body.consentConfirmed !== true || connectionMutations[0].body.language !== "ms" || connectionMutations[0].body.staffUserId) throw new Error("Self linking must require consent and preserve its language without assigning another employee.");
+          if (connectionMutations.length !== 1 || connectionMutations[0].body.consentConfirmed !== true || connectionMutations[0].body.language !== "en_US" || connectionMutations[0].body.staffUserId) throw new Error("Self linking must require consent and choose the available invitation language without assigning another employee.");
           await inspect("whatsapp-connection-command", width);
           fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, state: "Connected", language: "ms", maskedNumber: "***6789" };
           await drawer.getByRole("button", { name: "Refresh status", exact: true }).click();
