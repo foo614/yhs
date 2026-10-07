@@ -226,6 +226,9 @@ foreach ($expected in @(
   "SHIJIRU_SSH_PRIVATE_KEY",
   "SHIJIRU_KNOWN_HOSTS",
   "PRODUCTION_ENV_FILE",
+  "vars.WHATSAPP_ASSISTANT_BUSINESS_DISPLAY_NUMBER",
+  'python3 infra/ubuntu/apply-business-display-number.py "$env_file"',
+  "python3 infra/test-business-display-number.py",
   'local_env_sha="$(sha256sum "$env_file"',
   'sha256sum /opt/ysheng/shared/.env',
   '"$remote_env_sha" != "$local_env_sha"',
@@ -246,6 +249,10 @@ foreach ($expected in @(
   "deploy-production.sh"
 )) {
   Assert-Contains -Name "GitHub Actions deployment workflow" -Text $workflow -Expected $expected
+}
+if ($workflow.IndexOf('python3 infra/ubuntu/apply-business-display-number.py "$env_file"', [StringComparison]::Ordinal) -gt
+    $workflow.IndexOf('local_env_sha="$(sha256sum "$env_file"', [StringComparison]::Ordinal)) {
+  throw "Production display number override must precede the effective environment checksum."
 }
 
 Write-Host "Ubuntu production deployment contract tests passed."
