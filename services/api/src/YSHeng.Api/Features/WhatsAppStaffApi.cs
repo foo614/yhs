@@ -3,7 +3,8 @@ using YSHeng.Api.Data;
 
 namespace YSHeng.Api.Features;
 
-public sealed record WhatsAppStaffConnectRequest(string Recipient, string Language, bool ConsentConfirmed, string? StaffUserId = null);
+public sealed record WhatsAppStaffConnectRequest(string Recipient, string Language, bool ConsentConfirmed, string? StaffUserId = null,
+    bool ManualLink = false);
 public sealed record WhatsAppStaffDisconnectRequest(string? StaffUserId = null);
 
 public static class WhatsAppStaffApi
@@ -42,12 +43,16 @@ public static class WhatsAppStaffApi
         var user = await ManagedUserAsync(context, db, request.StaffUserId, ct);
         if (user is null) return Results.Forbid();
         if (!options.Ready) return Results.Conflict(new ApiError("WhatsApp staff queries are disabled."));
-        if (dispatch is not null && !dispatch.InvitationReady)
+        if (request.ManualLink && (!options.HasBusinessDisplayNumber ||
+            WhatsAppStaffBindings.InvitationReadyFor(options, dispatch, request.Language)))
+            return Results.Conflict(new ApiError("Manual linking is unavailable while an invitation can be sent or the business number is not configured."));
+        if (!request.ManualLink && dispatch is not null && !dispatch.InvitationReady)
             return Results.Conflict(new ApiError("Staff invitation sending is not enabled or its approved template is unavailable."));
         try
         {
             var link = await WhatsAppStaffBindings.IssueAsync(db, options, user,
-                new(request.Recipient, request.Language, request.ConsentConfirmed), StaffIdentity.CurrentUserId(context), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct, dispatch);
+                new(request.Recipient, request.Language, request.ConsentConfirmed, request.ManualLink),
+                StaffIdentity.CurrentUserId(context), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct, dispatch);
             return Results.Ok(link);
         }
         catch (ArgumentException exception) { return Results.BadRequest(new ApiError(exception.Message)); }
