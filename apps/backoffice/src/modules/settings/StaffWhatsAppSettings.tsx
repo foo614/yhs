@@ -180,7 +180,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       { key: "policies", label: "Reminder settings" }
     ]} />
 
-    {activeTab === "policies" && <section aria-label="Message categories">
+    {activeTab === "policies" && <section aria-label="Message categories" className="staffWhatsAppPolicySection">
       <div className="staffWhatsAppSectionHead">
         <Typography.Title level={5}>Message categories</Typography.Title>
         <Button loading={policiesLoading} onClick={() => { void loadPolicies(); void loadDiagnostics(); }}>Refresh settings</Button>

@@ -318,6 +318,10 @@ jobs:
         shell: pwsh
         run: ./infra/test-ubuntu-deployment.ps1
 
+      - name: Check production WhatsApp display number override
+        shell: bash
+        run: python3 infra/test-business-display-number.py
+
       - name: Check Ubuntu deployment script syntax
         shell: bash
         run: |
@@ -378,6 +382,7 @@ jobs:
           DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.SHIJIRU_SSH_PRIVATE_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.SHIJIRU_KNOWN_HOSTS }}
           PRODUCTION_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
+          WHATSAPP_ASSISTANT_BUSINESS_DISPLAY_NUMBER: ${{ vars.WHATSAPP_ASSISTANT_BUSINESS_DISPLAY_NUMBER }}
         run: |
           set -euo pipefail
           : "${DEPLOY_HOST:?Set SHIJIRU_HOST in the production environment.}"
@@ -397,6 +402,7 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
           printf '%s' "$PRODUCTION_ENV_FILE" > "$env_file"
           trap 'rm -f "$ssh_dir/id_ed25519" "$ssh_dir/known_hosts" "$env_file"' EXIT
+          python3 infra/ubuntu/apply-business-display-number.py "$env_file"
 
           ssh_command=(ssh -p "$DEPLOY_SSH_PORT" -i "$ssh_dir/id_ed25519" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts")
           ssh_target="$DEPLOY_USER@$DEPLOY_HOST"
