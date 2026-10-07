@@ -426,10 +426,10 @@ public sealed class BusinessRulesTests
         var attendance = new HrAttendanceRecord { StaffUserId = "worker", AttendanceDate = new(2025, 9, 1), CheckInAt = new DateTime(2025, 9, 1, 1, 0, 0, DateTimeKind.Utc) };
         db.HrPayPeriods.Add(period); db.HrPayrollProfiles.Add(profile); db.HrAttendanceRecords.Add(attendance);
         await db.SaveChangesAsync();
-        Assert.Contains("incomplete", (await HrWorkflowStore.BuildDrafts(db, period)).Error!);
+        Assert.Contains("incomplete", (await PrepareReviewedPayroll(db, period)).Error!);
         db.Entry(attendance).CurrentValues.SetValues(attendance with { CheckOutAt = attendance.CheckInAt!.Value.AddHours(8) });
         await db.SaveChangesAsync();
-        var (drafts, error) = await HrWorkflowStore.BuildDrafts(db, period);
+        var (drafts, error) = await PrepareReviewedPayroll(db, period);
         Assert.Null(error); Assert.Equal(80m, Assert.Single(drafts).GrossPay);
         db.HrPayslips.Add(drafts[0]); await db.SaveChangesAsync();
         Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "worker", period.StartDate));
@@ -443,7 +443,7 @@ public sealed class BusinessRulesTests
         Assert.True(await HrWorkflowStore.HasLockedPayroll(db, "worker", period.StartDate));
         Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "other", period.StartDate));
         Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "worker", period.EndDate.AddDays(1)));
-        Assert.NotNull((await HrWorkflowStore.BuildDrafts(db, period)).Error);
+        Assert.NotNull((await PrepareReviewedPayroll(db, period)).Error);
     }
 
     [Fact]
@@ -471,17 +471,136 @@ public sealed class BusinessRulesTests
         Assert.False(await HrWorkflowStore.HasLockedPayroll(db, "worker", prematurePeriod.StartDate));
         Assert.True(await HrWorkflowStore.HasLockedPayroll(db, "worker", finalizedPeriod.StartDate));
 
-        var (activeDrafts, activeError) = await HrWorkflowStore.BuildDrafts(db, activePeriod);
+        var (activeDrafts, activeError) = await PrepareReviewedPayroll(db, activePeriod);
         Assert.Null(activeError);
         Assert.Equal(HrPayslipStatus.Draft, Assert.Single(activeDrafts).Status);
 
-        var (prematureDrafts, prematureError) = await HrWorkflowStore.BuildDrafts(db, prematurePeriod);
+        var (prematureDrafts, prematureError) = await PrepareReviewedPayroll(db, prematurePeriod);
         Assert.Null(prematureError);
         Assert.Equal(HrPayslipStatus.Draft, Assert.Single(prematureDrafts).Status);
 
-        var (finalizedDrafts, finalizedError) = await HrWorkflowStore.BuildDrafts(db, finalizedPeriod);
+        var (finalizedDrafts, finalizedError) = await PrepareReviewedPayroll(db, finalizedPeriod);
         Assert.Empty(finalizedDrafts);
-        Assert.Contains("No editable drafts", finalizedError);
+        Assert.Contains("locked", finalizedError);
+    }
+
+    private static async Task<(List<HrPayslip> Drafts, string? Error)> PrepareReviewedPayroll(AppDbContext db, HrPayPeriod period)
+    {
+        var candidate = Assert.Single(await HrWorkflowStore.BuildPreview(db, period));
+        return await HrWorkflowStore.BuildDrafts(db, period, new([new(candidate.StaffUserId, candidate.Action ?? "Prepare", candidate.PreviewToken ?? "blocked")]));
+    }
+
+    [Fact]
+    public async Task Hr_payroll_prepares_only_selected_staff_and_requires_explicit_recalculation()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var period = new HrPayPeriod { Name = "September 2025", StartDate = new(2025, 9, 1), EndDate = new(2025, 9, 30), WorkingDays = 22 };
+        db.HrPayPeriods.Add(period);
+        foreach (var id in new[] { "selected", "existing", "blocked" })
+        {
+            db.Users.Add(new AppUser { Id = id, UserName = id, DisplayName = $"Test {id}" });
+            db.HrPayrollProfiles.Add(new HrPayrollProfile { StaffUserId = id, MonthlyBaseSalary = 2200m });
+        }
+        var original = HrWorkflowRules.ApplyStatutory(new HrPayslip { StaffUserId = "existing", PayPeriodId = period.Id, Status = HrPayslipStatus.Draft, GrossPay = 2000m }, new(0, 100m, 200m, 10m, 20m, 1m, 2m, 0m, "Synthetic review"), "hr");
+        db.HrPayslips.Add(original);
+        db.HrAttendanceCorrections.Add(new HrAttendanceCorrection { StaffUserId = "blocked", AttendanceDate = period.StartDate, Status = HrCorrectionStatus.Pending });
+        await db.SaveChangesAsync();
+        var preview = await HrWorkflowStore.BuildPreview(db, period);
+        Assert.Equal(3, preview.Count);
+        var selected = preview.Single(item => item.StaffUserId == "selected");
+        var existing = preview.Single(item => item.StaffUserId == "existing");
+        Assert.Equal("Prepare", selected.Action);
+        Assert.Equal("Recalculate", existing.Action);
+        Assert.Contains("corrections", preview.Single(item => item.StaffUserId == "blocked").BlockingReason);
+        var selection = new HrPayrollSelection("selected", "Prepare", selected.PreviewToken!);
+        var (drafts, error) = await HrWorkflowStore.BuildDrafts(db, period, new([selection]));
+        Assert.Null(error);
+        Assert.Equal("selected", Assert.Single(drafts).StaffUserId);
+        Assert.Equal(original, await db.HrPayslips.AsNoTracking().SingleAsync());
+        Assert.NotNull((await HrWorkflowStore.BuildDrafts(db, period, new([]))).Error);
+        Assert.NotNull((await HrWorkflowStore.BuildDrafts(db, period, new(null))).Error);
+        Assert.NotNull((await HrWorkflowStore.BuildDrafts(db, period, new([selection, selection]))).Error);
+        Assert.NotNull((await HrWorkflowStore.BuildDrafts(db, period, new([selection with { StaffUserId = "unknown" }]))).Error);
+        Assert.NotNull((await HrWorkflowStore.BuildDrafts(db, period, new([new("existing", "Prepare", existing.PreviewToken!)]))).Error);
+        var (recalculated, recalculationError) = await HrWorkflowStore.BuildDrafts(db, period, new([new("existing", "Recalculate", existing.PreviewToken!)]));
+        Assert.Null(recalculationError);
+        var replacement = Assert.Single(recalculated);
+        Assert.Equal(original.Id, replacement.Id);
+        Assert.Equal(original.Version + 1, replacement.Version);
+        Assert.Equal(2200m, replacement.GrossPay);
+        Assert.Null(replacement.EmployeeEpf);
+        Assert.Null(replacement.EmployerEpf);
+        Assert.Null(replacement.StatutoryReference);
+        Assert.Equal(original, await db.HrPayslips.AsNoTracking().SingleAsync());
+
+        db.HrPayslips.AddRange(drafts);
+        await db.SaveChangesAsync();
+        var repeated = await HrWorkflowStore.BuildDrafts(db, period, new([selection]));
+        Assert.Empty(repeated.Drafts);
+        Assert.Contains("changed after preview", repeated.Error);
+    }
+
+    [Theory]
+    [InlineData("salary")]
+    [InlineData("attendance")]
+    [InlineData("leave")]
+    [InlineData("statutory")]
+    [InlineData("status")]
+    [InlineData("period")]
+    [InlineData("staffName")]
+    public async Task Hr_payroll_rejects_the_entire_selection_when_preview_inputs_change(string change)
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var period = new HrPayPeriod { Name = "September 2025", StartDate = new(2025, 9, 1), EndDate = new(2025, 9, 30), WorkingDays = 22 };
+        db.HrPayPeriods.Add(period);
+        foreach (var id in new[] { "unchanged", "changed" })
+        {
+            db.Users.Add(new AppUser { Id = id, UserName = id, DisplayName = $"Test {id}" });
+            db.HrPayrollProfiles.Add(new HrPayrollProfile { StaffUserId = id, MonthlyBaseSalary = 2200m });
+            db.HrPayslips.Add(new HrPayslip { StaffUserId = id, PayPeriodId = period.Id, Status = HrPayslipStatus.Draft, GrossPay = 2200m, NetPay = 2200m, Version = 1 });
+        }
+        await db.SaveChangesAsync();
+        var preview = await HrWorkflowStore.BuildPreview(db, period);
+        var selections = preview.OrderByDescending(item => item.StaffUserId).Select(item => new HrPayrollSelection(item.StaffUserId, item.Action!, item.PreviewToken!)).ToList();
+        var slip = await db.HrPayslips.SingleAsync(item => item.StaffUserId == "changed");
+        switch (change)
+        {
+            case "salary":
+                var profile = await db.HrPayrollProfiles.SingleAsync(item => item.StaffUserId == "changed");
+                db.Entry(profile).CurrentValues.SetValues(profile with { MonthlyBaseSalary = 2400m });
+                break;
+            case "attendance":
+                db.HrAttendanceRecords.Add(new HrAttendanceRecord { StaffUserId = "changed", AttendanceDate = period.StartDate });
+                break;
+            case "leave":
+                db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "changed", StartDate = period.StartDate, EndDate = period.StartDate, Type = HrLeaveType.UnpaidLeave, Status = HrLeaveStatus.Approved, Days = 1m });
+                break;
+            case "statutory":
+                db.Entry(slip).CurrentValues.SetValues(HrWorkflowRules.ApplyStatutory(slip, new(1, 100m, 200m, 0m, 0m, 0m, 0m, 0m, "Synthetic"), "hr"));
+                break;
+            case "status":
+                db.Entry(slip).CurrentValues.SetValues(slip with { Status = HrPayslipStatus.PendingFinance, Version = 2 });
+                break;
+            case "period":
+                db.Entry(period).CurrentValues.SetValues(period with { WorkingDays = 21 });
+                break;
+            case "staffName":
+                (await db.Users.SingleAsync(item => item.Id == "changed")).DisplayName = "Updated synthetic name";
+                break;
+        }
+        await db.SaveChangesAsync();
+        var before = await db.HrPayslips.AsNoTracking().OrderBy(item => item.StaffUserId).ToListAsync();
+        var result = await HrWorkflowStore.BuildDrafts(db, await db.HrPayPeriods.AsNoTracking().SingleAsync(), new(selections));
+        Assert.NotNull(result.Error);
+        Assert.Empty(result.Drafts);
+        Assert.False(db.ChangeTracker.HasChanges());
+        Assert.Equal(before, await db.HrPayslips.AsNoTracking().OrderBy(item => item.StaffUserId).ToListAsync());
     }
 
     [Fact]
@@ -574,6 +693,10 @@ public sealed class BusinessRulesTests
         Assert.DoesNotContain("DRAFT - NOT APPROVED", content);
         Assert.Contains("Original Staff", content);
         Assert.DoesNotContain("Test Staff", content);
+        Assert.Contains("NET SALARY", content);
+        var incomplete = Encoding.ASCII.GetString(HrPayslipPdfFactory.Create(slip with { EmployerEpf = null }, new HrPayPeriod { StartDate = new DateOnly(2026, 9, 1) }, "Test Staff", "Test Company").Content);
+        Assert.Contains("PROVISIONAL PAY", incomplete);
+        Assert.DoesNotContain("NET SALARY", incomplete);
     }
 
     [Fact]
@@ -2909,6 +3032,9 @@ public sealed class BusinessRulesTests
         Assert.Contains("EPF", content);
         Assert.Contains("Not recorded", content);
         Assert.Contains("SOCSO", content);
+        Assert.Contains("PROVISIONAL PAY", content);
+        Assert.DoesNotContain("NET SALARY", content);
+        Assert.Contains("not final net salary", content);
     }
 
     [Fact]

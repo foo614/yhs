@@ -1281,6 +1281,16 @@ export type HrPayslip = {
   generatedAt: string;
 };
 
+export type HrPayrollCandidate = {
+  staffUserId: string;
+  staffName?: string;
+  existingPayslip: HrPayslip | null;
+  draft: HrPayslip | null;
+  action: "Prepare" | "Recalculate" | null;
+  blockingReason: string | null;
+  previewToken: string | null;
+};
+
 export type Lead = {
   id: string;
   vehicleId: string;
@@ -2117,8 +2127,13 @@ export async function getHrPayslips(): Promise<HrPayslip[]> {
   return getWithNetworkFallback("/api/hr/payslips", fallbackHrPayslips());
 }
 
-export async function generateHrPayslips(payPeriodId: string): Promise<HrPayslip[]> {
-  return request<HrPayslip[]>(`/api/hr/pay-periods/${payPeriodId}/generate-payslips`, { method: "POST" });
+export type HrPayslipSelection = { staffUserId: string; action: "Prepare" | "Recalculate"; previewToken: string };
+
+export async function generateHrPayslips(payPeriodId: string, selections: HrPayslipSelection[]): Promise<HrPayslip[]> {
+  return request<HrPayslip[]>(`/api/hr/pay-periods/${payPeriodId}/generate-payslips`, {
+    method: "POST",
+    body: JSON.stringify({ selections })
+  });
 }
 
 export function hrPayslipPdfUrl(payslipId: string) {
@@ -3451,6 +3466,6 @@ export const saveHrWorkSchedule = (input: Omit<HrWorkSchedule, "id">) => request
 export const getHrAttendanceCorrections = () => request<HrAttendanceCorrection[]>("/api/hr/attendance-corrections");
 export const createHrAttendanceCorrection = (input: HrCorrectionRequest) => request<HrAttendanceCorrection>("/api/hr/attendance-corrections", { method: "POST", body: JSON.stringify(input) });
 export const decideHrAttendanceCorrection = (id: string, approve: boolean, notes?: string) => request<HrAttendanceCorrection>(`/api/hr/attendance-corrections/${id}/decision`, { method: "PUT", body: JSON.stringify({ approve, notes }) });
-export const previewHrPayslips = (id: string) => request<HrPayslip[]>(`/api/hr/pay-periods/${id}/preview`);
+export const previewHrPayslips = (id: string) => request<HrPayrollCandidate[]>(`/api/hr/pay-periods/${id}/preview`);
 export const saveHrStatutory = (id: string, input: HrStatutoryInput) => request<HrPayslip>(`/api/hr/payslips/${id}/statutory`, { method: "PUT", body: JSON.stringify(input) });
 export const decideHrPayroll = (id: string, version: number, action: HrPayrollAction, notes?: string) => request<HrPayslip>(`/api/hr/payslips/${id}/decision`, { method: "PUT", body: JSON.stringify({ version, action, notes }) });

@@ -137,3 +137,5 @@ docker compose -p yshengproof -f infra\docker-compose.yml up -d
 
 
 FOO-177 extends HR with staff-requested attendance corrections, independent HR approval, dated schedules, early-checkout confirmation, and Finance then Boss payroll approval/publication. Statutory EPF/SOCSO/EIS/PCB fields are reviewed monthly inputs, not an automatic assessment engine. Published-payroll amendments and automatic statutory calculation/filing remain outside this release. The original FOO-162 salary sample attachment remains unavailable.
+
+FOO-203 makes payslip preparation staff-selective and separates new drafts from explicit recalculation. A reviewed preview token is required for each selected staff member; changed inputs reject the whole confirmation without affecting unselected payslips. Existing review/publication locks and manual statutory assessment remain unchanged. Incomplete statutory entries are not labelled final net salary in the PDF.

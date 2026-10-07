@@ -1,11 +1,11 @@
 import { HrAttendanceWorkflow, malaysiaDate, malaysiaTime } from "./HrAttendanceWorkflow";
-import { HrPayrollReview, HrStatutorySummary } from "./HrPayrollReview";
+import { HrPayrollReview, hasCompleteStatutory, payrollAmountLabel, statutoryFields } from "./HrPayrollReview";
 import { getHrCheckOutPreview, previewHrPayslips } from "../../api";
 import type { HrCheckOutInput } from "../../api";
-﻿import { ClockCircleOutlined, DownloadOutlined, UploadOutlined } from "@ant-design/icons";
+﻿import { ClockCircleOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Checkbox, DatePicker, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { Alert, Button, Checkbox, Collapse, DatePicker, Descriptions, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
@@ -15,7 +15,7 @@ import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
-import { getHrMedicalCertificateContent, hrPayslipPdfUrl, humanizeApiError, staffRoleValues } from "../../api";
+import { getHrMedicalCertificateContent, humanizeApiError, staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
 import "./HrSalaryPage.css";
@@ -43,6 +43,8 @@ import type {
   HrLeaveStatus,
   HrLeaveType,
   HrPayPeriod,
+  HrPayrollCandidate,
+  HrPayslipSelection,
   HrPayrollProfile,
   HrPayslip,
   StaffRole,
@@ -92,7 +94,7 @@ type HrSalaryPageProps = {
   onCreateAdjustment: (adjustment: HrLeaveAdjustmentRequest) => Promise<void>;
   onUpdatePayrollProfile: (profile: HrPayrollProfile) => Promise<void>;
   onCreatePayPeriod: (period: HrPayPeriod) => Promise<void>;
-  onGeneratePayslips: (payPeriodId: string) => Promise<void>;
+  onGeneratePayslips: (payPeriodId: string, selections: HrPayslipSelection[]) => Promise<void>;
   onLoadPayslip?: (payslip: HrPayslip) => Promise<Blob>;
   onDownloadPayslip?: (payslip: HrPayslip) => Promise<void>;
 };
@@ -330,11 +332,15 @@ export function HrSalaryPage({
   const [earlyAction, setEarlyAction] = useState<{ qr: boolean; scheduledEndAt?: string }>();
   const [clockError, setClockError] = useState("");
   const [clockBusy, setClockBusy] = useState(false);
-  const [payrollPreview, setPayrollPreview] = useState<HrPayslip[]>([]);
+  const [payrollPreview, setPayrollPreview] = useState<HrPayrollCandidate[]>([]);
   const [previewError, setPreviewError] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [selectedGeneratePeriodId, setSelectedGeneratePeriodId] = useState<string>();
   const [previewGeneratePeriodId, setPreviewGeneratePeriodId] = useState<string>();
+  const [previewSelections, setPreviewSelections] = useState<Record<string, "Prepare" | "Recalculate">>({});
+  const [previewReviewing, setPreviewReviewing] = useState(false);
+  const [preparingPayslips, setPreparingPayslips] = useState(false);
+  const [payrollNotice, setPayrollNotice] = useState("");
+  const previewRequestRef = useRef(0);
   const [payrollProfileForm] = Form.useForm();
   const [payPeriodForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -344,6 +350,9 @@ export function HrSalaryPage({
   const decisionSubmittingRef = useRef(false);
   const [calendarMonth, setCalendarMonth] = useState(() => dayjs());
   const [activeTab, setActiveTab] = useState("attendance");
+  const [selectedPayslipPeriodId, setSelectedPayslipPeriodId] = useState<string>();
+  const [selectedPayslipId, setSelectedPayslipId] = useState<string>();
+  const selectedPayslip = selectedPayslipId ? payslips.find((slip) => slip.id === selectedPayslipId) : undefined;
   const [recordFilters, setRecordFilters] = useState<Record<HrRecordListKey, HrRecordFilters>>(initialHrRecordFilters);
   const [recordPages, setRecordPages] = useState<Record<HrRecordListKey, number>>(initialHrRecordPages);
   const staffOptions = staffUsers.map((staff) => ({ value: staff.id, label: staffLabel(staff) }));
@@ -382,9 +391,26 @@ export function HrSalaryPage({
   }, [leaveType]);
 
   useEffect(() => {
+    setSelectedPayslipPeriodId((current) => current && payPeriods.some((period) => period.id === current) ? current : payPeriods[0]?.id);
+  }, [payPeriods]);
+
+  useEffect(() => {
+    if (selectedPayslipId && !payslips.some((slip) => slip.id === selectedPayslipId)) setSelectedPayslipId(undefined);
+  }, [payslips, selectedPayslipId]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setClockNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!previewGeneratePeriodId) return;
+    previewRequestRef.current += 1;
+    setPreviewGeneratePeriodId(undefined);
+    setPayrollPreview([]);
+    setPreviewSelections({});
+    setPreviewError("");
+  }, [payPeriods, payslips, payrollProfiles, attendance, leaveRequests]);
 
   const finishClock = async (qr: boolean, input: HrCheckOutInput = {}) => {
     if (qr && attendanceQrToken) { await onRedeemQr({ token: attendanceQrToken, action: qrAction, ...input }); onClearAttendanceQrToken(); }
@@ -400,12 +426,37 @@ export function HrSalaryPage({
       await finishClock(qr);
     } catch (error) { setClockError(humanizeApiError(error)); } finally { setClockBusy(false); }
   };
-  const loadPayrollPreview = async () => {
-    if (!selectedGeneratePeriodId) return;
-    setPreviewBusy(true); setPreviewError(""); setPayrollPreview([]); setPreviewGeneratePeriodId(selectedGeneratePeriodId);
-    try { setPayrollPreview(await previewHrPayslips(selectedGeneratePeriodId)); }
-    catch (error) { setPreviewError(humanizeApiError(error)); }
-    finally { setPreviewBusy(false); }
+  const closePayrollPreview = () => {
+    previewRequestRef.current += 1;
+    setPreviewGeneratePeriodId(undefined); setPayrollPreview([]); setPreviewSelections({}); setPreviewError(""); setPreviewBusy(false);
+  };
+  const loadPayrollPreview = async (recalculateStaffId?: string) => {
+    if (!isHrManager || !selectedPayslipPeriodId) return;
+    const periodId = selectedPayslipPeriodId;
+    const requestId = ++previewRequestRef.current;
+    setPreviewBusy(true); setPreviewError(""); setPayrollNotice(""); setPayrollPreview([]); setPreviewSelections({}); setPreviewReviewing(Boolean(recalculateStaffId)); setPreviewGeneratePeriodId(periodId);
+    try {
+      const candidates = await previewHrPayslips(periodId);
+      if (previewRequestRef.current !== requestId) return;
+      if (recalculateStaffId) {
+        const candidate = candidates.find(item => item.staffUserId === recalculateStaffId);
+        if (!candidate || candidate.action !== "Recalculate" || !candidate.previewToken) {
+          setPreviewError(candidate?.blockingReason || "This payslip cannot be recalculated. Refresh the list. / 此薪资单无法重新计算，请刷新列表。");
+          return;
+        }
+        setPayrollPreview([candidate]); setPreviewSelections({ [candidate.staffUserId]: "Recalculate" });
+      } else setPayrollPreview(candidates.filter(candidate => !candidate.existingPayslip));
+    } catch (error) {
+      if (previewRequestRef.current === requestId) setPreviewError(humanizeApiError(error));
+    } finally {
+      if (previewRequestRef.current === requestId) setPreviewBusy(false);
+    }
+  };
+  const canRecalculatePayslip = (slip: HrPayslip) => {
+    if (!isHrManager) return false;
+    if (slip.status === "Draft") return true;
+    const period = payPeriods.find(item => item.id === slip.payPeriodId);
+    return slip.status === "Generated" && Boolean(period && (period.endDate >= today || malaysiaDate(new Date(slip.generatedAt)) <= period.endDate));
   };
 
   const updateRecordFilter = (list: HrRecordListKey, key: keyof HrRecordFilters, value?: string) => {
@@ -566,29 +617,14 @@ export function HrSalaryPage({
 
   const payslipColumns: ColumnsType<HrPayslip> = [
     { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string, record: HrPayslip) => record.staffName || staffName(id, visibleStaff) },
-    { title: "Period / 月份", dataIndex: "payPeriodId", render: (id: string) => payPeriodName(id, payPeriods) },
-    { title: "Status / 状态", dataIndex: "status", render: (status: HrPayslip["status"]) => <Tag color={status === "Generated" ? "green" : "default"}>{payslipStatusLabel(status)}</Tag> },
+    { title: "Status / 状态", dataIndex: "status", render: (status: HrPayslip["status"]) => <Tag>{payslipStatusLabel(status)}</Tag> },
     { title: "Type / 类型", dataIndex: "employmentType", render: employmentTypeLabel },
-    { title: "Base / 底薪", dataIndex: "baseSalary", render: money },
-    { title: "Hours / 小时", dataIndex: "workedHours", render: (value: number, record) => record.employmentType === "Hourly" ? value : "-" },
-    { title: "Hourly Pay / 时薪", dataIndex: "attendancePay", render: (value: number, record) => record.employmentType === "Hourly" ? money(value) : "-" },
-    { title: "Work Days / 工作天", dataIndex: "workingDays" },
-    { title: "Daily / 日薪", dataIndex: "dailySalary", render: money },
-    { title: "Unpaid / 无薪假", dataIndex: "unpaidLeaveDays", render: (value: number) => `${value} days` },
-    { title: "Deduction / 扣除", dataIndex: "unpaidLeaveDeduction", render: money },
-    { title: "OT / 加班", dataIndex: "overtimePay", render: money },
-    { title: "Allowance / 津贴", dataIndex: "allowances", render: money },
-    { title: "Manual Deduct / 手动扣", dataIndex: "manualDeductions", render: money },
     { title: "Gross / 应发", dataIndex: "grossPay", render: money },
-    { title: "Net Pay / 实发", dataIndex: "netPay", render: (value: number) => <Typography.Text strong>{money(value)}</Typography.Text> },
-    { title: "Action / 操作", fixed: "right", render: (_, record) => onLoadPayslip ? <DocumentPreviewButton
-      fileName={`payslip-${record.id}.pdf`}
-      mimeType="application/pdf"
-      downloadUrl={hrPayslipPdfUrl(record.id)}
-      loadContent={() => onLoadPayslip(record)}
-      previewLabel="Preview PDF"
-      downloadLabel="PDF"
-    /> : onDownloadPayslip ? <Button size="small" icon={<DownloadOutlined />} onClick={() => void onDownloadPayslip(record)}>PDF</Button> : null }
+    { title: "Pay amount / 薪资金额", dataIndex: "netPay", render: (value: number, record) => <Space direction="vertical" size={0}><Typography.Text strong>{money(value)}</Typography.Text><Typography.Text type={hasCompleteStatutory(record) ? "secondary" : "warning"}>{payrollAmountLabel(record)}</Typography.Text></Space> },
+    { title: "Action / 操作", fixed: "right", render: (_, record) => <Space className="tableActionGroup" wrap>
+      <Button size="small" onClick={() => setSelectedPayslipId(record.id)}>Details / 详情</Button>
+      {canRecalculatePayslip(record) && <Button size="small" disabled={previewBusy || preparingPayslips} onClick={() => void loadPayrollPreview(record.staffUserId)}>Recalculate / 重新计算</Button>}
+    </Space> }
   ];
 
   const payrollProfileColumns: ColumnsType<HrPayrollProfile> = [
@@ -631,10 +667,11 @@ export function HrSalaryPage({
     recordFilters.adjustments,
     (record) => [formatDateTime(record.createdAt), staffName(record.staffUserId, visibleStaff), leaveAdjustmentTypeLabel(record.type), leaveAdjustmentDirectionLabel(record.direction), record.days, record.annualLeaveAfter, record.medicalLeaveAfter, record.reason, staffName(record.adjustedBy, visibleStaff)].filter(Boolean).join(" ")
   );
+  const payslipsForPeriod = selectedPayslipPeriodId ? payslips.filter((record) => record.payPeriodId === selectedPayslipPeriodId) : [];
   const filteredPayslips = filterHrRecords(
-    payslips,
+    payslipsForPeriod,
     recordFilters.payslips,
-    (record) => [staffName(record.staffUserId, visibleStaff), payPeriodName(record.payPeriodId, payPeriods), payslipStatusLabel(record.status), record.netPay].filter(Boolean).join(" "),
+    (record) => [record.staffName || staffName(record.staffUserId, visibleStaff), payslipStatusLabel(record.status), record.netPay].filter(Boolean).join(" "),
     (record) => record.status
   );
   const attendancePage = paginateHrRecords(filteredAttendance, recordPages.attendance);
@@ -648,7 +685,7 @@ export function HrSalaryPage({
   const leaveEmptyText = hrRecordEmptyText(leaveRequests.length, filteredLeaveRequests.length, "No leave requests yet / 暂无请假记录", "No leave requests match the current filters / 没有符合筛选条件的请假记录");
   const balanceEmptyText = hrRecordEmptyText(leaveBalances.length, filteredLeaveBalances.length, "No leave balances yet / 暂无假期余额", "No leave balances match the current filters / 没有符合筛选条件的假期余额");
   const adjustmentEmptyText = hrRecordEmptyText(leaveAdjustments.length, filteredLeaveAdjustments.length, "No leave adjustments yet / 暂无假期调整记录", "No leave adjustments match the current filters / 没有符合筛选条件的假期调整记录");
-  const payslipEmptyText = hrRecordEmptyText(payslips.length, filteredPayslips.length, "No payslips generated yet / 暂无薪资单", "No payslips match the current filters / 没有符合筛选条件的薪资单");
+  const payslipEmptyText = hrRecordEmptyText(payslipsForPeriod.length, filteredPayslips.length, "No payslips for this month / 此月份暂无薪资单", "No payslips match the current filters / 没有符合筛选条件的薪资单");
   const calendarEventsByDate = useMemo(() => {
     const events = new Map<string, HrCalendarAvailability[]>();
     bossCalendar.forEach((item) => events.set(item.date, [...(events.get(item.date) ?? []), item]));
@@ -830,33 +867,19 @@ export function HrSalaryPage({
       {payslipPage.items.map((record) => (
         <article className="mobileRecordCard" key={record.id}>
           <div className="mobileRecordHeader">
-            <div>
-              <Typography.Text className="mobileRecordEyebrow">Pay Slip / 薪资单</Typography.Text>
-              <Typography.Title level={5}>{staffName(record.staffUserId, visibleStaff)}</Typography.Title>
-            </div>
-            <Tag color="green">{money(record.netPay)}</Tag>
+            <div><Typography.Text className="mobileRecordEyebrow">{payPeriodName(record.payPeriodId, payPeriods)}</Typography.Text><Typography.Title level={5}>{record.staffName || staffName(record.staffUserId, visibleStaff)}</Typography.Title></div>
+            <Tag>{payslipStatusLabel(record.status)}</Tag>
           </div>
           <div className="mobileRecordGrid">
-            <div><span>Period / 月份</span><strong>{payPeriodName(record.payPeriodId, payPeriods)}</strong></div>
-            <div><span>Status / 状态</span><strong>{payslipStatusLabel(record.status)}</strong></div>
-            <div><span>Base / 底薪</span><strong>{money(record.baseSalary)}</strong></div>
-            <div><span>Work Days / 工作天</span><strong>{record.workingDays}</strong></div>
-            <div><span>Daily / 日薪</span><strong>{money(record.dailySalary)}</strong></div>
-            <div><span>Unpaid / 无薪假</span><strong>{record.unpaidLeaveDays} days</strong></div>
-            <div><span>Deduction / 扣除</span><strong>{money(record.unpaidLeaveDeduction)}</strong></div>
-            <div><span>OT / 加班</span><strong>{money(record.overtimePay)}</strong></div>
-            <div><span>Allowance / 津贴</span><strong>{money(record.allowances)}</strong></div>
-            <div><span>Manual Deduct / 手动扣</span><strong>{money(record.manualDeductions)}</strong></div>
+            <div><span>Type / 类型</span><strong>{record.employmentType === "Hourly" ? "Hourly / 时薪" : "Monthly / 月薪"}</strong></div>
             <div><span>Gross / 应发</span><strong>{money(record.grossPay)}</strong></div>
+            <div><span>{payrollAmountLabel(record)}</span><strong>{money(record.netPay)}</strong></div>
+            <div><span>Statutory / 法定金额</span><strong>{hasCompleteStatutory(record) ? "Recorded / 已填写" : "Incomplete / 未填齐"}</strong></div>
           </div>
-          {onLoadPayslip ? <DocumentPreviewButton
-            fileName={`payslip-${record.id}.pdf`}
-            mimeType="application/pdf"
-            downloadUrl={hrPayslipPdfUrl(record.id)}
-            loadContent={() => onLoadPayslip(record)}
-            previewLabel="Preview PDF / 预览薪资单"
-            downloadLabel="Download PDF / 下载薪资单"
-          /> : onDownloadPayslip && <Button size="small" icon={<DownloadOutlined />} onClick={() => void onDownloadPayslip(record)}>Download PDF / 下载薪资单</Button>}
+          <div className="mobileRecordFooter"><Space className="tableActionGroup" wrap>
+            <Button size="small" onClick={() => setSelectedPayslipId(record.id)}>Details / 详情</Button>
+            {canRecalculatePayslip(record) && <Button size="small" disabled={previewBusy || preparingPayslips} onClick={() => void loadPayrollPreview(record.staffUserId)}>Recalculate / 重新计算</Button>}
+          </Space></div>
         </article>
       ))}
       {filteredPayslips.length > hrRecordPageSize && <Pagination current={payslipPage.current} pageSize={hrRecordPageSize} total={filteredPayslips.length} showSizeChanger={false} onChange={(page) => setRecordPage("payslips", page)} />}
@@ -1273,12 +1296,12 @@ export function HrSalaryPage({
             label: tabLabel("Pay Slip / 薪资单", payslips.length),
             children: (
               <Space direction="vertical" size={16} className="fullWidth">
-                {isHrManager && (
+                {isHrManager && <Collapse items={[{ key: "setup", label: "Payroll setup / 薪资设置", children: (
                   <>
                     <ProCard title="Payroll Profile / 薪资资料">
                       <Form name="hrPayrollProfile" form={payrollProfileForm} layout="vertical" className="formGrid" onFinish={(values) => onUpdatePayrollProfile(profileFromValues(values))} initialValues={{ employmentType: "Monthly", monthlyBaseSalary: 0, hourlyRate: 0, overtimeHours: 0, overtimeRate: 0, allowances: 0, manualDeductions: 0 }}>
                         <Form.Item name="id" hidden><Input /></Form.Item>
-                        <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>
+                        <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={staffOptions} onChange={value => { payrollProfileForm.resetFields(); payrollProfileForm.setFieldsValue(payrollProfiles.find(profile => profile.staffUserId === value) || { staffUserId: value }); }} /></Form.Item>
                         <Form.Item name="employmentType" label="Employment type / 雇用类型" rules={[{ required: true }]}><Select options={[{ value: "Monthly", label: "Monthly / 月薪" }, { value: "Hourly", label: "Hourly / 时薪" }]} /></Form.Item>
                         <Form.Item name="monthlyBaseSalary" label="Base / 底薪"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item name="hourlyRate" label="Hourly rate / 时薪"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
@@ -1299,29 +1322,38 @@ export function HrSalaryPage({
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Period / 新增月份</Button></Form.Item>
                       </Form>
                     </ProCard>
-                    <ProCard title="Generate Payslips / 生成薪资单">
-                      <Space className="hrGenerateActions" wrap>
-                        <Select options={payPeriods.map((period) => ({ value: period.id, label: `${period.name} / ${period.workingDays} days / 天` }))} className="hrPeriodSelect" value={selectedGeneratePeriodId} onChange={setSelectedGeneratePeriodId} placeholder="Select period / 选择月份" />
-                        <Button type="primary" disabled={!selectedGeneratePeriodId} onClick={() => void loadPayrollPreview()}>Preview / 预览</Button>
-                        <Typography.Text type="secondary">Monthly: base salary / working days, with approved unpaid leave deduction. Hourly: completed Present, Late and Half Day clock time × hourly rate + allowances − manual deductions. No break or overtime adjustment is applied automatically.</Typography.Text>
-                      </Space>
-                    </ProCard>
                   </>
-                )}
+                ) }]} />}
+                <Space wrap className="hrPayslipPeriodBar">
+                  <Typography.Text strong>Pay month / 薪资月份</Typography.Text>
+                  <Select
+                    aria-label="Selected pay month / 选择薪资月份"
+                    style={{ width: 260, maxWidth: "100%" }}
+                    value={selectedPayslipPeriodId}
+                    options={payPeriods.map((period) => ({ value: period.id, label: `${period.name} / ${period.workingDays} days / 天` }))}
+                    onChange={(value) => { closePayrollPreview(); setSelectedPayslipPeriodId(value); setSelectedPayslipId(undefined); setRecordPages((current) => ({ ...current, payslips: 1 })); }}
+                    placeholder="Select pay month / 选择月份"
+                  />
+                  {isHrManager && <Button type="primary" style={{ minHeight: 44 }} disabled={!selectedPayslipPeriodId || previewBusy || preparingPayslips} onClick={() => void loadPayrollPreview()}>Prepare new payslips / 准备新薪资单</Button>}
+                </Space>
+                {isHrManager && <Typography.Paragraph type="secondary">Select staff, review the amounts, then confirm. Existing payslips are only changed through their separate Recalculate action. / 选择员工、核对金额后再确认；现有薪资单须另行点击重新计算。</Typography.Paragraph>}
+                {isHrManager || currentUser?.roles.includes("Finance") ? <Alert type="info" showIcon message="HR prepares → Finance approves → Boss approves & publishes" description="Enter employee and employer statutory amounts from the applicable assessment. Published and finalized historical payslips are locked. / 法定金额须按适用计算另行填写；已发布及已结算的旧薪资单已锁定。" /> : null}
+                {payrollNotice && <Alert type="error" showIcon message={payrollNotice} />}
+                {!payPeriods.length && <Empty description={isHrManager ? "Create a pay period in Payroll setup first. / 请先在薪资设置新增月份。" : "No pay periods available. / 暂无薪资月份。"} />}
                 <HrRecordFilterControls
                   filters={recordFilters.payslips}
-                  total={payslips.length}
+                  total={payslipsForPeriod.length}
                   filtered={filteredPayslips.length}
-                  keywordPlaceholder="Search staff or pay period / 搜索员工或薪资月份"
+                  keywordPlaceholder="Search staff / 搜索员工"
                   statusOptions={payslipStatusOptions}
                   onKeywordChange={(value) => updateRecordFilter("payslips", "keyword", value)}
                   onStatusChange={(value) => updateRecordFilter("payslips", "status", value)}
                   onClear={() => clearRecordFilters("payslips")}
                 />
-                {(isHrManager || currentUser?.roles.includes("Finance")) && <HrPayrollReview currentUser={currentUser} payslips={payslipPage.items} payPeriods={payPeriods} onChanged={onWorkflowChanged} />}
-                {!isHrManager && !currentUser?.roles.includes("Finance") && payslipPage.items.filter(item => item.status === "Published").map(item => <ProCard key={item.id} title={payPeriodName(item.payPeriodId, payPeriods)}><HrStatutorySummary slip={item} /></ProCard>)}
+                <HrPayrollReview currentUser={currentUser} slip={selectedPayslip} period={selectedPayslip ? payPeriods.find((period) => period.id === selectedPayslip.payPeriodId) : undefined} onClose={() => setSelectedPayslipId(undefined)} onChanged={onWorkflowChanged} onLoadPayslip={onLoadPayslip} onDownloadPayslip={onDownloadPayslip} />
+
                 {payslipMobileCards}
-                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} nativeSearch={recordNativeSearch("payslips", [{ name: "staff", label: "Staff / 员工" }, { name: "payPeriod", label: "Pay period / 薪资月份" }], payslipStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} nativeSearch={recordNativeSearch("payslips", [{ name: "staff", label: "Staff / 员工" }], payslipStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
               </Space>
             )
           }
@@ -1333,27 +1365,69 @@ export function HrSalaryPage({
         <Form form={earlyForm} layout="vertical" onFinish={async values => { if (!earlyAction) return; setClockBusy(true); setClockError(""); try { await finishClock(earlyAction.qr, { confirmEarly: true, reason: values.reason }); setEarlyAction(undefined); } catch (error) { setClockError(humanizeApiError(error)); } finally { setClockBusy(false); } }}><Form.Item name="reason" label="Reason / 原因" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item></Form>
       </Modal>
       <Modal
-        title="Review payslip generation / 核对薪资单生成"
+        title={previewReviewing ? "Review selected payslips / 核对所选薪资单" : "Select staff / 选择员工"}
         open={Boolean(previewGeneratePeriodId)}
-        onCancel={() => setPreviewGeneratePeriodId(undefined)}
-        okText="Confirm & Prepare Drafts / 确认生成草稿"
-        confirmLoading={previewBusy}
-        okButtonProps={{ disabled: previewBusy || Boolean(previewError) || payrollPreview.length === 0 }}
-        onOk={async () => {
-          if (!previewGeneratePeriodId) return;
-          const periodId = previewGeneratePeriodId;
-          setPreviewBusy(true);
-          try { await onGeneratePayslips(periodId); setPreviewGeneratePeriodId(undefined); }
-          catch (error) { setPreviewError(humanizeApiError(error)); }
-          finally { setPreviewBusy(false); }
-        }}
+        width={760}
+        closable={!preparingPayslips}
+        maskClosable={!preparingPayslips}
+        keyboard={!preparingPayslips}
+        onCancel={closePayrollPreview}
+        footer={<Space wrap>
+          <Button disabled={preparingPayslips} onClick={closePayrollPreview}>Cancel / 取消</Button>
+          {previewReviewing && !Object.values(previewSelections).includes("Recalculate") && <Button disabled={preparingPayslips} onClick={() => setPreviewReviewing(false)}>Back to selection / 返回选择</Button>}
+          {!previewReviewing ? <Button type="primary" disabled={previewBusy || Boolean(previewError) || Object.keys(previewSelections).length === 0} onClick={() => setPreviewReviewing(true)}>Review selected / 核对所选 ({Object.keys(previewSelections).length})</Button> :
+            <Button type="primary" loading={preparingPayslips} disabled={previewBusy || Boolean(previewError) || Object.keys(previewSelections).length === 0} onClick={async () => {
+              if (!previewGeneratePeriodId || preparingPayslips) return;
+              const selections = payrollPreview.filter(candidate => previewSelections[candidate.staffUserId] && candidate.previewToken && candidate.action === previewSelections[candidate.staffUserId])
+                .map(candidate => ({ staffUserId: candidate.staffUserId, action: candidate.action!, previewToken: candidate.previewToken! }));
+              if (!selections.length || selections.length !== Object.keys(previewSelections).length) return;
+              setPreparingPayslips(true);
+              try {
+                await onGeneratePayslips(previewGeneratePeriodId, selections);
+                closePayrollPreview();
+              } catch (error) {
+                closePayrollPreview();
+                setPayrollNotice(`${humanizeApiError(error)} Review a fresh preview before trying again. / 请重新预览并核对后再试。`);
+                try { await onWorkflowChanged?.(); } catch { /* Keep the original save error visible. */ }
+              } finally { setPreparingPayslips(false); }
+            }}>{Object.values(previewSelections).includes("Recalculate") ? "Confirm recalculation / 确认重新计算" : "Confirm & prepare drafts / 确认生成草稿"} ({Object.keys(previewSelections).length})</Button>}
+        </Space>}
       >
-        {previewError && <Alert type="error" message={previewError} />}
-        {payrollPreview.map(slip => <Typography.Paragraph key={slip.staffUserId}><strong>{slip.staffName}</strong> · Gross {money(slip.grossPay)} · Before statutory deductions {money(slip.netPay)}</Typography.Paragraph>)}
-        {(() => {
-          const period = payPeriods.find((item) => item.id === previewGeneratePeriodId);
-          return <Typography.Paragraph>Prepare or refresh draft payslips for <Typography.Text strong>{period?.name ?? "the selected period"}</Typography.Text> ({period?.workingDays ?? 0} working days) for all configured payroll profiles. Only drafts can be refreshed. Existing statutory amounts will be cleared for rechecking. Enter EPF/SOCSO/EIS/PCB amounts after preparation, then submit to Finance and Boss for approval.</Typography.Paragraph>;
-        })()}
+        <Typography.Paragraph strong>{payPeriods.find(item => item.id === previewGeneratePeriodId)?.name} · {payPeriods.find(item => item.id === previewGeneratePeriodId)?.workingDays} working days / 工作天</Typography.Paragraph>
+        {previewError && <Alert type="error" showIcon message={previewError} />}
+        {previewBusy && <Typography.Paragraph>Loading current payroll data… / 正在读取当前薪资资料…</Typography.Paragraph>}
+        {!previewReviewing && !previewBusy && !previewError && <>
+          <Typography.Paragraph>Choose new payslips only. Existing payslips are unchanged; use Recalculate from their row if needed. / 仅选择需新增薪资单的员工，现有薪资单不受影响。</Typography.Paragraph>
+          {payrollPreview.length === 0 && <Empty description="No new staff to prepare. Check Payroll setup or use Recalculate for an editable payslip. / 暂无可新增员工，请检查薪资设置或重新计算现有草稿。" />}
+          {payrollPreview.some(candidate => candidate.action === "Prepare") && <Button onClick={() => setPreviewSelections(Object.fromEntries(payrollPreview.filter(candidate => candidate.action === "Prepare" && candidate.previewToken).map(candidate => [candidate.staffUserId, "Prepare"])))}>Select all eligible new staff / 全选可新增员工</Button>}
+          <Space direction="vertical" size={12} className="fullWidth" style={{ marginTop: 16 }}>
+            {payrollPreview.map(candidate => <div key={candidate.staffUserId}>
+              <Checkbox style={{ minHeight: 44, alignItems: "center" }} checked={Boolean(previewSelections[candidate.staffUserId])} disabled={candidate.action !== "Prepare" || !candidate.previewToken} onChange={event => setPreviewSelections(current => {
+                const next = { ...current };
+                if (event.target.checked) next[candidate.staffUserId] = "Prepare"; else delete next[candidate.staffUserId];
+                return next;
+              })}>{candidate.staffName || "Employee / 员工"}</Checkbox>
+              {candidate.blockingReason && <Typography.Paragraph type="warning">{candidate.blockingReason}</Typography.Paragraph>}
+              {candidate.draft && <Typography.Paragraph type="secondary">Gross / 应发: {money(candidate.draft.grossPay)} · Provisional / 暂算: {money(candidate.draft.netPay)}</Typography.Paragraph>}
+            </div>)}
+          </Space>
+        </>}
+        {previewReviewing && <>
+          {Object.values(previewSelections).includes("Recalculate") && <Alert type="warning" showIcon message="This replaces the selected editable payslip. / 将替换此可编辑薪资单。" description="All seven statutory amounts and the calculation reference will be cleared for rechecking. Other staff are unchanged. / 七项法定金额及计算依据将清空待重新核对；其他员工不受影响。" />}
+          {payrollPreview.filter(candidate => previewSelections[candidate.staffUserId]).map(candidate => {
+            const proposed = candidate.draft;
+            if (!proposed) return null;
+            const currentItems = candidate.existingPayslip ? payrollReviewItems(candidate.existingPayslip) : undefined;
+            return <div key={candidate.staffUserId} style={{ marginTop: 16 }}>
+              <Typography.Title level={5}>{candidate.staffName || "Employee / 员工"}</Typography.Title>
+              <Descriptions bordered size="small" layout="vertical" column={{ xs: 1, sm: 2, md: 2, lg: 2, xl: 2, xxl: 2 }} items={payrollReviewItems(proposed).map((item, index) => ({
+                ...item,
+                children: currentItems ? <><Typography.Text type="secondary">Current / 当前: {currentItems[index].children}</Typography.Text><br /><Typography.Text strong>Proposed / 建议: {item.children}</Typography.Text></> : item.children
+              }))} />
+            </div>;
+          })}
+          <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>These are drafts, not approved payments. Enter statutory amounts next, then submit to Finance and Boss for approval. / 生成的是草稿，尚未批准支付；下一步填写法定金额，再提交财务及老板审批。</Typography.Paragraph>
+        </>}
       </Modal>
     </Space>
   );
@@ -1582,6 +1656,27 @@ function payPeriodName(id: string, payPeriods: HrPayPeriod[]) {
 
 function money(value?: number) {
   return `RM ${new Intl.NumberFormat("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))}`;
+}
+
+function payrollReviewItems(slip: HrPayslip) {
+  return [
+    { key: "type", label: "Employment / 雇用类型", children: slip.employmentType === "Hourly" ? "Hourly / 时薪" : "Monthly / 月薪" },
+    { key: "days", label: "Working days / 工作天", children: String(slip.workingDays) },
+    { key: "base", label: "Base salary / 底薪", children: money(slip.baseSalary) },
+    { key: "daily", label: "Daily salary / 日薪", children: money(slip.dailySalary) },
+    { key: "hours", label: "Hours / 工作小时", children: String(slip.workedHours) },
+    { key: "rate", label: "Hourly rate / 时薪", children: money(slip.hourlyRate) },
+    { key: "attendance", label: "Attendance pay / 出勤薪资", children: money(slip.attendancePay) },
+    { key: "ot", label: "Overtime / 加班费", children: money(slip.overtimePay) },
+    { key: "allowances", label: "Allowances / 津贴", children: money(slip.allowances) },
+    { key: "unpaidDays", label: "Unpaid leave days / 无薪假天数", children: String(slip.unpaidLeaveDays) },
+    { key: "unpaid", label: "Unpaid leave deduction / 无薪假扣款", children: money(slip.unpaidLeaveDeduction) },
+    { key: "manual", label: "Manual deductions / 手动扣款", children: money(slip.manualDeductions) },
+    { key: "gross", label: "Gross pay / 应发薪资", children: money(slip.grossPay) },
+    ...statutoryFields.map(([key, label]) => ({ key, label, children: slip[key] == null ? "Not recorded / 未填写" : money(slip[key]!) })),
+    { key: "reference", label: "Calculation reference / 计算依据", children: slip.statutoryReference || "Not recorded / 未填写" },
+    { key: "net", label: "Pay amount / 薪资金额", children: `${payrollAmountLabel(slip)}: ${money(slip.netPay)}` }
+  ];
 }
 
 function tablePagination(pageSize = hrRecordPageSize): TablePaginationConfig {

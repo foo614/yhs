@@ -1752,7 +1752,7 @@ describe("backoffice api client", () => {
     await getHrPayPeriods();
     await createHrPayPeriod(period);
     await getHrPayslips();
-    await generateHrPayslips("period-1");
+    await generateHrPayslips("period-1", [{ staffUserId: "staff-1", action: "Prepare", previewToken: "preview-token" }]);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/hr/staff", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/hr/attendance", { credentials: "include" });
@@ -1766,7 +1766,7 @@ describe("backoffice api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(14, "http://localhost:5000/api/hr/leave-adjustments", expect.objectContaining({ method: "POST", body: JSON.stringify({ staffUserId: "staff-1", type: "AnnualLeave", direction: "Increase", days: 1, reason: "Carry forward" }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(16, "http://localhost:5000/api/hr/payroll-profiles/staff-1", expect.objectContaining({ method: "PUT" }));
     expect(fetchMock).toHaveBeenNthCalledWith(18, "http://localhost:5000/api/hr/pay-periods", expect.objectContaining({ method: "POST", body: JSON.stringify(period) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(20, "http://localhost:5000/api/hr/pay-periods/period-1/generate-payslips", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(20, "http://localhost:5000/api/hr/pay-periods/period-1/generate-payslips", expect.objectContaining({ method: "POST", body: JSON.stringify({ selections: [{ staffUserId: "staff-1", action: "Prepare", previewToken: "preview-token" }] }) }));
     expect(hrMedicalCertificateContentUrl("leave-1")).toBe("http://localhost:5000/api/hr/leave-requests/leave-1/mc/content");
   });
 

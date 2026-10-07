@@ -24,6 +24,9 @@ public sealed record HrCorrectionRequest(Guid? AttendanceRecordId, string StaffU
 public sealed record HrCorrectionDecision(bool Approve, string? Notes);
 public sealed record HrStatutoryInput(int Version, decimal? EmployeeEpf, decimal? EmployerEpf, decimal? EmployeeSocso, decimal? EmployerSocso, decimal? EmployeeEis, decimal? EmployerEis, decimal? Pcb, string Reference);
 public sealed record HrPayrollDecision(int Version, string Action, string? Notes);
+public sealed record HrPayrollSelection(string StaffUserId, string Action, string PreviewToken);
+public sealed record HrPayrollPreparationRequest(List<HrPayrollSelection>? Selections);
+public sealed record HrPayrollCandidate(string StaffUserId, string StaffName, HrPayslip? ExistingPayslip, HrPayslip? Draft, string? Action, string? BlockingReason, string? PreviewToken);
 public sealed record HrBusinessTripDecisionRequest(HrBusinessTripStatus Status, string? DecisionNotes = null);
 public sealed record HrOutstationAttendanceRequest(Guid BusinessTripId);
 public sealed record HrAttendanceDashboardSummary(

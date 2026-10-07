@@ -14,6 +14,7 @@ public static class HrPayslipPdfFactory
         var safeName = payslip.StaffName ?? (string.IsNullOrWhiteSpace(staffName) ? payslip.StaffUserId : staffName);
         var fileName = $"payslip-{period.StartDate:yyyy-MM}-{payslip.Id:N}.pdf";
         var published = payslip.Status is HrPayslipStatus.Published or HrPayslipStatus.Generated;
+        var statutoryComplete = new[] { payslip.EmployeeEpf, payslip.EmployerEpf, payslip.EmployeeSocso, payslip.EmployerSocso, payslip.EmployeeEis, payslip.EmployerEis, payslip.Pcb }.All(amount => amount.HasValue);
         var page = new StringBuilder();
         const string navy = "0.05 0.18 0.32";
         const string blue = "0.10 0.34 0.58";
@@ -57,10 +58,10 @@ public static class HrPayslipPdfFactory
         Row(page, 315, 417, "PCB", payslip.Pcb);
         Line(page, 36, 405, 559, 405, border);
         Row(page, 56, 388, "Gross pay", payslip.GrossPay, true);
-        Row(page, 315, 388, "Total deductions", payslip.UnpaidLeaveDeduction + payslip.ManualDeductions + HrWorkflowRules.StatutoryDeductions(payslip), true);
+        Row(page, 315, 388, statutoryComplete ? "Total deductions" : "Recorded deductions", payslip.UnpaidLeaveDeduction + payslip.ManualDeductions + HrWorkflowRules.StatutoryDeductions(payslip), true);
 
         Fill(page, 36, 302, 523, 66, paleBlue);
-        Text(page, 56, 346, 9, "NET SALARY", bold: true, color: blue);
+        Text(page, 56, 346, 9, statutoryComplete ? "NET SALARY" : "PROVISIONAL PAY", bold: true, color: blue);
         Text(page, 56, 319, 25, $"RM {payslip.NetPay:N2}", bold: true, color: navy);
         Text(page, 315, 343, 9, published ? "EMPLOYEE SALARY SUMMARY" : "DRAFT - NOT APPROVED FOR PAYMENT", bold: true, color: blue);
         TextBlock(page, 315, 327, 9, "Employer contributions below are not deducted from net salary.", 43, 12, muted);
@@ -70,7 +71,7 @@ public static class HrPayslipPdfFactory
         Contribution(page, 56, "Employer EPF", payslip.EmployerEpf);
         Contribution(page, 231, "Employer SOCSO", payslip.EmployerSocso);
         Contribution(page, 406, "Employer EIS", payslip.EmployerEis);
-        Text(page, 36, 211, 8, payslip.EmployeeEpf is null ? "Statutory amounts were not recorded for this payslip." : "Statutory amounts are separately recorded for this payroll month.", color: muted);
+        Text(page, 36, 211, 8, statutoryComplete ? "Statutory amounts are separately recorded for this payroll month." : "Statutory amounts are incomplete. The amount above is not final net salary.", color: muted);
 
         Line(page, 36, 83, 559, 83, border);
         Text(page, 36, 62, 8, $"Pay period: {month}", color: muted);

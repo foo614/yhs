@@ -1116,11 +1116,11 @@ const hrManagementSections: readonly ModuleGuideSection[] = [
     kind: "tab",
     audience: "HR Payroll and Boss/Admin",
     purpose: "Maintain payroll profiles and periods, generate payslips, and review amounts.",
-    actions: ["Save the correct monthly/hourly payroll profile, salary/rate, allowances, deductions, and manually maintained overtime inputs.", "Create the pay period.", "Adjust working days for public holidays.", "Verify attendance and approved unpaid leave.", "Generate payslips for the selected period.", "Review net pay and components."],
+    actions: ["Maintain payroll profiles and create the pay period under Payroll setup.", "Select one pay month in the payslip list.", "Preview the eligible staff, select only the new drafts to prepare, and review proposed values before confirming.", "Use Recalculate on one existing draft only after reviewing current versus proposed components and the statutory reset warning.", "Enter statutory amounts for the named employee and month, then submit to Finance and Boss for approval."],
     requiredItems: ["Payroll profile", "Pay period month/start/end", "Reviewed working days", "Attendance", "Approved unpaid leave"],
-    completeWhen: "One Generated payslip per staff/profile exists for the correct period and amounts have been checked.",
+    completeWhen: "The selected staff have reviewed Draft payslips for the selected month, statutory amounts are recorded, and the approval handoff is complete.",
     handoff: "Staff self-service payslip view.",
-    warnings: ["There is no separate payroll approval or publish gate.", "Regenerating the same period updates the existing staff payslip.", "Break and overtime adjustments are not derived automatically from attendance."]
+    warnings: ["Only explicitly selected staff are prepared; locked or blocked staff remain unchanged.", "Recalculate is a separate per-record action and clears statutory amounts for rechecking.", "Break and overtime adjustments are not derived automatically from attendance."]
   }
 ];
 
