@@ -31,6 +31,12 @@ public static class WhatsAppAssistantSchema
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppStaffRequests_EventKey" ON "WhatsAppStaffRequests"("EventKey");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppStaffRequests_ProviderMessageId" ON "WhatsAppStaffRequests"("ProviderMessageId");
             CREATE INDEX IF NOT EXISTS "IX_WhatsAppStaffRequests_State_CreatedAt" ON "WhatsAppStaffRequests"("State", "CreatedAt");
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_WhatsAppOutbox_WhatsAppStaffBindings_StaffBindingId') THEN
+                    ALTER TABLE "WhatsAppOutbox" ADD CONSTRAINT "FK_WhatsAppOutbox_WhatsAppStaffBindings_StaffBindingId"
+                        FOREIGN KEY ("StaffBindingId") REFERENCES "WhatsAppStaffBindings"("Id") ON DELETE RESTRICT;
+                END IF;
+            END $$;
             """, ct);
     }
 }

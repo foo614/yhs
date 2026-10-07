@@ -21,23 +21,33 @@ public static class WhatsAppStaffApi
     }
 
     public static async Task<IResult> StatusAsync(HttpContext context, AppDbContext db, WhatsAppAssistantOptions options, string? staffUserId, CancellationToken ct)
+        => await StatusAsync(context, db, options, null, staffUserId, ct);
+
+    public static async Task<IResult> StatusAsync(HttpContext context, AppDbContext db, WhatsAppAssistantOptions options,
+        WhatsAppDispatchOptions? dispatch, string? staffUserId, CancellationToken ct)
     {
         context.Response.Headers.CacheControl = "no-store";
         var user = await ManagedUserAsync(context, db, staffUserId, ct);
         if (user is null) return Results.Forbid();
-        return Results.Ok(await WhatsAppStaffBindings.StatusAsync(db, options, user, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+        return Results.Ok(await WhatsAppStaffBindings.StatusAsync(db, options, user, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct, dispatch));
     }
 
     public static async Task<IResult> ConnectAsync(HttpContext context, AppDbContext db, WhatsAppAssistantOptions options, WhatsAppStaffConnectRequest request, CancellationToken ct)
+        => await ConnectAsync(context, db, options, null, request, ct);
+
+    public static async Task<IResult> ConnectAsync(HttpContext context, AppDbContext db, WhatsAppAssistantOptions options,
+        WhatsAppDispatchOptions? dispatch, WhatsAppStaffConnectRequest request, CancellationToken ct)
     {
         context.Response.Headers.CacheControl = "no-store";
         var user = await ManagedUserAsync(context, db, request.StaffUserId, ct);
         if (user is null) return Results.Forbid();
         if (!options.Ready) return Results.Conflict(new ApiError("WhatsApp staff queries are disabled."));
+        if (dispatch is not null && !dispatch.InvitationReady)
+            return Results.Conflict(new ApiError("Staff invitation sending is not enabled or its approved template is unavailable."));
         try
         {
             var link = await WhatsAppStaffBindings.IssueAsync(db, options, user,
-                new(request.Recipient, request.Language, request.ConsentConfirmed), StaffIdentity.CurrentUserId(context), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct);
+                new(request.Recipient, request.Language, request.ConsentConfirmed), StaffIdentity.CurrentUserId(context), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct, dispatch);
             return Results.Ok(link);
         }
         catch (ArgumentException exception) { return Results.BadRequest(new ApiError(exception.Message)); }
@@ -52,5 +62,20 @@ public static class WhatsAppStaffApi
         if (!options.Ready) return Results.Conflict(new ApiError("WhatsApp staff queries are disabled."));
         await WhatsAppStaffBindings.RevokeAsync(db, user, StaffIdentity.CurrentUserId(context), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct);
         return Results.Ok(new { message = "WhatsApp disconnected. Queued queries were suppressed." });
+    }
+
+    public static async Task<IResult> ResendInvitationAsync(HttpContext context, AppDbContext db, WhatsAppAssistantOptions options,
+        WhatsAppDispatchOptions dispatch, WhatsAppStaffDisconnectRequest request, CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var user = await ManagedUserAsync(context, db, request.StaffUserId, ct);
+        if (user is null) return Results.Forbid();
+        try
+        {
+            await WhatsAppStaffInvitation.ResendAsync(db, options, dispatch, user, StaffIdentity.CurrentUserId(context),
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct);
+            return Results.Ok(new { message = "Invitation queued. The one-time command is unchanged." });
+        }
+        catch (ArgumentException exception) { return Results.Conflict(new ApiError(exception.Message)); }
     }
 }

@@ -41,12 +41,17 @@ public sealed class WhatsAppPostgresTests
             await db.Database.EnsureCreatedAsync();
             // Upgrade the earlier application schema only inside this generated disposable database.
             await db.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "WhatsAppOutbox" DROP CONSTRAINT IF EXISTS "FK_WhatsAppOutbox_WhatsAppStaffBindings_StaffBindingId";
                 DROP TABLE "WhatsAppStaffRequests";
                 DROP TABLE "WhatsAppStaffChallenges";
                 DROP TABLE "WhatsAppStaffBindings";
+                DROP TABLE "WhatsAppWorkflowEvents";
                 """);
             await WhatsAppAssistantSchema.EnsureAsync(db);
             await WhatsAppAssistantSchema.EnsureAsync(db);
+            await WhatsAppWorkflowEvents.EnsureSchemaAsync(db);
+            await WhatsAppWorkflowEvents.EnsureSchemaAsync(db);
+            Assert.Empty(await db.WhatsAppWorkflowEvents.AsNoTracking().ToListAsync());
             db.Users.Add(new AppUser { Id = "assistant-ci", UserName = "assistant-ci", SecurityStamp = "synthetic-ci-stamp" });
             db.Roles.Add(new IdentityRole("Sales") { Id = "assistant-sales", NormalizedName = "SALES" });
             db.UserRoles.Add(new IdentityUserRole<string> { UserId = "assistant-ci", RoleId = "assistant-sales" });
@@ -212,7 +217,16 @@ public sealed class WhatsAppPostgresTests
         {
             ["ConnectionStrings__Default"] = connectionString, ["SeedData__Enabled"] = "true",
             ["SeedAdmin__Email"] = "admin@example.test", ["SeedAdmin__Password"] = "Synthetic-CI-123!",
-            ["Worker__Enabled"] = "false", ["WhatsApp__CaptureEnabled"] = "false", ["WhatsApp__SendingEnabled"] = "false", ["WhatsApp__WebhookEnabled"] = "false",
+            ["Worker__Enabled"] = "false", ["WhatsApp__CaptureEnabled"] = "false", ["WhatsApp__SendingEnabled"] = "false",
+            ["WhatsApp__InvitationEnabled"] = "true", ["WhatsApp__WebhookEnabled"] = "true", ["WhatsApp__SenderApproved"] = "true",
+            ["WhatsApp__SenderApprovalEvidence"] = "synthetic CI approval", ["WhatsApp__GraphApiVersion"] = "v25.0",
+            ["WhatsApp__PhoneNumberId"] = "123", ["WhatsApp__BusinessAccountId"] = "456", ["WhatsApp__AccessToken"] = "synthetic-token",
+            ["WhatsApp__AppSecret"] = new string('s', 32), ["WhatsApp__VerifyToken"] = new string('v', 32),
+            ["WhatsApp__BudgetOwner"] = "synthetic CI budget", ["WhatsApp__DailyAttemptLimit"] = "10",
+            ["WhatsApp__MonthlyBudgetSen"] = "1000", ["WhatsApp__MaximumCostPerAttemptSen"] = "10",
+            ["WhatsApp__CostCeilingConfirmed"] = "true", ["WhatsApp__Templates__0__Key"] = "staff_invite_v1",
+            ["WhatsApp__Templates__0__Name"] = "approved_staff_invite", ["WhatsApp__Templates__0__Language"] = "en_US",
+            ["WhatsApp__Templates__0__Approved"] = "true", ["WhatsApp__Templates__0__ApprovalEvidence"] = "synthetic CI template approval",
             ["WhatsAppAssistant__Enabled"] = "true", ["WhatsAppAssistant__WebhookEnabled"] = "true", ["WhatsAppAssistant__TestMode"] = "true",
             ["WhatsAppAssistant__PhoneNumberId"] = "123", ["WhatsAppAssistant__BusinessAccountId"] = "456", ["WhatsAppAssistant__TestRecipient"] = "60177777777",
             ["WhatsAppAssistant__GraphApiVersion"] = "v25.0", ["WhatsAppAssistant__AccessToken"] = "synthetic-token",
@@ -229,7 +243,7 @@ public sealed class WhatsAppPostgresTests
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync("/api/whatsapp/assistant/connection", new { recipient = "60177777777", language = "en_US", consentConfirmed = true })).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync("/api/whatsapp/assistant/disconnect", new { })).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsync("/api/whatsapp/assistant/webhook", new StringContent("{}"))).StatusCode);
-            Assert.Equal(HttpStatusCode.NotFound, (await anonymous.PostAsync("/api/whatsapp/webhook", new StringContent("{}"))).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsync("/api/whatsapp/webhook", new StringContent("{}"))).StatusCode);
             using var admin = factory.CreateClient();
             Assert.True((await admin.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "admin@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
             var created = await admin.PostAsJsonAsync("/api/admin/users", new { email = "sales@example.test", displayName = "Synthetic Sales", password = "Synthetic-CI-123!", role = "Sales" });
@@ -240,6 +254,10 @@ public sealed class WhatsAppPostgresTests
             Assert.Equal(HttpStatusCode.OK, issued.StatusCode);
             Assert.Contains("no-store", issued.Headers.CacheControl!.ToString());
             var command = (await issued.Content.ReadFromJsonAsync<WhatsAppStaffLinkResult>())!.Command;
+            for (var attempt = 0; attempt < 100 && !submitted.Any(reply => reply.StartsWith("invite:", StringComparison.Ordinal)); attempt++) await Task.Delay(100);
+            var invitation = Assert.Single(submitted, reply => reply.StartsWith("invite:", StringComparison.Ordinal));
+            Assert.Contains("Open your YS Heng portal", invitation);
+            Assert.DoesNotContain(command[5..], invitation);
             using var sales = factory.CreateClient();
             Assert.True((await sales.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "sales@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/assistant/connection?staffUserId=assistant-ci")).StatusCode);
@@ -273,8 +291,8 @@ public sealed class WhatsAppPostgresTests
             Assert.Equal("Connected", status.State);
             Assert.Equal("***7777", status.MaskedNumber);
             await Callback("help", "synthetic-startup-query");
-            for (var attempt = 0; attempt < 100 && !submitted.Any(reply => reply.Contains("YS Heng staff commands")); attempt++) await Task.Delay(100);
-            Assert.Contains(submitted, reply => reply.Contains("YS Heng staff commands"));
+            for (var attempt = 0; attempt < 100 && !submitted.Any(reply => reply.Contains("available enquiries")); attempt++) await Task.Delay(100);
+            Assert.Contains(submitted, reply => reply.Contains("available enquiries"));
             Assert.True((await sales.PostAsJsonAsync("/api/whatsapp/assistant/disconnect", new { })).IsSuccessStatusCode);
             Assert.Equal("Disconnected", (await sales.GetFromJsonAsync<WhatsAppStaffConnection>("/api/whatsapp/assistant/connection"))!.State);
         }
@@ -291,6 +309,8 @@ public sealed class WhatsAppPostgresTests
             {
                 services.RemoveAll<WhatsAppStaffSender>();
                 services.AddSingleton(new WhatsAppStaffSender(new HttpClient(new SyntheticTransport(submitted))));
+                services.RemoveAll<WhatsAppTemplateSender>();
+                services.AddSingleton(new WhatsAppTemplateSender(new HttpClient(new SyntheticTransport(submitted))));
             });
         }
     }
@@ -301,8 +321,12 @@ public sealed class WhatsAppPostgresTests
         {
             using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
             Assert.Equal("60177777777", json.RootElement.GetProperty("to").GetString());
-            submitted.Enqueue(json.RootElement.GetProperty("text").GetProperty("body").GetString()!);
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { messages = new[] { new { id = "synthetic-" + Guid.NewGuid() } } }) };
+            var kind = json.RootElement.GetProperty("type").GetString();
+            var body = kind == "template"
+                ? json.RootElement.GetProperty("template").GetProperty("components")[0].GetProperty("parameters")[0].GetProperty("text").GetString()
+                : json.RootElement.GetProperty("text").GetProperty("body").GetString();
+            submitted.Enqueue(kind == "template" ? "invite:" + body : body!);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { messages = new[] { new { id = "wamid.synthetic-" + Guid.NewGuid() } } }) };
         }
     }
 

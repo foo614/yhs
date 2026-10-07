@@ -1263,6 +1263,7 @@ export function FinancePage({
     },
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Broker / 经纪人", dataIndex: "brokerName" },
+    { title: "Due Date / 到期日", render: (_, row) => row.dueDate ? dayjs(row.dueDate).format("DD MMM YYYY") : row.isPaid ? "—" : <Tag color="gold">Date required</Tag> },
     { title: "Commission / 佣金", dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "orange"}>{isPaid ? "Paid" : "Unpaid"}</Tag> },
     {
@@ -2302,6 +2303,7 @@ export function FinancePage({
                 <div className="mobileRecordMeta">
                   <span><small>Car Plate / 车牌</small><strong>{plateFor(vehicles, commission.vehicleId)}</strong></span>
                   <span><small>Commission / 佣金</small><strong>{formatMoney(commission.amount)}</strong></span>
+                  <span><small>Due Date / 到期日</small><strong>{commission.dueDate ? dayjs(commission.dueDate).format("DD MMM YYYY") : commission.isPaid ? "—" : "Date required"}</strong></span>
                 </div>
                 <div className="mobileRecordFooter">
                   <Tag color={commission.cp58Required ? commission.cp58Prepared ? "green" : "gold" : "default"}>
@@ -2337,6 +2339,7 @@ export function FinancePage({
               id: newId(),
               vehicleId: values.vehicleId,
               brokerName: values.brokerName,
+              dueDate: values.dueDate ?? null,
               amount: Number(values.amount ?? 0),
               isPaid: values.isPaid,
               cp58Required: values.cp58Required,
@@ -2351,6 +2354,7 @@ export function FinancePage({
           }} initialValues={{ vehicleId: vehicles[0]?.id, isPaid: false, cp58Required: false, cp58Prepared: false }}>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
+            <Form.Item name="dueDate" label="Due Date / 到期日" extra="Optional. Unpaid commissions need a date for reminders; existing records are not assigned a guessed deadline." getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD") ?? null}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
             <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label={shortformLabel("CP58 Required", "Malaysian commission tax form required")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
@@ -2380,6 +2384,7 @@ export function FinancePage({
                 ...selectedEditBrokerCommission,
                 vehicleId: values.vehicleId,
                 brokerName: values.brokerName,
+                dueDate: values.dueDate ?? null,
                 amount: Number(values.amount ?? 0),
                 isPaid: values.isPaid,
                 cp58Required: values.cp58Required,
@@ -2396,6 +2401,7 @@ export function FinancePage({
             <Form.Item name="id" label="Selected Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / ${formatMoney(commission.amount)}` }))} onChange={selectBrokerCommission} /></Form.Item>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
+            <Form.Item name="dueDate" label="Due Date / 到期日" extra="Optional. Unpaid commissions need a date for reminders; clearing the date stops deadline reminders." getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD") ?? null}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
             <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label={shortformLabel("CP58 Required", "Malaysian commission tax form required")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>

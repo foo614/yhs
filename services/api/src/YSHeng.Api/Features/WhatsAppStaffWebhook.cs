@@ -49,10 +49,8 @@ public static class WhatsAppStaffWebhook
                 {
                     var recipient = Recipient(String(message, "from"));
                     var id = String(message, "id");
-                    if (recipient is null || !options.Allows(recipient) || id is not { Length: > 0 and <= 512 } ||
-                        String(message, "type") != "text" || !Object(message, "text", out var text)) continue;
-                    var body = String(text, "body") ?? "";
-                    var intent = WhatsAppStaffQueries.Parse(body) ?? WhatsAppStaffCommandHelp.RecoveryIntent(body);
+                    if (recipient is null || !options.Allows(recipient) || id is not { Length: > 0 and <= 512 }) continue;
+                    var intent = ParseMessage(message);
                     if (intent is null) continue;
                     var validTime = long.TryParse(String(message, "timestamp"), NumberStyles.None, CultureInfo.InvariantCulture, out var timestamp) && timestamp <= now + 30;
                     var fresh = validTime && timestamp >= now - 300;
@@ -116,6 +114,19 @@ public static class WhatsAppStaffWebhook
                 .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, next), ct);
         }
         return reconciled;
+    }
+
+    public static WhatsAppStaffIntent? ParseMessage(JsonElement message)
+    {
+        if (String(message, "type") == "text" && Object(message, "text", out var text))
+        {
+            var body = String(text, "body") ?? "";
+            return WhatsAppStaffQueries.Parse(body) ?? WhatsAppStaffCommandHelp.RecoveryIntent(body);
+        }
+        if (String(message, "type") == "interactive" && Object(message, "interactive", out var interactive) &&
+            String(interactive, "type") == "list_reply" && Object(interactive, "list_reply", out var reply))
+            return WhatsAppStaffCommandHelp.ParseSelection(String(reply, "id")) ?? new("usage");
+        return null;
     }
 
     private static string? Recipient(string? value)

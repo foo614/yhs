@@ -533,6 +533,7 @@ public sealed record BrokerCommission
     public Guid VehicleId { get; init; }
     public string BrokerName { get; init; } = "";
     public decimal Amount { get; init; }
+    public DateOnly? DueDate { get; init; }
     public bool IsPaid { get; init; }
     public bool Cp58Required { get; init; }
     public bool Cp58Prepared { get; init; }
@@ -953,6 +954,54 @@ public sealed record WhatsAppOutbox
     public long ExpiresAt { get; init; }
     public long LeaseUntil { get; init; }
     public string? ProviderMessageId { get; init; }
+    public string Audience { get; init; } = "Customer";
+    public Guid? StaffBindingId { get; init; }
+    public string? StaffUserId { get; init; }
+    public string MessageKind { get; init; } = "";
+    public string RequiredStaffRole { get; init; } = "";
+    public string BusinessEventKey { get; init; } = "";
+    public int BusinessEventVersion { get; init; }
+    public string? SubmittedBody { get; init; }
+    public string? SubmittedTemplateName { get; init; }
+    public string? SubmittedLanguage { get; init; }
+    public long ScheduledAt { get; init; }
+    public long? AcceptedAt { get; init; }
+    public long? SentAt { get; init; }
+    public long? DeliveredAt { get; init; }
+    public long? ReadAt { get; init; }
+    public long? FailedAt { get; init; }
+    public long? SuppressedAt { get; init; }
+    public string? FailureReason { get; init; }
+}
+
+public sealed record WhatsAppStaffNotificationPolicy
+{
+    public string Category { get; init; } = "";
+    public bool Enabled { get; init; }
+    public int LocalMinuteOfDay { get; init; }
+    public int LeadDays { get; init; }
+    public int ThresholdPercent { get; init; }
+    public long UpdatedAt { get; init; }
+}
+
+public sealed record WhatsAppWorkflowEvent
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string EventKey { get; init; } = "";
+    public string Category { get; init; } = "";
+    public string EventKind { get; init; } = "";
+    public Guid SourceId { get; init; }
+    public int SourceVersion { get; init; }
+    public Guid VehicleId { get; init; }
+    public string RequiredRole { get; init; } = "";
+    public string? TargetUserId { get; init; }
+    public string Summary { get; init; } = "";
+    public string State { get; init; } = "Pending";
+    public string? Diagnostic { get; init; }
+    public long CreatedAt { get; init; }
+    public long ExpiresAt { get; init; }
+    public long? ResolvedAt { get; init; }
+    public long? StagedAt { get; init; }
 }
 
 public sealed record WhatsAppDispatchUsage

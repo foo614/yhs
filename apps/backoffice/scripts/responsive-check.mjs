@@ -86,6 +86,9 @@ for (let index = 0; index < 9; index++) {
   for (const resource of ["photos", "documents", "ocr-jobs"]) emptyCollections.add(`/api/vehicles/test-vehicle-${index}/${resource}`);
 }
 fixtures["/api/whatsapp/queue"] = { captureEnabled: false, sendingEnabled: false, items: [] };
+fixtures["/api/whatsapp/staff/policies"] = ["OutstandingDigest", "AttendanceSummary", "LeaveApproval", "OcrUsage", "VehicleEvent", "DeliveryEvent", "FinanceEvent"].map(category => ({ category, enabled: false, localMinuteOfDay: category === "AttendanceSummary" ? 600 : ["OutstandingDigest", "LeaveApproval"].includes(category) ? 540 : 0, leadDays: category === "OutstandingDigest" ? 3 : 0, thresholdPercent: category === "OcrUsage" ? 90 : 0, senderReady: false, templateReady: false, categoryReady: ["OutstandingDigest", "AttendanceSummary", "LeaveApproval", "OcrUsage"].includes(category) }));
+fixtures["/api/whatsapp/staff/diagnostics"] = { missingRequiredDate: 2, unassignedDelivery: 1, missingCommissionDate: 1, eligibleStaff: 4, connectedStaff: 2, unroutableWorkflowEvents: 1 };
+fixtures["/api/whatsapp/staff/history"] = { page: 1, total: 1, items: [{ id: "synthetic-message", staffUserId: "responsive-test", staffName: "Layout Test With A Longer Staff Name", maskedNumber: "***6789", category: "OutstandingDigest", state: "Delivered", scheduledAt: 1791334800, acceptedAt: 1791334801, sentAt: 1791334802, deliveredAt: 1791334803, readAt: null, failedAt: null, suppressedAt: null, failureReason: null, submittedBody: "Synthetic due reminder. No real customer or financial data.", submittedTemplateName: "synthetic_staff_notice", submittedLanguage: "en_US", canRetry: false }] };
 const fixtureTemplate = fixtures;
 const emptyCollectionTemplate = emptyCollections;
 
@@ -100,7 +103,8 @@ export async function runResponsiveWidth({ page, context, width, output, visualE
   const results = [];
   await mkdir(output, { recursive: true });
   await context.addInitScript(({ routes }) => {
-  for (const route of routes) localStorage.setItem(`ysheng:module-guide:v2:${encodeURIComponent("responsive-test:BossAdmin")}:${encodeURIComponent(`/${route}`)}`, "seen");
+  for (const role of ["BossAdmin", "Sales"])
+    for (const route of routes) localStorage.setItem(`ysheng:module-guide:v2:${encodeURIComponent(`responsive-test:${role}`)}:${encodeURIComponent(`/${route}`)}`, "seen");
   }, { routes });
 fixtures["/api/whatsapp/assistant/connection"] = { enabled: false, state: "Disabled", language: "ms" };
 let connectionChecks = false;
@@ -112,7 +116,7 @@ await context.route("**/api/**", async route => {
   if (connectionChecks && request.method() === "POST" && ["/api/whatsapp/assistant/connection", "/api/whatsapp/assistant/disconnect"].includes(path)) {
     connectionMutations.push({ path, body: request.postDataJSON() });
     const linking = path.endsWith("/connection");
-    fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, state: linking ? "AwaitingVerification" : "Disconnected", language: "ms", ...(linking ? { maskedNumber: "***6789" } : {}) };
+    fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, invitationAvailable: true, state: linking ? "AwaitingVerification" : "Disconnected", language: "ms", ...(linking ? { maskedNumber: "***6789", invitationState: "Queued", expiresAt: Math.floor(Date.now() / 1000) + 600 } : {}) };
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(linking ? { command: "link " + "A".repeat(32), expiresAt: Math.floor(Date.now() / 1000) + 600 } : { message: "Synthetic disconnect" }) });
     return;
   }
@@ -128,6 +132,9 @@ page.on("console", message => { if (message.type() === "error") diagnostics.cons
 page.on("requestfailed", request => { if (request.failure()?.errorText !== "net::ERR_ABORTED") diagnostics.failedRequests.push({ url: request.url(), error: request.failure()?.errorText }); });
 async function inspect(name, width) {
   await page.evaluate(async () => {
+    // Drawers start their transition on the next paint after React commits.
+    // Observe the settled panel, not the transient off-screen entrance frame.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const animations = document.getAnimations().filter(animation => {
       const duration = animation.effect?.getComputedTiming().activeDuration;
       return animation.playState === "running" && Number.isFinite(duration);
@@ -288,7 +295,7 @@ try {
         if (route === "admin" && [360, 820, 1440].includes(width)) {
           connectionChecks = true;
           connectionMutations.length = 0;
-          fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, state: "Disconnected", language: "ms" };
+          fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, invitationAvailable: true, state: "Disconnected", language: "ms" };
           if (width <= 1024) {
             await page.getByRole("button", { name: "Open navigation", exact: true }).click();
             await page.getByRole("button", { name: "My WhatsApp", exact: true }).click();
@@ -296,16 +303,16 @@ try {
           const drawer = page.locator(".ant-drawer-content").filter({ has: page.getByText("My WhatsApp", { exact: true }) });
           await drawer.getByText("Not connected", { exact: true }).waitFor();
           await drawer.getByRole("textbox", { name: "WhatsApp number (with country code)", exact: true }).fill("60123456789");
-          await drawer.getByRole("button", { name: "Connect WhatsApp", exact: true }).click();
+          await drawer.getByRole("button", { name: "Send invitation", exact: true }).click();
           await drawer.getByText("Confirm agreement before connecting.", { exact: true }).waitFor();
           if (connectionMutations.length) throw new Error("Missing consent must not issue a connection command.");
           await drawer.getByRole("checkbox").check();
-          await drawer.getByRole("button", { name: "Connect WhatsApp", exact: true }).click();
+          await drawer.getByRole("button", { name: "Send invitation", exact: true }).click();
           const confirm = page.locator(".ant-modal-confirm").filter({ visible: true });
           await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
           if (connectionMutations.length) throw new Error("Cancelled linking must not issue a command.");
-          await drawer.getByRole("button", { name: "Connect WhatsApp", exact: true }).click();
-          await confirm.getByRole("button", { name: "Create connection command", exact: true }).click();
+          await drawer.getByRole("button", { name: "Send invitation", exact: true }).click();
+          await confirm.getByRole("button", { name: "Queue invitation and create command", exact: true }).click();
           await drawer.getByText("link " + "A".repeat(32), { exact: true }).waitFor();
           if (connectionMutations.length !== 1 || connectionMutations[0].body.consentConfirmed !== true || connectionMutations[0].body.language !== "ms" || connectionMutations[0].body.staffUserId) throw new Error("Self linking must require consent and preserve its language without assigning another employee.");
           await inspect("whatsapp-connection-command", width);
@@ -485,6 +492,45 @@ try {
           if (await tab.getAttribute("aria-selected") !== "true") throw new Error(`Tab did not activate: ${id}`);
           await inspect(`${route}-tab-${index}`, width);
         }
+        if (route === "admin") {
+          const staffTab = page.getByRole("tab", { name: "Staff WhatsApp / 员工 WhatsApp", exact: true });
+          await staffTab.focus();
+          await staffTab.press("Enter");
+          await page.locator(".staffWhatsAppSettings").getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).first().click();
+          await page.getByText("Synthetic due reminder. No real customer or financial data.", { exact: true }).waitFor();
+          await inspect("whatsapp-history-details", width);
+          await closeOverlay();
+          await page.getByRole("tab", { name: "Reminder settings", exact: true }).click();
+          await page.getByText("Recipient and data checks", { exact: true }).waitFor();
+          await inspect("whatsapp-reminder-diagnostics", width);
+          await page.getByRole("button", { name: "Edit settings", exact: true }).first().click();
+          await page.locator(".ant-drawer-open").getByRole("button", { name: "Review and save", exact: true }).waitFor();
+          await inspect("whatsapp-policy-editor", width);
+          await closeOverlay();
+        }
+        if (route === "finance") {
+          const commissionTab = page.getByRole("tab", { name: "Broker Commission / 经纪佣金", exact: true });
+          await commissionTab.focus();
+          await commissionTab.press("Enter");
+          await page.getByText("Date required", { exact: true }).filter({ visible: true }).first().waitFor();
+          await page.getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).first().click();
+          await page.getByLabel("Due Date / 到期日", { exact: true }).waitFor();
+          await inspect("commission-due-date-editor", width);
+          await closeOverlay();
+        }
+      }
+      if (checkInteractions && route === "vehicles") {
+        // Exercise the Sales-only request action, without submitting a mutation.
+        fixtures["/api/auth/me"] = { ...fixtures["/api/auth/me"], roles: ["Sales"] };
+        fixtures["/api/vehicles"] = [{ ...vehicle, bossConfirmed: false }];
+        await page.reload();
+        await page.getByRole("button", { name: "Request listing approval", exact: true }).filter({ visible: true }).first().click();
+        await page.getByRole("button", { name: "Request approval", exact: true }).waitFor();
+        await inspect("vehicle-listing-approval-confirmation", width);
+        await page.locator(".ant-modal-confirm").getByRole("button", { name: "Cancel", exact: true }).click();
+        await inspect("vehicle-listing-approval-action", width);
+        fixtures["/api/auth/me"] = { ...fixtures["/api/auth/me"], roles: ["BossAdmin"] };
+        fixtures["/api/vehicles"] = [vehicle];
       }
   }
 } catch (error) {

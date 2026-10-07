@@ -7318,3 +7318,100 @@ body {
     margin-inline-start: auto;
   }
 }
+.staffWhatsAppSettings {
+  min-width: 0;
+}
+
+.staffWhatsAppSectionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.staffWhatsAppSectionHead .ant-typography {
+  margin-top: 0;
+}
+
+.staffWhatsAppPolicyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+}
+
+.staffWhatsAppFilters {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.5fr) repeat(3, minmax(145px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.staffWhatsAppFilters > * {
+  width: 100%;
+  min-width: 0;
+}
+
+.staffWhatsAppHistoryCards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.staffWhatsAppHistoryCards .ant-card-head-wrapper {
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.staffWhatsAppHistoryCards .ant-card-head-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.staffWhatsAppHistoryCards .ant-card-extra {
+  flex-shrink: 0;
+}
+
+.staffWhatsAppAction {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.staffWhatsAppAction .ant-btn {
+  min-height: 44px;
+}
+
+.staffWhatsAppPager {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.staffWhatsAppSubmittedBody {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 980px) {
+  .staffWhatsAppFilters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .staffWhatsAppSectionHead {
+    flex-direction: column;
+  }
+
+  .staffWhatsAppFilters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .staffWhatsAppFilters .ant-picker {
+    width: 100%;
+  }
+}

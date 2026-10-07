@@ -62,11 +62,11 @@ public static class WhatsAppOutboxStore
         else db.Entry(prior).CurrentValues.SetValues(next);
         if (!optedIn)
         {
-            var pending = await db.WhatsAppOutbox.Where(item => item.Recipient == recipient && (item.State == "Queued" || item.State == "RetryScheduled" || item.State == "HeldForApproval"))
+            var pending = await db.WhatsAppOutbox.Where(item => item.Audience == "Customer" && item.Recipient == recipient && (item.State == "Queued" || item.State == "RetryScheduled" || item.State == "HeldForApproval"))
                 .Select(item => item.Id).ToListAsync(ct);
             foreach (var id in pending)
             {
-                var changed = await db.WhatsAppOutbox.Where(item => item.Id == id && (item.State == "Queued" || item.State == "RetryScheduled" || item.State == "HeldForApproval"))
+                var changed = await db.WhatsAppOutbox.Where(item => item.Id == id && item.Audience == "Customer" && (item.State == "Queued" || item.State == "RetryScheduled" || item.State == "HeldForApproval"))
                     .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, "Suppressed"), ct);
                 if (changed > 0) Audit(db, id, "Suppressed", actor: actor);
             }
@@ -180,7 +180,7 @@ public static class WhatsAppOutboxStore
         return changed > 0;
     }
 
-    public static async Task ApplyStatusAsync(AppDbContext db, string recipient, WhatsAppProbeStatus status, CancellationToken ct = default, string actor = "whatsapp-test")
+    public static async Task ApplyStatusAsync(AppDbContext db, string recipient, WhatsAppProbeStatus status, CancellationToken ct = default, string actor = "whatsapp-test", long? at = null)
     {
         while (true)
         {
@@ -188,11 +188,25 @@ public static class WhatsAppOutboxStore
             if (row is null) return;
             var merged = WhatsAppWebhookProbe.MergeStatus(row.State.ToLowerInvariant(), status.Status);
             var next = merged switch { "sent" => "Sent", "delivered" => "Delivered", "read" => "Read", "failed" => "Failed", _ => row.State };
-            if (next == row.State) return;
+            var missingTimestamp = status.Status switch
+            {
+                "sent" => row.SentAt is null,
+                "delivered" => row.DeliveredAt is null,
+                "read" => row.ReadAt is null,
+                "failed" => row.FailedAt is null,
+                _ => false
+            };
+            if (next == row.State && !missingTimestamp) return;
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var when = at ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var changed = await db.WhatsAppOutbox.Where(item => item.Id == row.Id && item.State == row.State)
-                .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, next), ct);
-            if (changed > 0) { Audit(db, row.Id, next, actor: actor); await db.SaveChangesAsync(ct); }
+                .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, next)
+                    .SetProperty(item => item.SentAt, item => status.Status == "sent" && item.SentAt == null ? when : item.SentAt)
+                    .SetProperty(item => item.DeliveredAt, item => status.Status == "delivered" && item.DeliveredAt == null ? when : item.DeliveredAt)
+                    .SetProperty(item => item.ReadAt, item => status.Status == "read" && item.ReadAt == null ? when : item.ReadAt)
+                    .SetProperty(item => item.FailedAt, item => status.Status == "failed" && item.FailedAt == null ? when : item.FailedAt)
+                    .SetProperty(item => item.FailureReason, item => status.Status == "failed" ? "Provider reported failure" : item.FailureReason), ct);
+            if (changed > 0) { if (next != row.State) Audit(db, row.Id, next, actor: actor); await db.SaveChangesAsync(ct); }
             await transaction.CommitAsync(ct);
             if (changed > 0) return;
             // A competing callback won. Re-read and merge so a later Read cannot be lost to Delivered.

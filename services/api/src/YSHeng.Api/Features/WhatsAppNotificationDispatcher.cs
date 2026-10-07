@@ -6,14 +6,24 @@ namespace YSHeng.Api.Features;
 
 public static class WhatsAppNotificationDispatcher
 {
-    public static bool Supported(WhatsAppOutbox item) => (item.EventKind, item.TemplateVersion) is
-        ("enquiry.created", "enquiry_ack_v1") or ("loan.status_changed", "business_update_v1") or ("receipt.issued", "receipt_ready_v1");
+    public static bool Supported(WhatsAppOutbox item) => item.Audience == "Enrollment"
+        ? item.EventKind == WhatsAppStaffInvitation.EventKind && item.TemplateVersion == WhatsAppStaffInvitation.TemplateKey &&
+          item.MessageKind == "StaffInvitation" && item.StaffBindingId is null && item.StaffUserId is not null &&
+          item.TemplateReference == WhatsAppStaffInvitation.ReferenceFor(item.Language)
+        : item.Audience == "Staff"
+        ? item.EventKind == "staff.notification" && item.TemplateVersion == "staff_notice_v1" &&
+          WhatsAppStaffNotifications.Categories.Contains(item.MessageKind)
+        : item.Audience == "Customer" && (item.EventKind, item.TemplateVersion) is
+          ("enquiry.created", "enquiry_ack_v1") or ("loan.status_changed", "business_update_v1") or ("receipt.issued", "receipt_ready_v1");
 
     public static async Task<bool> DispatchOneAsync(AppDbContext db, WhatsAppDispatchOptions options,
-        Func<WhatsAppOutbox, CancellationToken, Task<WhatsAppSendResult>> send, long now, CancellationToken ct = default)
+        Func<WhatsAppOutbox, CancellationToken, Task<WhatsAppSendResult>> send, long now, CancellationToken ct = default,
+        WhatsAppAssistantOptions? assistant = null,
+        Func<AppDbContext, WhatsAppOutbox, CancellationToken, Task<bool>>? currentStaffFacts = null,
+        Func<AppDbContext, WhatsAppOutbox, long, CancellationToken, Task<WhatsAppOutbox?>>? refreshStaff = null)
     {
         // This gate precedes any database access, including on installations without WhatsApp tables.
-        if (!options.Ready) return false;
+        if (!options.Ready && !options.StaffReady && !options.InvitationReady) return false;
         WhatsAppOutbox? candidate;
         var attempt = 0;
         await using (var claim = await db.Database.BeginTransactionAsync(ct))
@@ -34,6 +44,8 @@ public static class WhatsAppNotificationDispatcher
             var ms = options.Templates.Where(template => template.Language == "ms").Select(template => template.Key).ToArray();
             var en = options.Templates.Where(template => template.Language == "en_US").Select(template => template.Key).ToArray();
             candidate = await db.WhatsAppOutbox.AsNoTracking().Where(row => row.EventKind != "test" && row.ProviderMessageId == null &&
+                ((row.Audience == "Customer" && options.Ready) || (row.Audience == "Staff" && options.StaffReady) ||
+                 (row.Audience == "Enrollment" && options.InvitationReady)) &&
                 (row.State == "HeldForApproval" || row.State == "Queued" || row.State == "RetryScheduled") && row.TemplateReference != "" && row.NextAttemptAt <= now &&
                 ((row.Language == "ms" && ms.Contains(row.TemplateVersion)) || (row.Language == "en_US" && en.Contains(row.TemplateVersion))))
                 .OrderBy(row => row.CreatedAt).ThenBy(row => row.Id).FirstOrDefaultAsync(ct);
@@ -44,11 +56,16 @@ public static class WhatsAppNotificationDispatcher
                 return false;
             }
             if (!Supported(candidate) || candidate.ExpiresAt <= now || candidate.Attempts >= 3 ||
-                !Guid.TryParseExact(candidate.BusinessReference, "D", out _) ||
+                (candidate.Audience == "Customer" && (!Guid.TryParseExact(candidate.BusinessReference, "D", out _) ||
                 !await db.WhatsAppConsents.AnyAsync(row => row.Recipient == candidate.Recipient && row.OptedIn && row.Language == candidate.Language, ct) ||
-                !await ReceiptEligibleAsync(db, candidate, ct))
+                !await ReceiptEligibleAsync(db, candidate, ct))) ||
+                (candidate.Audience == "Staff" && await StaffEligibleAsync(db, candidate, options, assistant, now, ct,
+                    currentStaffFacts, refreshStaff) is null) ||
+                (candidate.Audience == "Enrollment" && (assistant is null ||
+                    !await WhatsAppStaffInvitation.EligibleAsync(db, candidate, assistant, options, now, ct))))
             {
-                await db.WhatsAppOutbox.Where(row => row.Id == candidate.Id).ExecuteUpdateAsync(set => set.SetProperty(row => row.State, "Suppressed"), ct);
+                await db.WhatsAppOutbox.Where(row => row.Id == candidate.Id).ExecuteUpdateAsync(set => set.SetProperty(row => row.State, "Suppressed")
+                    .SetProperty(row => row.SuppressedAt, now).SetProperty(row => row.FailureReason, "Eligibility changed or notification expired"), ct);
                 Audit(db, candidate.Id, "Suppressed");
                 await db.SaveChangesAsync(ct);
                 await claim.CommitAsync(ct);
@@ -90,15 +107,36 @@ public static class WhatsAppNotificationDispatcher
         // Serialize the final consent decision with withdrawal, separately from the business transaction.
         // This per-recipient lock lasts at most the bounded provider request, never the global budget lock.
         await using var submission = await db.Database.BeginTransactionAsync(ct);
-        var consented = await db.WhatsAppConsents.Where(row => row.Recipient == candidate.Recipient && row.OptedIn && row.Language == candidate.Language)
-            .ExecuteUpdateAsync(set => set.SetProperty(row => row.UpdatedAt, row => row.UpdatedAt), ct);
+        var consented = candidate.Audience == "Customer" && await db.WhatsAppConsents
+            .Where(row => row.Recipient == candidate.Recipient && row.OptedIn && row.Language == candidate.Language)
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.UpdatedAt, row => row.UpdatedAt), ct) > 0;
+        var refreshed = candidate.Audience == "Staff" ? await StaffEligibleAsync(db, candidate, options, assistant, now, ct,
+            currentStaffFacts, refreshStaff, lockBinding: true) : null;
+        var staffEligible = refreshed is not null;
+        if (refreshed is not null) candidate = refreshed;
+        var invitationEligible = candidate.Audience == "Enrollment" && assistant is not null &&
+            await WhatsAppStaffInvitation.EligibleAsync(db, candidate, assistant, options, now, ct, lockChallenge: true);
         var owned = await db.WhatsAppOutbox.AnyAsync(row => row.Id == candidate.Id && row.Attempts == attempt && row.State == "Sending", ct);
-        var eligible = consented > 0 && owned && candidate.ExpiresAt > now && await ReceiptEligibleAsync(db, candidate, ct, lockReceipt: true);
+        var eligible = (consented || staffEligible || invitationEligible) && owned && candidate.ExpiresAt > now &&
+            (candidate.Audience != "Customer" || await ReceiptEligibleAsync(db, candidate, ct, lockReceipt: true));
         WhatsAppSendResult result;
         if (!eligible) result = new("Suppressed");
         else
         {
-            try { result = await send(candidate, ct); }
+            try
+            {
+                if (candidate.Audience is "Staff" or "Enrollment")
+                {
+                    var approvedTemplate = options.TemplateFor(candidate)!;
+                    await db.WhatsAppOutbox.Where(row => row.Id == candidate.Id && row.State == "Sending")
+                        .ExecuteUpdateAsync(set => set.SetProperty(row => row.TemplateReference, candidate.TemplateReference)
+                            .SetProperty(row => row.Body, candidate.Body)
+                            .SetProperty(row => row.SubmittedBody, candidate.TemplateReference)
+                            .SetProperty(row => row.SubmittedTemplateName, approvedTemplate.Name)
+                            .SetProperty(row => row.SubmittedLanguage, approvedTemplate.Language), ct);
+                }
+                result = await send(candidate, ct);
+            }
             catch (Exception) { result = new("UnknownOutcome"); }
         }
         var state = result.Outcome switch
@@ -114,7 +152,12 @@ public static class WhatsAppNotificationDispatcher
         var changed = await db.WhatsAppOutbox.Where(row => row.Id == candidate.Id && row.Attempts == attempt &&
             (row.State == "Sending" || row.State == "UnknownOutcome"))
             .ExecuteUpdateAsync(set => set.SetProperty(row => row.State, state).SetProperty(row => row.ProviderMessageId, providerId)
-                .SetProperty(row => row.NextAttemptAt, now + (attempt == 1 ? 30 : 120)), CancellationToken.None);
+                .SetProperty(row => row.NextAttemptAt, now + (attempt == 1 ? 30 : 120))
+                .SetProperty(row => row.AcceptedAt, state == "Accepted" ? now : (long?)null)
+                .SetProperty(row => row.SuppressedAt, state == "Suppressed" ? now : (long?)null)
+                .SetProperty(row => row.FailedAt, state == "DeadLetter" ? now : (long?)null)
+                .SetProperty(row => row.FailureReason, state == "DeadLetter" ? "Provider rejected message" :
+                    state == "Suppressed" ? "Eligibility or template unavailable" : null), CancellationToken.None);
         if (changed > 0) Audit(db, candidate.Id, state);
         await db.SaveChangesAsync(CancellationToken.None);
         await submission.CommitAsync(CancellationToken.None);
@@ -125,6 +168,28 @@ public static class WhatsAppNotificationDispatcher
         INSERT INTO "WhatsAppDispatchUsage" ("Period", "Attempts", "ReservedCostSen")
         VALUES ({period}, 0, 0) ON CONFLICT ("Period") DO NOTHING;
         """, ct);
+
+    private static async Task<WhatsAppOutbox?> StaffEligibleAsync(AppDbContext db, WhatsAppOutbox item,
+        WhatsAppDispatchOptions options, WhatsAppAssistantOptions? assistant, long now, CancellationToken ct,
+        Func<AppDbContext, WhatsAppOutbox, CancellationToken, Task<bool>>? currentStaffFacts,
+        Func<AppDbContext, WhatsAppOutbox, long, CancellationToken, Task<WhatsAppOutbox?>>? refreshStaff,
+        bool lockBinding = false)
+    {
+        if (assistant is null || item.StaffBindingId is null || item.StaffUserId is null ||
+            item.MessageKind.Length == 0) return null;
+        if (lockBinding && await db.WhatsAppStaffBindings.Where(row => row.Id == item.StaffBindingId && row.RevokedAt == null)
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.VerifiedAt, row => row.VerifiedAt), ct) == 0) return null;
+        var resolved = await WhatsAppStaffBindings.ResolveAsync(db, assistant, item.StaffBindingId.Value, now, ct);
+        var allowed = resolved is not null && resolved.Value.Binding.PhoneNumberId == options.PhoneNumberId &&
+            resolved.Value.Binding.StaffUserId == item.StaffUserId &&
+            resolved.Value.Binding.Recipient == item.Recipient && resolved.Value.Binding.Language == item.Language &&
+            WhatsAppStaffNotifications.RoleAllowed(item.MessageKind, [item.RequiredStaffRole]) &&
+            resolved.Value.Roles.Contains(item.RequiredStaffRole) &&
+            await db.WhatsAppStaffNotificationPolicies.AnyAsync(row => row.Category == item.MessageKind && row.Enabled, ct);
+        if (!allowed) return null;
+        if (refreshStaff is not null) return await refreshStaff(db, item, now, ct);
+        return currentStaffFacts is not null && await currentStaffFacts(db, item, ct) ? item : null;
+    }
 
     private static async Task<bool> ReceiptEligibleAsync(AppDbContext db, WhatsAppOutbox item, CancellationToken ct, bool lockReceipt = false)
     {
@@ -141,6 +206,7 @@ public static class WhatsAppNotificationDispatcher
 }
 
 public sealed class WhatsAppNotificationWorker(IServiceScopeFactory scopes, WhatsAppDispatchOptions options,
+    WhatsAppAssistantOptions assistant,
     WhatsAppTemplateSender sender, ILogger<WhatsAppNotificationWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -153,7 +219,8 @@ public sealed class WhatsAppNotificationWorker(IServiceScopeFactory scopes, What
                 await using var scope = scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
-                    (item, ct) => sender.SendAsync(options, item, ct), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken);
+                    (item, ct) => sender.SendAsync(options, item, ct), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken,
+                    assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception)

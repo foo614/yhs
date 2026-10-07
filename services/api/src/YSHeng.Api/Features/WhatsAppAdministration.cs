@@ -21,7 +21,7 @@ public static class WhatsAppAdministration
     {
         testRecipient = ConfiguredTestRecipient(testRecipient);
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var query = db.WhatsAppOutbox.AsNoTracking();
+        var query = db.WhatsAppOutbox.AsNoTracking().Where(row => row.Audience == "Customer");
         if (!string.IsNullOrWhiteSpace(state)) query = query.Where(row => row.State == state);
         var rows = await query.OrderByDescending(row => row.CreatedAt).ThenBy(row => row.Id)
             .Skip((Math.Clamp(page, 1, 10000) - 1) * 25).Take(25)
@@ -41,10 +41,10 @@ public static class WhatsAppAdministration
     public static async Task<bool> RetryBusinessAsync(AppDbContext db, Guid id, WhatsAppDispatchOptions options, string actor, long now, CancellationToken ct = default)
     {
         if (!options.Ready) return false;
-        var item = await db.WhatsAppOutbox.AsNoTracking().SingleOrDefaultAsync(row => row.Id == id, ct);
+        var item = await db.WhatsAppOutbox.AsNoTracking().SingleOrDefaultAsync(row => row.Id == id && row.Audience == "Customer", ct);
         if (item is null || !CanRetryBusiness(item, options)) return false;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var changed = await db.WhatsAppOutbox.Where(row => row.Id == id && row.State == "DeadLetter" && row.Attempts == item.Attempts &&
+        var changed = await db.WhatsAppOutbox.Where(row => row.Id == id && row.Audience == "Customer" && row.State == "DeadLetter" && row.Attempts == item.Attempts &&
             row.ProviderMessageId == null && row.ExpiresAt > now && db.WhatsAppConsents.Any(consent =>
                 consent.Recipient == row.Recipient && consent.OptedIn && consent.Language == row.Language))
             .ExecuteUpdateAsync(set => set.SetProperty(row => row.State, "Queued").SetProperty(row => row.NextAttemptAt, now), ct);
@@ -60,7 +60,7 @@ public static class WhatsAppAdministration
     public static async Task<bool> SuppressAsync(AppDbContext db, Guid id, string actor, CancellationToken ct = default)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var count = await db.WhatsAppOutbox.Where(row => row.Id == id && (row.State == "Queued" || row.State == "RetryScheduled" || row.State == "HeldForApproval"))
+        var count = await db.WhatsAppOutbox.Where(row => row.Id == id && row.Audience == "Customer" && (row.State == "Queued" || row.State == "RetryScheduled" || row.State == "HeldForApproval"))
             .ExecuteUpdateAsync(set => set.SetProperty(row => row.State, "Suppressed"), ct);
         if (count > 0)
         {
