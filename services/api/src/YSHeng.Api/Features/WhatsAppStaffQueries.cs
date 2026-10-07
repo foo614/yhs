@@ -18,9 +18,16 @@ public static class WhatsAppStaffQueries
         var name = parts[0].ToLowerInvariant();
         var argument = parts.Length == 2 ? parts[1].Trim() : "";
         if (name is "help" or "menu" or "test" or "stop" or "berhenti")
-            return argument.Length == 0 ? new(name is "menu" or "help" ? "help" : name == "berhenti" ? "stop" : name) : null;
+            return argument.Length == 0 ? new(name == "berhenti" ? "stop" : name) : null;
         if (name == "link") return Regex.IsMatch(argument, @"\A[A-Fa-f0-9]{32}\z") ? new(name, argument.ToUpperInvariant()) : null;
         if (name == "language") return argument.ToLowerInvariant() switch { "en" => new(name, "en_US"), "ms" => new(name, "ms"), _ => null };
+        if (name == "due")
+        {
+            if (argument.Length == 0) return new(name, "1");
+            var match = Regex.Match(argument, @"\Apage ([1-9][0-9]{0,8})\z", RegexOptions.IgnoreCase);
+            return match.Success && int.TryParse(match.Groups[1].Value, out var page) && page <= int.MaxValue / WhatsAppDueDigest.PageSize
+                ? new(name, page.ToString(CultureInfo.InvariantCulture)) : null;
+        }
         if (name == "stock") return WhatsAppStaffSalesQueries.TryParseStock(argument, out var stock) ? new(name, stock.CommandArgument) : null;
         if (name == "deliveries") return WhatsAppStaffSalesQueries.TryParseDeliveries(argument, out var deliveries) ? new(name, deliveries.CommandArgument) : null;
         if (name is "vehicle" or "share" or "loan" or "delivery" or "collections" or "settlement")
@@ -41,7 +48,12 @@ public static class WhatsAppStaffQueries
         {
             "collections" or "settlement" => roles.Contains("Finance") || roles.Contains("BossAdmin"),
             "profit" or "dashboard" => roles.Contains("BossAdmin"),
-            _ => true
+            "due" => roles.Contains("BossAdmin") || roles.Contains("Sales"),
+            "service" => WhatsAppStaffCommandHelp.Services.Any(item => item.Name == intent.Argument &&
+                Permitted(new(item.Name), roles)),
+            "stock" or "vehicle" or "share" or "loan" or "delivery" or "deliveries" or
+                "help" or "menu" or "linked" or "test" or "language" or "usage" => true,
+            _ => false
         });
 
     public static string Text(string language, string english, string malay) => language == "ms" ? malay : english;
@@ -58,14 +70,37 @@ public static class WhatsAppStaffQueries
     } : Regex.Replace(value, "([a-z])([A-Z])", "$1 $2");
 
     public static async Task<string> ReplyAsync(AppDbContext db, WhatsAppStaffIntent intent, string language, long now,
-        CancellationToken ct = default, string? publicSiteUrl = null, IReadOnlyCollection<string>? roles = null)
+        CancellationToken ct = default, string? publicSiteUrl = null, IReadOnlyCollection<string>? roles = null,
+        string? staffUserId = null)
     {
         var bm = language == "ms";
         var culture = CultureInfo.GetCultureInfo(bm ? "ms-MY" : "en-MY");
-        if (intent.Name == "linked") return Text(language, "WhatsApp connected. Send help to see available commands.", "WhatsApp disambungkan. Hantar help untuk melihat arahan yang tersedia.");
+        if (intent.Name == "linked") return Text(language, "WhatsApp connected.\n\n", "WhatsApp disambungkan.\n\n") + Help(language, roles ?? []);
         if (intent.Name == "test") return Text(language, "YS Heng staff connection is working.", "Sambungan kakitangan YS Heng berfungsi.");
         if (intent.Name == "language") return Text(language, "Assistant language set to English.", "Bahasa pembantu ditetapkan kepada Bahasa Malaysia.");
-        if (intent.Name == "help") return Help(language, roles ?? []);
+        if (intent.Name is "help" or "menu") return Help(language, roles ?? []);
+        if (intent.Name == "service") return WhatsAppStaffCommandHelp.ServiceGuide(intent.Argument, language, roles ?? []);
+        if (intent.Name == "due")
+        {
+            var role = roles?.Contains("BossAdmin") == true ? "BossAdmin" : roles?.Contains("Sales") == true ? "Sales" : null;
+            if (role is null || string.IsNullOrWhiteSpace(staffUserId) ||
+                !int.TryParse(intent.Argument, NumberStyles.None, CultureInfo.InvariantCulture, out var page) ||
+                page < 1 || page > int.MaxValue / WhatsAppDueDigest.PageSize)
+                return Text(language, "Your role cannot access this query.", "Peranan anda tidak dibenarkan mengakses pertanyaan ini.");
+            try
+            {
+                var today = WhatsAppStaffNotifications.LocalDate(now);
+                var policy = await db.WhatsAppStaffNotificationPolicies.AsNoTracking()
+                    .SingleOrDefaultAsync(item => item.Category == "OutstandingDigest", ct);
+                var leadDays = policy?.LeadDays is >= 1 and <= 30 ? policy.LeadDays : 3;
+                var sources = await WhatsAppDueDigest.LoadAsync(db, today, leadDays, ct);
+                var snapshot = WhatsAppDueDigest.Project(sources, today, leadDays, staffUserId, role, language: language);
+                return WhatsAppDueDigest.FormatPage(snapshot, today, page, language);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception) { return Text(language, "Due items are temporarily unavailable. Try again later.",
+                "Urusan tertunggak tidak tersedia buat sementara waktu. Cuba lagi kemudian."); }
+        }
         if (intent.Name is "collections" or "settlement" or "profit" or "dashboard")
         {
             try { return await WhatsAppStaffFinanceQueries.ReplyAsync(db, intent, roles ?? [], language, now, ct); }
@@ -161,20 +196,8 @@ public static class WhatsAppStaffQueries
         return Text(language, "Unsupported query. Send help.", "Pertanyaan tidak disokong. Hantar help.");
     }
 
-    public static string Help(string language, IReadOnlyCollection<string> roles)
-    {
-        var finance = roles.Contains("Finance") || roles.Contains("BossAdmin")
-            ? Text(language, "\ncollections <plate> - Current customer collections\nsettlement <plate> - Seller settlement", "\ncollections <plat> - Kutipan pelanggan semasa\nsettlement <plat> - Penyelesaian penjual")
-            : "";
-        var boss = roles.Contains("BossAdmin")
-            ? Text(language, "\nprofit [period] - Sold-vehicle margin\ndashboard [period] - Margin and current balances\nPeriods: today, month, pastmonth, YYYY-MM, or YYYY-MM-DD YYYY-MM-DD", "\nprofit [tempoh] - Margin kenderaan dijual\ndashboard [tempoh] - Margin dan baki semasa\nTempoh: today, month, pastmonth, YYYY-MM, atau YYYY-MM-DD YYYY-MM-DD")
-            : "";
-        return Text(language,
-            "YS Heng staff commands\nhelp / menu - Show this menu\nstock [words] [under 50000] [page N] - Public stock\nvehicle <plate> - Status, asking price and stock location\nshare <plate> - Share-safe vehicle details\nloan <plate> - Loan progress and next action\ndelivery <plate> - Delivery readiness and next action\ndeliveries today / tomorrow / next 7 [page N] - Upcoming handovers\nlanguage en / language ms - Change language\ntest - Check connection\nstop - Disconnect WhatsApp",
-            "Arahan kakitangan YS Heng\nhelp / menu - Paparkan menu\nstock [kata carian] [under 50000] [page N] - Stok awam\nvehicle <plat> - Status, harga jualan dan lokasi stok\nshare <plat> - Butiran kenderaan selamat untuk dikongsi\nloan <plat> - Kemajuan pinjaman dan tindakan seterusnya\ndelivery <plat> - Persediaan penyerahan dan tindakan seterusnya\ndeliveries today / tomorrow / next 7 [page N] - Jadual penyerahan\nlanguage en / language ms - Tukar bahasa\ntest - Semak sambungan\nstop - Putuskan sambungan WhatsApp") + finance + boss + Text(language,
-            "\n\nExamples: stock Toyota Vios under 50000 page 1; share ABC1234; deliveries tomorrow page 1\nQueries are read-only.",
-            "\n\nContoh: stock Toyota Vios under 50000 page 1; share ABC1234; deliveries tomorrow page 1\nPertanyaan baca sahaja.");
-    }
+    public static string Help(string language, IReadOnlyCollection<string> roles) =>
+        WhatsAppStaffCommandHelp.Guide(language, roles);
 
     private static string StockLabel(WhatsAppVehicleSummary vehicle, string language) =>
         $"{Clean(vehicle.Plate)} | {vehicle.Year} {Clean(vehicle.Make)} {Clean(vehicle.Model)} | " +

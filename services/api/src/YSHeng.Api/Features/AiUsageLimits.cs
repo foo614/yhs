@@ -38,7 +38,8 @@ public static class AiUsageLimitRules
     }
 }
 
-public sealed class AiUsageQuotaService(AppDbContext db)
+public sealed class AiUsageQuotaService(AppDbContext db, IServiceScopeFactory scopes,
+    WhatsAppAssistantOptions assistant, ILogger<AiUsageQuotaService> logger)
 {
     public async Task<AiUsageLimitSnapshot> GetOcrSnapshotAsync(CancellationToken cancellationToken = default)
     {
@@ -67,6 +68,9 @@ public sealed class AiUsageQuotaService(AppDbContext db)
         };
         db.Entry(limit).CurrentValues.SetValues(updated);
         await db.SaveChangesAsync(cancellationToken);
+        // This runs after the Admin setting is committed; notification failure must not undo it.
+        await WhatsAppOcrUsageRecovery.TryEvaluateAsync(scopes, assistant, logger, CancellationToken.None,
+            TimeSpan.FromSeconds(2));
         return updated;
     }
 
@@ -117,6 +121,10 @@ public sealed class AiUsageQuotaService(AppDbContext db)
                 db.AiUsageRecords.Add(usage);
                 await db.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
+                // The quota reservation is the consumed unit, including later OCR failures.
+                // Use a separate context after commit; WhatsApp must never break OCR admission.
+                await WhatsAppOcrUsageRecovery.TryEvaluateAsync(scopes, assistant, logger, CancellationToken.None,
+                    TimeSpan.FromSeconds(2));
                 return new AiUsageReservation(true, null, usage.Id);
             }
             catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure })

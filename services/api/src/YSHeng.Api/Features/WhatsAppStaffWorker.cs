@@ -16,9 +16,51 @@ public sealed class WhatsAppStaffSender : IDisposable
     {
         if (!options.Allows(recipient)) return new("Disabled");
         if (string.IsNullOrWhiteSpace(reply) || reply.Length > 3500) return new("InvalidReply");
+        return await SendPayloadAsync(options, recipient,
+            new { messaging_product = "whatsapp", to = recipient, type = "text", text = new { body = reply, preview_url = false } }, ct);
+    }
+
+    public async Task<WhatsAppSendResult> SendAsync(WhatsAppAssistantOptions options, string recipient, WhatsAppStaffOutbound outbound, CancellationToken ct)
+    {
+        if (outbound.Services is null || outbound.Services.Count == 0)
+            return await SendAsync(options, recipient, outbound.Text, ct);
+        if (!options.Allows(recipient)) return new("Disabled");
+        if (outbound.Services.Count > 10 || outbound.Services.Any(service => service.Name.Length > 24 ||
+            (outbound.Language == "ms" ? service.MalayPurpose : service.Purpose).Length > 72))
+            return new("InvalidReply");
+        var bm = outbound.Language == "ms";
+        var sections = outbound.Services.GroupBy(service => service.Group).Select(group => new
+        {
+            title = bm ? group.First().MalayGroup : group.Key,
+            rows = group.Select(service => new
+            {
+                id = WhatsAppStaffCommandHelp.SelectionPrefix + service.Name,
+                title = service.Name,
+                description = bm ? service.MalayPurpose : service.Purpose
+            }).ToArray()
+        }).ToArray();
+        var payload = new
+        {
+            messaging_product = "whatsapp", to = recipient, type = "interactive",
+            interactive = new
+            {
+                type = "list",
+                body = new { text = bm ? $"Pilih daripada {outbound.Services.Count} pertanyaan tersedia. Hantar help untuk panduan penuh." :
+                    $"Choose from {outbound.Services.Count} available enquiries. Send help for the full guide." },
+                action = new { button = bm ? "Lihat perkhidmatan" : "View services", sections }
+            }
+        };
+        var result = await SendPayloadAsync(options, recipient, payload, ct);
+        // A definite invalid-menu response can safely fall back to the complete text guide.
+        return result.Outcome == "ProviderRejected" && result.HttpStatusCode == 400
+            ? await SendAsync(options, recipient, outbound.Text, ct) : result;
+    }
+
+    private async Task<WhatsAppSendResult> SendPayloadAsync(WhatsAppAssistantOptions options, string recipient, object payload, CancellationToken ct)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"https://graph.facebook.com/{options.GraphApiVersion}/{options.PhoneNumberId}/messages");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.AccessToken);
-        request.Content = JsonContent.Create(new { messaging_product = "whatsapp", to = recipient, type = "text", text = new { body = reply, preview_url = false } });
+        request.Content = JsonContent.Create(payload);
         try
         {
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -57,7 +99,7 @@ public sealed class WhatsAppStaffWorker(IServiceScopeFactory scopes, WhatsAppAss
             {
                 using var scope = scopes.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                await WhatsAppStaffQueue.DispatchOneAsync(db, options, (recipient, reply, ct) => sender.SendAsync(options, recipient, reply, ct), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken);
+                await WhatsAppStaffQueue.DispatchOneRichAsync(db, options, (recipient, outbound, ct) => sender.SendAsync(options, recipient, outbound, ct), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception exception)

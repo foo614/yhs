@@ -39,6 +39,7 @@ import {
   humanizeApiError,
   previewOwnerIdentityCard,
   reorderVehiclePhotos,
+  requestVehiclePublicationApproval,
   vehicleDocumentContentUrl,
   vehicleFromIntakeValues,
   vehiclePhotoContentUrl,
@@ -892,7 +893,9 @@ export function VehiclePage({
   onUploadPhoto: (vehicleId: string, file: File) => Promise<void>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, owner?: DocumentUploadOwner) => Promise<void>;
 }) {
+  const [publicationModal, publicationModalContext] = Modal.useModal();
   const [uploadVehicleId, setUploadVehicleId] = useState(vehicles[0]?.id ?? "");
+  const [publicationRequestedIds, setPublicationRequestedIds] = useState<string[]>([]);
   const [documentCategory, setDocumentCategory] = useState<DocumentCategory>("IdentityCard");
   const [documentOwnershipTab, setDocumentOwnershipTab] = useState<DocumentOwnershipType>(() => vehicleDocumentOwnershipSelection());
   const [documentPersonId, setDocumentPersonId] = useState("");
@@ -1425,10 +1428,33 @@ export function VehiclePage({
     });
   };
 
+  const requestPublicationApproval = (vehicle: Vehicle) => {
+    publicationModal.confirm({
+      title: `Request website listing approval for ${vehicle.plateNumber}?`,
+      content: "Boss/Admin will review the vehicle. This request does not approve or publish the listing.",
+      okText: "Request approval",
+      cancelText: "Cancel",
+      onOk: async () => {
+        try {
+          await requestVehiclePublicationApproval(vehicle.id);
+          setPublicationRequestedIds((ids) => [...ids, vehicle.id]);
+          message.success("Listing approval requested. The vehicle remains private until Boss/Admin approves and publishes it.");
+        } catch (error) {
+          message.error(humanizeApiError(error));
+        }
+      }
+    });
+  };
+
   const renderVehicleActions = (vehicle: Vehicle) => (
     <Space className="tableActionGroup vehicleActionGroup" wrap size={6}>
       <Button size="small" type="primary" onClick={() => openVehicleDetails(vehicle.id)}>Details</Button>
       {canApproveVehicles && !vehicle.bossConfirmed ? <Button size="small" onClick={() => void approveVehicle(vehicle)}>Approve / 批准</Button> : null}
+      {!canApproveVehicles && !vehicle.bossConfirmed && vehicle.status === "Available" && !vehicle.isPublic ? (
+        <Button size="small" disabled={publicationRequestedIds.includes(vehicle.id)} onClick={() => requestPublicationApproval(vehicle)}>
+          {publicationRequestedIds.includes(vehicle.id) ? "Approval requested" : "Request listing approval"}
+        </Button>
+      ) : null}
       {renderVehicleNextAction(vehicle)}
     </Space>
   );
@@ -2259,7 +2285,9 @@ export function VehiclePage({
     message.success("New previous owner confirmed. The record will be created with the vehicle.");
   };
   return (
-    <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
+    <>
+      {publicationModalContext}
+      <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
       <ProCard
         title="Vehicle Inventory / 车辆库存"
         extra={<Space><Tag color="green">{vehicles.length} vehicles</Tag><Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateError(null); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
@@ -4233,7 +4261,8 @@ export function VehiclePage({
           </Space>
         ) : null}
       </Modal>
-    </Space>
+      </Space>
+    </>
   );
 }
 

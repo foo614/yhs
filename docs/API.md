@@ -30,8 +30,18 @@ http://localhost:5000
 | `POST` | `/api/whatsapp/assistant/disconnect` | BackOffice + current account/roles | Confirm disconnect for self or, for BossAdmin, selected staff. Revoke binding/pending challenge and suppress queued queries. |
 | `GET` | `/api/whatsapp/assistant/webhook` | Separate verified callback token | Staff assistant challenge, independently disabled by default. |
 | `POST` | `/api/whatsapp/assistant/webhook` | Raw-body HMAC + configured WABA/sender + verified staff | One-time linking, read-only queries, language selection, staff STOP and correlated statuses. Customer consent remains separate. |
+| `GET` | `/api/whatsapp/staff/policies` | BackOffice + BossAdmin | List disabled-by-default staff categories, Singapore local schedule minute, lead days, threshold and separate sender/template/category readiness. |
+| `PUT` | `/api/whatsapp/staff/policies/{category}` | BackOffice + BossAdmin | Audit a validated category setting change. Body: `enabled`, `localMinuteOfDay`, `leadDays`, `thresholdPercent`; recipient role rules are server-owned. |
+| `GET` | `/api/whatsapp/staff/history` | BackOffice + BossAdmin | Paged staff-only delivery history; filters: `from`, `to`, `staffUserId`, `category`, `status`, `page`. |
+| `GET` | `/api/whatsapp/staff/diagnostics` | BackOffice + BossAdmin | No-store counts for missing due dates, unassigned deliveries, undated commissions, eligible/connected staff and unroutable workflow events. |
 
 Capture, callback hosting and sending require separate explicit configuration. Approved customer templates, sender evidence and positive daily/monthly limits are required before the worker starts. Receipt notices send a safe reference only, not a document or public download URL. Legacy drafts without a dedicated template reference stay held. See [dispatch configuration and activation boundary](plans/2026-09-27-foo-40-dispatch.md). No production switch is enabled by deployment.
+
+Staff capture and sending have independent `WhatsApp:StaffCaptureEnabled` and `WhatsApp:StaffSendingEnabled` switches; neither enables customer sending. Staff dispatch also requires a verified active binding, the exact role used to compose the message, an enabled category, an approved `staff_notice_v1` template and a current business-facts validator. Due, OCR, HR and workflow validators are integrated; category settings alone still cannot bypass sender, template or recipient readiness. Enrollment invitations use a separate `Enrollment` outbox audience, enabled only by `WhatsApp:InvitationEnabled` and an approved `staff_invite_v1` template; this does not enable customer or connected-staff notices. The approved invitation has one fixed generic body parameter and no command, hash, link secret, or customer content. Its accepted/sent/delivered/read/failure evidence appears as `StaffInvitation` in BossAdmin message history, separately from reminder settings. Invitation delivery is not verification.
+
+Workflow mutations now capture immutable `WhatsAppWorkflowEvents` source intents in the same database transaction: vehicle intake, explicit listing-approval request (`POST /api/vehicles/{id}/request-publication-approval`), actual delivery release, delivery invoice-update request, and Finance receipt/reference/evidence/reconciliation changes. The approval-request endpoint is available to authenticated `Vehicles` staff only for an available, private, unapproved vehicle; it does not approve or publish it, and repeats conflict while open. Sales receipt intents use the canonical vehicle assignee at capture and suppress after reassignment or role loss; content is fixed EN/BM status wording without amounts, receipt number, buyer or customer details. These source intents are not sent by themselves. FOO-200 connects their outbox staging and current-facts dispatch validation. A listing request may be explicitly renewed after its 24-hour expiry; it is never automatically resent.
+
+The history response is `{ items, page, total }`, with at most 25 items per page. `from` and `to` are inclusive `YYYY-MM-DD` dates in Asia/Singapore; lifecycle timestamps are UTC Unix seconds. Each item includes staff name, masked number, category, state, immutable scheduled time, available acceptance/sent/delivered/read/failure/suppression times, failure reason and `canRetry` (currently false). `submittedBody` is null before an attempted send, then stores the exact text parameter submitted to the approved template alongside `submittedTemplateName` and `submittedLanguage`; it is not regenerated from current facts or a claim about Meta's fixed template wording. Verification commands are excluded from this path. An accepted provider request is `Accepted`; only signed callback evidence advances it to `Sent`, `Delivered` or `Read`. Unknown outcomes remain unretried for reconciliation.
 
 ## Staff WhatsApp sales commands
 
@@ -39,17 +49,20 @@ These commands use the verified staff assistant callback and current account che
 
 | Command | Read-only answer |
 | --- | --- |
-| `help` / `menu` | Command examples and connection controls. |
+| `help` / `menu` | Full grouped text guide / native interactive service list with text-guide fallback if the provider rejects the list. |
 | `stock toyota vios under 50000 page 1` | Public available stock matching every search word, asking price at or below RM50,000, five results per page. Budget and page are optional; unset prices are excluded when a budget is provided. |
 | `vehicle ABC1234` | Internal vehicle status, asking price and stock location. |
 | `share ABC1234` | Customer-safe text for a management-approved, public, available listing; returns to the employee for manual forwarding. |
 | `loan ABC1234` | Current confirmed buyer's loan stage, required document categories and next team action. Historical buyers are excluded and ambiguous applications require Loan-team clarification. |
 | `delivery ABC1234` | Planned/scheduled or actual handover date plus preparation blockers. Preparation completeness is not release authorization. |
 | `deliveries today` / `deliveries tomorrow` / `deliveries next 7 page 2` | Paged scheduled handovers, Malaysia dates and times, excluding preliminary/cancelled/released schedules. |
+| `due page 1` / `due page 2` | Role-scoped current due digest, seven items per page including overdue items. Sales sees only deliveries assigned to their canonical vehicle Sales user; BossAdmin sees the full finance and delivery digest. Each page supplies the next exact command. |
 | `language en` / `language ms` | Saved reply-language preference. |
 | `test` / `stop` | Check staff connection / disconnect it. Reconnection requires a new verified link. |
 
 Pages are explicit and stateless; send the continuation command shown in the reply. Results reflect the current records at each query, so changes to stock or schedules can change later pages.
+
+The guide counts the supported enquiries available to the employee: six for ordinary staff, eight for Finance, and ten for BossAdmin; combined roles do not duplicate them. The list groups Vehicles, Loans and delivery, Finance, and Management within ten service rows. Selecting a row returns syntax and a copyable example, then the employee sends that complete command. Menu IDs are fixed allowlisted names, contain no record data, and are checked against current roles again at dispatch. Unknown IDs receive generic guidance. Utilities (`help`, `menu`, `language`, `test`, `stop`) are separate from enquiry counts. The text-only `due` utility appears only for BossAdmin and Sales, keeping the native list within Meta's ten-row limit. An overflowing daily digest points to `due page 1`, from which every remaining current item is reachable. The verified-link welcome uses the same text catalogue. Both languages retain English command words.
 
 ### Staff WhatsApp finance commands
 
@@ -70,6 +83,7 @@ Only reconciled collections reduce balances. Pending and reversed collections, r
 Ambiguous plate-level finance records return review guidance. Dashboard balances identify validated V2 receivables and seller settlement records; if legacy, mismatched or ambiguous records are excluded, replies label the amounts as partial subtotals with review counts rather than complete balances. Internal offsets never imply a seller cash transfer.
 
 `WhatsAppAssistant:PublicSiteUrl` is an optional HTTPS public website origin used for listing links. Invalid or absent configuration yields no guessed URL. This value is not a webhook or API URL. Existing sender/identity configuration and enable switches remain unchanged.
+`WhatsAppAssistant:BusinessDisplayNumber` is the international digits-only public WhatsApp business number used solely for the portal's prefilled `wa.me` verification link. It is distinct from Meta's numeric `PhoneNumberId`; invalid or absent configuration removes the link and leaves a copy-command fallback. A new challenge is valid for ten minutes and is stored only as a hash. Creating it atomically stages an enrollment invitation when the independently approved invitation sender is ready; otherwise the API returns a conflict without issuing a command. The portal status reports the invitation's provider/callback state separately from `AwaitingVerification` or `Connected` and polls only while the challenge is live.
 
 Bounded invalid text from verified staff receives command guidance at most once per employee per minute, within existing daily quotas. Only an allowlisted command name is retained for recovery; raw unrecognised text is not persisted or echoed. Unbound senders receive no business replies. At the daily quota, further replies remain suppressed.
 

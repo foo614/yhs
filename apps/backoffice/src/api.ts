@@ -788,6 +788,7 @@ export type BrokerCommission = {
   vehicleId: string;
   brokerName: string;
   amount: number;
+  dueDate?: string | null;
   isPaid: boolean;
   cp58Required: boolean;
   cp58Prepared: boolean;
@@ -1395,8 +1396,13 @@ export type StaffWhatsAppConnection = {
   maskedNumber?: string;
   language: "ms" | "en_US";
   verifiedAt?: number;
+  expiresAt?: number;
+  invitationState?: "Queued" | "Sending" | "Accepted" | "Sent" | "Delivered" | "Read" | "RetryScheduled" | "DeadLetter" | "Failed" | "Suppressed" | "UnknownOutcome";
+  businessDisplayNumber?: string;
+  invitationAvailable: boolean;
+  invitationCreatedAt?: number;
 };
-export type StaffWhatsAppLink = { command: string; expiresAt: number };
+export type StaffWhatsAppLink = { command: string; expiresAt: number; invitationState: string; businessDisplayNumber?: string };
 export type StaffWhatsAppConnectInput = { recipient: string; language: "ms" | "en_US"; consentConfirmed: boolean; staffUserId?: string };
 export function getStaffWhatsAppConnection(staffUserId?: string): Promise<StaffWhatsAppConnection> {
   return request<StaffWhatsAppConnection>(staffUserId ? `/api/whatsapp/assistant/connection?staffUserId=${encodeURIComponent(staffUserId)}` : "/api/whatsapp/assistant/connection");
@@ -1406,6 +1412,83 @@ export function connectStaffWhatsApp(input: StaffWhatsAppConnectInput): Promise<
 }
 export function disconnectStaffWhatsApp(staffUserId?: string): Promise<{ message: string }> {
   return request<{ message: string }>("/api/whatsapp/assistant/disconnect", { method: "POST", body: JSON.stringify({ staffUserId }) });
+}
+export function resendStaffWhatsAppInvitation(staffUserId?: string): Promise<{ message: string }> {
+  return request<{ message: string }>("/api/whatsapp/assistant/connection/invitation/resend", {
+    method: "POST", body: JSON.stringify({ staffUserId })
+  });
+}
+
+export type StaffWhatsAppPolicyCategory =
+  "OutstandingDigest" | "AttendanceSummary" | "LeaveApproval" | "OcrUsage" |
+  "VehicleEvent" | "DeliveryEvent" | "FinanceEvent";
+export type StaffWhatsAppHistoryCategory = StaffWhatsAppPolicyCategory | "StaffInvitation";
+export type StaffWhatsAppPolicy = {
+  category: StaffWhatsAppPolicyCategory;
+  enabled: boolean;
+  localMinuteOfDay: number;
+  leadDays: number;
+  thresholdPercent: number;
+  senderReady: boolean;
+  templateReady: boolean;
+  categoryReady: boolean;
+};
+export type StaffWhatsAppPolicyInput = Pick<StaffWhatsAppPolicy,
+  "enabled" | "localMinuteOfDay" | "leadDays" | "thresholdPercent">;
+export type StaffWhatsAppHistoryItem = {
+  id: string;
+  staffUserId: string;
+  staffName: string;
+  maskedNumber: string;
+  category: StaffWhatsAppHistoryCategory;
+  submittedBody: string | null;
+  submittedTemplateName: string | null;
+  submittedLanguage: string | null;
+  state: string;
+  scheduledAt: number | null;
+  acceptedAt: number | null;
+  sentAt: number | null;
+  deliveredAt: number | null;
+  readAt: number | null;
+  failedAt: number | null;
+  suppressedAt: number | null;
+  failureReason: string | null;
+  canRetry: boolean;
+};
+export type StaffWhatsAppHistoryFilters = {
+  from?: string;
+  to?: string;
+  staffUserId?: string;
+  category?: StaffWhatsAppHistoryCategory;
+  status?: string;
+  page?: number;
+};
+export type StaffWhatsAppHistoryPage = { items: StaffWhatsAppHistoryItem[]; page: number; total: number };
+export type StaffWhatsAppDiagnostics = {
+  missingRequiredDate: number;
+  unassignedDelivery: number;
+  missingCommissionDate: number;
+  eligibleStaff: number;
+  connectedStaff: number;
+  unroutableWorkflowEvents: number;
+};
+export function getStaffWhatsAppDiagnostics(): Promise<StaffWhatsAppDiagnostics> {
+  return request<StaffWhatsAppDiagnostics>("/api/whatsapp/staff/diagnostics");
+}
+export function getStaffWhatsAppPolicies(): Promise<StaffWhatsAppPolicy[]> {
+  return request<StaffWhatsAppPolicy[]>("/api/whatsapp/staff/policies");
+}
+export function updateStaffWhatsAppPolicy(category: StaffWhatsAppPolicyCategory, input: StaffWhatsAppPolicyInput): Promise<{ message: string }> {
+  return request<{ message: string }>(`/api/whatsapp/staff/policies/${encodeURIComponent(category)}`, {
+    method: "PUT", body: JSON.stringify(input)
+  });
+}
+export function getStaffWhatsAppHistory(filters: StaffWhatsAppHistoryFilters = {}): Promise<StaffWhatsAppHistoryPage> {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") search.set(key, String(value));
+  }
+  return request<StaffWhatsAppHistoryPage>(`/api/whatsapp/staff/history?${search}`);
 }
 
 export type AiServiceLimit = {
@@ -2072,6 +2155,10 @@ export async function updateVehicle(vehicle: Vehicle): Promise<Vehicle> {
     method: "PUT",
     body: JSON.stringify(vehicle)
   });
+}
+
+export async function requestVehiclePublicationApproval(vehicleId: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/api/vehicles/${vehicleId}/request-publication-approval`, { method: "POST" });
 }
 
 export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string): Vehicle {

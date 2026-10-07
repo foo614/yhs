@@ -64,6 +64,19 @@ $testEnvironment = [ordered]@{
   WHATSAPP_ASSISTANT_VERIFY_TOKEN = "synthetic-verify-token-with-32-characters"
   WHATSAPP_ASSISTANT_PER_STAFF_DAILY_LIMIT = "2"
   WHATSAPP_ASSISTANT_WORKSPACE_DAILY_LIMIT = "5"
+  WHATSAPP_SENDER_APPROVAL_EVIDENCE = "synthetic-sender-approval"
+  WHATSAPP_BUDGET_OWNER = "synthetic-budget-owner"
+  WHATSAPP_DAILY_ATTEMPT_LIMIT = "10"
+  WHATSAPP_MONTHLY_BUDGET_SEN = "1000"
+  WHATSAPP_MAXIMUM_COST_PER_ATTEMPT_SEN = "10"
+  WHATSAPP_INVITE_MS_TEMPLATE_NAME = "synthetic_invite_ms"
+  WHATSAPP_INVITE_MS_TEMPLATE_APPROVAL_EVIDENCE = "synthetic-invite-ms-approval"
+  WHATSAPP_INVITE_EN_TEMPLATE_NAME = "synthetic_invite_en"
+  WHATSAPP_INVITE_EN_TEMPLATE_APPROVAL_EVIDENCE = "synthetic-invite-en-approval"
+  WHATSAPP_NOTICE_MS_TEMPLATE_NAME = "synthetic_notice_ms"
+  WHATSAPP_NOTICE_MS_TEMPLATE_APPROVAL_EVIDENCE = "synthetic-notice-ms-approval"
+  WHATSAPP_NOTICE_EN_TEMPLATE_NAME = "synthetic_notice_en"
+  WHATSAPP_NOTICE_EN_TEMPLATE_APPROVAL_EVIDENCE = "synthetic-notice-en-approval"
   API_IMAGE = "ysheng-api:test"
   WORKER_IMAGE = "ysheng-worker:test"
   FRONTOFFICE_IMAGE = "ysheng-frontoffice:test"
@@ -146,8 +159,36 @@ try {
   Assert-Equal -Name "Staff assistant challenge token" -Actual $compose.services.api.environment.WhatsAppAssistant__VerifyToken -Expected "synthetic-verify-token-with-32-characters"
   Assert-Equal -Name "Staff assistant staff quota" -Actual $compose.services.api.environment.WhatsAppAssistant__PerStaffDailyLimit -Expected "2"
   Assert-Equal -Name "Staff assistant workspace quota" -Actual $compose.services.api.environment.WhatsAppAssistant__WorkspaceDailyLimit -Expected "5"
-  if ($compose.services.worker.environment.PSObject.Properties.Name -match "^WhatsAppAssistant__") {
-    throw "Only the API may receive assistant configuration; the general worker must not send duplicate staff replies."
+  $whatsApp = $compose.services.api.environment
+  foreach ($setting in @("CaptureEnabled", "SendingEnabled", "StaffCaptureEnabled", "StaffSendingEnabled", "InvitationEnabled", "WebhookEnabled", "SenderApproved", "CostCeilingConfirmed")) {
+    Assert-Equal -Name "WhatsApp $setting default-off gate" -Actual $whatsApp."WhatsApp__$setting" -Expected "false"
+  }
+  Assert-Equal -Name "Shared sender" -Actual $whatsApp.WhatsApp__PhoneNumberId -Expected $compose.services.api.environment.WhatsAppAssistant__PhoneNumberId
+  Assert-Equal -Name "Shared business account" -Actual $whatsApp.WhatsApp__BusinessAccountId -Expected $compose.services.api.environment.WhatsAppAssistant__BusinessAccountId
+  Assert-Equal -Name "Shared Graph version" -Actual $whatsApp.WhatsApp__GraphApiVersion -Expected $compose.services.api.environment.WhatsAppAssistant__GraphApiVersion
+  Assert-Equal -Name "Shared access token" -Actual $whatsApp.WhatsApp__AccessToken -Expected $compose.services.api.environment.WhatsAppAssistant__AccessToken
+  Assert-Equal -Name "Shared signature secret" -Actual $whatsApp.WhatsApp__AppSecret -Expected $compose.services.api.environment.WhatsAppAssistant__AppSecret
+  Assert-Equal -Name "Shared challenge token" -Actual $whatsApp.WhatsApp__VerifyToken -Expected $compose.services.api.environment.WhatsAppAssistant__VerifyToken
+  Assert-Equal -Name "Sender approval evidence" -Actual $whatsApp.WhatsApp__SenderApprovalEvidence -Expected "synthetic-sender-approval"
+  Assert-Equal -Name "Budget owner" -Actual $whatsApp.WhatsApp__BudgetOwner -Expected "synthetic-budget-owner"
+  Assert-Equal -Name "Daily attempt limit" -Actual $whatsApp.WhatsApp__DailyAttemptLimit -Expected "10"
+  Assert-Equal -Name "Monthly budget" -Actual $whatsApp.WhatsApp__MonthlyBudgetSen -Expected "1000"
+  Assert-Equal -Name "Maximum cost per attempt" -Actual $whatsApp.WhatsApp__MaximumCostPerAttemptSen -Expected "10"
+  foreach ($template in @(
+    @{ Index = 0; Key = "staff_invite_v1"; Language = "ms"; Name = "synthetic_invite_ms"; Evidence = "synthetic-invite-ms-approval" },
+    @{ Index = 1; Key = "staff_invite_v1"; Language = "en_US"; Name = "synthetic_invite_en"; Evidence = "synthetic-invite-en-approval" },
+    @{ Index = 2; Key = "staff_notice_v1"; Language = "ms"; Name = "synthetic_notice_ms"; Evidence = "synthetic-notice-ms-approval" },
+    @{ Index = 3; Key = "staff_notice_v1"; Language = "en_US"; Name = "synthetic_notice_en"; Evidence = "synthetic-notice-en-approval" }
+  )) {
+    $prefix = "WhatsApp__Templates__$($template.Index)__"
+    Assert-Equal -Name "$prefix key" -Actual $whatsApp."${prefix}Key" -Expected $template.Key
+    Assert-Equal -Name "$prefix language" -Actual $whatsApp."${prefix}Language" -Expected $template.Language
+    Assert-Equal -Name "$prefix name" -Actual $whatsApp."${prefix}Name" -Expected $template.Name
+    Assert-Equal -Name "$prefix approval" -Actual $whatsApp."${prefix}Approved" -Expected "false"
+    Assert-Equal -Name "$prefix evidence" -Actual $whatsApp."${prefix}ApprovalEvidence" -Expected $template.Evidence
+  }
+  if ($compose.services.worker.environment.PSObject.Properties.Name -match "^WhatsApp(Assistant)?__") {
+    throw "Only the API may receive WhatsApp configuration; the general worker must not send duplicate staff replies or alerts."
   }
   Assert-Equal -Name "Worker OTLP service name" -Actual $compose.services.worker.environment.OTEL_SERVICE_NAME -Expected "ysheng-worker"
   Assert-Equal -Name "API OTLP endpoint" -Actual $compose.services.api.environment.OTEL_EXPORTER_OTLP_ENDPOINT -Expected "http://otel-collector:4317"

@@ -23,7 +23,8 @@ public sealed class WhatsAppAssistantOptions
             GraphApiVersion = Value("GraphApiVersion"), AccessToken = Value("AccessToken"), AppSecret = Value("AppSecret"),
             VerifyToken = Value("VerifyToken"), PerStaffDailyLimit = assistant.GetValue("PerStaffDailyLimit", 100),
             WorkspaceDailyLimit = assistant.GetValue("WorkspaceDailyLimit", 1000),
-            PublicSiteUrl = assistant["PublicSiteUrl"] ?? ""
+            PublicSiteUrl = assistant["PublicSiteUrl"] ?? "",
+            BusinessDisplayNumber = assistant["BusinessDisplayNumber"] ?? ""
         };
     }
     public bool Enabled { get; init; }
@@ -39,6 +40,8 @@ public sealed class WhatsAppAssistantOptions
     public int PerStaffDailyLimit { get; init; } = 100;
     public int WorkspaceDailyLimit { get; init; } = 1000;
     public string PublicSiteUrl { get; init; } = "";
+    public string BusinessDisplayNumber { get; init; } = "";
+    public bool HasBusinessDisplayNumber => Regex.IsMatch(BusinessDisplayNumber, @"\A[1-9][0-9]{7,14}\z");
     public bool Ready => Enabled && WebhookEnabled &&
         Regex.IsMatch(PhoneNumberId, @"\A[0-9]{1,32}\z") && Regex.IsMatch(BusinessAccountId, @"\A[0-9]{1,32}\z") &&
         Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z") && AppSecret.Length is >= 32 and <= 256 && VerifyToken.Length is >= 32 and <= 256 &&
@@ -49,9 +52,11 @@ public sealed class WhatsAppAssistantOptions
     public bool Allows(string recipient) => Ready && (!TestMode || recipient == TestRecipient);
 }
 
-public sealed record WhatsAppStaffConnection(bool Enabled, string State, string? MaskedNumber = null, string Language = "ms", long? VerifiedAt = null);
+public sealed record WhatsAppStaffConnection(bool Enabled, string State, string? MaskedNumber = null, string Language = "ms", long? VerifiedAt = null,
+    long? ExpiresAt = null, string? InvitationState = null, string? BusinessDisplayNumber = null, bool InvitationAvailable = false,
+    long? InvitationCreatedAt = null);
 public sealed record WhatsAppStaffLinkRequest(string Recipient, string Language = "ms", bool ConsentConfirmed = false);
-public sealed record WhatsAppStaffLinkResult(string Command, long ExpiresAt);
+public sealed record WhatsAppStaffLinkResult(string Command, long ExpiresAt, string InvitationState, string? BusinessDisplayNumber);
 
 public static class WhatsAppStaffBindings
 {
@@ -82,7 +87,7 @@ public static class WhatsAppStaffBindings
     });
 
     public static async Task<WhatsAppStaffConnection> StatusAsync(AppDbContext db, WhatsAppAssistantOptions options,
-        string userId, long now, CancellationToken ct = default)
+        string userId, long now, CancellationToken ct = default, WhatsAppDispatchOptions? dispatch = null)
     {
         if (!options.Ready) return new(false, "Disabled");
         var binding = await db.WhatsAppStaffBindings.AsNoTracking().SingleOrDefaultAsync(item => item.StaffUserId == userId && item.RevokedAt == null, ct);
@@ -94,16 +99,28 @@ public static class WhatsAppStaffBindings
             return new(true, verified ? "Connected" : "RelinkRequired", Mask(binding.Recipient), binding.Language, binding.VerifiedAt);
         }
         var challenge = await db.WhatsAppStaffChallenges.AsNoTracking().SingleOrDefaultAsync(item => item.StaffUserId == userId, ct);
-        return challenge is { ConsumedAt: null } && challenge.ExpiresAt > now && challenge.FailedAttempts < 5
-            ? new(true, "AwaitingVerification", Mask(challenge.Recipient), challenge.Language) : new(true, "Disconnected");
+        if (challenge is { ConsumedAt: null } && challenge.ExpiresAt > now && challenge.FailedAttempts < 5)
+        {
+            var invite = await db.WhatsAppOutbox.AsNoTracking().Where(item => item.Audience == "Enrollment" &&
+                item.StaffUserId == userId && item.BusinessReference == challenge.CodeHash)
+                .OrderByDescending(item => item.CreatedAt).Select(item => new { item.State, item.CreatedAt }).FirstOrDefaultAsync(ct);
+            return new(true, "AwaitingVerification", Mask(challenge.Recipient), challenge.Language, null,
+                challenge.ExpiresAt, invite?.State, options.HasBusinessDisplayNumber ? options.BusinessDisplayNumber : null,
+                dispatch?.InvitationReady == true, invite?.CreatedAt);
+        }
+        return new(true, "Disconnected", InvitationAvailable: dispatch?.InvitationReady == true);
     }
 
     public static async Task<WhatsAppStaffLinkResult> IssueAsync(AppDbContext db, WhatsAppAssistantOptions options,
-        string userId, WhatsAppStaffLinkRequest request, string actor, long now, CancellationToken ct = default)
+        string userId, WhatsAppStaffLinkRequest request, string actor, long now, CancellationToken ct = default,
+        WhatsAppDispatchOptions? dispatch = null)
     {
         var recipient = WhatsAppOutboxStore.NormalizeRecipient(request.Recipient);
         if (!options.Allows(recipient) || !request.ConsentConfirmed || request.Language is not ("ms" or "en_US"))
             throw new ArgumentException("Confirm consent, a supported language and an eligible phone number.");
+        if (dispatch is not null && !dispatch.Templates.Any(template => template.Key == WhatsAppStaffInvitation.TemplateKey &&
+            template.Language == request.Language && template.Valid))
+            throw new ArgumentException("An approved invitation template is unavailable for the selected language.");
         await using var transaction = await LockAsync(db, ct);
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(item => item.Id == userId, ct);
         if (!Active(user, now) || (await RolesAsync(db, userId, ct)).Length == 0) throw new ArgumentException("Staff account is unavailable.");
@@ -125,10 +142,22 @@ public static class WhatsAppStaffBindings
         };
         if (prior is null) db.WhatsAppStaffChallenges.Add(challenge);
         else db.Entry(prior).CurrentValues.SetValues(challenge);
+        await db.WhatsAppOutbox.Where(item => item.Audience == "Enrollment" && item.StaffUserId == userId &&
+            (item.State == "Queued" || item.State == "RetryScheduled"))
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, "Suppressed")
+                .SetProperty(item => item.SuppressedAt, now).SetProperty(item => item.FailureReason, "Invitation replaced"), ct);
+        if (dispatch is not null)
+        {
+            if (!dispatch.InvitationReady || dispatch.PhoneNumberId != options.PhoneNumberId ||
+                dispatch.BusinessAccountId != options.BusinessAccountId)
+                throw new ArgumentException("Staff invitation sender is unavailable.");
+            WhatsAppStaffInvitation.Stage(db, challenge, now);
+        }
         Audit(db, Guid.NewGuid(), "linkRequested", actor);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        return new("link " + code, challenge.ExpiresAt);
+        return new("link " + code, challenge.ExpiresAt, dispatch is null ? "Unavailable" : "Queued",
+            options.HasBusinessDisplayNumber ? options.BusinessDisplayNumber : null);
     }
 
     public static async Task<bool> VerifyAsync(AppDbContext db, WhatsAppAssistantOptions options, string recipient,
@@ -186,10 +215,19 @@ public static class WhatsAppStaffBindings
             db.Entry(binding).CurrentValues.SetValues(binding with { RevokedAt = now });
             await db.WhatsAppStaffRequests.Where(item => item.BindingId == binding.Id && item.State == "Queued")
                 .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, "Suppressed"), ct);
+            await db.WhatsAppOutbox.Where(item => item.Audience == "Staff" && item.StaffBindingId == binding.Id &&
+                (item.State == "Queued" || item.State == "RetryScheduled"))
+                .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, "Suppressed")
+                    .SetProperty(item => item.SuppressedAt, now)
+                    .SetProperty(item => item.FailureReason, "Staff connection revoked"), ct);
             Audit(db, binding.Id, "revoked", actor);
         }
         await db.WhatsAppStaffChallenges.Where(item => item.StaffUserId == userId && item.ConsumedAt == null && item.CreatedAt <= cutoff)
             .ExecuteUpdateAsync(set => set.SetProperty(item => item.ConsumedAt, now), ct);
+        await db.WhatsAppOutbox.Where(item => item.Audience == "Enrollment" && item.StaffUserId == userId &&
+            (item.State == "Queued" || item.State == "RetryScheduled"))
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, "Suppressed")
+                .SetProperty(item => item.SuppressedAt, now).SetProperty(item => item.FailureReason, "Connection cancelled"), ct);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
     }

@@ -2487,6 +2487,10 @@ public static class FinanceRules
     public static ValidationResult ValidateBrokerCommission(BrokerCommission commission, IEnumerable<Vehicle> vehicles)
     {
         var errors = new List<ValidationError>();
+        if (commission.DueDate == DateOnly.MinValue)
+        {
+            errors.Add(new ValidationError("invalid_commission_due_date", "Choose a valid commission due date or leave it empty."));
+        }
         if (!vehicles.Any(vehicle => vehicle.Id == commission.VehicleId))
         {
             errors.Add(new ValidationError("vehicle_not_found", "Broker commission must be linked to an existing car plate."));

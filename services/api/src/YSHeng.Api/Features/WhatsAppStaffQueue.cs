@@ -4,6 +4,8 @@ using YSHeng.Api.Domain;
 
 namespace YSHeng.Api.Features;
 
+public sealed record WhatsAppStaffOutbound(string Text, string Language, IReadOnlyList<WhatsAppStaffService>? Services = null);
+
 public static class WhatsAppStaffQueue
 {
     public static async Task<bool> EnqueueAsync(AppDbContext db, WhatsAppAssistantOptions options, string recipient,
@@ -44,7 +46,11 @@ public static class WhatsAppStaffQueue
     }
 
     public static async Task<bool> DispatchOneAsync(AppDbContext db, WhatsAppAssistantOptions options,
-        Func<string, string, CancellationToken, Task<WhatsAppSendResult>> send, long now, CancellationToken ct = default)
+        Func<string, string, CancellationToken, Task<WhatsAppSendResult>> send, long now, CancellationToken ct = default) =>
+        await DispatchOneRichAsync(db, options, (recipient, outbound, token) => send(recipient, outbound.Text, token), now, ct);
+
+    public static async Task<bool> DispatchOneRichAsync(AppDbContext db, WhatsAppAssistantOptions options,
+        Func<string, WhatsAppStaffOutbound, CancellationToken, Task<WhatsAppSendResult>> send, long now, CancellationToken ct = default)
     {
         if (!options.Ready) return false;
         // An interrupted HTTP submission is ambiguous, so it is never automatically replayed.
@@ -64,10 +70,14 @@ public static class WhatsAppStaffQueue
             await FinishAsync(db, request.Id, "Suppressed", null, ct);
             return true;
         }
-        var reply = WhatsAppStaffQueries.Permitted(intent, identity.Value.Roles)
+        var permitted = WhatsAppStaffQueries.Permitted(intent, identity.Value.Roles);
+        var reply = permitted
             ? intent.Name == "usage" ? WhatsAppStaffCommandHelp.Reply(intent.Argument, identity.Value.Binding.Language, identity.Value.Roles)
-                : await WhatsAppStaffQueries.ReplyAsync(db, intent, identity.Value.Binding.Language, now, ct, options.PublicSiteUrl, identity.Value.Roles)
+                : await WhatsAppStaffQueries.ReplyAsync(db, intent, identity.Value.Binding.Language, now, ct, options.PublicSiteUrl,
+                    identity.Value.Roles, identity.Value.Binding.StaffUserId)
             : WhatsAppStaffQueries.Text(identity.Value.Binding.Language, "Your role cannot access this query.", "Peranan anda tidak dibenarkan mengakses pertanyaan ini.");
+        var outbound = new WhatsAppStaffOutbound(reply, identity.Value.Binding.Language,
+            permitted && intent.Name == "menu" ? WhatsAppStaffCommandHelp.Allowed(identity.Value.Roles) : null);
         var currentTime = Math.Max(now, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         // Re-read account, stamp, binding and roles after retrieval, immediately before provider submission.
         var current = await WhatsAppStaffBindings.ResolveAsync(db, options, request.BindingId, currentTime, ct);
@@ -77,7 +87,7 @@ public static class WhatsAppStaffQueue
             return true;
         }
         WhatsAppSendResult result;
-        try { result = await send(current.Value.Binding.Recipient, reply, ct); }
+        try { result = await send(current.Value.Binding.Recipient, outbound, ct); }
         catch (Exception) { result = new("UnknownOutcome"); }
         var state = result.Outcome switch
         {

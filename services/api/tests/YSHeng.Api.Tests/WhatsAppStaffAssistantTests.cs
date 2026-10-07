@@ -144,10 +144,10 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.False(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("collections", "TEST123"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["BossAdmin"]));
-        Assert.DoesNotContain("collections <plate>", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
-        Assert.Contains("collections <plate>", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
-        Assert.DoesNotContain("profit [period]", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
-        Assert.Contains("profit [period]", WhatsAppStaffQueries.Help("en_US", ["BossAdmin"]));
+        Assert.DoesNotContain("• collections", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
+        Assert.Contains("• collections", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
+        Assert.DoesNotContain("• profit", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
+        Assert.Contains("• profit", WhatsAppStaffQueries.Help("en_US", ["BossAdmin"]));
         Assert.Contains("cannot access", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("profit", "month"), ["Finance"], "en_US", fixture.Now));
     }
 
@@ -407,11 +407,74 @@ public sealed class WhatsAppStaffAssistantTests
     public void Sales_command_filters_reject_invalid_price_and_bare_continuation(string command) => Assert.Null(WhatsAppStaffQueries.Parse(command));
 
     [Fact]
-    public void Menu_alias_maps_to_help_and_delivery_pages_are_canonical()
+    public void Menu_is_a_distinct_interactive_intent_and_delivery_pages_are_canonical()
     {
-        Assert.Equal("help", Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("menu")).Name);
+        Assert.Equal("menu", Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("menu")).Name);
         Assert.Equal("next 7 page 2", Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("deliveries next 7 page 2")).Argument);
         Assert.Equal("page 2", Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("stock page 2")).Argument);
+    }
+
+    [Fact]
+    public async Task Interactive_selection_is_fixed_deduplicated_and_checked_against_current_roles()
+    {
+        await using var fixture = await Fixture.Create();
+        Assert.True(await fixture.Verify(await fixture.Issue()));
+        await fixture.DispatchAccepted();
+        using var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            @object = "whatsapp_business_account",
+            entry = new[] { new { id = fixture.Options.BusinessAccountId, changes = new[] { new { field = "messages", value = new
+            {
+                metadata = new { phone_number_id = fixture.Options.PhoneNumberId },
+                messages = new[] { new
+                {
+                    id = "interactive-once", from = fixture.Options.TestRecipient, type = "interactive",
+                    timestamp = fixture.Now.ToString(), interactive = new { type = "list_reply", list_reply = new { id = "service:collections" } }
+                } }
+            } } } } }
+        }));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, payload.RootElement, fixture.Now));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, payload.RootElement, fixture.Now));
+        var request = await fixture.Db.WhatsAppStaffRequests.AsNoTracking().SingleAsync(item => item.Intent == "service");
+        Assert.Equal("service", request.Intent);
+        Assert.Equal("collections", request.Argument);
+        var reply = await fixture.DispatchAccepted();
+        Assert.Contains("cannot access", reply);
+        Assert.Null(WhatsAppStaffCommandHelp.ParseSelection("service:collections:ABC1234"));
+        Assert.Null(WhatsAppStaffCommandHelp.ParseSelection("service:private"));
+    }
+
+    [Fact]
+    public async Task Finance_role_removed_before_menu_dispatch_does_not_receive_finance_service_guidance()
+    {
+        await using var fixture = await Fixture.Create();
+        fixture.Db.Roles.Add(new IdentityRole("Finance") { Id = "Finance", NormalizedName = "FINANCE" });
+        fixture.Db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff", RoleId = "Finance" });
+        await fixture.Db.SaveChangesAsync();
+        Assert.True(await fixture.Verify(await fixture.Issue()));
+        await fixture.DispatchAccepted();
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient,
+            new("service", "collections"), "stale-selection", fixture.Now));
+        await fixture.Db.UserRoles.Where(item => item.RoleId == "Finance").ExecuteDeleteAsync();
+        var reply = await fixture.DispatchAccepted();
+        Assert.Contains("cannot access", reply);
+        Assert.DoesNotContain("collections ABC1234", reply);
+    }
+
+    [Fact]
+    public void Service_catalogue_matches_typed_commands_and_role_counts()
+    {
+        Assert.Equal(6, WhatsAppStaffCommandHelp.Allowed(["Sales"]).Count);
+        Assert.Equal(8, WhatsAppStaffCommandHelp.Allowed(["Finance"]).Count);
+        Assert.Equal(10, WhatsAppStaffCommandHelp.Allowed(["BossAdmin"]).Count);
+        Assert.Equal(10, WhatsAppStaffCommandHelp.Allowed(["Sales", "Finance", "BossAdmin"]).Count);
+        foreach (var service in WhatsAppStaffCommandHelp.Services)
+        {
+            Assert.Equal(service.Name, WhatsAppStaffQueries.Parse(service.Example)?.Name);
+            Assert.Equal(service.Name, WhatsAppStaffCommandHelp.ParseSelection("service:" + service.Name)?.Argument);
+        }
+        Assert.InRange(WhatsAppStaffQueries.Help("en_US", ["BossAdmin"]).Length, 1, 3500);
+        Assert.InRange(WhatsAppStaffQueries.Help("ms", ["BossAdmin"]).Length, 1, 3500);
     }
 
     [Fact]
@@ -593,6 +656,146 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     [Fact]
+    public async Task Invitation_is_staged_with_challenge_without_secret_and_verified_number_connects()
+    {
+        await using var fixture = await Fixture.Create();
+        var dispatch = InvitationDispatch();
+        var result = await WhatsAppStaffApi.ConnectAsync(fixture.Context("staff"), fixture.Db, fixture.Options,
+            dispatch, new(fixture.Options.TestRecipient, "ms", true), default);
+        var link = Assert.IsType<WhatsAppStaffLinkResult>(Assert.IsAssignableFrom<IValueHttpResult>(result).Value);
+        var invitation = await fixture.Db.WhatsAppOutbox.SingleAsync();
+        Assert.Equal("Enrollment", invitation.Audience);
+        Assert.Equal("Queued", invitation.State);
+        Assert.Equal("staff_invite_v1", invitation.TemplateVersion);
+        Assert.DoesNotContain(link.Command[5..], invitation.Body);
+        Assert.DoesNotContain(link.Command[5..], invitation.TemplateReference);
+        Assert.Equal(fixture.Now + 600, invitation.ExpiresAt);
+        var status = await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options, "staff", fixture.Now, dispatch: dispatch);
+        Assert.Equal("AwaitingVerification", status.State);
+        Assert.Equal("Queued", status.InvitationState);
+        Assert.True(status.InvitationAvailable);
+        Assert.True(await fixture.Verify(link));
+        Assert.Equal("Connected", (await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options, "staff", fixture.Now, dispatch: dispatch)).State);
+    }
+
+    [Fact]
+    public async Task Invitation_requires_approved_gate_and_rechecks_role_before_send()
+    {
+        await using var fixture = await Fixture.Create();
+        var context = fixture.Context("staff");
+        var rejected = await WhatsAppStaffApi.ConnectAsync(context, fixture.Db, fixture.Options,
+            new WhatsAppDispatchOptions(), new(fixture.Options.TestRecipient, "ms", true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(rejected);
+        Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
+        Assert.Empty(await fixture.Db.WhatsAppOutbox.ToListAsync());
+        var dispatch = InvitationDispatch();
+        var missingLanguage = await WhatsAppStaffApi.ConnectAsync(context, fixture.Db, fixture.Options, dispatch,
+            new(fixture.Options.TestRecipient, "en_US", true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.BadRequest<ApiError>>(missingLanguage);
+        Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
+        var accepted = await WhatsAppStaffApi.ConnectAsync(context, fixture.Db, fixture.Options, dispatch,
+            new(fixture.Options.TestRecipient, "ms", true), default);
+        Assert.IsType<WhatsAppStaffLinkResult>(Assert.IsAssignableFrom<IValueHttpResult>(accepted).Value);
+        await fixture.Db.UserRoles.ExecuteDeleteAsync();
+        var calls = 0;
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(fixture.Db, dispatch,
+            (_, _) => { calls++; return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.synthetic")); },
+            fixture.Now, assistant: fixture.Options));
+        Assert.Equal(0, calls);
+        Assert.Equal("Suppressed", (await fixture.Db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
+    }
+
+    [Fact]
+    public async Task Invitation_resend_keeps_the_same_challenge_and_obeys_cooldown_and_outcome()
+    {
+        await using var fixture = await Fixture.Create();
+        var dispatch = InvitationDispatch();
+        var issued = await WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options, "staff",
+            new(fixture.Options.TestRecipient, "ms", true), "synthetic", fixture.Now, dispatch: dispatch);
+        await Assert.ThrowsAsync<ArgumentException>(() => WhatsAppStaffInvitation.ResendAsync(fixture.Db, fixture.Options,
+            dispatch, "staff", "synthetic", fixture.Now + 59, default));
+        await Assert.ThrowsAsync<ArgumentException>(() => WhatsAppStaffInvitation.ResendAsync(fixture.Db, fixture.Options,
+            dispatch, "staff", "synthetic", fixture.Now + 61, default));
+        await fixture.Db.WhatsAppOutbox.ExecuteUpdateAsync(set => set.SetProperty(row => row.State, "DeadLetter"));
+        await WhatsAppStaffInvitation.ResendAsync(fixture.Db, fixture.Options, dispatch, "staff", "synthetic", fixture.Now + 61, default);
+        var invitations = await fixture.Db.WhatsAppOutbox.AsNoTracking().OrderBy(row => row.CreatedAt).ToListAsync();
+        Assert.Equal(2, invitations.Count);
+        Assert.Equal("Queued", invitations[1].State);
+        Assert.Equal(invitations[0].BusinessReference, invitations[1].BusinessReference);
+        Assert.DoesNotContain(issued.Command[5..], invitations[1].TemplateReference);
+        Assert.Equal(issued.ExpiresAt, invitations[1].ExpiresAt);
+        await Assert.ThrowsAsync<ArgumentException>(() => WhatsAppStaffInvitation.ResendAsync(fixture.Db, fixture.Options,
+            dispatch, "staff", "synthetic", fixture.Now + 121, default));
+    }
+
+    [Fact]
+    public async Task Approved_invitation_payload_contains_generic_localized_text_but_never_the_command()
+    {
+        await using var fixture = await Fixture.Create();
+        var dispatch = InvitationDispatch();
+        var issued = await WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options, "staff",
+            new(fixture.Options.TestRecipient, "ms", true), "synthetic", fixture.Now, dispatch: dispatch);
+        var item = await fixture.Db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        string? payload = null;
+        using var sender = new WhatsAppTemplateSender(new HttpClient(new SyntheticHandler(request =>
+        {
+            payload = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { Content = new StringContent("{\"messages\":[{\"id\":\"wamid.synthetic-invite\"}]}" ) };
+        })));
+        var result = await sender.SendAsync(dispatch, item);
+        Assert.Equal("Accepted", result.Outcome);
+        Assert.Contains("approved_staff_invite", payload);
+        Assert.Contains("Buka portal YS Heng", payload);
+        Assert.DoesNotContain(issued.Command[5..], payload);
+        Assert.DoesNotContain(item.BusinessReference, payload);
+    }
+
+    [Fact]
+    public async Task Invitation_history_distinguishes_provider_acceptance_from_sent_callback()
+    {
+        await using var fixture = await Fixture.Create();
+        var dispatch = InvitationDispatch();
+        var issued = await WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options, "staff",
+            new(fixture.Options.TestRecipient, "ms", true), "synthetic", fixture.Now, dispatch: dispatch);
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(fixture.Db, dispatch,
+            (_, _) => Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.synthetic-invite")),
+            fixture.Now, assistant: fixture.Options));
+        var accepted = await WhatsAppStaffNotifications.HistoryAsync(fixture.Db, null, null, "staff", "StaffInvitation",
+            null, 1, fixture.Now);
+        var row = Assert.Single(accepted.Items);
+        Assert.Equal("Accepted", row.State);
+        Assert.Null(row.SentAt);
+        Assert.DoesNotContain(issued.Command[5..], row.SubmittedBody);
+        using var callback = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            @object = "whatsapp_business_account",
+            entry = new[] { new { id = dispatch.BusinessAccountId, changes = new[] { new { field = "messages", value = new
+            {
+                metadata = new { phone_number_id = dispatch.PhoneNumberId },
+                statuses = new[] { new { id = "wamid.synthetic-invite", recipient_id = fixture.Options.TestRecipient,
+                    status = "sent", timestamp = fixture.Now.ToString() } }
+            } } } } }
+        }));
+        Assert.True(await WhatsAppNotificationWebhook.ApplyAsync(fixture.Db, callback.RootElement, dispatch, fixture.Now));
+        var sent = await WhatsAppStaffNotifications.HistoryAsync(fixture.Db, null, null, "staff", "StaffInvitation",
+            null, 1, fixture.Now);
+        Assert.Equal("Sent", Assert.Single(sent.Items).State);
+        Assert.NotNull(Assert.Single(sent.Items).SentAt);
+    }
+
+    private static WhatsAppDispatchOptions InvitationDispatch() => new()
+    {
+        InvitationEnabled = true, WebhookEnabled = true, SenderApproved = true,
+        SenderApprovalEvidence = "synthetic approval", GraphApiVersion = "v25.0", PhoneNumberId = "123",
+        BusinessAccountId = "456", AccessToken = "synthetic-token", AppSecret = new string('s', 32),
+        VerifyToken = new string('v', 32), BudgetOwner = "synthetic budget", DailyAttemptLimit = 10,
+        MonthlyBudgetSen = 100, MaximumCostPerAttemptSen = 10, CostCeilingConfirmed = true,
+        Templates = [new WhatsAppApprovedTemplate { Key = "staff_invite_v1", Name = "approved_staff_invite",
+            Language = "ms", Approved = true, ApprovalEvidence = "synthetic template approval" }]
+    };
+
+    [Fact]
     public async Task Production_mode_allows_self_links_for_distinct_staff_numbers_and_keeps_role_scope()
     {
         await using var fixture = await Fixture.Create(testMode: false);
@@ -638,6 +841,64 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.Contains("5 daripada 6", reply);
         Assert.Contains("Dijadualkan", reply);
         foreach (var excluded in new[] { "SYN5", "SYN6", "SYN7", "SYN8", "OUTSIDE" }) Assert.DoesNotContain(excluded, reply);
+    }
+
+    [Fact]
+    public async Task Due_pages_recover_more_than_seven_overdue_items_without_exposing_finance_or_other_sales_work()
+    {
+        await using var fixture = await Fixture.Create();
+        var today = WhatsAppStaffNotifications.LocalDate(fixture.Now);
+        fixture.Db.WhatsAppStaffNotificationPolicies.Add(new WhatsAppStaffNotificationPolicy
+            { Category = "OutstandingDigest", Enabled = true, LocalMinuteOfDay = 540, LeadDays = 3 });
+        for (var i = 0; i < 9; i++)
+        {
+            var vehicle = new Vehicle { PlateNumber = $"OWN{i}", SalesAgentUserId = "staff" };
+            fixture.Db.Vehicles.Add(vehicle);
+            fixture.Db.DeliverySchedules.Add(new DeliverySchedule
+                { VehicleId = vehicle.Id, Status = DeliveryStatus.Scheduled, ScheduledDate = today.AddDays(i - 10) });
+        }
+        var other = new Vehicle { PlateNumber = "OTHER123", SalesAgentUserId = "other" };
+        fixture.Db.Vehicles.Add(other);
+        fixture.Db.DeliverySchedules.Add(new DeliverySchedule
+            { VehicleId = other.Id, Status = DeliveryStatus.Scheduled, ScheduledDate = today.AddDays(-1) });
+        fixture.Db.SettlementReminders.Add(new SettlementReminder
+            { VehicleId = other.Id, Direction = SettlementDirection.PaySeller, Deadline = today.AddDays(-1), Amount = 777777 });
+        await fixture.Db.SaveChangesAsync();
+
+        Assert.Null(WhatsAppStaffQueries.Parse("due page"));
+        Assert.False(WhatsAppStaffQueries.Permitted(new("due", "1"), ["Finance"]));
+        Assert.True(WhatsAppStaffQueries.Permitted(new("due", "1"), ["Sales"]));
+        Assert.Contains("due page 1", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
+        Assert.DoesNotContain("due page 1", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
+        Assert.Equal(6, WhatsAppStaffCommandHelp.Allowed(["Sales"]).Count);
+        Assert.Equal(8, WhatsAppStaffCommandHelp.Allowed(["Finance"]).Count);
+        Assert.Equal(10, WhatsAppStaffCommandHelp.Allowed(["BossAdmin"]).Count);
+
+        var sources = await WhatsAppDueDigest.LoadAsync(fixture.Db, today, 3);
+        var digest = WhatsAppDueDigest.Project(sources, today, 3, "staff", "Sales");
+        Assert.NotNull(digest);
+        Assert.Equal(9, digest.Items.Count);
+        Assert.Contains("due page 1", digest.Body);
+        var first = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, WhatsAppStaffQueries.Parse("due page 1")!,
+            "en_US", fixture.Now, roles: ["Sales"], staffUserId: "staff");
+        var second = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, WhatsAppStaffQueries.Parse("due page 2")!,
+            "en_US", fixture.Now, roles: ["Sales"], staffUserId: "staff");
+        Assert.Contains("1-7 of 9", first);
+        Assert.Contains("Next: due page 2", first);
+        Assert.Contains("8-9 of 9", second);
+        for (var i = 0; i < 9; i++) Assert.Contains($"OWN{i}", first + second);
+        Assert.DoesNotContain("OTHER123", first + second);
+        Assert.DoesNotContain("777777", first + second);
+        Assert.DoesNotContain("RM", first + second);
+        var boss = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, WhatsAppStaffQueries.Parse("due page 2")!,
+            "en_US", fixture.Now, roles: ["BossAdmin"], staffUserId: "boss");
+        Assert.Contains("RM777777", boss);
+
+        Assert.True(await fixture.Verify(await fixture.Issue()));
+        await fixture.DispatchAccepted(); // linked acknowledgement
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient,
+            WhatsAppStaffQueries.Parse("due page 2")!, "due-page-event", fixture.Now));
+        Assert.Contains("OWN8", await fixture.DispatchAccepted());
     }
 
     [Fact]
@@ -748,6 +1009,38 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.Equal("Disabled", (await sender.SendAsync(fixture.Options, "60188888888", "Synthetic answer", default)).Outcome);
         Assert.Equal("InvalidReply", (await sender.SendAsync(fixture.Options, fixture.Options.TestRecipient, new string('A', 3501), default)).Outcome);
         Assert.Equal(1, handler.Calls);
+    }
+
+    [Theory]
+    [InlineData(200, "{\"messages\":[{\"id\":\"synthetic-provider-id\"}]}", 1)]
+    [InlineData(400, "{\"error\":\"synthetic-invalid-list\"}", 2)]
+    [InlineData(200, "not-json", 1)]
+    public async Task Interactive_sender_uses_native_bounded_list_and_only_definite_rejection_falls_back(int status, string body, int expectedCalls)
+    {
+        await using var fixture = await Fixture.Create();
+        var payloads = new List<JsonDocument>();
+        var handler = new SyntheticHandler(request =>
+        {
+            payloads.Add(JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult()));
+            return new HttpResponseMessage((System.Net.HttpStatusCode)(status == 400 && payloads.Count == 2 ? 200 : status))
+            {
+                Content = new StringContent(status == 400 && payloads.Count == 2
+                    ? "{\"messages\":[{\"id\":\"synthetic-fallback\"}]}" : body)
+            };
+        });
+        using var sender = new WhatsAppStaffSender(new HttpClient(handler));
+        var outbound = new WhatsAppStaffOutbound(WhatsAppStaffQueries.Help("ms", ["BossAdmin"]), "ms",
+            WhatsAppStaffCommandHelp.Allowed(["BossAdmin"]));
+        var result = await sender.SendAsync(fixture.Options, fixture.Options.TestRecipient, outbound, default);
+        Assert.Equal(expectedCalls, handler.Calls);
+        var menu = payloads[0].RootElement;
+        Assert.Equal("interactive", menu.GetProperty("type").GetString());
+        var sections = menu.GetProperty("interactive").GetProperty("action").GetProperty("sections").EnumerateArray();
+        Assert.Equal(10, sections.Sum(section => section.GetProperty("rows").GetArrayLength()));
+        Assert.Equal("Disabled", (await sender.SendAsync(fixture.Options, "60188888888", outbound, default)).Outcome);
+        if (expectedCalls == 2) Assert.Equal("text", payloads[1].RootElement.GetProperty("type").GetString());
+        foreach (var payload in payloads) payload.Dispose();
+        Assert.Equal(status == 200 && body == "not-json" ? "UnknownOutcome" : "Accepted", result.Outcome);
     }
 
     private sealed class SyntheticHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler

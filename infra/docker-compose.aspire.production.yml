@@ -33,6 +33,46 @@ services:
       WhatsAppAssistant__AccessToken: ${WHATSAPP_ASSISTANT_ACCESS_TOKEN:-}
       WhatsAppAssistant__AppSecret: ${WHATSAPP_ASSISTANT_APP_SECRET:-}
       WhatsAppAssistant__VerifyToken: ${WHATSAPP_ASSISTANT_VERIFY_TOKEN:-}
+      WhatsAppAssistant__BusinessDisplayNumber: ${WHATSAPP_ASSISTANT_BUSINESS_DISPLAY_NUMBER:-}
+      WhatsApp__CaptureEnabled: "false"
+      WhatsApp__SendingEnabled: "false"
+      WhatsApp__StaffCaptureEnabled: ${WHATSAPP_STAFF_CAPTURE_ENABLED:-false}
+      WhatsApp__StaffSendingEnabled: ${WHATSAPP_STAFF_SENDING_ENABLED:-false}
+      WhatsApp__InvitationEnabled: ${WHATSAPP_INVITATION_ENABLED:-false}
+      WhatsApp__WebhookEnabled: ${WHATSAPP_WEBHOOK_ENABLED:-false}
+      WhatsApp__SenderApproved: ${WHATSAPP_SENDER_APPROVED:-false}
+      WhatsApp__SenderApprovalEvidence: ${WHATSAPP_SENDER_APPROVAL_EVIDENCE:-}
+      WhatsApp__GraphApiVersion: ${WHATSAPP_ASSISTANT_GRAPH_API_VERSION:-v25.0}
+      WhatsApp__PhoneNumberId: ${WHATSAPP_ASSISTANT_PHONE_NUMBER_ID:-}
+      WhatsApp__BusinessAccountId: ${WHATSAPP_ASSISTANT_BUSINESS_ACCOUNT_ID:-}
+      WhatsApp__AccessToken: ${WHATSAPP_ASSISTANT_ACCESS_TOKEN:-}
+      WhatsApp__AppSecret: ${WHATSAPP_ASSISTANT_APP_SECRET:-}
+      WhatsApp__VerifyToken: ${WHATSAPP_ASSISTANT_VERIFY_TOKEN:-}
+      WhatsApp__BudgetOwner: ${WHATSAPP_BUDGET_OWNER:-}
+      WhatsApp__DailyAttemptLimit: ${WHATSAPP_DAILY_ATTEMPT_LIMIT:-0}
+      WhatsApp__MonthlyBudgetSen: ${WHATSAPP_MONTHLY_BUDGET_SEN:-0}
+      WhatsApp__MaximumCostPerAttemptSen: ${WHATSAPP_MAXIMUM_COST_PER_ATTEMPT_SEN:-0}
+      WhatsApp__CostCeilingConfirmed: ${WHATSAPP_COST_CEILING_CONFIRMED:-false}
+      WhatsApp__Templates__0__Key: staff_invite_v1
+      WhatsApp__Templates__0__Language: ms
+      WhatsApp__Templates__0__Name: ${WHATSAPP_INVITE_MS_TEMPLATE_NAME:-}
+      WhatsApp__Templates__0__Approved: ${WHATSAPP_INVITE_MS_TEMPLATE_APPROVED:-false}
+      WhatsApp__Templates__0__ApprovalEvidence: ${WHATSAPP_INVITE_MS_TEMPLATE_APPROVAL_EVIDENCE:-}
+      WhatsApp__Templates__1__Key: staff_invite_v1
+      WhatsApp__Templates__1__Language: en_US
+      WhatsApp__Templates__1__Name: ${WHATSAPP_INVITE_EN_TEMPLATE_NAME:-}
+      WhatsApp__Templates__1__Approved: ${WHATSAPP_INVITE_EN_TEMPLATE_APPROVED:-false}
+      WhatsApp__Templates__1__ApprovalEvidence: ${WHATSAPP_INVITE_EN_TEMPLATE_APPROVAL_EVIDENCE:-}
+      WhatsApp__Templates__2__Key: staff_notice_v1
+      WhatsApp__Templates__2__Language: ms
+      WhatsApp__Templates__2__Name: ${WHATSAPP_NOTICE_MS_TEMPLATE_NAME:-}
+      WhatsApp__Templates__2__Approved: ${WHATSAPP_NOTICE_MS_TEMPLATE_APPROVED:-false}
+      WhatsApp__Templates__2__ApprovalEvidence: ${WHATSAPP_NOTICE_MS_TEMPLATE_APPROVAL_EVIDENCE:-}
+      WhatsApp__Templates__3__Key: staff_notice_v1
+      WhatsApp__Templates__3__Language: en_US
+      WhatsApp__Templates__3__Name: ${WHATSAPP_NOTICE_EN_TEMPLATE_NAME:-}
+      WhatsApp__Templates__3__Approved: ${WHATSAPP_NOTICE_EN_TEMPLATE_APPROVED:-false}
+      WhatsApp__Templates__3__ApprovalEvidence: ${WHATSAPP_NOTICE_EN_TEMPLATE_APPROVAL_EVIDENCE:-}
       WhatsAppAssistant__PerStaffDailyLimit: ${WHATSAPP_ASSISTANT_PER_STAFF_DAILY_LIMIT:-100}
       WhatsAppAssistant__WorkspaceDailyLimit: ${WHATSAPP_ASSISTANT_WORKSPACE_DAILY_LIMIT:-1000}
     volumes:

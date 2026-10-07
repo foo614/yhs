@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
+using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Net;
 using System.Text;
@@ -19,6 +21,311 @@ namespace YSHeng.Api.Tests;
 
 public sealed class BusinessRulesTests
 {
+    [Fact]
+    public void WhatsApp_hr_attendance_uses_mutually_exclusive_known_scheduled_categories()
+    {
+        var today = new DateOnly(2026, 10, 7);
+        var scheduled = new[] { "checked", "leave", "trip", "partial", "missing", "inactive" }
+            .Select(id => new HrWorkSchedule { StaffUserId = id, AttendanceDate = today }).ToArray();
+        var facts = new WhatsAppAttendanceFacts(scheduled,
+            [new HrAttendanceRecord { StaffUserId = "checked", AttendanceDate = today, CheckInAt = DateTime.UtcNow },
+                new HrAttendanceRecord { StaffUserId = "unscheduled", AttendanceDate = today, CheckInAt = DateTime.UtcNow },
+                new HrAttendanceRecord { StaffUserId = "inactive", AttendanceDate = today, CheckInAt = DateTime.UtcNow }],
+            [new HrLeaveRequest { StaffUserId = "checked", Status = HrLeaveStatus.Approved,
+                StartDate = today, EndDate = today, Days = 1 },
+                new HrLeaveRequest { StaffUserId = "leave", Status = HrLeaveStatus.Approved,
+                    StartDate = today, EndDate = today, Days = 1 },
+                new HrLeaveRequest { StaffUserId = "partial", Status = HrLeaveStatus.Approved,
+                    StartDate = today, EndDate = today, Days = 0.5m }],
+            [new HrBusinessTrip { StaffUserId = "checked", Status = HrBusinessTripStatus.Approved,
+                StartDate = today, EndDate = today },
+                new HrBusinessTrip { StaffUserId = "trip", Status = HrBusinessTripStatus.Approved,
+                    StartDate = today, EndDate = today }],
+            ["checked", "leave", "trip", "partial", "missing", "unscheduled"]);
+        var result = WhatsAppHrNotifications.ProjectAttendance(facts, today, "en_US");
+        Assert.Equal(5, result.Scheduled);
+        Assert.Equal(1, result.CheckedIn);
+        Assert.Equal(1, result.FullDayLeave);
+        Assert.Equal(1, result.Outstation);
+        Assert.Equal(1, result.PartialLeaveUnknown);
+        Assert.Equal(1, result.ScheduledWithoutCheckIn);
+        Assert.Equal(1, result.UnscheduledCheckIns);
+        Assert.Contains("Schedule coverage unverified", result.Body);
+        Assert.Contains("not an absence decision", result.Body);
+        Assert.DoesNotContain("inactive", result.Body);
+        Assert.Contains("Liputan jadual tidak disahkan", WhatsAppHrNotifications.ProjectAttendance(facts, today, "ms").Body);
+    }
+
+    [Fact]
+    public void WhatsApp_hr_leave_only_shows_other_pending_requests_without_private_details()
+    {
+        var today = new DateOnly(2026, 10, 7);
+        var request = new HrLeaveRequest { StaffUserId = "worker", Status = HrLeaveStatus.Pending,
+            StartDate = today.AddDays(1), EndDate = today.AddDays(2), Days = 2,
+            Reason = "PRIVATE MEDICAL REASON", MedicalCertificateDocumentId = Guid.NewGuid() };
+        var own = request with { Id = Guid.NewGuid(), StaffUserId = "approver" };
+        var resolved = request with { Id = Guid.NewGuid(), Status = HrLeaveStatus.Approved };
+        Assert.Null(WhatsAppHrNotifications.ProjectPendingLeave([request], "sales", "Sales", today, "en_US"));
+        var result = WhatsAppHrNotifications.ProjectPendingLeave([request, own, resolved], "approver",
+            "HrSalary", today, "en_US", new Dictionary<string, string> { ["worker"] = "Synthetic Worker" });
+        Assert.NotNull(result);
+        Assert.Equal(1, result.Count);
+        Assert.Contains("Synthetic Worker", result.Body);
+        Assert.DoesNotContain("PRIVATE", result.Body);
+        Assert.DoesNotContain("MEDICAL", result.Body);
+        Assert.DoesNotContain(request.MedicalCertificateDocumentId!.Value.ToString(), result.Body);
+        Assert.Null(WhatsAppHrNotifications.ProjectPendingLeave([resolved, own], "approver", "BossAdmin", today, "en_US"));
+    }
+
+    [Fact]
+    public async Task WhatsApp_hr_daily_staging_respects_local_times_roles_resolution_and_rebind_dedup()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var today = new DateOnly(2026, 10, 7);
+        var nine = WhatsAppStaffNotifications.LocalDayDueAt(today, 540);
+        var ten = WhatsAppStaffNotifications.LocalDayDueAt(today, 600);
+        var options = new WhatsAppAssistantOptions { Enabled = true, WebhookEnabled = true,
+            TestMode = false, PhoneNumberId = "123", BusinessAccountId = "456", GraphApiVersion = "v25.0",
+            AppSecret = new string('s', 32), VerifyToken = new string('v', 32), AccessToken = "synthetic-token" };
+        db.Roles.AddRange(new IdentityRole("BossAdmin") { Id = "boss-role", NormalizedName = "BOSSADMIN" },
+            new IdentityRole("HrSalary") { Id = "hr-role", NormalizedName = "HRSALARY" },
+            new IdentityRole("Sales") { Id = "sales-role", NormalizedName = "SALES" });
+        foreach (var (id, role, phone) in new[] { ("boss", "boss-role", "60123456789"),
+            ("hr", "hr-role", "60123456780"), ("worker", "sales-role", "60123456781") })
+        {
+            const string stamp = "synthetic-stamp";
+            db.Users.Add(new AppUser { Id = id, UserName = id, DisplayName = id, SecurityStamp = stamp });
+            db.UserRoles.Add(new IdentityUserRole<string> { UserId = id, RoleId = role });
+            db.WhatsAppStaffBindings.Add(new WhatsAppStaffBinding { StaffUserId = id, Recipient = phone,
+                PhoneNumberId = "123", SecurityStampHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(stamp))),
+                Language = id == "hr" ? "ms" : "en_US", VerifiedAt = nine - 100 });
+        }
+        var leave = new HrLeaveRequest { StaffUserId = "worker", Status = HrLeaveStatus.Pending,
+            StartDate = today.AddDays(1), EndDate = today.AddDays(1), Days = 1, Reason = "PRIVATE" };
+        db.HrLeaveRequests.Add(leave);
+        db.HrWorkSchedules.Add(new HrWorkSchedule { StaffUserId = "worker", AttendanceDate = today });
+        db.WhatsAppStaffNotificationPolicies.AddRange(
+            new WhatsAppStaffNotificationPolicy { Category = "LeaveApproval", Enabled = true, LocalMinuteOfDay = 540 },
+            new WhatsAppStaffNotificationPolicy { Category = "AttendanceSummary", Enabled = true, LocalMinuteOfDay = 600 });
+        await db.SaveChangesAsync();
+        Assert.Equal(0, await WhatsAppHrNotifications.EnqueueCurrentDayAsync(db, options, nine - 1, "test"));
+        Assert.Equal(2, await WhatsAppHrNotifications.EnqueueCurrentDayAsync(db, options, nine, "test"));
+        var staged = await db.WhatsAppOutbox.AsNoTracking().ToListAsync();
+        Assert.Equal(["BossAdmin", "HrSalary"], staged.Select(item => item.RequiredStaffRole).Order().ToArray());
+        Assert.DoesNotContain(staged, item => item.StaffUserId == "worker" || item.Body.Contains("PRIVATE"));
+        Assert.Equal(3, await WhatsAppHrNotifications.EnqueueCurrentDayAsync(db, options, ten, "test"));
+        Assert.Equal(3, await db.WhatsAppOutbox.CountAsync());
+        var attendance = await db.WhatsAppOutbox.SingleAsync(item => item.MessageKind == "AttendanceSummary");
+        Assert.Equal("BossAdmin", attendance.RequiredStaffRole);
+        Assert.Equal(ten, attendance.ScheduledAt);
+        var first = await db.WhatsAppStaffBindings.SingleAsync(item => item.StaffUserId == "boss");
+        db.Entry(first).CurrentValues.SetValues(first with { RevokedAt = ten + 1 });
+        db.WhatsAppStaffBindings.Add(first with { Id = Guid.NewGuid(), RevokedAt = null, VerifiedAt = ten + 1 });
+        await db.SaveChangesAsync();
+        await WhatsAppHrNotifications.EnqueueCurrentDayAsync(db, options, ten + 2, "test");
+        Assert.Equal(3, await db.WhatsAppOutbox.CountAsync());
+        await db.HrLeaveRequests.Where(item => item.Id == leave.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.Status, HrLeaveStatus.Approved));
+        var hrRow = staged.Single(item => item.RequiredStaffRole == "HrSalary");
+        Assert.Null(await WhatsAppHrNotifications.RefreshForDispatchAsync(db, hrRow, ten + 3));
+    }
+    [Fact]
+    public void WhatsApp_due_digest_includes_d_minus_three_and_overdue_but_never_sales_finance()
+    {
+        var today = new DateOnly(2026, 10, 7);
+        var bossVehicle = new Vehicle { PlateNumber = "BOSS123", SalesAgentUserId = "other" };
+        var salesVehicle = new Vehicle { PlateNumber = "SALE123", SalesAgentUserId = "sales" };
+        var sources = new WhatsAppDueDigestSources(
+            [
+                new SettlementReminder { VehicleId = bossVehicle.Id, Deadline = today.AddDays(-1), Amount = 100,
+                    Direction = SettlementDirection.PaySeller },
+                new SettlementReminder { VehicleId = bossVehicle.Id, Deadline = today, Amount = 200,
+                    Direction = SettlementDirection.CollectFromSeller },
+                new SettlementReminder { VehicleId = bossVehicle.Id, Deadline = today.AddDays(4), Amount = 300,
+                    Direction = SettlementDirection.PaySeller },
+                new SettlementReminder { VehicleId = bossVehicle.Id, Deadline = today, Amount = 400,
+                    Direction = SettlementDirection.InternalOffset },
+                new SettlementReminder { VehicleId = bossVehicle.Id, Deadline = today, Amount = 500,
+                    Direction = SettlementDirection.PaySeller, IsPaid = true }
+            ],
+            [new DailySpend { DueDate = today.AddDays(3), Amount = 50 },
+                new DailySpend { DueDate = today, Amount = 75, IsPaid = true }],
+            [new PaymentRecord { VehicleId = bossVehicle.Id, BankFollowUpDate = today.AddDays(1), Status = PaymentStatus.Pending },
+                new PaymentRecord { VehicleId = bossVehicle.Id, BankFollowUpDate = today, Status = PaymentStatus.Reconciled }],
+            [new DebtRecoveryCase { VehicleId = bossVehicle.Id, FollowUpDate = today.AddDays(2), BalanceAmount = 30 },
+                new DebtRecoveryCase { VehicleId = bossVehicle.Id, FollowUpDate = today, BalanceAmount = 30,
+                    Status = DebtRecoveryStatus.Closed }],
+            [new DeliverySchedule { VehicleId = salesVehicle.Id, ScheduledDate = today.AddDays(3), Status = DeliveryStatus.Scheduled },
+                new DeliverySchedule { VehicleId = bossVehicle.Id, ScheduledDate = today.AddDays(4), Status = DeliveryStatus.Scheduled },
+                new DeliverySchedule { VehicleId = salesVehicle.Id, ScheduledDate = today, Status = DeliveryStatus.Released },
+                new DeliverySchedule { VehicleId = salesVehicle.Id, ScheduledDate = today, Status = DeliveryStatus.BookingInspection }],
+            [bossVehicle, salesVehicle]);
+
+        var boss = WhatsAppDueDigest.Project(sources, today, 3, "boss", "BossAdmin");
+        Assert.NotNull(boss);
+        Assert.Equal(["Settlement", "Settlement", "BankFollowUp", "DebtFollowUp", "DailySpend", "Delivery"],
+            boss.Items.Select(item => item.Kind));
+        Assert.Contains("Pay seller", boss.Body);
+        Assert.Contains("Collect from seller", boss.Body);
+        Assert.DoesNotContain("RM300", boss.Body);
+        Assert.True(boss.Body.Length <= 1024);
+        Assert.DoesNotContain('\n', boss.Body);
+
+        var sales = WhatsAppDueDigest.Project(sources, today, 3, "sales", "Sales");
+        Assert.NotNull(sales);
+        Assert.Single(sales.Items);
+        Assert.Equal("Delivery", sales.Items[0].Kind);
+        Assert.DoesNotContain("RM", sales.Body);
+        Assert.DoesNotContain("Debt", sales.Body);
+        Assert.Null(WhatsAppDueDigest.Project(sources, today, 3, "unassigned", "Sales"));
+        var malay = WhatsAppDueDigest.Project(sources, today, 3, "sales", "Sales", language: "ms");
+        Assert.Contains("Persediaan penghantaran", malay!.Body);
+        Assert.DoesNotContain("Delivery preparation", malay.Body);
+    }
+
+    [Fact]
+    public async Task WhatsApp_due_digest_refresh_uses_paid_state_and_current_canonical_assignment()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var today = new DateOnly(2026, 10, 7);
+        var now = WhatsAppStaffNotifications.LocalDayDueAt(today, 540);
+        var vehicle = new Vehicle { PlateNumber = "DUE123", SalesAgentUserId = "sales" };
+        var delivery = new DeliverySchedule { VehicleId = vehicle.Id, ScheduledDate = today.AddDays(2), Status = DeliveryStatus.Scheduled };
+        var settlement = new SettlementReminder { VehicleId = vehicle.Id, Deadline = today.AddDays(1), Amount = 100,
+            Direction = SettlementDirection.PaySeller };
+        db.Vehicles.Add(vehicle);
+        db.DeliverySchedules.Add(delivery);
+        db.SettlementReminders.Add(settlement);
+        db.WhatsAppStaffNotificationPolicies.Add(new WhatsAppStaffNotificationPolicy
+            { Category = "OutstandingDigest", Enabled = true, LocalMinuteOfDay = 540, LeadDays = 3 });
+        await db.SaveChangesAsync();
+        var bossRow = new WhatsAppOutbox { Audience = "Staff", StaffUserId = "boss", RequiredStaffRole = "BossAdmin",
+            MessageKind = "OutstandingDigest", BusinessEventKey = today.ToString("yyyy-MM-dd"),
+            ScheduledAt = now, ExpiresAt = WhatsAppStaffNotifications.LocalDayDueAt(today.AddDays(1), 0) };
+        var salesRow = bossRow with { StaffUserId = "sales", RequiredStaffRole = "Sales" };
+        Assert.Contains("Pay seller", (await WhatsAppDueDigest.RefreshForDispatchAsync(db, bossRow, now))!.Body);
+        Assert.Contains("Delivery preparation", (await WhatsAppDueDigest.RefreshForDispatchAsync(db, salesRow, now))!.Body);
+
+        await db.SettlementReminders.Where(item => item.Id == settlement.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.IsPaid, true));
+        Assert.DoesNotContain("Pay seller", (await WhatsAppDueDigest.RefreshForDispatchAsync(db, bossRow, now))!.Body);
+        await db.Vehicles.Where(item => item.Id == vehicle.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.SalesAgentUserId, "other"));
+        Assert.Null(await WhatsAppDueDigest.RefreshForDispatchAsync(db, salesRow, now));
+        await db.DeliverySchedules.Where(item => item.Id == delivery.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.ScheduledDate, today.AddDays(4)));
+        Assert.Null(await WhatsAppDueDigest.RefreshForDispatchAsync(db, bossRow, now));
+    }
+
+    [Fact]
+    public async Task WhatsApp_due_digest_stages_once_after_nine_and_skips_empty_days()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options;
+        await using var db = new AppDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        var today = new DateOnly(2026, 10, 7);
+        var nine = WhatsAppStaffNotifications.LocalDayDueAt(today, 540);
+        var vehicle = new Vehicle { PlateNumber = "DUE456" };
+        var settlement = new SettlementReminder { VehicleId = vehicle.Id, Deadline = today.AddDays(3), Amount = 100,
+            Direction = SettlementDirection.PaySeller };
+        db.Users.Add(new AppUser { Id = "digest-boss", UserName = "digest-boss", SecurityStamp = "synthetic-stamp" });
+        db.Roles.Add(new IdentityRole("BossAdmin") { Id = "digest-boss-role", NormalizedName = "BOSSADMIN" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "digest-boss", RoleId = "digest-boss-role" });
+        db.Vehicles.Add(vehicle);
+        db.SettlementReminders.Add(settlement);
+        db.WhatsAppStaffNotificationPolicies.Add(new WhatsAppStaffNotificationPolicy
+            { Category = "OutstandingDigest", Enabled = true, LocalMinuteOfDay = 540, LeadDays = 3 });
+        await db.SaveChangesAsync();
+        var assistant = new WhatsAppAssistantOptions
+        {
+            Enabled = true, WebhookEnabled = true, TestMode = true, TestRecipient = "60123456789",
+            PhoneNumberId = "123", BusinessAccountId = "456", GraphApiVersion = "v25.0",
+            AppSecret = new string('s', 32), VerifyToken = new string('v', 32), AccessToken = "synthetic-token"
+        };
+        var issue = await WhatsAppStaffBindings.IssueAsync(db, assistant, "digest-boss",
+            new("60123456789", "ms", true), "synthetic-boss", nine - 60);
+        Assert.True(await WhatsAppStaffBindings.VerifyAsync(db, assistant, "60123456789", issue.Command[5..],
+            "digest-link", nine - 60));
+        var binding = await db.WhatsAppStaffBindings.AsNoTracking().SingleAsync();
+        Assert.Null(await WhatsAppDueDigest.EnqueueCurrentDayAsync(db, assistant, binding.Id, nine - 1, "digest-worker"));
+        var first = await WhatsAppDueDigest.EnqueueCurrentDayAsync(db, assistant, binding.Id, nine, "digest-worker");
+        Assert.NotNull(first);
+        await using var restarted = new AppDbContext(options);
+        var second = await WhatsAppDueDigest.EnqueueCurrentDayAsync(restarted, assistant, binding.Id, nine + 60, "digest-worker");
+        Assert.Equal(first.Id, second!.Id);
+        Assert.Equal(1, await restarted.WhatsAppOutbox.CountAsync());
+        Assert.Equal(nine, second.ScheduledAt);
+        Assert.Equal(WhatsAppStaffNotifications.LocalDayDueAt(today.AddDays(1), 0), second.ExpiresAt);
+        await restarted.SettlementReminders.Where(item => item.Id == settlement.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.IsPaid, true));
+        Assert.Null(await WhatsAppDueDigest.RefreshForDispatchAsync(restarted, second, nine + 120));
+    }
+
+    [Fact]
+    public async Task WhatsApp_commission_due_date_roundtrips_and_only_unpaid_in_window_reaches_boss()
+    {
+        // Protect legacy nullable dates, payment state and Sales/finance privacy.
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var today = new DateOnly(2026, 10, 7);
+        var vehicle = new Vehicle { PlateNumber = "COMM123", SalesAgentUserId = "sales" };
+        var dated = new BrokerCommission { VehicleId = vehicle.Id, BrokerName = "Synthetic", Amount = 250, DueDate = today.AddDays(3) };
+        var legacy = dated with { Id = Guid.NewGuid(), DueDate = null };
+        db.Vehicles.Add(vehicle);
+        db.BrokerCommissions.AddRange(dated, legacy, dated with { Id = Guid.NewGuid(), IsPaid = true },
+            dated with { Id = Guid.NewGuid(), DueDate = today.AddDays(4) });
+        await db.SaveChangesAsync();
+        Assert.Null((await db.BrokerCommissions.AsNoTracking().SingleAsync(row => row.Id == legacy.Id)).DueDate);
+        var sources = await WhatsAppDueDigest.LoadAsync(db, today, 3);
+        var boss = WhatsAppDueDigest.Project(sources, today, 3, "boss", "BossAdmin");
+        Assert.Equal(dated.Id, Assert.Single(boss!.Items).SourceId);
+        Assert.Null(WhatsAppDueDigest.Project(sources, today, 3, "sales", "Sales"));
+        Assert.Equal(1, (await WhatsAppDueDigest.DiagnosticsAsync(db)).MissingCommissionDate);
+        await db.BrokerCommissions.Where(row => row.Id == dated.Id).ExecuteUpdateAsync(set => set.SetProperty(row => row.DueDate, today.AddDays(4)));
+        Assert.Null(WhatsAppDueDigest.Project(await WhatsAppDueDigest.LoadAsync(db, today, 3), today, 3, "boss", "BossAdmin"));
+        await db.BrokerCommissions.Where(row => row.Id == dated.Id).ExecuteUpdateAsync(set => set.SetProperty(row => row.DueDate, (DateOnly?)null));
+        Assert.Null(WhatsAppDueDigest.Project(await WhatsAppDueDigest.LoadAsync(db, today, 3), today, 3, "boss", "BossAdmin"));
+        Assert.Equal(2, (await WhatsAppDueDigest.DiagnosticsAsync(db)).MissingCommissionDate);
+        await db.BrokerCommissions.Where(row => row.Id == dated.Id).ExecuteUpdateAsync(set => set.SetProperty(row => row.DueDate, today).SetProperty(row => row.IsPaid, true));
+        Assert.Null(WhatsAppDueDigest.Project(await WhatsAppDueDigest.LoadAsync(db, today, 3), today, 3, "boss", "BossAdmin"));
+    }
+
+    [Fact]
+    public async Task WhatsApp_due_digest_reports_missing_required_dates_and_assignments_without_guessing()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var vehicle = new Vehicle { PlateNumber = "NOASSIGN" };
+        db.Vehicles.Add(vehicle);
+        db.SettlementReminders.Add(new SettlementReminder { VehicleId = vehicle.Id, Amount = 10,
+            Direction = SettlementDirection.PaySeller });
+        db.DebtRecoveryCases.Add(new DebtRecoveryCase { VehicleId = vehicle.Id, BalanceAmount = 10 });
+        db.PaymentRecords.Add(new PaymentRecord { VehicleId = vehicle.Id, Status = PaymentStatus.Pending });
+        db.DeliverySchedules.AddRange(
+            new DeliverySchedule { VehicleId = vehicle.Id, Status = DeliveryStatus.Scheduled,
+                ScheduledDate = new DateOnly(2026, 10, 8) },
+            new DeliverySchedule { VehicleId = vehicle.Id, Status = DeliveryStatus.Scheduled },
+            new DeliverySchedule { VehicleId = vehicle.Id, Status = DeliveryStatus.BookingInspection });
+        await db.SaveChangesAsync();
+        var issues = await WhatsAppDueDigest.DiagnosticsAsync(db);
+        Assert.Equal(3, issues.MissingRequiredDate);
+        Assert.Equal(1, issues.UnassignedDelivery);
+        var sources = await WhatsAppDueDigest.LoadAsync(db, new DateOnly(2026, 10, 7), 3);
+        Assert.Null(WhatsAppDueDigest.Project(sources, new DateOnly(2026, 10, 7), 3, "sales", "Sales"));
+    }
+
     [Theory]
     [InlineData("en_US")]
     [InlineData("ms")]
@@ -3409,6 +3716,14 @@ public sealed class BusinessRulesTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code == "cp58_required_missing");
+
+        // Legacy commissions must stay undated; an explicit invalid sentinel must
+        // not enter the deadline scheduler, and date edits cannot alter payment.
+        var valid = commission with { Cp58Prepared = false };
+        Assert.True(FinanceRules.ValidateBrokerCommission(valid, [vehicle]).IsValid);
+        Assert.True(FinanceRules.ValidateBrokerCommission(valid with { DueDate = new DateOnly(2026, 10, 10) }, [vehicle]).IsValid);
+        Assert.Contains(FinanceRules.ValidateBrokerCommission(valid with { DueDate = DateOnly.MinValue }, [vehicle]).Errors,
+            error => error.Code == "invalid_commission_due_date");
     }
 
     [Fact]

@@ -266,9 +266,32 @@ public static class SeedData
             ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "EventKind" text NOT NULL DEFAULT 'test';
             ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "BusinessReference" text NOT NULL DEFAULT '';
             ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "TemplateReference" text NOT NULL DEFAULT '';
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "Audience" text NOT NULL DEFAULT 'Customer';
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "StaffBindingId" uuid NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "StaffUserId" text NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "MessageKind" text NOT NULL DEFAULT '';
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "RequiredStaffRole" text NOT NULL DEFAULT '';
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "BusinessEventKey" text NOT NULL DEFAULT '';
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "BusinessEventVersion" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "SubmittedBody" text NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "SubmittedTemplateName" text NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "SubmittedLanguage" text NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "ScheduledAt" bigint NOT NULL DEFAULT 0;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "AcceptedAt" bigint NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "SentAt" bigint NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "DeliveredAt" bigint NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "ReadAt" bigint NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "FailedAt" bigint NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "SuppressedAt" bigint NULL;
+            ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "FailureReason" text NULL;
+            CREATE TABLE IF NOT EXISTS "WhatsAppStaffNotificationPolicies" (
+                "Category" text PRIMARY KEY, "Enabled" boolean NOT NULL DEFAULT false,
+                "LocalMinuteOfDay" integer NOT NULL DEFAULT 0, "LeadDays" integer NOT NULL DEFAULT 0,
+                "ThresholdPercent" integer NOT NULL DEFAULT 0, "UpdatedAt" bigint NOT NULL DEFAULT 0);
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_IdempotencyKey" ON "WhatsAppOutbox" ("IdempotencyKey");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_ProviderMessageId" ON "WhatsAppOutbox" ("ProviderMessageId");
             CREATE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_State_NextAttemptAt" ON "WhatsAppOutbox" ("State", "NextAttemptAt");
+            CREATE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_Audience_StaffUserId_CreatedAt" ON "WhatsAppOutbox" ("Audience", "StaffUserId", "CreatedAt");
             """);
     }
 
@@ -943,6 +966,7 @@ public static class SeedData
                 "Cp58Prepared" boolean NOT NULL,
                 CONSTRAINT "PK_BrokerCommissions" PRIMARY KEY ("Id")
             );
+            ALTER TABLE "BrokerCommissions" ADD COLUMN IF NOT EXISTS "DueDate" date NULL;
 
             CREATE TABLE IF NOT EXISTS "DebtRecoveryCases" (
                 "Id" uuid NOT NULL,

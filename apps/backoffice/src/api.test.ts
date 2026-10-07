@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   getStaffWhatsAppConnection,
+  getStaffWhatsAppHistory,
+  getStaffWhatsAppDiagnostics,
+  getStaffWhatsAppPolicies,
+  updateStaffWhatsAppPolicy,
   connectStaffWhatsApp,
   disconnectStaffWhatsApp,
+  resendStaffWhatsAppInvitation,
   getWhatsAppQueue,
   actOnWhatsAppQueue,
   saveWhatsAppConsent,
@@ -153,6 +158,7 @@ import {
   updateSupplierInvoice,
   updateSupplier,
   updateVehicle,
+  requestVehiclePublicationApproval,
   startOcrJob,
   reviewOcrJob,
   uploadVehicleDocument,
@@ -221,14 +227,43 @@ describe("backoffice api client", () => {
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ credentials: "include", method: "POST", body: JSON.stringify(input) });
     await disconnectStaffWhatsApp("synthetic");
     expect(fetchMock.mock.calls[2][1]).toMatchObject({ credentials: "include", method: "POST", body: JSON.stringify({ staffUserId: "synthetic" }) });
+    await resendStaffWhatsAppInvitation("synthetic");
+    expect(fetchMock.mock.calls[3][0]).toContain("/api/whatsapp/assistant/connection/invitation/resend");
+    expect(fetchMock.mock.calls[3][1]).toMatchObject({ credentials: "include", method: "POST", body: JSON.stringify({ staffUserId: "synthetic" }) });
     mockFetch({ message: "Staff access denied" }, false, 403);
     await expect(getStaffWhatsAppConnection()).rejects.toThrow("Staff access denied");
     await expect(connectStaffWhatsApp(input)).rejects.toThrow("Staff access denied");
     await expect(disconnectStaffWhatsApp()).rejects.toThrow("Staff access denied");
+    await expect(resendStaffWhatsAppInvitation()).rejects.toThrow("Staff access denied");
   });
   it("preserves WhatsApp authorization failures instead of returning demo notifications", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => JSON.stringify({ message: "Admin access required" }) }));
     await expect(getWhatsAppQueue()).rejects.toThrow("Admin access required");
+  });
+
+  it("uses the BossAdmin staff WhatsApp contract and returns the save acknowledgement", async () => {
+    const fetchMock = mockFetch({ message: "Policy saved" });
+    expect(await updateStaffWhatsAppPolicy("LeaveApproval", {
+      enabled: true, localMinuteOfDay: 540, leadDays: 0, thresholdPercent: 0
+    })).toEqual({ message: "Policy saved" });
+    expect(fetchMock.mock.calls[0]).toEqual([
+      "http://localhost:5000/api/whatsapp/staff/policies/LeaveApproval",
+      expect.objectContaining({
+        method: "PUT", credentials: "include",
+        body: JSON.stringify({ enabled: true, localMinuteOfDay: 540, leadDays: 0, thresholdPercent: 0 })
+      })
+    ]);
+    await getStaffWhatsAppPolicies();
+    expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:5000/api/whatsapp/staff/policies");
+    await getStaffWhatsAppHistory({ from: "2026-10-01", to: "2026-10-07", staffUserId: "staff & one", category: "LeaveApproval", status: "Accepted", page: 2 });
+    expect(fetchMock.mock.calls[2][0]).toContain("staffUserId=staff+%26+one");
+    expect(fetchMock.mock.calls[2][0]).toContain("status=Accepted");
+    await getStaffWhatsAppDiagnostics();
+    expect(fetchMock.mock.calls[3]).toEqual(["http://localhost:5000/api/whatsapp/staff/diagnostics", expect.objectContaining({ credentials: "include" })]);
+    mockFetch({ message: "Admin access required" }, false, 403);
+    await expect(getStaffWhatsAppPolicies()).rejects.toThrow("Admin access required");
+    await expect(getStaffWhatsAppHistory()).rejects.toThrow("Admin access required");
+    await expect(getStaffWhatsAppDiagnostics()).rejects.toThrow("Admin access required");
   });
 
   it("uses authenticated WhatsApp mutations with explicit consent and action", async () => {
@@ -648,6 +683,15 @@ describe("backoffice api client", () => {
         credentials: "include",
         body: JSON.stringify(vehicle)
       })
+    );
+  });
+
+  it("requests listing approval without changing or publishing the vehicle", async () => {
+    const fetchMock = mockFetch({ message: "Approval request recorded." });
+    await expect(requestVehiclePublicationApproval("vehicle-1")).resolves.toEqual({ message: "Approval request recorded." });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/api/vehicles/vehicle-1/request-publication-approval",
+      expect.objectContaining({ method: "POST", credentials: "include" })
     );
   });
 

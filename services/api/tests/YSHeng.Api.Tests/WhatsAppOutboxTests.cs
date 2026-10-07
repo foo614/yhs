@@ -1,5 +1,10 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using System.Security.Cryptography;
+using System.Text;
 using YSHeng.Api.Data;
 using YSHeng.Api.Features;
 using YSHeng.Api.Domain;
@@ -11,6 +16,120 @@ public sealed class WhatsAppOutboxTests
 {
     private const string Recipient = "60123456789";
     private const long Now = 1800000000;
+
+    [Fact]
+    public async Task Disabled_assistant_diagnostics_work_before_binding_schema_was_initialized()
+    {
+        // Upgraded installations with assistant off must still load admin diagnostics.
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        await db.Database.ExecuteSqlRawAsync("DROP TABLE \"WhatsAppStaffBindings\"");
+        var result = await WhatsAppStaffNotifications.DiagnosticsAsync(db, new WhatsAppAssistantOptions(), Now);
+        Assert.Equal(0, result.ConnectedStaff);
+    }
+
+    [Fact]
+    public void Ocr_usage_warning_threshold_and_zero_limit_use_existing_utc_period()
+    {
+        var reset = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        Assert.Null(WhatsAppOcrUsageAlerts.Project("workspace-monthly", "2026-10", 89, 100, 90, reset, "en_US"));
+        Assert.NotNull(WhatsAppOcrUsageAlerts.Project("workspace-monthly", "2026-10", 89, 90, 90, reset, "en_US"));
+        Assert.Null(WhatsAppOcrUsageAlerts.Project("workspace-monthly", "2026-10", 90, 0, 90, reset, "en_US"));
+        var warning = WhatsAppOcrUsageAlerts.Project("workspace-monthly", "2026-10", 90, 100, 90, reset, "en_US");
+        Assert.NotNull(warning);
+        Assert.Equal(90, warning.Percent);
+        Assert.Contains("90/100 (90%)", warning.Body);
+        Assert.Contains("2026-11-01 08:00 SGT", warning.Body);
+        var malay = WhatsAppOcrUsageAlerts.Project("staff-daily", "staff:2026-10-07", 9, 10, 90,
+            new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc), "ms", "Synthetic [Staff]");
+        Assert.Contains("OCR harian staf", malay!.Body);
+        Assert.DoesNotContain("[Staff]", malay.Body);
+        Assert.Contains("2026-10-08 08:00 SGT", malay.Body);
+        var alice = WhatsAppOcrUsageAlerts.Project("staff-daily", "alice:2026-10-07", 9, 10, 90,
+            reset, "en_US", "Alice [Ops]\nTeam");
+        var bob = WhatsAppOcrUsageAlerts.Project("staff-daily", "bob:2026-10-07", 9, 10, 90,
+            reset, "en_US", "Bob [Finance]\rTeam");
+        Assert.Contains("[Alice OpsTeam]", alice!.Body);
+        Assert.Contains("[Bob FinanceTeam]", bob!.Body);
+        Assert.NotEqual(alice.Body, bob.Body);
+        Assert.DoesNotContain('\n', alice.Body);
+        Assert.DoesNotContain('\r', bob.Body);
+    }
+
+    [Fact]
+    public async Task Ocr_usage_alerts_are_boss_only_deduped_across_rebind_and_refresh_current_limit()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var utc = new DateTimeOffset(2026, 10, 7, 1, 0, 0, TimeSpan.Zero);
+        var now = utc.ToUnixTimeSeconds();
+        db.AiServiceLimits.Add(new AiServiceLimit { Service = AiService.Ocr, MonthlyRequestLimit = 10,
+            PerStaffDailyRequestLimit = 100 });
+        db.WhatsAppStaffNotificationPolicies.Add(new WhatsAppStaffNotificationPolicy
+            { Category = "OcrUsage", Enabled = true, ThresholdPercent = 90 });
+        db.Roles.AddRange(new IdentityRole("BossAdmin") { Id = "boss-role", NormalizedName = "BOSSADMIN" },
+            new IdentityRole("Sales") { Id = "sales-role", NormalizedName = "SALES" });
+        var assistant = new WhatsAppAssistantOptions
+        {
+            Enabled = true, WebhookEnabled = true, TestMode = false, PhoneNumberId = "123", BusinessAccountId = "456",
+            GraphApiVersion = "v25.0", AppSecret = new string('s', 32), VerifyToken = new string('v', 32),
+            AccessToken = "synthetic-token"
+        };
+        foreach (var (id, role, phone) in new[]
+        {
+            ("boss-one", "boss-role", "60123456789"), ("boss-two", "boss-role", "60123456780"),
+            ("sales-one", "sales-role", "60123456781")
+        })
+        {
+            const string stamp = "synthetic-stamp";
+            db.Users.Add(new AppUser { Id = id, UserName = id, DisplayName = id, SecurityStamp = stamp });
+            db.UserRoles.Add(new IdentityUserRole<string> { UserId = id, RoleId = role });
+            db.WhatsAppStaffBindings.Add(new WhatsAppStaffBinding { StaffUserId = id, Recipient = phone,
+                PhoneNumberId = "123", SecurityStampHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(stamp))),
+                Language = id == "boss-two" ? "ms" : "en_US", VerifiedAt = now - 100 });
+        }
+        for (var i = 0; i < 8; i++) db.AiUsageRecords.Add(new AiUsageRecord
+            { Service = AiService.Ocr, StaffUserId = "sales-one", RequestedAt = utc.UtcDateTime, Status = AiUsageStatus.Failed });
+        await db.SaveChangesAsync();
+        Assert.Equal(0, await WhatsAppOcrUsageAlerts.EvaluateAsync(db, assistant, now, "test"));
+        db.AiUsageRecords.Add(new AiUsageRecord
+            { Service = AiService.Ocr, StaffUserId = "sales-one", RequestedAt = utc.UtcDateTime });
+        await db.SaveChangesAsync();
+        Assert.Equal(2, await WhatsAppOcrUsageAlerts.EvaluateAsync(db, assistant, now, "test"));
+        var rows = await db.WhatsAppOutbox.AsNoTracking().ToListAsync();
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, row => Assert.Equal("BossAdmin", row.RequiredStaffRole));
+        Assert.DoesNotContain(rows, row => row.StaffUserId == "sales-one");
+        Assert.Contains(rows, row => row.Language == "ms" && row.Body.Contains("bulanan organisasi"));
+        Assert.All(rows, row => Assert.Equal("Queued", row.State));
+        var firstBinding = await db.WhatsAppStaffBindings.SingleAsync(item => item.StaffUserId == "boss-one");
+        db.Entry(firstBinding).CurrentValues.SetValues(firstBinding with { RevokedAt = now + 1 });
+        db.WhatsAppStaffBindings.Add(firstBinding with { Id = Guid.NewGuid(), RevokedAt = null,
+            VerifiedAt = now + 1 });
+        await db.SaveChangesAsync();
+        await WhatsAppOcrUsageAlerts.EvaluateAsync(db, assistant, now + 2, "test");
+        Assert.Equal(2, await db.WhatsAppOutbox.CountAsync());
+        var limit = await db.AiServiceLimits.SingleAsync();
+        db.Entry(limit).CurrentValues.SetValues(limit with { MonthlyRequestLimit = 100 });
+        await db.SaveChangesAsync();
+        Assert.Null(await WhatsAppOcrUsageAlerts.RefreshForDispatchAsync(db, rows[0], now + 3));
+        db.Entry(limit).CurrentValues.SetValues(limit with { MonthlyRequestLimit = 9 });
+        await db.SaveChangesAsync();
+        Assert.NotNull(await WhatsAppOcrUsageAlerts.RefreshForDispatchAsync(db, rows[0], now + 4));
+        await WhatsAppOcrUsageAlerts.EvaluateAsync(db, assistant, now + 4, "test");
+        Assert.Equal(2, await db.WhatsAppOutbox.CountAsync());
+        var nextMonth = new DateTimeOffset(2026, 11, 2, 1, 0, 0, TimeSpan.Zero);
+        for (var i = 0; i < 9; i++) db.AiUsageRecords.Add(new AiUsageRecord
+            { Service = AiService.Ocr, StaffUserId = "sales-one", RequestedAt = nextMonth.UtcDateTime });
+        db.Entry(limit).CurrentValues.SetValues(limit with { IsEnabled = false });
+        await db.SaveChangesAsync();
+        Assert.Equal(0, await WhatsAppOcrUsageAlerts.EvaluateAsync(db, assistant, nextMonth.ToUnixTimeSeconds(), "test"));
+        db.Entry(limit).CurrentValues.SetValues(limit with { IsEnabled = true });
+        await db.SaveChangesAsync();
+        Assert.Equal(2, await WhatsAppOcrUsageAlerts.EvaluateAsync(db, assistant, nextMonth.ToUnixTimeSeconds(), "recovery"));
+        Assert.Equal(4, await db.WhatsAppOutbox.CountAsync());
+        Assert.Null(await WhatsAppOcrUsageAlerts.RefreshForDispatchAsync(db, rows[0], nextMonth.ToUnixTimeSeconds()));
+    }
 
     [Theory]
     [InlineData("+60123456789", true)]
@@ -553,6 +672,10 @@ public sealed class WhatsAppOutboxTests
             Assert.True(await WhatsAppNotificationWebhook.ApplyAsync(db, body.RootElement, WhatsAppDispatchTestData.Options(), Now));
         }
         Assert.Equal("Read", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
+        var confirmed = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal(Now, confirmed.ReadAt);
+        Assert.Equal(Now, confirmed.DeliveredAt);
+        Assert.Equal(Now, confirmed.SentAt);
         Assert.Equal(1, await db.AuditLogs.CountAsync(row => row.Action == "whatsapp.Read" && row.Actor == "whatsapp-webhook"));
         using var unknown = System.Text.Json.JsonDocument.Parse(Callback(status: "read", id: "wamid.unknown"));
         Assert.True(await WhatsAppNotificationWebhook.ApplyAsync(db, unknown.RootElement, WhatsAppDispatchTestData.Options(), Now));
@@ -597,6 +720,287 @@ public sealed class WhatsAppOutboxTests
                 messages = status is null ? new[] { new { id = "wamid.inbound", from = Recipient, type = "text", text = new { body = command } } } : [],
                 statuses = status is not null ? new[] { new { id, recipient_id = Recipient, status } } : [] }
         } } } } });
+
+    [Fact]
+    public async Task Staff_and_customer_with_same_number_keep_independent_consent_and_queue_actions()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        var staged = await WhatsAppStaffNotifications.StageAsync(db, assistant, binding.Id, "OutstandingDigest", "BossAdmin",
+            "2027-01-01", 1, "Current synthetic digest", Now, Now + 3600, Now, "admin");
+        Assert.NotNull(staged);
+        await db.SaveChangesAsync();
+        await WhatsAppOutboxStore.SetConsentAsync(db, Recipient, false, "customer withdrawal", Now + 1);
+        Assert.Equal("Queued", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
+        Assert.Empty(await WhatsAppAdministration.ListAsync(db, null, 1, Recipient));
+        Assert.False(await WhatsAppAdministration.SuppressAsync(db, staged!.Id, "admin"));
+        await WhatsAppStaffBindings.RevokeAsync(db, "staff-notification", "staff", Now + 2);
+        Assert.Equal("Suppressed", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
+    }
+
+    [Fact]
+    public async Task Staff_send_rechecks_exact_role_and_records_only_submitted_content()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        var first = await WhatsAppStaffNotifications.StageAsync(db, assistant, binding.Id, "OutstandingDigest", "BossAdmin",
+            "2027-01-01", 1, "Private boss digest", Now, Now + 3600, Now, "admin");
+        await db.SaveChangesAsync();
+        var duplicate = await WhatsAppStaffNotifications.StageAsync(db, assistant, binding.Id, "OutstandingDigest", "BossAdmin",
+            "2027-01-01", 1, "Changed facts", Now, Now + 3600, Now, "admin");
+        Assert.Equal(first!.Id, duplicate!.Id);
+        await db.UserRoles.Where(row => row.UserId == "staff-notification").ExecuteDeleteAsync();
+        db.Roles.Add(new IdentityRole("Sales") { Id = "notification-sales", NormalizedName = "SALES" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff-notification", RoleId = "notification-sales" });
+        await db.SaveChangesAsync();
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (_, _) =>
+            throw new InvalidOperationException("Boss-only content must not send"), Now, assistant: assistant,
+            currentStaffFacts: (_, _, _) => Task.FromResult(true)));
+        var suppressed = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal("Suppressed", suppressed.State);
+        Assert.Null(suppressed.SubmittedBody);
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (_, _) =>
+            throw new InvalidOperationException("No second send"), Now, assistant: assistant,
+            currentStaffFacts: (_, _, _) => Task.FromResult(true)));
+    }
+
+    [Fact]
+    public async Task Staff_accepted_send_preserves_exact_payload_snapshot_and_filtered_history()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        var item = await WhatsAppStaffNotifications.StageAsync(db, assistant, binding.Id, "OutstandingDigest", "BossAdmin",
+            "2027-01-02", 1, "Synthetic current facts", Now, Now + 3600, Now, "admin");
+        await db.SaveChangesAsync();
+        Assert.Null((await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).SubmittedBody);
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (row, _) =>
+        {
+            Assert.Equal("Synthetic current facts", row.TemplateReference);
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.synthetic-staff"));
+        }, Now, assistant: assistant, currentStaffFacts: (_, _, _) => Task.FromResult(true)));
+        var accepted = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal("Accepted", accepted.State);
+        Assert.Equal(Now, accepted.AcceptedAt);
+        Assert.Equal("Synthetic current facts", accepted.SubmittedBody);
+        Assert.Equal("approved_staff_notice", accepted.SubmittedTemplateName);
+        Assert.Equal("ms", accepted.SubmittedLanguage);
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (_, _) =>
+            throw new InvalidOperationException("Duplicate submission"), Now, assistant: assistant,
+            currentStaffFacts: (_, _, _) => Task.FromResult(true)));
+        var history = await WhatsAppStaffNotifications.HistoryAsync(db, null, null, "staff-notification", "OutstandingDigest",
+            "Accepted", 1, Now);
+        var displayed = Assert.Single(history.Items);
+        Assert.Equal(item!.Id, displayed.Id);
+        Assert.Equal("***6789", displayed.MaskedNumber);
+        Assert.Equal("Synthetic staff", displayed.StaffName);
+        Assert.Equal("Synthetic current facts", displayed.SubmittedBody);
+        Assert.False(displayed.CanRetry);
+        Assert.Empty((await WhatsAppStaffNotifications.HistoryAsync(db, null, null, "staff-notification", "OcrUsage",
+            null, 1, Now)).Items);
+    }
+
+    [Fact]
+    public async Task Staff_dispatch_submits_refreshed_due_parameter_after_one_item_is_paid()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        var vehicle = new Vehicle { PlateNumber = "FRESH123" };
+        var settlement = new SettlementReminder { VehicleId = vehicle.Id, Deadline = day, Amount = 100,
+            Direction = SettlementDirection.PaySeller };
+        db.Vehicles.Add(vehicle);
+        db.SettlementReminders.Add(settlement);
+        db.DailySpends.Add(new DailySpend { DueDate = day, Amount = 20 });
+        await db.SaveChangesAsync();
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        await WhatsAppStaffNotifications.StageCurrentDayDigestAsync(db, assistant, binding.Id, "OutstandingDigest",
+            "BossAdmin", "STALE boss body", 1, Now, "admin");
+        await db.SaveChangesAsync();
+        await db.SettlementReminders.Where(item => item.Id == settlement.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.IsPaid, true));
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (row, _) =>
+        {
+            Assert.Contains("Perbelanjaan RM20.00", row.TemplateReference);
+            Assert.DoesNotContain("STALE", row.TemplateReference);
+            Assert.DoesNotContain("FRESH123", row.TemplateReference);
+            Assert.Equal(row.TemplateReference, row.Body);
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.refreshed"));
+        }, Now, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        var sent = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal("Accepted", sent.State);
+        Assert.Equal(sent.TemplateReference, sent.SubmittedBody);
+        Assert.Equal(sent.Body, sent.SubmittedBody);
+        Assert.Equal("approved_staff_notice", sent.SubmittedTemplateName);
+    }
+
+    [Fact]
+    public async Task Staff_dispatch_suppresses_reassigned_delivery_without_submitting_stale_body()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+        await db.UserRoles.Where(row => row.UserId == "staff-notification").ExecuteDeleteAsync();
+        db.Roles.Add(new IdentityRole("Sales") { Id = "notification-sales-reassign", NormalizedName = "SALES" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff-notification", RoleId = "notification-sales-reassign" });
+        var vehicle = new Vehicle { PlateNumber = "ASSIGN123", SalesAgentUserId = "staff-notification" };
+        var delivery = new DeliverySchedule { VehicleId = vehicle.Id, ScheduledDate = WhatsAppStaffNotifications.LocalDate(Now),
+            Status = DeliveryStatus.Scheduled };
+        db.Vehicles.Add(vehicle); db.DeliverySchedules.Add(delivery);
+        await db.SaveChangesAsync();
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        await WhatsAppStaffNotifications.StageCurrentDayDigestAsync(db, assistant, binding.Id, "OutstandingDigest",
+            "Sales", "STALE assignment", 1, Now, "admin");
+        await db.SaveChangesAsync();
+        await db.Vehicles.Where(item => item.Id == vehicle.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.SalesAgentUserId, "another-sales"));
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (_, _) =>
+            throw new InvalidOperationException("Reassigned Sales body must not be sent"), Now,
+            assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        var suppressed = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal("Suppressed", suppressed.State);
+        Assert.Null(suppressed.SubmittedBody);
+    }
+
+    [Fact]
+    public async Task Ocr_quota_commit_survives_warning_evaluation_failure()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        db.AiServiceLimits.Add(new AiServiceLimit { Service = AiService.Ocr, MonthlyRequestLimit = 10,
+            PerStaffDailyRequestLimit = 10 });
+        await db.SaveChangesAsync();
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var quota = new AiUsageQuotaService(db, provider.GetRequiredService<IServiceScopeFactory>(),
+            StaffAssistant(), NullLogger<AiUsageQuotaService>.Instance);
+        var result = await quota.ReserveOcrAsync(Guid.NewGuid(), "synthetic-staff");
+        Assert.True(result.IsAllowed);
+        Assert.Single(await db.AiUsageRecords.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Staff_daily_schedule_uses_saved_local_time_and_disabled_defaults()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        var defaults = await WhatsAppStaffNotifications.PoliciesAsync(db, StaffDispatch());
+        Assert.All(defaults, policy => Assert.False(policy.Enabled));
+        Assert.Equal(540, defaults.Single(policy => policy.Category == "LeaveApproval").LocalMinuteOfDay);
+        Assert.True(await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "LeaveApproval", new(true, 615, 0, 0), "admin", Now));
+        Assert.False(await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "VehicleEvent", new(true, 615, 0, 0), "admin", Now));
+        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        var dueAt = WhatsAppStaffNotifications.LocalDayDueAt(day, 615);
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        Assert.Null(await WhatsAppStaffNotifications.StageCurrentDayDigestAsync(db, assistant, binding.Id, "LeaveApproval",
+            "BossAdmin", "Current approvals", 1, dueAt - 1, "admin"));
+        var staged = await WhatsAppStaffNotifications.StageCurrentDayDigestAsync(db, assistant, binding.Id,
+            "LeaveApproval", "BossAdmin", "Current approvals", 1, dueAt, "admin");
+        Assert.Equal(dueAt, staged!.ScheduledAt);
+        Assert.Equal(WhatsAppStaffNotifications.LocalDayDueAt(day.AddDays(1), 0), staged.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task Staff_daily_key_is_user_category_day_scoped_even_when_role_changes()
+    {
+        await using var fixture = await Fixture.Create(); await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        db.Roles.Add(new IdentityRole("Sales") { Id = "notification-sales-daily", NormalizedName = "SALES" });
+        db.UserRoles.Add(new IdentityUserRole<string>
+            { UserId = "staff-notification", RoleId = "notification-sales-daily" });
+        await db.SaveChangesAsync();
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        var sales = await WhatsAppStaffNotifications.StageCurrentDayDigestAsync(db, assistant, binding.Id,
+            "OutstandingDigest", "Sales", "Synthetic Sales projection", 1, Now, "scheduler");
+        await db.SaveChangesAsync();
+        var boss = await WhatsAppStaffNotifications.StageCurrentDayDigestAsync(db, assistant, binding.Id,
+            "OutstandingDigest", "BossAdmin", "Synthetic Boss projection", 1, Now, "scheduler");
+        Assert.Equal(sales!.Id, boss!.Id);
+        Assert.Equal(1, await db.WhatsAppOutbox.CountAsync());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Workflow_receipt_dispatch_is_amount_free_deduplicated_and_assignment_bound(bool reassign)
+    {
+        // The new FinanceEvent/Sales route must never admit arbitrary finance bodies
+        // or deliver an old receipt event after a vehicle's Sales assignment changes.
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        db.Roles.Add(new IdentityRole("Sales") { Id = "workflow-sales", NormalizedName = "SALES" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff-notification", RoleId = "workflow-sales" });
+        var vehicle = new Vehicle { PlateNumber = "WFT123", SalesAgentUserId = "staff-notification" };
+        var payment = new PaymentRecord { VehicleId = vehicle.Id, ReceiptNumber = "PRIVATE_REFERENCE", NettPrice = 43210 };
+        db.Vehicles.Add(vehicle);
+        db.PaymentRecords.Add(payment);
+        await db.SaveChangesAsync();
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "FinanceEvent", new(true, 0, 0, 0), "admin", Now);
+        await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.ReceiptSaved, payment.Id, 1, vehicle, "synthetic", Now);
+        await db.SaveChangesAsync();
+        Assert.Equal(1, await WhatsAppWorkflowDispatch.EnqueueAsync(db, assistant, Now));
+        Assert.Equal(0, await WhatsAppWorkflowDispatch.EnqueueAsync(db, assistant, Now + 1));
+        if (reassign)
+            await db.Vehicles.Where(row => row.Id == vehicle.Id).ExecuteUpdateAsync(set => set.SetProperty(row => row.SalesAgentUserId, "other-sales"));
+        var calls = 0;
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (row, _) =>
+        {
+            calls++;
+            Assert.DoesNotContain("PRIVATE", row.TemplateReference);
+            Assert.DoesNotContain("43210", row.TemplateReference);
+            Assert.Contains("WFT123", row.TemplateReference);
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.synthetic.workflow"));
+        }, Now + 2, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        var delivered = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal(reassign ? 0 : 1, calls);
+        Assert.Equal(reassign ? "Suppressed" : "Accepted", delivered.State);
+        if (reassign) Assert.Null(delivered.SubmittedBody);
+        else Assert.Equal(delivered.TemplateReference, delivered.SubmittedBody);
+    }
+
+    private static WhatsAppAssistantOptions StaffAssistant() => new()
+    {
+        Enabled = true, WebhookEnabled = true, TestMode = true, TestRecipient = Recipient,
+        PhoneNumberId = "12345", BusinessAccountId = "45678", GraphApiVersion = "v25.0",
+        AppSecret = new string('s', 32), VerifyToken = new string('v', 32), AccessToken = "synthetic-token"
+    };
+
+    private static WhatsAppDispatchOptions StaffDispatch() => new()
+    {
+        StaffCaptureEnabled = true, StaffSendingEnabled = true, WebhookEnabled = true, SenderApproved = true,
+        SenderApprovalEvidence = "synthetic approved sender", GraphApiVersion = "v25.0", PhoneNumberId = "12345",
+        BusinessAccountId = "45678", AccessToken = "synthetic-token", AppSecret = "synthetic-secret",
+        VerifyToken = "synthetic-verify", BudgetOwner = "synthetic budget", DailyAttemptLimit = 10,
+        MonthlyBudgetSen = 100, MaximumCostPerAttemptSen = 10, CostCeilingConfirmed = true,
+        Templates = [new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Name = "approved_staff_notice",
+            Language = "ms", Approved = true, ApprovalEvidence = "synthetic approved template" }]
+    };
+
+    private static async Task AddStaffBinding(AppDbContext db, WhatsAppAssistantOptions assistant)
+    {
+        db.Users.Add(new AppUser { Id = "staff-notification", UserName = "staff-notification", DisplayName = "Synthetic staff",
+            SecurityStamp = "synthetic-stamp" });
+        db.Roles.Add(new IdentityRole("BossAdmin") { Id = "notification-boss", NormalizedName = "BOSSADMIN" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff-notification", RoleId = "notification-boss" });
+        await db.SaveChangesAsync();
+        var issued = await WhatsAppStaffBindings.IssueAsync(db, assistant, "staff-notification",
+            new(Recipient, "ms", true), "synthetic actor", Now);
+        Assert.True(await WhatsAppStaffBindings.VerifyAsync(db, assistant, Recipient, issued.Command[5..], "notification-link", Now));
+    }
 
     private sealed class Fixture(SqliteConnection anchor, DbContextOptions<AppDbContext> options) : IAsyncDisposable
     {

@@ -58,6 +58,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<WhatsAppConsent> WhatsAppConsents => Set<WhatsAppConsent>();
     public DbSet<WhatsAppOutbox> WhatsAppOutbox => Set<WhatsAppOutbox>();
+    public DbSet<WhatsAppStaffNotificationPolicy> WhatsAppStaffNotificationPolicies => Set<WhatsAppStaffNotificationPolicy>();
+    public DbSet<WhatsAppWorkflowEvent> WhatsAppWorkflowEvents => Set<WhatsAppWorkflowEvent>();
     public DbSet<WhatsAppDispatchUsage> WhatsAppDispatchUsage => Set<WhatsAppDispatchUsage>();
     public DbSet<WhatsAppStaffBinding> WhatsAppStaffBindings => Set<WhatsAppStaffBinding>();
     public DbSet<WhatsAppStaffChallenge> WhatsAppStaffChallenges => Set<WhatsAppStaffChallenge>();
@@ -82,6 +84,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<WhatsAppOutbox>().HasIndex(item => item.IdempotencyKey).IsUnique();
         builder.Entity<WhatsAppOutbox>().HasIndex(item => item.ProviderMessageId).IsUnique();
         builder.Entity<WhatsAppOutbox>().HasIndex(item => new { item.State, item.NextAttemptAt });
+        builder.Entity<WhatsAppOutbox>().HasIndex(item => new { item.Audience, item.StaffUserId, item.CreatedAt });
+        builder.Entity<WhatsAppOutbox>().HasOne<WhatsAppStaffBinding>().WithMany().HasForeignKey(item => item.StaffBindingId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<WhatsAppStaffNotificationPolicy>().HasKey(item => item.Category);
+        builder.Entity<WhatsAppWorkflowEvent>().HasIndex(item => item.EventKey).IsUnique();
+        builder.Entity<WhatsAppWorkflowEvent>().HasIndex(item => new { item.State, item.CreatedAt });
+        builder.Entity<WhatsAppWorkflowEvent>().HasIndex(item => new { item.EventKind, item.SourceId, item.SourceVersion }).IsUnique();
         builder.Entity<Vehicle>().HasIndex(vehicle => vehicle.PlateNumber).IsUnique();
         builder.Entity<VehicleCatalogModel>().HasIndex(item => new { item.Make, item.Model }).IsUnique();
         builder.Entity<StockMovement>().HasIndex(movement => new { movement.VehicleId, movement.CreatedAt });

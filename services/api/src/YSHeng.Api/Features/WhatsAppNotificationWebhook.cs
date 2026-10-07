@@ -61,6 +61,11 @@ public static class WhatsAppNotificationWebhook
                         await WhatsAppOutboxStore.SetConsentAsync(db, recipient, false, "Recipient requested withdrawal via signed WhatsApp callback",
                             now, ct, actor: "whatsapp-webhook");
                     }
+                    var staffIds = await db.WhatsAppStaffBindings.AsNoTracking()
+                        .Where(row => row.Recipient == recipient && row.PhoneNumberId == options.PhoneNumberId && row.RevokedAt == null)
+                        .Select(row => row.StaffUserId).ToListAsync(ct);
+                    foreach (var staffId in staffIds)
+                        await WhatsAppStaffBindings.RevokeAsync(db, staffId, "whatsapp-webhook", now, ct);
                 }
                 foreach (var status in Array(value, "statuses"))
                 {
@@ -77,7 +82,10 @@ public static class WhatsAppNotificationWebhook
                             (row.State == "Sending" || row.State == "UnknownOutcome") && row.LeaseUntil > now - 120, ct)) reconciled = false;
                         continue;
                     }
-                    await WhatsAppOutboxStore.ApplyStatusAsync(db, recipient, new(id, state), ct, actor: "whatsapp-webhook");
+                    var callbackAt = long.TryParse(Text(status, "timestamp"), out var timestamp) && timestamp > 0 && timestamp <= now + 300
+                        ? timestamp : now;
+                    await WhatsAppOutboxStore.ApplyStatusAsync(db, recipient, new(id, state), ct,
+                        actor: "whatsapp-webhook", at: callbackAt);
                 }
             }
         }

@@ -25,9 +25,10 @@ if (whatsappAssistant.Ready)
 {
     builder.Services.AddSingleton<WhatsAppStaffSender>();
     builder.Services.AddHostedService<WhatsAppStaffWorker>();
+    builder.Services.AddHostedService<WhatsAppStaffProactiveWorker>();
 }
 builder.Services.AddSingleton(whatsappDispatch);
-if (whatsappDispatch.Ready)
+if (whatsappDispatch.Ready || whatsappDispatch.StaffReady || whatsappDispatch.InvitationReady)
 {
     builder.Services.AddSingleton<WhatsAppTemplateSender>();
     builder.Services.AddHostedService<WhatsAppNotificationWorker>();
@@ -236,11 +237,44 @@ app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest requ
 
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
 backOffice.MapGet("/whatsapp/assistant/connection", (HttpContext context, AppDbContext db, string? staffUserId, CancellationToken ct) =>
-    WhatsAppStaffApi.StatusAsync(context, db, whatsappAssistant, staffUserId, ct));
+    WhatsAppStaffApi.StatusAsync(context, db, whatsappAssistant, whatsappDispatch, staffUserId, ct));
 backOffice.MapPost("/whatsapp/assistant/connection", (HttpContext context, AppDbContext db, WhatsAppStaffConnectRequest request, CancellationToken ct) =>
-    WhatsAppStaffApi.ConnectAsync(context, db, whatsappAssistant, request, ct));
+    WhatsAppStaffApi.ConnectAsync(context, db, whatsappAssistant, whatsappDispatch, request, ct));
+backOffice.MapPost("/whatsapp/assistant/connection/invitation/resend", (HttpContext context, AppDbContext db, WhatsAppStaffDisconnectRequest request, CancellationToken ct) =>
+    WhatsAppStaffApi.ResendInvitationAsync(context, db, whatsappAssistant, whatsappDispatch, request, ct));
 backOffice.MapPost("/whatsapp/assistant/disconnect", (HttpContext context, AppDbContext db, WhatsAppStaffDisconnectRequest request, CancellationToken ct) =>
     WhatsAppStaffApi.DisconnectAsync(context, db, whatsappAssistant, request, ct));
+
+backOffice.MapGet("/whatsapp/staff/policies", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(await WhatsAppStaffNotifications.PoliciesAsync(db, whatsappDispatch, ct));
+}).RequireAuthorization("BossAdmin");
+backOffice.MapGet("/whatsapp/staff/diagnostics", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(await WhatsAppStaffNotifications.DiagnosticsAsync(db, whatsappAssistant,
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+}).RequireAuthorization("BossAdmin");
+backOffice.MapPut("/whatsapp/staff/policies/{category}", async (string category, WhatsAppStaffPolicyUpdate request,
+    AppDbContext db, HttpContext context, CancellationToken ct) =>
+{
+    var updated = await WhatsAppStaffNotifications.UpdatePolicyAsync(db, category, request,
+        AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct);
+    return updated ? Results.Ok(new { message = "Staff WhatsApp policy saved." })
+        : Results.BadRequest(new ApiError("Invalid category or settings."));
+}).RequireAuthorization("BossAdmin");
+backOffice.MapGet("/whatsapp/staff/history", async (DateOnly? from, DateOnly? to, string? staffUserId,
+    string? category, string? status, int? page, AppDbContext db, HttpContext context, CancellationToken ct) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    try
+    {
+        return Results.Ok(await WhatsAppStaffNotifications.HistoryAsync(db, from, to, staffUserId, category, status,
+            page ?? 1, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+    }
+    catch (ArgumentException) { return Results.BadRequest(new ApiError("Invalid staff history filters.")); }
+}).RequireAuthorization("BossAdmin");
 
 backOffice.MapGet("/whatsapp/queue", async (AppDbContext db, string? state, int? page) =>
 {
@@ -664,6 +698,8 @@ backOffice.MapPost("/vehicle-intakes", async (HttpRequest httpRequest, AppDbCont
         db.DocumentBlobs.Add(vocDocument);
         ApiAudit.Add(db, context.User, "vehicle.document.uploadedFromVehicleIntake", nameof(DocumentBlob), vocDocument.Id);
     }
+    await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.Intake, vehicle.Id, 1, vehicle,
+        AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), cancellationToken);
     try
     {
         await db.SaveChangesAsync(cancellationToken);
@@ -711,6 +747,8 @@ backOffice.MapPost("/vehicles", async (Vehicle vehicle, AppDbContext db, HttpCon
     {
         ApiAudit.Add(db, context.User, "vehicle.approved", nameof(Vehicle), vehicle.Id);
     }
+    await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.Intake, vehicle.Id, 1, vehicle,
+        AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     await db.SaveChangesAsync();
     return Results.Created($"/api/vehicles/{vehicle.Id}", vehicle);
 }).RequireAuthorization("Vehicles");
@@ -796,12 +834,33 @@ backOffice.MapPut("/vehicles/{id:guid}", async (Guid id, Vehicle update, AppDbCo
         ApiAudit.Add(db, context.User, update.BossConfirmed ? "vehicle.approved" : "vehicle.approvalRevoked", nameof(Vehicle), update.Id);
     }
     await db.SaveChangesAsync();
+    if (existingSnapshot.BossConfirmed != update.BossConfirmed && update.BossConfirmed)
+        await WhatsAppWorkflowEvents.ResolvePublicationAsync(db, id, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     await db.Vehicles
         .Where(vehicle => vehicle.Id == id && !vehicle.BossConfirmed && vehicle.IsPublic)
         .ExecuteUpdateAsync(setters => setters.SetProperty(vehicle => vehicle.IsPublic, false));
     await db.Entry(existingVehicle).ReloadAsync();
     await vehicleTransaction.CommitAsync();
     return Results.Ok(existingVehicle);
+}).RequireAuthorization("Vehicles");
+
+backOffice.MapPost("/vehicles/{id:guid}/request-publication-approval", async (Guid id, AppDbContext db, HttpContext context) =>
+{
+    await using var transaction = await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [id]);
+    var vehicle = await db.Vehicles.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id);
+    if (vehicle is null) return Results.NotFound();
+    if (vehicle.Status != VehicleStatus.Available || vehicle.BossConfirmed || vehicle.IsPublic)
+        return Results.Conflict(new ApiError("Only an available, unpublished vehicle awaiting management approval can request listing approval."));
+    var requestedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    if (await WhatsAppWorkflowEvents.HasOpenPublicationRequestAsync(db, id, requestedAt))
+        return Results.Conflict(new ApiError("A listing approval request is already open for this vehicle."));
+    var version = await WhatsAppWorkflowEvents.NextVersionAsync(db, WhatsAppWorkflowEvents.PublicationRequest, id);
+    await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.PublicationRequest, id, version, vehicle,
+        AuditTrail.ActorFrom(context.User), requestedAt);
+    ApiAudit.Add(db, context.User, "vehicle.publicationApprovalRequested", nameof(Vehicle), id);
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+    return Results.Ok(new { message = "Listing approval requested for Boss/Admin review." });
 }).RequireAuthorization("Vehicles");
 
 backOffice.MapGet("/vehicles/{id:guid}/stock-movements", async (Guid id, AppDbContext db) =>
@@ -1132,6 +1191,9 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         db.DeliveryActivities.Add(DeliveryActivityAudit.Create(linkedDelivery.Id, context, $"Uploaded {category} evidence", "EvidenceUploaded"));
     }
     ApiAudit.Add(db, context.User, "vehicle.document.uploaded", nameof(DocumentBlob), document.Id);
+    if (paymentRecordId.HasValue && category is FileCategory.PaymentReceipt or FileCategory.PaymentInvoice)
+        await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.ReceiptEvidence, document.Id, 1, vehicle,
+            AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     await db.SaveChangesAsync();
     if (deliveryTransaction is not null) await deliveryTransaction.CommitAsync();
     if (collectionUploadTransaction is not null) await collectionUploadTransaction.CommitAsync();
@@ -1973,6 +2035,8 @@ backOffice.MapPost("/deliveries/{id:guid}/release", async (Guid id, AppDbContext
         : $"Vehicle released to customer; {soldLeadCount} lead closed Sold and {lostLeadCount} closed Lost";
     db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, releaseSummary, "Released"));
     ApiAudit.Add(db, context.User, "delivery.released", nameof(DeliverySchedule), id);
+    await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.DeliveryRelease, id, 1, vehicle,
+        AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     await db.SaveChangesAsync();
     await releaseTransaction.CommitAsync();
     return Results.Ok(released);
@@ -1998,6 +2062,7 @@ backOffice.MapPost("/deliveries/{id:guid}/cancel", async (Guid id, DeliveryCance
     };
     db.Entry(delivery).CurrentValues.SetValues(cancelled);
     await DeliveryPaymentScheduleSync.ApplyAsync(db, cancelled);
+    await WhatsAppWorkflowEvents.ResolveInvoiceUpdateAsync(db, id, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, $"Delivery cancelled: {request.Reason.Trim()}", "Cancelled"));
     ApiAudit.Add(db, context.User, "delivery.cancelled", nameof(DeliverySchedule), id);
     await db.SaveChangesAsync();
@@ -2086,6 +2151,10 @@ backOffice.MapPost("/deliveries/{id:guid}/request-invoice-update", async (Guid i
     db.Entry(delivery).CurrentValues.SetValues(updated);
     db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, $"Invoice update requested: {request.Reason.Trim()}", "InvoiceUpdateRequested"));
     ApiAudit.Add(db, context.User, "delivery.invoiceUpdateRequested", nameof(DeliverySchedule), id);
+    var invoiceVehicle = await db.Vehicles.AsNoTracking().SingleAsync(vehicle => vehicle.Id == delivery.VehicleId);
+    var invoiceEventVersion = await WhatsAppWorkflowEvents.NextVersionAsync(db, WhatsAppWorkflowEvents.InvoiceUpdateRequest, id);
+    await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.InvoiceUpdateRequest, id, invoiceEventVersion,
+        invoiceVehicle, AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     await db.SaveChangesAsync();
     await requestTransaction.CommitAsync();
     return Results.Ok(updated);
@@ -2120,6 +2189,7 @@ backOffice.MapPost("/deliveries/{id:guid}/resolve-invoice-update", async (Guid i
     db.Entry(delivery).CurrentValues.SetValues(updated);
     db.DeliveryActivities.Add(DeliveryActivityAudit.Create(id, context, "Finance resolved the invoice update request", "InvoiceUpdateResolved"));
     ApiAudit.Add(db, context.User, "delivery.invoiceUpdateResolved", nameof(DeliverySchedule), id);
+    await WhatsAppWorkflowEvents.ResolveInvoiceUpdateAsync(db, id, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     await db.SaveChangesAsync();
     await resolveTransaction.CommitAsync();
     return Results.Ok(new { id = updated.Id, resolvedAt = updated.InvoiceUpdateResolvedAt });
@@ -2537,6 +2607,9 @@ backOffice.MapPost("/payments", async (PaymentRecord payment, AppDbContext db, H
     db.Entry(vehicle).CurrentValues.SetValues(WorkflowStatusRules.ApplyWorkflowStatus(vehicle, loans, existingPayments.Append(payment), deliveries));
     db.PaymentRecords.Add(payment);
     ApiAudit.Add(db, context.User, "payment.created", nameof(PaymentRecord), payment.Id);
+    if (!string.IsNullOrWhiteSpace(payment.ReceiptNumber))
+        await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.ReceiptSaved, payment.Id, 1, vehicle,
+            AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     await db.SaveChangesAsync();
     await paymentTransaction.CommitAsync();
     return Results.Created($"/api/payments/{payment.Id}", payment);
@@ -2594,6 +2667,16 @@ backOffice.MapPut("/payments/{id:guid}", async (Guid id, PaymentRecord payment, 
     }
 
     db.PaymentRecords.Update(payment);
+    if (!string.IsNullOrWhiteSpace(payment.ReceiptNumber) &&
+        !string.Equals(existingPayment.ReceiptNumber, payment.ReceiptNumber, StringComparison.Ordinal))
+    {
+        var receiptVehicle = await db.Vehicles.AsNoTracking().SingleAsync(item => item.Id == payment.VehicleId);
+        var receiptKind = string.IsNullOrWhiteSpace(existingPayment.ReceiptNumber)
+            ? WhatsAppWorkflowEvents.ReceiptSaved : WhatsAppWorkflowEvents.ReceiptUpdated;
+        var receiptVersion = await WhatsAppWorkflowEvents.NextVersionAsync(db, receiptKind, payment.Id);
+        await WhatsAppWorkflowEvents.StageAsync(db, receiptKind, payment.Id, receiptVersion, receiptVehicle,
+            AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+    }
     if (PaymentManagementReviewRules.HasInvoiceRelatedChanges(existingPayment, payment))
     {
         await DeliveryInvoiceRequestResolution.ResolveForVehicleAsync(db, payment.VehicleId, context);
@@ -2907,6 +2990,8 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reconcile", async (Guid i
         var receipt = OfficialReceiptFactory.CreateForCollection(collection, payment, invoice, evidence, actorUserId, now);
         db.OfficialReceipts.Add(receipt);
         await WhatsAppBusinessEvents.StageReceiptAsync(db, receipt, whatsappCaptureEnabled, AuditTrail.ActorFrom(context.User));
+        await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.OfficialReceiptIssued, receipt.Id, 1, vehicle,
+            AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         var updated = collection with
         {
             Status = CollectionStatus.Reconciled,
@@ -2967,6 +3052,9 @@ backOffice.MapPost("/collection-transactions/{id:guid}/reverse", async (Guid id,
         collection = linked;
         ApiAudit.Add(db, context.User, "officialReceipt.voided", nameof(OfficialReceipt), receipt.Id);
         await WhatsAppBusinessEvents.StageReceiptVoidedAsync(db, receipt.Id, whatsappCaptureEnabled, AuditTrail.ActorFrom(context.User));
+        var receiptVehicle = await db.Vehicles.AsNoTracking().SingleAsync(item => item.Id == payment.VehicleId);
+        await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.OfficialReceiptVoided, receipt.Id, 1, receiptVehicle,
+            AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     }
     var aggregate = await FinanceApi.ApplyCollectionMutationAsync(db, collection);
     await db.SaveChangesAsync();
@@ -3211,6 +3299,8 @@ backOffice.MapPost("/cash-handovers/{id:guid}/accept", async (Guid id, AppDbCont
     }
     db.OfficialReceipts.Add(receipt);
     await WhatsAppBusinessEvents.StageReceiptAsync(db, receipt, whatsappCaptureEnabled, AuditTrail.ActorFrom(context.User));
+    await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.OfficialReceiptIssued, receipt.Id, 1, vehicle,
+        AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     db.Entry(handover).CurrentValues.SetValues(updated);
     ApiAudit.Add(db, context.User, "cashHandover.accepted", nameof(CashHandover), id);
     ApiAudit.Add(db, context.User, "officialReceipt.generated", nameof(OfficialReceipt), receipt.Id);
@@ -4901,7 +4991,8 @@ else
     await SeedData.EnsureVehicleIntakeTimestampSchemaAsync(app);
 }
 
-if (whatsappCaptureEnabled) await SeedData.EnsureWhatsAppSchemaAsync(app);
+await SeedData.EnsureWhatsAppSchemaAsync(app);
+await WhatsAppWorkflowEvents.EnsureSchemaAsync(app);
 if (whatsappAssistant.Ready)
 {
     using var assistantScope = app.Services.CreateScope();
