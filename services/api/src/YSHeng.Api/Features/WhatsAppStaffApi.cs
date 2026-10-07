@@ -44,7 +44,7 @@ public static class WhatsAppStaffApi
         if (user is null) return Results.Forbid();
         if (!options.Ready) return Results.Conflict(new ApiError("WhatsApp staff queries are disabled."));
         if (request.ManualLink && (!options.HasBusinessDisplayNumber ||
-            WhatsAppStaffBindings.InvitationReadyFor(options, dispatch, request.Language)))
+            WhatsAppStaffBindings.AnyInvitationReady(options, dispatch)))
             return Results.Conflict(new ApiError("Manual linking is unavailable while an invitation can be sent or the business number is not configured."));
         if (!request.ManualLink && dispatch is not null && !dispatch.InvitationReady)
             return Results.Conflict(new ApiError("Staff invitation sending is not enabled or its approved template is unavailable."));

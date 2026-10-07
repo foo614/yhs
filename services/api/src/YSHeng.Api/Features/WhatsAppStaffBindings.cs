@@ -65,6 +65,9 @@ public static class WhatsAppStaffBindings
         dispatch.BusinessAccountId == assistant.BusinessAccountId &&
         dispatch.TemplateFor(WhatsAppStaffInvitation.TemplateKey, language) is not null;
 
+    internal static bool AnyInvitationReady(WhatsAppAssistantOptions assistant, WhatsAppDispatchOptions? dispatch) =>
+        InvitationReadyFor(assistant, dispatch, "ms") || InvitationReadyFor(assistant, dispatch, "en_US");
+
     internal static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     internal static bool EqualHash(string first, string second) => first.Length == second.Length &&
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(first), Encoding.UTF8.GetBytes(second));
@@ -130,7 +133,7 @@ public static class WhatsAppStaffBindings
         var invitationReady = InvitationReadyFor(options, dispatch, request.Language);
         if (request.ManualLink)
         {
-            if (!options.HasBusinessDisplayNumber || invitationReady)
+            if (!options.HasBusinessDisplayNumber || AnyInvitationReady(options, dispatch))
                 throw new ArgumentException("Manual linking is unavailable while an invitation can be sent or the business number is not configured.");
         }
         else if (dispatch is not null && !invitationReady)

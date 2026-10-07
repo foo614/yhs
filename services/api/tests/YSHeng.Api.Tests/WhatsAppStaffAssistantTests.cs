@@ -746,7 +746,11 @@ public sealed class WhatsAppStaffAssistantTests
         var readyInvitation = await WhatsAppStaffApi.ConnectAsync(fixture.Context("staff"), fixture.Db, fixture.Options,
             InvitationDispatch(), new(fixture.Options.TestRecipient, "ms", true, ManualLink: true), default);
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(readyInvitation);
+        var otherLanguageManual = await WhatsAppStaffApi.ConnectAsync(fixture.Context("staff"), fixture.Db, fixture.Options,
+            InvitationDispatch(), new(fixture.Options.TestRecipient, "en_US", true, ManualLink: true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(otherLanguageManual);
         Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
+        Assert.Empty(await fixture.Db.WhatsAppOutbox.ToListAsync());
         await using var noDisplay = await Fixture.Create();
         var missingDisplay = await WhatsAppStaffApi.ConnectAsync(noDisplay.Context("staff"), noDisplay.Db, noDisplay.Options,
             unavailable, new(noDisplay.Options.TestRecipient, "ms", true, ManualLink: true), default);
