@@ -54,12 +54,20 @@ public sealed class WhatsAppAssistantOptions
 
 public sealed record WhatsAppStaffConnection(bool Enabled, string State, string? MaskedNumber = null, string Language = "ms", long? VerifiedAt = null,
     long? ExpiresAt = null, string? InvitationState = null, string? BusinessDisplayNumber = null, bool InvitationAvailable = false,
-    long? InvitationCreatedAt = null, IReadOnlyList<string>? InvitationLanguages = null);
-public sealed record WhatsAppStaffLinkRequest(string Recipient, string Language = "ms", bool ConsentConfirmed = false);
+    long? InvitationCreatedAt = null, IReadOnlyList<string>? InvitationLanguages = null, bool ManualLinkAvailable = false);
+public sealed record WhatsAppStaffLinkRequest(string Recipient, string Language = "ms", bool ConsentConfirmed = false, bool ManualLink = false);
 public sealed record WhatsAppStaffLinkResult(string Command, long ExpiresAt, string InvitationState, string? BusinessDisplayNumber);
 
 public static class WhatsAppStaffBindings
 {
+    internal static bool InvitationReadyFor(WhatsAppAssistantOptions assistant, WhatsAppDispatchOptions? dispatch, string language) =>
+        dispatch?.InvitationReady == true && dispatch.PhoneNumberId == assistant.PhoneNumberId &&
+        dispatch.BusinessAccountId == assistant.BusinessAccountId &&
+        dispatch.TemplateFor(WhatsAppStaffInvitation.TemplateKey, language) is not null;
+
+    internal static bool AnyInvitationReady(WhatsAppAssistantOptions assistant, WhatsAppDispatchOptions? dispatch) =>
+        InvitationReadyFor(assistant, dispatch, "ms") || InvitationReadyFor(assistant, dispatch, "en_US");
+
     internal static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     internal static bool EqualHash(string first, string second) => first.Length == second.Length &&
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(first), Encoding.UTF8.GetBytes(second));
@@ -90,9 +98,8 @@ public static class WhatsAppStaffBindings
         string userId, long now, CancellationToken ct = default, WhatsAppDispatchOptions? dispatch = null)
     {
         if (!options.Ready) return new(false, "Disabled", InvitationLanguages: []);
-        string[] languages = dispatch?.InvitationReady == true
-            ? [.. new[] { "ms", "en_US" }.Where(language => dispatch.TemplateFor(WhatsAppStaffInvitation.TemplateKey, language) is not null)]
-            : [];
+        var manualAvailable = options.HasBusinessDisplayNumber;
+        string[] languages = [.. new[] { "ms", "en_US" }.Where(language => InvitationReadyFor(options, dispatch, language))];
         var binding = await db.WhatsAppStaffBindings.AsNoTracking().SingleOrDefaultAsync(item => item.StaffUserId == userId && item.RevokedAt == null, ct);
         if (binding is not null)
         {
@@ -100,7 +107,7 @@ public static class WhatsAppStaffBindings
             var verified = Active(user, now) && EqualHash(binding.SecurityStampHash, Hash(user!.SecurityStamp!)) &&
                 (await RolesAsync(db, userId, ct)).Length > 0 && options.Allows(binding.Recipient) && binding.PhoneNumberId == options.PhoneNumberId;
             return new(true, verified ? "Connected" : "RelinkRequired", Mask(binding.Recipient), binding.Language,
-                binding.VerifiedAt, InvitationLanguages: []);
+                binding.VerifiedAt, InvitationLanguages: [], ManualLinkAvailable: manualAvailable);
         }
         var challenge = await db.WhatsAppStaffChallenges.AsNoTracking().SingleOrDefaultAsync(item => item.StaffUserId == userId, ct);
         if (challenge is { ConsumedAt: null } && challenge.ExpiresAt > now && challenge.FailedAttempts < 5)
@@ -109,10 +116,11 @@ public static class WhatsAppStaffBindings
                 item.StaffUserId == userId && item.BusinessReference == challenge.CodeHash)
                 .OrderByDescending(item => item.CreatedAt).Select(item => new { item.State, item.CreatedAt }).FirstOrDefaultAsync(ct);
             return new(true, "AwaitingVerification", Mask(challenge.Recipient), challenge.Language, null,
-                challenge.ExpiresAt, invite?.State, options.HasBusinessDisplayNumber ? options.BusinessDisplayNumber : null,
-                languages.Contains(challenge.Language), invite?.CreatedAt, languages);
+                challenge.ExpiresAt, invite?.State ?? "NotRequested", manualAvailable ? options.BusinessDisplayNumber : null,
+                invite is not null && languages.Contains(challenge.Language), invite?.CreatedAt, languages, manualAvailable);
         }
-        return new(true, "Disconnected", InvitationAvailable: languages.Length > 0, InvitationLanguages: languages);
+        return new(true, "Disconnected", InvitationAvailable: languages.Length > 0, InvitationLanguages: languages,
+            ManualLinkAvailable: manualAvailable);
     }
 
     public static async Task<WhatsAppStaffLinkResult> IssueAsync(AppDbContext db, WhatsAppAssistantOptions options,
@@ -122,7 +130,13 @@ public static class WhatsAppStaffBindings
         var recipient = WhatsAppOutboxStore.NormalizeRecipient(request.Recipient);
         if (!options.Allows(recipient) || !request.ConsentConfirmed || request.Language is not ("ms" or "en_US"))
             throw new ArgumentException("Confirm consent, a supported language and an eligible phone number.");
-        if (dispatch is not null && dispatch.TemplateFor(WhatsAppStaffInvitation.TemplateKey, request.Language) is null)
+        var invitationReady = InvitationReadyFor(options, dispatch, request.Language);
+        if (request.ManualLink)
+        {
+            if (!options.HasBusinessDisplayNumber || AnyInvitationReady(options, dispatch))
+                throw new ArgumentException("Manual linking is unavailable while an invitation can be sent or the business number is not configured.");
+        }
+        else if (dispatch is not null && !invitationReady)
             throw new ArgumentException("An approved invitation template is unavailable for the selected language.");
         await using var transaction = await LockAsync(db, ct);
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(item => item.Id == userId, ct);
@@ -149,7 +163,7 @@ public static class WhatsAppStaffBindings
             (item.State == "Queued" || item.State == "RetryScheduled"))
             .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, "Suppressed")
                 .SetProperty(item => item.SuppressedAt, now).SetProperty(item => item.FailureReason, "Invitation replaced"), ct);
-        if (dispatch is not null)
+        if (dispatch is not null && !request.ManualLink)
         {
             if (!dispatch.InvitationReady || dispatch.PhoneNumberId != options.PhoneNumberId ||
                 dispatch.BusinessAccountId != options.BusinessAccountId)
@@ -159,7 +173,7 @@ public static class WhatsAppStaffBindings
         Audit(db, Guid.NewGuid(), "linkRequested", actor);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
-        return new("link " + code, challenge.ExpiresAt, dispatch is null ? "Unavailable" : "Queued",
+        return new("link " + code, challenge.ExpiresAt, request.ManualLink ? "NotRequested" : dispatch is null ? "Unavailable" : "Queued",
             options.HasBusinessDisplayNumber ? options.BusinessDisplayNumber : null);
     }
 

@@ -125,8 +125,10 @@ await context.route("**/api/**", async route => {
   if (connectionChecks && request.method() === "POST" && ["/api/whatsapp/assistant/connection", "/api/whatsapp/assistant/disconnect"].includes(path)) {
     connectionMutations.push({ path, body: request.postDataJSON() });
     const linking = path.endsWith("/connection");
+    const manual = request.postDataJSON()?.manualLink === true;
     fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, invitationAvailable: true, state: linking ? "AwaitingVerification" : "Disconnected", language: "ms", ...(linking ? { maskedNumber: "***6789", invitationState: "Queued", expiresAt: Math.floor(Date.now() / 1000) + 600 } : {}) };
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(linking ? { command: "link " + "A".repeat(32), expiresAt: Math.floor(Date.now() / 1000) + 600 } : { message: "Synthetic disconnect" }) });
+    if (manual) Object.assign(fixtures["/api/whatsapp/assistant/connection"], { invitationAvailable: false, manualLinkAvailable: true, invitationState: "NotRequested" });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(linking ? { command: "link " + "A".repeat(32), invitationState: manual ? "NotRequested" : "Queued", businessDisplayNumber: "60111111111", expiresAt: Math.floor(Date.now() / 1000) + 600 } : { message: "Synthetic disconnect" }) });
     return;
   }
   const known = path in fixtures || emptyCollections.has(path);
@@ -337,6 +339,25 @@ try {
           await drawer.getByText("Not connected", { exact: true }).waitFor();
           if (connectionMutations.length !== 2) throw new Error("Confirmed disconnect must make exactly one request.");
           await inspect("whatsapp-disconnected", width);
+          fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, invitationAvailable: false, invitationLanguages: [], manualLinkAvailable: true, state: "Disconnected", language: "ms" };
+          await drawer.getByRole("button", { name: "Refresh status", exact: true }).click();
+          await drawer.getByText("Connect without an invitation", { exact: true }).waitFor();
+          await drawer.getByRole("textbox", { name: "WhatsApp number (with country code)", exact: true }).fill("60123456789");
+          await drawer.getByRole("button", { name: "Create verification command", exact: true }).click();
+          await drawer.getByText("Confirm agreement before connecting.", { exact: true }).waitFor();
+          if (connectionMutations.length !== 2) throw new Error("Manual linking must not bypass consent.");
+          await drawer.getByRole("checkbox").check();
+          await drawer.getByRole("button", { name: "Create verification command", exact: true }).click();
+          await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+          if (connectionMutations.length !== 2) throw new Error("Cancelled manual linking must not create a command.");
+          await drawer.getByRole("button", { name: "Create verification command", exact: true }).click();
+          await confirm.getByRole("button", { name: "Create verification command", exact: true }).click();
+          await drawer.getByText("link " + "A".repeat(32), { exact: true }).waitFor();
+          if (connectionMutations.length !== 3 || connectionMutations[2].body.manualLink !== true || connectionMutations[2].body.consentConfirmed !== true || connectionMutations[2].body.staffUserId) throw new Error("Manual linking must be explicit, consented and scoped to self.");
+          if (await drawer.getByRole("button", { name: "Resend invitation", exact: true }).count()) throw new Error("Manual linking must not offer invitation resend.");
+          const verifyLink = drawer.getByRole("link", { name: "Open WhatsApp & Verify", exact: true });
+          if (!(await verifyLink.getAttribute("href"))?.startsWith("https://wa.me/60111111111?text=link")) throw new Error("Manual verification must target the configured business number.");
+          await inspect("whatsapp-manual-verification", width);
           await closeOverlay();
           connectionChecks = false;
           fixtures["/api/whatsapp/assistant/connection"] = { enabled: false, state: "Disabled", language: "ms" };
