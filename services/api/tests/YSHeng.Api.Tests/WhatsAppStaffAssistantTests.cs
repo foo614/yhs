@@ -700,6 +700,71 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     [Fact]
+    public async Task Manual_link_without_invitation_requires_same_number_inbound_verification_and_never_queues_outbound()
+    {
+        await using var fixture = await Fixture.Create(businessDisplayNumber: "60123456789");
+        var dispatch = new WhatsAppDispatchOptions();
+        var disconnected = await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options, "staff", fixture.Now,
+            dispatch: dispatch);
+        Assert.True(disconnected.ManualLinkAvailable);
+        Assert.False(disconnected.InvitationAvailable);
+        Assert.Empty(disconnected.InvitationLanguages!);
+        var result = await WhatsAppStaffApi.ConnectAsync(fixture.Context("staff"), fixture.Db, fixture.Options,
+            dispatch, new(fixture.Options.TestRecipient, "ms", true, ManualLink: true), default);
+        var link = Assert.IsType<WhatsAppStaffLinkResult>(Assert.IsAssignableFrom<IValueHttpResult>(result).Value);
+        Assert.Equal("NotRequested", link.InvitationState);
+        Assert.Empty(await fixture.Db.WhatsAppOutbox.ToListAsync());
+        var pending = await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options, "staff", fixture.Now,
+            dispatch: dispatch);
+        Assert.Equal("NotRequested", pending.InvitationState);
+        Assert.False(pending.InvitationAvailable);
+        Assert.Null(pending.InvitationCreatedAt);
+        var repeated = await WhatsAppStaffApi.ConnectAsync(fixture.Context("staff"), fixture.Db, fixture.Options,
+            dispatch, new(fixture.Options.TestRecipient, "ms", true, ManualLink: true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.BadRequest<ApiError>>(repeated);
+        Assert.Equal(1, (await fixture.Db.WhatsAppStaffChallenges.SingleAsync()).IssuesInWindow);
+        Assert.False(await WhatsAppStaffBindings.VerifyAsync(fixture.Db, fixture.Options, "60188888888",
+            link.Command[5..], "wrong-number", fixture.Now));
+        using var inbound = fixture.Payload((link.Command, fixture.Now));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, inbound.RootElement, fixture.Now));
+        Assert.Empty(await fixture.Db.WhatsAppOutbox.ToListAsync());
+        Assert.Equal("Connected", (await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options,
+            "staff", fixture.Now, dispatch: dispatch)).State);
+    }
+
+    [Fact]
+    public async Task Manual_link_rejects_missing_consent_unavailable_inbound_or_display_and_cannot_bypass_ready_invitation()
+    {
+        await using var fixture = await Fixture.Create(businessDisplayNumber: "60123456789");
+        var unavailable = new WhatsAppDispatchOptions();
+        var noConsent = await WhatsAppStaffApi.ConnectAsync(fixture.Context("staff"), fixture.Db, fixture.Options,
+            unavailable, new(fixture.Options.TestRecipient, "ms", false, ManualLink: true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.BadRequest<ApiError>>(noConsent);
+        var unauthorized = await WhatsAppStaffApi.ConnectAsync(fixture.Context("unknown"), fixture.Db, fixture.Options,
+            unavailable, new(fixture.Options.TestRecipient, "ms", true, ManualLink: true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult>(unauthorized);
+        var readyInvitation = await WhatsAppStaffApi.ConnectAsync(fixture.Context("staff"), fixture.Db, fixture.Options,
+            InvitationDispatch(), new(fixture.Options.TestRecipient, "ms", true, ManualLink: true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(readyInvitation);
+        var otherLanguageManual = await WhatsAppStaffApi.ConnectAsync(fixture.Context("staff"), fixture.Db, fixture.Options,
+            InvitationDispatch(), new(fixture.Options.TestRecipient, "en_US", true, ManualLink: true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(otherLanguageManual);
+        Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
+        Assert.Empty(await fixture.Db.WhatsAppOutbox.ToListAsync());
+        await using var noDisplay = await Fixture.Create();
+        var missingDisplay = await WhatsAppStaffApi.ConnectAsync(noDisplay.Context("staff"), noDisplay.Db, noDisplay.Options,
+            unavailable, new(noDisplay.Options.TestRecipient, "ms", true, ManualLink: true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(missingDisplay);
+        await using var inboundOff = await Fixture.Create(enabled: false, businessDisplayNumber: "60123456789");
+        var disabled = await WhatsAppStaffApi.ConnectAsync(inboundOff.Context("staff"), inboundOff.Db, inboundOff.Options,
+            unavailable, new(inboundOff.Options.TestRecipient, "ms", true, ManualLink: true), default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(disabled);
+        Assert.False((await WhatsAppStaffBindings.StatusAsync(inboundOff.Db, inboundOff.Options, "staff", inboundOff.Now,
+            dispatch: unavailable)).ManualLinkAvailable);
+        Assert.Empty(await inboundOff.Db.WhatsAppStaffChallenges.ToListAsync());
+    }
+
+    [Fact]
     public async Task Invitation_requires_approved_gate_and_rechecks_role_before_send()
     {
         await using var fixture = await Fixture.Create();
@@ -1090,7 +1155,8 @@ public sealed class WhatsAppStaffAssistantTests
         public AppDbContext Db { get; } = db;
         public WhatsAppAssistantOptions Options { get; } = options;
         public long Now { get; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        public static async Task<Fixture> Create(bool testMode = true, int limit = 100)
+        public static async Task<Fixture> Create(bool testMode = true, int limit = 100, bool enabled = true,
+            string businessDisplayNumber = "")
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -1098,10 +1164,10 @@ public sealed class WhatsAppStaffAssistantTests
             await db.Database.EnsureCreatedAsync();
             var fixture = new Fixture(connection, db, new WhatsAppAssistantOptions
             {
-                Enabled = true, WebhookEnabled = true, TestRecipient = "60199999999", PhoneNumberId = "123", BusinessAccountId = "456",
+                Enabled = enabled, WebhookEnabled = true, TestRecipient = "60199999999", PhoneNumberId = "123", BusinessAccountId = "456",
                 GraphApiVersion = "v25.0", AppSecret = new string('s', 32), VerifyToken = new string('v', 32), AccessToken = "synthetic-token",
                 TestMode = testMode,
-                PerStaffDailyLimit = limit
+                PerStaffDailyLimit = limit, BusinessDisplayNumber = businessDisplayNumber
             });
             await fixture.AddStaff("staff", "Sales");
             return fixture;

@@ -1407,14 +1407,15 @@ export type StaffWhatsAppConnection = {
   language: "ms" | "en_US";
   verifiedAt?: number;
   expiresAt?: number;
-  invitationState?: "Queued" | "Sending" | "Accepted" | "Sent" | "Delivered" | "Read" | "RetryScheduled" | "DeadLetter" | "Failed" | "Suppressed" | "UnknownOutcome";
+  invitationState?: "NotRequested" | "Queued" | "Sending" | "Accepted" | "Sent" | "Delivered" | "Read" | "RetryScheduled" | "DeadLetter" | "Failed" | "Suppressed" | "UnknownOutcome";
   businessDisplayNumber?: string;
   invitationAvailable: boolean;
   invitationLanguages?: ("ms" | "en_US")[];
+  manualLinkAvailable?: boolean;
   invitationCreatedAt?: number;
 };
 export type StaffWhatsAppLink = { command: string; expiresAt: number; invitationState: string; businessDisplayNumber?: string };
-export type StaffWhatsAppConnectInput = { recipient: string; language: "ms" | "en_US"; consentConfirmed: boolean; staffUserId?: string };
+export type StaffWhatsAppConnectInput = { recipient: string; language: "ms" | "en_US"; consentConfirmed: boolean; staffUserId?: string; manualLink?: boolean };
 export function getStaffWhatsAppConnection(staffUserId?: string): Promise<StaffWhatsAppConnection> {
   return request<StaffWhatsAppConnection>(staffUserId ? `/api/whatsapp/assistant/connection?staffUserId=${encodeURIComponent(staffUserId)}` : "/api/whatsapp/assistant/connection");
 }
