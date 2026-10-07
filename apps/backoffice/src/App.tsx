@@ -274,6 +274,7 @@ import {
   type HrLeaveRequest,
   type HrLeaveStatus,
   type HrPayPeriod,
+  type HrPayslipSelection,
   type HrPayrollProfile,
   type HrPayslip,
   type FinanceVehicleOption,
@@ -1470,7 +1471,11 @@ export default function App() {
               }, "Leave adjustment saved")}
               onUpdatePayrollProfile={(profile) => runUpdate(() => updateHrPayrollProfile(profile), (record) => setHrPayrollProfiles((items) => replaceByIdOrPrepend(items, record)), "Payroll profile updated")}
               onCreatePayPeriod={(period) => runCreate(() => createHrPayPeriod(period), (record) => setHrPayPeriods((items) => [record, ...items]), "Pay period created")}
-              onGeneratePayslips={(payPeriodId) => runUpdate(() => generateHrPayslips(payPeriodId), (records) => setHrPayslips((items) => mergeById(items, records)), "Payslips generated")}
+              onGeneratePayslips={async (payPeriodId: string, selections: HrPayslipSelection[]) => {
+                const records = await generateHrPayslips(payPeriodId, selections);
+                setHrPayslips((items) => mergeById(items, records));
+                notifySuccess("Payslips prepared", `${records.length} selected draft(s) were saved after review.`);
+              }}
               onLoadPayslip={(payslip) => downloadHrPayslipPdf(payslip.id)}
               onDownloadPayslip={async (payslip) => {
                 try {

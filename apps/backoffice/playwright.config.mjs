@@ -14,7 +14,7 @@ const baseURL = process.env.RESPONSIVE_BASE_URL ?? "http://127.0.0.1:4176";
 
 export default defineConfig({
   testDir: "./scripts",
-  testMatch: "responsive.spec.mjs",
+  testMatch: ["responsive.spec.mjs", "payroll-flow.spec.mjs"],
   outputDir,
   timeout: 180000,
   fullyParallel: true,

@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+using System.Text.Json;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
 
@@ -35,31 +37,77 @@ public static class HrWorkflowStore
         return candidates.Any(item => IsLocked(item.Slip, item.Period, today));
     }
 
-    public static async Task<(List<HrPayslip> Drafts, string? Error)> BuildDrafts(AppDbContext db, HrPayPeriod period)
+    public static async Task<List<HrPayrollCandidate>> BuildPreview(AppDbContext db, HrPayPeriod period)
     {
         var existing = await db.HrPayslips.AsNoTracking().Where(slip => slip.PayPeriodId == period.Id).ToListAsync();
-
-        var profiles = await db.HrPayrollProfiles.AsNoTracking().ToListAsync();
-        if (profiles.Count == 0) return ([], "Configure at least one payroll profile first.");
+        var profiles = await db.HrPayrollProfiles.AsNoTracking().OrderBy(profile => profile.StaffUserId).ToListAsync();
+        var staffNames = await db.Users.AsNoTracking().ToDictionaryAsync(user => user.Id, user => user.DisplayName);
         var leaves = await db.HrLeaveRequests.AsNoTracking().Where(leave => leave.StartDate <= period.EndDate && leave.EndDate >= period.StartDate).ToListAsync();
         var attendance = await db.HrAttendanceRecords.AsNoTracking().Where(record => record.AttendanceDate >= period.StartDate && record.AttendanceDate <= period.EndDate).ToListAsync();
         var corrections = await db.HrAttendanceCorrections.AsNoTracking().Where(item => item.AttendanceDate >= period.StartDate && item.AttendanceDate <= period.EndDate && item.Status == HrCorrectionStatus.Pending).ToListAsync();
-        var result = new List<HrPayslip>();
+        var overlappingStaff = await (from slip in db.HrPayslips.AsNoTracking()
+                                      join other in db.HrPayPeriods.AsNoTracking() on slip.PayPeriodId equals other.Id
+                                      where other.Id != period.Id && other.StartDate <= period.EndDate && other.EndDate >= period.StartDate
+                                      select slip.StaffUserId).Distinct().ToListAsync();
+        var result = new List<HrPayrollCandidate>();
         var today = HrWorkflowRules.LocalDate(DateTime.UtcNow);
         foreach (var profile in profiles)
         {
             var old = existing.FirstOrDefault(item => item.StaffUserId == profile.StaffUserId);
-            if (old is not null && IsLocked(old, period, today)) continue;
-            if (await (from slip in db.HrPayslips join other in db.HrPayPeriods on slip.PayPeriodId equals other.Id where slip.StaffUserId == profile.StaffUserId && other.Id != period.Id && other.StartDate <= period.EndDate && other.EndDate >= period.StartDate select slip.Id).AnyAsync()) return ([], "An overlapping period already contains payroll for this staff member.");
-            if (corrections.Any(item => item.StaffUserId == profile.StaffUserId)) return ([], "Resolve pending attendance corrections before preparing payroll.");
-            if (profile.EmploymentType == HrEmploymentType.Hourly && attendance.Any(item => item.StaffUserId == profile.StaffUserId && item.CheckInAt != null && item.CheckOutAt == null)) return ([], "Resolve incomplete attendance sessions before preparing hourly payroll.");
-            // Days are currently an aggregate: never guess their distribution across periods.
-            if (leaves.Any(item => item.StaffUserId == profile.StaffUserId && item.Type == HrLeaveType.UnpaidLeave && item.Status == HrLeaveStatus.Approved && (item.StartDate < period.StartDate || item.EndDate > period.EndDate))) return ([], "Unpaid leave crosses a payroll boundary. HR must resolve its per-period day allocation before generating payroll.");
-            var staffName = await db.Users.Where(user => user.Id == profile.StaffUserId).Select(user => user.DisplayName).FirstOrDefaultAsync();
-            if (staffName is null) return ([], "A payroll profile references a missing staff account. HR must resolve it first.");
-            result.Add(HrRules.GeneratePayslip(profile, period, leaves, attendance, old?.Id) with { StaffName = staffName, Status = HrPayslipStatus.Draft, Version = (old?.Version ?? 0) + 1 });
+            var hasStaff = staffNames.TryGetValue(profile.StaffUserId, out var staffName);
+            staffName ??= old?.StaffName ?? profile.StaffUserId;
+            var staffLeaves = leaves.Where(item => item.StaffUserId == profile.StaffUserId).OrderBy(item => item.Id).ToList();
+            var staffAttendance = attendance.Where(item => item.StaffUserId == profile.StaffUserId).OrderBy(item => item.Id).ToList();
+            string? reason = old is not null && IsLocked(old, period, today)
+                ? old.Status == HrPayslipStatus.Generated ? "This finalized legacy payslip is locked." : "This payslip is under review or published and cannot be recalculated."
+                : !hasStaff ? "The payroll profile references a missing staff account."
+                : overlappingStaff.Contains(profile.StaffUserId) ? "An overlapping period already contains payroll for this staff member."
+                : corrections.Any(item => item.StaffUserId == profile.StaffUserId) ? "Resolve pending attendance corrections before preparing payroll."
+                : profile.EmploymentType == HrEmploymentType.Hourly && staffAttendance.Any(item => item.CheckInAt != null && item.CheckOutAt == null) ? "Resolve incomplete attendance sessions before preparing hourly payroll."
+                // Leave days are an aggregate: never guess their distribution across periods.
+                : staffLeaves.Any(item => item.Type == HrLeaveType.UnpaidLeave && item.Status == HrLeaveStatus.Approved && (item.StartDate < period.StartDate || item.EndDate > period.EndDate)) ? "Unpaid leave crosses a payroll boundary. Resolve its per-period day allocation before preparing payroll."
+                : null;
+            if (reason is not null)
+            {
+                result.Add(new(profile.StaffUserId, staffName, old, null, null, reason, null));
+                continue;
+            }
+            var action = old is null ? "Prepare" : "Recalculate";
+            var draft = HrRules.GeneratePayslip(profile, period, staffLeaves, staffAttendance, old?.Id) with
+            {
+                StaffName = staffName, Status = HrPayslipStatus.Draft, Version = (old?.Version ?? 0) + 1
+            };
+            // Bind confirmation to the reviewed inputs and original record, not volatile draft IDs/timestamps.
+            var token = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                CalculationVersion = 1, period, profile, staffName, old, action,
+                Leaves = staffLeaves, Attendance = staffAttendance
+            })));
+            result.Add(new(profile.StaffUserId, staffName, old, draft, action, null, token));
         }
-        return result.Count == 0 ? ([], "No editable drafts remain in this period. Reviewed and legacy payslips are preserved.") : (result, null);
+        return result;
+    }
+
+    public static async Task<(List<HrPayslip> Drafts, string? Error)> BuildDrafts(AppDbContext db, HrPayPeriod period, HrPayrollPreparationRequest request)
+    {
+        var selections = request.Selections;
+        if (selections is null || selections.Count == 0 || selections.Any(item => item is null || string.IsNullOrWhiteSpace(item.StaffUserId) || string.IsNullOrWhiteSpace(item.PreviewToken) || item.Action is not ("Prepare" or "Recalculate")))
+            return ([], "Select staff and review their payslips before confirming preparation.");
+        if (selections.Select(item => item.StaffUserId).Distinct(StringComparer.Ordinal).Count() != selections.Count)
+            return ([], "Select each staff member only once.");
+
+        var preview = await BuildPreview(db, period);
+        var drafts = new List<HrPayslip>();
+        foreach (var selection in selections)
+        {
+            var candidate = preview.FirstOrDefault(item => item.StaffUserId == selection.StaffUserId);
+            if (candidate is null) return ([], "A selected payroll profile no longer exists. Refresh the preview.");
+            if (candidate.BlockingReason is not null) return ([], $"{candidate.StaffName}: {candidate.BlockingReason}");
+            if (candidate.Action != selection.Action || candidate.PreviewToken != selection.PreviewToken)
+                return ([], $"{candidate.StaffName}: Payroll changed after preview. Refresh and review the changes before confirming.");
+            drafts.Add(candidate.Draft!);
+        }
+        return (drafts, null);
     }
 
     private static bool IsLocked(HrPayslip slip, HrPayPeriod period, DateOnly today) =>

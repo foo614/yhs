@@ -4791,12 +4791,12 @@ hr.MapGet("/payslips/{id:guid}/pdf", async (Guid id, AppDbContext db, UserManage
     return Results.File(pdf.Content, "application/pdf", pdf.FileName);
 });
 
-hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbContext db, HttpContext context) =>
+hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, HrPayrollPreparationRequest request, AppDbContext db, HttpContext context) =>
 {
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
     var period = await db.HrPayPeriods.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (period is null) return Results.NotFound();
-    var (drafts, error) = await HrWorkflowStore.BuildDrafts(db, period);
+    var (drafts, error) = await HrWorkflowStore.BuildDrafts(db, period, request);
     if (error is not null) return Results.Conflict(new ApiError(error));
     var generated = new List<HrPayslip>();
     foreach (var draft in drafts)
@@ -4805,6 +4805,7 @@ hr.MapPost("/pay-periods/{id:guid}/generate-payslips", async (Guid id, AppDbCont
         var saved = draft with { PreparedBy = StaffIdentity.CurrentUserId(context) };
         if (existing is null) db.HrPayslips.Add(saved);
         else db.Entry(existing).CurrentValues.SetValues(saved);
+        ApiAudit.Add(db, context.User, existing is null ? "hr.payslip.prepared" : "hr.payslip.recalculated", nameof(HrPayslip), saved.Id);
         generated.Add(saved);
     }
     ApiAudit.Add(db, context.User, "hr.payslips.drafted", nameof(HrPayPeriod), period.Id);
@@ -4817,8 +4818,7 @@ hr.MapGet("/pay-periods/{id:guid}/preview", async (Guid id, AppDbContext db, Htt
     if (!DepartmentAccess.IsHrManager(context.User)) return Results.Forbid();
     var period = await db.HrPayPeriods.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
     if (period is null) return Results.NotFound();
-    var (drafts, error) = await HrWorkflowStore.BuildDrafts(db, period);
-    return error is not null ? Results.Conflict(new ApiError(error)) : Results.Ok(drafts);
+    return Results.Ok(await HrWorkflowStore.BuildPreview(db, period));
 });
 
 hr.MapPut("/payslips/{id:guid}/statutory", async (Guid id, HrStatutoryInput input, AppDbContext db, HttpContext context) =>
