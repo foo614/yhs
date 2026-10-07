@@ -3930,11 +3930,11 @@ function RepairPage({
           dataSource={filteredSupplierMaster}
           nativeSearch={{
             fields: [
-              { name: "company", label: "Company" },
-              { name: "phone", label: "Phone" },
-              { name: "tin", label: "TIN" },
-              { name: "creditor", label: "Creditor code" },
-              { name: "status", label: "Status", options: [
+              { name: "company", label: "Company / 公司" },
+              { name: "phone", label: "Phone / 电话" },
+              { name: "tin", label: "TIN / 税务识别号" },
+              { name: "creditor", label: "Creditor code / 债权人代码" },
+              { name: "status", label: "Status / 状态", options: [
                 { value: "Active", label: "Active" },
                 { value: "Inactive", label: "Inactive" }
               ] }
@@ -3952,12 +3952,12 @@ function RepairPage({
           pagination={tablePagination(5)}
           locale={{ emptyText: supplierMaster.length === 0 ? "No suppliers yet." : "No suppliers match the current filters." }}
           columns={[
-            { title: "Company", dataIndex: "companyName" },
-            { title: "Phone", dataIndex: "phone" },
-            { title: "TIN", dataIndex: "tinNumber", render: (value) => value || "-" },
-            { title: "AutoCount creditor", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
-            { title: "Status", dataIndex: "status", render: (value) => <Tag color={value === "Active" ? "green" : "gold"}>{value}</Tag> },
-            { title: "Action", render: (_, supplier) => {
+            { title: "Company / 公司", dataIndex: "companyName" },
+            { title: "Phone / 电话", dataIndex: "phone" },
+            { title: "TIN / 税务识别号", dataIndex: "tinNumber", render: (value) => value || "-" },
+            { title: "AutoCount creditor code / AutoCount 债权人代码", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
+            { title: "Status / 状态", dataIndex: "status", render: (value) => <Tag color={value === "Active" ? "green" : "gold"}>{value}</Tag> },
+            { title: "Action / 操作", render: (_, supplier) => {
               const nextStatus = supplier.status === "Active" ? "Inactive" : "Active";
               return <Button size="small" danger={nextStatus === "Inactive"} loading={supplierSaving} onClick={() => { void updateSupplierStatus(supplier, nextStatus); }}>{nextStatus === "Inactive" ? "Set inactive" : "Reactivate"}</Button>;
             } }
