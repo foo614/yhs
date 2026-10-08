@@ -349,10 +349,15 @@ public sealed class WhatsAppStaffAssistantTests
             new Vehicle { PlateNumber = "UNCONF1", Year = 2021, Make = "Toyota", Model = "Vios", SellingPrice = 50000, Status = VehicleStatus.Available, IsPublic = true, BossConfirmed = false });
         await fixture.Db.SaveChangesAsync();
 
-        var internalReply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("vehicle", "SAFE123"), "en_US", fixture.Now);
+        var internalReply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("vehicle", "SAFE123"), "en_US", fixture.Now,
+            publicSiteUrl: "https://sales.example.com");
         Assert.Contains("RM 55,000", internalReply);
         Assert.Contains("PRIVATE-BAY", internalReply);
+        Assert.Contains($"https://sales.example.com/vehicles/{vehicle.Id:D}", internalReply);
         Assert.DoesNotContain("777777", internalReply);
+        foreach (var plate in new[] { "PRIVATE1", "SOLD001", "UNCONF1" })
+            Assert.DoesNotContain("Public listing:", await WhatsAppStaffQueries.ReplyAsync(fixture.Db,
+                new("vehicle", plate), "en_US", fixture.Now, publicSiteUrl: "https://sales.example.com"));
 
         var shareReply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, new("share", "SAFE123"), "en_US", fixture.Now, publicSiteUrl: "https://sales.example.com");
         Assert.Contains("2021 Toyota Vios", shareReply);

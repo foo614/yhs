@@ -7332,6 +7332,16 @@ body {
   margin-bottom: 0;
 }
 
+.staffWhatsAppPolicyReadiness {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.staffWhatsAppPolicyReadiness > .formActions {
+  margin: 0;
+}
+
 .staffWhatsAppSectionHead {
   display: flex;
   align-items: flex-start;

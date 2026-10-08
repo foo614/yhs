@@ -35,15 +35,17 @@ public static class WhatsAppStaffCommandHelp
     {
         var allowed = Allowed(roles);
         var bm = language == "ms";
+        var enquiryCount = allowed.Count + (roles.Contains("BossAdmin") || roles.Contains("Sales") ? 1 : 0);
         var lines = new List<string>
         {
-            bm ? $"YS Heng · {allowed.Count} pertanyaan tersedia" : $"YS Heng · {allowed.Count} available enquiries",
+            bm ? $"YS Heng · {enquiryCount} pertanyaan tersedia" : $"YS Heng · {enquiryCount} available enquiries",
             bm ? "Hantar arahan lengkap di bawah. Taip menu untuk pilih perkhidmatan." : "Send a complete command below. Type menu to choose a service."
         };
         foreach (var group in allowed.GroupBy(service => service.Group))
         {
             lines.Add("");
-            lines.Add(bm ? group.First().MalayGroup : group.Key);
+            var icon = group.Key switch { "Vehicles" => "🚗", "Loans and delivery" => "📋", "Finance" => "💰", _ => "📊" };
+            lines.Add(icon + " " + (bm ? group.First().MalayGroup : group.Key));
             foreach (var service in group)
             {
                 lines.Add($"• {service.Name} — {(bm ? service.MalayPurpose : service.Purpose)}");
@@ -51,14 +53,14 @@ public static class WhatsAppStaffCommandHelp
             }
         }
         lines.Add("");
-        lines.Add(bm ? "Lain-lain: help (panduan), menu (pilihan), language en / language ms (bahasa), test (sambungan), stop (putuskan)." :
-            "Utilities: help (guide), menu (services), language en / language ms (language), test (connection), stop (disconnect).");
+        lines.Add(bm ? "🛠️ Lain-lain: help (panduan), menu (pilihan), language en / language ms (bahasa), test (sambungan), stop (putuskan)." :
+            "🛠️ Utilities: help (guide), menu (services), language en / language ms (language), test (connection), stop (disconnect).");
         if (roles.Contains("BossAdmin") || roles.Contains("Sales"))
             lines.Add(roles.Contains("BossAdmin")
-                ? (bm ? "Urusan tertunggak: due [page N] — semua urusan semasa termasuk yang lewat. Contoh: due page 1."
-                    : "Due items: due [page N] — all current and overdue items. Example: due page 1.")
-                : (bm ? "Urusan tertunggak: due [page N] — serahan kenderaan anda sahaja termasuk yang lewat. Contoh: due page 1."
-                    : "Due items: due [page N] — only your assigned handovers, including overdue. Example: due page 1."));
+                ? (bm ? "⏰ Urusan tertunggak: due [page N] — semua urusan semasa termasuk yang lewat. Contoh: due page 1."
+                    : "⏰ Due items: due [page N] — all current and overdue items. Example: due page 1.")
+                : (bm ? "⏰ Urusan tertunggak: due [page N] — serahan kenderaan anda sahaja termasuk yang lewat. Contoh: due page 1."
+                    : "⏰ Due items: due [page N] — only your assigned handovers, including overdue. Example: due page 1."));
         lines.Add(bm ? "Pertanyaan ini baca sahaja." : "These enquiries are read-only.");
         return string.Join('\n', lines);
     }

@@ -117,7 +117,8 @@ public static class WhatsAppStaffQueries
             var count = await filtered.CountAsync(ct);
             var rows = await filtered.OrderBy(item => item.PlateNumber).ThenBy(item => item.Id)
                 .Skip((filter.Page - 1) * WhatsAppStockFilter.PageSize).Take(WhatsAppStockFilter.PageSize)
-                .Select(item => new WhatsAppVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.Status, item.SellingPrice, item.StockLocation))
+                .Select(item => new WhatsAppVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.Status,
+                    item.SellingPrice, item.StockLocation, item.IntakeDate, item.IsPublic, item.BossConfirmed))
                 .ToListAsync(ct);
             if (rows.Count == 0)
                 return count == 0 ? Text(language, "No matching public stock.", "Tiada stok awam yang sepadan.") :
@@ -181,14 +182,29 @@ public static class WhatsAppStaffQueries
                 Text(language, "Asking price: ", "Harga jualan: ") + WhatsAppStaffSalesQueries.Price(vehicle.SellingPrice, language) + "\n" + listing;
         }
         var matches = await vehicles.Where(item => item.PlateNumber.ToUpper().Replace(" ", "").Replace("-", "") == intent.Argument).Take(2)
-            .Select(item => new WhatsAppVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.Status, item.SellingPrice, item.StockLocation)).ToListAsync(ct);
+            .Select(item => new WhatsAppVehicleSummary(item.Id, item.PlateNumber, item.Year, item.Make, item.Model, item.Status,
+                item.SellingPrice, item.StockLocation, item.IntakeDate, item.IsPublic, item.BossConfirmed)).ToListAsync(ct);
         if (matches.Count == 0) return Text(language, "No matching vehicle.", "Tiada kenderaan yang sepadan.");
         if (matches.Count > 1) return Text(language, "Multiple vehicles match. Check the vehicle workboard.", "Beberapa kenderaan sepadan. Semak papan kerja kenderaan.");
         var found = matches[0];
         var heading = Label(found) + "\n";
-        if (intent.Name == "vehicle") return heading + "Status: " + Status(found.Status.ToString(), language) + "\n" +
-            Text(language, "Asking price: ", "Harga jualan: ") + WhatsAppStaffSalesQueries.Price(found.SellingPrice, language) + "\n" +
-            Text(language, "Stock location: ", "Lokasi stok: ") + WhatsAppStaffSalesQueries.Location(found.StockLocation, language);
+        if (intent.Name == "vehicle")
+        {
+            var listing = found.IsPublic && found.BossConfirmed && found.Status == VehicleStatus.Available
+                ? "\n" + (WhatsAppStaffSalesQueries.TryBuildPublicListingUrl(publicSiteUrl, found.Id, out var publicUrl)
+                    ? Text(language, "Public listing: ", "Senarai awam: ") + publicUrl
+                    : Text(language, "Public listing link is unavailable.", "Pautan senarai awam tidak tersedia.")) +
+                    "\n" + Text(language, "Next: share ", "Seterusnya: share ") + Clean(found.Plate)
+                : "\n" + Text(language, "Next: loan ", "Seterusnya: loan ") + Clean(found.Plate) +
+                    Text(language, " or delivery ", " atau delivery ") + Clean(found.Plate);
+            var intakeDate = found.IntakeDate == default
+                ? Text(language, "Not recorded", "Belum direkodkan")
+                : found.IntakeDate.ToString("dd MMM yyyy", culture);
+            return heading + Text(language, "Status: ", "Status: ") + Status(found.Status.ToString(), language) + "\n" +
+                Text(language, "Asking price: ", "Harga jualan: ") + WhatsAppStaffSalesQueries.Price(found.SellingPrice, language) + "\n" +
+                Text(language, "Stock location: ", "Lokasi stok: ") + WhatsAppStaffSalesQueries.Location(found.StockLocation, language) + "\n" +
+                Text(language, "Recorded intake date: ", "Tarikh kemasukan direkodkan: ") + intakeDate + listing;
+        }
         if (intent.Name == "loan")
             return heading + await WhatsAppStaffProgressQueries.ReplyLoanAsync(db, found.Id, language, ct);
         if (intent.Name == "delivery")
@@ -201,7 +217,9 @@ public static class WhatsAppStaffQueries
 
     private static string StockLabel(WhatsAppVehicleSummary vehicle, string language) =>
         $"{Clean(vehicle.Plate)} | {vehicle.Year} {Clean(vehicle.Make)} {Clean(vehicle.Model)} | " +
-        Text(language, "Asking price: ", "Harga jualan: ") + WhatsAppStaffSalesQueries.Price(vehicle.SellingPrice, language);
+        Text(language, "Asking price: ", "Harga jualan: ") + WhatsAppStaffSalesQueries.Price(vehicle.SellingPrice, language) +
+        (string.IsNullOrWhiteSpace(vehicle.StockLocation) ? "" : " | " + Text(language, "Location: ", "Lokasi: ") + Clean(vehicle.StockLocation)) +
+        "\n  " + Text(language, "Details: vehicle ", "Butiran: vehicle ") + Clean(vehicle.Plate);
 
     public static string FormatDelivery(IReadOnlyList<WhatsAppDeliverySummary> rows, string language)
     {
@@ -225,6 +243,7 @@ public static class WhatsAppStaffQueries
     }
 }
 
-public sealed record WhatsAppVehicleSummary(Guid Id, string Plate, int Year, string Make, string Model, VehicleStatus Status, decimal SellingPrice = 0, string StockLocation = "");
+public sealed record WhatsAppVehicleSummary(Guid Id, string Plate, int Year, string Make, string Model, VehicleStatus Status,
+    decimal SellingPrice, string StockLocation, DateOnly IntakeDate, bool IsPublic, bool BossConfirmed);
 public sealed record WhatsAppPublicVehicleSummary(Guid Id, string Plate, int Year, string Make, string Model, decimal SellingPrice);
 public sealed record WhatsAppDeliverySummary(DateOnly ScheduledDate, TimeOnly? ScheduledTime, DeliveryStatus Status, DateTime? ReleasedAt);
