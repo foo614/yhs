@@ -315,9 +315,11 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
         {editing.category === "OcrUsage" && <Form.Item name="thresholdPercent" label="OCR usage threshold (%)" rules={[{ required: true, type: "number", min: 1, max: 100 }]}>
           <InputNumber min={1} max={100} precision={0} className="fullWidth" />
         </Form.Item>}
-        <SenderReadiness policy={editing} />
-        <Alert type={editing.senderReady && editing.templateReady && editing.categoryReady ? "info" : "warning"} showIcon message="Category readiness" description={readiness(editing)} />
-        <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={saving}>Review and save</Button></Form.Item>
+        <div className="staffWhatsAppPolicyReadiness">
+          <SenderReadiness policy={editing} />
+          <Alert type={editing.senderReady && editing.templateReady && editing.categoryReady ? "info" : "warning"} showIcon message="Category readiness" description={readiness(editing)} />
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={saving}>Review and save</Button></Form.Item>
+        </div>
       </Form>}
     </Drawer>
   </Space>;
