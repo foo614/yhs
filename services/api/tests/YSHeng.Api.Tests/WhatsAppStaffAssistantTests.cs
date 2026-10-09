@@ -145,10 +145,10 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.False(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("collections", "TEST123"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["BossAdmin"]));
-        Assert.DoesNotContain("• collections", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
-        Assert.Contains("• collections", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
-        Assert.DoesNotContain("• profit", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
-        Assert.Contains("• profit", WhatsAppStaffQueries.Help("en_US", ["BossAdmin"]));
+        Assert.DoesNotContain("→ collections ABC1234", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
+        Assert.Contains("→ collections ABC1234", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
+        Assert.DoesNotContain("→ profit month", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
+        Assert.Contains("→ profit month", WhatsAppStaffQueries.Help("en_US", ["BossAdmin"]));
         Assert.Contains("cannot access", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("profit", "month"), ["Finance"], "en_US", fixture.Now));
     }
 
@@ -971,8 +971,8 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.Null(WhatsAppStaffQueries.Parse("due page"));
         Assert.False(WhatsAppStaffQueries.Permitted(new("due", "1"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("due", "1"), ["Sales"]));
-        Assert.Contains("due page 1", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
-        Assert.DoesNotContain("due page 1", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
+        Assert.Contains("→ due", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
+        Assert.DoesNotContain("→ due", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
         Assert.Equal(6, WhatsAppStaffCommandHelp.Allowed(["Sales"]).Count);
         Assert.Equal(8, WhatsAppStaffCommandHelp.Allowed(["Finance"]).Count);
         Assert.Equal(10, WhatsAppStaffCommandHelp.Allowed(["BossAdmin"]).Count);
