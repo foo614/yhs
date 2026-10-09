@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Xunit;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
@@ -1114,6 +1115,64 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     [Theory]
+    [InlineData("{\"error\":{\"code\":131047,\"error_subcode\":2494010,\"message\":\"PRIVATE_REPLY recipient 60199999999 synthetic-token\"}}", 131047, 2494010)]
+    [InlineData("{\"error\":{\"code\":\"SECRET_META_CODE\",\"error_subcode\":\"SECRET_META_SUBCODE\"}}", null, null)]
+    public async Task Rejected_staff_reply_logs_only_status_and_numeric_provider_codes(string body, int? code, int? subcode)
+    {
+        await using var fixture = await Fixture.Create();
+        var logger = new CapturingSenderLogger();
+        var handler = new SyntheticHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent(body)
+        });
+        using var sender = new WhatsAppStaffSender(new HttpClient(handler), logger);
+
+        var result = await sender.SendAsync(fixture.Options, fixture.Options.TestRecipient, "PRIVATE_REPLY", default);
+
+        Assert.Equal("ProviderRejected", result.Outcome);
+        Assert.Equal(400, result.HttpStatusCode);
+        Assert.Equal(1, handler.Calls);
+        var warning = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Equal(400, warning.Fields["HttpStatusCode"]);
+        Assert.Equal(code, warning.Fields["MetaErrorCode"]);
+        Assert.Equal(subcode, warning.Fields["MetaErrorSubcode"]);
+        Assert.Null(warning.Exception);
+        Assert.Contains("Staff WhatsApp provider rejected reply", warning.Message);
+        foreach (var secret in new[] { "PRIVATE_REPLY", fixture.Options.TestRecipient, "synthetic-token", "SECRET_META_CODE", "SECRET_META_SUBCODE" })
+            Assert.DoesNotContain(secret, warning.Message + string.Join(' ', warning.Fields.Values.Select(value => value?.ToString())), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("malformed")]
+    [InlineData("oversized")]
+    [InlineData("read-failure")]
+    public async Task Rejected_staff_reply_preserves_outcome_when_diagnostic_body_cannot_be_read(string mode)
+    {
+        await using var fixture = await Fixture.Create();
+        var logger = new CapturingSenderLogger();
+        var handler = new SyntheticHandler(_ =>
+        {
+            HttpContent content = mode == "malformed" ? new StringContent("not-json") :
+                new StreamContent(new DiagnosticStream(Encoding.UTF8.GetBytes(new string('X', 5000)), mode == "read-failure"));
+            if (mode != "malformed") Assert.Null(content.Headers.ContentLength);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.BadGateway) { Content = content };
+        });
+        using var sender = new WhatsAppStaffSender(new HttpClient(handler), logger);
+
+        var result = await sender.SendAsync(fixture.Options, fixture.Options.TestRecipient, "Synthetic answer", default);
+
+        Assert.Equal("ProviderRejected", result.Outcome);
+        Assert.Equal(502, result.HttpStatusCode);
+        Assert.Equal(1, handler.Calls);
+        var warning = Assert.Single(logger.Entries);
+        Assert.Equal(502, warning.Fields["HttpStatusCode"]);
+        Assert.Null(warning.Fields["MetaErrorCode"]);
+        Assert.Null(warning.Fields["MetaErrorSubcode"]);
+        Assert.Null(warning.Exception);
+    }
+
+    [Theory]
     [InlineData(200, "{\"messages\":[{\"id\":\"synthetic-provider-id\"}]}", 1)]
     [InlineData(400, "{\"error\":\"synthetic-invalid-list\"}", 2)]
     [InlineData(200, "not-json", 1)]
@@ -1153,6 +1212,33 @@ public sealed class WhatsAppStaffAssistantTests
             Calls++;
             return Task.FromResult(respond(request));
         }
+    }
+
+    private sealed class CapturingSenderLogger : ILogger<WhatsAppStaffSender>
+    {
+        public List<(LogLevel Level, string Message, IReadOnlyDictionary<string, object?> Fields, Exception? Exception)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var fields = state is IEnumerable<KeyValuePair<string, object?>> values
+                ? values.ToDictionary(item => item.Key, item => item.Value)
+                : new Dictionary<string, object?>();
+            Entries.Add((logLevel, formatter(state, exception), fields, exception));
+        }
+    }
+
+    private sealed class DiagnosticStream(byte[] buffer, bool failRead) : MemoryStream(buffer)
+    {
+        public override bool CanSeek => false;
+        public override long Length => throw new NotSupportedException();
+        public override ValueTask<int> ReadAsync(Memory<byte> destination, CancellationToken cancellationToken = default) =>
+            failRead ? ValueTask.FromException<int>(new IOException("Synthetic body read failure")) :
+                base.ReadAsync(destination, cancellationToken);
+        public override Task<int> ReadAsync(byte[] destination, int offset, int count, CancellationToken cancellationToken) =>
+            failRead ? Task.FromException<int>(new IOException("Synthetic body read failure")) :
+                base.ReadAsync(destination, offset, count, cancellationToken);
     }
 
     private sealed class Fixture(SqliteConnection connection, AppDbContext db, WhatsAppAssistantOptions options) : IAsyncDisposable
