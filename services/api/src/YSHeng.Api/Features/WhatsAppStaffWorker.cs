@@ -1,15 +1,23 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using YSHeng.Api.Data;
 
 namespace YSHeng.Api.Features;
 
 public sealed class WhatsAppStaffSender : IDisposable
 {
+    private const int MaxErrorBytes = 4096;
     private readonly HttpClient client;
-    public WhatsAppStaffSender() : this(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) }) { }
-    internal WhatsAppStaffSender(HttpClient client) => this.client = client;
+    private readonly ILogger<WhatsAppStaffSender> logger;
+    public WhatsAppStaffSender(ILogger<WhatsAppStaffSender> logger) : this(
+        new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) }, logger) { }
+    internal WhatsAppStaffSender(HttpClient client, ILogger<WhatsAppStaffSender>? logger = null)
+    {
+        this.client = client;
+        this.logger = logger ?? NullLogger<WhatsAppStaffSender>.Instance;
+    }
     public void Dispose() => client.Dispose();
 
     public async Task<WhatsAppSendResult> SendAsync(WhatsAppAssistantOptions options, string recipient, string reply, CancellationToken ct)
@@ -64,7 +72,13 @@ public sealed class WhatsAppStaffSender : IDisposable
         try
         {
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (!response.IsSuccessStatusCode) return new("ProviderRejected", HttpStatusCode: (int)response.StatusCode);
+            if (!response.IsSuccessStatusCode)
+            {
+                var (code, subcode) = await ReadErrorCodesAsync(response, ct);
+                logger.LogWarning("Staff WhatsApp provider rejected reply (HTTP {HttpStatusCode}, Meta code {MetaErrorCode}, subcode {MetaErrorSubcode}).",
+                    (int)response.StatusCode, code, subcode);
+                return new("ProviderRejected", HttpStatusCode: (int)response.StatusCode);
+            }
             using var content = new MemoryStream();
             using var stream = await response.Content.ReadAsStreamAsync(ct);
             var bytes = new byte[4096];
@@ -84,6 +98,37 @@ public sealed class WhatsAppStaffSender : IDisposable
         catch (Exception exception) when (exception is JsonException or HttpRequestException or OperationCanceledException)
         {
             return new("UnknownOutcome");
+        }
+    }
+
+    private static async Task<(int? Code, int? Subcode)> ReadErrorCodesAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            if (response.Content is null || response.Content.Headers.ContentLength > MaxErrorBytes) return (null, null);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
+            using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+            using var content = new MemoryStream();
+            var buffer = new byte[1024];
+            int count;
+            while ((count = await stream.ReadAsync(buffer, timeout.Token)) > 0)
+            {
+                if (content.Length + count > MaxErrorBytes) return (null, null);
+                content.Write(buffer, 0, count);
+            }
+            using var json = JsonDocument.Parse(content.ToArray(), new JsonDocumentOptions { MaxDepth = 8 });
+            if (json.RootElement.ValueKind != JsonValueKind.Object ||
+                !json.RootElement.TryGetProperty("error", out var error) || error.ValueKind != JsonValueKind.Object)
+                return (null, null);
+            int? Number(string name) => error.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number &&
+                value.TryGetInt32(out var number) ? number : null;
+            return (Number("code"), Number("error_subcode"));
+        }
+        catch (Exception)
+        {
+            // The HTTP rejection is definitive even when the bounded diagnostic body cannot be read.
+            return (null, null);
         }
     }
 }
