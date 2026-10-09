@@ -1115,9 +1115,25 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     [Theory]
-    [InlineData("{\"error\":{\"code\":131047,\"error_subcode\":2494010,\"message\":\"PRIVATE_REPLY recipient 60199999999 synthetic-token\"}}", 131047, 2494010)]
-    [InlineData("{\"error\":{\"code\":\"SECRET_META_CODE\",\"error_subcode\":\"SECRET_META_SUBCODE\"}}", null, null)]
-    public async Task Rejected_staff_reply_logs_only_status_and_numeric_provider_codes(string body, int? code, int? subcode)
+    [InlineData("{\"error\":{\"code\":131047,\"error_subcode\":2494010,\"message\":\"PRIVATE_REPLY recipient 60199999999 synthetic-token\"}}", 131047, 2494010, "Unknown", "Unknown")]
+    [InlineData("{\"error\":{\"code\":\"SECRET_META_CODE\",\"error_subcode\":\"SECRET_META_SUBCODE\"}}", null, null, "Unknown", "Unknown")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"(#100) The parameter messaging_product is required. PRIVATE_REPLY\"}}", 100, null, "MissingRequiredParameter", "messaging_product")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"(#100) Param text must be a JSON object.\"}}", 100, null, "InvalidOrUnsupportedParameter", "text")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"Invalid parameter\",\"error_data\":{\"details\":\"The parameter 'to' is invalid: 60199999999 PRIVATE_REPLY\"}}}", 100, null, "InvalidOrUnsupportedParameter", "to")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"Invalid parameter\",\"error_data\":{\"details\":\"The parameter 'to' is required. PRIVATE_REPLY\"}}}", 100, null, "MissingRequiredParameter", "to")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"Invalid parameter\",\"error_data\":{\"details\":\"Param recipient_type must be a string. PRIVATE_REPLY\"}}}", 100, null, "InvalidOrUnsupportedParameter", "recipient_type")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"Param type must be a string. PRIVATE_REPLY\"}}", 100, null, "InvalidOrUnsupportedParameter", "type")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"Invalid parameter\",\"error_data\":{\"details\":\"The parameter 'private-key-XYZ' is invalid: PRIVATE_REPLY\"}}}", 100, null, "InvalidOrUnsupportedParameter", "Unknown")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"Unsupported post request. Object with ID 123 does not exist.\"}}", 100, null, "UnknownOrInaccessibleObject", "Unknown")]
+    [InlineData("{\"error\":{\"code\":190,\"message\":\"Error validating access token: synthetic-token\"}}", 190, null, "InvalidAccessToken", "Unknown")]
+    [InlineData("{\"error\":{\"code\":10,\"message\":\"Permissions error: PRIVATE_REPLY\"}}", 10, null, "PermissionDenied", "Unknown")]
+    [InlineData("{\"error\":{\"code\":131030,\"message\":\"Recipient phone number not in allowed list: 60199999999\"}}", 131030, null, "RecipientRestricted", "Unknown")]
+    [InlineData("{\"error\":{\"code\":131047,\"message\":\"Re-engagement message outside the 24-hour customer service window.\"}}", 131047, null, "SessionWindowClosed", "Unknown")]
+    [InlineData("{\"error\":{\"code\":131047,\"message\":\"(#131047) Re-engagement message\",\"error_data\":{\"details\":\"Message failed to send because more than 24 hours have passed since the customer last replied. PRIVATE_REPLY 60199999999\"}}}", 131047, null, "SessionWindowClosed", "Unknown")]
+    [InlineData("{\"error\":{\"code\":131047,\"message\":\"(#131047) Re-engagement message\",\"error_data\":{\"details\":\"PRIVATE_REPLY recipient 60199999999\"}}}", 131047, null, "Unknown", "Unknown")]
+    [InlineData("{\"error\":{\"code\":100,\"message\":\"PRIVATE_REPLY says token to 60199999999 is missing required parameter\"}}", 100, null, "Unknown", "Unknown")]
+    public async Task Rejected_staff_reply_logs_only_allowlisted_reason_and_numeric_provider_codes(string body, int? code, int? subcode,
+        string reason, string field)
     {
         await using var fixture = await Fixture.Create();
         var logger = new CapturingSenderLogger();
@@ -1137,6 +1153,8 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.Equal(400, warning.Fields["HttpStatusCode"]);
         Assert.Equal(code, warning.Fields["MetaErrorCode"]);
         Assert.Equal(subcode, warning.Fields["MetaErrorSubcode"]);
+        Assert.Equal(reason, warning.Fields["MetaErrorReason"]);
+        Assert.Equal(field, warning.Fields["MetaErrorField"]);
         Assert.Null(warning.Exception);
         Assert.Contains("Staff WhatsApp provider rejected reply", warning.Message);
         foreach (var secret in new[] { "PRIVATE_REPLY", fixture.Options.TestRecipient, "synthetic-token", "SECRET_META_CODE", "SECRET_META_SUBCODE" })
@@ -1169,6 +1187,8 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.Equal(502, warning.Fields["HttpStatusCode"]);
         Assert.Null(warning.Fields["MetaErrorCode"]);
         Assert.Null(warning.Fields["MetaErrorSubcode"]);
+        Assert.Equal("Unknown", warning.Fields["MetaErrorReason"]);
+        Assert.Equal("Unknown", warning.Fields["MetaErrorField"]);
         Assert.Null(warning.Exception);
     }
 

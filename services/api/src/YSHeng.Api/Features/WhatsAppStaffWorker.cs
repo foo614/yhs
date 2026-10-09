@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using YSHeng.Api.Data;
 
@@ -74,9 +75,9 @@ public sealed class WhatsAppStaffSender : IDisposable
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode)
             {
-                var (code, subcode) = await ReadErrorCodesAsync(response, ct);
-                logger.LogWarning("Staff WhatsApp provider rejected reply (HTTP {HttpStatusCode}, Meta code {MetaErrorCode}, subcode {MetaErrorSubcode}).",
-                    (int)response.StatusCode, code, subcode);
+                var (code, subcode, reason, field) = await ReadErrorDiagnosticsAsync(response, ct);
+                logger.LogWarning("Staff WhatsApp provider rejected reply (HTTP {HttpStatusCode}, Meta code {MetaErrorCode}, subcode {MetaErrorSubcode}, reason {MetaErrorReason}, field {MetaErrorField}).",
+                    (int)response.StatusCode, code, subcode, reason, field);
                 return new("ProviderRejected", HttpStatusCode: (int)response.StatusCode);
             }
             using var content = new MemoryStream();
@@ -101,11 +102,13 @@ public sealed class WhatsAppStaffSender : IDisposable
         }
     }
 
-    private static async Task<(int? Code, int? Subcode)> ReadErrorCodesAsync(HttpResponseMessage response, CancellationToken ct)
+    private static async Task<(int? Code, int? Subcode, string Reason, string Field)> ReadErrorDiagnosticsAsync(
+        HttpResponseMessage response, CancellationToken ct)
     {
         try
         {
-            if (response.Content is null || response.Content.Headers.ContentLength > MaxErrorBytes) return (null, null);
+            if (response.Content is null || response.Content.Headers.ContentLength > MaxErrorBytes)
+                return (null, null, "Unknown", "Unknown");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(2));
             using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
@@ -114,22 +117,110 @@ public sealed class WhatsAppStaffSender : IDisposable
             int count;
             while ((count = await stream.ReadAsync(buffer, timeout.Token)) > 0)
             {
-                if (content.Length + count > MaxErrorBytes) return (null, null);
+                if (content.Length + count > MaxErrorBytes) return (null, null, "Unknown", "Unknown");
                 content.Write(buffer, 0, count);
             }
             using var json = JsonDocument.Parse(content.ToArray(), new JsonDocumentOptions { MaxDepth = 8 });
             if (json.RootElement.ValueKind != JsonValueKind.Object ||
                 !json.RootElement.TryGetProperty("error", out var error) || error.ValueKind != JsonValueKind.Object)
-                return (null, null);
+                return (null, null, "Unknown", "Unknown");
             int? Number(string name) => error.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number &&
                 value.TryGetInt32(out var number) ? number : null;
-            return (Number("code"), Number("error_subcode"));
+            var message = error.TryGetProperty("message", out var messageValue) && messageValue.ValueKind == JsonValueKind.String
+                ? messageValue.GetString() ?? "" : "";
+            var details = error.TryGetProperty("error_data", out var data) && data.ValueKind == JsonValueKind.Object &&
+                data.TryGetProperty("details", out var detailValue) && detailValue.ValueKind == JsonValueKind.String
+                ? detailValue.GetString() ?? "" : "";
+            var (reason, field) = ClassifyError(message, details);
+            return (Number("code"), Number("error_subcode"), reason, field);
         }
         catch (Exception)
         {
             // The HTTP rejection is definitive even when the bounded diagnostic body cannot be read.
-            return (null, null);
+            return (null, null, "Unknown", "Unknown");
         }
+    }
+
+    private static (string Reason, string Field) ClassifyError(string message, string details)
+    {
+        var text = NormalizeMetaText(message);
+        var detailText = NormalizeMetaText(details);
+        var reason = KnownReason(text);
+        // Meta sometimes puts the useful parameter diagnosis under error_data.details.
+        // Only refine an already recognised generic parameter error, never arbitrary echoed text.
+        if (text.StartsWith("Invalid parameter", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Unsupported parameter", StringComparison.OrdinalIgnoreCase))
+        {
+            var detailReason = KnownReason(detailText);
+            if (detailReason is "MissingRequiredParameter" or "InvalidOrUnsupportedParameter") reason = detailReason;
+        }
+        if (text.Equals("Re-engagement message", StringComparison.OrdinalIgnoreCase) &&
+            detailText.StartsWith("Message failed to send because more than 24 hours", StringComparison.OrdinalIgnoreCase))
+            reason = "SessionWindowClosed";
+        if (reason is not ("MissingRequiredParameter" or "InvalidOrUnsupportedParameter"))
+            return (reason, "Unknown");
+        var field = KnownField(text);
+        return (reason, field == "Unknown" ? KnownField(detailText) : field);
+    }
+
+    private static string NormalizeMetaText(string value)
+    {
+        var text = value.Trim();
+        if (text.StartsWith("(#", StringComparison.Ordinal))
+        {
+            var end = text.IndexOf(')');
+            if (end is > 2 and <= 9 && int.TryParse(text.AsSpan(2, end - 2), out _))
+                text = text[(end + 1)..].TrimStart();
+        }
+        return text;
+    }
+
+    private static string KnownReason(string text)
+    {
+        if (text.StartsWith("Missing required parameter", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("The parameter ", StringComparison.OrdinalIgnoreCase) &&
+            text.Contains(" is required", StringComparison.OrdinalIgnoreCase))
+            return "MissingRequiredParameter";
+        if (text.StartsWith("Invalid parameter", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Unsupported parameter", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Param ", StringComparison.OrdinalIgnoreCase) &&
+            text.Contains(" must be ", StringComparison.OrdinalIgnoreCase) && KnownField(text) != "Unknown")
+            return "InvalidOrUnsupportedParameter";
+        if (text.StartsWith("Unsupported post request", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Object with ID ", StringComparison.OrdinalIgnoreCase) &&
+            text.Contains(" does not exist", StringComparison.OrdinalIgnoreCase))
+            return "UnknownOrInaccessibleObject";
+        if (text.StartsWith("Error validating access token", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Invalid OAuth access token", StringComparison.OrdinalIgnoreCase))
+            return "InvalidAccessToken";
+        if (text.StartsWith("Permissions error", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Permission denied", StringComparison.OrdinalIgnoreCase))
+            return "PermissionDenied";
+        if (text.StartsWith("Recipient phone number not in allowed list", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Recipient is not in allowed list", StringComparison.OrdinalIgnoreCase))
+            return "RecipientRestricted";
+        if (text.StartsWith("Re-engagement message outside", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Message failed to send because more than 24 hours", StringComparison.OrdinalIgnoreCase))
+            return "SessionWindowClosed";
+        return "Unknown";
+    }
+
+    private static string KnownField(string text)
+    {
+        var match = Regex.Match(text, @"\b(?:parameter|param|field)\s*(?::|=)?\s*['""]?(?<field>[A-Za-z][A-Za-z0-9_.-]{0,40})",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+        return match.Success ? match.Groups["field"].Value.ToLowerInvariant() switch
+        {
+            "messaging_product" => "messaging_product",
+            "to" => "to",
+            "text" => "text",
+            "text.body" => "text.body",
+            "text.preview_url" => "text.preview_url",
+            "recipient_type" => "recipient_type",
+            "type" => "type",
+            "interactive" => "interactive",
+            _ => "Unknown"
+        } : "Unknown";
     }
 }
 
