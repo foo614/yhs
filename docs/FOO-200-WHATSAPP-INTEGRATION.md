@@ -53,10 +53,15 @@ gate. Customer consent and queue routes never operate on staff rows.
 ## Assistant reply rejection diagnostics
 
 In Aspire structured logs, filter for `Staff WhatsApp provider rejected reply`.
-The sender records `HttpStatusCode`, `MetaErrorCode` and `MetaErrorSubcode` only;
-it never records the provider error message/body, recipient, token or reply text.
+The sender records `HttpStatusCode`, `MetaErrorCode`, `MetaErrorSubcode`,
+`MetaErrorReason` and `MetaErrorField`. Reasons and fields are fixed allowlisted
+labels derived from recognized provider error phrases, not raw provider text.
+It never records the provider error message/body, recipient, token or reply text.
 Missing codes mean the diagnostic body could not be safely parsed, not that Meta
 accepted the message. Error-body inspection is limited to 4 KiB and two seconds.
+An unknown reason means the provider description was not recognized safely; do
+not infer a credential, template or configuration problem from that label alone.
+These labels describe the provider rejection, not a proven underlying cause.
 
 An inbound webhook HTTP 200 confirms receipt, not successful reply delivery.
 Check the subsequent outbound Graph API trace and rejection warning. A rejected
