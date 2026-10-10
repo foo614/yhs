@@ -70,6 +70,7 @@ services:
       WhatsApp__Templates__2__ApprovalEvidence: ${WHATSAPP_NOTICE_MS_TEMPLATE_APPROVAL_EVIDENCE:-}
       WhatsApp__Templates__3__Key: staff_notice_v1
       WhatsApp__Templates__3__Language: en_US
+      WhatsApp__Templates__3__ProviderLanguage: ${WHATSAPP_NOTICE_EN_TEMPLATE_LANGUAGE:-en}
       WhatsApp__Templates__3__Name: ${WHATSAPP_NOTICE_EN_TEMPLATE_NAME:-}
       WhatsApp__Templates__3__Approved: ${WHATSAPP_NOTICE_EN_TEMPLATE_APPROVED:-false}
       WhatsApp__Templates__3__ApprovalEvidence: ${WHATSAPP_NOTICE_EN_TEMPLATE_APPROVAL_EVIDENCE:-}

@@ -68,6 +68,7 @@ public sealed class WhatsAppDispatchOptions
         {
             if (!matches[0].Approved) issues.Add("Template approval flag is off.");
             if (!matches[0].ValidName) issues.Add("Template name is missing or invalid.");
+            if (!matches[0].ValidProviderLanguage) issues.Add("Template provider language is invalid.");
             if (!Evidence(matches[0].ApprovalEvidence)) issues.Add("Template approval evidence is missing or invalid.");
         }
         return new(language, issues.Count == 0, issues);
@@ -108,11 +109,15 @@ public sealed class WhatsAppApprovedTemplate
     public string Key { get; init; } = "";
     public string Name { get; init; } = "";
     public string Language { get; init; } = "";
+    public string ProviderLanguage { get; init; } = "";
+    public string EffectiveProviderLanguage => ProviderLanguage.Length == 0 ? Language : ProviderLanguage;
+    public bool ValidProviderLanguage => EffectiveProviderLanguage == Language ||
+        (Key == "staff_notice_v1" && Language == "en_US" && EffectiveProviderLanguage == "en");
     public bool Approved { get; init; }
     public string ApprovalEvidence { get; init; } = "";
     public bool ValidName => Regex.IsMatch(Name, @"\A[a-z][a-z0-9_]{0,79}\z");
     public bool Valid => Approved && Key is "enquiry_ack_v1" or "business_update_v1" or "receipt_ready_v1" or "staff_notice_v1" or "staff_invite_v1" &&
-        Language is "ms" or "en_US" && ValidName &&
+        Language is "ms" or "en_US" && ValidName && ValidProviderLanguage &&
         WhatsAppDispatchOptions.Evidence(ApprovalEvidence);
 }
 
@@ -145,7 +150,7 @@ public sealed class WhatsAppTemplateSender : IDisposable
             messaging_product = "whatsapp", to = recipient, type = "template",
             template = new
             {
-                name = template.Name, language = new { code = template.Language },
+                name = template.Name, language = new { code = template.EffectiveProviderLanguage },
                 components = new[] { new { type = "body", parameters = new[] { new { type = "text", text = item.TemplateReference } } } }
             }
         });

@@ -73,20 +73,34 @@ public sealed class WhatsAppTestSenderTests
         Assert.Equal(1, handler.Calls);
     }
 
-    [Fact]
-    public async Task Staff_sender_uses_exact_approved_language_even_with_unrelated_invalid_template()
+    [Theory]
+    [InlineData("ms", "", "ms", "Accepted")]
+    [InlineData("en_US", "", "en_US", "Accepted")]
+    [InlineData("en_US", "en", "en", "Accepted")]
+    [InlineData("en_US", "ms", "ms", "TemplateNotApproved")]
+    public async Task Staff_sender_uses_exact_approved_language_even_with_unrelated_invalid_template(
+        string language, string providerLanguage, string expectedLanguage, string outcome)
     {
         using var handler = new StubHandler();
         using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
-        var item = StaffItem();
+        var item = StaffItem() with { Language = language };
         var options = StaffOptions(
-            Approved("staff_notice_v1", "ms"),
+            new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Language = language,
+                ProviderLanguage = providerLanguage, Name = "approved_staff_notice", Approved = true,
+                ApprovalEvidence = "synthetic template approval" },
             new WhatsAppApprovedTemplate { Key = "staff_invite_v1", Language = "en_US", Name = "unapproved_invite" });
 
-        Assert.Equal("Accepted", (await sender.SendAsync(options, item)).Outcome);
+        Assert.Equal(outcome, (await sender.SendAsync(options, item)).Outcome);
+        Assert.Equal(outcome == "Accepted", options.TemplateReadiness("staff_notice_v1", language).Ready);
+        if (outcome != "Accepted")
+        {
+            Assert.Equal(0, handler.Calls);
+            return;
+        }
         Assert.Equal(1, handler.Calls);
         using var payload = JsonDocument.Parse(handler.Body!);
         Assert.Equal("approved_staff_notice", payload.RootElement.GetProperty("template").GetProperty("name").GetString());
+        Assert.Equal(expectedLanguage, payload.RootElement.GetProperty("template").GetProperty("language").GetProperty("code").GetString());
     }
 
     [Theory]
