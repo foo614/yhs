@@ -207,9 +207,8 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
               <Typography.Text>Time: {localTime(policy.localMinuteOfDay)} MYT</Typography.Text>}
             {policy.category === "OutstandingDigest" && <Typography.Text>Lead time: {policy.leadDays} days</Typography.Text>}
             {policy.category === "OcrUsage" && <Typography.Text>Threshold: {policy.thresholdPercent}%</Typography.Text>}
-            <Alert showIcon type={!policy.enabled ? "info" : policy.senderReady && policy.templateReady && policy.categoryReady ? "info" : "warning"}
-              message={!policy.enabled ? "Off" : policy.senderReady && policy.templateReady && policy.categoryReady ? "Configuration gates ready" : "Action needed"}
-              description={readiness(policy)} />
+            {policy.enabled && (!policy.senderReady || !policy.templateReady || !policy.categoryReady) &&
+              <Alert showIcon type="warning" message="Action needed" description={readiness(policy)} />}
             <div className="staffWhatsAppAction"><Button onClick={() => startEdit(policy)}>Edit settings</Button></div>
           </Space>
         </Card>)}
