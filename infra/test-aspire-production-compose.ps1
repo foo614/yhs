@@ -187,6 +187,7 @@ try {
     Assert-Equal -Name "$prefix approval" -Actual $whatsApp."${prefix}Approved" -Expected "false"
     Assert-Equal -Name "$prefix evidence" -Actual $whatsApp."${prefix}ApprovalEvidence" -Expected $template.Evidence
   }
+  Assert-Equal -Name "English staff notice provider language" -Actual $whatsApp.WhatsApp__Templates__3__ProviderLanguage -Expected "en"
   if ($compose.services.worker.environment.PSObject.Properties.Name -match "^WhatsApp(Assistant)?__") {
     throw "Only the API may receive WhatsApp configuration; the general worker must not send duplicate staff replies or alerts."
   }
