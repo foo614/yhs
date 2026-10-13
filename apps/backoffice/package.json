@@ -9,7 +9,8 @@
     "preview": "vite preview --host 0.0.0.0 --port 3001",
     "lint": "tsc --noEmit",
     "test": "vitest run src",
-    "test:responsive": "playwright test --config=playwright.config.mjs"
+    "test:responsive": "playwright test --config=playwright.config.mjs",
+    "test:e2e:pilot": "playwright test --config=e2e-pilot.config.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "5.5.2",
