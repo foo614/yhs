@@ -1,0 +1,32 @@
+header.detailBreadcrumbHero {
+  min-height: 0;
+  padding: 112px 32px 24px;
+}
+
+.detailBreadcrumbInner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.detailBreadcrumbKicker {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  header.detailBreadcrumbHero {
+    padding: 92px 18px 18px;
+  }
+}
+
+@media (max-width: 500px) {
+  header.detailBreadcrumbHero {
+    padding: 78px 18px 16px;
+  }
+
+  .detailBreadcrumbInner {
+    align-items: flex-start;
+  }
+}

@@ -1,0 +1,93 @@
+.intentFieldset {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.intentFieldset legend {
+  margin: 0 0 7px;
+  padding: 0;
+  color: #7b454f;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.intentOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.intentFieldset .intentButton.intentButton {
+  min-height: 44px;
+  width: auto;
+  padding: 0 15px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .9);
+  border: 1px solid rgba(186, 0, 47, .18);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.intentFieldset .intentButton.intentButton::after {
+  display: none;
+}
+
+.intentFieldset .intentButton.intentButton:hover {
+  color: var(--primary-strong);
+  background: #fff;
+  border-color: rgba(186, 0, 47, .42);
+  box-shadow: 0 8px 18px rgba(66, 15, 27, .08);
+  transform: translateY(-1px);
+}
+
+.intentFieldset .intentButton.intentButton:focus-visible {
+  outline: 3px solid rgba(186, 0, 47, .2);
+  outline-offset: 2px;
+}
+
+.intentFieldset .intentButton.intentButton[aria-pressed="true"] {
+  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 8px 18px rgba(186, 0, 47, .18);
+}
+
+.statusMessage,
+.lengthError {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+.statusMessage {
+  color: var(--muted);
+}
+
+.lengthError {
+  color: var(--danger);
+}
+
+.submitted {
+  display: grid;
+  gap: 14px;
+  outline: none;
+}
+
+@media (max-width: 520px) {
+  .intentOptions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .intentFieldset .intentButton.intentButton {
+    width: 100%;
+  }
+}

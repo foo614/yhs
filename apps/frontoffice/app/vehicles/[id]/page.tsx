@@ -14,6 +14,7 @@ import { LoanCalculator } from "../LoanCalculator";
 import { MarketingDescription } from "../MarketingDescription";
 import { VehicleGallery } from "./VehicleGallery";
 import { legalBusinessName } from "../../business";
+import styles from "./VehicleDetail.module.css";
 
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 
@@ -43,73 +44,56 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
   const plateNumber = typeof vehicle.plateNumber === "string" ? vehicle.plateNumber : "N/A";
   const fallbackLetters = `${make.slice(0, 1)}${model.slice(0, 1)}` || "YH";
   const related = relatedVehicles(vehicles, vehicle);
-  const stockLabel = vehicle.stockOwner === "KS" ? "Partner stock" : "YS Heng stock";
-  const availabilityText = vehicle.status === "Available" ? "Available for enquiry" : vehicle.status;
-  const listingSummary = language === "zh"
-    ? `${title} 二手车，刊登售价 RM ${formatThousands(vehicle.sellingPrice)}，可通过 ${legalBusinessName} 查询。请联络居銮展厅确认车源与看车详情。`
-    : `${title} used car listed at RM ${formatThousands(vehicle.sellingPrice)} and available for enquiry through ${legalBusinessName}. Contact the Kluang showroom to confirm availability and viewing details.`;
-  const introText = listingSummary;
-  const nextTitle = t.nextTitle ?? "What happens next";
-  const nextText = language === "zh"
-    ? "销售团队可确认看车安排，并说明贷款估算、文件、付款、保险、转名与交车需要进一步确认的事项。"
-    : "Sales can confirm viewing arrangements and explain which loan-estimate, document, payment, insurance, transfer, and handover details still need confirmation.";
-  const highlightsTitle = t.highlights ?? "Vehicle highlights";
+  const stockLabel = vehicle.stockOwner === "KS" ? t.partnerStock : t.yshengStock;
+  const availabilityText = vehicle.status === "Available"
+    ? t.availableForEnquiry
+    : vehicle.status === "LoanProcessing"
+      ? t.loanProcessing
+      : t.sold;
+  const listingSummary = t.listingSummary
+    .replace("{title}", title)
+    .replace("{price}", formatThousands(vehicle.sellingPrice))
+    .replace("{business}", legalBusinessName);
   const gallery = vehicle.photoUrls.length > 0
     ? vehicle.photoUrls
     : vehicle.fallbackPhotoUrls ?? (vehicle.fallbackPhotoUrl ? [vehicle.fallbackPhotoUrl] : []);
   const detailFacts = [
     { label: t.make, value: make },
     { label: t.model, value: model },
-    { label: "Year", value: String(year) },
+    { label: t.year, value: String(year) },
     { label: t.plate, value: plateNumber },
-    { label: "Stock channel", value: stockLabel },
-    { label: "Availability", value: availabilityText }
+    { label: t.stockChannel, value: stockLabel },
+    { label: t.availability, value: availabilityText }
   ];
-  const supportItems = language === "zh"
-    ? ["确认看车安排", "贷款与月供估算说明", "按需要讨论 Trade-in", "询问保险、转名与交车步骤"]
-    : ["Viewing-arrangement confirmation", "Loan and monthly-estimate guidance", "Trade-in discussion if needed", "Questions about insurance, transfer, and handover steps"];
-  const enquiryCopy = language === "zh"
-    ? {
-        kicker: "快速询问",
-        title: `想了解这辆 ${make || "车"}？`,
-        body: "留下资料后，团队会协助确认看车时间、贷款估算、trade-in 与下一步流程。",
-        priceLabel: "当前挂牌价",
-        monthlyLabel: "估算月供",
-        highlights: ["销售跟进", "看车询问", "贷款估算", "Trade-in 咨询"]
-      }
-    : {
-        kicker: "Fast enquiry",
-        title: `Interested in this ${make || "car"}?`,
-        body: "Send your details and the team can help confirm viewing slots, loan estimate, trade-in options, and the next steps.",
-        priceLabel: "Listed price",
-        monthlyLabel: "Est. monthly",
-        highlights: ["Sales follow-up", "Viewing request", "Loan estimate", "Trade-in discussion"]
-      };
-  const compareIntro = language === "zh"
-    ? "快速比较最接近的车源，不需要离开当前页面。"
-    : "Quick alternatives for side-by-side decisions without taking over the page.";
-  const viewDetailsLabel = language === "zh" ? "查看详情" : "View details";
+  const enquiryCopy = t.enquiry;
+  const vehicleCardCopy = frontofficeCopy[language].vehicleCard;
+  const enquiryTitle = enquiryCopy.title.replace("{make}", make || (language === "zh" ? "车" : "car"));
+  const viewDetailsLabel = vehicleCardCopy.viewDetails;
 
   return (
     <main className="atelierSubPage" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
       <PublicHeader language={language} active="vehicles" />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataJson(vehicleStructuredData(vehicle, language)) }} />
 
-      <header className="atelierSubHero detailAtelierHero">
-        <div className="atelierSubHeroInner">
+      <header className={`atelierSubHero detailAtelierHero ${styles.detailBreadcrumbHero}`}>
+        <div className={`atelierSubHeroInner ${styles.detailBreadcrumbInner}`}>
           <Link href={hrefWithLanguage("/vehicles", language)} className="backLink"><ChevronLeft size={18} /> {t.back}</Link>
-          <p className="atelierKicker">{t.kicker}</p>
-          <h1>{title}</h1>
-          <p>{introText}</p>
+          <p className={`atelierKicker ${styles.detailBreadcrumbKicker}`}>{t.kicker}</p>
         </div>
       </header>
       <section className="detailPage">
       <section className="detailGrid">
         <div className="detailGalleryColumn">
-          <VehicleGallery photos={gallery} title={`${make} ${model}`} fallback={fallbackLetters} fallbackSrc={vehicle.fallbackPhotoUrl} />
+          <VehicleGallery
+            photos={gallery}
+            title={title}
+            fallback={fallbackLetters}
+            fallbackSrc={vehicle.fallbackPhotoUrl}
+            language={language}
+          />
           {vehicle.descriptionMarkdown && (
-            <section className="vehicleDescriptionSection" aria-label="Vehicle description">
-              <h2>Vehicle description</h2>
+            <section className="vehicleDescriptionSection" aria-label={t.descriptionAria}>
+              <h2>{t.descriptionTitle}</h2>
               <MarketingDescription markdown={vehicle.descriptionMarkdown} />
             </section>
           )}
@@ -122,12 +106,12 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
             <span>{t.sellingPrice}</span>
             <strong>RM {formatThousands(vehicle.sellingPrice)}</strong>
           </div>
-          <div className="detailStatGrid" aria-label="Vehicle summary">
+          <div className="detailStatGrid" aria-label={t.summaryAria}>
             <span><CalendarDays size={17} /> {year}</span>
             <span><Tag size={17} /> {availabilityText}</span>
             <span><Car size={17} /> {stockLabel}</span>
           </div>
-          <LoanCalculator sellingPrice={vehicle.sellingPrice} />
+          <LoanCalculator sellingPrice={vehicle.sellingPrice} language={language} />
           <a className="primaryAction wideAction" href="#enquire">{t.enquire}</a>
         </div>
       </section>
@@ -135,12 +119,12 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
       <section className="detailPanels">
         <article>
           <ShieldCheck size={24} />
-          <h2>{nextTitle}</h2>
-          <p>{nextText}</p>
+          <h2>{t.nextTitle}</h2>
+          <p>{t.nextText}</p>
         </article>
         <article>
           <Car size={24} />
-          <h2>{highlightsTitle}</h2>
+          <h2>{t.highlights}</h2>
           <dl>
             {detailFacts.map((item) => (
               <div key={item.label}>
@@ -152,9 +136,9 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
         </article>
         <article>
           <WalletCards size={24} />
-          <h2>Buyer support</h2>
+          <h2>{t.buyerSupport}</h2>
           <ul className="supportList">
-            {supportItems.map((item) => (
+            {t.supportItems.map((item) => (
               <li key={item}><CheckCircle2 size={17} /> {item}</li>
             ))}
           </ul>
@@ -165,21 +149,21 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
         <div className="enquiryShell">
           <div className="enquiryPitch">
             <p className="atelierKicker">{enquiryCopy.kicker}</p>
-            <h2>{enquiryCopy.title}</h2>
+            <h2>{enquiryTitle}</h2>
             <p>{enquiryCopy.body}</p>
-            <div className="enquiryHighlights" aria-label="Enquiry benefits">
+            <div className="enquiryHighlights" aria-label={enquiryCopy.benefitsAria}>
               {enquiryCopy.highlights.map((item) => (
                 <span key={item}><CheckCircle2 size={16} /> {item}</span>
               ))}
             </div>
-            <div className="enquiryPriceRail" aria-label="Vehicle price summary">
+            <div className="enquiryPriceRail" aria-label={enquiryCopy.priceSummaryAria}>
               <span>
                 {enquiryCopy.priceLabel}
                 <strong>RM {formatThousands(vehicle.sellingPrice)}</strong>
               </span>
               <span>
                 {enquiryCopy.monthlyLabel}
-                <strong>See calculator above</strong>
+                <strong>{enquiryCopy.calculatorLink}</strong>
               </span>
             </div>
           </div>
@@ -193,7 +177,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
             <div>
               <p className="atelierKicker">{t.similarKicker}</p>
               <h2>{t.similarTitle}</h2>
-              <p>{compareIntro}</p>
+              <p>{t.compareIntro}</p>
             </div>
             <Link href={hrefWithLanguage("/vehicles", language)} className="textLink">{t.viewAll}</Link>
           </div>
@@ -201,6 +185,14 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
             {related.map((item) => {
               const compareTitle = `${item.year} ${item.make} ${item.model}`.trim();
               const compareFallback = `${item.make.slice(0, 1)}${item.model.slice(0, 1)}` || "YH";
+              const compareStatus = item.status === "Available"
+                ? t.availableForEnquiry
+                : item.status === "LoanProcessing"
+                  ? t.loanProcessing
+                  : t.sold;
+              const comparePhotoAlt = item.isRepresentativePhoto
+                ? `${item.photoUrls.length > 0 ? vehicleCardCopy.representativePhotoAlt : vehicleCardCopy.photoComingSoon}: ${compareTitle}`
+                : compareTitle;
               return (
                 <Link
                   href={hrefWithLanguage(`/vehicles/${item.id}`, language)}
@@ -209,12 +201,12 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
                   aria-label={`${viewDetailsLabel}: ${compareTitle}`}
                 >
                   <span className="compactCompareThumb">
-                    <VehiclePhoto src={item.photoUrl} alt={compareTitle} fallback={compareFallback} fallbackSrc={item.fallbackPhotoUrl} />
+                    <VehiclePhoto src={item.photoUrl} alt={comparePhotoAlt} fallback={compareFallback} fallbackSrc={item.fallbackPhotoUrl} />
                   </span>
                   <span className="compactCompareBody">
                     <span className="plate">{item.plateNumber}</span>
                     <strong>{compareTitle}</strong>
-                    <span>{item.status}</span>
+                    <span>{compareStatus}</span>
                   </span>
                   <span className="compactComparePrice">RM {formatThousands(item.sellingPrice)}</span>
                 </Link>
