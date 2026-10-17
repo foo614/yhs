@@ -19,10 +19,18 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const answerHeading = useRef<HTMLHeadingElement>(null);
+  const questionButtons = useRef<Array<HTMLButtonElement | null>>([]);
+  const returnToQuestion = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [language, setLanguage] = useState<FaqLanguage | null>(null);
   const [question, setQuestion] = useState<number | null>(null);
   const t = language ? buyerFaq[language] : null;
+  const selectedQuestion = t && question !== null ? t.questions[question] : null;
+  const languageLabel = language ? faqLanguages.find((entry) => entry.code === language)?.label : null;
+  const whatsappMessage = t && languageLabel
+    ? `${t.whatsappTopic}: ${selectedQuestion?.question ?? t.title}\n${t.whatsappLanguage}: ${languageLabel}`
+    : "";
 
   useEffect(() => {
     if (open) {
@@ -36,7 +44,18 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
   }, [open]);
 
   useEffect(() => {
-    if (open) heading.current?.focus();
+    if (!open) return;
+    if (question !== null) {
+      answerHeading.current?.focus();
+      return;
+    }
+    if (returnToQuestion.current !== null) {
+      const questionIndex = returnToQuestion.current;
+      returnToQuestion.current = null;
+      questionButtons.current[questionIndex]?.focus();
+      return;
+    }
+    heading.current?.focus();
   }, [language, question, open]);
 
   function close() {
@@ -55,7 +74,7 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
       {children}
       <button type="button" className={styles.launcher} aria-haspopup="dialog" aria-expanded={open} aria-controls="buyer-faq" onClick={(event) => show(event.currentTarget)}>
         <MessageCircle size={20} aria-hidden="true" />
-        <span>{t?.title ?? "Bantuan / Help / 帮助"}</span>
+        <span>{t?.title ?? <><span lang="ms">Bantuan</span><span aria-hidden="true"> / </span><span lang="en">Help</span><span aria-hidden="true"> / </span><span lang="zh-Hans">帮助</span></>}</span>
       </button>
       <dialog ref={dialog} id="buyer-faq" className={styles.dialog} lang={language ?? undefined} aria-labelledby="buyer-faq-heading" onCancel={(event) => { event.preventDefault(); close(); }} onClose={() => setOpen(false)} onKeyDown={(event) => {
         if (event.key !== "Tab") return;
@@ -72,31 +91,37 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
       }}>
         <div className={styles.header}>
           <span>YS HENG</span>
-          <button type="button" className={styles.iconButton} aria-label={t?.close ?? "Tutup / Close / 关闭"} onClick={close}><X size={22} aria-hidden="true" /></button>
+          <button type="button" className={styles.iconButton} aria-label={t?.close} onClick={close}>
+            {!t && <span className={styles.srOnly}><span lang="ms">Tutup</span><span aria-hidden="true"> / </span><span lang="en">Close</span><span aria-hidden="true"> / </span><span lang="zh-Hans">关闭</span></span>}
+            <X size={22} aria-hidden="true" />
+          </button>
         </div>
         <div className={styles.content}>
-          <h2 id="buyer-faq-heading" ref={heading} tabIndex={-1}>{t?.title ?? "Pilih bahasa / Choose language / 选择语言"}</h2>
+          <h2 id="buyer-faq-heading" ref={heading} tabIndex={-1}>{t?.title ?? <><span lang="ms">Pilih bahasa</span><span aria-hidden="true"> / </span><span lang="en">Choose language</span><span aria-hidden="true"> / </span><span lang="zh-Hans">选择语言</span></>}</h2>
           {t && language ? (
             <>
-              <button type="button" className={styles.textButton} onClick={() => { setLanguage(null); setQuestion(null); }}><Languages size={16} aria-hidden="true" />{t.changeLanguage}</button>
+              <button type="button" className={styles.textButton} onClick={() => { returnToQuestion.current = null; setLanguage(null); setQuestion(null); }}><Languages size={16} aria-hidden="true" />{t.changeLanguage}</button>
               {question === null ? (
                 <>
                   <p className={styles.welcome}>{t.welcome}</p>
                   <div className={styles.options}>
-                    {t.questions.map((entry, index) => <button type="button" key={entry.question} onClick={() => setQuestion(index)}>{entry.question}<ArrowRight size={18} aria-hidden="true" /></button>)}
+                    {t.questions.map((entry, index) => <button type="button" ref={(button) => { questionButtons.current[index] = button; }} key={entry.question} onClick={() => setQuestion(index)}>{entry.question}<ArrowRight size={18} aria-hidden="true" /></button>)}
                   </div>
                 </>
               ) : (
                 <div className={styles.answer}>
-                  <h3>{t.questions[question].question}</h3>
-                  <p>{t.questions[question].answer}</p>
-                  <button type="button" className={styles.textButton} onClick={() => setQuestion(null)}><ArrowLeft size={16} aria-hidden="true" />{t.back}</button>
+                  <h3 ref={answerHeading} tabIndex={-1}>{selectedQuestion?.question}</h3>
+                  <p>{selectedQuestion?.answer}</p>
+                  {selectedQuestion?.guide && <Link className={styles.guideLink} href={hrefWithLanguage(selectedQuestion.guide.href, language === "zh" ? "zh" : "en")} onClick={close}>{selectedQuestion.guide.label}<ArrowRight size={16} aria-hidden="true" /></Link>}
+                  <button type="button" className={styles.textButton} onClick={() => { returnToQuestion.current = question; setQuestion(null); }}><ArrowLeft size={16} aria-hidden="true" />{t.back}</button>
                 </div>
               )}
               <div className={styles.actions}>
                 <Link href={hrefWithLanguage("/vehicles", language === "zh" ? "zh" : "en")} onClick={close}>{t.browse}<ArrowRight size={16} aria-hidden="true" /></Link>
-                {whatsappNumber && <a href={`https://wa.me/${whatsappNumber}`} onClick={close}>{t.contact}<MessageCircle size={16} aria-hidden="true" /></a>}
+                <Link href={hrefWithLanguage("/contact#enquiry", language === "zh" ? "zh" : "en")} onClick={close}>{t.enquiry}<ArrowRight size={16} aria-hidden="true" /></Link>
+                {whatsappNumber && <a href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappMessage)}`} onClick={close}>{t.contact}<MessageCircle size={16} aria-hidden="true" /></a>}
               </div>
+              {whatsappNumber && <p className={styles.privacyNotice}>{t.whatsappNotice}</p>}
             </>
           ) : (
             <div className={styles.options}>
