@@ -47,11 +47,8 @@ describe("frontoffice motion enhancer contract", () => {
     expect(page).toContain('placeholder="blur"');
     expect(page).not.toMatch(/className="heroMedia"\s+fill/);
     expect(page).toContain('loading="lazy"');
-    expect(page).toContain("<HeroPriceTags language={language} vehicles={heroVehicles} />");
-    expect(page).toContain('hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })');
     expect(page).toContain('className="heroBrowseAction"');
     expect(page).toContain('import { HeroVehicleFilters } from "./HeroVehicleFilters";');
-    expect(page).toContain("getPublicVehicleCatalog()");
     expect(page).toContain("catalogModelsFromVehicles");
     expect(page).toContain("distinctYears");
     expect(styles).toContain(".heroPriceTagMotion");

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Banknote, Car, Home, MessageCircle, Search, Sparkles } from "lucide-react";
+import { Banknote, Car, Home, Search, Sparkles } from "lucide-react";
+import { BuyerHelpButton } from "./BuyerFaq";
 import { frontofficeCopy, hrefWithLanguage, languages, languageSwitchHref, type Language } from "./i18n";
 
 const publicBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -14,10 +15,16 @@ export function PublicHeader({ language, active = "home" }: { language: Language
   const t = frontofficeCopy[language].nav;
   const [contactSection, setContactSection] = useContactSection(active);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
   return (
-    <header className="atelierHeader">
+    <header className="atelierHeader" onKeyDown={(event) => {
+      if (event.key === "Escape" && mobileMenuOpen) {
+        closeMobileMenu();
+        menuButton.current?.focus();
+      }
+    }}>
       <BrandLogo language={language} />
       <nav>
         <Link href={hrefWithLanguage("/", language)} className={active === "home" ? "active" : undefined}>{t.home}</Link>
@@ -28,17 +35,19 @@ export function PublicHeader({ language, active = "home" }: { language: Language
       </nav>
       <div className="headerTools">
         <form className="headerSearch" action={hrefWithLanguage("/vehicles", language)}>
+          {language === "zh" && <input type="hidden" name="lang" value="zh" />}
           <Search size={13} />
-          <input name="q" placeholder={t.searchPlaceholder} />
+          <input name="q" aria-label={t.searchPlaceholder} placeholder={t.searchPlaceholder} />
         </form>
         <Suspense fallback={null}>
           <LanguageSwitch language={language} />
         </Suspense>
       </div>
       <button
+        ref={menuButton}
         className="mobileMenu"
         type="button"
-        aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+        aria-label={language === "zh" ? (mobileMenuOpen ? "关闭菜单" : "打开菜单") : (mobileMenuOpen ? "Close menu" : "Open menu")}
         aria-expanded={mobileMenuOpen}
         aria-controls="mobile-header-menu"
         onClick={() => setMobileMenuOpen((open) => !open)}
@@ -53,6 +62,7 @@ export function PublicHeader({ language, active = "home" }: { language: Language
         className={mobileMenuOpen ? "mobileDrawerBackdrop open" : "mobileDrawerBackdrop"}
         type="button"
         aria-label="Close menu"
+        tabIndex={-1}
         onClick={closeMobileMenu}
       />
       <nav
@@ -67,8 +77,9 @@ export function PublicHeader({ language, active = "home" }: { language: Language
         <Link href={hrefWithLanguage("/contact#workshop", language)} onClick={() => { setContactSection("workshop"); closeMobileMenu(); }} className={active === "contact" && contactSection === "workshop" ? "active" : undefined}>{t.workshop}</Link>
         <Link href={hrefWithLanguage("/contact#contact", language)} onClick={() => { setContactSection("contact"); closeMobileMenu(); }} className={active === "contact" && contactSection === "contact" ? "active" : undefined}>{t.contact}</Link>
         <form className="mobileDrawerSearch" action={hrefWithLanguage("/vehicles", language)} onSubmit={closeMobileMenu}>
+          {language === "zh" && <input type="hidden" name="lang" value="zh" />}
           <Search size={14} />
-          <input name="q" placeholder={t.searchPlaceholder} />
+          <input name="q" aria-label={t.searchPlaceholder} placeholder={t.searchPlaceholder} />
         </form>
         <Suspense fallback={null}>
           <LanguageSwitch language={language} />
@@ -156,8 +167,7 @@ export function PublicMobileNav({ language, active = "home" }: { language: Langu
     { key: "home", href: hrefWithLanguage("/", language), icon: <Home size={18} />, label: t.home },
     { key: "vehicles", href: hrefWithLanguage("/vehicles", language), icon: <Car size={18} />, label: t.mobileCars },
     { key: "sell", href: hrefWithLanguage("/contact#contact", language), icon: <Sparkles size={18} />, label: t.mobileSell },
-    { key: "finance", href: hrefWithLanguage("/contact#services", language), icon: <Banknote size={18} />, label: t.mobileFinance },
-    { key: "contact", href: hrefWithLanguage("/contact", language), icon: <MessageCircle size={18} />, label: t.mobileProfile }
+    { key: "finance", href: hrefWithLanguage("/contact#services", language), icon: <Banknote size={18} />, label: t.mobileFinance }
   ];
 
   useEffect(() => {
@@ -185,6 +195,7 @@ export function PublicMobileNav({ language, active = "home" }: { language: Langu
           {item.label}
         </Link>
       ))}
+      <BuyerHelpButton label={language === "zh" ? "帮助" : "Help"} />
     </nav>
   );
 }

@@ -1,0 +1,137 @@
+/* Homepage-only composition; listing and detail cards keep their own layout. */
+.homeRefinement .atelierHero {
+  min-height: 0;
+  height: auto;
+  padding: 132px 0 32px;
+}
+
+.homeRefinement .atelierHeroInner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 36px 24px;
+  width: min(1240px, calc(100% - 48px));
+  height: auto;
+  min-height: 0;
+}
+
+.homeRefinement .heroCopy { grid-column: 1; grid-row: 1; width: 100%; padding: 0; }
+.homeRefinement .heroMedia {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  inset: auto;
+  width: 100%;
+  height: auto;
+  opacity: 1;
+}
+.homeRefinement .atelierHero .atelierKicker { padding: 0; background: none; }
+.homeRefinement .heroIntro { max-width: 440px; margin-top: 20px; }
+.homeRefinement .heroActions { flex-wrap: wrap; gap: 16px; margin-top: 24px; }
+.homeRefinement .heroBrowseAction { box-shadow: none; }
+.homeRefinement .atelierSearch {
+  position: relative;
+  inset: auto;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 150px;
+  margin: 0;
+  padding: 24px;
+  gap: 16px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.homeRefinement .heroInventorySummary { grid-column: 1 / 3; border: 0; padding: 0; min-height: 0; }
+.homeRefinement .heroInventorySummary > svg,
+.homeRefinement .heroInventorySummary small { display: none; }
+.homeRefinement .heroSearchHint { position: static; grid-column: 3 / -1; align-self: center; text-align: right; }
+.homeRefinement .atelierSearch:not(:has(.heroInventorySummary)) .heroSearchHint { grid-column: 1 / -1; text-align: left; }
+.homeRefinement .atelierSearch button { grid-column: auto; box-shadow: none; }
+
+.homeRefinement .featuredInventorySection,
+.homeRefinement .ecosystemSection,
+.homeRefinement .workshopSection,
+.homeRefinement .trustEvidenceSection { padding: 56px 0; }
+.homeRefinement .sectionHeading h2,
+.homeRefinement .workshopCopy h2,
+.homeRefinement .evidenceHeader h2 { font-size: clamp(28px, 3vw, 42px); line-height: 1.15; letter-spacing: -.035em; margin: 0; }
+.homeRefinement .sectionHeading { margin-bottom: 28px; }
+.homeRefinement .sectionHeading p { color: var(--muted); line-height: 1.6; max-width: 620px; }
+.homeRefinement .featuredHomeGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; columns: auto; }
+.homeRefinement .featuredHomeGrid .vehicleCard { margin: 0; display: flex; flex-direction: column; background: #fff; border-radius: 12px; box-shadow: none; }
+.homeRefinement .featuredHomeGrid .vehicleCard::before { display: none; }
+.homeRefinement .featuredHomeGrid .vehicleCard .vehicleImage { aspect-ratio: 4 / 3; }
+.homeRefinement .featuredHomeGrid .stockBadge { display: none; }
+.homeRefinement .featuredHomeGrid .vehicleBody { flex: 1; display: flex; flex-direction: column; padding: 20px; }
+.homeRefinement .featuredHomeGrid .vehicleHeader { display: grid; gap: 16px; }
+.homeRefinement .featuredHomeGrid .vehicleHeader h3 { min-height: 2.6em; line-height: 1.3; }
+.homeRefinement .featuredHomeGrid .vehiclePrice { text-align: left; }
+.homeRefinement .featuredHomeGrid .vehicleFooter { margin-top: auto; padding-top: 20px; }
+.homeRefinement .featuredHomeGrid .specPills { margin-bottom: 16px; }
+.homeRefinement .featuredHomeGrid .specPills span { padding: 0; border: 0; background: none; }
+.homeRefinement .featuredHomeGrid .vehicleCard:hover { transform: none; border-color: var(--primary); }
+
+.homeShortcuts { width: min(1240px, calc(100% - 48px)); margin: 0 auto; padding: 24px 0 40px; border-bottom: 1px solid var(--outline); }
+.homeShortcuts h2 { font-size: 18px; margin: 0 0 18px; }
+.homeShortcuts > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.homeShortcuts a { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 80px; padding: 16px; border: 1px solid var(--outline); border-radius: 8px; font-weight: 800; }
+.homeShortcuts small { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.homeShortcuts svg { color: var(--primary); flex-shrink: 0; }
+.homeShortcuts a:hover { border-color: var(--primary); }
+.homeRefinement .solutionGrid { margin: 24px 0; }
+.homeRefinement .solutionGrid article { border: 0; border-top: 2px solid var(--outline); border-radius: 0; box-shadow: none; padding: 24px 0 0; background: none; }
+.homeRefinement .solutionGrid article:hover { transform: none; }
+.homeRefinement .solutionGrid article > span { background: none; box-shadow: none; border-radius: 0; justify-content: flex-start; margin-bottom: 12px; }
+.homeRefinement .workshopSection { border-top: 1px solid var(--outline); }
+.homeRefinement .hubList span { border: 0; background: none; padding: 0; }
+.homeRefinement .mapPanel { box-shadow: none; border-radius: 12px; }
+.homeRefinement .trustEvidenceSection { display: block; border-top: 1px solid var(--outline); }
+.homeRefinement .evidencePanel { padding: 0; background: none; color: var(--ink); border: 0; border-radius: 0; box-shadow: none; }
+.homeRefinement .evidenceHeader span,
+.homeRefinement .evidenceItem p { color: var(--muted); }
+.homeRefinement .evidenceItem svg { color: var(--primary); }
+.homeRefinement .evidenceItem strong { color: var(--ink); }
+.homeRefinement .evidenceList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin: 28px 0; }
+.homeRefinement .evidenceItem { background: none; border: 0; padding: 0; border-radius: 0; }
+
+@media (min-width: 1600px) {
+  .homeRefinement .atelierHeroInner,
+  .homeShortcuts { width: min(1680px, calc(100% - 80px)); }
+}
+
+@media (max-width: 1120px) {
+  .homeRefinement .atelierHero { padding-top: 120px; }
+  .homeRefinement .atelierSearch { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .homeRefinement .atelierSearch button { grid-column: 1 / 3; }
+  .homeRefinement .heroInventorySummary { grid-column: 3 / -1; }
+  .homeRefinement .heroSearchHint { grid-column: 1 / -1; text-align: left; }
+  .homeRefinement:lang(zh) .atelierHero h1 { font-size: 42px; letter-spacing: 0; }
+  .homeRefinement .featuredHomeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .homeShortcuts > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .homeRefinement .atelierHero { padding: 112px 0 24px; }
+  .homeRefinement .atelierHeroInner { width: calc(100% - 32px); grid-template-columns: 1fr; gap: 24px; }
+  .homeRefinement .heroCopy { grid-row: 1; }
+  .homeRefinement .heroMedia { grid-column: 1; grid-row: 2; width: min(100%, 420px); justify-self: center; }
+  .homeRefinement .atelierHero h1 { font-size: clamp(36px, 10vw, 48px); transform: none; letter-spacing: -.01em; line-height: 1.05; }
+  .homeRefinement:lang(zh) .atelierHero h1 { font-size: clamp(32px, 9vw, 46px); line-height: 1.2; letter-spacing: 0; }
+  .homeRefinement .heroIntro { margin-top: 16px; }
+  .homeRefinement .heroActions { margin-top: 20px; }
+  .homeRefinement .atelierSearch { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px; gap: 16px 12px; }
+  .homeRefinement .atelierSearch button,
+  .homeRefinement .heroInventorySummary,
+  .homeRefinement .heroSearchHint { grid-column: 1 / -1; }
+  .homeRefinement .heroSearchHint { padding: 0; text-align: center; line-height: 1.5; }
+  .homeRefinement .featuredInventorySection,
+  .homeRefinement .ecosystemSection,
+  .homeRefinement .workshopSection,
+  .homeRefinement .trustEvidenceSection { width: calc(100% - 32px); padding: 36px 0; }
+  .homeRefinement .featuredHomeGrid,
+  .homeRefinement .solutionGrid,
+  .homeRefinement .evidenceList { grid-template-columns: 1fr; }
+  .homeRefinement .featuredHomeGrid .vehicleHeader h3 { min-height: 0; }
+  .homeShortcuts { width: calc(100% - 32px); padding-top: 0; }
+  .homeShortcuts > div { gap: 10px; }
+  .homeShortcuts a { padding: 12px; font-size: 14px; }
+}

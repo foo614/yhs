@@ -30,8 +30,6 @@ describe("public chrome mobile motion contract", () => {
     const vehicleDetail = readFileSync(join(appRoot, "vehicles", "[id]", "page.tsx"), "utf8");
     const publicContent = `${page}\n${copy}\n${contact}\n${vehicleCard}\n${vehicleDetail}`;
 
-    expect(copy).toContain("YS HENG AUTOMOTIVE SDN BHD is a used-car dealership in Kluang, Johor, Malaysia");
-    expect(copy).toContain("YS HENG AUTOMOTIVE SDN BHD 是一家位于马来西亚柔佛州居銮（Kluang, Johor, Malaysia）的二手车经销商");
     expect(copy).toContain('kicker: "Used Car Dealer in Kluang"');
     expect(copy).toContain('kicker: "居銮二手车商"');
     expect(copy).toContain('readyCars: "available cars"');
@@ -62,7 +60,7 @@ describe("public chrome mobile motion contract", () => {
     expect(styles).toContain(".mobileDrawerBackdrop.open");
   });
 
-  it("maps contact hashes to the mobile Sell, Finance, and Contact entries", () => {
+  it("maps contact hashes to the mobile Sell and Finance entries", () => {
     const publicChrome = readFileSync(join(appRoot, "PublicChrome.tsx"), "utf8");
 
     expect(publicChrome).toContain('section === "contact" ? "sell"');
