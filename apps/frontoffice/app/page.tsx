@@ -2,31 +2,22 @@ import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { ArrowRight, BadgeCheck, Banknote, Car, MapPin, ShieldCheck, Sparkles, Wrench } from "lucide-react";
+import { ArrowRight, BadgeCheck, Banknote, MapPin, ShieldCheck, Wrench } from "lucide-react";
 import heroImage from "../public/hero-price-bay-option2@2x.png";
 import { googleMapsUrl, showroomAddress } from "./business";
 import { HeroVehicleFilters } from "./HeroVehicleFilters";
 import { PublicFooter, PublicHeader, PublicMobileNav } from "./PublicChrome";
 import { frontofficeCopy, hrefWithLanguage, languageFromSearchParams, type Language, type SearchParams } from "./i18n";
 import { pageMetadata } from "./seo";
-import { formatThousands } from "./formatters";
-import { distinctMakes, priceRange } from "./vehicles/listing";
-import { getPublicInventory, getPublicVehicleCatalog, type PublicVehicle, type PublicVehicleCatalogModel } from "./vehicles/service";
+import { priceRange } from "./vehicles/listing";
+import { getPublicInventory, type PublicVehicle, type PublicVehicleCatalogModel } from "./vehicles/service";
 import { VehicleCard } from "./vehicles/VehicleCard";
+import "./home.css";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-const conciergeImage = "https://images.unsplash.com/photo-1609521263047-f8f205293f24?auto=format&fit=crop&w=1200&q=88";
 const mapHref = googleMapsUrl;
 const mapEmbedUrl = `https://www.google.com/maps?q=${encodeURIComponent(showroomAddress)}&output=embed`;
 
-const categoryImages = [
-  "/category-art/budget.png",
-  "/category-art/mpv.png",
-  "/category-art/suv.png",
-  "/category-art/utility.png"
-];
-
-const fallbackMakes = ["Toyota", "Honda", "Perodua", "Proton", "Nissan", "Mazda"];
 const isStaticExport = process.env.NEXT_STATIC_EXPORT === "true";
 
 export async function generateMetadata({ searchParams }: { searchParams?: Promise<SearchParams> }): Promise<Metadata> {
@@ -121,8 +112,8 @@ const previewFeaturedVehicles: PublicVehicle[] = [
 const featuredCopy = {
   en: {
     kicker: "Featured Inventory",
-    title: "Currently available cars with clear prices",
-    text: "Compare currently available second-hand cars and published prices before contacting the team to confirm viewing details.",
+    title: "Available cars. Clear prices.",
+    text: "Find a car you like, then contact us to arrange a viewing.",
     viewAll: "View all cars",
     trustLabel: "Buyer confidence"
   },
@@ -139,32 +130,27 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   const language = isStaticExport ? "en" : languageFromSearchParams(await searchParams);
   const t = frontofficeCopy[language];
   const featureT = featuredCopy[language];
-  const [inventory, catalog] = await Promise.all([getPublicInventory(), getPublicVehicleCatalog()]);
+  const inventory = await getPublicInventory();
   const vehicles = inventory.vehicles;
-  const makes = distinctMakes(vehicles);
-  const catalogModels = catalog.unavailable ? catalogModelsFromVehicles(vehicles) : catalog.models;
+  const catalogModels = catalogModelsFromVehicles(vehicles);
   const prices = priceRange(vehicles);
   const years = distinctYears(vehicles);
-  const popularMakes = popularMakesFrom(makes);
   const featuredVehicles = featuredVehiclesFrom(vehicles);
-  const heroVehicles = featuredVehicles.slice(0, 2);
 
   return (
-    <main className="atelierPage" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
+    <main className="atelierPage homeRefinement" lang={language === "zh" ? "zh-Hans-MY" : "en-MY"}>
       <PublicHeader language={language} active="home" />
 
       <section className="atelierHero">
-        <Image
-          src={heroImage}
-          alt=""
-          className="heroMedia"
-          preload
-          sizes="100vw"
-          placeholder="blur"
-        />
-        <div className="heroOverlay" />
-        <HeroPriceTags language={language} vehicles={heroVehicles} />
         <div className="atelierHeroInner">
+          <Image
+            src={heroImage}
+            alt=""
+            className="heroMedia"
+            preload
+            sizes="(max-width: 760px) 100vw, 50vw"
+            placeholder="blur"
+          />
           <div className="heroCopy">
             <p className="atelierKicker">{t.home.kicker}</p>
             <h1>
@@ -192,17 +178,9 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         </div>
       </section>
 
-      <section className="marqueBand">
-        <p>{t.home.popularMakes}</p>
-        <div>
-          {popularMakes.map((make) => <Link href={hrefWithSearch("/vehicles", language, { q: make })} key={make}>{make}</Link>)}
-        </div>
-      </section>
-
       <section className="featuredInventorySection" aria-labelledby="featured-inventory-title">
         <div className="sectionHeading splitHeading">
           <div>
-            <p className="atelierKicker">{featureT.kicker}</p>
             <h2 id="featured-inventory-title">{featureT.title}</h2>
             <p>{featureT.text}</p>
           </div>
@@ -211,64 +189,41 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         {featuredVehicles.length > 0 ? (
           <div className="vehicleGrid featuredHomeGrid">
             {featuredVehicles.map((vehicle, index) => (
-              <VehicleCard vehicle={vehicle} featured={index === 0} language={language} key={`${vehicle.id}-${index}`} />
+              <VehicleCard vehicle={vehicle} language={language} key={`${vehicle.id}-${index}`} />
             ))}
           </div>
         ) : (
           <div className="emptyState homeInventoryEmpty">
-            <h3>{inventory.unavailable ? t.inventory.unavailableTitle : t.inventory.emptyTitle}</h3>
-            <p>{inventory.unavailable ? t.inventory.unavailableText : t.inventory.emptyText}</p>
+            <h3>{inventory.unavailable ? t.inventory.unavailableTitle : t.inventory.emptyInventoryTitle}</h3>
+            <p>{inventory.unavailable ? t.inventory.unavailableText : t.inventory.emptyInventoryText}</p>
             <Link href={hrefWithLanguage("/contact", language)} className="secondaryAction">{t.inventory.contactSales}</Link>
           </div>
         )}
       </section>
 
-      <section className="personaSection">
-        <div className="centerHeading">
-          <p className="atelierKicker">{t.home.shopKicker}</p>
-          <h2>{t.home.shopTitle}</h2>
-        </div>
-        <div className="personaGrid">
-          {t.home.categories.map((category, index) => (
-            <Link href={hrefWithSearch("/vehicles", language, { q: category.query })} className="personaCard" key={category.title}>
-              <img src={categoryImages[index]} alt="" loading="lazy" decoding="async" />
-              <div>
-                <h3>{category.title}</h3>
-                <p>{category.label}</p>
-              </div>
+      <nav className="homeShortcuts" aria-label={t.home.shopKicker}>
+        <h2>{t.home.shopKicker}</h2>
+        <div>
+          {t.home.categories.map((category) => (
+            <Link href={hrefWithSearch("/vehicles", language, category.query === "under 30000" ? { maxPrice: "30000" } : { q: category.query })} key={category.title}>
+              <span>{category.title}<small>{category.label}</small></span>
+              <ArrowRight size={18} aria-hidden="true" />
             </Link>
           ))}
         </div>
-      </section>
+      </nav>
 
       <section className="ecosystemSection">
-        <div className="centerHeading">
-          <p className="atelierKicker">{t.home.supportKicker}</p>
+        <div className="sectionHeading">
           <h2>{t.home.supportTitle}</h2>
+          <p>{t.home.conciergeText}</p>
         </div>
         <div className="solutionGrid">
           <SolutionCard icon={<Banknote />} title={t.home.solutions[0].title} text={t.home.solutions[0].text} />
           <SolutionCard icon={<Wrench />} title={t.home.solutions[1].title} text={t.home.solutions[1].text} />
           <SolutionCard icon={<ShieldCheck />} title={t.home.solutions[2].title} text={t.home.solutions[2].text} />
         </div>
-      </section>
-
-      <section className="conciergeSection">
-        <div>
-          <p className="atelierKicker">{t.home.conciergeKicker}</p>
-          <h2>{t.home.conciergeTitle}</h2>
-          <p>{t.home.conciergeText}</p>
-          <div className="conciergeList">
-            <span><Sparkles size={15} /> {t.home.conciergeItems[0]}</span>
-            <span><Car size={15} /> {t.home.conciergeItems[1]}</span>
-            <span><BadgeCheck size={15} /> {t.home.conciergeItems[2]}</span>
-            <span><ShieldCheck size={15} /> {t.home.conciergeItems[3]}</span>
-          </div>
-        </div>
-        <figure className="conciergePhoto">
-          <img src={conciergeImage} alt="" loading="lazy" decoding="async" />
-          <figcaption>{t.home.buyerHelp}</figcaption>
-        </figure>
+        <Link className="secondaryAction" href={hrefWithLanguage("/contact", language)}>{t.nav.contact}<ArrowRight size={18} aria-hidden="true" /></Link>
       </section>
 
       <section className="workshopSection">
@@ -294,24 +249,16 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
             <div>
               <strong>{t.home.workshopBranches[0]?.region ?? "YS Heng Automotive"}</strong>
               <p>{showroomAddress}</p>
-              <a href={mapHref} target="_blank" rel="noreferrer">Open in Google Maps</a>
+              <a href={mapHref} target="_blank" rel="noreferrer">{language === "zh" ? "在 Google 地图中查看" : "Open in Google Maps"}</a>
             </div>
           </div>
         </div>
       </section>
 
       <section className="trustEvidenceSection">
-        <div className="trustColumn">
-          <p className="atelierKicker">{t.home.whyKicker}</p>
-          <h2>{t.home.whyTitle}</h2>
-          <TrustRow icon={<BadgeCheck />} title={t.home.trustRows[0].title} text={t.home.trustRows[0].text} />
-          <TrustRow icon={<Sparkles />} title={t.home.trustRows[1].title} text={t.home.trustRows[1].text} />
-          <TrustRow icon={<ShieldCheck />} title={t.home.trustRows[2].title} text={t.home.trustRows[2].text} />
-        </div>
         <div className="evidencePanel">
           <div className="evidenceHeader">
-            <p>{t.home.evidenceKicker}</p>
-            <h3>{t.home.evidenceTitle}</h3>
+            <h2>{t.home.whyTitle}</h2>
             <span>{t.home.evidenceIntro}</span>
           </div>
           <div className="evidenceList">
@@ -338,46 +285,12 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   );
 }
 
-function HeroPriceTags({ language, vehicles }: { language: Language; vehicles: PublicVehicle[] }) {
-  if (vehicles.length === 0) return null;
-
-  return (
-    <div className="heroPriceTags" aria-label={language === "zh" ? "精选车源价格" : "Featured vehicle prices"}>
-      {vehicles.map((vehicle, index) => (
-        <Link
-          href={hrefWithSearch("/vehicles", language, { make: vehicle.make, maxPrice: String(vehicle.sellingPrice) })}
-          className={`heroPriceTag heroPriceTag${index + 1}`}
-          key={vehicle.id}
-          aria-label={`${vehicle.year} ${vehicle.make} ${vehicle.model}, RM ${formatThousands(vehicle.sellingPrice)}`}
-        >
-          <span className="heroPriceTagMotion">
-            <span className="heroPriceTagPrice"><em>RM</em>{formatThousands(vehicle.sellingPrice)}</span>
-            <small>{vehicle.year} {vehicle.make} {vehicle.model}</small>
-          </span>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
 function SolutionCard({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
     <article>
       <span>{icon}</span>
       <h3>{title}</h3>
       <p>{text}</p>
-    </article>
-  );
-}
-
-function TrustRow({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
-  return (
-    <article className="trustRow">
-      <span>{icon}</span>
-      <div>
-        <h3>{title}</h3>
-        <p>{text}</p>
-      </div>
     </article>
   );
 }
@@ -407,18 +320,6 @@ function distinctYears(vehicles: PublicVehicle[]) {
 
 function budgetOptions(maxPrice: number) {
   return [30000, 50000, 80000, 120000, 180000].filter((price) => maxPrice === 0 || price <= maxPrice);
-}
-
-function popularMakesFrom(makes: string[]) {
-  const seen = new Set<string>();
-  return [...makes, ...fallbackMakes]
-    .filter((make) => {
-      const key = make.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 6);
 }
 
 function hrefWithSearch(path: string, language: Language, params: Record<string, string>) {

@@ -1,14 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Languages, MessageCircle, X } from "lucide-react";
 import { whatsappNumber } from "./business";
 import { buyerFaq, faqLanguages, type FaqLanguage } from "./buyer-faq";
 import { hrefWithLanguage } from "./i18n";
 import styles from "./BuyerFaq.module.css";
 
-export function BuyerFaq() {
+const BuyerHelpContext = createContext<{ open: boolean; show: (trigger: HTMLButtonElement) => void } | null>(null);
+
+export function BuyerHelpButton({ label }: { label: string }) {
+  const help = useContext(BuyerHelpContext);
+  return <button type="button" aria-haspopup="dialog" aria-expanded={help?.open ?? false} aria-controls="buyer-faq" onClick={(event) => help?.show(event.currentTarget)}><MessageCircle size={18} aria-hidden="true" />{label}</button>;
+}
+
+export function BuyerFaq({ children }: { children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -38,9 +45,15 @@ export function BuyerFaq() {
     launcher.current?.focus();
   }
 
+  function show(trigger: HTMLButtonElement) {
+    launcher.current = trigger;
+    setOpen(true);
+  }
+
   return (
-    <>
-      <button ref={launcher} type="button" className={styles.launcher} aria-haspopup="dialog" aria-expanded={open} aria-controls="buyer-faq" onClick={() => setOpen(true)}>
+    <BuyerHelpContext.Provider value={{ open, show }}>
+      {children}
+      <button type="button" className={styles.launcher} aria-haspopup="dialog" aria-expanded={open} aria-controls="buyer-faq" onClick={(event) => show(event.currentTarget)}>
         <MessageCircle size={20} aria-hidden="true" />
         <span>{t?.title ?? "Bantuan / Help / 帮助"}</span>
       </button>
@@ -92,6 +105,6 @@ export function BuyerFaq() {
           )}
         </div>
       </dialog>
-    </>
+    </BuyerHelpContext.Provider>
   );
 }

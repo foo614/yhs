@@ -21,8 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" data-scroll-behavior="smooth">
       <body>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataJson(organizationStructuredData()) }} />
-        <MotionEnhancer>{children}</MotionEnhancer>
-        <BuyerFaq />
+        <BuyerFaq><MotionEnhancer>{children}</MotionEnhancer></BuyerFaq>
       </body>
     </html>
   );

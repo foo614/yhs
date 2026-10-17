@@ -56,7 +56,13 @@
 .header button:focus-visible { outline-color: white; outline-offset: -3px; }
 
 @media (max-width: 760px) {
-  .launcher { right: 16px; bottom: calc(100px + env(safe-area-inset-bottom)); font-size: 12px; }
+  :global(body:has(.atelierMobileNav)) .launcher { display: none; }
+  .launcher { right: 16px; bottom: 16px; font-size: 12px; }
   .dialog { right: 16px; bottom: calc(100px + env(safe-area-inset-bottom)); max-height: calc(100dvh - 116px - env(safe-area-inset-bottom)); }
   .content { padding: 20px; }
+}
+
+/* Compact landscape uses the header instead of the bottom navigation. */
+@media (orientation: landscape) and (max-height: 700px) and (max-width: 760px) {
+  :global(body:has(.atelierMobileNav)) .launcher { display: flex; }
 }
