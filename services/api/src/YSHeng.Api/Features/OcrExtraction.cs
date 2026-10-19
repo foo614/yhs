@@ -2074,8 +2074,8 @@ public static class OcrExtractionParser
 
     private static string? FindIdentityName(string text)
     {
-        var match = Regex.Match(text, @"\bname\s*[:#-]?\s*(?<value>[A-Za-z][A-Za-z .'-]{1,80}?)(?=\s+(?:IC|Address)\b|$)", RegexOptions.IgnoreCase);
-        if (match.Success) return match.Groups["value"].Value.Trim();
+        var match = Regex.Match(text, @"\bname\s*[:#-]?\s*(?<value>[A-Za-z][A-Za-z ./'-]{1,80}?)(?=\s+(?:IC|Address)\b|$)", RegexOptions.IgnoreCase);
+        if (match.Success && !Regex.IsMatch(match.Groups["value"].Value, @"\bIDENTITY\b", RegexOptions.IgnoreCase)) return match.Groups["value"].Value.Trim();
 
         // Malaysian identity cards commonly print the name as a standalone line,
         // without a Name label. Prefer the uppercase alphabetic line nearest the
@@ -2084,7 +2084,7 @@ public static class OcrExtractionParser
         var identityLine = lines.FindIndex(line => Regex.IsMatch(line, @"\b\d{6}-?\d{2}-?\d{4}\b"));
         var candidates = lines
             .Select((line, index) => (line, index))
-            .Where(item => (identityLine < 0 || Math.Abs(item.index - identityLine) <= 3) && Regex.IsMatch(item.line, @"^[A-Z][A-Z .'-]{3,80}$"))
+            .Where(item => (identityLine < 0 || Math.Abs(item.index - identityLine) <= 3) && Regex.IsMatch(item.line, @"^[A-Z][A-Z ./'-]{3,80}$"))
             .Select(item => item.line)
             .Where(line => IsMyKadNameCandidate(line))
             .ToList();
@@ -2099,7 +2099,8 @@ public static class OcrExtractionParser
         var start = Math.Max(0, identityMatch.Index - 120);
         var length = Math.Min(text.Length - start, 260);
         var nearbyText = text.Substring(start, length);
-        return Regex.Matches(nearbyText, @"\b(?:[A-Z]{2,}\s+){1,5}[A-Z]{2,}\b")
+        const string nameWord = @"(?!NO\b)(?:A/[LP]|[A-Z]{2,})";
+        return Regex.Matches(nearbyText, $@"\b(?:{nameWord}\s+){{1,5}}{nameWord}\b")
             .Select(candidate => candidate.Value.Trim())
             .FirstOrDefault(IsMyKadNameCandidate);
     }
@@ -2181,7 +2182,9 @@ public static class OcrExtractionParser
         .ToList();
 
     private static bool IsMyKadHeader(string text) =>
-        Regex.IsMatch(text, @"\b(KAD|PENGENALAN|IDENTITY\s+CARD|MALAYSIA|WARGANEGARA|LELAKI|PEREMPUAN|ISLAM)\b", RegexOptions.IgnoreCase) ||
+        // OCR can truncate CARD or misread its final letter. IDENTITY itself
+        // identifies the heading and must never become an owner name.
+        Regex.IsMatch(text, @"\b(KAD|PENGENALAN|IDENTITY|MALAYSIA|WARGANEGARA|LELAKI|PEREMPUAN|ISLAM)\b", RegexOptions.IgnoreCase) ||
         Regex.IsMatch(text, @"^MA[IL]S?Y?$", RegexOptions.IgnoreCase) ||
         Regex.IsMatch(text, @"MALAY|KERAJAAN", RegexOptions.IgnoreCase);
 

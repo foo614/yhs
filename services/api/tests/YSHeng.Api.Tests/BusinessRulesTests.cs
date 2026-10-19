@@ -5628,16 +5628,43 @@ public sealed class BusinessRulesTests
         Assert.Contains(result.Warnings, warning => warning.Contains("appears incomplete", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
-    public void MyKad_parser_rejects_the_english_card_header_as_a_name()
+    [Theory]
+    [InlineData("IDENTITY CARD", "SAMPLE USER")]
+    [InlineData("IDENTITY CARI", "SAMPLE A/L PERSON")]
+    [InlineData("IDENTITY CA", "SAMPLE USER")]
+    [InlineData("IDENTITY", "SAMPLE A/P PERSON")]
+    public void MyKad_parser_rejects_the_english_card_header_as_a_name(string heading, string name)
     {
         var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
-        var text = "IDENTITY CARD\nSAMPLE USER\n900101-01-1234\nNO 12 JALAN DEMO\n50000 KUALA LUMPUR\nWARGANEGARA";
+        var text = $"{heading}\n900101-01-1234\n{name}\nNO 12 JALAN DEMO\n50000 KUALA LUMPUR\nWARGANEGARA";
 
         var result = OcrExtractionParser.Analyze(document, [], text, 0.9m, []);
 
-        Assert.Equal("SAMPLE USER", result.Fields["customerName"]);
-        Assert.NotEqual("IDENTITY CARD", result.Fields["customerName"]);
+        Assert.Equal(name, result.Fields["customerName"]);
+    }
+
+    [Theory]
+    [InlineData("IDENTITY CARI")]
+    [InlineData("IDENTITY CA")]
+    [InlineData("Name: IDENTITY CA")]
+    public void MyKad_parser_leaves_name_empty_when_only_a_card_heading_is_read(string heading)
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var result = OcrExtractionParser.Analyze(document, [], $"900101-01-1234\n{heading}", 0.9m, []);
+
+        Assert.Null(result.Fields["customerName"]);
+    }
+
+    [Theory]
+    [InlineData("Name: SAMPLE A/L PERSON IC 900101-01-1234", "SAMPLE A/L PERSON")]
+    [InlineData("900101-01-1234 SAMPLE A/L PERSON NO 12 JALAN DEMO", "SAMPLE A/L PERSON")]
+    [InlineData("Name: NUR ISLAM BINTI ALI IC 900101-01-1234", "NUR ISLAM BINTI ALI")]
+    public void MyKad_parser_preserves_valid_labeled_and_flattened_names(string text, string name)
+    {
+        var document = new DocumentBlob { Category = FileCategory.IdentityCard, MimeType = "image/jpeg" };
+        var result = OcrExtractionParser.Analyze(document, [], text, 0.9m, []);
+
+        Assert.Equal(name, result.Fields["customerName"]);
     }
 
     [Fact]
