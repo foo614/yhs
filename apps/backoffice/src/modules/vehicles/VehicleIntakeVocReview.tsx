@@ -78,6 +78,29 @@ export function vehicleIntakeVocCatalogMatch(
   return vehicleIntakeVocCatalogResolution(reviewedValues, catalogModels)?.item;
 }
 
+function vehicleIntakeVocMake(reviewedValues: Record<string, string | null | undefined>, catalogModels: readonly VehicleCatalogModel[]) {
+  const make = catalogWords(reviewedValues.make);
+  const matches = [...new Set(catalogModels.filter((item) => item.isActive).map((item) => item.make))]
+    .filter((candidate) => catalogWords(candidate) === make
+      || (!normalized(reviewedValues.model) && make.startsWith(`${catalogWords(candidate)} `)));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function vehicleIntakeVocModelSuggestion(reviewedValues: Record<string, string | null | undefined>, catalogModels: readonly VehicleCatalogModel[]) {
+  if (vehicleIntakeVocCatalogMatch(reviewedValues, catalogModels)) return undefined;
+  const make = vehicleIntakeVocMake(reviewedValues, catalogModels);
+  if (!make) return undefined;
+  const model = catalogWords(reviewedValues.model) || catalogWords(reviewedValues.make).slice(catalogWords(make).length).trim();
+  const matches = catalogModels.filter((item) => item.isActive && catalogWords(item.make) === catalogWords(make))
+    .filter((item) => {
+      const candidate = catalogWords(item.model);
+      if (!/^[A-Z]{4,}$/.test(candidate)) return false;
+      const base = model.split(" ")[0];
+      return base.length === candidate.length && [...base].filter((character, index) => character !== candidate[index]).length === 1;
+    });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 function canApplyVehicleIntakeVocCatalogPair(draft: VehicleIntakeVocDraft, catalogMatch: VehicleCatalogModel) {
   const currentMake = catalogWords(draft.make);
   const currentModel = catalogWords(draft.model);
@@ -141,6 +164,9 @@ export function vehicleIntakeVocPatch(
       if (!makeMatches) patch.make = catalogMatch.make;
       if (!modelMatches) patch.model = catalogMatch.model;
     }
+  } else if (!normalized(draft.make) && !normalized(draft.model)) {
+    const make = vehicleIntakeVocMake(reviewedValues, catalogModels);
+    if (make) patch.make = make;
   }
   return vocFields.reduce<VehicleIntakeVocPatch>((nextPatch, field) => {
     if (field.name === "make" || field.name === "model") return nextPatch;
@@ -191,6 +217,7 @@ function vehicleIntakeVocUnchangedAppliedPatch(
 ) {
   return vocFields.reduce<VehicleIntakeVocPatch>((patch, field) => {
     const applied = appliedPatch[field.name];
+    if (field.name === "make" && !normalized(appliedPatch.model) && normalized(draft.model)) return patch;
     if (normalized(applied) && normalized(draft[field.name]) === normalized(applied)) {
       patch[field.name] = undefined;
     }
@@ -208,7 +235,9 @@ export function vehicleIntakeVocReplacementApplication(
     .filter((field) => normalized(previousAppliedPatch[field.name])
       && normalized(draft[field.name]) !== normalized(previousAppliedPatch[field.name]))
     .map((field) => field.name));
-  if (protectedFields.has("make") || protectedFields.has("model")) {
+  const manualModelAfterMakeOnlyScan = normalized(previousAppliedPatch.make)
+    && !normalized(previousAppliedPatch.model) && normalized(draft.model);
+  if (protectedFields.has("make") || protectedFields.has("model") || manualModelAfterMakeOnlyScan) {
     protectedFields.add("make");
     protectedFields.add("model");
   }
@@ -267,6 +296,7 @@ export function VehicleIntakeVocReview({
   const visibleWarnings = vocReviewWarnings(result?.warnings ?? []);
   const catalogResolution = vehicleIntakeVocCatalogResolution(reviewedValues, catalogModels);
   const catalogMatch = catalogResolution?.item;
+  const modelSuggestion = vehicleIntakeVocModelSuggestion(reviewedValues, catalogModels);
   const catalogPairAccepted = Boolean(catalogMatch && canApplyVehicleIntakeVocCatalogPair(draft, catalogMatch));
   const ocrMake = normalized(reviewedValues.make);
   const ocrModel = normalized(reviewedValues.model);
@@ -389,7 +419,7 @@ export function VehicleIntakeVocReview({
               type="warning"
               showIcon
               message="OCR Make or Model is not in the catalogue"
-              description={`OCR reference: ${ocrCatalogReference}. Choose an existing Make and Model below, or explicitly add the checked option through the governed catalogue flow. OCR will not create or submit catalogue data.`}
+              description={`OCR reference: ${ocrCatalogReference}. ${modelSuggestion ? `Possible match: ${modelSuggestion.make} / ${modelSuggestion.model}. Check the original VOC and select the model below. ` : ""}A recognised Make is filled when both selectors were empty; an uncertain Model requires your selection. OCR will not create catalogue entries.`}
             />
           ) : hasCatalogConflict ? (
             <Alert
