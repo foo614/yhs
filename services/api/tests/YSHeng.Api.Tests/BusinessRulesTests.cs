@@ -5738,6 +5738,70 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Ocr_parser_does_not_truncate_certificate_serial_into_plate()
+    {
+        var result = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [],
+            "B60RKHAQ\nNo. Pendaftaran\nQAA1234\nNo. Chasis / No. Enjin : SYNTHCHASSIS12345 / SYNTHENGINE67890\nBuatan / Nama Model : PROTON / SAGA\nJenis Badan / Tahun Dibuat : MOTOKAR / 2022", .9m, []);
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+    }
+
+    [Theory]
+    [InlineData("MOTOKAR 12022")]
+    [InlineData("MOTOKAR 4 PINTU / 2022")]
+    public void Google_voc_mapper_recovers_observed_body_year_and_inline_model_rows(string bodyYear)
+    {
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [],
+            "No. Pendaftaran\nQAA1234\nNo. Chasis / No. Enjin\nSYNTHCHASSIS12345 / SYNTHENGINE67890\nBuatan/Nama Model PROTON/SAGA 1.3 AUTOMATIK PREMIUM M\u1ef9JPJ\nJenis Badan Tahun Dibuat\nMOTOKAR 12022", .9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("Buatan/Nama Model PROTON/SAGA 1.3 AUTOMATIK PREMIUM M\u1ef9JPJ", 1, .13, .56, .82, .61),
+            new("Keupayaan Enjin", 1, .13, .62, .26, .64),
+            new("1332SP", 1, .37, .62, .43, .64),
+            new("Jenis Badan Tahun Dibuat", 1, .13, .72, .34, .74),
+            new(bodyYear, 1, .37, .72, .54, .74),
+            new("Tarikh Pendaftaran", 1, .13, .76, .28, .78),
+            new("12/08/2023", 1, .37, .76, .47, .78)
+        ]);
+        Assert.Equal("PROTON", result.Fields["make"]);
+        Assert.StartsWith("SAGA 1.3", result.Fields["model"]);
+        Assert.Equal("2022", result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Google_voc_mapper_handles_misread_model_heading_and_colon_plate()
+    {
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [],
+            "No. Pendaftaran\nNo. ID\nNo. Chasis / No. Enjin\nSYNTHCHASSIS12345 / SYNTHENGINE67890\nBuatan/Nana Model\nPERODUA/WYVI-1500 AV (AUTO)\nJenis Badan/Tahun Dibuat WOTOKAR/2018", .9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Pendaftaran", 1, .13, .25, .31, .28),
+            new(": QAA1234", 1, .35, .25, .46, .28),
+            new("Buatan/Nana Model", 1, .23, .46, .38, .48),
+            new("PERODUA/WYVI-1500 AV (AUTO)", 1, .47, .46, .71, .48),
+            new("Jenis Badan/Tahun Dibuat WOTOKAR/2018", 1, .23, .64, .58, .67)
+        ]);
+        Assert.Equal("QAA1234", result.Fields["plateNumber"]);
+        Assert.Equal("PERODUA", result.Fields["make"]);
+        Assert.Equal("WYVI-1500 AV (AUTO)", result.Fields["model"]);
+        Assert.Equal("2018", result.Fields["year"]);
+    }
+
+    [Fact]
+    public void Google_voc_mapper_keeps_adjacent_column_labels_out_of_identifier_row()
+    {
+        var extraction = OcrExtractionParser.Analyze(new DocumentBlob { Category = FileCategory.Voc }, [], "", .9m, []);
+        var result = GoogleDocumentAiVocLayoutMapper.Apply(extraction,
+        [
+            new("No. Chasis/No. Enjin", 1, .12847, .54933, .29688, .57067),
+            new("SYNTHCHASSIS12345/ SYNTHENGINE67890", 1, .36632, .54133, .66319, .568),
+            new("Buatan/ Nama Model", 1, .12847, .57867, .29861, .59733),
+            new("PROTON/SAGA", 1, .36632, .57067, .81944, .608)
+        ]);
+        Assert.Equal("SYNTHCHASSIS12345", result.Fields["chassisNumber"]);
+        Assert.Equal("SYNTHENGINE67890", result.Fields["engineNumber"]);
+    }
+
+    [Fact]
     public void Ocr_parser_maps_jpj_voc_column_layout_without_using_unlabelled_identifiers()
     {
         var document = new DocumentBlob
@@ -5849,13 +5913,15 @@ public sealed class BusinessRulesTests
             },
             []);
 
-        Assert.Equal("QXY1234", jpegLayout.Fields["plateNumber"]);
+        // An attached alphanumeric suffix is ambiguous, just like a certificate serial.
+        // Preserve the other punctuation mappings without guessing a truncated plate.
+        Assert.Null(jpegLayout.Fields["plateNumber"]);
         Assert.Equal("MMBXXA12345678901", jpegLayout.Fields["chassisNumber"]);
         Assert.Equal("4B11T123456", jpegLayout.Fields["engineNumber"]);
         Assert.Equal("Proton", jpegLayout.Fields["make"]);
         Assert.Equal("X70", jpegLayout.Fields["model"]);
         Assert.Equal("2024", jpegLayout.Fields["year"]);
-        Assert.Equal("HJK2020", pdfLayout.Fields["plateNumber"]);
+        Assert.Null(pdfLayout.Fields["plateNumber"]);
         Assert.Equal("MMBXXA12345678901", pdfLayout.Fields["chassisNumber"]);
         Assert.Equal("4B11T123456", pdfLayout.Fields["engineNumber"]);
         Assert.Equal("Honda", pdfLayout.Fields["make"]);

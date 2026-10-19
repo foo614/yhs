@@ -828,6 +828,9 @@ public static class GoogleDocumentAiVocLayoutMapper
                 && !string.IsNullOrWhiteSpace(value)
                 && warning.StartsWith($"No {WarningFieldName(spec.Field)} was detected.", StringComparison.OrdinalIgnoreCase)))
             .ToList();
+        if (fields.TryGetValue("chassisNumber", out var chassis) && !string.IsNullOrWhiteSpace(chassis)
+            && (chassis.Length != 17 || Regex.IsMatch(chassis, "[IOQ]", RegexOptions.IgnoreCase)))
+            warnings.Add("The chassis reading contains uncertain characters or an unusual length. Compare every character with the original VOC before saving.");
         return extraction with { Fields = fields, FieldConfidence = confidence, Warnings = warnings };
     }
 
@@ -880,7 +883,12 @@ public static class GoogleDocumentAiVocLayoutMapper
         HashSet<GoogleDocumentAiLayoutLine> consumed,
         decimal documentConfidence)
     {
-        var match = FindCompositeRelativeLine(lines, "BUATAN", "NAMA MODEL", consumed);
+        var label = FindCompositeLabel(lines, "BUATAN", "NAMA MODEL");
+        if (label is null) return;
+        var inline = Regex.Replace(label.Text, @"^\s*BUATAN\s*[/|]?\s*NA[MN]A\s+MODEL\s*[:|-]?\s*", "", RegexOptions.IgnoreCase);
+        var match = !string.Equals(inline, label.Text, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(inline)
+            ? label with { Text = inline }
+            : FindCompositeRelativeLineFromLabel(lines, label, consumed);
         if (match is null) return;
         var parts = match.Text.Split(['/', '|'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 2) return;
@@ -920,10 +928,17 @@ public static class GoogleDocumentAiVocLayoutMapper
         HashSet<GoogleDocumentAiLayoutLine> consumed,
         decimal documentConfidence)
     {
-        var match = FindCompositeRelativeLine(lines, "JENIS BADAN", "TAHUN DIBUAT", consumed);
+        var label = FindCompositeLabel(lines, "JENIS BADAN", "TAHUN DIBUAT");
+        if (label is null) return;
+        var inline = Regex.Replace(label.Text, @"^\s*JENIS\s+BADAN\s*[/|]?\s*TAHUN\s+DIBUAT\s*[:|-]?\s*", "", RegexOptions.IgnoreCase);
+        var match = !string.Equals(inline, label.Text, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(inline)
+            ? label with { Text = inline }
+            : FindCompositeRelativeLineFromLabel(lines, label, consumed);
         if (match is null) return;
-        var parts = match.Text.Split(['/', '|'], 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        var year = parts.Length == 2 ? ValidateYear(parts[1]) : null;
+        // In the combined body/year cell the slash can be read as 1 or I.
+        // Require a body description and a complete trailing year; never use a registration date.
+        var bodyYear = Regex.Match(match.Text.Trim(), @"^[\p{L}][\p{L}\d .()-]*?\s*[/|1I]?\s*(?<year>(?:19|20)\d{2})$", RegexOptions.IgnoreCase);
+        var year = bodyYear.Success ? ValidateYear(bodyYear.Groups["year"].Value) : null;
         if (year is null || HasValue(fields, "year")) return;
         FillMissingCompositeField(fields, confidence, "year", year, documentConfidence);
         consumed.Add(match);
@@ -960,17 +975,6 @@ public static class GoogleDocumentAiVocLayoutMapper
         if (HasValue(fields, field)) return;
         fields[field] = value;
         confidence[field] = documentConfidence;
-    }
-
-    private static GoogleDocumentAiLayoutLine? FindCompositeRelativeLine(
-        IReadOnlyList<GoogleDocumentAiLayoutLine> lines,
-        string firstLabel,
-        string secondLabel,
-        HashSet<GoogleDocumentAiLayoutLine> consumed)
-    {
-        var label = FindCompositeLabel(lines, firstLabel, secondLabel);
-        if (label is null) return null;
-        return FindCompositeRelativeLineFromLabel(lines, label, consumed);
     }
 
     private static GoogleDocumentAiLayoutLine? FindCompositeRelativeLineFromLabel(
@@ -1182,8 +1186,8 @@ public static class GoogleDocumentAiVocLayoutMapper
         other.Page == label.Page
         && !ReferenceEquals(other, label)
         && IsKnownLabel(other.Text)
-        && CenterX(other) > CenterX(label)
-        && CenterX(other) < CenterX(candidate)
+        && other.Left >= label.Right - 0.01
+        && other.Right <= candidate.Left + 0.01
         && CenterY(other) >= Math.Min(label.Top, candidate.Top) - 0.02
         && CenterY(other) <= Math.Max(label.Bottom, candidate.Bottom) + 0.02;
 
@@ -1210,12 +1214,13 @@ public static class GoogleDocumentAiVocLayoutMapper
         || IsLabel(text, "JENIS BADAN")
         || IsLabel(text, "TARIKH PENDAFTARAN");
 
-    private static string NormalizeWords(string value) => Regex.Replace(value.ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim();
+    private static string NormalizeWords(string value) => Regex.Replace(value.ToUpperInvariant(), @"[^A-Z0-9]+", " ").Trim()
+        .Replace("NANA MODEL", "NAMA MODEL", StringComparison.Ordinal);
 
     private static string? ValidatePlate(string value)
     {
-        var normalized = Regex.Replace(value.ToUpperInvariant(), @"[\s-]+", "");
-        return Regex.IsMatch(normalized, @"^[A-Z]{1,3}[A-Z0-9]{1,8}$") && Regex.IsMatch(normalized, @"\d") ? normalized : null;
+        var normalized = Regex.Replace(value.Trim().TrimStart(':').ToUpperInvariant(), @"[\s-]+", "");
+        return Regex.IsMatch(normalized, @"^[A-Z]{1,3}\d{1,4}[A-Z]?$") ? normalized : null;
     }
 
     private static string? ValidateIdentifier(string value, int minimumLength)
@@ -1617,6 +1622,7 @@ public static class OcrExtractionParser
         {
             if (string.IsNullOrWhiteSpace(fields["chassisNumber"])) warnings.Add("No chassis number was detected. Confirm the VOC manually before saving vehicle details.");
             if (string.IsNullOrWhiteSpace(fields["engineNumber"])) warnings.Add("No engine number was detected. Confirm the VOC manually before saving vehicle details.");
+            if (string.IsNullOrWhiteSpace(fields["year"])) warnings.Add("No manufacture year was detected. Confirm the VOC manually before saving vehicle details.");
         }
 
         return new OcrExtractionResult(
@@ -1651,6 +1657,7 @@ public static class OcrExtractionParser
 
     private static JpjVocFields FindJpjVocFields(string text)
     {
+        text = Regex.Replace(text, @"\b(BUATAN\s*/?\s*)NANA(\s+MODEL)\b", "$1NAMA$2", RegexOptions.IgnoreCase);
         var lines = TextLines(text);
         var plateLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*PENDAFTARAN\b", RegexOptions.IgnoreCase));
         var chassisEngineLabelIndex = lines.FindIndex(line => Regex.IsMatch(line, @"\b(?:NO\.?|NOMBOR)\s*(?:CHASIS|CHASSIS|CASIS)\b\s*/?\s*\b(?:NO\.?|NOMBOR)\s*ENJIN\b", RegexOptions.IgnoreCase));
@@ -1955,7 +1962,7 @@ public static class OcrExtractionParser
 
     private static string? FindJpjPlateNumber(string value)
     {
-        var match = Regex.Match(value, @"^\s*:?\s*(?<plate>[A-Z]{1,3}\s?\d{1,4}(?:[A-Z](?=\s|$))?)", RegexOptions.IgnoreCase);
+        var match = Regex.Match(value, @"^\s*:?\s*(?<plate>[A-Z]{1,3}\s?\d{1,4}[A-Z]?)\s*$", RegexOptions.IgnoreCase);
         return match.Success
             ? match.Groups["plate"].Value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant()
             : null;
@@ -2021,7 +2028,7 @@ public static class OcrExtractionParser
     {
         var match = Regex.Match(
             line,
-            @"\bBUATAN\b\s*/?\s*\bNAMA\s+MODEL\b\s*:?\s*(?<make>[A-Z][A-Z0-9 .&()'-]{1,30}?)\s*/\s*(?<model>[A-Z0-9][A-Z0-9 .&()'/-]{0,60})$",
+            @"\bBUATAN\b\s*/?\s*\bNAMA\s+MODEL\b\s*:?\s*(?<make>[A-Z][A-Z0-9 .&()'-]{1,30}?)\s*/\s*(?<model>[\p{L}\p{N}][\p{L}\p{N} .&()'/-]{0,60})$",
             RegexOptions.IgnoreCase);
         if (!match.Success) return null;
         var make = match.Groups["make"].Value.Trim();

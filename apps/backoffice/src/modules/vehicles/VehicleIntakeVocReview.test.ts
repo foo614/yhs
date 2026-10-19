@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { OcrExtractionResult, VehicleCatalogModel } from "../../api";
 import { VehicleMakeModelFields } from "./VehiclePage";
+import { vehicleIntakeVocModelSuggestion } from "./VehicleIntakeVocReview";
 import { createVehicleIntakeVocPreviewRequestGate, isVehicleIntakeVocMimeType, VehicleIntakeVocReview, vehicleIntakeVocCatalogReference, vehicleIntakeVocCatalogResolution, vehicleIntakeVocClearPatch, vehicleIntakeVocDetectedFields, vehicleIntakeVocPatch, vehicleIntakeVocPreviewApplication, vehicleIntakeVocReplacementApplication, vocReviewWarnings } from "./VehicleIntakeVocReview";
 
 function deferred<T>() {
@@ -62,6 +63,27 @@ describe("vehicle intake VOC review", () => {
 
   it("does not apply an invalid OCR year", () => {
     expect(vehicleIntakeVocPatch({}, { ...reviewedValues, year: "2099" }, {}, catalogModels)).not.toHaveProperty("year");
+  });
+
+  it("preserves a recognised make when a blurred model is uncertain without applying the guessed model", () => {
+    const models: VehicleCatalogModel[] = [{ id: "myvi", make: "Perodua", model: "Myvi", isActive: true }];
+    const values = { make: "PERODUA", model: "WYVI-1500 AV (AUTO)" };
+    expect(vehicleIntakeVocPatch({}, values, {}, models)).toEqual({ make: "Perodua" });
+    expect(vehicleIntakeVocPatch({ make: "Honda", model: "Civic" }, values, {}, models)).toEqual({});
+    expect(vehicleIntakeVocPatch({ model: "Civic" }, values, {}, models)).toEqual({});
+    expect(vehicleIntakeVocPatch({}, { make: "PERODUA/WYVI-1500 AV (AUTO)" }, {}, models)).toEqual({ make: "Perodua" });
+    expect(vehicleIntakeVocModelSuggestion(values, models)?.model).toBe("Myvi");
+    expect(vehicleIntakeVocModelSuggestion(values, [{ ...models[0], isActive: false }])).toBeUndefined();
+    expect(vehicleIntakeVocModelSuggestion(values, [...models, { ...models[0], id: "duplicate" }])).toBeUndefined();
+    const manualDraft = { make: "Perodua", model: "Myvi" };
+    const applied = { make: "Perodua" };
+    expect(vehicleIntakeVocClearPatch(manualDraft, applied)).toEqual({});
+    const replacement = vehicleIntakeVocReplacementApplication(manualDraft, applied, {
+      documentCategory: "Voc", confidence: 0.9, fieldConfidence: {}, rawText: "", warnings: [],
+      fields: { make: "Honda", model: "Civic" }
+    }, catalogModels);
+    expect(replacement.patch).toEqual({});
+    expect(vehicleIntakeVocClearPatch(manualDraft, replacement.nextAppliedPatch)).toEqual({});
   });
 
   it("selects a unique canonical model base within the matched Make and preserves match type", () => {
