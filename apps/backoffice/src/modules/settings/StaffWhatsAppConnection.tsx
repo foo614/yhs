@@ -102,6 +102,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
     }
   });
   const hasBinding = connection?.state === "Connected" || connection?.state === "RelinkRequired" || connection?.state === "AwaitingVerification";
+  const verificationExpiresAt = connection?.expiresAt ?? link?.expiresAt;
   return <Space direction="vertical" size="middle" className="fullWidth">
     {contextHolder}
     <Typography.Title level={5}>{isSelf ? "My WhatsApp assistant" : "Staff WhatsApp assistant"}</Typography.Title>
@@ -128,10 +129,16 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
     {error && <Alert type="error" showIcon message={error} />}
     {connection && !connection.enabled && <Alert type="info" showIcon message="Connection setup is not enabled yet." />}
     {connection?.enabled && !connection.invitationAvailable && connection.state === "Disconnected" && <Alert type={manualLink ? "info" : "warning"} showIcon message={manualLink ? "Connect without an invitation" : "Company WhatsApp number needs configuration"} description={manualLink ? "You can verify your number manually. Create the command below, then open WhatsApp and send it from that same number. No invitation is sent and reminders are not enabled by this setup." : "Manual setup needs the company's WhatsApp chat number as its verification destination. Ask an operator to configure the business display number (not your personal number or Meta Phone Number ID), then refresh status. Do not enter access tokens here."} />}
-    {connection?.state === "AwaitingVerification" && <Alert type={connection.invitationState === "DeadLetter" || connection.invitationState === "Failed" || connection.invitationState === "Suppressed" ? "warning" : "info"} showIcon message="Awaiting verification" description={<Space direction="vertical">
+    {connection?.state === "AwaitingVerification" && <Alert type={connection.invitationState === "DeadLetter" || connection.invitationState === "Failed" || connection.invitationState === "Suppressed" ? "warning" : "info"} showIcon message="Verify your WhatsApp number" description={<Space direction="vertical" className="fullWidth">
       <Typography.Text>{connection.invitationState === "NotRequested" ? "Manual verification: no invitation was sent. Send the portal command to the company WhatsApp from the number you entered." : `Invitation delivery: ${connection.invitationState ?? "Not queued"}. Provider acceptance is not proof of delivery; send the portal command from the registered number even if the invitation is delayed.`}</Typography.Text>
+      {link && <>
+        <Typography.Text code copyable style={{ overflowWrap: "anywhere" }}>{link.command}</Typography.Text>
+        {link.businessDisplayNumber && <Button type="primary" href={`https://wa.me/${link.businessDisplayNumber}?text=${encodeURIComponent(link.command)}`} target="_blank" rel="noopener noreferrer">Open WhatsApp &amp; Verify</Button>}
+        {!link.businessDisplayNumber && <Typography.Text>The business display number is not configured; copy the command and paste it into the official company WhatsApp chat.</Typography.Text>}
+      </>}
       {!link && <Typography.Text>The one-time command was shown only when this setup was created. If you no longer have it, disconnect and start a new setup after the cooldown.</Typography.Text>}
-      {connection.expiresAt && <Typography.Text>Command expires at {new Date(connection.expiresAt * 1000).toLocaleTimeString()}.</Typography.Text>}
+      {verificationExpiresAt && <Typography.Text>Command expires at {new Date(verificationExpiresAt * 1000).toLocaleTimeString()}.</Typography.Text>}
+      <Typography.Text>Send it once from the number you entered and keep it private. This page updates automatically after verification.</Typography.Text>
       {connection.invitationState && ["Accepted", "DeadLetter", "Failed", "Suppressed"].includes(connection.invitationState) &&
         <Button onClick={resend} disabled={busy || !connection.invitationAvailable || !connection.invitationCreatedAt || Date.now() < (connection.invitationCreatedAt + 60) * 1000}>Resend invitation</Button>}
     </Space>} />}
@@ -149,11 +156,5 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
         <Button type="primary" htmlType="submit" loading={busy}>{manualLink ? "Create verification command" : "Send invitation"}</Button>
       </Form>}
     {connection?.state === "Connected" && <Alert type="success" showIcon message="Connected — next step" description="Send help to the company WhatsApp assistant chat from this verified number to see your available commands. Queries are read-only. Collections and seller settlement require Finance or Admin; profit and dashboard summaries require Admin." />}
-    {link && connection?.state === "AwaitingVerification" && <Alert type="info" showIcon message="Verify from the number you entered" description={<Space direction="vertical" className="fullWidth">
-      <Typography.Text code copyable style={{ overflowWrap: "anywhere" }}>{link.command}</Typography.Text>
-      {link.businessDisplayNumber && <Button type="primary" href={`https://wa.me/${link.businessDisplayNumber}?text=${encodeURIComponent(link.command)}`} target="_blank" rel="noopener noreferrer">Open WhatsApp &amp; Verify</Button>}
-      {!link.businessDisplayNumber && <Typography.Text>The business display number is not configured; copy the command and paste it into the official company WhatsApp chat.</Typography.Text>}
-      <Typography.Text>Expires at {new Date(link.expiresAt * 1000).toLocaleTimeString()}. Use it once from the number you entered and keep it private. This page updates automatically.</Typography.Text>
-    </Space>} />}
   </Space>;
 }
