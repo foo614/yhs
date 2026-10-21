@@ -106,29 +106,14 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
   return <Space direction="vertical" size="middle" className="fullWidth">
     {contextHolder}
     <Typography.Title level={5}>{isSelf ? "My WhatsApp assistant" : "Staff WhatsApp assistant"}</Typography.Title>
-    <Typography.Paragraph type="secondary">Use one-time number verification to query read-only operational summaries in WhatsApp. Your existing role access continues to control what you can see; customer outbound notifications are managed separately.</Typography.Paragraph>
-    {(connection?.state === "Disconnected" || connection?.state === "RelinkRequired") && (connection.invitationAvailable || manualLink) && <Alert
-      type="info"
-      showIcon
-      message={isSelf ? "Set up your staff assistant" : "Admin-assisted staff setup"}
-      description={<>
-        <Typography.Paragraph>{isSelf ? "This connects your signed-in account. No admin approval is needed, and your existing roles stay in force." : "This connects the selected employee's account. The employee must consent and verify their own number; admin assistance does not change roles or passwords."}</Typography.Paragraph>
-        <ol style={{ margin: 0, paddingInlineStart: 20 }}>
-          <li>Enter the WhatsApp number you will use, including its country code.</li>
-          <li>Choose a reply language and confirm consent for staff WhatsApp queries.</li>
-          <li>{manualLink ? "Create a private verification command. No invitation will be sent." : "Confirm setup to queue an approved invitation to that number. The invitation never contains the one-time command."}</li>
-          <li>Copy the command from this portal and send it from the same number within 10 minutes.</li>
-          <li>This page checks automatically for verification while the command remains valid.</li>
-        </ol>
-      </>}
-    />}
+    {connection?.state === "Disconnected" && <Typography.Paragraph type="secondary">{isSelf ? "Enter your number, then verify it in WhatsApp." : "Enter the employee's number, then ask them to verify it in WhatsApp."}</Typography.Paragraph>}
     <Space wrap><Tag>{connection ? labels[connection.state] : "Loading connection…"}</Tag>
       {connection?.maskedNumber && <Typography.Text>{connection.maskedNumber}</Typography.Text>}
       <Button onClick={() => void load()} disabled={busy}>Refresh status</Button>
     </Space>
     {error && <Alert type="error" showIcon message={error} />}
     {connection && !connection.enabled && <Alert type="info" showIcon message="Connection setup is not enabled yet." />}
-    {connection?.enabled && !connection.invitationAvailable && connection.state === "Disconnected" && <Alert type={manualLink ? "info" : "warning"} showIcon message={manualLink ? "Connect without an invitation" : "Company WhatsApp number needs configuration"} description={manualLink ? "You can verify your number manually. Create the command below, then open WhatsApp and send it from that same number. No invitation is sent and reminders are not enabled by this setup." : "Manual setup needs the company's WhatsApp chat number as its verification destination. Ask an operator to configure the business display number (not your personal number or Meta Phone Number ID), then refresh status. Do not enter access tokens here."} />}
+    {connection?.enabled && !connection.invitationAvailable && !manualLink && connection.state === "Disconnected" && <Alert type="warning" showIcon message="Company WhatsApp number needs configuration" description="Ask an operator to configure the company WhatsApp number, then refresh status." />}
     {connection?.state === "AwaitingVerification" && <Alert type={connection.invitationState === "DeadLetter" || connection.invitationState === "Failed" || connection.invitationState === "Suppressed" ? "warning" : "info"} showIcon message="Verify your WhatsApp number" description={<Space direction="vertical" className="fullWidth">
       <Typography.Text>{connection.invitationState === "NotRequested" ? "Manual verification: no invitation was sent. Send the portal command to the company WhatsApp from the number you entered." : `Invitation delivery: ${connection.invitationState ?? "Not queued"}. Provider acceptance is not proof of delivery; send the portal command from the registered number even if the invitation is delayed.`}</Typography.Text>
       {link && <>
@@ -145,7 +130,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
     {hasBinding ? <Button danger disabled={busy} onClick={disconnect}>Disconnect WhatsApp</Button> : connection &&
       <Form form={form} name={`staffWhatsApp-${staffUserId ?? "self"}`} layout="vertical" initialValues={{ language: setupLanguages[0], consentConfirmed: false }} disabled={!connection.enabled || (!connection.invitationAvailable && !manualLink) || setupLanguages.length === 0 || busy} onFinish={connect}>
         <Form.Item name="recipient" label="WhatsApp number (with country code)" rules={[{ required: true, pattern: /^\+?[1-9][0-9]{7,14}$/, message: "Enter the country code and digits, for example +60123456789." }]}><Input aria-label="WhatsApp number (with country code)" autoComplete="off" inputMode="tel" /></Form.Item>
-        <Form.Item name="language" label="Reply language" extra={manualLink ? "Choose the language for staff assistant replies." : connection.invitationAvailable ? "Only languages with a configured invitation template are available." : "Setup options will appear after the company WhatsApp number is configured."}
+        <Form.Item name="language" label="Reply language"
           rules={[{ required: true }, { validator: (_, value) => setupLanguages.includes(value) ? Promise.resolve() : Promise.reject(new Error("Choose an available setup language.")) }]}>
           <Select options={[{ value: "ms", label: "Bahasa Malaysia" }, { value: "en_US", label: "English" }]
             .filter(option => setupLanguages.some(language => language === option.value))} />
