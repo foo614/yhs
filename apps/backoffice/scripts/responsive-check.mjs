@@ -341,7 +341,7 @@ try {
           await inspect("whatsapp-disconnected", width);
           fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, invitationAvailable: false, invitationLanguages: [], manualLinkAvailable: true, state: "Disconnected", language: "ms" };
           await drawer.getByRole("button", { name: "Refresh status", exact: true }).click();
-          await drawer.getByText("Connect without an invitation", { exact: true }).waitFor();
+          await drawer.getByRole("button", { name: "Create verification command", exact: true }).waitFor();
           await drawer.getByRole("textbox", { name: "WhatsApp number (with country code)", exact: true }).fill("60123456789");
           await drawer.getByRole("button", { name: "Create verification command", exact: true }).click();
           await drawer.getByText("Confirm agreement before connecting.", { exact: true }).waitFor();
