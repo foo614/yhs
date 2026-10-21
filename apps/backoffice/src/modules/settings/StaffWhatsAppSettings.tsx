@@ -39,7 +39,7 @@ function timestamp(value: number | null) {
 }
 function readiness(policy: StaffWhatsAppPolicy) {
   const missing: string[] = [];
-  if (!policy.senderReady) missing.push("resolve the shared sender checks above");
+  if (!policy.senderReady) missing.push("ask an operator to check the sender configuration");
   if (!policy.templateReady) missing.push("no staff-notice language is configured as ready");
   if (!policy.categoryReady) missing.push("reminder integration is pending for this category");
   if (!policy.enabled) return missing.length
@@ -47,23 +47,6 @@ function readiness(policy: StaffWhatsAppPolicy) {
     : "This category is off. Enable it only after reviewing recipients and timing.";
   if (missing.length) return `Sending is blocked: ${missing.join("; ")}. Staff also need an active My WhatsApp connection.`;
   return "Configuration allows sending only in ready languages. Each recipient still needs a verified connection and current role access. This is not a live delivery check.";
-}
-
-function SenderReadiness({ policy }: { policy: StaffWhatsAppPolicy }) {
-  const issues = policy.senderIssues ?? (policy.senderReady ? [] : ["Detailed sender checks are unavailable. Ask an operator to check the server configuration."]);
-  return <Alert showIcon type={policy.senderReady ? "info" : "warning"}
-    message="Shared sender and template configuration"
-    description={<Space direction="vertical" className="fullWidth">
-      <Typography.Text>These checks are shared by all reminder categories. They do not contact Meta or verify token validity or live template approval.</Typography.Text>
-      {issues.length > 0 ? <ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul> :
-        <Typography.Text>Shared sender configuration is complete.</Typography.Text>}
-      {(policy.templateReadiness ?? []).map(template => <div key={template.language}>
-        <Tag color={template.ready ? "green" : "orange"}>{template.language === "ms" ? "Bahasa Malaysia" : "English"}: {template.ready ? "Configured" : "Action needed"}</Tag>
-        {template.issues.length > 0 && <ul>{template.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>}
-      </div>)}
-      {!policy.templateReadiness && <Typography.Text>Staff-notice template: {policy.templateReady ? "at least one language configured" : "not configured as ready"}. Language details are unavailable.</Typography.Text>}
-      <Typography.Text type="secondary">An unavailable language does not block another ready language. An operator must verify approvals and update server settings securely; do not enter access tokens here.</Typography.Text>
-    </Space>} />;
 }
 
 type PolicyFormValues = { enabled: boolean; time?: Dayjs; leadDays: number; thresholdPercent: number };
@@ -172,8 +155,6 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
     <div>
       <Typography.Title level={5}>Staff WhatsApp settings</Typography.Title>
       <Typography.Paragraph type="secondary">Review staff reminders and their actual delivery history. My WhatsApp remains the place for each employee to connect a number.</Typography.Paragraph>
-      <Alert showIcon type="info" message="Sending has separate readiness gates"
-        description="A category must be enabled and integrated, its sender and template must be ready, and the recipient must have a verified staff WhatsApp connection. These settings do not activate customer notifications." />
     </div>
     <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
       { key: "history", label: "Message history" },
@@ -187,7 +168,6 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       </div>
       {policiesError && <Alert type="error" showIcon message={policiesError} />}
       {diagnosticsError && <Alert type="warning" showIcon message={diagnosticsError} />}
-      {policyRows[0] && <SenderReadiness policy={policyRows[0]} />}
       {diagnostics && <Alert showIcon type={diagnostics.missingRequiredDate + diagnostics.unassignedDelivery + diagnostics.missingCommissionDate + diagnostics.unroutableWorkflowEvents > 0 || diagnostics.connectedStaff < diagnostics.eligibleStaff ? "warning" : "info"}
         message="Recipient and data checks"
         description={<Space direction="vertical">
@@ -315,7 +295,6 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
           <InputNumber min={1} max={100} precision={0} className="fullWidth" />
         </Form.Item>}
         <div className="staffWhatsAppPolicyReadiness">
-          <SenderReadiness policy={editing} />
           <Alert type={editing.senderReady && editing.templateReady && editing.categoryReady ? "info" : "warning"} showIcon message="Category readiness" description={readiness(editing)} />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={saving}>Review and save</Button></Form.Item>
         </div>
