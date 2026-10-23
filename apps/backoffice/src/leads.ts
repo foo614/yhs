@@ -1,4 +1,5 @@
 import type { Customer, Lead, Vehicle, VehicleLookup } from "./api";
+import { compareRecordDates, newestRecordsFirst } from "./recordDates";
 
 export type LeadLinkFilter = "All" | "Linked" | "Unlinked";
 export type LeadSortMode = "CloseAsap" | "Received";
@@ -192,7 +193,7 @@ export function sortLeadsByHotCarDemand(leads: Lead[], vehicles: LeadVehicleInfo
       return bScore - aScore;
     }
 
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    return -compareRecordDates(a.createdAt, b.createdAt, "descend");
   });
 }
 
@@ -206,7 +207,7 @@ export function groupLeadsByVehicle(leads: Lead[], vehicles: LeadVehicleInfo[]):
   return Object.entries(groups)
     .map(([vehicleId, vehicleLeads]) => {
       const sortedLeads = sortLeadsByHotCarDemand(vehicleLeads, vehicles);
-      const latestLead = [...vehicleLeads].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      const latestLead = newestRecordsFirst(vehicleLeads, lead => lead.createdAt)[0];
       return {
         vehicleId,
         vehicle: vehicles.find((vehicle) => vehicle.id === vehicleId),
@@ -225,7 +226,7 @@ export function groupLeadsByVehicle(leads: Lead[], vehicles: LeadVehicleInfo[]):
         return scoreB - scoreA;
       }
 
-      return new Date(b.latestLead.createdAt).getTime() - new Date(a.latestLead.createdAt).getTime();
+      return -compareRecordDates(a.latestLead.createdAt, b.latestLead.createdAt, "descend");
     });
 }
 

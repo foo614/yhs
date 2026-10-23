@@ -1,4 +1,5 @@
 import type { Customer, DocumentCategory, DocumentUploadOwner, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
+import { newestRecordsFirst } from "./recordDates";
 
 export const loanDocumentCategories = ["Voc", "ApDocument", "StatusReceipt", "LoanDocument"] as const;
 
@@ -42,7 +43,7 @@ export function filterLoanApplications(
 ) {
   const keyword = normalizeFilterValue(filters.keyword);
 
-  return loans.filter((loan) => {
+  return newestRecordsFirst(loans, loan => loan.submittedAt).filter((loan) => {
     const vehicle = vehicles.find((item) => item.id === loan.vehicleId);
     const customer = customers.find((item) => item.id === loan.customerId);
     const check = documentChecks[loan.id];

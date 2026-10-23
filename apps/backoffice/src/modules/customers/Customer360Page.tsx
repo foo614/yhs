@@ -501,13 +501,13 @@ export function Customer360Page({
   const loanColumns: ColumnsType<CustomerProfileLoan> = [
     { title: "Vehicle", render: (_, loan) => vehicleReference(loan.vehicleId, profile?.vehicles ?? []) },
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Approved" || status === "Done" ? "green" : "blue"}>{status}</Tag> },
-    { title: "Submitted", render: (_, loan) => formatCustomer360Date(loan.submittedAt) },
+    { title: "Submitted", dataIndex: "submittedAt", render: (_, loan) => formatCustomer360Date(loan.submittedAt) },
     { title: "LOU", render: (_, loan) => <Space direction="vertical" size={0}><span>{loan.louApproved ? "LOU approval: Approved" : "LOU approval: Pending"}</span><Typography.Text type="secondary">{loan.louDone ? "LOU completion: Done" : "LOU completion: Pending"}</Typography.Text></Space> },
     ...sourceColumn<CustomerProfileLoan>("/loans", "Loan", (loan) => loan.id)
   ];
   const deliveryColumns: ColumnsType<CustomerProfileDelivery> = [
     { title: "Vehicle", render: (_, delivery) => vehicleReference(delivery.vehicleId, profile?.vehicles ?? []) },
-    { title: "Schedule / 交车", render: (_, delivery) => `${formatCustomer360Date(delivery.scheduledDate)} · ${delivery.status}` },
+    { title: "Schedule / 交车", dataIndex: "scheduledDate", render: (_, delivery) => `${formatCustomer360Date(delivery.scheduledDate)} · ${delivery.status}` },
     { title: "PIC", dataIndex: "pic", render: displayValue },
     { title: "Coverage", render: (_, delivery) => `${delivery.insuranceHandled ? "Insurance" : "Insurance missing"}; ${delivery.roadTaxHandled ? "Road tax" : "Road tax missing"}; ${delivery.windscreenInsuranceHandled ? "Windscreen" : "Windscreen missing"}` },
     ...sourceColumn<CustomerProfileDelivery>("/delivery", "Delivery", (delivery) => delivery.id)
@@ -516,13 +516,13 @@ export function Customer360Page({
     { title: "Vehicle", render: (_, payment) => vehicleReference(payment.vehicleId, profile?.vehicles ?? []) },
     { title: "Payment", render: (_, payment) => <><Tag color={payment.status === "Reconciled" ? "green" : "blue"}>{payment.status}</Tag> {money(payment.nettPrice)}</> },
     { title: "Receipt / Invoice", render: (_, payment) => `${displayValue(payment.receiptNumber)} / ${displayValue(payment.invoiceNumber)}` },
-    { title: "Created", render: (_, payment) => formatCustomer360Date(payment.createdAt) },
+    { title: "Created", dataIndex: "createdAt", render: (_, payment) => formatCustomer360Date(payment.createdAt) },
     ...sourceColumn<CustomerProfilePayment>("/finance", "Finance", (payment) => payment.id)
   ];
   const invoiceColumns: ColumnsType<CustomerProfileInvoice> = [
     { title: "Vehicle", render: (_, invoice) => vehicleReference(invoice.vehicleId, profile?.vehicles ?? []) },
     { title: "Invoice", dataIndex: "invoiceNumber" },
-    { title: "Date", render: (_, invoice) => formatCustomer360Date(invoice.invoiceDate) },
+    { title: "Date", dataIndex: "invoiceDate", render: (_, invoice) => formatCustomer360Date(invoice.invoiceDate) },
     { title: "Amount", dataIndex: "amount", render: money },
     {
       title: "File",
@@ -544,7 +544,7 @@ export function Customer360Page({
     { title: "Vehicle", render: (_, receipt) => vehicleReference(paymentVehicleById.get(receipt.paymentRecordId), profile?.vehicles ?? []) },
     { title: "Receipt", dataIndex: "receiptNumber" },
     { title: "Amount", dataIndex: "amount", render: money },
-    { title: "Issued", render: (_, receipt) => formatCustomer360Date(receipt.createdAt) },
+    { title: "Issued", dataIndex: "createdAt", render: (_, receipt) => formatCustomer360Date(receipt.createdAt) },
     {
       title: "File",
       render: (_, receipt) => {
@@ -566,7 +566,7 @@ export function Customer360Page({
     { title: "Status", dataIndex: "status", render: (status) => <Tag color={status === "Closed" ? "default" : status === "Contacted" ? "blue" : "orange"}>{status}</Tag> },
     { title: "Message", dataIndex: "message", render: displayValue },
     { title: "Source", dataIndex: "sourcePage", render: displayValue },
-    { title: "Received", render: (_, enquiry) => formatCustomer360Date(enquiry.createdAt) },
+    { title: "Received", dataIndex: "createdAt", render: (_, enquiry) => formatCustomer360Date(enquiry.createdAt) },
     ...sourceColumn<CustomerProfileEnquiry>("/leads", "Leads")
   ];
   const missingDocumentGroups = profile

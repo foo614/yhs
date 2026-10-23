@@ -81,6 +81,7 @@ import { ShowroomEnquiryQrSettings } from "./modules/settings/ShowroomEnquiryQrS
 import { VehicleCatalogSettings } from "./modules/settings/VehicleCatalogSettings";
 import { StaffWhatsAppSettings } from "./modules/settings/StaffWhatsAppSettings";
 import { StaffWhatsAppConnection } from "./modules/settings/StaffWhatsAppConnection";
+import { compareRecordDates, newestRecordsFirst } from "./recordDates";
 import { DocumentUploadChecklist } from "./modules/shared/DocumentUploadChecklist";
 import { DocumentPreviewDrawer, documentPreviewKind, type DocumentPreviewSource } from "./modules/shared/DocumentPreviewDrawer";
 import { PreviewDocumentUpload } from "./modules/shared/PreviewDocumentUpload";
@@ -1962,8 +1963,8 @@ export function ModuleDocumentList({
             (!paymentRecordId || document.paymentRecordId === paymentRecordId)
           );
           const matchingDocumentIds = new Set(matchingDocuments.map((document) => document.id));
-          setDocuments(matchingDocuments);
-          setOcrJobs(ocrResults.filter((job) => matchingDocumentIds.has(job.document.id)));
+          setDocuments(newestRecordsFirst(matchingDocuments, document => document.uploadedAt));
+          setOcrJobs(newestRecordsFirst(ocrResults.filter((job) => matchingDocumentIds.has(job.document.id)), job => job.completedAt ?? job.createdAt));
         }
       })
       .catch((error) => {
@@ -2080,7 +2081,7 @@ export function ModuleDocumentList({
   ];
 
   const ocrColumns: ColumnsType<VehicleOcrJob> = [
-    { title: "Analyzed / 日期", dataIndex: "completedAt", render: (value, row) => String(value || row.createdAt).slice(0, 10) },
+    { title: "Analyzed / 日期", dataIndex: "completedAt", sorter: (a, b, order) => compareRecordDates(a.completedAt ?? a.createdAt, b.completedAt ?? b.createdAt, order ?? "ascend"), render: (value, row) => String(value || row.createdAt).slice(0, 10) },
     { title: "Type / 类型", dataIndex: "category" },
     { title: "File / 文件", render: (_, row) => row.document.fileName },
     {
@@ -2394,7 +2395,7 @@ export function DashboardPage({
               { title: "Status / 状态", render: (_, entry) => <Tag className="dashboardStatusBadge" color={priorityDueColor(entry)}>{dashboardLabel(priorityDueLabel(entry))}</Tag> },
               { title: "Action / 事项", dataIndex: "title" },
               { title: "Source / 来源", render: (_, entry) => <Space direction="vertical" size={0}><span>{prioritySourceLabel(entry.source)}</span><Typography.Text type="secondary">{dashboardLabel(entry.type)} · {entry.subject ?? "General"}</Typography.Text></Space> },
-              { title: "Due / 到期", dataIndex: "dueDate" },
+              { title: "Due / 到期", dataIndex: "dueDate", sorter: false },
               { title: "Exposure / 金额", dataIndex: "amount", render: (_, entry) => entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount)) },
               { title: "Action / 操作", width: 140, fixed: "right", render: (_, entry) => <Button type="primary" size="small" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button> }
             ]}
@@ -2503,7 +2504,7 @@ export function DashboardPage({
             { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag color={reminderColor(value)}>{dashboardLabel(value)}</Tag> },
             { title: "Title / 事项", dataIndex: "title" },
             { title: "Car Plate / 车牌", dataIndex: "vehiclePlate" },
-            { title: "Due / 到期", dataIndex: "dueDate", render: (value) => <Space><span>{value}</span><Tag color={reminderDueTagColor(value)}>{dashboardLabel(reminderDueLabel(value))}</Tag></Space> },
+            { title: "Due / 到期", dataIndex: "dueDate", sorter: false, render: (value) => <Space><span>{value}</span><Tag color={reminderDueTagColor(value)}>{dashboardLabel(reminderDueLabel(value))}</Tag></Space> },
             { title: "Amount / 金额", dataIndex: "amount", render: (value) => value ? `RM ${Number(value).toLocaleString()}` : "-" },
             { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(dashboardReminderTarget(row))}>Open</Button> }
           ]}
@@ -2554,7 +2555,7 @@ export function DashboardPage({
               { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag>{dashboardLabel(value)}</Tag> },
               { title: "Title / 事项", dataIndex: "title" },
               { title: "Car Plate / 车牌", dataIndex: "vehiclePlate" },
-              { title: "Due / 到期", dataIndex: "dueDate", render: (value, row) => <Space><span>{value}</span><Tag color={reminderDueTagColor(row)}>{dashboardLabel(reminderDueLabel(row))}</Tag></Space> },
+              { title: "Due / 到期", dataIndex: "dueDate", sorter: false, render: (value, row) => <Space><span>{value}</span><Tag color={reminderDueTagColor(row)}>{dashboardLabel(reminderDueLabel(row))}</Tag></Space> },
               { title: "Amount / 金额", dataIndex: "amount", render: (value) => value ? `RM ${Number(value).toLocaleString()}` : "-" },
               { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(dashboardReminderTarget(row))}>Open</Button> }
             ]}
@@ -3198,12 +3199,13 @@ export function buildRefurbishmentTableRecords(
   vehicles: VehicleLookup[],
   filters: RefurbishmentFilters
 ): RefurbishmentTableRecord[] {
-  return filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, filters).map((record) => {
+  return newestRecordsFirst(filterRefurbishmentRecords(repairs, supplierInvoices, vehicles, filters),
+    record => record.kind === "repair" ? record.repair.createdAt : record.invoice.createdAt).map((record) => {
     const source = record.kind === "repair" ? record.repair : record.invoice;
     return {
       ...record,
       plateNumber: plateFor(vehicles, source.vehicleId),
-      createdAt: formatRecordDate(source.createdAt)
+      createdAt: source.createdAt ?? ""
     };
   });
 }
@@ -5189,25 +5191,28 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
   const [leadKeyword, setLeadKeyword] = useState("");
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
-  const [leadSortMode, setLeadSortMode] = useState<"CloseAsap" | "Received">("CloseAsap");
+  const [leadSortMode, setLeadSortMode] = useState<"CloseAsap" | "Received">("Received");
   const [closingLead, setClosingLead] = useState<Lead | null>(null);
   const [closureOutcome, setClosureOutcome] = useState<"Sold" | "Lost" | "Invalid">("Lost");
   const [leadView, setLeadView] = useState<"Leads" | "MyCars">("Leads");
   const filteredLeads = filterLeadsForTriage(leads, { status: leadStatusFilter, link: leadLinkFilter });
   const displayedLeads = leadSortMode === "CloseAsap"
     ? sortLeadsByHotCarDemand(filteredLeads, vehicles)
-    : [...filteredLeads].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const groupedLeadRows = groupLeadsByVehicle(displayedLeads, vehicles);
+    : newestRecordsFirst(filteredLeads, lead => lead.createdAt);
+  const leadGroups = groupLeadsByVehicle(displayedLeads, vehicles);
+  const groupedLeadRows = leadSortMode === "Received"
+    ? newestRecordsFirst(leadGroups, group => group.latestLead.createdAt).map(group => ({ ...group, leads: newestRecordsFirst(group.leads, lead => lead.createdAt) }))
+    : leadGroups;
   const activeCounts = activeLeadCountByVehicle(leads);
   const openLeadCount = leads.filter((lead) => lead.status !== "Closed").length;
   const multiLeadVehicleCount = Object.values(activeCounts).filter((count) => count > 1).length;
   const hotVehicleCount = vehicles.filter((vehicle) => vehicle.status === "Available" && vehicle.isPublic && (activeCounts[vehicle.id] ?? 0) > 1).length;
-  const leadFiltersActive = Boolean(leadKeyword.trim()) || leadStatusFilter !== "All" || leadLinkFilter !== "All" || leadSortMode !== "CloseAsap";
+  const leadFiltersActive = Boolean(leadKeyword.trim()) || leadStatusFilter !== "All" || leadLinkFilter !== "All" || leadSortMode !== "Received";
   const clearLeadFilters = () => {
     setLeadKeyword("");
     setLeadStatusFilter("All");
     setLeadLinkFilter("All");
-    setLeadSortMode("CloseAsap");
+    setLeadSortMode("Received");
   };
   const customerRecordForLead = (lead: Lead) => lead.customerId ? customers.find((customer) => customer.id === lead.customerId) : undefined;
   const currentUserId = currentUser?.id ?? "";
@@ -5291,7 +5296,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
       width: 220,
       render: (_, row) => renderLeadCustomer(row)
     },
-    { title: "Received / 日期", dataIndex: "createdAt", render: (value) => String(value).slice(0, 10) },
+    { title: "Received / 日期", dataIndex: "createdAt", ...(leadSortMode === "CloseAsap" ? { sortOrder: null } : {}), render: (value) => String(value).slice(0, 10) },
     { title: "Message / 询问", dataIndex: "message", render: (value) => value || "-" },
     {
       title: "Source / 来源",
@@ -5501,7 +5506,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
               setLeadKeyword(operationsKeywordFromFields(values, ["customer", "phone", "plate", "message"]));
               setLeadStatusFilter((values.status as typeof leadStatusFilter | undefined) ?? "All");
               setLeadLinkFilter((values.customerLink as typeof leadLinkFilter | undefined) ?? "All");
-              setLeadSortMode((values.sort as typeof leadSortMode | undefined) ?? leadFilterControlOptions.sort[0].value);
+              setLeadSortMode((values.sort as typeof leadSortMode | undefined) ?? "Received");
             },
             onReset: clearLeadFilters
           }}
@@ -5549,6 +5554,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
 }
 
 function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]; filters: AuditLogFilters; onSearch: (filters: AuditLogFilters) => Promise<void> }) {
+  auditLog = newestRecordsFirst(auditLog, record => record.createdAt);
   const [form] = Form.useForm<AuditLogFilters>();
   const [mobileAuditPage, setMobileAuditPage] = useState(1);
   const [searching, setSearching] = useState(false);

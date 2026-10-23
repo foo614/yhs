@@ -12,6 +12,7 @@ import {
 import { ProCard } from "@ant-design/pro-components";
 import dayjs, { type Dayjs } from "dayjs";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
+import { compareRecordDates, newestRecordsFirst } from "../../recordDates";
 import { DocumentPreviewDrawer, documentPreviewKind } from "../shared/DocumentPreviewDrawer";
 import {
   Alert,
@@ -381,11 +382,11 @@ export function DeliveryWorkboardPage({
   const eligibleVehicles = useMemo(() => eligibleDeliveryVehicles(vehicles, items, loans), [vehicles, items, loans]);
   const today = singaporeDateString();
   const weekEndDate = addCalendarDays(today, 7);
-  const filteredItems = useMemo(() => filterDeliveryQueue(filterDeliveryWorkboard(items, {
+  const filteredItems = useMemo(() => newestRecordsFirst(filterDeliveryQueue(filterDeliveryWorkboard(items, {
     keyword,
     stage: stageFilter,
     picUserId: picFilter
-  }), queueFilter, today), [items, keyword, stageFilter, picFilter, queueFilter, today]);
+  }), queueFilter, today), item => `${item.scheduledDate}T${item.scheduledTime || "00:00"}`), [items, keyword, stageFilter, picFilter, queueFilter, today]);
   const thisWeekCount = items.filter((item) => !item.terminal && item.scheduledDate >= today && item.scheduledDate <= weekEndDate).length;
   const needsActionCount = items.filter((item) => deliveryNeedsAction(item, today)).length;
   const readyCount = items.filter((item) => item.canRelease).length;
@@ -559,6 +560,8 @@ export function DeliveryWorkboardPage({
     },
     {
       title: "Delivery / 交车",
+      dataIndex: "scheduledDate",
+      sorter: (a, b, order) => compareRecordDates(`${a.scheduledDate}T${a.scheduledTime || "00:00"}`, `${b.scheduledDate}T${b.scheduledTime || "00:00"}`, order ?? "ascend"),
       width: 190,
       render: (_, item) => (
         <Space direction="vertical" size={0}>

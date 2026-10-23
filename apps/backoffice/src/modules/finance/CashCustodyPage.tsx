@@ -3,6 +3,7 @@ import { ProCard } from "@ant-design/pro-components";
 import { Alert, Button, Descriptions, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Timeline, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
+import { newestRecordsFirst } from "../../recordDates";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { FINANCE_LIST_PAGE_SIZE, financeEmptyText, financePageFor, pageFinanceRows } from "./financeList";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
@@ -102,7 +103,7 @@ export function CashCustodyPage({
   const availablePayments = paymentLookup;
   const overdueCount = handovers.filter(isOverdue).length;
   const mismatchCount = handovers.filter((handover) => !handover.transactionMatches).length;
-  const filteredHandovers = useMemo(() => filterCashHandovers(handovers, paymentLookup, keyword, status ?? "All"), [handovers, keyword, paymentLookup, status]);
+  const filteredHandovers = useMemo(() => newestRecordsFirst(filterCashHandovers(handovers, paymentLookup, keyword, status ?? "All"), record => record.collectedAt), [handovers, keyword, paymentLookup, status]);
   const custodyPage = financePageFor(filteredHandovers.length, page);
   const visibleHandovers = pageFinanceRows(filteredHandovers, custodyPage);
   const custodyFiltersActive = Boolean(keyword.trim() || status);

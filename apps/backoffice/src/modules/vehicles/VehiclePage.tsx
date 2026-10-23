@@ -21,6 +21,7 @@ import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
 import { VehicleIntakeVocReview, vehicleIntakeVocClearedFields, type VehicleIntakeVocPatch } from "./VehicleIntakeVocReview";
 import { OperationsProTable } from "../shared/OperationsProTable";
+import { newestRecordsFirst } from "../../recordDates";
 import { MarketingDescription } from "../../../../frontoffice/app/vehicles/MarketingDescription";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import { settlementDirectionLabel, settlementPreview } from "../../settlements";
@@ -1037,8 +1038,8 @@ export function VehiclePage({
   const selectedPurchaseInvoice = purchaseInvoices.find((invoice) => invoice.id === editPurchaseInvoiceId) ?? purchaseInvoices[0];
   const selectedCustomer = customers.find((customer) => customer.id === editCustomerId) ?? customers[0];
   const selectedOwner = owners.find((owner) => owner.id === editOwnerId) ?? owners[0];
-  const selectedVehicleInvoices = selectedVehicle ? purchaseInvoices.filter((invoice) => invoice.vehicleId === selectedVehicle.id) : [];
-  const selectedVehicleLeads = selectedVehicle ? leads.filter((lead) => lead.vehicleId === selectedVehicle.id) : [];
+  const selectedVehicleInvoices = selectedVehicle ? newestRecordsFirst(purchaseInvoices.filter((invoice) => invoice.vehicleId === selectedVehicle.id), invoice => invoice.invoiceDate) : [];
+  const selectedVehicleLeads = selectedVehicle ? newestRecordsFirst(leads.filter((lead) => lead.vehicleId === selectedVehicle.id), lead => lead.createdAt) : [];
   const filteredVehicleLeads = useMemo(() => {
     const query = vehicleLeadKeyword.trim().toLocaleLowerCase();
     const tokens = query.split(/\s+/).filter(Boolean);
@@ -1508,8 +1509,8 @@ export function VehiclePage({
       setPhotoGalleryWarning(null);
       setPhotos(photoData);
       setPhotosVehicleId(vehicleId);
-      setDocuments(documentData);
-      setOcrJobs(ocrJobData);
+      setDocuments(newestRecordsFirst(documentData, document => document.uploadedAt));
+      setOcrJobs(newestRecordsFirst(ocrJobData, job => job.createdAt));
     } catch (error) {
       if (canApplyVehicleUploadLoad(requestId, uploadsRequestId.current, vehicleId, selectedVehicleIdRef.current)) {
         setUploadsError(humanizeApiError(error, "Documents could not be refreshed. Previously loaded files may be out of date."));
