@@ -1486,11 +1486,34 @@ export type StaffWhatsAppDiagnostics = {
   connectedStaff: number;
   unroutableWorkflowEvents: number;
 };
+export type StaffWhatsAppBudget = {
+  dailyAttemptLimit: number;
+  monthlyBudgetSen: number;
+  maximumCostPerAttemptSen: number;
+  dailyAttempts: number;
+  dailyRemainingAttempts: number;
+  monthlyAttempts: number;
+  monthlyReservedCostSen: number;
+  monthlyRemainingBudgetSen: number;
+  adminConfigured: boolean;
+  updatedAt: number | null;
+  blockedReason: string | null;
+};
+export type StaffWhatsAppBudgetInput = Pick<StaffWhatsAppBudget,
+  "dailyAttemptLimit" | "monthlyBudgetSen" | "maximumCostPerAttemptSen">;
 export function getStaffWhatsAppDiagnostics(): Promise<StaffWhatsAppDiagnostics> {
   return request<StaffWhatsAppDiagnostics>("/api/whatsapp/staff/diagnostics");
 }
 export function getStaffWhatsAppPolicies(): Promise<StaffWhatsAppPolicy[]> {
   return request<StaffWhatsAppPolicy[]>("/api/whatsapp/staff/policies");
+}
+export function getStaffWhatsAppBudget(): Promise<StaffWhatsAppBudget> {
+  return request<StaffWhatsAppBudget>("/api/whatsapp/staff/budget");
+}
+export function updateStaffWhatsAppBudget(input: StaffWhatsAppBudgetInput): Promise<{ message: string }> {
+  return request<{ message: string }>("/api/whatsapp/staff/budget", {
+    method: "PUT", body: JSON.stringify(input)
+  });
 }
 export function updateStaffWhatsAppPolicy(category: StaffWhatsAppPolicyCategory, input: StaffWhatsAppPolicyInput): Promise<{ message: string }> {
   return request<{ message: string }>(`/api/whatsapp/staff/policies/${encodeURIComponent(category)}`, {

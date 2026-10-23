@@ -97,6 +97,7 @@ fixtures["/api/whatsapp/staff/policies"] = ["OutstandingDigest", "AttendanceSumm
   ]
 }));
 fixtures["/api/whatsapp/staff/diagnostics"] = { missingRequiredDate: 2, unassignedDelivery: 1, missingCommissionDate: 1, eligibleStaff: 4, connectedStaff: 2, unroutableWorkflowEvents: 1 };
+fixtures["/api/whatsapp/staff/budget"] = { dailyAttemptLimit: 50, monthlyBudgetSen: 30000, maximumCostPerAttemptSen: 100, dailyAttempts: 0, dailyRemainingAttempts: 50, monthlyAttempts: 30, monthlyReservedCostSen: 3000, monthlyRemainingBudgetSen: 27000, adminConfigured: true, updatedAt: 1792771200, blockedReason: null };
 fixtures["/api/whatsapp/staff/history"] = { page: 1, total: 1, items: [{ id: "synthetic-message", staffUserId: "responsive-test", staffName: "Layout Test With A Longer Staff Name", maskedNumber: "***6789", category: "OutstandingDigest", state: "Delivered", scheduledAt: 1791334800, acceptedAt: 1791334801, sentAt: 1791334802, deliveredAt: 1791334803, readAt: null, failedAt: null, suppressedAt: null, failureReason: null, submittedBody: "Synthetic due reminder. No real customer or financial data.", submittedTemplateName: "synthetic_staff_notice", submittedLanguage: "en_US", canRetry: false }] };
 const fixtureTemplate = fixtures;
 const emptyCollectionTemplate = emptyCollections;
@@ -537,6 +538,18 @@ try {
           await page.locator(".ant-drawer-open").getByRole("button", { name: "Review and save", exact: true }).waitFor();
           await inspect("whatsapp-policy-editor", width);
           await closeOverlay();
+          await page.getByRole("tab", { name: "Sending budget", exact: true }).click();
+          await page.getByRole("spinbutton", { name: /Monthly reserved-cost budget/ }).waitFor();
+          await inspect("whatsapp-budget", width);
+          let budgetWrites = 0;
+          const countBudgetWrite = request => { if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/whatsapp/staff/budget") budgetWrites++; };
+          page.on("request", countBudgetWrite);
+          await page.getByRole("button", { name: "Review and save", exact: true }).click();
+          await page.getByRole("dialog").getByRole("button", { name: "Confirm and save", exact: true }).waitFor();
+          await inspect("whatsapp-budget-confirmation", width);
+          await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+          if (budgetWrites !== 0) throw new Error("Budget update must wait for explicit confirmation.");
+          page.off("request", countBudgetWrite);
         }
         if (route === "finance") {
           const commissionTab = page.getByRole("tab", { name: "Broker Commission / 经纪佣金", exact: true });

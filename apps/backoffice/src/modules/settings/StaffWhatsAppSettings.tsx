@@ -6,6 +6,7 @@ import { getStaffWhatsAppDiagnostics, getStaffWhatsAppHistory, getStaffWhatsAppP
   type StaffUser, type StaffWhatsAppHistoryFilters, type StaffWhatsAppHistoryItem, type StaffWhatsAppHistoryPage,
   type StaffWhatsAppPolicy, type StaffWhatsAppPolicyCategory, type StaffWhatsAppPolicyInput } from "../../api";
 import { OperationsProTable } from "../shared/OperationsProTable";
+import { StaffWhatsAppBudgetSettings } from "./StaffWhatsAppBudgetSettings";
 
 const descriptions: Record<StaffWhatsAppPolicyCategory, { title: string; detail: string }> = {
   OutstandingDigest: { title: "Outstanding digest", detail: "Boss: due finance items and deliveries. Sales: assigned deliveries only. Default 09:00 Malaysia time, three calendar days ahead." },
@@ -158,8 +159,11 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
     </div>
     <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
       { key: "history", label: "Message history" },
-      { key: "policies", label: "Reminder settings" }
+      { key: "policies", label: "Reminder settings" },
+      { key: "budget", label: "Sending budget" }
     ]} />
+
+    {activeTab === "budget" && <StaffWhatsAppBudgetSettings />}
 
     {activeTab === "policies" && <section aria-label="Message categories" className="staffWhatsAppPolicySection">
       <div className="staffWhatsAppSectionHead">

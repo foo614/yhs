@@ -1010,3 +1010,12 @@ public sealed record WhatsAppDispatchUsage
     public long Attempts { get; init; }
     public long ReservedCostSen { get; init; }
 }
+
+public sealed record WhatsAppDispatchBudgetSetting
+{
+    public string Key { get; init; } = "default";
+    public int DailyAttemptLimit { get; init; }
+    public long MonthlyBudgetSen { get; init; }
+    public long MaximumCostPerAttemptSen { get; init; }
+    public long UpdatedAt { get; init; }
+}
