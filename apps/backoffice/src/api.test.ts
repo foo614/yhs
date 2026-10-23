@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   getStaffWhatsAppConnection,
+  getStaffWhatsAppConnections,
   getStaffWhatsAppHistory,
   getStaffWhatsAppDiagnostics,
+  getStaffWhatsAppBudget,
   getStaffWhatsAppPolicies,
+  updateStaffWhatsAppBudget,
   updateStaffWhatsAppPolicy,
   connectStaffWhatsApp,
   disconnectStaffWhatsApp,
@@ -217,6 +220,17 @@ function mockEmptyFetch(ok = true, status = ok ? 200 : 500) {
 }
 
 describe("backoffice api client", () => {
+  it("loads authoritative masked staff connection statuses and never replaces denied access with disconnected demo data", async () => {
+    const summaries = [{ staffUserId: "staff-1", state: "Connected", maskedNumber: "***1234", verifiedAt: 1800000000 }];
+    const fetchMock = mockFetch(summaries);
+    await expect(getStaffWhatsAppConnections()).resolves.toEqual(summaries);
+    expect(fetchMock.mock.calls[0]).toEqual(["http://localhost:5000/api/whatsapp/staff/connections", expect.objectContaining({ credentials: "include" })]);
+    mockFetch({ message: "Admin access required" }, false, 403);
+    await expect(getStaffWhatsAppConnections()).rejects.toThrow("Admin access required");
+    mockFetch({ items: [{ state: "Queued", waitingReason: "Monthly sending budget has no room for another attempt." }], page: 1, total: 1 });
+    await expect(getStaffWhatsAppHistory()).resolves.toMatchObject({ items: [{ state: "Queued", waitingReason: expect.stringContaining("Monthly sending budget") }] });
+  });
+
   it("keeps staff WhatsApp management authenticated and preserves authorization failures", async () => {
     const fetchMock = mockFetch({ enabled: true, state: "Disconnected" });
     await getStaffWhatsAppConnection("staff & other");
@@ -260,10 +274,20 @@ describe("backoffice api client", () => {
     expect(fetchMock.mock.calls[2][0]).toContain("status=Accepted");
     await getStaffWhatsAppDiagnostics();
     expect(fetchMock.mock.calls[3]).toEqual(["http://localhost:5000/api/whatsapp/staff/diagnostics", expect.objectContaining({ credentials: "include" })]);
+    await getStaffWhatsAppBudget();
+    expect(fetchMock.mock.calls[4][0]).toBe("http://localhost:5000/api/whatsapp/staff/budget");
+    const budget = { dailyAttemptLimit: 25, monthlyBudgetSen: 5000, maximumCostPerAttemptSen: 20 };
+    await updateStaffWhatsAppBudget(budget);
+    expect(fetchMock.mock.calls[5]).toEqual([
+      "http://localhost:5000/api/whatsapp/staff/budget",
+      expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify(budget) })
+    ]);
     mockFetch({ message: "Admin access required" }, false, 403);
     await expect(getStaffWhatsAppPolicies()).rejects.toThrow("Admin access required");
     await expect(getStaffWhatsAppHistory()).rejects.toThrow("Admin access required");
     await expect(getStaffWhatsAppDiagnostics()).rejects.toThrow("Admin access required");
+    await expect(getStaffWhatsAppBudget()).rejects.toThrow("Admin access required");
+    await expect(updateStaffWhatsAppBudget(budget)).rejects.toThrow("Admin access required");
   });
 
   it("uses authenticated WhatsApp mutations with explicit consent and action", async () => {

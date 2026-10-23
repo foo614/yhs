@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CreateStaffUserRequest, StaffUser } from "./api";
-import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason } from "./staff";
+import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, staffWhatsAppStatusLabel } from "./staff";
 
 const baseStaffRequest: CreateStaffUserRequest = {
   email: "sales@ysheng.local",
@@ -38,6 +38,14 @@ const staffDirectory: StaffUser[] = [
 ];
 
 describe("staff creation helpers", () => {
+  it("distinguishes verified connection from a pending challenge or unavailable status data", () => {
+    expect(staffWhatsAppStatusLabel("Connected")).toBe("Connected / 已连接");
+    expect(staffWhatsAppStatusLabel("AwaitingVerification")).toBe("Awaiting verification / 待验证");
+    expect(staffWhatsAppStatusLabel("RelinkRequired")).toBe("Reconnect required / 需重新连接");
+    expect(staffWhatsAppStatusLabel("Disconnected")).toBe("Not connected / 未连接");
+    expect(staffWhatsAppStatusLabel()).toBe("Status unavailable / 状态未知");
+  });
+
   it("blocks staff creation with missing required fields or invalid roles", () => {
     expect(staffCreateBlockReason({ ...baseStaffRequest, email: " " })).toBe("Staff email is required.");
     expect(staffCreateBlockReason({ ...baseStaffRequest, displayName: " " })).toBe("Staff display name is required.");

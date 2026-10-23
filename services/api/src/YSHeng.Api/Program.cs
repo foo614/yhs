@@ -28,7 +28,7 @@ if (whatsappAssistant.Ready)
     builder.Services.AddHostedService<WhatsAppStaffProactiveWorker>();
 }
 builder.Services.AddSingleton(whatsappDispatch);
-if (whatsappDispatch.Ready || whatsappDispatch.StaffReady || whatsappDispatch.InvitationReady)
+if (whatsappDispatch.DispatchConfigured)
 {
     builder.Services.AddSingleton<WhatsAppTemplateSender>();
     builder.Services.AddHostedService<WhatsAppNotificationWorker>();
@@ -236,25 +236,41 @@ app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest requ
 });
 
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
-backOffice.MapGet("/whatsapp/assistant/connection", (HttpContext context, AppDbContext db, string? staffUserId, CancellationToken ct) =>
-    WhatsAppStaffApi.StatusAsync(context, db, whatsappAssistant, whatsappDispatch, staffUserId, ct));
-backOffice.MapPost("/whatsapp/assistant/connection", (HttpContext context, AppDbContext db, WhatsAppStaffConnectRequest request, CancellationToken ct) =>
-    WhatsAppStaffApi.ConnectAsync(context, db, whatsappAssistant, whatsappDispatch, request, ct));
-backOffice.MapPost("/whatsapp/assistant/connection/invitation/resend", (HttpContext context, AppDbContext db, WhatsAppStaffDisconnectRequest request, CancellationToken ct) =>
-    WhatsAppStaffApi.ResendInvitationAsync(context, db, whatsappAssistant, whatsappDispatch, request, ct));
+backOffice.MapGet("/whatsapp/assistant/connection", async (HttpContext context, AppDbContext db, string? staffUserId, CancellationToken ct) =>
+    await WhatsAppStaffApi.StatusAsync(context, db, whatsappAssistant, await WhatsAppDispatchBudget.OptionsAsync(db, whatsappDispatch, ct), staffUserId, ct));
+backOffice.MapPost("/whatsapp/assistant/connection", async (HttpContext context, AppDbContext db, WhatsAppStaffConnectRequest request, CancellationToken ct) =>
+    await WhatsAppStaffApi.ConnectAsync(context, db, whatsappAssistant, await WhatsAppDispatchBudget.OptionsAsync(db, whatsappDispatch, ct), request, ct));
+backOffice.MapPost("/whatsapp/assistant/connection/invitation/resend", async (HttpContext context, AppDbContext db, WhatsAppStaffDisconnectRequest request, CancellationToken ct) =>
+    await WhatsAppStaffApi.ResendInvitationAsync(context, db, whatsappAssistant, await WhatsAppDispatchBudget.OptionsAsync(db, whatsappDispatch, ct), request, ct));
 backOffice.MapPost("/whatsapp/assistant/disconnect", (HttpContext context, AppDbContext db, WhatsAppStaffDisconnectRequest request, CancellationToken ct) =>
     WhatsAppStaffApi.DisconnectAsync(context, db, whatsappAssistant, request, ct));
 
+backOffice.MapGet("/whatsapp/staff/connections", (HttpContext context, AppDbContext db, CancellationToken ct) =>
+    WhatsAppStaffApi.ConnectionsAsync(context, db, whatsappAssistant, ct)).RequireAuthorization("BossAdmin");
 backOffice.MapGet("/whatsapp/staff/policies", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
 {
     context.Response.Headers.CacheControl = "no-store";
-    return Results.Ok(await WhatsAppStaffNotifications.PoliciesAsync(db, whatsappDispatch, ct));
+    return Results.Ok(await WhatsAppStaffNotifications.PoliciesAsync(db, await WhatsAppDispatchBudget.OptionsAsync(db, whatsappDispatch, ct), ct));
 }).RequireAuthorization("BossAdmin");
 backOffice.MapGet("/whatsapp/staff/diagnostics", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
 {
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(await WhatsAppStaffNotifications.DiagnosticsAsync(db, whatsappAssistant,
         DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+}).RequireAuthorization("BossAdmin");
+backOffice.MapGet("/whatsapp/staff/budget", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(await WhatsAppDispatchBudget.ViewAsync(db, whatsappDispatch,
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+}).RequireAuthorization("BossAdmin");
+backOffice.MapPut("/whatsapp/staff/budget", async (WhatsAppDispatchBudgetUpdate request,
+    AppDbContext db, HttpContext context, CancellationToken ct) =>
+{
+    var updated = await WhatsAppDispatchBudget.UpdateAsync(db, request, AuditTrail.ActorFrom(context.User),
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct);
+    return updated ? Results.Ok(new { message = "WhatsApp sending budget saved." })
+        : Results.BadRequest(new ApiError("Limits must be positive and the maximum cost per attempt cannot exceed the monthly budget."));
 }).RequireAuthorization("BossAdmin");
 backOffice.MapPut("/whatsapp/staff/policies/{category}", async (string category, WhatsAppStaffPolicyUpdate request,
     AppDbContext db, HttpContext context, CancellationToken ct) =>
@@ -271,17 +287,18 @@ backOffice.MapGet("/whatsapp/staff/history", async (DateOnly? from, DateOnly? to
     try
     {
         return Results.Ok(await WhatsAppStaffNotifications.HistoryAsync(db, from, to, staffUserId, category, status,
-            page ?? 1, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+            page ?? 1, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct, whatsappDispatch, whatsappAssistant));
     }
     catch (ArgumentException) { return Results.BadRequest(new ApiError("Invalid staff history filters.")); }
 }).RequireAuthorization("BossAdmin");
 
 backOffice.MapGet("/whatsapp/queue", async (AppDbContext db, string? state, int? page) =>
 {
+    var effectiveDispatch = await WhatsAppDispatchBudget.OptionsAsync(db, whatsappDispatch);
     var items = whatsappCaptureEnabled
-        ? await WhatsAppAdministration.ListAsync(db, state, page ?? 1, app.Configuration["WhatsApp:TestRecipient"], options: whatsappDispatch)
+        ? await WhatsAppAdministration.ListAsync(db, state, page ?? 1, app.Configuration["WhatsApp:TestRecipient"], options: effectiveDispatch)
         : Array.Empty<WhatsAppQueueItem>();
-    return Results.Ok(new { captureEnabled = whatsappCaptureEnabled, sendingEnabled = whatsappDispatch.Ready, items });
+    return Results.Ok(new { captureEnabled = whatsappCaptureEnabled, sendingEnabled = effectiveDispatch.Ready, items });
 }).RequireAuthorization("BossAdmin");
 
 backOffice.MapPost("/whatsapp/consent", async (WhatsAppConsentRequest request, AppDbContext db, HttpContext context) =>
@@ -298,7 +315,7 @@ backOffice.MapPost("/whatsapp/consent", async (WhatsAppConsentRequest request, A
 
 backOffice.MapPost("/whatsapp/queue/{id:guid}/retry", async (Guid id, AppDbContext db, HttpContext context) =>
 {
-    if (await WhatsAppAdministration.RetryBusinessAsync(db, id, whatsappDispatch, AuditTrail.ActorFrom(context.User),
+    if (await WhatsAppAdministration.RetryBusinessAsync(db, id, await WhatsAppDispatchBudget.OptionsAsync(db, whatsappDispatch, context.RequestAborted), AuditTrail.ActorFrom(context.User),
         DateTimeOffset.UtcNow.ToUnixTimeSeconds(), context.RequestAborted))
         return Results.Ok(new { message = "Eligible notification queued within existing consent, approval and sending limits." });
     var testRecipient = WhatsAppAdministration.ConfiguredTestRecipient(app.Configuration["WhatsApp:TestRecipient"]);

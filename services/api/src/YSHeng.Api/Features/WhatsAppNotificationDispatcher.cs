@@ -21,9 +21,17 @@ public static class WhatsAppNotificationDispatcher
         WhatsAppAssistantOptions? assistant = null,
         Func<AppDbContext, WhatsAppOutbox, CancellationToken, Task<bool>>? currentStaffFacts = null,
         Func<AppDbContext, WhatsAppOutbox, long, CancellationToken, Task<WhatsAppOutbox?>>? refreshStaff = null)
+        => await DispatchOneAsync(db, options, (_, item, token) => send(item, token), now, ct,
+            assistant, currentStaffFacts, refreshStaff);
+
+    public static async Task<bool> DispatchOneAsync(AppDbContext db, WhatsAppDispatchOptions options,
+        Func<WhatsAppDispatchOptions, WhatsAppOutbox, CancellationToken, Task<WhatsAppSendResult>> send,
+        long now, CancellationToken ct = default, WhatsAppAssistantOptions? assistant = null,
+        Func<AppDbContext, WhatsAppOutbox, CancellationToken, Task<bool>>? currentStaffFacts = null,
+        Func<AppDbContext, WhatsAppOutbox, long, CancellationToken, Task<WhatsAppOutbox?>>? refreshStaff = null)
     {
         // This gate precedes any database access, including on installations without WhatsApp tables.
-        if (!options.Ready && !options.StaffReady && !options.InvitationReady) return false;
+        if (!options.DispatchConfigured) return false;
         WhatsAppOutbox? candidate;
         var attempt = 0;
         await using (var claim = await db.Database.BeginTransactionAsync(ct))
@@ -33,6 +41,13 @@ public static class WhatsAppNotificationDispatcher
             await EnsureUsageAsync(db, "dispatch-lock", ct);
             await db.WhatsAppDispatchUsage.Where(row => row.Period == "dispatch-lock")
                 .ExecuteUpdateAsync(set => set.SetProperty(row => row.Attempts, row => row.Attempts), ct);
+            var limits = await WhatsAppDispatchBudget.EffectiveAsync(db, options, ct);
+            if (!limits.Valid)
+            {
+                await claim.CommitAsync(ct);
+                return false;
+            }
+            options = options.WithBudgetLimits(limits);
             var stale = await db.WhatsAppOutbox.Where(row => row.EventKind != "test" && row.State == "Sending" && row.LeaseUntil <= now)
                 .Select(row => row.Id).ToListAsync(ct);
             foreach (var id in stale)
@@ -81,7 +96,7 @@ public static class WhatsAppNotificationDispatcher
             await EnsureUsageAsync(db, monthly, ct);
             var day = await db.WhatsAppDispatchUsage.AsNoTracking().SingleAsync(row => row.Period == daily, ct);
             var month = await db.WhatsAppDispatchUsage.AsNoTracking().SingleAsync(row => row.Period == monthly, ct);
-            if (day.Attempts >= options.DailyAttemptLimit || month.ReservedCostSen > options.MonthlyBudgetSen - options.MaximumCostPerAttemptSen)
+            if (BudgetBlockReason(options, day.Attempts, month.ReservedCostSen) is not null)
             {
                 await db.SaveChangesAsync(ct);
                 await claim.CommitAsync(ct);
@@ -100,7 +115,7 @@ public static class WhatsAppNotificationDispatcher
             foreach (var period in new[] { daily, monthly })
                 await db.WhatsAppDispatchUsage.Where(row => row.Period == period).ExecuteUpdateAsync(set =>
                     set.SetProperty(row => row.Attempts, row => row.Attempts + 1)
-                    .SetProperty(row => row.ReservedCostSen, row => row.ReservedCostSen + options.MaximumCostPerAttemptSen), ct);
+                    .SetProperty(row => row.ReservedCostSen, row => row.ReservedCostSen + limits.MaximumCostPerAttemptSen), ct);
             Audit(db, candidate.Id, "Sending");
             await db.SaveChangesAsync(ct);
             await claim.CommitAsync(ct);
@@ -138,7 +153,7 @@ public static class WhatsAppNotificationDispatcher
                             .SetProperty(row => row.SubmittedTemplateName, approvedTemplate.Name)
                             .SetProperty(row => row.SubmittedLanguage, approvedTemplate.Language), ct);
                 }
-                result = await send(candidate, ct);
+                result = await send(options, candidate, ct);
             }
             catch (Exception) { result = new("UnknownOutcome"); }
         }
@@ -165,6 +180,18 @@ public static class WhatsAppNotificationDispatcher
         await db.SaveChangesAsync(CancellationToken.None);
         await submission.CommitAsync(CancellationToken.None);
         return true;
+    }
+
+    internal static string? BudgetBlockReason(WhatsAppDispatchOptions options, long dailyAttempts, long monthlyReservedCostSen)
+    {
+        if (options.DailyAttemptLimit <= 0 || options.MonthlyBudgetSen <= 0 || options.MaximumCostPerAttemptSen <= 0 ||
+            options.MaximumCostPerAttemptSen > options.MonthlyBudgetSen)
+            return "Sending limits are not configured. Ask an operator to review the sending budget.";
+        if (monthlyReservedCostSen > options.MonthlyBudgetSen - options.MaximumCostPerAttemptSen)
+            return "Monthly sending budget has no room for another attempt. Ask an operator to review the monthly budget.";
+        if (dailyAttempts >= options.DailyAttemptLimit)
+            return "Daily sending attempt limit reached. Ask an operator to review the limit; reminders expire at midnight.";
+        return null;
     }
 
     private static Task<int> EnsureUsageAsync(AppDbContext db, string period, CancellationToken ct) => db.Database.ExecuteSqlInterpolatedAsync($"""
@@ -222,7 +249,7 @@ public sealed class WhatsAppNotificationWorker(IServiceScopeFactory scopes, What
                 await using var scope = scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
-                    (item, ct) => sender.SendAsync(options, item, ct), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken,
+                    sender.SendAsync, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken,
                     assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }

@@ -71,7 +71,7 @@ import {
   type LeadLinkFilter
 } from "./leads";
 import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
-import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, type StaffStatusFilter } from "./staff";
+import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, staffWhatsAppStatusLabel, type StaffStatusFilter } from "./staff";
 import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
@@ -181,6 +181,7 @@ import {
   getSettlementDrafts,
   getSettlementReminders,
   getStaffUsers,
+  getStaffWhatsAppConnections,
   getSupplierMaster,
   getSupplierInvoices,
   getVehicleDocuments,
@@ -297,6 +298,7 @@ import {
   type SettlementReminder,
   type StaffRole,
   type StaffUser,
+  type StaffWhatsAppConnectionSummary,
   type SupplierInvoice,
   type Supplier,
   type UpdateStaffUserRequest,
@@ -5725,6 +5727,10 @@ function AdminPage({
   const [staffKeywordFilter, setStaffKeywordFilter] = useState("");
   const [staffStatusFilter, setStaffStatusFilter] = useState<StaffStatusFilter>("All");
   const [staffRoleFilter, setStaffRoleFilter] = useState<StaffRole | "All">("All");
+  const [staffWhatsAppConnections, setStaffWhatsAppConnections] = useState<StaffWhatsAppConnectionSummary[]>([]);
+  const [staffWhatsAppLoading, setStaffWhatsAppLoading] = useState(true);
+  const [staffWhatsAppError, setStaffWhatsAppError] = useState("");
+  const [staffWhatsAppRefresh, setStaffWhatsAppRefresh] = useState(0);
   const [mobileStaffPage, setMobileStaffPage] = useState(1);
   const [ocrLimitSnapshot, setOcrLimitSnapshot] = useState<AiUsageLimitSnapshot | null>(null);
   const [ocrLimitSaving, setOcrLimitSaving] = useState(false);
@@ -5745,6 +5751,31 @@ function AdminPage({
   const activeStaffCount = staffUsers.filter((user) => user.isActive).length;
   const disabledStaffCount = staffUsers.filter((user) => !user.isActive).length;
   const adminStaffCount = staffUsers.filter((user) => user.roles.includes("BossAdmin")).length;
+
+  useEffect(() => {
+    let active = true;
+    setStaffWhatsAppLoading(true);
+    void getStaffWhatsAppConnections().then(connections => {
+      if (active) { setStaffWhatsAppConnections(connections); setStaffWhatsAppError(""); }
+    }).catch(error => {
+      if (active) {
+        setStaffWhatsAppConnections([]);
+        setStaffWhatsAppError(humanizeApiError(error, "WhatsApp connection statuses could not be loaded."));
+      }
+    }).finally(() => { if (active) setStaffWhatsAppLoading(false); });
+    return () => { active = false; };
+  }, [staffUsers, staffWhatsAppRefresh]);
+
+  const staffWhatsAppStatus = (userId: string) => {
+    if (staffWhatsAppLoading) return <Typography.Text type="secondary">Loading status…</Typography.Text>;
+    const connection = staffWhatsAppConnections.find(item => item.staffUserId === userId);
+    return <Space direction="vertical" size={0}>
+      <Tag style={{ whiteSpace: "normal" }} color={connection?.state === "Connected" ? "green" : connection?.state === "AwaitingVerification" ? "gold" : "default"}>
+        {staffWhatsAppStatusLabel(connection?.state)}
+      </Tag>
+      {connection?.maskedNumber && <Typography.Text type="secondary">{connection.maskedNumber}</Typography.Text>}
+    </Space>;
+  };
 
   useEffect(() => {
     let active = true;
@@ -5818,6 +5849,7 @@ function AdminPage({
     { title: "Name / 姓名", dataIndex: "displayName", width: 180 },
     { title: "Email", dataIndex: "email", width: 260 },
     { title: "Status", dataIndex: "isActive", width: 110, render: (isActive: boolean) => <Tag color={isActive ? "green" : "red"}>{isActive ? "Active" : "Disabled"}</Tag> },
+    { title: "WhatsApp", width: 240, render: (_, row) => staffWhatsAppStatus(row.id) },
     { title: "Roles / 角色", dataIndex: "roles", width: 170, render: (roles: StaffRole[]) => <Space wrap>{roles.map((role) => <Tag key={role}>{roleLabel(role)}</Tag>)}</Space> },
     {
       title: "Action / 操作",
@@ -5855,8 +5887,12 @@ function AdminPage({
               <Space id="staff-users-panel" direction="vertical" size={16} className="fullWidth staffUsersPanel">
                 <div className="tableToolbar">
                   <Typography.Text type="secondary">Create users here, then open Details to update identity or department access.</Typography.Text>
-                  <Button type="primary" onClick={() => setStaffCreateOpen(true)}>New Staff</Button>
+                  <Space wrap>
+                    <Button loading={staffWhatsAppLoading} onClick={() => setStaffWhatsAppRefresh(value => value + 1)}>Refresh WhatsApp status</Button>
+                    <Button type="primary" onClick={() => setStaffCreateOpen(true)}>New Staff</Button>
+                  </Space>
                 </div>
+                {staffWhatsAppError && <Alert type="warning" showIcon message={staffWhatsAppError} />}
                 <div className="staffSummaryStrip">
                   <span><strong>{staffUsers.length}</strong>Total staff</span>
                   <span><strong>{activeStaffCount}</strong>Active</span>
@@ -5916,6 +5952,7 @@ function AdminPage({
                       </div>
                       <div className="mobileRecordMeta">
                         <span><small>Email</small><strong>{user.email}</strong></span>
+                        <span><small>WhatsApp</small>{staffWhatsAppStatus(user.id)}</span>
                       </div>
                       <div className="mobileRecordSection">
                         <Typography.Text className="mobileRecordLabel">Roles / 角色</Typography.Text>

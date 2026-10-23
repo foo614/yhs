@@ -6,6 +6,7 @@ import { getStaffWhatsAppDiagnostics, getStaffWhatsAppHistory, getStaffWhatsAppP
   type StaffUser, type StaffWhatsAppHistoryFilters, type StaffWhatsAppHistoryItem, type StaffWhatsAppHistoryPage,
   type StaffWhatsAppPolicy, type StaffWhatsAppPolicyCategory, type StaffWhatsAppPolicyInput } from "../../api";
 import { OperationsProTable } from "../shared/OperationsProTable";
+import { StaffWhatsAppBudgetSettings } from "./StaffWhatsAppBudgetSettings";
 
 const descriptions: Record<StaffWhatsAppPolicyCategory, { title: string; detail: string }> = {
   OutstandingDigest: { title: "Outstanding digest", detail: "Boss: due finance items and deliveries. Sales: assigned deliveries only. Default 09:00 Malaysia time, three calendar days ahead." },
@@ -158,8 +159,11 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
     </div>
     <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
       { key: "history", label: "Message history" },
-      { key: "policies", label: "Reminder settings" }
+      { key: "policies", label: "Reminder settings" },
+      { key: "budget", label: "Sending budget" }
     ]} />
+
+    {activeTab === "budget" && <StaffWhatsAppBudgetSettings />}
 
     {activeTab === "policies" && <section aria-label="Message categories" className="staffWhatsAppPolicySection">
       <div className="staffWhatsAppSectionHead">
@@ -223,7 +227,10 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
         columns={[
           { title: "Staff / recipient", render: (_, row) => <><div>{row.staffName || staffUsers.find(user => user.id === row.staffUserId)?.displayName || "Staff member"}</div><Typography.Text type="secondary">{row.maskedNumber || "Number unavailable"}</Typography.Text></> },
           { title: "Category", render: (_, row) => historyCategoryTitle(row.category) },
-          { title: "State", render: (_, row) => <Tag color={stateColor(row.state)}>{stateLabel(row.state)}</Tag> },
+          { title: "State / waiting reason", width: 280, render: (_, row) => <Space direction="vertical" size={4}>
+            <Tag color={stateColor(row.state)}>{stateLabel(row.state)}</Tag>
+            {row.waitingReason && <Typography.Text type="secondary">{row.waitingReason}</Typography.Text>}
+          </Space> },
           { title: "Scheduled", render: (_, row) => timestamp(row.scheduledAt) },
           { title: "Accepted", render: (_, row) => timestamp(row.acceptedAt) },
           { title: "Action / 操作", fixed: "right", render: (_, row) => <Space className="tableActionGroup"><Button onClick={() => setSelected(row)}>Details</Button></Space> }
@@ -235,6 +242,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
             extra={<Tag color={stateColor(row.state)}>{stateLabel(row.state)}</Tag>}>
             <Space direction="vertical" className="fullWidth">
               <Typography.Text>{historyCategoryTitle(row.category)}</Typography.Text>
+              {row.waitingReason && <Typography.Text type="secondary">{row.waitingReason}</Typography.Text>}
               <Typography.Text type="secondary">{row.maskedNumber || "Number unavailable"} · Scheduled {timestamp(row.scheduledAt)}</Typography.Text>
               <div className="staffWhatsAppAction"><Button onClick={() => setSelected(row)}>Details</Button></div>
             </Space>
@@ -266,6 +274,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
           { key: "failed", label: "Failed", children: timestamp(selected.failedAt) },
           { key: "suppressed", label: "Suppressed", children: timestamp(selected.suppressedAt) }
         ]} />
+        {selected.waitingReason && <Alert type="warning" showIcon message="Sending status / 发送状态" description={selected.waitingReason} />}
         <Card size="small" title="Submitted content">
           {selected.submittedBody ? <Typography.Paragraph className="staffWhatsAppSubmittedBody">{selected.submittedBody}</Typography.Paragraph> :
             <Typography.Text type="secondary">Content has not been submitted or was not captured for this record.</Typography.Text>}

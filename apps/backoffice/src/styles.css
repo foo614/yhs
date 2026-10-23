@@ -7416,7 +7416,7 @@ body {
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1200px) {
   .staffWhatsAppFilters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

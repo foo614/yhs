@@ -61,6 +61,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<WhatsAppStaffNotificationPolicy> WhatsAppStaffNotificationPolicies => Set<WhatsAppStaffNotificationPolicy>();
     public DbSet<WhatsAppWorkflowEvent> WhatsAppWorkflowEvents => Set<WhatsAppWorkflowEvent>();
     public DbSet<WhatsAppDispatchUsage> WhatsAppDispatchUsage => Set<WhatsAppDispatchUsage>();
+    public DbSet<WhatsAppDispatchBudgetSetting> WhatsAppDispatchBudgetSettings => Set<WhatsAppDispatchBudgetSetting>();
     public DbSet<WhatsAppStaffBinding> WhatsAppStaffBindings => Set<WhatsAppStaffBinding>();
     public DbSet<WhatsAppStaffChallenge> WhatsAppStaffChallenges => Set<WhatsAppStaffChallenge>();
     public DbSet<WhatsAppStaffRequest> WhatsAppStaffRequests => Set<WhatsAppStaffRequest>();
@@ -79,6 +80,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<WhatsAppStaffRequest>().HasOne<WhatsAppStaffBinding>().WithMany().HasForeignKey(item => item.BindingId).OnDelete(DeleteBehavior.Restrict);
         builder.Entity<WhatsAppDispatchUsage>().HasKey(item => item.Period);
         builder.Entity<WhatsAppDispatchUsage>().Property(item => item.Period).HasMaxLength(32);
+        builder.Entity<WhatsAppDispatchBudgetSetting>().HasKey(item => item.Key);
+        builder.Entity<WhatsAppDispatchBudgetSetting>().Property(item => item.Key).HasMaxLength(32);
         builder.Entity<WhatsAppConsent>().HasKey(item => item.Recipient);
         builder.Entity<WhatsAppConsent>().Property(item => item.Recipient).HasMaxLength(15);
         builder.Entity<WhatsAppOutbox>().HasIndex(item => item.IdempotencyKey).IsUnique();

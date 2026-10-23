@@ -1,10 +1,16 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Net;
+using System.Net.Http.Json;
+using System.Collections.Concurrent;
+using System.Data.Common;
 using YSHeng.Api.Data;
 using YSHeng.Api.Features;
 using YSHeng.Api.Domain;
@@ -16,6 +22,237 @@ public sealed class WhatsAppOutboxTests
 {
     private const string Recipient = "60123456789";
     private const long Now = 1800000000;
+
+    [Theory]
+    [InlineData(true, "Monthly sending budget")]
+    [InlineData(false, "Daily sending attempt limit")]
+    public async Task Staff_history_explains_exhausted_budget_without_sending_or_reserving_more(bool monthly, string reason)
+    {
+        await using var fixture = await Fixture.Create();
+        var assistant = StaffAssistant();
+        var dispatch = StaffDispatch();
+        await using (var db = fixture.Open())
+        {
+            await AddStaffBinding(db, assistant);
+            await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+            var binding = await db.WhatsAppStaffBindings.SingleAsync();
+            await WhatsAppStaffNotifications.StageAsync(db, assistant, binding.Id, "OutstandingDigest", "BossAdmin",
+                WhatsAppStaffNotifications.LocalDate(Now).ToString("yyyy-MM-dd"), 1, "Current synthetic digest", Now, Now + 3600, Now, "scheduler");
+            db.DailySpends.Add(new DailySpend { DueDate = WhatsAppStaffNotifications.LocalDate(Now), Amount = 20 });
+            var date = DateTimeOffset.FromUnixTimeSeconds(Now).ToOffset(TimeSpan.FromHours(8));
+            db.WhatsAppDispatchUsage.Add(new WhatsAppDispatchUsage
+            {
+                Period = monthly ? $"month:{date:yyyy-MM}" : $"day:{date:yyyy-MM-dd}",
+                Attempts = monthly ? 0 : dispatch.DailyAttemptLimit,
+                ReservedCostSen = monthly ? dispatch.MonthlyBudgetSen : 0
+            });
+            await db.SaveChangesAsync();
+        }
+        // A new context represents a worker restart; neither the hold nor usage can be lost.
+        await using var restarted = fixture.Open();
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(restarted, dispatch, (_, _) =>
+            throw new InvalidOperationException("A budget-held message must not reach the provider"), Now,
+            assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        var history = await WhatsAppStaffNotifications.HistoryAsync(restarted, null, null, null, null, null, 1, Now,
+            dispatch: dispatch, assistant: assistant);
+        var item = Assert.Single(history.Items);
+        Assert.Equal("Queued", item.State);
+        Assert.Contains(reason, item.WaitingReason);
+        var queued = await restarted.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal(0, queued.Attempts);
+        Assert.Null(queued.SubmittedBody);
+        Assert.DoesNotContain(await restarted.AuditLogs.ToListAsync(), row => row.Action == "whatsapp.Sending");
+        // Saved limits must clear history's hold immediately, matching the worker without a restart.
+        Assert.True(await WhatsAppDispatchBudget.UpdateAsync(restarted,
+            new(dispatch.DailyAttemptLimit + 1, dispatch.MonthlyBudgetSen + dispatch.MaximumCostPerAttemptSen,
+                dispatch.MaximumCostPerAttemptSen), "boss", Now));
+        var afterBudgetChange = await WhatsAppStaffNotifications.HistoryAsync(restarted, null, null, null, null, null, 1, Now,
+            dispatch: dispatch, assistant: assistant);
+        Assert.Contains("Waiting for the background sender", Assert.Single(afterBudgetChange.Items).WaitingReason);
+    }
+
+    [Theory]
+    [InlineData("OutstandingDigest")]
+    [InlineData("LeaveApproval")]
+    public async Task Daily_reminder_with_no_remaining_business_items_is_suppressed_before_submission(string category)
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        var now = WhatsAppStaffNotifications.LocalDayDueAt(day, 600);
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, category, new(true, 0, category == "OutstandingDigest" ? 3 : 0, 0), "admin", now);
+        db.DailySpends.Add(new DailySpend { DueDate = day, Amount = 20 });
+        db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "another-staff", StartDate = day, EndDate = day, Days = 1 });
+        await db.SaveChangesAsync();
+        if (category == "OutstandingDigest") await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(db, assistant, now, "scheduler");
+        else await WhatsAppHrNotifications.EnqueueCurrentDayAsync(db, assistant, now, "scheduler");
+        Assert.Single(await db.WhatsAppOutbox.AsNoTracking().ToListAsync());
+        await db.DailySpends.ExecuteUpdateAsync(set => set.SetProperty(row => row.IsPaid, true));
+        await db.HrLeaveRequests.ExecuteUpdateAsync(set => set.SetProperty(row => row.Status, HrLeaveStatus.Approved));
+        var date = DateTimeOffset.FromUnixTimeSeconds(now).ToOffset(TimeSpan.FromHours(8));
+        db.WhatsAppDispatchUsage.Add(new WhatsAppDispatchUsage { Period = $"month:{date:yyyy-MM}", ReservedCostSen = 100 });
+        await db.SaveChangesAsync();
+        var history = await WhatsAppStaffNotifications.HistoryAsync(db, null, null, null, null, null, 1, now,
+            dispatch: StaffDispatch(), assistant: assistant);
+        Assert.Contains("current business facts no longer allow", Assert.Single(history.Items).WaitingReason);
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (_, _) =>
+            throw new InvalidOperationException("Empty current facts must never reach the provider"), now,
+            assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        var item = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal("Suppressed", item.State);
+        Assert.Null(item.SubmittedBody);
+        Assert.Equal(0, item.Attempts);
+    }
+
+    [Fact]
+    public async Task Staff_history_reports_the_exact_missing_language_template_without_leaking_sender_secrets()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 540, 3, 0), "admin", Now);
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        await WhatsAppStaffNotifications.StageAsync(db, assistant, binding.Id, "OutstandingDigest", "BossAdmin",
+            "template-test", 1, "PRIVATE synthetic draft", Now, Now + 3600, Now, "scheduler");
+        await db.SaveChangesAsync();
+        var dispatch = StaffDispatch(new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Language = "en_US",
+            Name = "approved_english_notice", Approved = true, ApprovalEvidence = "synthetic approval" });
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, dispatch, (_, _) =>
+            throw new InvalidOperationException("A different approved language must not send this message"), Now,
+            assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        var history = await WhatsAppStaffNotifications.HistoryAsync(db, null, null, null, null, null, 1, Now,
+            dispatch: dispatch, assistant: assistant);
+        Assert.Contains("No approved ms template", Assert.Single(history.Items).WaitingReason);
+        var json = JsonSerializer.Serialize(history);
+        Assert.DoesNotContain(dispatch.AccessToken, json);
+        Assert.DoesNotContain("PRIVATE synthetic draft", json);
+    }
+
+    [Fact]
+    public async Task Staff_history_batches_daily_facts_and_excludes_payroll_locked_leave_before_budget_advice()
+    {
+        // More recipients/requests must not multiply payroll reads on an operator's history page.
+        // Locked leave must not keep a reminder eligible or suggest spending more budget.
+        var queries = new SelectCounter();
+        await using var fixture = await Fixture.Create(queries);
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant(testMode: false);
+        await AddStaffBinding(db, assistant);
+        var firstBinding = await db.WhatsAppStaffBindings.AsNoTracking().SingleAsync();
+        var secondBinding = firstBinding with { Id = Guid.NewGuid(), StaffUserId = "second-boss", Recipient = "60123456780" };
+        db.Users.AddRange(new AppUser { Id = secondBinding.StaffUserId, UserName = "second-boss", DisplayName = "Second boss", SecurityStamp = "synthetic-stamp" },
+            new AppUser { Id = "applicant", UserName = "applicant", DisplayName = "Actionable staff" },
+            new AppUser { Id = "locked-applicant", UserName = "locked-applicant", DisplayName = "Locked staff" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = secondBinding.StaffUserId, RoleId = "notification-boss" });
+        db.WhatsAppStaffBindings.Add(secondBinding);
+        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "applicant", StartDate = day, EndDate = day, Days = 1 });
+        db.WhatsAppDispatchUsage.Add(new WhatsAppDispatchUsage { Period = $"month:{day:yyyy-MM}", ReservedCostSen = 100 });
+        await db.SaveChangesAsync();
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "LeaveApproval", new(true, 0, 0, 0), "admin", Now);
+        await WhatsAppStaffNotifications.StageCurrentDayDigestAsync(db, assistant, firstBinding.Id, "LeaveApproval", "BossAdmin", "Synthetic pending leave", 1, Now, "scheduler");
+        await db.SaveChangesAsync();
+        queries.Count = 0;
+        var before = await WhatsAppStaffNotifications.HistoryAsync(db, null, null, null, null, null, 1, Now,
+            dispatch: StaffDispatch(), assistant: assistant);
+        Assert.Contains("Monthly sending budget", Assert.Single(before.Items).WaitingReason);
+        var singleReads = queries.Count;
+
+        for (var index = 0; index < 20; index++)
+            db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "applicant", StartDate = day.AddDays(index + 1), EndDate = day.AddDays(index + 1), Days = 1 });
+        var period = new HrPayPeriod { Name = "Locked", StartDate = day, EndDate = day };
+        db.HrPayPeriods.Add(period);
+        db.HrPayslips.Add(new HrPayslip { StaffUserId = "locked-applicant", PayPeriodId = period.Id, Status = HrPayslipStatus.PendingFinance });
+        db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "locked-applicant", StartDate = day, EndDate = day, Days = 1 });
+        await WhatsAppStaffNotifications.StageCurrentDayDigestAsync(db, assistant, secondBinding.Id, "LeaveApproval", "BossAdmin", "Synthetic pending leave", 1, Now, "scheduler");
+        await db.SaveChangesAsync();
+        queries.Count = 0;
+        var multiple = await WhatsAppStaffNotifications.HistoryAsync(db, null, null, null, null, null, 1, Now,
+            dispatch: StaffDispatch(), assistant: assistant);
+        Assert.Equal(2, multiple.Items.Count);
+        Assert.All(multiple.Items, item => Assert.Contains("Monthly sending budget", item.WaitingReason));
+        Assert.Equal(singleReads, queries.Count);
+
+        await db.HrLeaveRequests.Where(item => item.StaffUserId == "applicant").ExecuteDeleteAsync();
+        var lockedOnly = await WhatsAppStaffNotifications.HistoryAsync(db, null, null, null, null, null, 1, Now,
+            dispatch: StaffDispatch(), assistant: assistant);
+        Assert.All(lockedOnly.Items, item => Assert.Contains("current business facts no longer allow", item.WaitingReason));
+    }
+
+    [Fact]
+    public async Task Background_workers_schedule_and_submit_all_due_daily_categories_once_without_an_admin_request()
+    {
+        await using var fixture = await Fixture.Create();
+        var assistant = StaffAssistant();
+        var dispatch = StaffDispatch();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var day = WhatsAppStaffNotifications.LocalDate(now);
+        await using (var db = fixture.Open())
+        {
+            await AddStaffBinding(db, assistant);
+            foreach (var category in new[] { "OutstandingDigest", "AttendanceSummary", "LeaveApproval" })
+                await WhatsAppStaffNotifications.UpdatePolicyAsync(db, category, new(true, 0, category == "OutstandingDigest" ? 3 : 0, 0), "admin", now);
+            db.DailySpends.Add(new DailySpend { DueDate = day, Amount = 20 });
+            db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "another-staff", StartDate = day,
+                EndDate = day, Days = 1, Type = HrLeaveType.AnnualLeave });
+            await db.SaveChangesAsync();
+        }
+        var submitted = new ConcurrentQueue<string>();
+        var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var sender = new WhatsAppTemplateSender(new HttpClient(new StaffTemplateHandler(body =>
+        {
+            submitted.Enqueue(body);
+            if (submitted.Count == 3) complete.TrySetResult();
+        })));
+        await using var services = new ServiceCollection().AddScoped(_ => fixture.Open()).BuildServiceProvider();
+        using var scheduler = new WhatsAppStaffProactiveWorker(services.GetRequiredService<IServiceScopeFactory>(), assistant,
+            NullLogger<WhatsAppStaffProactiveWorker>.Instance);
+        using var worker = new WhatsAppNotificationWorker(services.GetRequiredService<IServiceScopeFactory>(), dispatch,
+            assistant, sender, NullLogger<WhatsAppNotificationWorker>.Instance);
+        await scheduler.StartAsync(default);
+        await worker.StartAsync(default);
+        try
+        {
+            await complete.Task.WaitAsync(TimeSpan.FromSeconds(25));
+            await using var check = fixture.Open();
+            for (var attempt = 0; attempt < 100 && await check.WhatsAppOutbox.CountAsync(row => row.State == "Accepted") < 3; attempt++)
+                await Task.Delay(25);
+            Assert.Equal(3, await check.WhatsAppOutbox.CountAsync(row => row.State == "Accepted"));
+        }
+        finally { await worker.StopAsync(default); await scheduler.StopAsync(default); }
+        Assert.Equal(3, submitted.Count);
+        Assert.Contains(submitted, body => body.Contains("Perbelanjaan RM20.00"));
+        Assert.Contains(submitted, body => body.Contains("kehadiran"));
+        Assert.Contains(submitted, body => body.Contains("kelulusan cuti"));
+        await using var reopened = fixture.Open();
+        await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(reopened, assistant, now, "restarted-scheduler");
+        await WhatsAppHrNotifications.EnqueueCurrentDayAsync(reopened, assistant, now, "restarted-scheduler");
+        Assert.Equal(3, await reopened.WhatsAppOutbox.CountAsync());
+        Assert.All(await reopened.WhatsAppOutbox.AsNoTracking().ToListAsync(), row =>
+        {
+            Assert.Equal(1, row.Attempts);
+            Assert.False(string.IsNullOrWhiteSpace(row.SubmittedBody));
+        });
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(reopened, dispatch, (_, _) =>
+            throw new InvalidOperationException("Accepted reminders must not be submitted again"), now,
+            assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+    }
+
+    private sealed class StaffTemplateHandler(Action<string> submitted) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            Assert.Equal("template", payload.RootElement.GetProperty("type").GetString());
+            var template = payload.RootElement.GetProperty("template");
+            Assert.Equal("approved_staff_notice", template.GetProperty("name").GetString());
+            submitted(template.GetProperty("components")[0].GetProperty("parameters")[0].GetProperty("text").GetString()!);
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { messages = new[] { new { id = "wamid.synthetic-" + Guid.NewGuid() } } }) };
+        }
+    }
 
     [Fact]
     public async Task Disabled_assistant_diagnostics_work_before_binding_schema_was_initialized()
@@ -522,14 +759,24 @@ public sealed class WhatsAppOutboxTests
     [Theory]
     [InlineData(false, true, 3, 30, true)]
     [InlineData(true, false, 3, 30, true)]
-    [InlineData(true, true, 0, 30, true)]
-    [InlineData(true, true, 3, 0, true)]
     [InlineData(true, true, 3, 30, false)]
     public async Task Production_configuration_gates_precede_database_access(bool enabled, bool approved, int daily, long monthly, bool costConfirmed)
     {
         await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().Options);
         var options = WhatsAppDispatchTestData.Options(enabled: enabled, approved: approved, daily: daily, monthly: monthly, costConfirmed: costConfirmed);
         Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options, (_, _) => throw new InvalidOperationException("must not send"), Now));
+    }
+
+    [Theory]
+    [InlineData(0, 30)]
+    [InlineData(3, 0)]
+    public async Task Invalid_server_default_budget_blocks_until_admin_configures_it(int daily, long monthly)
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db,
+            WhatsAppDispatchTestData.Options(daily: daily, monthly: monthly),
+            (_, _) => throw new InvalidOperationException("must not send"), Now));
     }
 
     [Theory]
@@ -571,6 +818,45 @@ public sealed class WhatsAppOutboxTests
         Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(restarted, WhatsAppDispatchTestData.Options(daily: daily, monthly: monthly),
             (_, _) => throw new Exception("budget must survive restart"), Now + 1));
         Assert.Single(await restarted.WhatsAppOutbox.Where(item => item.State == "HeldForApproval").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Admin_budget_override_is_persisted_audited_and_applied_without_restart()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var options = WhatsAppDispatchTestData.Options(daily: 0, monthly: 100);
+        var initial = await WhatsAppDispatchBudget.ViewAsync(db, options, Now);
+        Assert.False(initial.AdminConfigured);
+        Assert.Equal(0, initial.DailyAttemptLimit);
+        Assert.False((await WhatsAppDispatchBudget.OptionsAsync(db, options)).Ready);
+        Assert.False(await WhatsAppDispatchBudget.UpdateAsync(db, new(0, 100, 10), "boss", Now));
+        Assert.Empty(await db.WhatsAppDispatchBudgetSettings.ToListAsync());
+
+        Assert.True(await WhatsAppDispatchBudget.UpdateAsync(db, new(1, 100, 10), "boss", Now));
+        Assert.True((await WhatsAppDispatchBudget.OptionsAsync(db, options)).Ready);
+        Assert.False(options.Ready); // Effective limits must not mutate the singleton defaults.
+        await WhatsAppOutboxStore.SetConsentAsync(db, Recipient, true, "synthetic approval", Now);
+        db.WhatsAppOutbox.AddRange(WhatsAppDispatchTestData.Item(), WhatsAppDispatchTestData.Item());
+        await db.SaveChangesAsync();
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
+            (reservedOptions, _, _) =>
+            {
+                Assert.True(reservedOptions.Ready);
+                Assert.Equal(1, reservedOptions.DailyAttemptLimit);
+                return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.first"));
+            }, Now));
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
+            (_, _) => throw new Exception("admin daily limit must block the second attempt"), Now + 1));
+        var blocked = await WhatsAppDispatchBudget.ViewAsync(db, options, Now + 1);
+        Assert.True(blocked.AdminConfigured);
+        Assert.Equal("Daily attempt limit reached.", blocked.BlockedReason);
+        Assert.Equal(0, blocked.DailyRemainingAttempts);
+
+        Assert.True(await WhatsAppDispatchBudget.UpdateAsync(db, new(2, 100, 10), "boss", Now + 2));
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
+            (_, _) => Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.second")), Now + 2));
+        Assert.Equal(2, await db.AuditLogs.CountAsync(item => item.Action == "whatsapp.dispatch_budget.updated"));
     }
 
     [Fact]
@@ -1006,9 +1292,9 @@ public sealed class WhatsAppOutboxTests
         else Assert.Equal(delivered.TemplateReference, delivered.SubmittedBody);
     }
 
-    private static WhatsAppAssistantOptions StaffAssistant() => new()
+    private static WhatsAppAssistantOptions StaffAssistant(bool testMode = true) => new()
     {
-        Enabled = true, WebhookEnabled = true, TestMode = true, TestRecipient = Recipient,
+        Enabled = true, WebhookEnabled = true, TestMode = testMode, TestRecipient = Recipient,
         PhoneNumberId = "12345", BusinessAccountId = "45678", GraphApiVersion = "v25.0",
         AppSecret = new string('s', 32), VerifyToken = new string('v', 32), AccessToken = "synthetic-token"
     };
@@ -1041,15 +1327,26 @@ public sealed class WhatsAppOutboxTests
     private sealed class Fixture(SqliteConnection anchor, DbContextOptions<AppDbContext> options) : IAsyncDisposable
     {
         public AppDbContext Open() => new(options);
-        public static async Task<Fixture> Create()
+        public static async Task<Fixture> Create(params IInterceptor[] interceptors)
         {
             var connectionString = $"Data Source={Guid.NewGuid():N};Mode=Memory;Cache=Shared";
             var anchor = new SqliteConnection(connectionString); await anchor.OpenAsync();
-            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connectionString).Options;
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connectionString).AddInterceptors(interceptors).Options;
             await using var db = new AppDbContext(options); await db.Database.EnsureCreatedAsync();
             return new(anchor, options);
         }
         public ValueTask DisposeAsync() => anchor.DisposeAsync();
+    }
+
+    private sealed class SelectCounter : DbCommandInterceptor
+    {
+        public int Count { get; set; }
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)) Count++;
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
     }
 }
 

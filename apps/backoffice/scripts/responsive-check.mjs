@@ -60,6 +60,15 @@ fixtures["/api/broker-commissions"] = [{ id: "test-commission", vehicleId: vehic
 fixtures["/api/debt-recoveries"] = [{ id: "test-debt", vehicleId: vehicle.id, customerId: "test-customer", balanceAmount: 500, status: "Open", followUpDate: "2026-09-01", notes: "Synthetic follow-up note" }];
 fixtures["/api/payment-vouchers"] = [{ id: "test-voucher", vehicleId: vehicle.id, payeeName: "Synthetic payee", amount: 300, purpose: "Synthetic expense", status: "Pending", issuedDate: "2026-09-01" }];
 fixtures["/api/admin/users"] = [{ id: "responsive-test", displayName: "Layout Test With A Longer Staff Name", email: "layout@example.test", roles: ["BossAdmin"], isActive: true }];
+fixtures["/api/admin/users"].push(
+  { id: "responsive-pending", displayName: "Synthetic Staff Awaiting Verification", email: "pending@example.test", roles: ["Sales"], isActive: true },
+  { id: "responsive-disconnected", displayName: "Synthetic Staff Without A Connection", email: "disconnected@example.test", roles: ["Delivery"], isActive: true }
+);
+fixtures["/api/whatsapp/staff/connections"] = [
+  { staffUserId: "responsive-test", state: "Connected", maskedNumber: "***6789", verifiedAt: 1791334800 },
+  { staffUserId: "responsive-pending", state: "AwaitingVerification" },
+  { staffUserId: "responsive-disconnected", state: "Disconnected" }
+];
 fixtures["/api/sales-agents"] = [{ id: "test-sales-agent", displayName: "Synthetic salesperson", email: "sales@example.test", roles: ["Sales"], isActive: true }];
 fixtures["/api/hr/staff"] = fixtures["/api/admin/users"];
 fixtures["/api/hr/business-trips"] = [
@@ -97,7 +106,21 @@ fixtures["/api/whatsapp/staff/policies"] = ["OutstandingDigest", "AttendanceSumm
   ]
 }));
 fixtures["/api/whatsapp/staff/diagnostics"] = { missingRequiredDate: 2, unassignedDelivery: 1, missingCommissionDate: 1, eligibleStaff: 4, connectedStaff: 2, unroutableWorkflowEvents: 1 };
+fixtures["/api/whatsapp/staff/budget"] = { dailyAttemptLimit: 50, monthlyBudgetSen: 30000, maximumCostPerAttemptSen: 100, dailyAttempts: 0, dailyRemainingAttempts: 50, monthlyAttempts: 30, monthlyReservedCostSen: 3000, monthlyRemainingBudgetSen: 27000, adminConfigured: true, updatedAt: 1792771200, blockedReason: null };
 fixtures["/api/whatsapp/staff/history"] = { page: 1, total: 1, items: [{ id: "synthetic-message", staffUserId: "responsive-test", staffName: "Layout Test With A Longer Staff Name", maskedNumber: "***6789", category: "OutstandingDigest", state: "Delivered", scheduledAt: 1791334800, acceptedAt: 1791334801, sentAt: 1791334802, deliveredAt: 1791334803, readAt: null, failedAt: null, suppressedAt: null, failureReason: null, submittedBody: "Synthetic due reminder. No real customer or financial data.", submittedTemplateName: "synthetic_staff_notice", submittedLanguage: "en_US", canRetry: false }] };
+fixtures["/api/whatsapp/staff/history"].items.push({
+  ...fixtures["/api/whatsapp/staff/history"].items[0], id: "synthetic-budget-held", state: "Queued",
+  acceptedAt: null, sentAt: null, deliveredAt: null, submittedBody: null,
+  submittedTemplateName: null, submittedLanguage: null,
+  waitingReason: "Monthly sending budget has no room for another attempt. Ask an operator to review the monthly budget."
+});
+for (const [id, state, waitingReason] of [
+  ["synthetic-in-progress", "Sending", "Provider submission is in progress. Do not retry."],
+  ["synthetic-expired", "Queued", "This reminder has expired and will not be sent."]
+]) fixtures["/api/whatsapp/staff/history"].items.push({
+  ...fixtures["/api/whatsapp/staff/history"].items[1], id, state, waitingReason
+});
+fixtures["/api/whatsapp/staff/history"].total = fixtures["/api/whatsapp/staff/history"].items.length;
 const fixtureTemplate = fixtures;
 const emptyCollectionTemplate = emptyCollections;
 
@@ -245,7 +268,7 @@ async function inspect(name, width) {
   const currentErrors = errors.splice(0);
   results.push({ name, width, ...layout, errors: currentErrors });
   const hasLayoutFailure = layout.outside.length || layout.overlappingSelects.length || layout.scrollWidth > layout.viewport + 1 || layout.controlIssues.length || currentErrors.length;
-  if ((visualEvidence && [360, 820, 1440].includes(width)) || hasLayoutFailure) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
+  if ((visualEvidence && [360, 820, 1025, 1440].includes(width)) || hasLayoutFailure) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
 }
 async function closeOverlay() {
   const close = page.locator(".ant-modal-close:visible,.ant-drawer-close:visible").last();
@@ -523,6 +546,12 @@ try {
           await inspect(`${route}-tab-${index}`, width);
         }
         if (route === "admin") {
+          const usersTab = page.getByRole("tab", { name: "Staff Users / 员工账号", exact: true });
+          await usersTab.focus();
+          await usersTab.press("Enter");
+          for (const label of ["Connected / 已连接", "Awaiting verification / 待验证", "Not connected / 未连接"])
+            await page.getByText(label, { exact: true }).filter({ visible: true }).waitFor();
+          await inspect("staff-whatsapp-connections", width);
           const staffTab = page.getByRole("tab", { name: "Staff WhatsApp / 员工 WhatsApp", exact: true });
           await staffTab.focus();
           await staffTab.press("Enter");
@@ -530,6 +559,17 @@ try {
           await page.getByText("Synthetic due reminder. No real customer or financial data.", { exact: true }).waitFor();
           await inspect("whatsapp-history-details", width);
           await closeOverlay();
+          await page.locator(".staffWhatsAppSettings").getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).nth(1).click();
+          await page.getByText("Sending status / 发送状态", { exact: true }).waitFor();
+          await inspect("whatsapp-budget-held-details", width);
+          await closeOverlay();
+          for (const [index, label] of [[2, "in-progress"], [3, "expired"]]) {
+            await page.locator(".staffWhatsAppSettings").getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).nth(index).click();
+            await page.getByText("Sending status / 发送状态", { exact: true }).waitFor();
+            await page.getByText(fixtures["/api/whatsapp/staff/history"].items[index].waitingReason, { exact: true }).filter({ visible: true }).last().waitFor();
+            await inspect(`whatsapp-${label}-details`, width);
+            await closeOverlay();
+          }
           await page.getByRole("tab", { name: "Reminder settings", exact: true }).click();
           await page.getByText("Recipient and data checks", { exact: true }).waitFor();
           await inspect("whatsapp-reminder-diagnostics", width);
@@ -537,6 +577,18 @@ try {
           await page.locator(".ant-drawer-open").getByRole("button", { name: "Review and save", exact: true }).waitFor();
           await inspect("whatsapp-policy-editor", width);
           await closeOverlay();
+          await page.getByRole("tab", { name: "Sending budget", exact: true }).click();
+          await page.getByRole("spinbutton", { name: /Monthly reserved-cost budget/ }).waitFor();
+          await inspect("whatsapp-budget", width);
+          let budgetWrites = 0;
+          const countBudgetWrite = request => { if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/whatsapp/staff/budget") budgetWrites++; };
+          page.on("request", countBudgetWrite);
+          await page.getByRole("button", { name: "Review and save", exact: true }).click();
+          await page.getByRole("dialog").getByRole("button", { name: "Confirm and save", exact: true }).waitFor();
+          await inspect("whatsapp-budget-confirmation", width);
+          await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+          if (budgetWrites !== 0) throw new Error("Budget update must wait for explicit confirmation.");
+          page.off("request", countBudgetWrite);
         }
         if (route === "finance") {
           const commissionTab = page.getByRole("tab", { name: "Broker Commission / 经纪佣金", exact: true });
