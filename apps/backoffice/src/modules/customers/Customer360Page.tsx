@@ -328,7 +328,7 @@ function AuthorizedUploadsTable({
   ];
 
   return (
-    <>
+    <Space direction="vertical" size="middle" className="fullWidth">
       <Space wrap className="customer360DocumentFilters" size={8}>
         <Input
           allowClear
@@ -368,7 +368,7 @@ function AuthorizedUploadsTable({
           }}
         />
       </div>
-    </>
+    </Space>
   );
 }
 
@@ -632,47 +632,49 @@ export function Customer360Page({
   return (
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard title="Customer 360 / 客户全景">
-        <div className="customer360CustomerPicker">
-          <label className="customer360CustomerPickerLabel" htmlFor="customer360-customer-select">Customer profile / 客户档案</label>
-          <Select
-            id="customer360-customer-select"
-            aria-label="Customer profile"
-            className="customerProfileSelect"
-            loading={loadingOptions}
-            notFoundContent={loadingOptions ? <Spin size="small" /> : optionsError ? "Customer options unavailable" : "No customer records"}
-            options={customerSelectOptions}
-            optionRender={(option) => {
-              const customer = option.data as CustomerProfileSelectOption;
-              return (
-                <div className="customerProfileOption" title={customer.name}>
-                  <Typography.Text strong className="customerProfileOptionName">{customer.name}</Typography.Text>
-                  <Typography.Text type="secondary" className="customerProfileOptionId">{customer.phone?.trim() || "No phone recorded"}</Typography.Text>
-                </div>
-              );
-            }}
-            labelRender={(selected) => {
-              const selectedLabel = typeof selected.label === "string" ? selected.label : "Selected customer";
-              return <Tooltip title={selectedLabel}><span className="customerProfileSelectedLabel">{selectedLabel}</span></Tooltip>;
-            }}
-            placeholder="Search customer name or phone"
-            popupClassName="customerProfileDropdown"
-            popupMatchSelectWidth
-            showSearch
-            virtual={false}
-            optionFilterProp="label"
-            value={selectedCustomerId || undefined}
-            onChange={(value) => {
-              setLoadedProfile(null);
-              setRequestError(null);
-              onCustomerChange(value);
-            }}
-          />
-        </div>
-        <Space wrap>
-          <Button aria-label="Refresh profile" aria-busy={loadingProfile} disabled={!selectedCustomerAvailable || loadingOptions} loading={loadingProfile} onClick={() => setProfileRequestVersion(version => version + 1)}>Refresh profile</Button>
-          {profile && loadedProfile ? <Typography.Text type="secondary">Last refreshed: {formatCustomer360Date(loadedProfile.refreshedAt)}</Typography.Text> : null}
+        <Space direction="vertical" size="middle" className="fullWidth">
+          <div className="customer360CustomerPicker">
+            <label className="customer360CustomerPickerLabel" htmlFor="customer360-customer-select">Customer profile / 客户档案</label>
+            <Select
+              id="customer360-customer-select"
+              aria-label="Customer profile"
+              className="customerProfileSelect"
+              loading={loadingOptions}
+              notFoundContent={loadingOptions ? <Spin size="small" /> : optionsError ? "Customer options unavailable" : "No customer records"}
+              options={customerSelectOptions}
+              optionRender={(option) => {
+                const customer = option.data as CustomerProfileSelectOption;
+                return (
+                  <div className="customerProfileOption" title={customer.name}>
+                    <Typography.Text strong className="customerProfileOptionName">{customer.name}</Typography.Text>
+                    <Typography.Text type="secondary" className="customerProfileOptionId">{customer.phone?.trim() || "No phone recorded"}</Typography.Text>
+                  </div>
+                );
+              }}
+              labelRender={(selected) => {
+                const selectedLabel = typeof selected.label === "string" ? selected.label : "Selected customer";
+                return <Tooltip title={selectedLabel}><span className="customerProfileSelectedLabel">{selectedLabel}</span></Tooltip>;
+              }}
+              placeholder="Search customer name or phone"
+              popupClassName="customerProfileDropdown"
+              popupMatchSelectWidth
+              showSearch
+              virtual={false}
+              optionFilterProp="label"
+              value={selectedCustomerId || undefined}
+              onChange={(value) => {
+                setLoadedProfile(null);
+                setRequestError(null);
+                onCustomerChange(value);
+              }}
+            />
+          </div>
+          <Space wrap>
+            <Button aria-label="Refresh profile" aria-busy={loadingProfile} disabled={!selectedCustomerAvailable || loadingOptions} loading={loadingProfile} onClick={() => setProfileRequestVersion(version => version + 1)}>Refresh profile</Button>
+            {profile && loadedProfile ? <Typography.Text type="secondary">Last refreshed: {formatCustomer360Date(loadedProfile.refreshedAt)}</Typography.Text> : null}
+          </Space>
+          <Alert className="operationalInfoAlert" showIcon type="info" message="Live source records are shown only where your role already has access; this view does not copy or merge customer data." />
         </Space>
-        <Alert className="operationalInfoAlert" showIcon type="info" message="Live source records are shown only where your role already has access; this view does not copy or merge customer data." />
       </ProCard>
 
       {optionsError ? <Alert className="operationalInfoAlert" type="error" showIcon message="Customer selector unavailable" description={optionsError} action={<Button size="small" onClick={() => setOptionsRequestVersion((version) => version + 1)}>Try again</Button>} /> : null}
