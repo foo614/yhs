@@ -522,14 +522,24 @@ public sealed class WhatsAppOutboxTests
     [Theory]
     [InlineData(false, true, 3, 30, true)]
     [InlineData(true, false, 3, 30, true)]
-    [InlineData(true, true, 0, 30, true)]
-    [InlineData(true, true, 3, 0, true)]
     [InlineData(true, true, 3, 30, false)]
     public async Task Production_configuration_gates_precede_database_access(bool enabled, bool approved, int daily, long monthly, bool costConfirmed)
     {
         await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().Options);
         var options = WhatsAppDispatchTestData.Options(enabled: enabled, approved: approved, daily: daily, monthly: monthly, costConfirmed: costConfirmed);
         Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options, (_, _) => throw new InvalidOperationException("must not send"), Now));
+    }
+
+    [Theory]
+    [InlineData(0, 30)]
+    [InlineData(3, 0)]
+    public async Task Invalid_server_default_budget_blocks_until_admin_configures_it(int daily, long monthly)
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db,
+            WhatsAppDispatchTestData.Options(daily: daily, monthly: monthly),
+            (_, _) => throw new InvalidOperationException("must not send"), Now));
     }
 
     [Theory]
@@ -571,6 +581,45 @@ public sealed class WhatsAppOutboxTests
         Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(restarted, WhatsAppDispatchTestData.Options(daily: daily, monthly: monthly),
             (_, _) => throw new Exception("budget must survive restart"), Now + 1));
         Assert.Single(await restarted.WhatsAppOutbox.Where(item => item.State == "HeldForApproval").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Admin_budget_override_is_persisted_audited_and_applied_without_restart()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var options = WhatsAppDispatchTestData.Options(daily: 0, monthly: 100);
+        var initial = await WhatsAppDispatchBudget.ViewAsync(db, options, Now);
+        Assert.False(initial.AdminConfigured);
+        Assert.Equal(0, initial.DailyAttemptLimit);
+        Assert.False((await WhatsAppDispatchBudget.OptionsAsync(db, options)).Ready);
+        Assert.False(await WhatsAppDispatchBudget.UpdateAsync(db, new(0, 100, 10), "boss", Now));
+        Assert.Empty(await db.WhatsAppDispatchBudgetSettings.ToListAsync());
+
+        Assert.True(await WhatsAppDispatchBudget.UpdateAsync(db, new(1, 100, 10), "boss", Now));
+        Assert.True((await WhatsAppDispatchBudget.OptionsAsync(db, options)).Ready);
+        Assert.False(options.Ready); // Effective limits must not mutate the singleton defaults.
+        await WhatsAppOutboxStore.SetConsentAsync(db, Recipient, true, "synthetic approval", Now);
+        db.WhatsAppOutbox.AddRange(WhatsAppDispatchTestData.Item(), WhatsAppDispatchTestData.Item());
+        await db.SaveChangesAsync();
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
+            (reservedOptions, _, _) =>
+            {
+                Assert.True(reservedOptions.Ready);
+                Assert.Equal(1, reservedOptions.DailyAttemptLimit);
+                return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.first"));
+            }, Now));
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
+            (_, _) => throw new Exception("admin daily limit must block the second attempt"), Now + 1));
+        var blocked = await WhatsAppDispatchBudget.ViewAsync(db, options, Now + 1);
+        Assert.True(blocked.AdminConfigured);
+        Assert.Equal("Daily attempt limit reached.", blocked.BlockedReason);
+        Assert.Equal(0, blocked.DailyRemainingAttempts);
+
+        Assert.True(await WhatsAppDispatchBudget.UpdateAsync(db, new(2, 100, 10), "boss", Now + 2));
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
+            (_, _) => Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.second")), Now + 2));
+        Assert.Equal(2, await db.AuditLogs.CountAsync(item => item.Action == "whatsapp.dispatch_budget.updated"));
     }
 
     [Fact]

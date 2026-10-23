@@ -25,9 +25,12 @@ public sealed class WhatsAppDispatchOptions
     public string AppSecret { get; init; } = "";
     public string VerifyToken { get; init; } = "";
     public string BudgetOwner { get; init; } = "";
-    public int DailyAttemptLimit { get; init; }
-    public long MonthlyBudgetSen { get; init; }
-    public long MaximumCostPerAttemptSen { get; init; }
+    private int dailyAttemptLimit;
+    private long monthlyBudgetSen;
+    private long maximumCostPerAttemptSen;
+    public int DailyAttemptLimit { get => dailyAttemptLimit; init => dailyAttemptLimit = value; }
+    public long MonthlyBudgetSen { get => monthlyBudgetSen; init => monthlyBudgetSen = value; }
+    public long MaximumCostPerAttemptSen { get => maximumCostPerAttemptSen; init => maximumCostPerAttemptSen = value; }
     public bool CostCeilingConfirmed { get; init; }
     public WhatsAppApprovedTemplate[] Templates { get; init; } = [];
 
@@ -35,18 +38,34 @@ public sealed class WhatsAppDispatchOptions
         Id(PhoneNumberId) && Id(BusinessAccountId) && Secret(AppSecret) && Secret(VerifyToken);
 
     // Preserve the customer rollout's all-template manifest requirement.
-    public bool Ready => CaptureEnabled && SendingEnabled && TransportReady && Templates.Length > 0 &&
+    private bool CustomerConfigured => CaptureEnabled && SendingEnabled && TransportConfigured && Templates.Length > 0 &&
         Templates.All(template => template.Valid) &&
         Templates.Select(template => (template.Key, template.Language)).Distinct().Count() == Templates.Length;
+    public bool Ready => CustomerConfigured && TransportReady;
     public bool StaffSenderReady => StaffCaptureEnabled && StaffSendingEnabled && TransportReady;
     public bool StaffReady => StaffSenderReady && HasTemplate("staff_notice_v1");
     public bool InvitationSenderReady => InvitationEnabled && TransportReady;
     public bool InvitationReady => InvitationSenderReady && HasTemplate(WhatsAppStaffInvitation.TemplateKey);
 
-    private bool TransportReady => WebhookReady && SenderApproved && Evidence(SenderApprovalEvidence) &&
+    internal bool DispatchConfigured => CustomerConfigured ||
+        (StaffCaptureEnabled && StaffSendingEnabled && TransportConfigured && HasTemplate("staff_notice_v1")) ||
+        (InvitationEnabled && TransportConfigured && HasTemplate(WhatsAppStaffInvitation.TemplateKey));
+
+    internal bool TransportConfigured => WebhookReady && SenderApproved && Evidence(SenderApprovalEvidence) &&
         Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z") && Secret(AccessToken) && Evidence(BudgetOwner) &&
-        DailyAttemptLimit > 0 && MonthlyBudgetSen > 0 && MaximumCostPerAttemptSen > 0 &&
-        MaximumCostPerAttemptSen <= MonthlyBudgetSen && CostCeilingConfirmed;
+        CostCeilingConfirmed;
+
+    private bool TransportReady => TransportConfigured && DailyAttemptLimit > 0 && MonthlyBudgetSen > 0 &&
+        MaximumCostPerAttemptSen > 0 && MaximumCostPerAttemptSen <= MonthlyBudgetSen;
+
+    internal WhatsAppDispatchOptions WithBudgetLimits(WhatsAppDispatchLimits limits)
+    {
+        var copy = (WhatsAppDispatchOptions)MemberwiseClone();
+        copy.dailyAttemptLimit = limits.DailyAttemptLimit;
+        copy.monthlyBudgetSen = limits.MonthlyBudgetSen;
+        copy.maximumCostPerAttemptSen = limits.MaximumCostPerAttemptSen;
+        return copy;
+    }
 
     public WhatsAppApprovedTemplate? TemplateFor(WhatsAppOutbox item) => TemplateFor(item.TemplateVersion, item.Language);
 

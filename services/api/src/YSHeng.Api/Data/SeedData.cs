@@ -255,6 +255,10 @@ public static class SeedData
             CREATE TABLE IF NOT EXISTS "WhatsAppDispatchUsage" (
                 "Period" varchar(32) PRIMARY KEY, "Attempts" bigint NOT NULL,
                 "ReservedCostSen" bigint NOT NULL);
+            CREATE TABLE IF NOT EXISTS "WhatsAppDispatchBudgetSettings" (
+                "Key" varchar(32) PRIMARY KEY, "DailyAttemptLimit" integer NOT NULL,
+                "MonthlyBudgetSen" bigint NOT NULL, "MaximumCostPerAttemptSen" bigint NOT NULL,
+                "UpdatedAt" bigint NOT NULL);
             ALTER TABLE "WhatsAppConsents" ADD COLUMN IF NOT EXISTS "Language" text NOT NULL DEFAULT 'ms';
             CREATE TABLE IF NOT EXISTS "WhatsAppOutbox" (
                 "Id" uuid PRIMARY KEY, "IdempotencyKey" text NOT NULL, "Recipient" text NOT NULL,

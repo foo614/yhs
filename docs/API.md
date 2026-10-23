@@ -34,6 +34,8 @@ http://localhost:5000
 | `PUT` | `/api/whatsapp/staff/policies/{category}` | BackOffice + BossAdmin | Audit a validated category setting change. Body: `enabled`, `localMinuteOfDay`, `leadDays`, `thresholdPercent`; recipient role rules are server-owned. |
 | `GET` | `/api/whatsapp/staff/history` | BackOffice + BossAdmin | Paged staff-only delivery history; filters: `from`, `to`, `staffUserId`, `category`, `status`, `page`. |
 | `GET` | `/api/whatsapp/staff/diagnostics` | BackOffice + BossAdmin | No-store counts for missing due dates, unassigned deliveries, undated commissions, eligible/connected staff and unroutable workflow events. |
+| `GET` | `/api/whatsapp/staff/budget` | BackOffice + BossAdmin | No-store effective daily attempt limit, monthly reserved-cost ceiling and cost per attempt, with current usage, remaining capacity and limit block reason. Saved admin limits take precedence over server defaults. |
+| `PUT` | `/api/whatsapp/staff/budget` | BackOffice + BossAdmin | Persist and audit positive `dailyAttemptLimit`, `monthlyBudgetSen`, `maximumCostPerAttemptSen`; cost per attempt cannot exceed the monthly budget. Shared dispatch limits apply to staff, invitations and customer notifications. Usage is retained; lowering limits may block subsequent attempts. |
 
 Capture, callback hosting and sending require separate explicit configuration. Approved customer templates, sender evidence and positive daily/monthly limits are required before the worker starts. Receipt notices send a safe reference only, not a document or public download URL. Legacy drafts without a dedicated template reference stay held. See [dispatch configuration and activation boundary](plans/2026-09-27-foo-40-dispatch.md). No production switch is enabled by deployment.
 
