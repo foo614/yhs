@@ -78,7 +78,7 @@ fixtures["/api/customers/profile-options"] = fixtures["/api/customers"].map(({ i
 fixtures["/api/customers/test-customer/profile"] = {
   contact: fixtures["/api/customers"][0], vehicles: [vehicle], loans: fixtures["/api/loans"], deliveries: fixtures["/api/deliveries/workboard"],
   payments: [], invoices: [{ id: "test-sales-invoice", paymentRecordId: "test-payment", vehicleId: vehicle.id, invoiceNumber: "TEST-SINV-2026-000001", invoiceDate: "2026-09-01", amount: 98000 }],
-  officialReceipts: [], enquiries: fixtures["/api/leads"], missingDocuments: [{ vehicleId: vehicle.id, category: "Voc", message: "Synthetic missing vehicle ownership document" }],
+  officialReceipts: [], enquiries: fixtures["/api/leads"], missingDocuments: [{ vehicleId: vehicle.id, category: "Voc", message: "Synthetic missing vehicle ownership document", sourceModule: "Vehicles", sourceRecordId: vehicle.id, isActiveBlocker: true }],
   documents: [{ id: "test-document", vehicleId: vehicle.id, category: "IdentityCard", fileName: "synthetic-identity-document-with-a-long-file-name.pdf", mimeType: "application/pdf", checksum: "synthetic", uploadedBy: "Layout Test", uploadedAt: "2026-09-01T00:00:00Z" }],
   permissions: { canViewIdentity: true, canViewLoans: true, canViewDelivery: true, canViewFinance: true, canViewDocuments: true, canViewEnquiries: true }
 };

@@ -1027,6 +1027,271 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Customer_profile_finance_and_missing_documents_keep_collection_and_workflow_provenance()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan" };
+        var vehicle = VehicleSeed.Available(false) with { CustomerId = customer.Id };
+        var payment = new PaymentRecord
+        {
+            VehicleId = vehicle.Id,
+            CustomerId = customer.Id,
+            NettPrice = 100m,
+            FinanceWorkflowVersion = 2
+        };
+        var invoice = new FinanceInvoice { PaymentRecordId = payment.Id, VehicleId = vehicle.Id, CustomerId = customer.Id, Amount = 100m };
+        var collection = new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 40m, Status = CollectionStatus.Reconciled };
+        var pending = new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 20m, Status = CollectionStatus.Pending };
+        var collectionReceipt = new OfficialReceipt
+        {
+            CollectionTransactionId = collection.Id,
+            PaymentRecordId = payment.Id,
+            ReceiptNumber = "COL-1",
+            Amount = 40m,
+            IsVoided = true
+        };
+        var cashCollection = new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 10m, Status = CollectionStatus.Reversed };
+        var handover = new CashHandover { CustomerId = customer.Id, VehicleId = vehicle.Id, PaymentRecordId = payment.Id, CollectionTransactionId = cashCollection.Id, Amount = 10m };
+        var legacyReceipt = new OfficialReceipt { CashHandoverId = handover.Id, PaymentRecordId = payment.Id, ReceiptNumber = "CASH-1", Amount = 10m };
+        var rejectedLoan = new LoanApplication { CustomerId = customer.Id, VehicleId = vehicle.Id, Status = LoanStatus.Rejected };
+        var activeLoan = new LoanApplication { CustomerId = customer.Id, VehicleId = vehicle.Id, Status = LoanStatus.Pending };
+        var cancelledDelivery = new DeliverySchedule { CustomerId = customer.Id, VehicleId = vehicle.Id, Status = DeliveryStatus.Cancelled, Pic = "Delivery" };
+        var activeDelivery = new DeliverySchedule { CustomerId = customer.Id, VehicleId = vehicle.Id, Status = DeliveryStatus.Scheduled, Pic = "Delivery" };
+
+        var profile = CustomerProfileFactory.Create(
+            customer,
+            ["BossAdmin"],
+            [vehicle],
+            [rejectedLoan, activeLoan],
+            [cancelledDelivery, activeDelivery],
+            [payment],
+            [invoice],
+            [handover],
+            [collectionReceipt, legacyReceipt],
+            [],
+            [],
+            [collection, pending, cashCollection]);
+
+        var paymentView = Assert.Single(profile.Payments);
+        Assert.Equal(40m, paymentView.CollectedAmount);
+        Assert.Equal(60m, paymentView.BalanceAmount);
+        Assert.Equal(ReceivableStatus.PartiallyPaid, paymentView.ReceivableStatus);
+        Assert.Equal(2, profile.OfficialReceipts.Count);
+        Assert.Contains(profile.OfficialReceipts, receipt => receipt.CollectionTransactionId == collection.Id && receipt.CashHandoverId is null && receipt.IsVoided && receipt.CollectionStatus == CollectionStatus.Reconciled);
+        Assert.Contains(profile.OfficialReceipts, receipt => receipt.CashHandoverId == handover.Id && receipt.CollectionTransactionId is null && receipt.CollectionStatus == CollectionStatus.Reversed);
+
+        var rejectedLoanRequirements = profile.MissingDocuments.Where(item => item.SourceRecordId == rejectedLoan.Id && item.SourceModule == "Loans").ToList();
+        Assert.NotEmpty(rejectedLoanRequirements);
+        Assert.All(rejectedLoanRequirements, item => Assert.False(item.IsActiveBlocker));
+        var activeLoanRequirements = profile.MissingDocuments.Where(item => item.SourceRecordId == activeLoan.Id && item.SourceModule == "Loans").ToList();
+        Assert.NotEmpty(activeLoanRequirements);
+        Assert.All(activeLoanRequirements, item => Assert.True(item.IsActiveBlocker));
+        var cancelledDeliveryRequirements = profile.MissingDocuments.Where(item => item.SourceRecordId == cancelledDelivery.Id && item.SourceModule == "Delivery").ToList();
+        Assert.NotEmpty(cancelledDeliveryRequirements);
+        Assert.All(cancelledDeliveryRequirements, item => Assert.False(item.IsActiveBlocker));
+        var activeDeliveryRequirements = profile.MissingDocuments.Where(item => item.SourceRecordId == activeDelivery.Id && item.SourceModule == "Delivery").ToList();
+        Assert.NotEmpty(activeDeliveryRequirements);
+        Assert.All(activeDeliveryRequirements, item => Assert.True(item.IsActiveBlocker));
+        Assert.All(profile.MissingDocuments.Where(item => item.SourceModule == "Vehicles"), item => Assert.False(item.IsActiveBlocker));
+    }
+
+    [Fact]
+    public void Customer_profile_keeps_customer_owned_legacy_handover_receipts_without_a_visible_payment()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan" };
+        var otherCustomer = new Customer { Id = Guid.NewGuid(), Name = "Bea Lim" };
+        var vehicle = VehicleSeed.Available(false) with { CustomerId = customer.Id };
+        var customerHandover = new CashHandover
+        {
+            CustomerId = customer.Id,
+            VehicleId = vehicle.Id,
+            PaymentRecordId = Guid.NewGuid(),
+            Amount = 10m
+        };
+        var otherHandover = customerHandover with
+        {
+            Id = Guid.NewGuid(),
+            CustomerId = otherCustomer.Id,
+            PaymentRecordId = Guid.NewGuid()
+        };
+        var customerReceipt = new OfficialReceipt
+        {
+            CashHandoverId = customerHandover.Id,
+            PaymentRecordId = customerHandover.PaymentRecordId,
+            ReceiptNumber = "CUST-LEGACY",
+            Amount = 10m
+        };
+        var otherReceipt = new OfficialReceipt
+        {
+            CashHandoverId = otherHandover.Id,
+            PaymentRecordId = otherHandover.PaymentRecordId,
+            ReceiptNumber = "OTHER-LEGACY",
+            Amount = 10m
+        };
+
+        var profile = CustomerProfileFactory.Create(
+            customer,
+            ["Finance"],
+            [vehicle],
+            [],
+            [],
+            [],
+            [],
+            [customerHandover, otherHandover],
+            [customerReceipt, otherReceipt],
+            [],
+            []);
+
+        var receipt = Assert.Single(profile.OfficialReceipts);
+        Assert.Equal(customerReceipt.Id, receipt.Id);
+        Assert.Equal(customerHandover.Id, receipt.CashHandoverId);
+    }
+
+    [Fact]
+    public void Customer_profile_does_not_fallback_to_reassigned_vehicle_for_explicit_v2_payment_owner()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Current Buyer" };
+        var previousCustomer = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(false) with { CustomerId = customer.Id };
+        var payment = new PaymentRecord
+        {
+            VehicleId = vehicle.Id,
+            CustomerId = previousCustomer,
+            FinanceWorkflowVersion = 2,
+            NettPrice = 100m
+        };
+        var collection = new CollectionTransaction { PaymentRecordId = payment.Id, Amount = 100m, Status = CollectionStatus.Reconciled };
+        var receipt = new OfficialReceipt
+        {
+            CollectionTransactionId = collection.Id,
+            PaymentRecordId = payment.Id,
+            ReceiptNumber = "OLD-OWNER",
+            Amount = 100m
+        };
+
+        var profile = CustomerProfileFactory.Create(
+            customer,
+            ["Finance"],
+            [vehicle],
+            [],
+            [],
+            [payment],
+            [],
+            [],
+            [receipt],
+            [],
+            [],
+            [collection]);
+
+        Assert.Empty(profile.Payments);
+        Assert.Empty(profile.OfficialReceipts);
+    }
+
+    [Fact]
+    public void Customer_profile_keeps_owned_v2_payment_history_after_vehicle_reassignment()
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "Previous Buyer" };
+        var currentCustomer = new Customer { Id = Guid.NewGuid(), Name = "Current Buyer" };
+        var vehicle = VehicleSeed.Available(false) with { CustomerId = currentCustomer.Id };
+        var payment = new PaymentRecord
+        {
+            VehicleId = vehicle.Id,
+            CustomerId = customer.Id,
+            FinanceWorkflowVersion = 2,
+            NettPrice = 100m
+        };
+        var invoice = new FinanceInvoice
+        {
+            PaymentRecordId = payment.Id,
+            VehicleId = vehicle.Id,
+            CustomerId = customer.Id,
+            Amount = 100m
+        };
+        var collection = new CollectionTransaction
+        {
+            PaymentRecordId = payment.Id,
+            Amount = 40m,
+            Status = CollectionStatus.Reconciled
+        };
+        var receipt = new OfficialReceipt
+        {
+            CollectionTransactionId = collection.Id,
+            PaymentRecordId = payment.Id,
+            ReceiptNumber = "REASSIGNED-1",
+            Amount = 40m
+        };
+
+        var previousProfile = CustomerProfileFactory.Create(
+            customer,
+            ["Finance"],
+            [vehicle],
+            [],
+            [],
+            [payment],
+            [invoice],
+            [],
+            [receipt],
+            [],
+            [],
+            [collection]);
+        var currentProfile = CustomerProfileFactory.Create(
+            currentCustomer,
+            ["Finance"],
+            [vehicle],
+            [],
+            [],
+            [payment],
+            [invoice],
+            [],
+            [receipt],
+            [],
+            [],
+            [collection]);
+
+        var paymentView = Assert.Single(previousProfile.Payments);
+        Assert.Equal(40m, paymentView.CollectedAmount);
+        Assert.Equal(60m, paymentView.BalanceAmount);
+        Assert.Single(previousProfile.OfficialReceipts);
+        Assert.Empty(currentProfile.Payments);
+        Assert.Empty(currentProfile.OfficialReceipts);
+    }
+
+    [Fact]
+    public async Task Customer_profile_payment_candidate_query_keeps_owned_invoice_and_explicit_v2_owner_after_reassignment()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+
+        var customerId = Guid.NewGuid();
+        var currentCustomerId = Guid.NewGuid();
+        var reassignedVehicle = VehicleSeed.Available(false) with { CustomerId = currentCustomerId };
+        var ownerOnlyVehicle = VehicleSeed.Available(false) with { CustomerId = null, PlateNumber = "OWNERONLY" };
+        var unrelatedVehicle = VehicleSeed.Available(false) with { CustomerId = null, PlateNumber = "UNRELATED" };
+        var invoicePayment = new PaymentRecord { VehicleId = reassignedVehicle.Id, CustomerId = customerId, FinanceWorkflowVersion = 2, NettPrice = 100m };
+        var ownerOnlyPayment = new PaymentRecord { VehicleId = ownerOnlyVehicle.Id, CustomerId = customerId, FinanceWorkflowVersion = 2, NettPrice = 200m };
+        var unrelatedPayment = new PaymentRecord { VehicleId = unrelatedVehicle.Id, CustomerId = Guid.NewGuid(), FinanceWorkflowVersion = 2, NettPrice = 300m };
+        db.Vehicles.AddRange(reassignedVehicle, ownerOnlyVehicle, unrelatedVehicle);
+        db.PaymentRecords.AddRange(invoicePayment, ownerOnlyPayment, unrelatedPayment);
+        db.FinanceInvoices.Add(new FinanceInvoice { PaymentRecordId = invoicePayment.Id, VehicleId = reassignedVehicle.Id, CustomerId = customerId, Amount = 100m });
+        await db.SaveChangesAsync();
+
+        var customerCandidates = await CustomerProfileFinanceRules.QueryPaymentCandidates(
+            db.PaymentRecords.AsNoTracking(),
+            db.FinanceInvoices.AsNoTracking(),
+            customerId,
+            []).ToListAsync();
+        var currentCustomerCandidates = await CustomerProfileFinanceRules.QueryPaymentCandidates(
+            db.PaymentRecords.AsNoTracking(),
+            db.FinanceInvoices.AsNoTracking(),
+            currentCustomerId,
+            [reassignedVehicle.Id]).ToListAsync();
+
+        Assert.Equal(new[] { invoicePayment.Id, ownerOnlyPayment.Id }.Order(), customerCandidates.Select(payment => payment.Id).Order());
+        Assert.Empty(currentCustomerCandidates);
+    }
+
+    [Fact]
     public void Customer_profile_includes_an_unassigned_vehicle_linked_by_loan_without_cross_linking_other_customers()
     {
         var customer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };

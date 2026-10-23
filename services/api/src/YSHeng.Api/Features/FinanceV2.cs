@@ -42,6 +42,12 @@ public sealed record FinanceVehicleOptionResponse(
     decimal SellingPrice,
     decimal AdditionalCharges);
 
+public sealed record FinanceV2Summary(
+    decimal CollectedAmount,
+    decimal BalanceAmount,
+    decimal AvailableToAllocate,
+    ReceivableStatus ReceivableStatus);
+
 public static class FinanceVehicleOptions
 {
     public static FinanceVehicleOptionResponse ToResponse(Vehicle vehicle) =>
@@ -296,6 +302,25 @@ public static class FinanceV2Rules
 
     public static decimal AvailableToAllocate(PaymentRecord payment, IEnumerable<CollectionTransaction> collections) =>
         decimal.Round(Math.Max(0, payment.NettPrice - ActiveAllocatedAmount(collections)), 2, MidpointRounding.AwayFromZero);
+
+    public static FinanceV2Summary Summarize(PaymentRecord payment, FinanceInvoice? invoice, IEnumerable<CollectionTransaction> collections)
+    {
+        var collectionList = collections.ToList();
+        var collectedAmount = payment.FinanceWorkflowVersion == 2
+            ? CollectedAmount(collectionList)
+            : payment.Status == PaymentStatus.Reconciled ? payment.NettPrice : 0;
+        var balanceAmount = payment.FinanceWorkflowVersion == 2
+            ? Balance(payment, collectionList)
+            : Math.Max(0, payment.NettPrice - collectedAmount);
+        var availableToAllocate = payment.FinanceWorkflowVersion == 2
+            ? AvailableToAllocate(payment, collectionList)
+            : balanceAmount;
+        return new FinanceV2Summary(
+            collectedAmount,
+            balanceAmount,
+            availableToAllocate,
+            DeriveReceivableStatus(payment, invoice, collectionList));
+    }
 
     public static ValidationResult ValidateCollectionCreate(
         PaymentRecord payment,

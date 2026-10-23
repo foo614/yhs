@@ -21,12 +21,37 @@ public sealed record CustomerProfileDelivery(
     bool WindscreenInsuranceHandled,
     string? WindscreenPolicyReference,
     DateOnly? WindscreenInsuranceExpiryDate);
-public sealed record CustomerProfilePayment(Guid Id, Guid VehicleId, decimal NettPrice, PaymentStatus Status, string? ReceiptNumber, string? InvoiceNumber, DateTime CreatedAt);
+public sealed record CustomerProfilePayment(
+    Guid Id,
+    Guid VehicleId,
+    decimal NettPrice,
+    PaymentStatus Status,
+    string? ReceiptNumber,
+    string? InvoiceNumber,
+    DateTime CreatedAt,
+    decimal CollectedAmount,
+    decimal BalanceAmount,
+    ReceivableStatus ReceivableStatus);
 public sealed record CustomerProfileInvoice(Guid Id, Guid PaymentRecordId, Guid VehicleId, string InvoiceNumber, DateOnly InvoiceDate, decimal Amount);
-public sealed record CustomerProfileReceipt(Guid CashHandoverId, Guid Id, Guid PaymentRecordId, string ReceiptNumber, decimal Amount, DateTime CreatedAt);
+public sealed record CustomerProfileReceipt(
+    Guid? CashHandoverId,
+    Guid? CollectionTransactionId,
+    Guid Id,
+    Guid PaymentRecordId,
+    string ReceiptNumber,
+    decimal Amount,
+    DateTime CreatedAt,
+    bool IsVoided,
+    CollectionStatus? CollectionStatus);
 public sealed record CustomerProfileDocument(Guid Id, Guid VehicleId, FileCategory Category, string FileName, string MimeType, string Checksum, string UploadedBy, DateTime UploadedAt);
 public sealed record CustomerProfileEnquiry(Guid Id, Guid VehicleId, LeadStatus Status, string? Message, string? SourcePage, DateTime CreatedAt);
-public sealed record CustomerProfileMissingDocument(Guid? VehicleId, FileCategory Category, string Message);
+public sealed record CustomerProfileMissingDocument(
+    Guid? VehicleId,
+    FileCategory Category,
+    string Message,
+    string SourceModule,
+    Guid SourceRecordId,
+    bool IsActiveBlocker);
 public sealed record CustomerProfilePermissions(bool CanViewIdentity, bool CanViewLoans, bool CanViewDelivery, bool CanViewFinance, bool CanViewDocuments, bool CanViewEnquiries);
 public sealed record CustomerProfile(
     CustomerProfileContact Contact,
@@ -47,6 +72,23 @@ public sealed record CustomerProfileFinanceSelection(
 
 public static class CustomerProfileFinanceRules
 {
+    public static IQueryable<PaymentRecord> QueryPaymentCandidates(
+        IQueryable<PaymentRecord> payments,
+        IQueryable<FinanceInvoice> invoices,
+        Guid customerId,
+        IReadOnlyCollection<Guid> vehicleIds)
+    {
+        var ownedPaymentIds = invoices
+            .Where(invoice => invoice.CustomerId == customerId)
+            .Select(invoice => invoice.PaymentRecordId);
+        var vehicleIdArray = vehicleIds.ToArray();
+        return payments.Where(payment =>
+            ownedPaymentIds.Contains(payment.Id) ||
+            (payment.FinanceWorkflowVersion == 2 && payment.CustomerId == customerId) ||
+            (vehicleIdArray.Contains(payment.VehicleId) &&
+             (payment.FinanceWorkflowVersion != 2 || payment.CustomerId == null || payment.CustomerId == customerId)));
+    }
+
     public static CustomerProfileFinanceSelection Select(
         Guid customerId,
         IEnumerable<Vehicle> vehicles,
@@ -67,7 +109,14 @@ public static class CustomerProfileFinanceRules
         var ownedPayments = payments
             .Where(payment =>
                 ownedPaymentIds.Contains(payment.Id) ||
-                (canonicalVehicleIds.Contains(payment.VehicleId) && !conflictingPaymentIds.Contains(payment.Id)))
+                (payment.FinanceWorkflowVersion == 2 &&
+                 payment.CustomerId == customerId &&
+                 !conflictingPaymentIds.Contains(payment.Id)) ||
+                (canonicalVehicleIds.Contains(payment.VehicleId) &&
+                 !conflictingPaymentIds.Contains(payment.Id) &&
+                 !(payment.FinanceWorkflowVersion == 2 &&
+                   payment.CustomerId is { } paymentCustomerId &&
+                   paymentCustomerId != customerId)))
             .ToList();
         return new CustomerProfileFinanceSelection(ownedPayments, ownedInvoices);
     }
@@ -92,7 +141,8 @@ public static class CustomerProfileFactory
         IEnumerable<CashHandover> handovers,
         IEnumerable<OfficialReceipt> receipts,
         IEnumerable<DocumentBlob> documents,
-        IEnumerable<Lead> leads)
+        IEnumerable<Lead> leads,
+        IEnumerable<CollectionTransaction>? collections = null)
     {
         var roleSet = roles.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var canViewIdentity = roleSet.Overlaps(DepartmentAccess.CustomerReaders);
@@ -140,8 +190,19 @@ public static class CustomerProfileFactory
         var financeSelection = CustomerProfileFinanceRules.Select(customer.Id, profileVehicles, payments, invoices);
         var profilePayments = financeSelection.Payments.OrderByDescending(payment => payment.CreatedAt).ToList();
         var profileInvoices = financeSelection.Invoices.OrderByDescending(invoice => invoice.InvoiceDate).ToList();
+        var invoiceByPayment = profileInvoices.ToDictionary(invoice => invoice.PaymentRecordId);
+        var profilePaymentIds = profilePayments.Select(payment => payment.Id).ToHashSet();
+        var profileCollections = (collections ?? [])
+            .Where(collection => profilePaymentIds.Contains(collection.PaymentRecordId))
+            .ToList();
+        var collectionsByPayment = profileCollections
+            .GroupBy(collection => collection.PaymentRecordId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<CollectionTransaction>)group.ToList());
         var profileHandovers = handovers.Where(handover => handover.CustomerId == customer.Id).ToList();
         var handoverIds = profileHandovers.Select(handover => handover.Id).ToHashSet();
+        var handoverById = profileHandovers.ToDictionary(handover => handover.Id);
+        var profileCollectionIds = profileCollections.Select(collection => collection.Id).ToHashSet();
+        var collectionById = profileCollections.ToDictionary(collection => collection.Id);
         var profileDeliveryIds = profileDeliveries.Select(delivery => delivery.Id).ToHashSet();
         var profileDocuments = documents
             .Where(document => document.VehicleId is { } vehicleId && vehicleIds.Contains(vehicleId))
@@ -182,15 +243,54 @@ public static class CustomerProfileFactory
                     delivery.WindscreenInsuranceHandled, delivery.WindscreenPolicyReference, delivery.WindscreenInsuranceExpiryDate)).ToList()
                 : [],
             canViewFinance
-                ? profilePayments.Select(payment => new CustomerProfilePayment(payment.Id, payment.VehicleId, payment.NettPrice, payment.Status, payment.ReceiptNumber, payment.InvoiceNumber, payment.CreatedAt)).ToList()
+                ? profilePayments.Select(payment =>
+                {
+                    var summary = FinanceV2Rules.Summarize(
+                        payment,
+                        invoiceByPayment.GetValueOrDefault(payment.Id),
+                        collectionsByPayment.GetValueOrDefault(payment.Id) ?? []);
+                    return new CustomerProfilePayment(
+                        payment.Id,
+                        payment.VehicleId,
+                        payment.NettPrice,
+                        payment.Status,
+                        payment.ReceiptNumber,
+                        payment.InvoiceNumber,
+                        payment.CreatedAt,
+                        summary.CollectedAmount,
+                        summary.BalanceAmount,
+                        summary.ReceivableStatus);
+                }).ToList()
                 : [],
             canViewFinance
                 ? profileInvoices.Select(invoice => new CustomerProfileInvoice(invoice.Id, invoice.PaymentRecordId, invoice.VehicleId, invoice.InvoiceNumber, invoice.InvoiceDate, invoice.Amount)).ToList()
                 : [],
             canViewFinance
-                ? receipts.Where(receipt => receipt.CashHandoverId.HasValue && handoverIds.Contains(receipt.CashHandoverId.Value))
+                ? receipts.Where(receipt =>
+                        ((receipt.CashHandoverId is { } handoverId &&
+                          handoverIds.Contains(handoverId) &&
+                          handoverById[handoverId].PaymentRecordId == receipt.PaymentRecordId) ||
+                         (receipt.CollectionTransactionId is { } collectionId &&
+                          profilePaymentIds.Contains(receipt.PaymentRecordId) &&
+                          profileCollectionIds.Contains(collectionId) &&
+                          collectionById[collectionId].PaymentRecordId == receipt.PaymentRecordId)))
                     .OrderByDescending(receipt => receipt.CreatedAt)
-                    .Select(receipt => new CustomerProfileReceipt(receipt.CashHandoverId!.Value, receipt.Id, receipt.PaymentRecordId, receipt.ReceiptNumber, receipt.Amount, receipt.CreatedAt)).ToList()
+                    .Select(receipt => new CustomerProfileReceipt(
+                        receipt.CashHandoverId,
+                        receipt.CollectionTransactionId,
+                        receipt.Id,
+                        receipt.PaymentRecordId,
+                        receipt.ReceiptNumber,
+                        receipt.Amount,
+                        receipt.CreatedAt,
+                        receipt.IsVoided,
+                        receipt.CollectionTransactionId is { } collectionId
+                            ? collectionById.GetValueOrDefault(collectionId)?.Status
+                            : receipt.CashHandoverId is { } handoverId &&
+                              handoverById.TryGetValue(handoverId, out var handover) &&
+                              handover.CollectionTransactionId is { } handoverCollectionId
+                                ? collectionById.GetValueOrDefault(handoverCollectionId)?.Status
+                                : null)).ToList()
                 : [],
             visibleDocuments.Select(document => new CustomerProfileDocument(
                 document.Id,
@@ -205,11 +305,12 @@ public static class CustomerProfileFactory
                 ? leads.Where(lead => lead.CustomerId == customer.Id).OrderByDescending(lead => lead.CreatedAt)
                     .Select(lead => new CustomerProfileEnquiry(lead.Id, lead.VehicleId, lead.Status, lead.Message, lead.SourcePage, lead.CreatedAt)).ToList()
                 : [],
-            MissingDocuments(roleSet, vehicleIds, profileLoans, profileDeliveries, profileDocuments),
+            MissingDocuments(customer.Id, roleSet, vehicleIds, profileLoans, profileDeliveries, profileDocuments),
             new CustomerProfilePermissions(canViewIdentity, canViewLoans, canViewDelivery, canViewFinance, canViewDocuments, canViewEnquiries));
     }
 
     private static IReadOnlyList<CustomerProfileMissingDocument> MissingDocuments(
+        Guid customerId,
         IReadOnlySet<string> roles,
         IReadOnlySet<Guid> vehicleIds,
         IReadOnlyList<LoanApplication> loans,
@@ -219,7 +320,7 @@ public static class CustomerProfileFactory
         var missing = new List<CustomerProfileMissingDocument>();
         if (DepartmentAccess.CanUploadDocument(roles, FileCategory.IdentityCard) && !documents.Any(document => document.Category == FileCategory.IdentityCard))
         {
-            missing.Add(new(null, FileCategory.IdentityCard, "Identity card upload is missing from the linked vehicle history."));
+            missing.Add(new(null, FileCategory.IdentityCard, "Identity card upload is missing from the linked vehicle history.", "Vehicles", customerId, false));
         }
 
         if (DepartmentAccess.CanUploadDocument(roles, FileCategory.Voc))
@@ -228,7 +329,7 @@ public static class CustomerProfileFactory
             {
                 if (!documents.Any(document => document.VehicleId == vehicleId && document.Category == FileCategory.Voc))
                 {
-                    missing.Add(new(vehicleId, FileCategory.Voc, "VOC upload is missing from this vehicle's history."));
+                    missing.Add(new(vehicleId, FileCategory.Voc, "VOC upload is missing from this vehicle's history.", "Vehicles", vehicleId, false));
                 }
             }
         }
@@ -239,7 +340,13 @@ public static class CustomerProfileFactory
             {
                 foreach (var category in LoanDocumentRules.CheckCompleteness(loan, documents).MissingCategories)
                 {
-                    missing.Add(new(loan.VehicleId, category, $"Loan documentation is missing {category}."));
+                    missing.Add(new(
+                        loan.VehicleId,
+                        category,
+                        $"Loan documentation is missing {category}.",
+                        "Loans",
+                        loan.Id,
+                        loan.Status is not (LoanStatus.Rejected or LoanStatus.Done)));
                 }
             }
         }
@@ -250,13 +357,19 @@ public static class CustomerProfileFactory
             {
                 foreach (var category in DeliveryDocumentRules.CheckCompleteness(delivery, documents).MissingCategories)
                 {
-                    missing.Add(new(delivery.VehicleId, category, $"Delivery documentation is missing {category}."));
+                    missing.Add(new(
+                        delivery.VehicleId,
+                        category,
+                        $"Delivery documentation is missing {category}.",
+                        "Delivery",
+                        delivery.Id,
+                        delivery.Status is not (DeliveryStatus.Released or DeliveryStatus.Cancelled)));
                 }
             }
         }
 
         return missing
-            .DistinctBy(item => new { item.VehicleId, item.Category })
+            .DistinctBy(item => new { item.VehicleId, item.Category, item.SourceModule, item.SourceRecordId })
             .ToList();
     }
 }

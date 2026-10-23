@@ -966,12 +966,19 @@ export type CustomerProfileDelivery = Pick<DeliverySchedule,
   "roadTaxHandled" | "roadTaxReceiptReference" | "roadTaxExpiryDate" |
   "windscreenInsuranceHandled" | "windscreenPolicyReference" | "windscreenInsuranceExpiryDate">;
 
-export type CustomerProfilePayment = Pick<PaymentRecord, "id" | "vehicleId" | "nettPrice" | "status" | "receiptNumber" | "invoiceNumber" | "createdAt">;
+export type CustomerProfilePayment = Pick<PaymentRecord, "id" | "vehicleId" | "nettPrice" | "status" | "receiptNumber" | "invoiceNumber" | "createdAt"> & {
+  collectedAmount: number;
+  balanceAmount: number;
+  receivableStatus: ReceivableStatus;
+};
 
 export type CustomerProfileInvoice = Pick<FinanceInvoice, "id" | "paymentRecordId" | "vehicleId" | "invoiceNumber" | "invoiceDate" | "amount">;
 
 export type CustomerProfileReceipt = {
-  cashHandoverId: string;
+  cashHandoverId?: string | null;
+  collectionTransactionId?: string | null;
+  isVoided: boolean;
+  collectionStatus?: CollectionStatus | null;
   id: string;
   paymentRecordId: string;
   receiptNumber: string;
@@ -996,6 +1003,9 @@ export type CustomerProfileMissingDocument = {
   vehicleId?: string;
   category: DocumentCategory;
   message: string;
+  sourceModule: "Vehicles" | "Loans" | "Delivery";
+  sourceRecordId: string;
+  isActiveBlocker: boolean;
 };
 
 export type CustomerProfilePermissions = {

@@ -1449,13 +1449,36 @@ backOffice.MapGet("/customers/{id:guid}/profile", async (Guid id, AppDbContext d
         .ToListAsync();
     var vehicleIds = vehicles.Select(vehicle => vehicle.Id).ToList();
     if (!roles.Intersect(DepartmentAccess.CustomerReaders).Any() && deliveries.Count == 0) return Results.NotFound();
-    var payments = await db.PaymentRecords.AsNoTracking().Where(payment => vehicleIds.Contains(payment.VehicleId)).ToListAsync();
     var invoices = await db.FinanceInvoices.AsNoTracking()
         .Where(invoice => invoice.CustomerId == id || vehicleIds.Contains(invoice.VehicleId))
         .ToListAsync();
+    var payments = await CustomerProfileFinanceRules.QueryPaymentCandidates(
+        db.PaymentRecords.AsNoTracking(),
+        db.FinanceInvoices.AsNoTracking(),
+        id,
+        vehicleIds).ToListAsync();
     var handovers = await db.CashHandovers.AsNoTracking().Where(handover => handover.CustomerId == id).ToListAsync();
     var handoverIds = handovers.Select(handover => handover.Id).ToList();
-    var receipts = await db.OfficialReceipts.AsNoTracking().Where(receipt => receipt.CashHandoverId.HasValue && handoverIds.Contains(receipt.CashHandoverId.Value)).ToListAsync();
+    var paymentIds = payments.Select(payment => payment.Id).ToList();
+    var collections = await db.CollectionTransactions.AsNoTracking()
+        .Where(collection => paymentIds.Contains(collection.PaymentRecordId))
+        .ToListAsync();
+    var collectionIds = collections.Select(collection => collection.Id).ToList();
+    var receiptCandidates = await db.OfficialReceipts.AsNoTracking()
+        .Where(receipt =>
+            (receipt.CashHandoverId.HasValue && handoverIds.Contains(receipt.CashHandoverId.Value)) ||
+            (receipt.CollectionTransactionId.HasValue && collectionIds.Contains(receipt.CollectionTransactionId.Value)))
+        .ToListAsync();
+    var handoverById = handovers.ToDictionary(handover => handover.Id);
+    var collectionById = collections.ToDictionary(collection => collection.Id);
+    var receipts = receiptCandidates.Where(receipt =>
+        (receipt.CashHandoverId is { } handoverId &&
+         handoverById.TryGetValue(handoverId, out var handover) &&
+         handover.PaymentRecordId == receipt.PaymentRecordId) ||
+        (receipt.CollectionTransactionId is { } collectionId &&
+         collectionById.TryGetValue(collectionId, out var collection) &&
+         paymentIds.Contains(collection.PaymentRecordId) &&
+         collection.PaymentRecordId == receipt.PaymentRecordId)).ToList();
     var deliveryIds = deliveries.Select(delivery => delivery.Id).ToHashSet();
     var profileDocuments = await db.DocumentBlobs.AsNoTracking()
         .Where(document => document.VehicleId.HasValue && vehicleIds.Contains(document.VehicleId.Value))
@@ -1470,7 +1493,7 @@ backOffice.MapGet("/customers/{id:guid}/profile", async (Guid id, AppDbContext d
         ? await db.Leads.AsNoTracking().Where(lead => lead.CustomerId == id).ToListAsync()
         : [];
 
-    return Results.Ok(CustomerProfileFactory.Create(customer, roles, vehicles, loans, deliveries, payments, invoices, handovers, receipts, documents, leads));
+    return Results.Ok(CustomerProfileFactory.Create(customer, roles, vehicles, loans, deliveries, payments, invoices, handovers, receipts, documents, leads, collections));
 }).RequireAuthorization("CustomerProfile");
 backOffice.MapPost("/customers", async (Customer customer, AppDbContext db, HttpContext context) =>
 {
@@ -5094,15 +5117,7 @@ internal static class FinanceApi
 
     public static object ToResponse(PaymentRecord payment, FinanceInvoice? invoice, IReadOnlyList<CollectionTransaction> collections)
     {
-        var collectedAmount = payment.FinanceWorkflowVersion == 2
-            ? FinanceV2Rules.CollectedAmount(collections)
-            : payment.Status == PaymentStatus.Reconciled ? payment.NettPrice : 0;
-        var balanceAmount = payment.FinanceWorkflowVersion == 2
-            ? FinanceV2Rules.Balance(payment, collections)
-            : Math.Max(0, payment.NettPrice - collectedAmount);
-        var availableToAllocate = payment.FinanceWorkflowVersion == 2
-            ? FinanceV2Rules.AvailableToAllocate(payment, collections)
-            : balanceAmount;
+        var summary = FinanceV2Rules.Summarize(payment, invoice, collections);
         object? invoiceSummary = invoice is null ? null : new
         {
             invoice.Id,
@@ -5157,10 +5172,10 @@ internal static class FinanceApi
             payment.CreatedAt,
             Invoice = invoiceSummary,
             Collections = collections,
-            CollectedAmount = collectedAmount,
-            BalanceAmount = balanceAmount,
-            AvailableToAllocate = availableToAllocate,
-            ReceivableStatus = FinanceV2Rules.DeriveReceivableStatus(payment, invoice, collections)
+            CollectedAmount = summary.CollectedAmount,
+            BalanceAmount = summary.BalanceAmount,
+            AvailableToAllocate = summary.AvailableToAllocate,
+            ReceivableStatus = summary.ReceivableStatus
         };
     }
 
