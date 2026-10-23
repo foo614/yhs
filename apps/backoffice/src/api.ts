@@ -1415,6 +1415,15 @@ export type StaffWhatsAppConnection = {
   invitationCreatedAt?: number;
 };
 export type StaffWhatsAppLink = { command: string; expiresAt: number; invitationState: string; businessDisplayNumber?: string };
+export type StaffWhatsAppConnectionSummary = {
+  staffUserId: string;
+  state: StaffWhatsAppConnection["state"];
+  maskedNumber?: string | null;
+  verifiedAt?: number | null;
+};
+export function getStaffWhatsAppConnections(): Promise<StaffWhatsAppConnectionSummary[]> {
+  return request<StaffWhatsAppConnectionSummary[]>("/api/whatsapp/staff/connections");
+}
 export type StaffWhatsAppConnectInput = { recipient: string; language: "ms" | "en_US"; consentConfirmed: boolean; staffUserId?: string; manualLink?: boolean };
 export function getStaffWhatsAppConnection(staffUserId?: string): Promise<StaffWhatsAppConnection> {
   return request<StaffWhatsAppConnection>(staffUserId ? `/api/whatsapp/assistant/connection?staffUserId=${encodeURIComponent(staffUserId)}` : "/api/whatsapp/assistant/connection");
@@ -1468,6 +1477,7 @@ export type StaffWhatsAppHistoryItem = {
   suppressedAt: number | null;
   failureReason: string | null;
   canRetry: boolean;
+  waitingReason?: string | null;
 };
 export type StaffWhatsAppHistoryFilters = {
   from?: string;

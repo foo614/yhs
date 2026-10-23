@@ -18,6 +18,62 @@ namespace YSHeng.Api.Tests;
 public sealed class WhatsAppStaffAssistantTests
 {
     [Fact]
+    public async Task History_does_not_blame_budget_for_an_invitation_already_verified()
+    {
+        await using var fixture = await Fixture.Create();
+        var dispatch = InvitationDispatch();
+        var issued = await WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options, "staff",
+            new(fixture.Options.TestRecipient, "ms", true), "synthetic", fixture.Now, dispatch: dispatch);
+        Assert.True(await fixture.Verify(issued));
+        var date = DateTimeOffset.FromUnixTimeSeconds(fixture.Now).ToOffset(TimeSpan.FromHours(8));
+        fixture.Db.WhatsAppDispatchUsage.Add(new WhatsAppDispatchUsage { Period = $"month:{date:yyyy-MM}", ReservedCostSen = dispatch.MonthlyBudgetSen });
+        await fixture.Db.SaveChangesAsync();
+        var history = await WhatsAppStaffNotifications.HistoryAsync(fixture.Db, null, null, null, "StaffInvitation", null, 1,
+            fixture.Now, dispatch: dispatch, assistant: fixture.Options);
+        Assert.Contains("invitation is no longer eligible", Assert.Single(history.Items).WaitingReason);
+        Assert.Null(Assert.Single(history.Items).SubmittedBody);
+    }
+
+    [Fact]
+    public async Task Admin_connection_summaries_require_current_database_admin_role_and_hide_link_secrets()
+    {
+        await using var fixture = await Fixture.Create(testMode: false);
+        await fixture.AddStaff("admin", "BossAdmin");
+        await fixture.AddStaff("pending", "Sales");
+        await fixture.AddStaff("expired", "Sales");
+        var linked = await fixture.Issue(recipient: "60111111111");
+        Assert.True(await fixture.Verify(linked, recipient: "60111111111"));
+        var pending = await fixture.Issue("pending", recipient: "60122222222");
+        await fixture.Issue("expired", recipient: "60133333333");
+        await fixture.Db.WhatsAppStaffChallenges.Where(row => row.StaffUserId == "expired")
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.ExpiresAt, fixture.Now - 1));
+        var denied = await WhatsAppStaffApi.ConnectionsAsync(fixture.Context("staff", "BossAdmin"), fixture.Db, fixture.Options, default);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult>(denied);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult>(await WhatsAppStaffApi.ConnectionsAsync(
+            new DefaultHttpContext(), fixture.Db, fixture.Options, default));
+        var allowed = await WhatsAppStaffApi.ConnectionsAsync(fixture.Context("admin", "BossAdmin"), fixture.Db, fixture.Options, default);
+        var summaries = Assert.IsAssignableFrom<IReadOnlyList<WhatsAppStaffConnectionSummary>>(((IValueHttpResult)allowed).Value);
+        Assert.Equal("Connected", summaries.Single(row => row.StaffUserId == "staff").State);
+        Assert.Equal("***1111", summaries.Single(row => row.StaffUserId == "staff").MaskedNumber);
+        Assert.Equal("AwaitingVerification", summaries.Single(row => row.StaffUserId == "pending").State);
+        Assert.Equal("Disconnected", summaries.Single(row => row.StaffUserId == "expired").State);
+        Assert.Equal("Disconnected", summaries.Single(row => row.StaffUserId == "admin").State);
+        var json = JsonSerializer.Serialize(summaries);
+        Assert.DoesNotContain("60111111111", json);
+        Assert.DoesNotContain("60122222222", json);
+        Assert.DoesNotContain(linked.Command, json);
+        Assert.DoesNotContain(pending.Command[5..], json);
+        Assert.DoesNotContain("synthetic-stamp", json);
+        await fixture.Db.Users.Where(user => user.Id == "staff")
+            .ExecuteUpdateAsync(set => set.SetProperty(user => user.SecurityStamp, "changed-stamp"));
+        Assert.Equal("RelinkRequired", (await WhatsAppStaffBindings.SummariesAsync(fixture.Db, fixture.Options, fixture.Now))
+            .Single(row => row.StaffUserId == "staff").State);
+        await WhatsAppStaffBindings.RevokeAsync(fixture.Db, "staff", "admin", fixture.Now);
+        Assert.Equal("Disconnected", (await WhatsAppStaffBindings.SummariesAsync(fixture.Db, fixture.Options, fixture.Now))
+            .Single(row => row.StaffUserId == "staff").State);
+    }
+
+    [Fact]
     public async Task One_time_link_requires_the_intended_phone_and_replay_does_not_duplicate_binding_or_reply()
     {
         await using var fixture = await Fixture.Create();

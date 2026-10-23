@@ -15,7 +15,8 @@ public sealed record WhatsAppStaffPolicyUpdate(bool Enabled, int LocalMinuteOfDa
 public sealed record WhatsAppStaffHistoryItem(Guid Id, string StaffUserId, string StaffName, string MaskedNumber,
     string Category, string? SubmittedBody, string? SubmittedTemplateName, string? SubmittedLanguage,
     string State, long ScheduledAt, long? AcceptedAt, long? SentAt,
-    long? DeliveredAt, long? ReadAt, long? FailedAt, long? SuppressedAt, string? FailureReason, bool CanRetry);
+    long? DeliveredAt, long? ReadAt, long? FailedAt, long? SuppressedAt, string? FailureReason, bool CanRetry,
+    string? WaitingReason = null);
 public sealed record WhatsAppStaffHistoryPage(IReadOnlyList<WhatsAppStaffHistoryItem> Items, int Page, int Total);
 public sealed record WhatsAppStaffDiagnostics(int MissingRequiredDate, int UnassignedDelivery,
     int MissingCommissionDate, int EligibleStaff, int ConnectedStaff, int UnroutableWorkflowEvents);
@@ -24,14 +25,20 @@ public static class WhatsAppStaffNotifications
 {
     // Rebuilds the exact template parameter from authoritative facts before submission.
     // Categories without an integrated validator fail closed even when their policy is enabled.
-    public static async Task<WhatsAppOutbox?> RefreshAsync(AppDbContext db, WhatsAppOutbox item,
-        long now, CancellationToken ct)
+    public static Task<WhatsAppOutbox?> RefreshAsync(AppDbContext db, WhatsAppOutbox item,
+        long now, CancellationToken ct) => RefreshAsync(db, item, now, ct, null, null, null, null);
+
+    private static async Task<WhatsAppOutbox?> RefreshAsync(AppDbContext db, WhatsAppOutbox item,
+        long now, CancellationToken ct, WhatsAppStaffNotificationPolicy? policy, WhatsAppDueDigestSources? dueSources,
+        WhatsAppAttendanceFacts? attendance, WhatsAppPendingLeaveFacts? pendingLeave)
     {
         string? body = item.MessageKind switch
         {
-            "OutstandingDigest" => (await WhatsAppDueDigest.RefreshForDispatchAsync(db, item, now, ct: ct))?.Body,
+            "OutstandingDigest" => (await WhatsAppDueDigest.RefreshForDispatchAsync(db, item, now, ct: ct,
+                policy: policy, sources: dueSources))?.Body,
             "OcrUsage" => (await WhatsAppOcrUsageAlerts.RefreshForDispatchAsync(db, item, now, ct))?.Body,
-            "AttendanceSummary" or "LeaveApproval" => await WhatsAppHrNotifications.RefreshForDispatchAsync(db, item, now, ct),
+            "AttendanceSummary" or "LeaveApproval" => await WhatsAppHrNotifications.RefreshForDispatchAsync(db, item, now, ct,
+                policy, attendance, pendingLeave),
             "VehicleEvent" or "DeliveryEvent" or "FinanceEvent" => await WhatsAppWorkflowDispatch.RefreshAsync(db, item, now, ct),
             _ => null
         };
@@ -191,7 +198,8 @@ public static class WhatsAppStaffNotifications
     }
 
     public static async Task<WhatsAppStaffHistoryPage> HistoryAsync(AppDbContext db, DateOnly? from, DateOnly? to,
-        string? staffUserId, string? category, string? status, int page, long now, CancellationToken ct = default)
+        string? staffUserId, string? category, string? status, int page, long now, CancellationToken ct = default,
+        WhatsAppDispatchOptions? dispatch = null, WhatsAppAssistantOptions? assistant = null)
     {
         if (page is < 1 or > 10000 || from > to || (from.HasValue && to.HasValue && to.Value.DayNumber - from.Value.DayNumber > 365) ||
             (category is not null && category != "StaffInvitation" && !AllowedRoles.ContainsKey(category)) ||
@@ -210,11 +218,94 @@ public static class WhatsAppStaffNotifications
             join user in db.Users.AsNoTracking() on item.StaffUserId equals user.Id into users
             from user in users.DefaultIfEmpty()
             select new { item, StaffName = user == null ? "Former staff" : user.DisplayName }).ToListAsync(ct);
+        var waiting = dispatch is not null && assistant is not null
+            ? await WaitingReasonsAsync(db, rows.Select(row => row.item).ToArray(), dispatch, assistant, now, ct)
+            : new Dictionary<Guid, string>();
         return new(rows.Select(row => new WhatsAppStaffHistoryItem(row.item.Id, row.item.StaffUserId ?? "",
             row.StaffName, "***" + row.item.Recipient[^Math.Min(4, row.item.Recipient.Length)..], row.item.MessageKind,
             row.item.SubmittedBody, row.item.SubmittedTemplateName, row.item.SubmittedLanguage,
             row.item.State, row.item.ScheduledAt, row.item.AcceptedAt, row.item.SentAt,
             row.item.DeliveredAt, row.item.ReadAt, row.item.FailedAt, row.item.SuppressedAt,
-            row.item.FailureReason, false)).ToArray(), page, total);
+            row.item.FailureReason, false, waiting.GetValueOrDefault(row.item.Id))).ToArray(), page, total);
+    }
+
+    private static async Task<Dictionary<Guid, string>> WaitingReasonsAsync(AppDbContext db,
+        IReadOnlyCollection<WhatsAppOutbox> rows, WhatsAppDispatchOptions dispatch, WhatsAppAssistantOptions assistant,
+        long now, CancellationToken ct)
+    {
+        var pending = rows.Where(row => row.State is "Queued" or "HeldForApproval" or "RetryScheduled" or "Sending").ToArray();
+        if (pending.Length == 0) return [];
+        dispatch = await WhatsAppDispatchBudget.OptionsAsync(db, dispatch, ct);
+        var date = DateTimeOffset.FromUnixTimeSeconds(now).ToOffset(TimeSpan.FromHours(8));
+        var daily = "day:" + date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var monthly = "month:" + date.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
+        var usage = await db.WhatsAppDispatchUsage.AsNoTracking().Where(row => row.Period == daily || row.Period == monthly)
+            .ToDictionaryAsync(row => row.Period, ct);
+        var policies = await db.WhatsAppStaffNotificationPolicies.AsNoTracking().ToDictionaryAsync(row => row.Category, ct);
+        var bindingIds = pending.Where(row => row.StaffBindingId.HasValue).Select(row => row.StaffBindingId!.Value).ToArray();
+        var bindings = await db.WhatsAppStaffBindings.AsNoTracking().Where(row => bindingIds.Contains(row.Id))
+            .ToDictionaryAsync(row => row.Id, ct);
+        var userIds = pending.Select(row => row.StaffUserId).OfType<string>().Distinct().ToArray();
+        var users = await db.Users.AsNoTracking().Where(row => userIds.Contains(row.Id)).ToDictionaryAsync(row => row.Id, ct);
+        var roleRows = await (from membership in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on membership.RoleId equals role.Id
+            where userIds.Contains(membership.UserId)
+            select new { membership.UserId, role.Name }).ToListAsync(ct);
+        var roles = roleRows.ToLookup(row => row.UserId, row => row.Name ?? "");
+        var budgetReason = WhatsAppNotificationDispatcher.BudgetBlockReason(dispatch,
+            usage.GetValueOrDefault(daily)?.Attempts ?? 0, usage.GetValueOrDefault(monthly)?.ReservedCostSen ?? 0);
+        WhatsAppDueDigestSources? dueSources = null;
+        WhatsAppAttendanceFacts? attendance = null;
+        WhatsAppPendingLeaveFacts? pendingLeave = null;
+        var reasons = new Dictionary<Guid, string>();
+        foreach (var row in pending) reasons[row.Id] = await ReasonAsync(row);
+        return reasons;
+
+        async Task<string> ReasonAsync(WhatsAppOutbox row)
+        {
+            if (row.State == "Sending") return row.LeaseUntil > now
+                ? "Provider submission is in progress. Do not retry."
+                : "The previous submission outcome needs background reconciliation. Do not retry.";
+            if (row.ExpiresAt <= now) return "This reminder has expired and will not be sent.";
+            if (row.Audience == "Staff")
+            {
+                if (policies.GetValueOrDefault(row.MessageKind)?.Enabled != true)
+                    return "This reminder category is off. Ask an admin to review reminder settings.";
+                if (row.StaffBindingId is null || !bindings.TryGetValue(row.StaffBindingId.Value, out var binding) ||
+                    row.StaffUserId is null || !users.TryGetValue(row.StaffUserId, out var user) ||
+                    !WhatsAppStaffBindings.IsCurrent(assistant, binding, user, roles[user.Id], now) ||
+                    binding.StaffUserId != row.StaffUserId || binding.Recipient != row.Recipient || binding.Language != row.Language ||
+                    !RoleAllowed(row.MessageKind, [row.RequiredStaffRole]) || !roles[user.Id].Contains(row.RequiredStaffRole) ||
+                    binding.PhoneNumberId != dispatch.PhoneNumberId)
+                    return "The recipient connection or required role has changed. Check My WhatsApp and staff access.";
+                if (!dispatch.StaffSenderReady)
+                    return string.Join(" ", dispatch.StaffSenderIssues()) + " Ask an operator to review the sender configuration.";
+            }
+            else if (!dispatch.InvitationSenderReady)
+                return "Invitation sending is unavailable. Ask an operator to review the invitation sender configuration.";
+            if (dispatch.TemplateFor(row) is null)
+                return $"No approved {row.Language} template is configured for this message. Ask an operator to check its template mapping.";
+            if (string.IsNullOrWhiteSpace(row.TemplateReference)) return "This record has no valid message content and cannot be sent.";
+            if (row.Attempts >= 3) return "The maximum sending attempts have been reached; this record cannot be sent again.";
+            if (row.NextAttemptAt > now) return row.State == "RetryScheduled"
+                ? "Waiting for the scheduled retry after the provider rate limit."
+                : "Waiting for the scheduled sending time.";
+            if (row.Audience == "Staff")
+            {
+                // Reuse dispatch validators, sharing current daily facts across recipients.
+                // Opening history never stages or submits work.
+                if (row.MessageKind == "OutstandingDigest")
+                    dueSources ??= await WhatsAppDueDigest.LoadAsync(db, LocalDate(now), policies[row.MessageKind].LeadDays, ct);
+                else if (row.MessageKind == "AttendanceSummary")
+                    attendance ??= await WhatsAppHrNotifications.LoadAttendanceAsync(db, LocalDate(now), now, ct);
+                else if (row.MessageKind == "LeaveApproval")
+                    pendingLeave ??= await WhatsAppHrNotifications.LoadPendingLeaveFactsAsync(db, ct);
+                if (await RefreshAsync(db, row, now, ct, policies[row.MessageKind], dueSources, attendance, pendingLeave) is null)
+                    return "The current business facts no longer allow this reminder. It will be suppressed without sending.";
+            }
+            if (row.Audience == "Enrollment" && !await WhatsAppStaffInvitation.EligibleAsync(db, row, assistant, dispatch, now, ct))
+                return "This invitation is no longer eligible. Check whether verification is complete or the connection was replaced.";
+            return budgetReason ?? "Waiting for the background sender. If this persists, ask an operator to check dispatcher health.";
+        }
     }
 }

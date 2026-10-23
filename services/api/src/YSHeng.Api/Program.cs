@@ -245,6 +245,8 @@ backOffice.MapPost("/whatsapp/assistant/connection/invitation/resend", async (Ht
 backOffice.MapPost("/whatsapp/assistant/disconnect", (HttpContext context, AppDbContext db, WhatsAppStaffDisconnectRequest request, CancellationToken ct) =>
     WhatsAppStaffApi.DisconnectAsync(context, db, whatsappAssistant, request, ct));
 
+backOffice.MapGet("/whatsapp/staff/connections", (HttpContext context, AppDbContext db, CancellationToken ct) =>
+    WhatsAppStaffApi.ConnectionsAsync(context, db, whatsappAssistant, ct)).RequireAuthorization("BossAdmin");
 backOffice.MapGet("/whatsapp/staff/policies", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
 {
     context.Response.Headers.CacheControl = "no-store";
@@ -285,7 +287,7 @@ backOffice.MapGet("/whatsapp/staff/history", async (DateOnly? from, DateOnly? to
     try
     {
         return Results.Ok(await WhatsAppStaffNotifications.HistoryAsync(db, from, to, staffUserId, category, status,
-            page ?? 1, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+            page ?? 1, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct, whatsappDispatch, whatsappAssistant));
     }
     catch (ArgumentException) { return Results.BadRequest(new ApiError("Invalid staff history filters.")); }
 }).RequireAuthorization("BossAdmin");

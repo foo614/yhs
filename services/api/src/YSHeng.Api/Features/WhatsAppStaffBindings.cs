@@ -57,6 +57,8 @@ public sealed record WhatsAppStaffConnection(bool Enabled, string State, string?
     long? InvitationCreatedAt = null, IReadOnlyList<string>? InvitationLanguages = null, bool ManualLinkAvailable = false);
 public sealed record WhatsAppStaffLinkRequest(string Recipient, string Language = "ms", bool ConsentConfirmed = false, bool ManualLink = false);
 public sealed record WhatsAppStaffLinkResult(string Command, long ExpiresAt, string InvitationState, string? BusinessDisplayNumber);
+public sealed record WhatsAppStaffConnectionSummary(string StaffUserId, string State, string? MaskedNumber = null,
+    long? VerifiedAt = null);
 
 public static class WhatsAppStaffBindings
 {
@@ -104,8 +106,7 @@ public static class WhatsAppStaffBindings
         if (binding is not null)
         {
             var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(item => item.Id == userId, ct);
-            var verified = Active(user, now) && EqualHash(binding.SecurityStampHash, Hash(user!.SecurityStamp!)) &&
-                (await RolesAsync(db, userId, ct)).Length > 0 && options.Allows(binding.Recipient) && binding.PhoneNumberId == options.PhoneNumberId;
+            var verified = IsCurrent(options, binding, user, await RolesAsync(db, userId, ct), now);
             return new(true, verified ? "Connected" : "RelinkRequired", Mask(binding.Recipient), binding.Language,
                 binding.VerifiedAt, InvitationLanguages: [], ManualLinkAvailable: manualAvailable);
         }
@@ -121,6 +122,38 @@ public static class WhatsAppStaffBindings
         }
         return new(true, "Disconnected", InvitationAvailable: languages.Length > 0, InvitationLanguages: languages,
             ManualLinkAvailable: manualAvailable);
+    }
+
+    internal static bool IsCurrent(WhatsAppAssistantOptions options, WhatsAppStaffBinding binding,
+        AppUser? user, IEnumerable<string> roles, long now) =>
+        binding.VerifiedAt > 0 && binding.RevokedAt is null && Active(user, now) &&
+        EqualHash(binding.SecurityStampHash, Hash(user!.SecurityStamp!)) &&
+        roles.Any(role => SeedData.Roles.Contains(role)) && options.Allows(binding.Recipient) &&
+        binding.PhoneNumberId == options.PhoneNumberId;
+
+    public static async Task<IReadOnlyList<WhatsAppStaffConnectionSummary>> SummariesAsync(AppDbContext db,
+        WhatsAppAssistantOptions options, long now, CancellationToken ct = default)
+    {
+        var users = await db.Users.AsNoTracking().OrderBy(user => user.Id).ToListAsync(ct);
+        if (!options.Ready) return users.Select(user => new WhatsAppStaffConnectionSummary(user.Id, "Disabled")).ToArray();
+        var bindings = await db.WhatsAppStaffBindings.AsNoTracking().Where(binding => binding.RevokedAt == null)
+            .ToDictionaryAsync(binding => binding.StaffUserId, ct);
+        var challenges = await db.WhatsAppStaffChallenges.AsNoTracking().Where(challenge =>
+            challenge.ConsumedAt == null && challenge.ExpiresAt > now && challenge.FailedAttempts < 5)
+            .ToDictionaryAsync(challenge => challenge.StaffUserId, ct);
+        var roleRows = await (from membership in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on membership.RoleId equals role.Id
+            select new { membership.UserId, role.Name }).ToListAsync(ct);
+        var roles = roleRows.ToLookup(row => row.UserId, row => row.Name ?? "");
+        return users.Select(user =>
+        {
+            if (bindings.TryGetValue(user.Id, out var binding))
+                return new WhatsAppStaffConnectionSummary(user.Id,
+                    IsCurrent(options, binding, user, roles[user.Id], now) ? "Connected" : "RelinkRequired",
+                    Mask(binding.Recipient), binding.VerifiedAt);
+            return new WhatsAppStaffConnectionSummary(user.Id,
+                challenges.ContainsKey(user.Id) ? "AwaitingVerification" : "Disconnected");
+        }).ToArray();
     }
 
     public static async Task<WhatsAppStaffLinkResult> IssueAsync(AppDbContext db, WhatsAppAssistantOptions options,
