@@ -12,6 +12,7 @@ import { OperationsProTable, operationsKeywordFromFields } from "../shared/Opera
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { Calendar } from "antd";
 import dayjs from "dayjs";
+import { compareRecordDates, newestRecordsFirst } from "../../recordDates";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -640,19 +641,19 @@ export function HrSalaryPage({
   const leaveStatusOptions = ["Pending", "Approved", "Rejected", "Cancelled"].map((value) => ({ value, label: leaveStatusLabel(value as HrLeaveStatus) }));
   const payslipStatusOptions = ["Draft", "Generated", "PendingFinance", "PendingBoss", "Published"].map((value) => ({ value, label: payslipStatusLabel(value as HrPayslip["status"]) }));
   const filteredAttendance = filterHrRecords(
-    attendance,
+    newestRecordsFirst(attendance, record => record.attendanceDate),
     recordFilters.attendance,
     (record) => [staffName(record.staffUserId, visibleStaff), record.attendanceDate, attendanceStatusLabel(record.status), record.notes, formatDateTime(record.checkInAt), formatDateTime(record.checkOutAt)].filter(Boolean).join(" "),
     (record) => record.status
   );
   const filteredBusinessTrips = filterHrRecords(
-    businessTrips,
+    newestRecordsFirst(businessTrips, record => record.requestedAt),
     recordFilters.businessTrips,
     (trip) => businessTripSearchText(trip, staffName(trip.staffUserId, visibleStaff)),
     (trip) => trip.status
   );
   const filteredLeaveRequests = filterHrRecords(
-    leaveRequests,
+    newestRecordsFirst(leaveRequests, record => record.createdAt),
     recordFilters.leave,
     (record) => [staffName(record.staffUserId, visibleStaff), leaveTypeLabel(record.type), leaveStatusLabel(record.status), record.startDate, record.endDate, record.reason].filter(Boolean).join(" "),
     (record) => record.status
@@ -663,13 +664,13 @@ export function HrSalaryPage({
     (record) => [staffName(record.staffUserId, visibleStaff), roleLabel(staffPrimaryRole(record.staffUserId, visibleStaff)), defaultLeaveLabel(staffPrimaryRole(record.staffUserId, visibleStaff), leavePolicies), record.annualLeaveDays, record.medicalLeaveDays, record.notes].filter(Boolean).join(" ")
   );
   const filteredLeaveAdjustments = filterHrRecords(
-    leaveAdjustments,
+    newestRecordsFirst(leaveAdjustments, record => record.createdAt),
     recordFilters.adjustments,
     (record) => [formatDateTime(record.createdAt), staffName(record.staffUserId, visibleStaff), leaveAdjustmentTypeLabel(record.type), leaveAdjustmentDirectionLabel(record.direction), record.days, record.annualLeaveAfter, record.medicalLeaveAfter, record.reason, staffName(record.adjustedBy, visibleStaff)].filter(Boolean).join(" ")
   );
   const payslipsForPeriod = selectedPayslipPeriodId ? payslips.filter((record) => record.payPeriodId === selectedPayslipPeriodId) : [];
   const filteredPayslips = filterHrRecords(
-    payslipsForPeriod,
+    newestRecordsFirst(payslipsForPeriod, record => record.generatedAt),
     recordFilters.payslips,
     (record) => [record.staffName || staffName(record.staffUserId, visibleStaff), payslipStatusLabel(record.status), record.netPay].filter(Boolean).join(" "),
     (record) => record.status
@@ -1123,7 +1124,7 @@ export function HrSalaryPage({
                     pagination={{ pageSize: 8, showSizeChanger: false }}
                     columns={[
                       { title: "Staff / 员工", dataIndex: "staffDisplayName" },
-                      { title: "Dates / 日期", render: (_: unknown, item: HrAvailabilityCalendarItem) => `${item.startDate} to ${item.endDate}` },
+                      { title: "Dates / 日期", dataIndex: "startDate", defaultSortOrder: "descend", sorter: (a, b, order) => compareRecordDates(a.startDate, b.startDate, order ?? "ascend"), render: (_: unknown, item: HrAvailabilityCalendarItem) => `${item.startDate} to ${item.endDate}` },
                       { title: "Type / 类型", dataIndex: "kind", render: (kind: HrAvailabilityCalendarItem["kind"]) => kind === "Outstation" ? "Outstation / 外勤" : "Leave / 请假" },
                       { title: "Status / 状态", dataIndex: "status", render: () => <Tag color="orange">Busy / 忙碌</Tag> },
                       { title: "Details / 详情", render: (_: unknown, item: HrAvailabilityCalendarItem) => item.location || item.purpose || "Busy / 忙碌" }

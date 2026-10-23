@@ -33,21 +33,26 @@ describe("OperationsProTable column filters", () => {
   });
 
   it("defaults creation timestamps to newest first and keeps missing dates last", () => {
-    type Row = { id: string; createdAt?: string };
-    const columns: ColumnsType<Row> = [{ title: "Created", dataIndex: "createdAt" }];
+    type Row = { id: string; createdAt?: string | number };
+    const columns: ColumnsType<Row> = [{ title: "Record", dataIndex: "id" }, { title: "Created", dataIndex: "createdAt" }];
     const sorted = addOperationsDefaultDateSort(columns);
-    const column = sorted?.[0];
+    const column = sorted?.[1];
 
     expect(column).toMatchObject({ defaultSortOrder: "descend" });
     expect(typeof (column as { sorter?: unknown }).sorter).toBe("function");
-    expect((column as { sorter: (left: Row, right: Row) => number }).sorter(
-      { id: "older", createdAt: "2026-08-01T00:00:00Z" },
-      { id: "newer", createdAt: "2026-08-02T00:00:00Z" }
-    )).toBeGreaterThan(0);
-    expect((column as { sorter: (left: Row, right: Row) => number }).sorter(
-      { id: "newer", createdAt: "2026-08-02T00:00:00Z" },
-      { id: "missing" }
-    )).toBeLessThan(0);
+    // Exercise Ant Design's descending inversion, not just the comparator's sign.
+    for (const dates of [["2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z"], [1785542400, 1785628800]]) {
+      const rows: Row[] = [{ id: "missing-row" }, { id: "older-row", createdAt: dates[0] }, { id: "newer-row", createdAt: dates[1] }];
+      for (const order of ["descend", "ascend"] as const) {
+        const markup = renderToStaticMarkup(createElement(OperationsProTable<Row>, {
+          rowKey: "id", pagination: false, search: false, dataSource: rows,
+          columns: [sorted![0], order === "descend" ? column! : { ...column, sortOrder: order }]
+        }));
+        const expected = order === "descend" ? ["newer-row", "older-row", "missing-row"] : ["older-row", "newer-row", "missing-row"];
+        expect(markup.indexOf(`data-row-key="${expected[0]}"`)).toBeLessThan(markup.indexOf(`data-row-key="${expected[1]}"`));
+        expect(markup.indexOf(`data-row-key="${expected[1]}"`)).toBeLessThan(markup.indexOf(`data-row-key="${expected[2]}"`));
+      }
+    }
   });
 
   it("preserves explicit and nested column filters", () => {

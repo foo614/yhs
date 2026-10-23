@@ -68,7 +68,8 @@ export function WhatsAppSettings() {
       { title: "Language / template", render: (_, row) => <><div>{row.language === "ms" ? "Bahasa Malaysia" : "English"}</div><Typography.Text type="secondary">{row.templateVersion}</Typography.Text></> },
       { title: "Status", dataIndex: "state", render: value => <Tag>{labels[value] ?? value}</Tag> },
       { title: "Attempts", dataIndex: "attempts" },
-      { title: "Created", dataIndex: "createdAt", render: value => new Date(value * 1000).toLocaleString() },
+      // The API orders before paging; a local sorter would reorder only these 25 rows.
+      { title: "Created", dataIndex: "createdAt", sorter: false, render: value => new Date(value * 1000).toLocaleString() },
       { title: "Action", fixed: "right", render: (_, row) => actions(row) }
     ]} /> : <Space direction="vertical" className="fullWidth">
       {!queue?.items.length && <Typography.Text type="secondary">{loading ? "Loading notifications…" : "No notifications to show."}</Typography.Text>}

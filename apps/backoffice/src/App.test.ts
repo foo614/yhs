@@ -401,8 +401,8 @@ describe("supplier and refurbishment records", () => {
     const records = buildRefurbishmentTableRecords(repairs, supplierInvoices, vehicles, {});
 
     expect(records.map((record) => ({ key: record.key, kind: record.kind, plateNumber: record.plateNumber }))).toEqual([
-      { key: "repair-repair-1", kind: "repair", plateNumber: "VPK 1234" },
-      { key: "supplier-invoice-1", kind: "supplierInvoice", plateNumber: "VPK 1234" }
+      { key: "supplier-invoice-1", kind: "supplierInvoice", plateNumber: "VPK 1234" },
+      { key: "repair-repair-1", kind: "repair", plateNumber: "VPK 1234" }
     ]);
   });
 });
@@ -471,8 +471,8 @@ describe("supplier and refurbishment search records", () => {
       kind: record.kind,
       plateNumber: record.plateNumber
     }))).toEqual([
-      { key: "repair-repair-1", kind: "repair", plateNumber: "VPK 1234" },
-      { key: "supplier-invoice-1", kind: "supplierInvoice", plateNumber: "VPK 1234" }
+      { key: "supplier-invoice-1", kind: "supplierInvoice", plateNumber: "VPK 1234" },
+      { key: "repair-repair-1", kind: "repair", plateNumber: "VPK 1234" }
     ]);
   });
 

@@ -3,6 +3,7 @@ import { enUSIntl } from "@ant-design/pro-provider";
 import { Button, Input, Select, type TableProps } from "antd";
 import type { ColumnType, ColumnsType } from "antd/es/table";
 import { isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { compareRecordDates } from "../../recordDates";
 
 type DataIndex = string | number | readonly (string | number)[];
 
@@ -45,43 +46,39 @@ export type OperationsProTableProps<
 
 const MAX_AUTO_FILTER_VALUES = 8;
 const MAX_AUTO_FILTER_VALUE_LENGTH = 48;
-const DESCENDING_DATE_KEYS = new Set(["createdAt", "uploadedAt", "submittedAt"]);
+const DESCENDING_DATE_KEYS = new Set(["createdAt", "uploadedAt", "submittedAt", "completedAt", "attendanceDate", "issuedDate", "invoiceDate", "requestedAt", "generatedAt", "collectedAt", "deadline", "dueDate", "followUpDate", "scheduledDate"]);
 
 export function addOperationsDefaultDateSort<RecordType extends object>(columns: ColumnsType<RecordType> | undefined): ColumnsType<RecordType> | undefined {
   if (!columns) return columns;
+  const hasExplicitSort = (items: ColumnsType<RecordType>): boolean => items.some(column =>
+    ("children" in column && column.children ? hasExplicitSort(column.children) : false) ||
+    column.defaultSortOrder !== undefined || column.sortOrder !== undefined);
+  let defaultAssigned = hasExplicitSort(columns);
 
-  return columns.map((column) => {
+  const decorate = (items: ColumnsType<RecordType>): ColumnsType<RecordType> => items.map((column) => {
     if ("children" in column && column.children) {
       return {
         ...column,
-        children: addOperationsDefaultDateSort(column.children)
+        children: decorate(column.children)
       };
     }
 
     const leafColumn = column as ColumnType<RecordType>;
     const dataIndex = leafColumn.dataIndex as DataIndex | undefined;
     const key = Array.isArray(dataIndex) ? dataIndex[dataIndex.length - 1] : dataIndex;
-    if (typeof key !== "string" || !DESCENDING_DATE_KEYS.has(key)) return column;
+    if (typeof key !== "string" || !DESCENDING_DATE_KEYS.has(key) || leafColumn.sorter === false) return column;
+    const useDefault = !defaultAssigned;
+    defaultAssigned = true;
 
     return {
       ...leafColumn,
-      defaultSortOrder: "descend" as const,
-      sorter: leafColumn.sorter ?? ((left: RecordType, right: RecordType) =>
-        compareTableDates(tableCellValue(left, dataIndex as DataIndex), tableCellValue(right, dataIndex as DataIndex)))
+      ...(useDefault ? { defaultSortOrder: "descend" as const } : {}),
+      sortDirections: leafColumn.sortDirections ?? ["descend", "ascend", "descend"],
+      sorter: leafColumn.sorter ?? ((left: RecordType, right: RecordType, order) =>
+        compareRecordDates(tableCellValue(left, dataIndex as DataIndex), tableCellValue(right, dataIndex as DataIndex), order ?? "ascend"))
     };
   }) as ColumnsType<RecordType>;
-}
-
-function compareTableDates(left: unknown, right: unknown) {
-  const leftTime = parseTableDate(left);
-  const rightTime = parseTableDate(right);
-  return rightTime - leftTime;
-}
-
-function parseTableDate(value: unknown) {
-  if (!value) return Number.NEGATIVE_INFINITY;
-  const time = Date.parse(String(value));
-  return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+  return decorate(columns);
 }
 
 /**

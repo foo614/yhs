@@ -11,6 +11,7 @@ import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard"
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { SecureDocumentEvidence } from "../shared/SecureDocumentEvidence";
 import { OperationsProTable } from "../shared/OperationsProTable";
+import { newestRecordsFirst } from "../../recordDates";
 import { OwnerPurchaseInvoiceDetails } from "../vehicles/OwnerPurchaseInvoiceDetails";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import { settlementCompletionLabel, settlementDirectionLabel, settlementExpectedState, settlementPreview, settlementStatusLabel, settlementTotals } from "../../settlements";
@@ -338,7 +339,7 @@ export function InvoiceUpdateRequestQueue({
       {error ? <Alert type="error" showIcon message={error} action={<Button onClick={onRetry}>Try again</Button>} />
         : requests.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No open delivery invoice requests." />
           : <div className="financeInvoiceRequestList">
-            {requests.map((requestItem) => (
+            {newestRecordsFirst(requests, (requestItem) => requestItem.requestedAt).map((requestItem) => (
               <article key={requestItem.id} className="financeInvoiceRequestItem">
                 <div>
                   <Space size={6} wrap>
@@ -1263,7 +1264,7 @@ export function FinancePage({
     },
     { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Broker / 经纪人", dataIndex: "brokerName" },
-    { title: "Due Date / 到期日", render: (_, row) => row.dueDate ? dayjs(row.dueDate).format("DD MMM YYYY") : row.isPaid ? "—" : <Tag color="gold">Date required</Tag> },
+    { title: "Due Date / 到期日", dataIndex: "dueDate", render: (_, row) => row.dueDate ? dayjs(row.dueDate).format("DD MMM YYYY") : row.isPaid ? "—" : <Tag color="gold">Date required</Tag> },
     { title: "Commission / 佣金", dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "orange"}>{isPaid ? "Paid" : "Unpaid"}</Tag> },
     {
@@ -1357,7 +1358,7 @@ export function FinancePage({
       }
     }
   ];
-  const salesInvoicePayments = visibleSalesInvoicePayments(payments);
+  const salesInvoicePayments = newestRecordsFirst(visibleSalesInvoicePayments(payments), record => record.createdAt);
   const filteredPayments = filterFinanceRowsByFields(filterFinanceRows(salesInvoicePayments, financeKeyword, financeStatus, (payment) => [
     plateFor(vehicles, payment.vehicleId),
     financePaymentCustomerLabel(payment, vehicles, customers, loans),
@@ -1383,21 +1384,21 @@ export function FinancePage({
     payment.vehicleId,
     dashboardFocus.attention === "open" ? isFinanceV2(payment) ? payment.receivableStatus !== "Paid" : payment.status !== "Reconciled" : true
   ));
-  const filteredSettlements = filterFinanceRowsByFields(filterFinanceRows(settlements, financeKeyword, financeStatus, (settlement) => [
+  const filteredSettlements = filterFinanceRowsByFields(filterFinanceRows(newestRecordsFirst(settlements, record => record.deadline), financeKeyword, financeStatus, (settlement) => [
     plateFor(vehicles, settlement.vehicleId), contactFor(owners, settlement.ownerId), settlement.deadline
   ], (settlement) => settlement.isPaid ? "Paid" : "Due"), financeFieldFilters, (settlement) => ({ plate: plateFor(vehicles, settlement.vehicleId), owner: contactFor(owners, settlement.ownerId), deadline: settlement.deadline })).filter((settlement) => matchesDashboardFinanceFocus(dashboardFocus, settlement.vehicleId, settlementMatchesDashboardAttention(settlement, dashboardFocus.attention, dashboardToday)));
-  const filteredDailySpends = filterFinanceRowsByFields(filterFinanceRows(dailySpends, financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due"), financeFieldFilters, (spend) => ({ description: spend.description, dueDate: spend.dueDate })).filter((spend) => matchesDashboardFinanceFocus(dashboardFocus, undefined, dailySpendMatchesDashboardAttention(spend, dashboardFocus.attention, dashboardToday)));
-  const filteredBrokerCommissions = filterFinanceRowsByFields(filterFinanceRows(brokerCommissions, financeKeyword, financeStatus, (commission) => [
+  const filteredDailySpends = filterFinanceRowsByFields(filterFinanceRows(newestRecordsFirst(dailySpends, record => record.dueDate), financeKeyword, financeStatus, (spend) => [spend.description, spend.dueDate], (spend) => spend.isPaid ? "Paid" : "Due"), financeFieldFilters, (spend) => ({ description: spend.description, dueDate: spend.dueDate })).filter((spend) => matchesDashboardFinanceFocus(dashboardFocus, undefined, dailySpendMatchesDashboardAttention(spend, dashboardFocus.attention, dashboardToday)));
+  const filteredBrokerCommissions = filterFinanceRowsByFields(filterFinanceRows(newestRecordsFirst(brokerCommissions, record => record.dueDate), financeKeyword, financeStatus, (commission) => [
     plateFor(vehicles, commission.vehicleId), commission.brokerName
   ], (commission) => commission.isPaid ? "Paid" : "Unpaid"), financeFieldFilters, (commission) => ({ plate: plateFor(vehicles, commission.vehicleId), broker: commission.brokerName })).filter((commission) => matchesDashboardFinanceFocus(dashboardFocus, commission.vehicleId));
-  const filteredDebtRecoveries = filterFinanceRowsByFields(filterFinanceRows(debtRecoveries, financeKeyword, financeStatus, (debt) => [
+  const filteredDebtRecoveries = filterFinanceRowsByFields(filterFinanceRows(newestRecordsFirst(debtRecoveries, record => record.followUpDate), financeKeyword, financeStatus, (debt) => [
     plateFor(vehicles, debt.vehicleId), customerLabel(customers, debt.customerId), debt.followUpDate, debt.notes
   ], (debt) => debt.status), financeFieldFilters, (debt) => ({ plate: plateFor(vehicles, debt.vehicleId), customer: customerLabel(customers, debt.customerId), followUp: debt.followUpDate })).filter((debt) => matchesDashboardFinanceFocus(dashboardFocus, debt.vehicleId, dashboardFocus.attention === "open" ? debt.status !== "Closed" : true));
-  const filteredPaymentVouchers = filterFinanceRowsByFields(filterFinanceRows(paymentVouchers, financeKeyword, financeStatus, (voucher) => [
+  const filteredPaymentVouchers = filterFinanceRowsByFields(filterFinanceRows(newestRecordsFirst(paymentVouchers, record => record.issuedDate), financeKeyword, financeStatus, (voucher) => [
     plateFor(vehicles, voucher.vehicleId), voucher.payeeName, voucher.purpose, voucher.issuedDate, voucher.notes
   ], (voucher) => voucher.status), financeFieldFilters, (voucher) => ({ plate: plateFor(vehicles, voucher.vehicleId), payee: voucher.payeeName, purpose: voucher.purpose, issuedDate: voucher.issuedDate })).filter((voucher) => matchesDashboardFinanceFocus(dashboardFocus, voucher.vehicleId, dashboardFocus.attention === "open" ? voucher.status !== "Paid" : dashboardFocus.attention === "due" ? voucher.status !== "Paid" && voucher.issuedDate <= dashboardToday : true));
   const filteredPurchaseInvoices = filterFinanceRows(
-    purchaseInvoices,
+    newestRecordsFirst(purchaseInvoices, record => record.invoiceDate),
     String(purchaseInvoiceFieldFilters.invoiceSearch ?? ""),
     purchaseInvoiceFieldFilters.status ? String(purchaseInvoiceFieldFilters.status) : undefined,
     (invoice) => [
