@@ -401,6 +401,38 @@ public sealed class FinanceV2RulesTests
     }
 
     [Fact]
+    public void Finance_summary_uses_reconciled_collections_and_excludes_reversed_history()
+    {
+        var payment = V2Payment(100m);
+        var invoice = InvoiceFor(payment);
+        var reconciled = CollectionFor(payment, 40m, CollectionStatus.Reconciled, "DEP-1");
+        var pending = CollectionFor(payment, 20m, CollectionStatus.Pending, "DEP-2");
+        var reversed = CollectionFor(payment, 10m, CollectionStatus.Reversed, "DEP-3");
+
+        var summary = FinanceV2Rules.Summarize(payment, invoice, [reconciled, pending, reversed]);
+
+        Assert.Equal(40m, summary.CollectedAmount);
+        Assert.Equal(60m, summary.BalanceAmount);
+        Assert.Equal(40m, summary.AvailableToAllocate);
+        Assert.Equal(ReceivableStatus.PartiallyPaid, summary.ReceivableStatus);
+    }
+
+    [Fact]
+    public void Finance_summary_preserves_unrounded_legacy_balance_behavior()
+    {
+        var payment = new PaymentRecord
+        {
+            FinanceWorkflowVersion = 1,
+            NettPrice = 100.005m,
+            Status = PaymentStatus.Pending
+        };
+
+        var summary = FinanceV2Rules.Summarize(payment, null, []);
+
+        Assert.Equal(100.005m, summary.BalanceAmount);
+    }
+
+    [Fact]
     public void Duplicate_active_reference_is_case_insensitive_and_reversed_reference_can_be_reused()
     {
         var payment = V2Payment(100m);

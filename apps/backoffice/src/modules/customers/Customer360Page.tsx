@@ -7,6 +7,7 @@ import { OperationsProTable } from "../shared/OperationsProTable";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import {
   getProtectedFileContent,
+  collectionOfficialReceiptContentUrl,
   financeInvoiceContentUrl,
   getCustomerProfile,
   getCustomerProfileOptions,
@@ -112,12 +113,12 @@ export function formatCustomer360Date(value?: string | null) {
 
 type MissingDocumentGroup = {
   vehicleId?: string;
-  items: Array<{ category: CustomerProfileMissingDocument["category"]; messages: string[] }>;
+  items: Array<{ category: CustomerProfileMissingDocument["category"]; requirements: CustomerProfileMissingDocument[] }>;
 };
 
-/** Deduplicates repeated requirements by vehicle/category while retaining every backend message for detail view. */
+/** Group for scanning; preserve each workflow owner even when categories and messages match. */
 export function groupMissingDocuments(items: readonly CustomerProfileMissingDocument[]): MissingDocumentGroup[] {
-  const byVehicle = new Map<string, { vehicleId?: string; byCategory: Map<CustomerProfileMissingDocument["category"], string[]> }>();
+  const byVehicle = new Map<string, { vehicleId?: string; byCategory: Map<CustomerProfileMissingDocument["category"], CustomerProfileMissingDocument[]> }>();
   for (const item of items) {
     const vehicleKey = item.vehicleId ?? "unlinked";
     let vehicleGroup = byVehicle.get(vehicleKey);
@@ -125,15 +126,35 @@ export function groupMissingDocuments(items: readonly CustomerProfileMissingDocu
       vehicleGroup = { vehicleId: item.vehicleId, byCategory: new Map() };
       byVehicle.set(vehicleKey, vehicleGroup);
     }
-    const messages = vehicleGroup.byCategory.get(item.category) ?? [];
-    if (item.message && !messages.includes(item.message)) messages.push(item.message);
-    vehicleGroup.byCategory.set(item.category, messages);
+    const requirements = vehicleGroup.byCategory.get(item.category) ?? [];
+    if (!requirements.some(existing => existing.sourceModule === item.sourceModule && existing.sourceRecordId === item.sourceRecordId && existing.isActiveBlocker === item.isActiveBlocker)) requirements.push(item);
+    vehicleGroup.byCategory.set(item.category, requirements);
   }
 
   return [...byVehicle.values()].map((group) => ({
     vehicleId: group.vehicleId,
-    items: [...group.byCategory.entries()].map(([category, messages]) => ({ category, messages }))
+    items: [...group.byCategory.entries()].map(([category, requirements]) => ({ category, requirements }))
   }));
+}
+
+export function customer360CoverageStatus(expiry?: string | null, now = new Date()) {
+  if (!expiry) return "Expiry date missing";
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const part = (type: string) => parts.find(item => item.type === type)!.value;
+  const today = `${part("year")}-${part("month")}-${part("day")}`;
+  // Both operands are date-only values, so a browser's local timezone cannot shift the expiry day.
+  const days = (Date.parse(`${expiry}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000;
+  if (!Number.isFinite(days)) return "Expiry date missing";
+  return days < 0 ? "Expired" : days <= 30 ? "Expiring within 30 days" : "Current";
+}
+
+function CoverageItem({ label, handled, reference, expiry }: { label: string; handled?: boolean; reference?: string | null; expiry?: string | null }) {
+  const status = customer360CoverageStatus(expiry);
+  return <div>
+    <Typography.Text strong>{label}</Typography.Text>: {handled ? "Handled" : "Not handled"}
+    <div>Reference: {reference || "Not recorded"}</div>
+    <div>Expiry: {formatCustomer360Date(expiry)} <Tag color={status === "Expired" ? "red" : status === "Current" ? "green" : "orange"}>{status}</Tag></div>
+  </div>;
 }
 
 function vehicleDescription(vehicle: CustomerProfileVehicle) {
@@ -353,20 +374,26 @@ function AuthorizedUploadsTable({
 
 function MissingDocumentsSummary({
   groups,
-  vehicles
+  vehicles,
+  historical = false,
+  onNavigate,
+  canAccessPath
 }: {
   groups: MissingDocumentGroup[];
   vehicles: CustomerProfileVehicle[];
+  historical?: boolean;
+  onNavigate: (path: string) => void;
+  canAccessPath: (path: Customer360SourcePath) => boolean;
 }) {
   if (groups.length === 0) return null;
-  const count = groups.reduce((total, group) => total + group.items.length, 0);
+  const count = groups.reduce((total, group) => total + group.items.reduce((sum, item) => sum + item.requirements.length, 0), 0);
   return (
     <Collapse
       className="customer360MissingDocuments"
       size="small"
       items={[{
         key: "missing-documents",
-        label: <Space><WarningOutlined /> <span>Missing linked documents / 缺少关联文件</span> <Tag color="orange">{count}</Tag></Space>,
+        label: <Space wrap><WarningOutlined /> <span>{historical ? "Historical document exceptions / 历史文件缺漏" : "Active document blockers / 当前缺少文件"}</span> <Tag color={historical ? "default" : "orange"}>{count}</Tag></Space>,
         children: (
           <Space direction="vertical" size={12} className="fullWidth">
             {groups.map((group) => (
@@ -377,7 +404,16 @@ function MissingDocumentsSummary({
                     <div key={item.category}>
                       <Tag color="orange">{documentLabels[item.category] ?? item.category}</Tag>
                       <Space direction="vertical" size={2}>
-                        {item.messages.map((message) => <Typography.Text type="secondary" key={message}>{message}</Typography.Text>)}
+                        {item.requirements.map(requirement => {
+                          const path = requirement.sourceModule === "Loans" ? "/loans" : requirement.sourceModule === "Delivery" ? "/delivery" : "/vehicles";
+                          const target = customer360SourceTarget(path, requirement.sourceRecordId, requirement.sourceModule);
+                          return <div key={`${requirement.sourceModule}:${requirement.sourceRecordId}`}>
+                            <Typography.Text type="secondary">{requirement.message}</Typography.Text>
+                            <div>{requirement.sourceModule} · {requirement.sourceRecordId}
+                              {canAccessPath(path) ? <Button type="link" size="small" onClick={() => onNavigate(target.path)}>{target.label}</Button> : null}
+                            </div>
+                          </div>;
+                        })}
                       </Space>
                     </div>
                   ))}
@@ -403,14 +439,19 @@ export function Customer360Page({
   canAccessPath: (path: Customer360SourcePath) => boolean;
 }) {
   const [options, setOptions] = useState<CustomerProfileOption[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState(customerId ?? "");
-  const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const selectedCustomerId = customerId ?? options[0]?.id ?? "";
+  const [loadedProfile, setLoadedProfile] = useState<{ data: CustomerProfile; refreshedAt: string; version: number } | null>(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState("all");
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
-  const [profileError, setProfileError] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState<{ customerId: string; message: string } | null>(null);
   const [optionsRequestVersion, setOptionsRequestVersion] = useState(0);
+  const [profileRequestVersion, setProfileRequestVersion] = useState(0);
+  const selectedCustomerAvailable = options.some(option => option.id === selectedCustomerId);
+  const unavailable = customerId !== undefined && !loadingOptions && !optionsError && !selectedCustomerAvailable;
+  const profile = selectedCustomerAvailable && !loadingOptions && !optionsError && loadedProfile?.data.contact.id === selectedCustomerId && loadedProfile.version === profileRequestVersion ? loadedProfile.data : null;
+  const profileError = requestError?.customerId === selectedCustomerId ? requestError.message : null;
   const customerSelectOptions: CustomerProfileSelectOption[] = options.map((option) => ({
     value: option.id,
     label: customerProfileOptionLabel(option),
@@ -420,10 +461,6 @@ export function Customer360Page({
   }));
 
   useEffect(() => {
-    setSelectedCustomerId(customerId ?? "");
-  }, [customerId]);
-
-  useEffect(() => {
     let active = true;
     setLoadingOptions(true);
     setOptionsError(null);
@@ -431,7 +468,6 @@ export function Customer360Page({
       .then((result) => {
         if (!active) return;
         setOptions(result);
-        setSelectedCustomerId((current) => current && result.some((option) => option.id === current) ? current : result[0]?.id ?? "");
       })
       .catch((reason: unknown) => {
         if (active) setOptionsError(humanizeApiError(reason, "Customer profile options could not be loaded."));
@@ -450,23 +486,27 @@ export function Customer360Page({
   }, [selectedCustomerId]);
 
   useEffect(() => {
-    if (!selectedCustomerId) {
-      setProfile(null);
+    if (!selectedCustomerAvailable || loadingOptions || optionsError) {
+      setLoadedProfile(null);
+      setLoadingProfile(false);
+      setRequestError(null);
       return;
     }
 
     let active = true;
-    setProfile(null);
+    setLoadedProfile(null);
     setLoadingProfile(true);
-    setProfileError(null);
+    setRequestError(null);
     void getCustomerProfile(selectedCustomerId)
       .then((result) => {
-        if (active) setProfile(result);
+        if (!active) return;
+        if (result.contact.id !== selectedCustomerId) throw new Error("The returned customer does not match the requested profile. Retry or select a customer.");
+        setLoadedProfile({ data: result, refreshedAt: new Date().toISOString(), version: profileRequestVersion });
       })
       .catch((reason: unknown) => {
         if (active) {
-          setProfile(null);
-          setProfileError(humanizeApiError(reason, "Customer profile could not be loaded."));
+          setLoadedProfile(null);
+          setRequestError({ customerId: selectedCustomerId, message: humanizeApiError(reason, "Customer unavailable or access denied. Select another customer or retry.") });
         }
       })
       .finally(() => {
@@ -476,7 +516,7 @@ export function Customer360Page({
     return () => {
       active = false;
     };
-  }, [selectedCustomerId]);
+  }, [selectedCustomerId, selectedCustomerAvailable, loadingOptions, optionsError, profileRequestVersion]);
 
   const sourceColumn = <RecordType extends object>(path: Customer360SourcePath, label: string, getRecordId?: (record: RecordType) => string | undefined) => canShowCustomer360SourceLink(path, canAccessPath)
     ? [{ title: "Action / 操作", key: "source", fixed: "right", width: 140, render: (_: unknown, record: RecordType) => {
@@ -509,12 +549,22 @@ export function Customer360Page({
     { title: "Vehicle", render: (_, delivery) => vehicleReference(delivery.vehicleId, profile?.vehicles ?? []) },
     { title: "Schedule / 交车", dataIndex: "scheduledDate", render: (_, delivery) => `${formatCustomer360Date(delivery.scheduledDate)} · ${delivery.status}` },
     { title: "PIC", dataIndex: "pic", render: displayValue },
-    { title: "Coverage", render: (_, delivery) => `${delivery.insuranceHandled ? "Insurance" : "Insurance missing"}; ${delivery.roadTaxHandled ? "Road tax" : "Road tax missing"}; ${delivery.windscreenInsuranceHandled ? "Windscreen" : "Windscreen missing"}` },
+    { title: "Coverage", render: (_, delivery) => <Space direction="vertical" size={8}>
+      <CoverageItem label="Insurance" handled={delivery.insuranceHandled} reference={delivery.insurancePolicyReference} expiry={delivery.insuranceExpiryDate} />
+      <CoverageItem label="Road tax" handled={delivery.roadTaxHandled} reference={delivery.roadTaxReceiptReference} expiry={delivery.roadTaxExpiryDate} />
+      <CoverageItem label="Windscreen" handled={delivery.windscreenInsuranceHandled} reference={delivery.windscreenPolicyReference} expiry={delivery.windscreenInsuranceExpiryDate} />
+      <Typography.Text type="secondary">Correct coverage in the source Delivery record.</Typography.Text>
+    </Space> },
     ...sourceColumn<CustomerProfileDelivery>("/delivery", "Delivery", (delivery) => delivery.id)
   ];
   const paymentColumns: ColumnsType<CustomerProfilePayment> = [
     { title: "Vehicle", render: (_, payment) => vehicleReference(payment.vehicleId, profile?.vehicles ?? []) },
     { title: "Payment", render: (_, payment) => <><Tag color={payment.status === "Reconciled" ? "green" : "blue"}>{payment.status}</Tag> {money(payment.nettPrice)}</> },
+    { title: "Collections / Balance", render: (_, payment) => <Space direction="vertical" size={0}>
+      <span>Collected: {money(payment.collectedAmount)}</span>
+      <span>Remaining: {money(payment.balanceAmount)}</span>
+      <Tag>{payment.receivableStatus}</Tag>
+    </Space> },
     { title: "Receipt / Invoice", render: (_, payment) => `${displayValue(payment.receiptNumber)} / ${displayValue(payment.invoiceNumber)}` },
     { title: "Created", dataIndex: "createdAt", render: (_, payment) => formatCustomer360Date(payment.createdAt) },
     ...sourceColumn<CustomerProfilePayment>("/finance", "Finance", (payment) => payment.id)
@@ -543,12 +593,15 @@ export function Customer360Page({
   const receiptColumns: ColumnsType<CustomerProfileReceipt> = [
     { title: "Vehicle", render: (_, receipt) => vehicleReference(paymentVehicleById.get(receipt.paymentRecordId), profile?.vehicles ?? []) },
     { title: "Receipt", dataIndex: "receiptNumber" },
+    { title: "Status", render: (_, receipt) => <Tag color={receipt.isVoided || receipt.collectionStatus === "Reversed" ? "red" : "green"}>{receipt.isVoided ? "Voided" : receipt.collectionStatus ?? "Issued"}</Tag> },
     { title: "Amount", dataIndex: "amount", render: money },
     { title: "Issued", dataIndex: "createdAt", render: (_, receipt) => formatCustomer360Date(receipt.createdAt) },
     {
       title: "File",
       render: (_, receipt) => {
-        const downloadUrl = officialReceiptContentUrl(receipt.cashHandoverId);
+        if (receipt.isVoided || receipt.collectionStatus === "Reversed") return <Typography.Text type="secondary">Historical receipt · download unavailable</Typography.Text>;
+        const downloadUrl = receipt.collectionTransactionId ? collectionOfficialReceiptContentUrl(receipt.collectionTransactionId) : receipt.cashHandoverId ? officialReceiptContentUrl(receipt.cashHandoverId) : undefined;
+        if (!downloadUrl) return <Typography.Text type="secondary">Receipt file unavailable</Typography.Text>;
         return <DocumentPreviewButton
           fileName={`${receipt.receiptNumber}.pdf`}
           mimeType="application/pdf"
@@ -570,7 +623,10 @@ export function Customer360Page({
     ...sourceColumn<CustomerProfileEnquiry>("/leads", "Leads")
   ];
   const missingDocumentGroups = profile
-    ? groupMissingDocuments(profile.missingDocuments.filter((item) => matchesVehicle(item.vehicleId)))
+    ? groupMissingDocuments(profile.missingDocuments.filter((item) => item.isActiveBlocker && matchesVehicle(item.vehicleId)))
+    : [];
+  const historicalDocumentGroups = profile
+    ? groupMissingDocuments(profile.missingDocuments.filter((item) => !item.isActiveBlocker && matchesVehicle(item.vehicleId)))
     : [];
 
   return (
@@ -606,20 +662,24 @@ export function Customer360Page({
             optionFilterProp="label"
             value={selectedCustomerId || undefined}
             onChange={(value) => {
-              setProfile(null);
-              setProfileError(null);
-              setSelectedCustomerId(value);
+              setLoadedProfile(null);
+              setRequestError(null);
               onCustomerChange(value);
             }}
           />
         </div>
+        <Space wrap>
+          <Button aria-label="Refresh profile" aria-busy={loadingProfile} disabled={!selectedCustomerAvailable || loadingOptions} loading={loadingProfile} onClick={() => setProfileRequestVersion(version => version + 1)}>Refresh profile</Button>
+          {profile && loadedProfile ? <Typography.Text type="secondary">Last refreshed: {formatCustomer360Date(loadedProfile.refreshedAt)}</Typography.Text> : null}
+        </Space>
         <Alert className="operationalInfoAlert" showIcon type="info" message="Live source records are shown only where your role already has access; this view does not copy or merge customer data." />
       </ProCard>
 
       {optionsError ? <Alert className="operationalInfoAlert" type="error" showIcon message="Customer selector unavailable" description={optionsError} action={<Button size="small" onClick={() => setOptionsRequestVersion((version) => version + 1)}>Try again</Button>} /> : null}
-      {profileError ? <Alert className="operationalInfoAlert" type="error" showIcon message="Customer profile unavailable" description={profileError} /> : null}
+      {unavailable ? <Alert type="warning" showIcon message="Customer unavailable or access denied" description="This requested customer is not available to your account. Select another customer or retry the selector." action={<Button onClick={() => setOptionsRequestVersion(version => version + 1)}>Retry selector</Button>} /> : null}
+      {profileError ? <Alert className="operationalInfoAlert" type="error" showIcon message="Customer profile unavailable or access denied" description={profileError} action={<Button onClick={() => setProfileRequestVersion(version => version + 1)}>Retry profile</Button>} /> : null}
       {loadingProfile ? <ProCard><Spin /></ProCard> : null}
-      {!loadingProfile && !profile && !profileError ? <ProCard><Empty description="Select a customer to view linked history." /></ProCard> : null}
+      {!loadingOptions && !loadingProfile && !profile && !profileError && !unavailable && !optionsError ? <ProCard><Empty description="Select a customer to view linked history." /></ProCard> : null}
       {profile ? (
         <>
           <ProCard title="Customer summary / 客户摘要">
@@ -647,7 +707,7 @@ export function Customer360Page({
                 { id: "customer360-finance", label: "Finance", count: profile.payments.filter((payment) => matchesVehicle(payment.vehicleId)).length, visible: profile.permissions.canViewFinance },
                 { id: "customer360-documents", label: "Documents", count: profile.documents.filter((document) => matchesVehicle(document.vehicleId)).length, visible: profile.permissions.canViewDocuments },
                 { id: "customer360-enquiries", label: "Enquiries", count: profile.enquiries.filter((enquiry) => matchesVehicle(enquiry.vehicleId)).length, visible: profile.permissions.canViewEnquiries },
-                { id: "customer360-missing", label: "Missing documents", count: missingDocumentGroups.reduce((total, group) => total + group.items.length, 0), visible: missingDocumentGroups.length > 0 }
+                { id: "customer360-missing", label: "Active document blockers", count: missingDocumentGroups.reduce((total, group) => total + group.items.reduce((sum, item) => sum + item.requirements.length, 0), 0), visible: missingDocumentGroups.length > 0 }
               ].filter((section) => section.visible).map((section) => (
                 <Button key={section.id} type="link" size="small" onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                   {section.label} ({section.count})
@@ -686,7 +746,8 @@ export function Customer360Page({
           </ProCard></div> : null}
           {profile.permissions.canViewDocuments ? <div id="customer360-documents"><ProCard title="Authorized uploads / 已授权文件"><AuthorizedUploadsTable customerId={selectedCustomerId} documents={profile.documents} vehicles={profile.vehicles} selectedVehicleId={selectedVehicleId} /></ProCard></div> : null}
           {profile.permissions.canViewEnquiries ? <div id="customer360-enquiries"><ProCard title="Public enquiries / 公开询问"><ProfileTable columns={enquiryColumns} dataSource={profile.enquiries.filter((enquiry) => matchesVehicle(enquiry.vehicleId))} /></ProCard></div> : null}
-          <div id="customer360-missing"><MissingDocumentsSummary groups={missingDocumentGroups} vehicles={profile.vehicles} /></div>
+          <div id="customer360-missing"><MissingDocumentsSummary groups={missingDocumentGroups} vehicles={profile.vehicles} onNavigate={onNavigate} canAccessPath={canAccessPath} /></div>
+          <MissingDocumentsSummary groups={historicalDocumentGroups} vehicles={profile.vehicles} historical onNavigate={onNavigate} canAccessPath={canAccessPath} />
         </>
       ) : null}
     </Space>

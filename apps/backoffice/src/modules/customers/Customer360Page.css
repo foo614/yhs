@@ -118,6 +118,7 @@
 .customer360MissingGroup {
   display: grid;
   gap: 6px;
+  overflow-wrap: anywhere;
 }
 
 .customer360MissingGroup .ant-space-vertical {
