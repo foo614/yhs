@@ -9,6 +9,16 @@ public sealed record WhatsAppStaffDisconnectRequest(string? StaffUserId = null);
 
 public static class WhatsAppStaffApi
 {
+    public static async Task<IResult> ConnectionsAsync(HttpContext context, AppDbContext db,
+        WhatsAppAssistantOptions options, CancellationToken ct)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var actor = await ManagedUserAsync(context, db, null, ct);
+        if (actor is null || !(await WhatsAppStaffBindings.RolesAsync(db, actor, ct)).Contains("BossAdmin"))
+            return Results.Forbid();
+        return Results.Ok(await WhatsAppStaffBindings.SummariesAsync(db, options, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+    }
+
     private static async Task<string?> ManagedUserAsync(HttpContext context, AppDbContext db, string? target, CancellationToken ct)
     {
         var actor = StaffIdentity.CurrentUserId(context);

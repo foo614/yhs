@@ -19,6 +19,8 @@ public sealed record WhatsAppAttendanceSnapshot(int Scheduled, int CheckedIn, in
     string Body);
 
 public sealed record WhatsAppPendingLeaveSnapshot(int Count, string Body);
+public sealed record WhatsAppPendingLeaveFacts(IReadOnlyCollection<HrLeaveRequest> Requests,
+    IReadOnlyDictionary<string, string> StaffNames);
 
 // FOO-195 adapter. Shared worker registration and category readiness are withheld until
 // the role map (including HrSalary) and current-facts dispatcher are integrated.
@@ -123,35 +125,56 @@ public static class WhatsAppHrNotifications
         string recipientUserId, string recipientRole, DateOnly today, string language, CancellationToken ct = default)
     {
         if (recipientRole is not ("BossAdmin" or "HrSalary")) return null;
+        var facts = await LoadPendingLeaveFactsAsync(db, ct);
+        return ProjectPendingLeave(facts.Requests, recipientUserId, recipientRole, today, language, facts.StaffNames);
+    }
+
+    public static async Task<WhatsAppPendingLeaveFacts> LoadPendingLeaveFactsAsync(AppDbContext db,
+        CancellationToken ct = default)
+    {
         var pending = await db.HrLeaveRequests.AsNoTracking()
-            .Where(item => item.Status == HrLeaveStatus.Pending && item.StaffUserId != recipientUserId)
-            .ToListAsync(ct);
-        var actionable = new List<HrLeaveRequest>();
-        foreach (var item in pending)
-            if (HrRules.ValidateLeaveDecision(item, HrLeaveStatus.Approved).IsValid &&
-                !await HrWorkflowStore.HasLockedPayrollRange(db, item.StaffUserId, item.StartDate, item.EndDate))
-                actionable.Add(item);
+            .Where(item => item.Status == HrLeaveStatus.Pending).ToListAsync(ct);
+        var valid = pending.Where(item => HrRules.ValidateLeaveDecision(item, HrLeaveStatus.Approved).IsValid).ToArray();
+        if (valid.Length == 0) return new([], new Dictionary<string, string>());
+        var candidateIds = valid.Select(item => item.StaffUserId).Distinct().ToArray();
+        var start = valid.Min(item => item.StartDate);
+        var end = valid.Max(item => item.EndDate);
+        var payrollToday = HrWorkflowRules.LocalDate(DateTime.UtcNow);
+        var payroll = await (from slip in db.HrPayslips.AsNoTracking()
+            join period in db.HrPayPeriods.AsNoTracking() on slip.PayPeriodId equals period.Id
+            where candidateIds.Contains(slip.StaffUserId) && slip.Status != HrPayslipStatus.Draft &&
+                period.StartDate <= end && period.EndDate >= start
+            select new { slip.StaffUserId, slip.Status, slip.GeneratedAt, period.StartDate, period.EndDate }).ToListAsync(ct);
+        var lockedByStaff = payroll.Where(item => HrWorkflowStore.IsLocked(item.Status, item.GeneratedAt, item.EndDate, payrollToday))
+            .ToLookup(item => item.StaffUserId);
+        var actionable = valid.Where(item => !lockedByStaff[item.StaffUserId]
+            .Any(period => period.StartDate <= item.EndDate && period.EndDate >= item.StartDate)).ToArray();
         var staffIds = actionable.Select(item => item.StaffUserId).Distinct().ToArray();
         var names = await db.Users.AsNoTracking().Where(item => staffIds.Contains(item.Id))
             .ToDictionaryAsync(item => item.Id, item => item.DisplayName, ct);
-        return ProjectPendingLeave(actionable, recipientUserId, recipientRole, today, language, names);
+        return new(actionable, names);
     }
 
     public static async Task<string?> RefreshForDispatchAsync(AppDbContext db, WhatsAppOutbox queued,
-        long now, CancellationToken ct = default)
+        long now, CancellationToken ct = default, WhatsAppStaffNotificationPolicy? policy = null,
+        WhatsAppAttendanceFacts? attendance = null, WhatsAppPendingLeaveFacts? pendingLeave = null)
     {
         if (queued.Audience != "Staff" || queued.StaffUserId is null || queued.ExpiresAt <= now ||
             queued.BusinessEventKey != WhatsAppStaffNotifications.LocalDate(now).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
             return null;
         var day = WhatsAppStaffNotifications.LocalDate(now);
-        var policy = await db.WhatsAppStaffNotificationPolicies.AsNoTracking()
+        policy ??= await db.WhatsAppStaffNotificationPolicies.AsNoTracking()
             .SingleOrDefaultAsync(item => item.Category == queued.MessageKind && item.Enabled, ct);
-        if (policy is null || now < WhatsAppStaffNotifications.LocalDayDueAt(day, policy.LocalMinuteOfDay)) return null;
+        if (policy?.Enabled != true || policy.Category != queued.MessageKind ||
+            now < WhatsAppStaffNotifications.LocalDayDueAt(day, policy.LocalMinuteOfDay)) return null;
         if (queued.MessageKind == AttendanceCategory && queued.RequiredStaffRole == "BossAdmin")
-            return ProjectAttendance(await LoadAttendanceAsync(db, day, now, ct), day, queued.Language).Body;
+            return ProjectAttendance(attendance ?? await LoadAttendanceAsync(db, day, now, ct), day, queued.Language).Body;
         if (queued.MessageKind == LeaveCategory && queued.RequiredStaffRole is "BossAdmin" or "HrSalary")
-            return (await LoadPendingLeaveAsync(db, queued.StaffUserId, queued.RequiredStaffRole,
-                day, queued.Language, ct))?.Body;
+        {
+            pendingLeave ??= await LoadPendingLeaveFactsAsync(db, ct);
+            return ProjectPendingLeave(pendingLeave.Requests, queued.StaffUserId, queued.RequiredStaffRole,
+                day, queued.Language, pendingLeave.StaffNames)?.Body;
+        }
         return null;
     }
 

@@ -152,17 +152,19 @@ public static class WhatsAppDueDigest
     }
 
     public static async Task<WhatsAppDueDigestSnapshot?> RefreshForDispatchAsync(AppDbContext db,
-        WhatsAppOutbox queued, long now, Uri? workboardUrl = null, CancellationToken ct = default)
+        WhatsAppOutbox queued, long now, Uri? workboardUrl = null, CancellationToken ct = default,
+        WhatsAppStaffNotificationPolicy? policy = null, WhatsAppDueDigestSources? sources = null)
     {
         if (queued.Audience != "Staff" || queued.MessageKind != "OutstandingDigest" ||
             queued.StaffUserId is null || queued.RequiredStaffRole is not ("BossAdmin" or "Sales") ||
             queued.ScheduledAt > now || queued.ExpiresAt <= now) return null;
         var today = WhatsAppStaffNotifications.LocalDate(now);
         if (queued.BusinessEventKey != today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)) return null;
-        var policy = await db.WhatsAppStaffNotificationPolicies.AsNoTracking()
+        policy ??= await db.WhatsAppStaffNotificationPolicies.AsNoTracking()
             .SingleOrDefaultAsync(item => item.Category == "OutstandingDigest" && item.Enabled, ct);
-        if (policy is null || now < WhatsAppStaffNotifications.LocalDayDueAt(today, policy.LocalMinuteOfDay)) return null;
-        var sources = await LoadAsync(db, today, policy.LeadDays, ct);
+        if (policy?.Enabled != true || policy.Category != "OutstandingDigest" ||
+            now < WhatsAppStaffNotifications.LocalDayDueAt(today, policy.LocalMinuteOfDay)) return null;
+        sources ??= await LoadAsync(db, today, policy.LeadDays, ct);
         return Project(sources, today, policy.LeadDays, queued.StaffUserId, queued.RequiredStaffRole, workboardUrl,
             queued.Language);
     }

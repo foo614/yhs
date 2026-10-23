@@ -96,8 +96,7 @@ public static class WhatsAppNotificationDispatcher
             await EnsureUsageAsync(db, monthly, ct);
             var day = await db.WhatsAppDispatchUsage.AsNoTracking().SingleAsync(row => row.Period == daily, ct);
             var month = await db.WhatsAppDispatchUsage.AsNoTracking().SingleAsync(row => row.Period == monthly, ct);
-            if (day.Attempts >= limits.DailyAttemptLimit ||
-                month.ReservedCostSen > limits.MonthlyBudgetSen - limits.MaximumCostPerAttemptSen)
+            if (BudgetBlockReason(options, day.Attempts, month.ReservedCostSen) is not null)
             {
                 await db.SaveChangesAsync(ct);
                 await claim.CommitAsync(ct);
@@ -181,6 +180,18 @@ public static class WhatsAppNotificationDispatcher
         await db.SaveChangesAsync(CancellationToken.None);
         await submission.CommitAsync(CancellationToken.None);
         return true;
+    }
+
+    internal static string? BudgetBlockReason(WhatsAppDispatchOptions options, long dailyAttempts, long monthlyReservedCostSen)
+    {
+        if (options.DailyAttemptLimit <= 0 || options.MonthlyBudgetSen <= 0 || options.MaximumCostPerAttemptSen <= 0 ||
+            options.MaximumCostPerAttemptSen > options.MonthlyBudgetSen)
+            return "Sending limits are not configured. Ask an operator to review the sending budget.";
+        if (monthlyReservedCostSen > options.MonthlyBudgetSen - options.MaximumCostPerAttemptSen)
+            return "Monthly sending budget has no room for another attempt. Ask an operator to review the monthly budget.";
+        if (dailyAttempts >= options.DailyAttemptLimit)
+            return "Daily sending attempt limit reached. Ask an operator to review the limit; reminders expire at midnight.";
+        return null;
     }
 
     private static Task<int> EnsureUsageAsync(AppDbContext db, string period, CancellationToken ct) => db.Database.ExecuteSqlInterpolatedAsync($"""

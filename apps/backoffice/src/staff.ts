@@ -1,7 +1,18 @@
-import type { CreateStaffUserRequest, ResetStaffPasswordRequest, StaffRole, StaffUser, UpdateStaffUserRequest } from "./api";
+import type { CreateStaffUserRequest, ResetStaffPasswordRequest, StaffRole, StaffUser, StaffWhatsAppConnection, UpdateStaffUserRequest } from "./api";
 import { canAssignStaffRoles } from "./access";
 
 export type StaffStatusFilter = "All" | "Active" | "Disabled";
+
+export function staffWhatsAppStatusLabel(state?: StaffWhatsAppConnection["state"]) {
+  switch (state) {
+    case "Connected": return "Connected / 已连接";
+    case "Disconnected": return "Not connected / 未连接";
+    case "AwaitingVerification": return "Awaiting verification / 待验证";
+    case "RelinkRequired": return "Reconnect required / 需重新连接";
+    case "Disabled": return "Service unavailable / 服务未启用";
+    default: return "Status unavailable / 状态未知";
+  }
+}
 
 export type StaffUserFilters = {
   keyword?: string;

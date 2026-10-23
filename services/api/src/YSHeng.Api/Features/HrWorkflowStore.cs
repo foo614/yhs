@@ -111,9 +111,9 @@ public static class HrWorkflowStore
     }
 
     private static bool IsLocked(HrPayslip slip, HrPayPeriod period, DateOnly today) =>
-        slip.Status != HrPayslipStatus.Draft && !IsLegacyGeneratedRebuildable(slip, period, today);
+        IsLocked(slip.Status, slip.GeneratedAt, period.EndDate, today);
 
-    private static bool IsLegacyGeneratedRebuildable(HrPayslip slip, HrPayPeriod period, DateOnly today) =>
-        slip.Status == HrPayslipStatus.Generated &&
-        (period.EndDate >= today || HrWorkflowRules.LocalDate(slip.GeneratedAt) <= period.EndDate);
+    internal static bool IsLocked(HrPayslipStatus status, DateTime generatedAt, DateOnly periodEnd, DateOnly today) =>
+        status != HrPayslipStatus.Draft && !(status == HrPayslipStatus.Generated &&
+            (periodEnd >= today || HrWorkflowRules.LocalDate(generatedAt) <= periodEnd));
 }
