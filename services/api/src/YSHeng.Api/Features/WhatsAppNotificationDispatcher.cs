@@ -11,7 +11,8 @@ public static class WhatsAppNotificationDispatcher
           item.MessageKind == "StaffInvitation" && item.StaffBindingId is null && item.StaffUserId is not null &&
           item.TemplateReference == WhatsAppStaffInvitation.ReferenceFor(item.Language)
         : item.Audience == "Staff"
-        ? item.EventKind == "staff.notification" && item.TemplateVersion == "staff_notice_v1" &&
+        ? item.EventKind == "staff.notification" && (item.TemplateVersion == "staff_notice_v1" ||
+          WhatsAppReminderV2.Known(item.TemplateVersion) && WhatsAppReminderV2.KeyFor(item) == item.TemplateVersion) &&
           WhatsAppStaffNotifications.Categories.Contains(item.MessageKind)
         : item.Audience == "Customer" && (item.EventKind, item.TemplateVersion) is
           ("enquiry.created", "enquiry_ack_v1") or ("loan.status_changed", "business_update_v1") or ("receipt.issued", "receipt_ready_v1");
@@ -131,6 +132,8 @@ public static class WhatsAppNotificationDispatcher
             currentStaffFacts, refreshStaff, lockBinding: true) : null;
         var staffEligible = refreshed is not null;
         if (refreshed is not null) candidate = refreshed;
+        if (refreshed is not null && refreshStaff is not null)
+            candidate = await WhatsAppReminderV2.SelectAsync(db, options, candidate, now, ct);
         var invitationEligible = candidate.Audience == "Enrollment" && assistant is not null &&
             await WhatsAppStaffInvitation.EligibleAsync(db, candidate, assistant, options, now, ct, lockChallenge: true);
         var owned = await db.WhatsAppOutbox.AnyAsync(row => row.Id == candidate.Id && row.Attempts == attempt && row.State == "Sending", ct);
@@ -147,11 +150,15 @@ public static class WhatsAppNotificationDispatcher
                 {
                     var approvedTemplate = options.TemplateFor(candidate)!;
                     await db.WhatsAppOutbox.Where(row => row.Id == candidate.Id && row.State == "Sending")
-                        .ExecuteUpdateAsync(set => set.SetProperty(row => row.TemplateReference, candidate.TemplateReference)
-                            .SetProperty(row => row.Body, candidate.Body)
-                            .SetProperty(row => row.SubmittedBody, candidate.TemplateReference)
+                        .ExecuteUpdateAsync(set => set.SetProperty(row => row.TemplateReference, row =>
+                                WhatsAppReminderV2.Known(candidate.TemplateVersion) ? row.TemplateReference : candidate.TemplateReference)
+                            .SetProperty(row => row.Body, row =>
+                                WhatsAppReminderV2.Known(candidate.TemplateVersion) ? row.Body : candidate.Body)
+                            .SetProperty(row => row.SubmittedBody,
+                                WhatsAppReminderV2.Known(candidate.TemplateVersion) ? candidate.Body : candidate.TemplateReference)
                             .SetProperty(row => row.SubmittedTemplateName, approvedTemplate.Name)
-                            .SetProperty(row => row.SubmittedLanguage, approvedTemplate.Language), ct);
+                            .SetProperty(row => row.SubmittedLanguage, WhatsAppReminderV2.Known(candidate.TemplateVersion)
+                                ? approvedTemplate.EffectiveProviderLanguage : approvedTemplate.Language), ct);
                 }
                 result = await send(options, candidate, ct);
             }

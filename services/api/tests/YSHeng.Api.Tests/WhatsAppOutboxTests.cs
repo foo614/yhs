@@ -24,6 +24,160 @@ public sealed class WhatsAppOutboxTests
     private const long Now = 1800000000;
 
     [Theory]
+    [InlineData("approved")]
+    [InlineData("missing")]
+    [InlineData("unapproved")]
+    [InlineData("wrong-body")]
+    [InlineData("wrong-origin")]
+    [InlineData("wrong-language")]
+    [InlineData("duplicate")]
+    public async Task Reminder_v2_activation_preserves_full_counts_privacy_and_one_daily_send(string mode)
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        var now = WhatsAppStaffNotifications.LocalDayDueAt(day, 600);
+        foreach (var category in new[] { "OutstandingDigest", "LeaveApproval", "AttendanceSummary" })
+            await WhatsAppStaffNotifications.UpdatePolicyAsync(db, category, new(true, 0, category == "OutstandingDigest" ? 3 : 0, 0), "admin", now);
+        for (var index = 0; index < 12; index++)
+        {
+            db.SettlementReminders.Add(new SettlementReminder { Deadline = day.AddDays(-index), Amount = 50000,
+                Direction = SettlementDirection.PaySeller });
+            db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "PRIVATE_STAFF", StartDate = day.AddDays(index),
+                EndDate = day.AddDays(index), Days = 1, Reason = "PRIVATE_MEDICAL_REASON" });
+        }
+        db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "staff-notification", StartDate = day.AddDays(-1), EndDate = day, Days = 2 });
+        db.SettlementReminders.Add(new SettlementReminder { Deadline = day, Amount = 1234.5m, Direction = SettlementDirection.CollectFromSeller });
+        db.SettlementReminders.Add(new SettlementReminder { Deadline = day, Amount = 99999, Direction = SettlementDirection.InternalOffset });
+        db.SettlementReminders.Add(new SettlementReminder { Deadline = day, Amount = 99999, IsPaid = true, Direction = SettlementDirection.PaySeller });
+        db.DailySpends.Add(new DailySpend { DueDate = day, Amount = 20 });
+        await db.SaveChangesAsync();
+        await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(db, assistant, now, "scheduler");
+        await WhatsAppHrNotifications.EnqueueCurrentDayAsync(db, assistant, now, "scheduler");
+        var entries = new List<WhatsAppApprovedTemplate>(StaffDispatch().Templates);
+        foreach (var key in new[] { WhatsAppReminderV2.Due, WhatsAppReminderV2.Leave, WhatsAppReminderV2.Attendance })
+        {
+            if (mode == "missing") continue;
+            var language = mode == "wrong-language" ? "en_US" : "ms";
+            var entry = new WhatsAppApprovedTemplate { Key = key, Name = key, Language = language,
+                Approved = mode != "unapproved", ApprovalEvidence = "synthetic exact-body and button approval",
+                BodyText = mode == "wrong-body" ? "Unapproved text" : WhatsAppReminderV2.BodyText(key, language),
+                PortalUrl = (mode == "wrong-origin" ? "https://wrong.example.test" : "https://yshenghub.com.my") +
+                    (key == WhatsAppReminderV2.Due ? "/dashboard" : "/hr-salary") };
+            entries.Add(entry);
+            if (mode == "duplicate") entries.Add(entry);
+        }
+        var dispatch = StaffDispatch(entries.ToArray());
+        var submitted = new List<WhatsAppOutbox>();
+        for (var index = 0; index < 3; index++)
+            Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, dispatch, (item, _) =>
+            {
+                submitted.Add(item);
+                if (mode == "approved")
+                {
+                    Assert.True(WhatsAppReminderV2.Known(item.TemplateVersion));
+                    Assert.NotNull(WhatsAppReminderV2.Parameters(item));
+                    Assert.DoesNotContain(';', item.Body);
+                    Assert.DoesNotContain("PRIVATE", item.TemplateReference);
+                    Assert.DoesNotContain("PRIVATE", item.Body);
+                }
+                else Assert.Equal("staff_notice_v1", item.TemplateVersion);
+                return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.v2-" + item.MessageKind));
+            }, now, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        if (mode == "approved")
+        {
+            var due = submitted.Single(item => item.MessageKind == "OutstandingDigest");
+            Assert.Equal(new[] { "14", "11", "12", "RM600,000", "1", "RM1,234.50", "1" }, WhatsAppReminderV2.Parameters(due)![2..]);
+            var leave = submitted.Single(item => item.MessageKind == "LeaveApproval");
+            Assert.Equal("12", WhatsAppReminderV2.Parameters(leave)![1]);
+            Assert.Equal(WhatsAppReminderV2.Parameters(leave)![0], WhatsAppReminderV2.Parameters(leave)![2]);
+        }
+        // Reopening with the opposite config simulates activation/rollback and worker restart.
+        await using var restarted = fixture.Open();
+        await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(restarted, assistant, now, "scheduler-restart");
+        await WhatsAppHrNotifications.EnqueueCurrentDayAsync(restarted, assistant, now, "scheduler-restart");
+        Assert.Equal(3, await restarted.WhatsAppOutbox.CountAsync());
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(restarted, StaffDispatch(), (_, _) =>
+            throw new InvalidOperationException("Already accepted daily event must not send again"), now,
+            assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.All(await restarted.WhatsAppOutbox.AsNoTracking().ToListAsync(), row =>
+        {
+            Assert.Equal("staff_notice_v1", row.TemplateVersion);
+            Assert.Equal(1, row.Attempts);
+            Assert.Equal("Accepted", row.State);
+            Assert.NotNull(row.SubmittedBody);
+            Assert.Equal(mode == "approved", WhatsAppReminderV2.Known(row.SubmittedTemplateName!));
+        });
+    }
+
+    [Fact]
+    public async Task Reminder_v2_sales_summary_contains_only_assigned_deliveries_and_no_finance()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        var vehicle = new Vehicle { SalesAgentUserId = "sales", PlateNumber = "PRIVATE_PLATE" };
+        var other = new Vehicle { SalesAgentUserId = "other" };
+        db.Vehicles.AddRange(vehicle, other);
+        db.DeliverySchedules.AddRange(new DeliverySchedule { VehicleId = vehicle.Id, ScheduledDate = day, Status = DeliveryStatus.Scheduled },
+            new DeliverySchedule { VehicleId = other.Id, ScheduledDate = day, Status = DeliveryStatus.Scheduled });
+        db.SettlementReminders.Add(new SettlementReminder { Deadline = day, Amount = 99999, Direction = SettlementDirection.PaySeller });
+        await db.SaveChangesAsync();
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 0, 3, 0), "admin", Now);
+        var template = new WhatsAppApprovedTemplate { Key = WhatsAppReminderV2.Delivery, Name = WhatsAppReminderV2.Delivery,
+            Language = "en_US", Approved = true, ApprovalEvidence = "synthetic approval",
+            BodyText = WhatsAppReminderV2.BodyText(WhatsAppReminderV2.Delivery, "en_US"), PortalUrl = "https://yshenghub.com.my/delivery" };
+        var current = new WhatsAppOutbox { Audience = "Staff", EventKind = "staff.notification", MessageKind = "OutstandingDigest",
+            StaffUserId = "sales", RequiredStaffRole = "Sales", Language = "en_US" };
+        var selected = await WhatsAppReminderV2.SelectAsync(db, StaffDispatch(template), current, Now);
+        Assert.Equal(new[] { "1", "0" }, WhatsAppReminderV2.Parameters(selected)![2..]);
+        Assert.DoesNotContain("99999", selected.TemplateReference);
+        Assert.DoesNotContain("PRIVATE", selected.Body);
+        Assert.Null(WhatsAppReminderV2.Parameters(selected with { RequiredStaffRole = "Finance" }));
+    }
+
+    [Theory]
+    [InlineData("RateLimited", "RetryScheduled", true)]
+    [InlineData("UnknownOutcome", "UnknownOutcome", false)]
+    [InlineData("Rejected", "DeadLetter", false)]
+    public async Task Reminder_v2_never_falls_back_after_submission_and_only_explicit_rate_rejection_can_retry(
+        string outcome, string state, bool retry)
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        var now = WhatsAppStaffNotifications.LocalDayDueAt(day, 600);
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 0, 3, 0), "admin", now);
+        db.DailySpends.Add(new DailySpend { DueDate = day, Amount = 20 });
+        await db.SaveChangesAsync();
+        await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(db, assistant, now, "scheduler");
+        var templates = StaffDispatch().Templates.Append(new WhatsAppApprovedTemplate { Key = WhatsAppReminderV2.Due,
+            Name = WhatsAppReminderV2.Due, Language = "ms", Approved = true, ApprovalEvidence = "synthetic approval",
+            BodyText = WhatsAppReminderV2.BodyText(WhatsAppReminderV2.Due, "ms"), PortalUrl = "https://yshenghub.com.my/dashboard" }).ToArray();
+        var calls = 0;
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(templates), (item, _) =>
+        {
+            calls++;
+            Assert.Equal(WhatsAppReminderV2.Due, item.TemplateVersion);
+            return Task.FromResult(new WhatsAppSendResult(outcome));
+        }, now, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.Equal(1, calls);
+        Assert.Equal(state, (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
+        Assert.Equal(retry, await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (item, _) =>
+        {
+            calls++;
+            Assert.Equal("staff_notice_v1", item.TemplateVersion);
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.after-rollback"));
+        }, now + 300, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.Equal(retry ? 2 : 1, calls);
+        Assert.Equal(1, await db.WhatsAppOutbox.CountAsync());
+    }
+
+    [Theory]
     [InlineData(true, "Monthly sending budget")]
     [InlineData(false, "Daily sending attempt limit")]
     public async Task Staff_history_explains_exhausted_budget_without_sending_or_reserving_more(bool monthly, string reason)
