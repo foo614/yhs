@@ -134,8 +134,8 @@ for (const [id, state, waitingReason] of [
   ...fixtures["/api/whatsapp/staff/history"].items[1], id, state, waitingReason
 });
 fixtures["/api/whatsapp/staff/history"].total = fixtures["/api/whatsapp/staff/history"].items.length;
-const fixtureTemplate = fixtures;
-const emptyCollectionTemplate = emptyCollections;
+export const fixtureTemplate = fixtures;
+export const emptyCollectionTemplate = emptyCollections;
 
 export async function runResponsiveWidth({ page, context, width, output, visualEvidence = false }) {
   const fixtureState = structuredClone(fixtureTemplate);

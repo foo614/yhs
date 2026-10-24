@@ -12,6 +12,8 @@ export type CollectionStatus = "Pending" | "Reconciled" | "Reversed";
 export type FinancingStatus = "NotApplicable" | "Pending" | "Approved" | "Disbursed";
 export type ReceivableStatus = "Draft" | "WaitingForApproval" | "ReadyToCollect" | "PartiallyPaid" | "Paid" | "AttentionNeeded";
 export type PaymentVoucherStatus = "Pending" | "Approved" | "Paid";
+export type FinanceRegisterKey = "dailySpends" | "brokerCommissions" | "debtRecoveries" | "paymentVouchers";
+export type FinanceRegisterLoadState = Record<FinanceRegisterKey, { loading: boolean; error: string | null }>;
 export type DisbursementMethod = "BankTransfer" | "Cheque" | "Cash" | "Other";
 export type SupplierStatus = "Active" | "Inactive";
 export type PurchaseInvoiceLineType = "VehiclePurchase" | "PurchaseProcessing" | "LatePaymentCharge" | "Parking" | "Transport" | "Refurbishment" | "Other";
@@ -1799,6 +1801,10 @@ export async function getPurchaseInvoices(): Promise<PurchaseInvoice[]> {
   return getWithNetworkFallback("/api/purchase-invoices", fallbackPurchaseInvoices());
 }
 
+export async function getPurchaseInvoicesStrict(): Promise<PurchaseInvoice[]> {
+  return request<PurchaseInvoice[]>("/api/purchase-invoices");
+}
+
 export async function getSuppliers(): Promise<SupplierSummary[]> {
   return getWithNetworkFallback("/api/suppliers", []);
 }
@@ -1880,23 +1886,23 @@ export async function getSettlementDrafts(): Promise<SettlementDraft[]> {
 }
 
 export async function getDailySpends(): Promise<DailySpend[]> {
-  return getWithNetworkFallback("/api/daily-spends", []);
+  return request<DailySpend[]>("/api/daily-spends");
 }
 
 export async function getBrokerCommissions(): Promise<BrokerCommission[]> {
-  return getWithNetworkFallback("/api/broker-commissions", []);
+  return request<BrokerCommission[]>("/api/broker-commissions");
 }
 
 export async function getDebtRecoveries(): Promise<DebtRecoveryCase[]> {
-  return getWithNetworkFallback("/api/debt-recoveries", []);
+  return request<DebtRecoveryCase[]>("/api/debt-recoveries");
 }
 
 export async function getPaymentVouchers(): Promise<PaymentVoucher[]> {
-  return getWithNetworkFallback("/api/payment-vouchers", []);
+  return request<PaymentVoucher[]>("/api/payment-vouchers");
 }
 
 export async function getDeliveryAccountingCharges(): Promise<DeliveryAccountingCharge[]> {
-  return getWithNetworkFallback("/api/delivery-accounting-charges", []);
+  return request<DeliveryAccountingCharge[]>("/api/delivery-accounting-charges");
 }
 
 export async function confirmDeliveryAccountingCharge(chargeId: string): Promise<DeliveryAccountingCharge> {
@@ -2883,6 +2889,27 @@ export async function getProtectedFileContent(url: string, errorMessage = "Unabl
   }
 
   return response.blob();
+}
+
+export async function getProtectedFileDownload(url: string, errorMessage = "Unable to download file"): Promise<{ blob: Blob; fileName?: string }> {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `${errorMessage} (${response.status})`));
+  }
+
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const plainName = /(?:^|;)\s*filename\s*=\s*(?:"([^"]*)"|([^;]*))/i.exec(disposition);
+  const encodedName = /(?:^|;)\s*filename\*\s*=\s*(?:UTF-8'[^']*')?([^;]+)/i.exec(disposition);
+  let fileName = plainName?.[1] ?? plainName?.[2];
+  if (encodedName) {
+    try {
+      fileName = decodeURIComponent(encodedName[1].trim().replace(/^"|"$/g, ""));
+    } catch {
+      // Keep the ordinary filename when the server's encoded value is malformed.
+    }
+  }
+  fileName = fileName?.replace(/[\u0000-\u001f\u007f/\\]/g, "").trim() || undefined;
+  return { blob: await response.blob(), fileName };
 }
 
 async function requestWithNetworkFallback<T = unknown>(
