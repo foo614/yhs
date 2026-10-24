@@ -258,19 +258,19 @@ backOffice.MapGet("/whatsapp/staff/diagnostics", async (AppDbContext db, HttpCon
     return Results.Ok(await WhatsAppStaffNotifications.DiagnosticsAsync(db, whatsappAssistant,
         DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
 }).RequireAuthorization("BossAdmin");
-backOffice.MapGet("/whatsapp/staff/budget", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
+backOffice.MapGet("/whatsapp/staff/limits", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
 {
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(await WhatsAppDispatchBudget.ViewAsync(db, whatsappDispatch,
         DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
 }).RequireAuthorization("BossAdmin");
-backOffice.MapPut("/whatsapp/staff/budget", async (WhatsAppDispatchBudgetUpdate request,
+backOffice.MapPut("/whatsapp/staff/limits", async (WhatsAppDispatchLimitsUpdate request,
     AppDbContext db, HttpContext context, CancellationToken ct) =>
 {
     var updated = await WhatsAppDispatchBudget.UpdateAsync(db, request, AuditTrail.ActorFrom(context.User),
         DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct);
-    return updated ? Results.Ok(new { message = "WhatsApp sending budget saved." })
-        : Results.BadRequest(new ApiError("Limits must be positive and the maximum cost per attempt cannot exceed the monthly budget."));
+    return updated ? Results.Ok(new { message = "WhatsApp daily provider-attempt limit saved." })
+        : Results.BadRequest(new ApiError("Daily provider-attempt limit must be positive."));
 }).RequireAuthorization("BossAdmin");
 backOffice.MapPut("/whatsapp/staff/policies/{category}", async (string category, WhatsAppStaffPolicyUpdate request,
     AppDbContext db, HttpContext context, CancellationToken ct) =>

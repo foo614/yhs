@@ -731,7 +731,8 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.Equal("staff_invite_v1", invitation.TemplateVersion);
         Assert.DoesNotContain(link.Command[5..], invitation.Body);
         Assert.DoesNotContain(link.Command[5..], invitation.TemplateReference);
-        Assert.Equal(fixture.Now + 600, invitation.ExpiresAt);
+        Assert.Equal(link.ExpiresAt, invitation.ExpiresAt);
+        Assert.Equal(600L, invitation.ExpiresAt - invitation.CreatedAt);
         var status = await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options, "staff", fixture.Now, dispatch: dispatch);
         Assert.Equal("AwaitingVerification", status.State);
         Assert.Equal("Queued", status.InvitationState);

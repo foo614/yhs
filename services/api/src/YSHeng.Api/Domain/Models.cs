@@ -1008,6 +1008,7 @@ public sealed record WhatsAppDispatchUsage
 {
     public string Period { get; init; } = "";
     public long Attempts { get; init; }
+    // Historical modeled reservations only; no longer written or used as billing or a dispatch gate.
     public long ReservedCostSen { get; init; }
 }
 
@@ -1015,6 +1016,7 @@ public sealed record WhatsAppDispatchBudgetSetting
 {
     public string Key { get; init; } = "default";
     public int DailyAttemptLimit { get; init; }
+    // Inert legacy columns retained to preserve existing data without a destructive migration.
     public long MonthlyBudgetSen { get; init; }
     public long MaximumCostPerAttemptSen { get; init; }
     public long UpdatedAt { get; init; }

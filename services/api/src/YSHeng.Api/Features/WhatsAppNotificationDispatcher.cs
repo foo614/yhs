@@ -37,7 +37,7 @@ public static class WhatsAppNotificationDispatcher
         var attempt = 0;
         await using (var claim = await db.Database.BeginTransactionAsync(ct))
         {
-            // A shared database row serializes claims AND budget reservations across API replicas.
+            // A shared database row serializes claims and daily attempt allocation across API replicas.
             // Both PostgreSQL and the isolated SQLite test database support this insert.
             await EnsureUsageAsync(db, "dispatch-lock", ct);
             await db.WhatsAppDispatchUsage.Where(row => row.Period == "dispatch-lock")
@@ -48,7 +48,7 @@ public static class WhatsAppNotificationDispatcher
                 await claim.CommitAsync(ct);
                 return false;
             }
-            options = options.WithBudgetLimits(limits);
+            options = options.WithLimits(limits);
             var stale = await db.WhatsAppOutbox.Where(row => row.EventKind != "test" && row.State == "Sending" && row.LeaseUntil <= now)
                 .Select(row => row.Id).ToListAsync(ct);
             foreach (var id in stale)
@@ -89,15 +89,12 @@ public static class WhatsAppNotificationDispatcher
                 await claim.CommitAsync(ct);
                 return true;
             }
-            // Malaysia calendar boundaries; every attempted request reserves the reviewed worst-case cost.
+            // Malaysia calendar boundaries; count allocated provider attempts, never estimated charges.
             var date = DateTimeOffset.FromUnixTimeSeconds(now).ToOffset(TimeSpan.FromHours(8));
             var daily = "day:" + date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-            var monthly = "month:" + date.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
             await EnsureUsageAsync(db, daily, ct);
-            await EnsureUsageAsync(db, monthly, ct);
             var day = await db.WhatsAppDispatchUsage.AsNoTracking().SingleAsync(row => row.Period == daily, ct);
-            var month = await db.WhatsAppDispatchUsage.AsNoTracking().SingleAsync(row => row.Period == monthly, ct);
-            if (BudgetBlockReason(options, day.Attempts, month.ReservedCostSen) is not null)
+            if (DailyLimitBlockReason(options.DailyAttemptLimit, day.Attempts) is not null)
             {
                 await db.SaveChangesAsync(ct);
                 await claim.CommitAsync(ct);
@@ -113,17 +110,15 @@ public static class WhatsAppNotificationDispatcher
                 await claim.CommitAsync(ct);
                 return true;
             }
-            foreach (var period in new[] { daily, monthly })
-                await db.WhatsAppDispatchUsage.Where(row => row.Period == period).ExecuteUpdateAsync(set =>
-                    set.SetProperty(row => row.Attempts, row => row.Attempts + 1)
-                    .SetProperty(row => row.ReservedCostSen, row => row.ReservedCostSen + limits.MaximumCostPerAttemptSen), ct);
+            await db.WhatsAppDispatchUsage.Where(row => row.Period == daily).ExecuteUpdateAsync(set =>
+                set.SetProperty(row => row.Attempts, row => row.Attempts + 1), ct);
             Audit(db, candidate.Id, "Sending");
             await db.SaveChangesAsync(ct);
             await claim.CommitAsync(ct);
         }
 
         // Serialize the final consent decision with withdrawal, separately from the business transaction.
-        // This per-recipient lock lasts at most the bounded provider request, never the global budget lock.
+        // This per-recipient lock lasts at most the bounded provider request, never the global dispatch lock.
         await using var submission = await db.Database.BeginTransactionAsync(ct);
         var consented = candidate.Audience == "Customer" && await db.WhatsAppConsents
             .Where(row => row.Recipient == candidate.Recipient && row.OptedIn && row.Language == candidate.Language)
@@ -189,15 +184,12 @@ public static class WhatsAppNotificationDispatcher
         return true;
     }
 
-    internal static string? BudgetBlockReason(WhatsAppDispatchOptions options, long dailyAttempts, long monthlyReservedCostSen)
+    internal static string? DailyLimitBlockReason(int dailyLimit, long dailyAttempts)
     {
-        if (options.DailyAttemptLimit <= 0 || options.MonthlyBudgetSen <= 0 || options.MaximumCostPerAttemptSen <= 0 ||
-            options.MaximumCostPerAttemptSen > options.MonthlyBudgetSen)
-            return "Sending limits are not configured. Ask an operator to review the sending budget.";
-        if (monthlyReservedCostSen > options.MonthlyBudgetSen - options.MaximumCostPerAttemptSen)
-            return "Monthly sending budget has no room for another attempt. Ask an operator to review the monthly budget.";
-        if (dailyAttempts >= options.DailyAttemptLimit)
-            return "Daily sending attempt limit reached. Ask an operator to review the limit; reminders expire at midnight.";
+        if (dailyLimit <= 0)
+            return "Daily provider-attempt limit is not configured. Ask an admin to review sending limits.";
+        if (dailyAttempts >= dailyLimit)
+            return "Daily provider-attempt limit reached. Ask an admin to review the limit; reminders may expire before the next day.";
         return null;
     }
 
