@@ -3115,19 +3115,36 @@ public sealed class BusinessRulesTests
     public void Reminder_inbox_combines_loan_settlement_and_delivery_alerts()
     {
         var vehicleId = Guid.NewGuid();
+        var sourceIds = Enumerable.Range(0, 7).Select(_ => Guid.NewGuid()).ToArray();
         var today = new DateOnly(2026, 6, 1);
         var reminders = ReminderInbox.Create(
-            [new LoanApplication { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = Guid.NewGuid(), Status = LoanStatus.Pending, SubmittedAt = today.AddDays(-3) }],
-            [new DeliverySchedule { Id = Guid.NewGuid(), VehicleId = vehicleId, Pic = "Ah Ming", Status = DeliveryStatus.Scheduled, ScheduledDate = today.AddDays(2) }],
-            [new SettlementReminder { Id = Guid.NewGuid(), VehicleId = vehicleId, Amount = 25000m, Deadline = today, IsPaid = false }],
-            [new PaymentRecord { Id = Guid.NewGuid(), VehicleId = vehicleId, NettPrice = 58000m, Status = PaymentStatus.Disbursed, BankName = "Maybank", BankFollowUpDate = today, CreatedAt = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc) }],
-            [new DailySpend { Id = Guid.NewGuid(), Description = "Electric Bill", Amount = 480m, DueDate = today, IsPaid = false }],
-            [new DebtRecoveryCase { Id = Guid.NewGuid(), VehicleId = vehicleId, CustomerId = Guid.NewGuid(), BalanceAmount = 3200m, Status = DebtRecoveryStatus.Open, FollowUpDate = today }],
-            [new PaymentVoucher { Id = Guid.NewGuid(), VehicleId = vehicleId, PayeeName = "Driver", Amount = 180m, Purpose = "Outstation Pickup Allowance", IssuedDate = today, Status = PaymentVoucherStatus.Pending }],
+            [new LoanApplication { Id = sourceIds[0], VehicleId = vehicleId, CustomerId = Guid.NewGuid(), Status = LoanStatus.Pending, SubmittedAt = today.AddDays(-3) }],
+            [new DeliverySchedule { Id = sourceIds[1], VehicleId = vehicleId, Pic = "Ah Ming", Status = DeliveryStatus.Scheduled, ScheduledDate = today.AddDays(2) }],
+            [new SettlementReminder { Id = sourceIds[2], VehicleId = vehicleId, Amount = 25000m, Deadline = today, IsPaid = false }],
+            [new PaymentRecord { Id = sourceIds[3], VehicleId = vehicleId, NettPrice = 58000m, Status = PaymentStatus.Disbursed, BankName = "Maybank", BankFollowUpDate = today, CreatedAt = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc) }],
+            [new DailySpend { Id = sourceIds[4], Description = "Electric Bill", Amount = 480m, DueDate = today, IsPaid = false }],
+            [new DebtRecoveryCase { Id = sourceIds[5], VehicleId = vehicleId, CustomerId = Guid.NewGuid(), BalanceAmount = 3200m, Status = DebtRecoveryStatus.Open, FollowUpDate = today }],
+            [new PaymentVoucher { Id = sourceIds[6], VehicleId = vehicleId, PayeeName = "Driver", Amount = 180m, Purpose = "Outstation Pickup Allowance", IssuedDate = today, Status = PaymentVoucherStatus.Pending }],
             [VehicleSeed.Available(publicVisible: true) with { Id = vehicleId, PlateNumber = "VPK1234" }],
             today);
 
         Assert.Equal(8, reminders.Count);
+        var expectedSources = new Dictionary<string, (string Type, Guid Id)>
+        {
+            ["LoanFollowUp"] = (nameof(LoanApplication), sourceIds[0]),
+            ["DeliveryPreparation"] = (nameof(DeliverySchedule), sourceIds[1]),
+            ["SettlementDue"] = (nameof(SettlementReminder), sourceIds[2]),
+            ["PaymentBankFollowUp"] = (nameof(PaymentRecord), sourceIds[3]),
+            ["PaymentStatusFollowUp"] = (nameof(PaymentRecord), sourceIds[3]),
+            ["DailySpendDue"] = (nameof(DailySpend), sourceIds[4]),
+            ["DebtRecoveryFollowUp"] = (nameof(DebtRecoveryCase), sourceIds[5]),
+            ["PaymentVoucherFollowUp"] = (nameof(PaymentVoucher), sourceIds[6])
+        };
+        Assert.All(reminders, reminder =>
+        {
+            Assert.Equal(expectedSources[reminder.Type].Type, reminder.SourceType);
+            Assert.Equal(expectedSources[reminder.Type].Id, reminder.SourceId);
+        });
         Assert.Contains(reminders, reminder => reminder.Type == "LoanFollowUp" && reminder.VehiclePlate == "VPK1234");
         Assert.Contains(reminders, reminder => reminder.Type == "DeliveryPreparation" && reminder.DueDate == today.AddDays(2));
         Assert.Contains(reminders, reminder => reminder.Type == "SettlementDue" && reminder.Amount == 25000m);
@@ -3204,6 +3221,37 @@ public sealed class BusinessRulesTests
         Assert.Contains(actions, action => action.Type == "LoanFollowUp" && action.Target == "Loans");
         Assert.Contains(actions, action => action.Type == "LeaveApproval" && action.Target == "HrSalary");
         Assert.DoesNotContain(actions, action => action.Target is "Delivery" or "Finance" or "Leads" or "Repairs");
+    }
+
+    [Fact]
+    public void Priority_actions_preserve_source_identity_for_similar_records_without_expanding_roles()
+    {
+        var today = new DateOnly(2026, 6, 1);
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), PlateNumber = "TEST1" };
+        var loans = Enumerable.Range(0, 2).Select(_ => new LoanApplication
+        {
+            Id = Guid.NewGuid(), VehicleId = vehicle.Id, CustomerId = Guid.NewGuid(),
+            Status = LoanStatus.Pending, SubmittedAt = today.AddDays(-3)
+        }).ToArray();
+        var leaves = Enumerable.Range(0, 2).Select(_ => new HrLeaveRequest
+        {
+            Id = Guid.NewGuid(), StaffUserId = "private-staff", Reason = "Private reason",
+            Status = HrLeaveStatus.Pending, StartDate = today, EndDate = today, Days = 1m
+        }).ToArray();
+        var actions = PriorityActionQueue.Create(["Loan", "HrSalary"], loans, [], [], [], [], [], [], [], [], leaves, [vehicle], today);
+        var reminders = ReminderInbox.Create(loans, [], [], [], [], [], [], [vehicle], today);
+
+        Assert.Equal(4, actions.Count);
+        Assert.Equal(4, actions.Select(action => (action.Type, action.SourceType, action.SourceId)).Distinct().Count());
+        Assert.All(reminders, reminder => Assert.Contains(actions, action =>
+            action.Type == reminder.Type && action.SourceType == reminder.SourceType && action.SourceId == reminder.SourceId && action.VehicleId == vehicle.Id));
+        Assert.All(actions.Where(action => action.Type == "LeaveApproval"), action =>
+        {
+            Assert.Equal(nameof(HrLeaveRequest), action.SourceType);
+            Assert.Equal(leaves[0].Type.ToString(), action.Subject);
+            Assert.Null(action.VehicleId);
+        });
+        Assert.Empty(PriorityActionQueue.Create([], loans, [], [], [], [], [], [], [], [], leaves, [vehicle], today));
     }
 
     [Fact]

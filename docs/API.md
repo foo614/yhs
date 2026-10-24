@@ -542,6 +542,8 @@ The portal labels sales as vehicle counts and calculated vehicle margin separate
 | `PUT` | `/api/admin/users/{id}/status` | `BossAdmin` | Enable/disable staff user. |
 | `PUT` | `/api/admin/users/{id}/roles` | `BossAdmin` | Replace staff role assignments. |
 
+Reminder and priority-action items include additive `sourceType` and `sourceId` fields identifying the originating record; priority actions also include a nullable `vehicleId`. The portal merges a reminder and department action only when action `type`, `sourceType`, and `sourceId` match. Different follow-up kinds on one record remain separate. Legacy items without a complete, nonzero identity remain separate rather than being matched by title, subject, vehicle, or date. The merged row retains the more specific destination. Loan and Delivery actions open their exact `loanId` or `deliveryId`; older responses fall back to vehicle or module routes. Finance invoice-update actions retain their Finance destination. Role filtering and reminder eligibility are unchanged; identity fields add no staff names or leave reasons.
+
 ## Enum Values
 
 - `StockOwner`: `YSHeng`, `KS`
