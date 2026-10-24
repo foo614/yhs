@@ -7439,6 +7439,12 @@ body {
 .dashboardCollectionCategory { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 
 /* Catalogue editing stays separate from the list on every viewport. */
+.vehicleCatalogSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .vehicleCatalogSaveError {
   margin-bottom: 24px;
 }

@@ -757,6 +757,8 @@ try {
           await dialog.getByRole("button", { name: "Create option", exact: true }).click();
           await expect(dialog.getByText("This make and model already exists.", { exact: true })).toBeVisible();
           await expect(modelInput()).toHaveValue("DUPLICATE");
+          await expect(dialog.getByRole("button", { name: "Create option", exact: true })).not.toHaveClass(/\bant-btn-loading\b/);
+          await expect(dialog.getByRole("button", { name: "Create option", exact: true })).toHaveAttribute("aria-busy", "false");
           await inspect("catalogue-save-error", width);
           if (visualEvidence) await dialog.screenshot({ path: `${output}/catalogue-error-dialog-${width}.png` });
           await modelInput().fill("new existing make model");

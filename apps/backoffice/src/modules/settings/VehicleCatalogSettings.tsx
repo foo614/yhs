@@ -152,7 +152,7 @@ export function VehicleCatalogSettings() {
   ];
 
   return (
-    <Space direction="vertical" size={16} className="fullWidth">
+    <div className="fullWidth vehicleCatalogSettings">
       {messageContextHolder}
       <div className="settingsOverview">
         <div>
@@ -183,7 +183,11 @@ export function VehicleCatalogSettings() {
         submitter={{
           searchConfig: { submitText: catalogEditingId ? "Save changes" : "Create option", resetText: "Cancel" },
           resetButtonProps: { disabled: catalogSaving },
-          submitButtonProps: { loading: catalogSaving }
+          submitButtonProps: {
+            loading: catalogSaving,
+            "aria-label": catalogEditingId ? "Save changes" : "Create option",
+            "aria-busy": catalogSaving
+          }
         }}
       >
         {catalogSaveError && <Alert type="error" showIcon message={catalogSaveError} className="vehicleCatalogSaveError" />}
@@ -292,6 +296,6 @@ export function VehicleCatalogSettings() {
         scroll={{ x: 640 }}
         locale={{ emptyText: catalogEmptyText }}
       />
-    </Space>
+    </div>
   );
 }
