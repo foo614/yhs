@@ -238,8 +238,7 @@ public static class WhatsAppStaffNotifications
         dispatch = await WhatsAppDispatchBudget.OptionsAsync(db, dispatch, ct);
         var date = DateTimeOffset.FromUnixTimeSeconds(now).ToOffset(TimeSpan.FromHours(8));
         var daily = "day:" + date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-        var monthly = "month:" + date.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
-        var usage = await db.WhatsAppDispatchUsage.AsNoTracking().Where(row => row.Period == daily || row.Period == monthly)
+        var usage = await db.WhatsAppDispatchUsage.AsNoTracking().Where(row => row.Period == daily)
             .ToDictionaryAsync(row => row.Period, ct);
         var policies = await db.WhatsAppStaffNotificationPolicies.AsNoTracking().ToDictionaryAsync(row => row.Category, ct);
         var bindingIds = pending.Where(row => row.StaffBindingId.HasValue).Select(row => row.StaffBindingId!.Value).ToArray();
@@ -252,8 +251,8 @@ public static class WhatsAppStaffNotifications
             where userIds.Contains(membership.UserId)
             select new { membership.UserId, role.Name }).ToListAsync(ct);
         var roles = roleRows.ToLookup(row => row.UserId, row => row.Name ?? "");
-        var budgetReason = WhatsAppNotificationDispatcher.BudgetBlockReason(dispatch,
-            usage.GetValueOrDefault(daily)?.Attempts ?? 0, usage.GetValueOrDefault(monthly)?.ReservedCostSen ?? 0);
+        var limitReason = WhatsAppNotificationDispatcher.DailyLimitBlockReason(dispatch.DailyAttemptLimit,
+            usage.GetValueOrDefault(daily)?.Attempts ?? 0);
         WhatsAppDueDigestSources? dueSources = null;
         WhatsAppAttendanceFacts? attendance = null;
         WhatsAppPendingLeaveFacts? pendingLeave = null;
@@ -305,7 +304,7 @@ public static class WhatsAppStaffNotifications
             }
             if (row.Audience == "Enrollment" && !await WhatsAppStaffInvitation.EligibleAsync(db, row, assistant, dispatch, now, ct))
                 return "This invitation is no longer eligible. Check whether verification is complete or the connection was replaced.";
-            return budgetReason ?? "Waiting for the background sender. If this persists, ask an operator to check dispatcher health.";
+            return limitReason ?? "Waiting for the background sender. If this persists, ask an operator to check dispatcher health.";
         }
     }
 }

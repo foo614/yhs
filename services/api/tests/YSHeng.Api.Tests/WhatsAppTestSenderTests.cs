@@ -132,7 +132,7 @@ public sealed class WhatsAppTestSenderTests
         Assert.Contains("Template approval evidence is missing or invalid.", english.Issues);
         var disabled = new WhatsAppDispatchOptions { AccessToken = "PRIVATE_TOKEN_VALUE", AppSecret = "PRIVATE_APP_SECRET" };
         Assert.False(disabled.StaffSenderReady);
-        Assert.Contains("Daily attempt limit must be positive.", disabled.StaffSenderIssues());
+        Assert.Contains("Daily provider-attempt limit must be positive.", disabled.StaffSenderIssues());
         Assert.DoesNotContain("PRIVATE_TOKEN_VALUE", string.Join(" ", disabled.StaffSenderIssues()));
         Assert.DoesNotContain("PRIVATE_APP_SECRET", string.Join(" ", disabled.StaffSenderIssues()));
     }
@@ -148,8 +148,7 @@ public sealed class WhatsAppTestSenderTests
         StaffCaptureEnabled = true, StaffSendingEnabled = true, WebhookEnabled = true, SenderApproved = true,
         SenderApprovalEvidence = "synthetic sender approval", GraphApiVersion = "v25.0", PhoneNumberId = "12345",
         BusinessAccountId = "45678", AccessToken = "synthetic-token", AppSecret = "synthetic-secret",
-        VerifyToken = "synthetic-verify", BudgetOwner = "synthetic budget", DailyAttemptLimit = 10,
-        MonthlyBudgetSen = 100, MaximumCostPerAttemptSen = 10, CostCeilingConfirmed = true, Templates = templates
+        VerifyToken = "synthetic-verify", DailyAttemptLimit = 10, Templates = templates
     };
 
     private static YSHeng.Api.Domain.WhatsAppOutbox StaffItem() => new()

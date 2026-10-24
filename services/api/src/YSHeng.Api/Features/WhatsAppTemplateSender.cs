@@ -24,13 +24,12 @@ public sealed class WhatsAppDispatchOptions
     public string AccessToken { get; init; } = "";
     public string AppSecret { get; init; } = "";
     public string VerifyToken { get; init; } = "";
+    // Legacy configuration remains bindable but is inert; provider attempts are not billed messages.
     public string BudgetOwner { get; init; } = "";
     private int dailyAttemptLimit;
-    private long monthlyBudgetSen;
-    private long maximumCostPerAttemptSen;
     public int DailyAttemptLimit { get => dailyAttemptLimit; init => dailyAttemptLimit = value; }
-    public long MonthlyBudgetSen { get => monthlyBudgetSen; init => monthlyBudgetSen = value; }
-    public long MaximumCostPerAttemptSen { get => maximumCostPerAttemptSen; init => maximumCostPerAttemptSen = value; }
+    public long MonthlyBudgetSen { get; init; }
+    public long MaximumCostPerAttemptSen { get; init; }
     public bool CostCeilingConfirmed { get; init; }
     public WhatsAppApprovedTemplate[] Templates { get; init; } = [];
 
@@ -52,18 +51,14 @@ public sealed class WhatsAppDispatchOptions
         (InvitationEnabled && TransportConfigured && HasTemplate(WhatsAppStaffInvitation.TemplateKey));
 
     internal bool TransportConfigured => WebhookReady && SenderApproved && Evidence(SenderApprovalEvidence) &&
-        Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z") && Secret(AccessToken) && Evidence(BudgetOwner) &&
-        CostCeilingConfirmed;
+        Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z") && Secret(AccessToken);
 
-    private bool TransportReady => TransportConfigured && DailyAttemptLimit > 0 && MonthlyBudgetSen > 0 &&
-        MaximumCostPerAttemptSen > 0 && MaximumCostPerAttemptSen <= MonthlyBudgetSen;
+    private bool TransportReady => TransportConfigured && DailyAttemptLimit > 0;
 
-    internal WhatsAppDispatchOptions WithBudgetLimits(WhatsAppDispatchLimits limits)
+    internal WhatsAppDispatchOptions WithLimits(WhatsAppDispatchLimits limits)
     {
         var copy = (WhatsAppDispatchOptions)MemberwiseClone();
         copy.dailyAttemptLimit = limits.DailyAttemptLimit;
-        copy.monthlyBudgetSen = limits.MonthlyBudgetSen;
-        copy.maximumCostPerAttemptSen = limits.MaximumCostPerAttemptSen;
         return copy;
     }
 
@@ -107,12 +102,7 @@ public sealed class WhatsAppDispatchOptions
         if (!Evidence(SenderApprovalEvidence)) issues.Add("Sender approval evidence is missing or invalid.");
         if (!Regex.IsMatch(GraphApiVersion, @"\Av[0-9]{1,3}\.0\z")) issues.Add("Graph API version is missing or invalid.");
         if (!Secret(AccessToken)) issues.Add("Graph API access token is missing or invalid.");
-        if (!Evidence(BudgetOwner)) issues.Add("Budget owner is missing or invalid.");
-        if (DailyAttemptLimit <= 0) issues.Add("Daily attempt limit must be positive.");
-        if (MonthlyBudgetSen <= 0) issues.Add("Monthly budget must be positive.");
-        if (MaximumCostPerAttemptSen <= 0 || MaximumCostPerAttemptSen > MonthlyBudgetSen)
-            issues.Add("Maximum cost per attempt must be positive and within the monthly budget.");
-        if (!CostCeilingConfirmed) issues.Add("Cost ceiling confirmation is off.");
+        if (DailyAttemptLimit <= 0) issues.Add("Daily provider-attempt limit must be positive.");
         return issues;
     }
 

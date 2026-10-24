@@ -4,9 +4,9 @@ import {
   getStaffWhatsAppConnections,
   getStaffWhatsAppHistory,
   getStaffWhatsAppDiagnostics,
-  getStaffWhatsAppBudget,
+  getStaffWhatsAppLimits,
   getStaffWhatsAppPolicies,
-  updateStaffWhatsAppBudget,
+  updateStaffWhatsAppLimits,
   updateStaffWhatsAppPolicy,
   connectStaffWhatsApp,
   disconnectStaffWhatsApp,
@@ -227,8 +227,8 @@ describe("backoffice api client", () => {
     expect(fetchMock.mock.calls[0]).toEqual(["http://localhost:5000/api/whatsapp/staff/connections", expect.objectContaining({ credentials: "include" })]);
     mockFetch({ message: "Admin access required" }, false, 403);
     await expect(getStaffWhatsAppConnections()).rejects.toThrow("Admin access required");
-    mockFetch({ items: [{ state: "Queued", waitingReason: "Monthly sending budget has no room for another attempt." }], page: 1, total: 1 });
-    await expect(getStaffWhatsAppHistory()).resolves.toMatchObject({ items: [{ state: "Queued", waitingReason: expect.stringContaining("Monthly sending budget") }] });
+    mockFetch({ items: [{ state: "Queued", waitingReason: "Daily sending attempt limit reached. Ask an operator to review the limit; reminders expire at midnight." }], page: 1, total: 1 });
+    await expect(getStaffWhatsAppHistory()).resolves.toMatchObject({ items: [{ state: "Queued", waitingReason: expect.stringContaining("Daily sending attempt limit") }] });
   });
 
   it("keeps staff WhatsApp management authenticated and preserves authorization failures", async () => {
@@ -274,20 +274,22 @@ describe("backoffice api client", () => {
     expect(fetchMock.mock.calls[2][0]).toContain("status=Accepted");
     await getStaffWhatsAppDiagnostics();
     expect(fetchMock.mock.calls[3]).toEqual(["http://localhost:5000/api/whatsapp/staff/diagnostics", expect.objectContaining({ credentials: "include" })]);
-    await getStaffWhatsAppBudget();
-    expect(fetchMock.mock.calls[4][0]).toBe("http://localhost:5000/api/whatsapp/staff/budget");
-    const budget = { dailyAttemptLimit: 25, monthlyBudgetSen: 5000, maximumCostPerAttemptSen: 20 };
-    await updateStaffWhatsAppBudget(budget);
+    const limitsResponse = { dailyAttemptLimit: 25, dailyAttempts: 4, dailyRemainingAttempts: 21, adminConfigured: true, updatedAt: 1800000000, blockedReason: null };
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: vi.fn().mockResolvedValue(limitsResponse), text: vi.fn().mockResolvedValue(JSON.stringify(limitsResponse)) });
+    await expect(getStaffWhatsAppLimits()).resolves.toEqual(limitsResponse);
+    expect(fetchMock.mock.calls[4][0]).toBe("http://localhost:5000/api/whatsapp/staff/limits");
+    const limitsInput = { dailyAttemptLimit: 25 };
+    await updateStaffWhatsAppLimits(limitsInput);
     expect(fetchMock.mock.calls[5]).toEqual([
-      "http://localhost:5000/api/whatsapp/staff/budget",
-      expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify(budget) })
+      "http://localhost:5000/api/whatsapp/staff/limits",
+      expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify(limitsInput) })
     ]);
     mockFetch({ message: "Admin access required" }, false, 403);
     await expect(getStaffWhatsAppPolicies()).rejects.toThrow("Admin access required");
     await expect(getStaffWhatsAppHistory()).rejects.toThrow("Admin access required");
     await expect(getStaffWhatsAppDiagnostics()).rejects.toThrow("Admin access required");
-    await expect(getStaffWhatsAppBudget()).rejects.toThrow("Admin access required");
-    await expect(updateStaffWhatsAppBudget(budget)).rejects.toThrow("Admin access required");
+    await expect(getStaffWhatsAppLimits()).rejects.toThrow("Admin access required");
+    await expect(updateStaffWhatsAppLimits(limitsInput)).rejects.toThrow("Admin access required");
   });
 
   it("uses authenticated WhatsApp mutations with explicit consent and action", async () => {
