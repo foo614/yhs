@@ -7,6 +7,68 @@ namespace YSHeng.Api.Tests;
 
 public sealed class WhatsAppTestSenderTests
 {
+    [Fact]
+    public void Draft_v2_manifest_cannot_disable_existing_customer_reminders()
+    {
+        var legacy = WhatsAppDispatchTestData.Options();
+        var options = new WhatsAppDispatchOptions
+        {
+            CaptureEnabled = true, SendingEnabled = true, WebhookEnabled = true, SenderApproved = true,
+            SenderApprovalEvidence = legacy.SenderApprovalEvidence, GraphApiVersion = legacy.GraphApiVersion,
+            PhoneNumberId = legacy.PhoneNumberId, BusinessAccountId = legacy.BusinessAccountId,
+            AccessToken = legacy.AccessToken, AppSecret = legacy.AppSecret, VerifyToken = legacy.VerifyToken,
+            BudgetOwner = legacy.BudgetOwner, DailyAttemptLimit = legacy.DailyAttemptLimit,
+            MonthlyBudgetSen = legacy.MonthlyBudgetSen, MaximumCostPerAttemptSen = legacy.MaximumCostPerAttemptSen,
+            CostCeilingConfirmed = true,
+            Templates = [.. legacy.Templates, new WhatsAppApprovedTemplate { Key = WhatsAppReminderV2.Due, Language = "ms" }]
+        };
+        Assert.True(options.Ready);
+        Assert.Null(options.TemplateFor(WhatsAppReminderV2.Due, "ms"));
+        Assert.False(options.TemplateReadiness(WhatsAppReminderV2.Due, "ms").Ready);
+    }
+
+    [Theory]
+    [InlineData(WhatsAppReminderV2.Due, "BossAdmin", "OutstandingDigest", 9, "ysheng_due_summary_v2_en", "ysheng_due_summary_v2_ms")]
+    [InlineData(WhatsAppReminderV2.Delivery, "Sales", "OutstandingDigest", 4, "ysheng_delivery_summary_v2_en", "ysheng_delivery_summary_v2_ms")]
+    [InlineData(WhatsAppReminderV2.Leave, "HrSalary", "LeaveApproval", 3, "ysheng_leave_summary_v2_en", "ysheng_leave_summary_v2_ms")]
+    [InlineData(WhatsAppReminderV2.Attendance, "BossAdmin", "AttendanceSummary", 8, "ysheng_attendance_summary_v2_en", "ysheng_attendance_summary_v2_ms")]
+    public async Task Reminder_v2_sender_submits_fixed_metric_parameters_and_blocks_invalid_values(string key, string role, string category, int count,
+        string englishName, string malayName)
+    {
+        using var handler = new StubHandler();
+        using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
+        foreach (var providerLanguage in new[] { "ms", "en_US", "en" })
+        {
+            var language = providerLanguage == "en" ? "en_US" : providerLanguage;
+            var expectedName = language == "ms" ? malayName : englishName;
+            var manifest = new WhatsAppApprovedTemplate { Key = key, Name = expectedName, Language = language, ProviderLanguage = providerLanguage, Approved = true,
+                ApprovalEvidence = "synthetic approval", BodyText = WhatsAppReminderV2.BodyText(key, language),
+                PortalUrl = "https://yshenghub.com.my" + (key is WhatsAppReminderV2.Leave or WhatsAppReminderV2.Attendance
+                    ? "/hr-salary" : key == WhatsAppReminderV2.Delivery ? "/leads" : "/dashboard") };
+            var values = Enumerable.Repeat("1", count).ToArray();
+            var item = StaffItem() with { TemplateVersion = key, Language = language, RequiredStaffRole = role,
+                MessageKind = category, TemplateReference = JsonSerializer.Serialize(values), Body = WhatsAppReminderV2.Render(key, language, values)! };
+            Assert.Equal("Accepted", (await sender.SendAsync(StaffOptions(manifest), item)).Outcome);
+            using var payload = JsonDocument.Parse(handler.Body!);
+            Assert.Equal(expectedName, payload.RootElement.GetProperty("template").GetProperty("name").GetString());
+            Assert.Equal(providerLanguage, payload.RootElement.GetProperty("template").GetProperty("language").GetProperty("code").GetString());
+            var components = payload.RootElement.GetProperty("template").GetProperty("components");
+            Assert.Equal(count, components[0].GetProperty("parameters").GetArrayLength());
+            Assert.Single(components.EnumerateArray()); // Static URL buttons require no send-time parameters.
+            Assert.All(components[0].GetProperty("parameters").EnumerateArray(), value =>
+                Assert.Equal("1", value.GetProperty("text").GetString()));
+            var calls = handler.Calls;
+            foreach (var invalid in new[] { "", "\n", "one\ttwo", "one     two", new string('x', 65) })
+            {
+                values[0] = invalid;
+                Assert.Equal("TemplateNotApproved", (await sender.SendAsync(StaffOptions(manifest),
+                    item with { TemplateReference = JsonSerializer.Serialize(values) })).Outcome);
+            }
+            Assert.Equal("TemplateNotApproved", (await sender.SendAsync(StaffOptions(manifest), item with { RequiredStaffRole = "Finance" })).Outcome);
+            Assert.Equal(calls, handler.Calls);
+        }
+    }
+
     [Theory]
     [InlineData("ms")]
     [InlineData("en_US")]

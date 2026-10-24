@@ -242,8 +242,13 @@ export type DashboardSalesFunnel = {
   conversionRate: number;
 };
 
-export type DashboardReminder = {
-  type: "LoanFollowUp" | "DeliveryPreparation" | "SettlementDue" | "PaymentBankFollowUp" | "PaymentStatusFollowUp" | "DailySpendDue" | "DebtRecoveryFollowUp" | "PaymentVoucherFollowUp";
+export type ActionRecordIdentity = {
+  sourceType?: string | null;
+  sourceId?: string | null;
+};
+
+export type DashboardReminder = ActionRecordIdentity & {
+  type: "LoanFollowUp" | "DeliveryPreparation" | "SettlementDue" | "SettlementCollectionDue" | "PaymentBankFollowUp" | "PaymentStatusFollowUp" | "DailySpendDue" | "DebtRecoveryFollowUp" | "PaymentVoucherFollowUp";
   title: string;
   vehiclePlate: string;
   vehicleId: string;
@@ -258,7 +263,8 @@ export type DashboardReminderFilters = {
   due?: DashboardReminderDueFilter;
 };
 
-export type PriorityActionItem = {
+export type PriorityActionItem = ActionRecordIdentity & {
+  vehicleId?: string | null;
   type: "LoanFollowUp" | "DeliveryPreparation" | "SettlementDue" | "SettlementCollectionDue" | "PaymentBankFollowUp" | "PaymentStatusFollowUp" | "DailySpendDue" | "DebtRecoveryFollowUp" | "PaymentVoucherFollowUp" | "DeliveryInvoiceUpdate" | "LeadFollowUp" | "RepairWorkInProgress" | "LeaveApproval";
   title: string;
   target: "Loans" | "Delivery" | "Finance" | "Leads" | "Repairs" | "HrSalary";

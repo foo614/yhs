@@ -82,14 +82,63 @@ describe("dashboard reminder helpers", () => {
     expect(entries[0].target).toBe("/leads");
   });
 
+  it("keeps same-looking source records distinct, including applications on one vehicle", () => {
+    const leave = { type: "LeaveApproval" as const, title: "Leave request awaiting decision", target: "HrSalary" as const, subject: "AnnualLeave", dueDate: "2026-05-31", sourceType: "HrLeaveRequest" };
+    const entries = dashboardPriorityEntries([], [
+      { ...leave, sourceId: "11111111-1111-4111-8111-111111111111" },
+      { ...leave, sourceId: "22222222-2222-4222-8222-222222222222" }
+    ], "2026-05-31");
+    expect(entries).toHaveLength(2);
+    expect(new Set(entries.map(entry => entry.key)).size).toBe(2);
+    const loan = { type: "LoanFollowUp" as const, title: "Loan follow-up", target: "Loans" as const, subject: "TEST1", vehicleId: "vehicle-1", dueDate: "2026-05-31", sourceType: "LoanApplication" };
+    expect(dashboardPriorityEntries([], [{ ...loan, sourceId: "loan-1" }, { ...loan, sourceId: "loan-2" }], "2026-05-31")).toHaveLength(2);
+  });
+
+  it("merges the same Loan or Delivery action once and opens its exact source record", () => {
+    for (const sample of [
+      { type: "LoanFollowUp" as const, target: "Loans" as const, sourceType: "LoanApplication", expected: "/loans?loanId=record-1" },
+      { type: "DeliveryPreparation" as const, target: "Delivery" as const, sourceType: "DeliverySchedule", expected: "/delivery?deliveryId=record-1" }
+    ]) {
+      const reminder = { type: sample.type, title: "Follow-up", vehiclePlate: "TEST1", vehicleId: "vehicle-1", dueDate: "2026-05-31", sourceType: sample.sourceType, sourceId: "record-1" };
+      const action = { type: sample.type, title: "Follow-up", target: sample.target, subject: "TEST 1", dueDate: "2026-05-30", sourceType: sample.sourceType, sourceId: "record-1", vehicleId: "vehicle-1" };
+      const entries = dashboardPriorityEntries([reminder], [action], "2026-05-31");
+      expect(entries).toHaveLength(1);
+      expect(entries[0].target).toBe(sample.expected);
+      expect(dashboardReminderTarget(reminder)).toBe(sample.expected);
+      expect(priorityActionTarget(action)).toBe(sample.expected);
+    }
+  });
+
+  it("never infers legacy action identity from matching text, vehicle or dates", () => {
+    const action = { type: "LeaveApproval" as const, title: "Leave", target: "HrSalary" as const, subject: "AnnualLeave", dueDate: "2026-05-31" };
+    const entries = dashboardPriorityEntries([], [action, { ...action }, { ...action, sourceType: "HrLeaveRequest", sourceId: "" }, { ...action, sourceType: "HrLeaveRequest", sourceId: "00000000-0000-0000-0000-000000000000" }], "2026-05-31");
+    expect(entries).toHaveLength(4);
+    expect(new Set(entries.map(entry => entry.key)).size).toBe(4);
+  });
+
   it("keeps one action when a backend priority action already represents the reminder", () => {
     const entries = dashboardPriorityEntries(
-      [{ type: "SettlementDue", title: "Settlement due", vehiclePlate: "VPK1234", vehicleId: "vehicle-1", dueDate: "2026-05-31", amount: 1000 }],
-      [{ type: "SettlementDue", title: "Settlement due", target: "Finance", subject: "VPK 1234", dueDate: "2026-05-31", amount: 1000 }],
+      [{ type: "SettlementDue", title: "Settlement due", vehiclePlate: "VPK1234", vehicleId: "vehicle-1", dueDate: "2026-05-31", amount: 1000, sourceType: "SettlementReminder", sourceId: "settlement-1" }],
+      [{ type: "SettlementDue", title: "Settlement due", target: "Finance", subject: "VPK 1234", dueDate: "2026-05-31", amount: 1000, sourceType: "SettlementReminder", sourceId: "settlement-1" }],
       "2026-05-31"
     );
     expect(entries).toHaveLength(1);
     expect(entries[0].source).toBe("action");
+    expect(entries[0].target).toBe("/finance?tab=settlements&vehicleId=vehicle-1&attention=due");
+  });
+
+  it("keeps different follow-ups on the same payment and uses safe legacy destinations", () => {
+    const payment = { title: "Payment", target: "Finance" as const, sourceType: "PaymentRecord", sourceId: "payment-1", dueDate: "2026-05-31" };
+    expect(dashboardPriorityEntries([], [
+      { ...payment, type: "PaymentBankFollowUp" },
+      { ...payment, type: "PaymentStatusFollowUp" }
+    ], "2026-05-31")).toHaveLength(2);
+    expect(priorityActionTarget({ type: "LoanFollowUp", target: "Loans", sourceType: "DeliverySchedule", sourceId: "delivery-1", vehicleId: "vehicle-1" })).toBe("/loans?vehicleId=vehicle-1");
+    expect(dashboardReminderTarget({ type: "DeliveryPreparation", sourceType: "DeliverySchedule", sourceId: "", vehicleId: "vehicle-1" })).toBe("/delivery?vehicleId=vehicle-1");
+    expect(priorityActionTarget({ type: "DeliveryPreparation", target: "Delivery", sourceType: "DeliverySchedule", sourceId: "00000000-0000-0000-0000-000000000000" })).toBe("/delivery");
+    expect(priorityActionTarget({ type: "DeliveryInvoiceUpdate", target: "Finance", sourceType: "DeliverySchedule", sourceId: "delivery-1" })).toBe("/finance?tab=payments&attention=open");
+    const legacy = { type: "LoanFollowUp" as const, title: "Loan", vehicleId: "vehicle-1", dueDate: "2026-05-31" };
+    expect(dashboardPriorityEntries([{ ...legacy, vehiclePlate: "TEST1" }], [{ ...legacy, target: "Loans", subject: "TEST1" }], "2026-05-31")).toHaveLength(2);
   });
 
   it("parses supported dashboard drill-downs and uses the Singapore business day", () => {

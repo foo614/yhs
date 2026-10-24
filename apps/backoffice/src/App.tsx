@@ -73,7 +73,7 @@ import {
 } from "./leads";
 import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, staffWhatsAppStatusLabel, type StaffStatusFilter } from "./staff";
-import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
+import { dashboardActionKey, dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
@@ -2324,7 +2324,8 @@ export function DashboardPage({
   const moneyToPay = moneyRiskBreakdown
     .filter((item) => !receivableLabels.has(item.label))
     .reduce((sum, item) => sum + Math.max(item.amount, 0), 0);
-  const filteredReminders = filterDashboardReminders(reminders, { type: reminderTypeFilter, due: reminderDueFilter });
+  const filteredReminders = filterDashboardReminders(reminders, { type: reminderTypeFilter, due: reminderDueFilter })
+    .map((reminder, index) => ({ ...reminder, key: dashboardActionKey(reminder, `reminder:${index}`) }));
   const projectedStockProfit = dashboard?.totalProfit ?? dashboard?.estimatedProfit ?? 0;
   const purchaseCost = dashboard?.purchaseCost ?? 0;
   const actualProfit = dashboard?.actualProfit ?? 0;
@@ -2632,7 +2633,7 @@ export function DashboardPage({
           </Space>
           <div className="mobileRecordList dashboardReminderMobileList">
             {mobileReminders.map((reminder) => (
-              <article className="mobileRecordCard" key={`${reminder.type}-${reminder.vehicleId}-${reminder.dueDate}`}>
+              <article className="mobileRecordCard" key={reminder.key}>
                 <div className="mobileRecordHeader">
                   <div>
                     <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
@@ -2653,7 +2654,7 @@ export function DashboardPage({
           </div>
           <Table
             className="desktopDataTable"
-            rowKey={(row) => `${row.type}-${row.vehicleId}-${row.dueDate}`}
+            rowKey="key"
             columns={[
               { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag>{dashboardLabel(value)}</Tag> },
               { title: "Title / 事项", dataIndex: "title" },

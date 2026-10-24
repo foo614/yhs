@@ -156,7 +156,7 @@ export async function runResponsiveWidth({ page, context, width, output, visualE
   await context.addInitScript(({ routes }) => {
   for (const role of ["BossAdmin", "Sales"])
     for (const route of routes) localStorage.setItem(`ysheng:module-guide:v2:${encodeURIComponent(`responsive-test:${role}`)}:${encodeURIComponent(`/${route}`)}`, "seen");
-  }, { routes });
+  }, { routes: [...new Set([...routes, "loans", "delivery"])] });
 fixtures["/api/whatsapp/assistant/connection"] = { enabled: false, state: "Disabled", language: "ms" };
 let connectionChecks = false;
 const connectionMutations = [];
@@ -322,6 +322,51 @@ async function inspectDetailTabs(route, width) {
     }
   }
 }
+async function verifyDashboardActionIdentity() {
+  // A wrong deep link can select another application for the same vehicle.
+  const paths = ["/api/priority-actions", "/api/dashboard/reminders", "/api/loans", "/api/customers", "/api/deliveries/workboard"];
+  const original = Object.fromEntries(paths.map(path => [path, fixtures[path]]));
+  const dueDate = "2026-01-01";
+  fixtures["/api/customers"] = [...original["/api/customers"], { id: "second-borrower", name: "Second Application Borrower", phone: "0000000001" }];
+  fixtures["/api/loans"] = [...original["/api/loans"], { ...original["/api/loans"][0], id: "second-loan", customerId: "second-borrower" }];
+  fixtures["/api/loans/second-loan/document-check"] = fixtures["/api/loans/test-loan/document-check"];
+  fixtures["/api/deliveries/workboard"] = [...original["/api/deliveries/workboard"], { ...original["/api/deliveries/workboard"][0], id: "second-delivery", picName: "Second Delivery PIC" }];
+  fixtures["/api/deliveries/second-delivery/activity"] = [];
+  const recordActions = [
+    ...["test-loan", "second-loan"].map(sourceId => ({ type: "LoanFollowUp", title: "Loan follow-up", target: "Loans", sourceType: "LoanApplication", sourceId })),
+    ...["test-delivery", "second-delivery"].map(sourceId => ({ type: "DeliveryPreparation", title: "Delivery preparation", target: "Delivery", sourceType: "DeliverySchedule", sourceId }))
+  ].map(action => ({ ...action, dueDate, subject: vehicle.plateNumber, vehicleId: vehicle.id }));
+  fixtures["/api/priority-actions"] = [
+    ...recordActions,
+    ...["leave-one", "leave-two"].map(sourceId => ({ type: "LeaveApproval", title: "Leave request awaiting decision", target: "HrSalary", sourceType: "HrLeaveRequest", sourceId, dueDate, subject: "AnnualLeave" }))
+  ];
+  fixtures["/api/dashboard/reminders"] = recordActions.map(action => ({ ...action, vehiclePlate: vehicle.plateNumber }));
+  await page.reload();
+  const queue = page.locator(".dashboardPriorityCard").first();
+  for (const title of ["Loan follow-up", "Delivery preparation", "Leave request awaiting decision"]) {
+    await expect(queue.getByRole("button", { name: `Open ${title}`, exact: true }).filter({ visible: true })).toHaveCount(2);
+  }
+  await inspect("dashboard-distinct-source-actions", width);
+  await queue.getByRole("button", { name: "Open Loan follow-up", exact: true }).filter({ visible: true }).nth(1).click();
+  await expect(page).toHaveURL(/loans\?loanId=second-loan$/);
+  await expect(page.locator(".ant-descriptions").first()).toContainText("Second Application Borrower");
+  await inspect("dashboard-exact-loan", width);
+  await page.goBack();
+  await queue.getByRole("button", { name: "Open Delivery preparation", exact: true }).filter({ visible: true }).nth(1).click();
+  await expect(page).toHaveURL(/delivery\?deliveryId=second-delivery$/);
+  await expect(page.getByRole("dialog")).toContainText("Second Delivery PIC");
+  await inspect("dashboard-exact-delivery", width);
+  await page.goBack();
+  for (const path of paths) {
+    if (original[path] === undefined) delete fixtures[path];
+    else fixtures[path] = original[path];
+  }
+  delete fixtures["/api/loans/second-loan/document-check"];
+  delete fixtures["/api/deliveries/second-delivery/activity"];
+  await page.reload();
+  diagnostics.dashboardActionIdentity = "Six distinct actions retained; duplicate reminder/action sources merged; second Loan and Delivery on one vehicle opened their exact records.";
+}
+
 async function verifyDashboardClarity() {
   const status = label => page.getByRole("status", { name: `${label} data status`, exact: true });
   const updated = label => status(label).locator("time").getAttribute("datetime");
@@ -537,6 +582,7 @@ try {
           await closeOverlay();
         }
         if (route === "dashboard") {
+          await verifyDashboardActionIdentity();
           await verifyDashboardClarity();
           const snapshotActions = page.locator(".dashboardSnapshotActions");
           const refreshBox = await snapshotActions.getByRole("button", { name: "Refresh summary", exact: true }).boundingBox();

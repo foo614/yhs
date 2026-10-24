@@ -37,9 +37,10 @@ public sealed class WhatsAppDispatchOptions
         Id(PhoneNumberId) && Id(BusinessAccountId) && Secret(AppSecret) && Secret(VerifyToken);
 
     // Preserve the customer rollout's all-template manifest requirement.
-    private bool CustomerConfigured => CaptureEnabled && SendingEnabled && TransportConfigured && Templates.Length > 0 &&
-        Templates.All(template => template.Valid) &&
-        Templates.Select(template => (template.Key, template.Language)).Distinct().Count() == Templates.Length;
+    private WhatsAppApprovedTemplate[] LegacyTemplates => Templates.Where(template => !WhatsAppReminderV2.Known(template.Key)).ToArray();
+    private bool CustomerConfigured => CaptureEnabled && SendingEnabled && TransportConfigured && LegacyTemplates.Length > 0 &&
+        LegacyTemplates.All(template => template.Valid) &&
+        LegacyTemplates.Select(template => (template.Key, template.Language)).Distinct().Count() == LegacyTemplates.Length;
     public bool Ready => CustomerConfigured && TransportReady;
     public bool StaffSenderReady => StaffCaptureEnabled && StaffSendingEnabled && TransportReady;
     public bool StaffReady => StaffSenderReady && HasTemplate("staff_notice_v1");
@@ -84,6 +85,8 @@ public sealed class WhatsAppDispatchOptions
             if (!matches[0].ValidName) issues.Add("Template name is missing or invalid.");
             if (!matches[0].ValidProviderLanguage) issues.Add("Template provider language is invalid.");
             if (!Evidence(matches[0].ApprovalEvidence)) issues.Add("Template approval evidence is missing or invalid.");
+            if (WhatsAppReminderV2.Known(key) && !WhatsAppReminderV2.ValidManifest(matches[0]))
+                issues.Add("V2 template name, static body or Portal button approval does not match the contract.");
         }
         return new(language, issues.Count == 0, issues);
     }
@@ -121,11 +124,15 @@ public sealed class WhatsAppApprovedTemplate
     public string ProviderLanguage { get; init; } = "";
     public string EffectiveProviderLanguage => ProviderLanguage.Length == 0 ? Language : ProviderLanguage;
     public bool ValidProviderLanguage => EffectiveProviderLanguage == Language ||
-        (Key == "staff_notice_v1" && Language == "en_US" && EffectiveProviderLanguage == "en");
+        ((Key == "staff_notice_v1" || WhatsAppReminderV2.Known(Key)) && Language == "en_US" && EffectiveProviderLanguage == "en");
     public bool Approved { get; init; }
     public string ApprovalEvidence { get; init; } = "";
+    // V2 approval attests the exact static body and static Portal button destination.
+    public string BodyText { get; init; } = "";
+    public string PortalUrl { get; init; } = "";
     public bool ValidName => Regex.IsMatch(Name, @"\A[a-z][a-z0-9_]{0,79}\z");
-    public bool Valid => Approved && Key is "enquiry_ack_v1" or "business_update_v1" or "receipt_ready_v1" or "staff_notice_v1" or "staff_invite_v1" &&
+    public bool Valid => Approved && (Key is "enquiry_ack_v1" or "business_update_v1" or "receipt_ready_v1" or "staff_notice_v1" or "staff_invite_v1" ||
+        WhatsAppReminderV2.Known(Key) && WhatsAppReminderV2.ValidManifest(this)) &&
         Language is "ms" or "en_US" && ValidName && ValidProviderLanguage &&
         WhatsAppDispatchOptions.Evidence(ApprovalEvidence);
 }
@@ -147,6 +154,8 @@ public sealed class WhatsAppTemplateSender : IDisposable
         if (template is null || !WhatsAppNotificationDispatcher.Supported(item) ||
             (item.Audience == "Customer" && !Guid.TryParseExact(item.BusinessReference, "D", out _)) || string.IsNullOrWhiteSpace(item.TemplateReference) ||
             item.TemplateReference.Length > (item.Audience is "Staff" or "Enrollment" ? 1024 : 80) || item.TemplateReference.Any(char.IsControl)) return new("TemplateNotApproved");
+        var parameters = WhatsAppReminderV2.Known(item.TemplateVersion) ? WhatsAppReminderV2.Parameters(item) : [item.TemplateReference];
+        if (parameters is null) return new("TemplateNotApproved");
         string recipient;
         try { recipient = WhatsAppOutboxStore.NormalizeRecipient(item.Recipient); }
         catch (ArgumentException) { return new("InvalidRecipient"); }
@@ -160,7 +169,7 @@ public sealed class WhatsAppTemplateSender : IDisposable
             template = new
             {
                 name = template.Name, language = new { code = template.EffectiveProviderLanguage },
-                components = new[] { new { type = "body", parameters = new[] { new { type = "text", text = item.TemplateReference } } } }
+                components = new[] { new { type = "body", parameters = parameters.Select(value => new { type = "text", text = value }).ToArray() } }
             }
         });
         try
