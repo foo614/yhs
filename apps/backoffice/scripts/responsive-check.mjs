@@ -35,6 +35,10 @@ fixtures["/api/dashboard/summary"].aiDocumentProcessing = {
   lowConfidenceCount: 0, failedCount: 0, pendingReviewCount: 4, usedThisMonth: 8, monthlyRequestLimit: 100, remainingThisMonth: 92,
   categories: ["Identity card", "Vehicle ownership certificate"].map((label, index) => ({ category: index ? "Voc" : "IdentityCard", label, scanCount: 4, reviewedCount: 2, comparedFieldCount: 5, correctFieldCount: 4, correctedFieldCount: 1, accuracyPercent: 80, lowConfidenceCount: 0, failedCount: 0 }))
 };
+fixtures["/api/vehicle-catalog/models"] = [
+  { id: "catalog-hidden", make: "TOYOTA", model: "COROLLA CROSS HYBRID PREMIUM WITH A LONG MODEL LABEL", isActive: false },
+  ...Array.from({ length: 9 }, (_, index) => ({ id: `catalog-${index}`, make: index ? "SYNTHETIC LONG MAKE NAME FOR RESPONSIVE REVIEW" : "HONDA", model: `SYNTHETIC MODEL ${index}`, isActive: true }))
+];
 const dashboardDate = "2026-09-01";
 fixtures["/api/operations-calendar"] = [
   { id: "test-delivery", kind: "Delivery", title: "TEST1234", vehicleYear: 2024, vehicleMake: "Toyota", vehicleModel: "Corolla Cross Hybrid Premium", startDate: dashboardDate, endDate: dashboardDate, time: "10:30", status: "PreparingDocuments", customerName: "Synthetic Customer With A Longer Display Name", customerContact: "0000000000", customerAccess: "Full" },
@@ -160,7 +164,9 @@ export async function runResponsiveWidth({ page, context, width, output, visualE
 fixtures["/api/whatsapp/assistant/connection"] = { enabled: false, state: "Disabled", language: "ms" };
 let connectionChecks = false;
 const connectionMutations = [];
-// Requests never reach a real API. Only the explicitly selected synthetic connection flow accepts mutations.
+let catalogChecks = false;
+const catalogMutations = [];
+// Requests never reach a real API. Only explicitly selected synthetic flows accept mutations.
 await context.route("**/api/**", async route => {
   const request = route.request();
   const path = new URL(request.url()).pathname;
@@ -171,6 +177,21 @@ await context.route("**/api/**", async route => {
     fixtures["/api/whatsapp/assistant/connection"] = { enabled: true, invitationAvailable: true, state: linking ? "AwaitingVerification" : "Disconnected", language: "ms", ...(linking ? { maskedNumber: "***6789", invitationState: "Queued", expiresAt: Math.floor(Date.now() / 1000) + 600 } : {}) };
     if (manual) Object.assign(fixtures["/api/whatsapp/assistant/connection"], { invitationAvailable: false, manualLinkAvailable: true, invitationState: "NotRequested" });
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(linking ? { command: "link " + "A".repeat(32), invitationState: manual ? "NotRequested" : "Queued", businessDisplayNumber: "60111111111", expiresAt: Math.floor(Date.now() / 1000) + 600 } : { message: "Synthetic disconnect" }) });
+    return;
+  }
+  if (catalogChecks && ["POST", "PUT"].includes(request.method()) && /^\/api\/vehicle-catalog\/models(?:\/[^/]+)?$/.test(path)) {
+    const body = request.postDataJSON();
+    catalogMutations.push({ path, method: request.method(), body });
+    if (body.model === "DUPLICATE") {
+      diagnostics.catalogDuplicateCheck = true;
+      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ message: "This make and model already exists." }) });
+      return;
+    }
+    const saved = { ...body, id: request.method() === "POST" ? `catalog-created-${catalogMutations.length}` : path.split("/").at(-1) };
+    fixtures["/api/vehicle-catalog/models"] = request.method() === "POST"
+      ? [...fixtures["/api/vehicle-catalog/models"], saved]
+      : fixtures["/api/vehicle-catalog/models"].map(item => item.id === saved.id ? saved : item);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(saved) });
     return;
   }
   const known = path in fixtures || emptyCollections.has(path);
@@ -287,7 +308,7 @@ async function inspect(name, width) {
   const currentErrors = errors.splice(0);
   results.push({ name, width, ...layout, errors: currentErrors });
   const hasLayoutFailure = layout.outside.length || layout.overlappingSelects.length || layout.scrollWidth > layout.viewport + 1 || layout.controlIssues.length || currentErrors.length;
-  if ((visualEvidence && [360, 820, 1025, 1440].includes(width)) || hasLayoutFailure) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
+  if ((visualEvidence && [360, 719, 720, 721, 820, 1024, 1025, 1440].includes(width)) || hasLayoutFailure) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
 }
 async function closeOverlay() {
   const close = page.locator(".ant-modal-close:visible,.ant-drawer-close:visible").last();
@@ -703,6 +724,74 @@ try {
           await inspect(`${route}-tab-${index}`, width);
         }
         if (route === "admin") {
+          // Prevent consequential catalogue regressions: wrong-ID edits, stale create values,
+          // discarded failed input, and cancellation accidentally writing a record.
+          catalogChecks = true;
+          const catalogTab = page.getByRole("tab", { name: "Make & Model / 品牌车型", exact: true });
+          await catalogTab.focus();
+          await catalogTab.press("Enter");
+          await inspect("catalogue-list", width);
+          const newOption = () => page.getByRole("button", { name: "New make & model", exact: true }).filter({ visible: true });
+          const dialog = page.getByRole("dialog");
+          const modelInput = () => dialog.getByLabel("Model / 车型", { exact: true });
+          const makeInput = () => dialog.getByLabel("Make / 品牌", { exact: true });
+          const chooseMake = async label => {
+            await makeInput().click();
+            await page.locator(".ant-select-item-option").filter({ hasText: label }).last().click();
+          };
+          await page.getByRole("button", { name: "Edit", exact: true }).filter({ visible: true }).first().click();
+          await expect(modelInput()).toHaveValue("COROLLA CROSS HYBRID PREMIUM WITH A LONG MODEL LABEL");
+          await expect(dialog.getByRole("switch")).not.toBeChecked();
+          await inspect("catalogue-edit", width);
+          await modelInput().fill("edited model");
+          await dialog.getByRole("button", { name: "Save changes", exact: true }).click();
+          await expect(dialog).toBeHidden();
+          await page.locator(".ant-message-notice").waitFor({ state: "hidden" });
+          expect(catalogMutations.at(-1)).toEqual({ path: "/api/vehicle-catalog/models/catalog-hidden", method: "PUT", body: { make: "TOYOTA", model: "EDITED MODEL", isActive: false } });
+          await newOption().click();
+          await expect(modelInput()).toHaveValue("");
+          await expect(makeInput()).toHaveValue("");
+          await expect(dialog.getByRole("switch")).toBeChecked();
+          await chooseMake("HONDA");
+          await modelInput().fill("duplicate");
+          await dialog.getByRole("button", { name: "Create option", exact: true }).click();
+          await expect(dialog.getByText("This make and model already exists.", { exact: true })).toBeVisible();
+          await expect(modelInput()).toHaveValue("DUPLICATE");
+          await inspect("catalogue-save-error", width);
+          if (visualEvidence) await dialog.screenshot({ path: `${output}/catalogue-error-dialog-${width}.png` });
+          await modelInput().fill("new existing make model");
+          await dialog.getByRole("button", { name: "Create option", exact: true }).click();
+          await expect(dialog).toBeHidden();
+          await page.locator(".ant-message-notice").waitFor({ state: "hidden" });
+          expect(catalogMutations.at(-1)).toMatchObject({ method: "POST", body: { make: "HONDA", model: "NEW EXISTING MAKE MODEL", isActive: true } });
+          await newOption().click();
+          await chooseMake("+ Add new make");
+          await dialog.getByLabel("New make / 新品牌", { exact: true }).fill("new synthetic make");
+          await modelInput().fill("new synthetic model");
+          await inspect("catalogue-new-make", width);
+          if (visualEvidence) await dialog.screenshot({ path: `${output}/catalogue-new-make-dialog-${width}.png` });
+          await dialog.getByRole("button", { name: "Create option", exact: true }).click();
+          await expect(dialog).toBeHidden();
+          await page.locator(".ant-message-notice").waitFor({ state: "hidden" });
+          expect(catalogMutations.at(-1)).toMatchObject({ method: "POST", body: { make: "NEW SYNTHETIC MAKE", model: "NEW SYNTHETIC MODEL", isActive: true } });
+          const beforeCancel = catalogMutations.length;
+          await page.getByRole("button", { name: "Edit", exact: true }).filter({ visible: true }).first().click();
+          await modelInput().fill("discard this edit");
+          await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+          await expect(dialog).toBeHidden();
+          await newOption().click();
+          await expect(modelInput()).toHaveValue("");
+          await expect(dialog.getByRole("switch")).toBeChecked();
+          await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+          await expect(dialog).toBeHidden();
+          await newOption().click();
+          await modelInput().focus();
+          await inspect("catalogue-keyboard-cancel", width);
+          await modelInput().press("Escape");
+          await expect(dialog).toBeHidden();
+          await page.locator(".ant-message-notice").waitFor({ state: "hidden" });
+          expect(catalogMutations).toHaveLength(beforeCancel);
+          catalogChecks = false;
           const usersTab = page.getByRole("tab", { name: "Staff Users / 员工账号", exact: true });
           await usersTab.focus();
           await usersTab.press("Enter");
@@ -786,7 +875,7 @@ const knownWarnings = new Set([
   "Warning: `disabled` should not set with empty `value`. You should set `allowEmpty` or `value` instead.",
   "Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?"
 ]);
-const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !(diagnostics.dashboardFailureChecks && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
+const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !(diagnostics.dashboardFailureChecks && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
 const summary = { width, checks: results.length, failed, unknownRequests: [...unknownRequests], failedRequests: diagnostics.failedRequests, unexpectedConsoleErrors };
 console.log(JSON.stringify(summary, null, 2));
 if (failed.length || unknownRequests.size || diagnostics.failedRequests.length || unexpectedConsoleErrors.length) {

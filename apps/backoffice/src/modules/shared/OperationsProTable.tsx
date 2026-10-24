@@ -38,6 +38,8 @@ export type OperationsProTableProps<
   request?: ProTableProps<RecordType, Params>["request"];
   search?: ProTableProps<RecordType, Params>["search"];
   editable?: ProTableProps<RecordType, Params>["editable"];
+  /** Opt in to native toolbar actions without enabling default table tools. */
+  toolBarRender?: ProTableProps<RecordType, Params>["toolBarRender"];
   /** Use ProTable's native multi-field query form to drive page-owned filtering. */
   nativeSearch?: OperationsNativeSearch;
   /** Generate filters only for short, low-cardinality operational values. */
@@ -375,6 +377,7 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
   search,
   nativeSearch,
   columnFilters = false,
+  toolBarRender = false,
   className,
   pagination,
   ...props
@@ -520,7 +523,7 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
       onSubmit={(values) => submitSearch(values as Record<string, unknown>)}
       onReset={resetSearch}
       options={false}
-      toolBarRender={false}
+      toolBarRender={toolBarRender}
       tableAlertRender={false}
       tableAlertOptionRender={false}
       bordered={false}

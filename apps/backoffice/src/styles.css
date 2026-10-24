@@ -7439,3 +7439,19 @@ body {
 
 .dataFreshness { display: block; margin-block: 8px; overflow-wrap: anywhere; }
 .dashboardCollectionCategory { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
+/* Catalogue editing stays separate from the list on every viewport. */
+.vehicleCatalogSaveError {
+  margin-bottom: 24px;
+}
+
+.vehicleCatalogTable .ant-pro-table-list-toolbar-right {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .vehicleCatalogMobileToolbar .ant-btn,
+  .vehicleCatalogModal .ant-modal-footer .ant-btn {
+    min-height: 44px;
+  }
+}
