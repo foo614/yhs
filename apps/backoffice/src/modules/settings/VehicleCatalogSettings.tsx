@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Switch, Tag, Typography, message } from "antd";
+import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Tag, Typography, message } from "antd";
+import { PlusOutlined } from "@ant-design/icons";
+import { ModalForm, ProFormSwitch, ProFormText } from "@ant-design/pro-components";
 import type { ColumnsType } from "antd/es/table";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import {
@@ -12,7 +14,6 @@ import {
 } from "../../api";
 
 const mobileCatalogPageSize = 8;
-const malaysiaCatalogSourceUrl = "https://data.gov.my/data-catalogue/registration_transactions_car";
 const addNewMakeValue = "__add_new_make__";
 type VehicleCatalogFormValues = Omit<VehicleCatalogModelInput, "make"> & { makeChoice: string; newMake?: string };
 
@@ -44,9 +45,13 @@ export function vehicleCatalogMakes(models: VehicleCatalogModel[]) {
 }
 
 export function VehicleCatalogSettings() {
+  const [messageApi, messageContextHolder] = message.useMessage();
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
   const [catalogFilters, setCatalogFilters] = useState<VehicleCatalogFilters>({});
   const [mobileCatalogPage, setMobileCatalogPage] = useState(1);
+  const [catalogFormOpen, setCatalogFormOpen] = useState(false);
+  const [catalogSaving, setCatalogSaving] = useState(false);
+  const [catalogSaveError, setCatalogSaveError] = useState<string | null>(null);
   const [catalogEditingId, setCatalogEditingId] = useState<string | null>(null);
   const [catalogForm] = Form.useForm<VehicleCatalogFormValues>();
   const selectedMake = Form.useWatch("makeChoice", catalogForm);
@@ -69,9 +74,9 @@ export function VehicleCatalogSettings() {
     try {
       setCatalogModels(await getVehicleCatalogModels());
     } catch (error) {
-      message.error(humanizeApiError(error, "Unable to load the vehicle catalogue."));
+      messageApi.error(humanizeApiError(error, "Unable to load the vehicle catalogue."));
     }
-  }, []);
+  }, [messageApi]);
 
   useEffect(() => {
     void loadCatalogModels();
@@ -85,38 +90,47 @@ export function VehicleCatalogSettings() {
 
   async function saveCatalogModel(values: VehicleCatalogFormValues) {
     const make = (values.makeChoice === addNewMakeValue ? values.newMake : values.makeChoice)?.trim().toLocaleUpperCase();
-    if (!make) return;
+    if (!make) return false;
     const input: VehicleCatalogModelInput = { make, model: values.model.trim(), isActive: values.isActive };
+    setCatalogSaving(true);
+    setCatalogSaveError(null);
     try {
       if (catalogEditingId) {
         await updateVehicleCatalogModel(catalogEditingId, input);
-        message.success("Vehicle catalogue option updated.");
+        messageApi.success("Vehicle catalogue option updated.");
       } else {
         await createVehicleCatalogModel(input);
-        message.success("Vehicle catalogue option added.");
+        messageApi.success("Vehicle catalogue option added.");
       }
-      setCatalogEditingId(null);
-      catalogForm.resetFields();
-      catalogForm.setFieldValue("isActive", true);
       await loadCatalogModels();
+      setCatalogFormOpen(false);
+      return true;
     } catch (error) {
-      message.error(humanizeApiError(error, "Unable to save the vehicle catalogue option."));
+      setCatalogSaveError(humanizeApiError(error, "Unable to save the vehicle catalogue option."));
+      return false;
+    } finally {
+      setCatalogSaving(false);
     }
   }
 
   async function toggleCatalogModel(item: VehicleCatalogModel) {
     try {
       await updateVehicleCatalogModel(item.id, { make: item.make, model: item.model, isActive: !item.isActive });
-      message.success(`Vehicle catalogue option ${item.isActive ? "hidden" : "shown"} on the website.`);
+      messageApi.success(`Vehicle catalogue option ${item.isActive ? "hidden" : "shown"} on the website.`);
       await loadCatalogModels();
     } catch (error) {
-      message.error(humanizeApiError(error, "Unable to update the vehicle catalogue option."));
+      messageApi.error(humanizeApiError(error, "Unable to update the vehicle catalogue option."));
     }
   }
 
-  function editCatalogModel(item: VehicleCatalogModel) {
-    setCatalogEditingId(item.id);
-    catalogForm.setFieldsValue({ makeChoice: item.make.toLocaleUpperCase(), newMake: undefined, model: item.model, isActive: item.isActive });
+  function openCatalogForm(item?: VehicleCatalogModel) {
+    catalogForm.resetFields();
+    setCatalogEditingId(item?.id ?? null);
+    setCatalogSaveError(null);
+    catalogForm.setFieldsValue(item
+      ? { makeChoice: item.make.toLocaleUpperCase(), newMake: undefined, model: item.model, isActive: item.isActive }
+      : { makeChoice: undefined, newMake: undefined, model: undefined, isActive: true });
+    setCatalogFormOpen(true);
   }
 
   function updateCatalogFilter<K extends keyof VehicleCatalogFilters>(key: K, value: VehicleCatalogFilters[K] | undefined) {
@@ -126,7 +140,7 @@ export function VehicleCatalogSettings() {
 
   const renderCatalogActions = (item: VehicleCatalogModel) => (
     <Space className="tableActionGroup" wrap size={6}>
-      <Button size="small" type="primary" onClick={() => editCatalogModel(item)}>Edit</Button>
+      <Button size="small" type="primary" onClick={() => openCatalogForm(item)}>Edit</Button>
       <Button size="small" onClick={() => void toggleCatalogModel(item)}>{item.isActive ? "Hide" : "Show"}</Button>
     </Space>
   );
@@ -138,7 +152,8 @@ export function VehicleCatalogSettings() {
   ];
 
   return (
-    <Space direction="vertical" size={16} className="fullWidth">
+    <div className="fullWidth vehicleCatalogSettings">
+      {messageContextHolder}
       <div className="settingsOverview">
         <div>
           <span className="moduleEyebrow">Website filters</span>
@@ -153,24 +168,29 @@ export function VehicleCatalogSettings() {
           <span><strong>{activeModelCount}</strong>visible</span>
         </div>
       </div>
-      <Alert
-        className="operationalInfoAlert"
-        type="info"
-        showIcon
-        message={(
-          <span>
-            Catalogue defaults use models with at least 100 Malaysian JPJ registrations from January 2025 through July 2026. {" "}
-            <Typography.Link href={malaysiaCatalogSourceUrl} target="_blank" rel="noreferrer">View source on data.gov.my</Typography.Link>
-          </span>
-        )}
-      />
-      <Form
+      <ModalForm<VehicleCatalogFormValues>
         form={catalogForm}
         name="vehicleCatalog"
-        layout="inline"
+        title={catalogEditingId ? "Edit make & model / 编辑品牌车型" : "New make & model / 新增品牌车型"}
+        width={520}
+        layout="vertical"
+        loading={catalogSaving}
+        open={catalogFormOpen}
+        onOpenChange={(open) => { if (!catalogSaving) setCatalogFormOpen(open); }}
         initialValues={{ isActive: true }}
-        onFinish={(values) => void saveCatalogModel(values)}
+        onFinish={saveCatalogModel}
+        modalProps={{ className: "vehicleCatalogModal", forceRender: true, maskClosable: false, closable: !catalogSaving, keyboard: !catalogSaving }}
+        submitter={{
+          searchConfig: { submitText: catalogEditingId ? "Save changes" : "Create option", resetText: "Cancel" },
+          resetButtonProps: { disabled: catalogSaving },
+          submitButtonProps: {
+            loading: catalogSaving,
+            "aria-label": catalogEditingId ? "Save changes" : "Create option",
+            "aria-busy": catalogSaving
+          }
+        }}
       >
+        {catalogSaveError && <Alert type="error" showIcon message={catalogSaveError} className="vehicleCatalogSaveError" />}
         <Form.Item name="makeChoice" label="Make / 品牌" rules={[{ required: true, message: "Select an existing make or add a new one" }]}>
           <Select
             showSearch
@@ -184,27 +204,16 @@ export function VehicleCatalogSettings() {
           />
         </Form.Item>
         {selectedMake === addNewMakeValue ? (
-          <Form.Item name="newMake" label="New make / 新品牌" rules={[{ required: true, message: "Enter the new make" }]}>
-            <Input placeholder="BYD" maxLength={80} style={{ textTransform: "uppercase" }} />
-          </Form.Item>
+          <ProFormText name="newMake" label="New make / 新品牌" rules={[{ required: true, message: "Enter the new make" }]}
+            placeholder="BYD" fieldProps={{ maxLength: 80, style: { textTransform: "uppercase" } }} />
         ) : null}
-        <Form.Item name="model" label="Model / 车型" rules={[{ required: true, message: "Model is required" }]}>
-          <Input placeholder="Vios" maxLength={80} />
-        </Form.Item>
-        <Form.Item name="isActive" label="Website visible" valuePropName="checked"><Switch /></Form.Item>
-        <Form.Item>
-          <Space>
-            <Button type="primary" htmlType="submit">{catalogEditingId ? "Update option" : "Add option"}</Button>
-            {catalogEditingId && (
-              <Button onClick={() => {
-                setCatalogEditingId(null);
-                catalogForm.resetFields();
-                catalogForm.setFieldValue("isActive", true);
-              }}>Cancel</Button>
-            )}
-          </Space>
-        </Form.Item>
-      </Form>
+        <ProFormText name="model" label="Model / 车型" rules={[{ required: true, message: "Model is required" }]}
+          placeholder="Vios" fieldProps={{ maxLength: 80 }} />
+        <ProFormSwitch name="isActive" label="Website visible" />
+      </ModalForm>
+      <div className="pageFilterMobileOnly vehicleCatalogMobileToolbar">
+        <Button type="primary" icon={<PlusOutlined aria-hidden />} onClick={() => openCatalogForm()}>New make & model</Button>
+      </div>
       <div className="vehicleOperationFilters pageFilterMobileOnly">
         <Input.Search
           allowClear
@@ -256,7 +265,8 @@ export function VehicleCatalogSettings() {
         )}
       </div>
       <OperationsProTable
-        className="desktopDataTable nativeSearchDesktopOnly"
+        className="desktopDataTable nativeSearchDesktopOnly vehicleCatalogTable"
+        toolBarRender={() => [<Button key="create" type="primary" icon={<PlusOutlined aria-hidden />} onClick={() => openCatalogForm()}>New make & model</Button>]}
         rowKey="id"
         columns={catalogColumns}
         dataSource={filteredCatalogModels}
@@ -286,6 +296,6 @@ export function VehicleCatalogSettings() {
         scroll={{ x: 640 }}
         locale={{ emptyText: catalogEmptyText }}
       />
-    </Space>
+    </div>
   );
 }

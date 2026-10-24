@@ -24,8 +24,7 @@ describe("back-office information banner UI contract", () => {
       "App.tsx",
       "modules/customers/Customer360Page.tsx",
       "modules/hr/HrSalaryPage.tsx",
-      "modules/settings/ShowroomEnquiryQrSettings.tsx",
-      "modules/settings/VehicleCatalogSettings.tsx"
+      "modules/settings/ShowroomEnquiryQrSettings.tsx"
     ];
 
     for (const path of compactBannerFiles) {
