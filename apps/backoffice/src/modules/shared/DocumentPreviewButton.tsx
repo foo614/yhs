@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import { Button, Space, Typography } from "antd";
-import { humanizeApiError } from "../../api";
+import { getProtectedFileDownload, humanizeApiError } from "../../api";
 import { DocumentPreviewDrawer, type DocumentPreviewSource } from "./DocumentPreviewDrawer";
 
 export function DocumentPreviewButton({
@@ -26,6 +26,8 @@ export function DocumentPreviewButton({
   const [previewMimeType, setPreviewMimeType] = useState(mimeType ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [downloadError, setDownloadError] = useState("");
+  const [downloading, setDownloading] = useState(false);
   const requestId = useRef(0);
 
   useEffect(() => () => {
@@ -66,16 +68,35 @@ export function DocumentPreviewButton({
 
   const source: DocumentPreviewSource = { fileName, mimeType: previewMimeType || "application/octet-stream", url: previewUrl };
 
+  const download = async () => {
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const file = await getProtectedFileDownload(downloadUrl, "Unable to download this document");
+      const url = URL.createObjectURL(file.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.fileName || fileName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (reason) {
+      setDownloadError(humanizeApiError(reason, "Unable to download this document. Please try again."));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <>
       <Space className={fullWidth ? "tableActionGroup documentPreviewButtonActionsFullWidth" : "tableActionGroup"} size={6} wrap>
         <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => void openPreview()}>
           {previewLabel}
         </Button>
-        <Button size="small" icon={<DownloadOutlined />} href={downloadUrl} target="_blank" rel="noreferrer">
+        <Button size="small" icon={<DownloadOutlined />} loading={downloading} onClick={() => void download()}>
           {downloadLabel}
         </Button>
       </Space>
+      {downloadError && <Typography.Paragraph type="danger" role="alert" className="documentDownloadError">{downloadError}</Typography.Paragraph>}
       <DocumentPreviewDrawer
         open={open}
         title="Document preview / 文件预览"
@@ -85,8 +106,11 @@ export function DocumentPreviewButton({
         onClose={close}
         footer={(
           <div className="documentPreviewFooter documentPreviewFooterActionsOnly">
-            <Typography.Text type="secondary">Preview is read-only. Download the original file when needed.</Typography.Text>
-            <Button icon={<DownloadOutlined />} href={downloadUrl} target="_blank" rel="noreferrer">Download original</Button>
+            <div>
+              <Typography.Text type="secondary">Read-only preview. If it cannot be displayed, download the file.</Typography.Text>
+              {downloadError && <Typography.Paragraph type="danger" role="alert" className="documentDownloadError">{downloadError}</Typography.Paragraph>}
+            </div>
+            <Button icon={<DownloadOutlined />} loading={downloading} onClick={() => void download()}>{downloadLabel}</Button>
           </div>
         )}
       />

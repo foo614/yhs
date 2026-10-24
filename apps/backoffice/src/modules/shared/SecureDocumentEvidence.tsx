@@ -10,11 +10,12 @@ export function releaseObjectUrl(url: string, revoke: (value: string) => void = 
 
 export function SecureDocumentEvidence({ vehicleId, document }: { vehicleId: string; document: VehicleDocument }) {
   const [objectUrl, setObjectUrl] = useState("");
+  const [previewMimeType, setPreviewMimeType] = useState(document.mimeType);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [fullViewOpen, setFullViewOpen] = useState(false);
-  const kind = documentPreviewKind(document.mimeType);
+  const kind = documentPreviewKind(previewMimeType);
 
   useEffect(() => {
     let active = true;
@@ -22,10 +23,14 @@ export function SecureDocumentEvidence({ vehicleId, document }: { vehicleId: str
     setLoading(true);
     setError("");
     setObjectUrl("");
+    setPreviewMimeType(document.mimeType);
     void getVehicleDocumentContent(vehicleId, document.id)
       .then((blob) => {
         loadedUrl = URL.createObjectURL(blob);
-        if (active) setObjectUrl(loadedUrl);
+        if (active) {
+          setPreviewMimeType(blob.type || document.mimeType);
+          setObjectUrl(loadedUrl);
+        }
         else releaseObjectUrl(loadedUrl);
       })
       .catch((loadError) => {
@@ -38,18 +43,18 @@ export function SecureDocumentEvidence({ vehicleId, document }: { vehicleId: str
       active = false;
       releaseObjectUrl(loadedUrl);
     };
-  }, [document.id, reloadKey, vehicleId]);
+  }, [document.id, document.mimeType, reloadKey, vehicleId]);
 
   return (
     <div className="secureDocumentEvidence">
       <div className="secureDocumentEvidenceHeader">
         <div>
           <Typography.Text strong>{document.fileName}</Typography.Text>
-          <Typography.Text type="secondary">{document.mimeType || "Unknown file type"}</Typography.Text>
+          <Typography.Text type="secondary">{previewMimeType || "Unknown file type"}</Typography.Text>
         </div>
         {objectUrl && (
           <Space wrap size={6}>
-            {kind !== "unsupported" && <Button size="small" icon={<EyeOutlined />} onClick={() => setFullViewOpen(true)}>Full view</Button>}
+            {kind !== "unsupported" && <Button size="small" icon={<EyeOutlined />} onClick={() => setFullViewOpen(true)}>Preview</Button>}
             <Button size="small" icon={<DownloadOutlined />} href={objectUrl} download={document.fileName}>Download original</Button>
           </Space>
         )}
@@ -62,19 +67,15 @@ export function SecureDocumentEvidence({ vehicleId, document }: { vehicleId: str
         <button type="button" className="secureDocumentThumbnail" onClick={() => setFullViewOpen(true)} aria-label={`Enlarge ${document.fileName}`}>
           <img src={objectUrl} alt={`Evidence ${document.fileName}`} />
         </button>
-      ) : kind === "pdf" ? (
-        <div className="secureDocumentPdf">
-          <iframe src={objectUrl} title={`Inline preview of ${document.fileName}`} sandbox="" />
-        </div>
-      ) : (
+      ) : kind === "pdf" ? null : (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Preview is not available for this file type. Download the original to view it." />
       )}
       <DocumentPreviewDrawer
         open={fullViewOpen}
-        title={`${document.fileName} preview`}
-        source={objectUrl ? { fileName: document.fileName, mimeType: document.mimeType, url: objectUrl } : undefined}
+        title="Document preview / 文件预览"
+        source={objectUrl ? { fileName: document.fileName, mimeType: previewMimeType, url: objectUrl } : undefined}
         onClose={() => setFullViewOpen(false)}
-        footer={objectUrl ? <Button icon={<DownloadOutlined />} href={objectUrl} download={document.fileName}>Download original</Button> : undefined}
+        footer={objectUrl ? <div className="documentPreviewFooter"><Typography.Text type="secondary">If the preview cannot be displayed, download the original file.</Typography.Text><Button icon={<DownloadOutlined />} href={objectUrl} download={document.fileName}>Download original</Button></div> : undefined}
       />
     </div>
   );

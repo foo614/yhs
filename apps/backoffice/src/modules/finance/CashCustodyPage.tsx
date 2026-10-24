@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Descriptions, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Timeline, Tooltip, Typography, message } from "antd";
+import { Alert, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Timeline, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import { newestRecordsFirst } from "../../recordDates";
+import { FinanceListNotice } from "./FinanceListNotice";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { FINANCE_LIST_PAGE_SIZE, financeEmptyText, financePageFor, pageFinanceRows } from "./financeList";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
@@ -62,6 +63,7 @@ export function CashCustodyPage({
   focusCollectionId,
   prefillPaymentId,
   loadError,
+  loading = false,
   onRetry,
   onCreate,
   onRequestHandover,
@@ -76,6 +78,7 @@ export function CashCustodyPage({
   focusCollectionId?: string;
   prefillPaymentId?: string;
   loadError: string | null;
+  loading?: boolean;
   onRetry: () => Promise<void>;
   onCreate: (paymentRecordId: string, amount: number, notes?: string, idempotencyKey?: string) => Promise<void>;
   onRequestHandover: (id: string) => Promise<void>;
@@ -101,13 +104,14 @@ export function CashCustodyPage({
   const isSales = currentUser?.roles.some((role) => role === "BossAdmin" || role === "Sales") ?? false;
   const currentUserId = currentUser?.id;
   const availablePayments = paymentLookup;
+  const summaryUnavailable = loadError ? "Unavailable" : loading ? "Loading" : null;
   const overdueCount = handovers.filter(isOverdue).length;
   const mismatchCount = handovers.filter((handover) => !handover.transactionMatches).length;
   const filteredHandovers = useMemo(() => newestRecordsFirst(filterCashHandovers(handovers, paymentLookup, keyword, status ?? "All"), record => record.collectedAt), [handovers, keyword, paymentLookup, status]);
   const custodyPage = financePageFor(filteredHandovers.length, page);
   const visibleHandovers = pageFinanceRows(filteredHandovers, custodyPage);
   const custodyFiltersActive = Boolean(keyword.trim() || status);
-  const custodyEmptyText = financeEmptyText(handovers.length, filteredHandovers.length, "cash handovers");
+  const custodyEmptyText = loadError ? "Records unavailable. Retry to load this list." : loading ? "Loading records…" : financeEmptyText(handovers.length, filteredHandovers.length, "cash handovers");
 
   useEffect(() => {
     if (!focusCollectionId) return;
@@ -129,20 +133,35 @@ export function CashCustodyPage({
     setPage(1);
   }, [createForm, isSales, paymentLookup, prefillPaymentId]);
 
+  const renderReceiptActions = (handover: CashHandover) => handover.officialReceiptNumber ? (
+    <Space className="tableActionGroup" wrap size={6}>
+      <DocumentPreviewButton
+        fileName={`${handover.officialReceiptNumber}.pdf`}
+        mimeType="application/pdf"
+        downloadUrl={officialReceiptContentUrl(handover.id)}
+        loadContent={() => getProtectedFileContent(officialReceiptContentUrl(handover.id), "Unable to load official receipt preview")}
+        previewLabel="Preview receipt"
+        downloadLabel="Download receipt"
+      />
+      <Button size="small" onClick={() => composeReceiptEmail(handover, customers)}>Compose Email</Button>
+    </Space>
+  ) : null;
+
   const renderHandoverActions = (handover: CashHandover) => (
     <Space direction="vertical" size={4}>
     <Space className="tableActionGroup" wrap size={6}>
-      <Button size="small" onClick={() => setViewing(handover)}>View details</Button>
+      <Button size="small" onClick={() => setViewing(handover)}>Details</Button>
+      {renderReceiptActions(handover)}
       {isSales && currentUserId === handover.collectedByUserId && handover.status === "ReceivedBySales" && (
-        <Button size="small" type="primary" disabled={Boolean(loadError)} onClick={() => setReviewing({ action: "request", handover })}>Review Handover Request</Button>
+        <Button size="small" type="primary" disabled={Boolean(loadError || loading)} onClick={() => setReviewing({ action: "request", handover })}>Review Handover Request</Button>
       )}
       {isFinance && handover.status === "PendingHandover" && (
-        <Tooltip title={custodyActionBlockReason("record", handover, currentUserId)}><span><Button size="small" type="primary" disabled={Boolean(loadError || custodyActionBlockReason("record", handover, currentUserId))} onClick={() => setReviewing({ action: "record", handover })}>Review Cash Receipt</Button></span></Tooltip>
+        <Tooltip title={custodyActionBlockReason("record", handover, currentUserId)}><span><Button size="small" type="primary" disabled={Boolean(loadError || loading || custodyActionBlockReason("record", handover, currentUserId))} onClick={() => setReviewing({ action: "record", handover })}>Review Cash Receipt</Button></span></Tooltip>
       )}
       {isFinance && handover.status === "HandedOver" && (
         <>
-          <Tooltip title={custodyActionBlockReason("accept", handover, currentUserId)}><span><Button size="small" type="primary" disabled={Boolean(loadError || custodyActionBlockReason("accept", handover, currentUserId))} onClick={() => setReviewing({ action: "accept", handover })}>Review & Accept</Button></span></Tooltip>
-          {handover.canRejectTransaction && <Tooltip title={custodyDecisionBlockReason(handover, currentUserId)}><span><Button size="small" danger disabled={Boolean(loadError || custodyDecisionBlockReason(handover, currentUserId))} onClick={() => { rejectForm.resetFields(); setRejecting(handover); }}>Review & Reject</Button></span></Tooltip>}
+          <Tooltip title={custodyActionBlockReason("accept", handover, currentUserId)}><span><Button size="small" type="primary" disabled={Boolean(loadError || loading || custodyActionBlockReason("accept", handover, currentUserId))} onClick={() => setReviewing({ action: "accept", handover })}>Review & Accept</Button></span></Tooltip>
+          {handover.canRejectTransaction && <Tooltip title={custodyDecisionBlockReason(handover, currentUserId)}><span><Button size="small" danger disabled={Boolean(loadError || loading || custodyDecisionBlockReason(handover, currentUserId))} onClick={() => { rejectForm.resetFields(); setRejecting(handover); }}>Review & Reject</Button></span></Tooltip>}
         </>
       )}
     </Space>
@@ -174,25 +193,12 @@ export function CashCustodyPage({
     { title: "Payment / 对账", render: (_, handover) => <Space direction="vertical" size={2}><Tag color={handover.collectionStatus === "Reconciled" || handover.paymentStatus === "Reconciled" ? "green" : handover.collectionStatus === "Reversed" ? "red" : "orange"}>{handover.collectionStatus ?? handover.paymentStatus ?? "Unavailable"}</Tag><Typography.Text type="secondary">{formatDateTime(handover.collectedAt)}</Typography.Text></Space> },
     {
       title: "Receipt / 收据",
-      render: (_, handover) => handover.officialReceiptNumber ? (
-        <Space wrap>
-          <Tag color="green">{handover.officialReceiptNumber}</Tag>
-          <DocumentPreviewButton
-            fileName={`${handover.officialReceiptNumber}.pdf`}
-            mimeType="application/pdf"
-            downloadUrl={officialReceiptContentUrl(handover.id)}
-            loadContent={() => getProtectedFileContent(officialReceiptContentUrl(handover.id), "Unable to load official receipt preview")}
-            previewLabel="Preview"
-            downloadLabel="Download"
-          />
-          <Button size="small" onClick={() => composeReceiptEmail(handover, customers)}>Compose Email</Button>
-        </Space>
-      ) : "-"
+      render: (_, handover) => handover.officialReceiptNumber ? <Tag color="green">{handover.officialReceiptNumber}</Tag> : "Not issued"
     },
     {
       title: "Action / 操作",
       fixed: "right",
-      width: 270,
+      width: 320,
       render: (_, handover) => renderHandoverActions(handover)
     }
   ];
@@ -201,17 +207,18 @@ export function CashCustodyPage({
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
         title="Cash Custody / 现金交接"
-        extra={isSales ? <Button type="primary" disabled={Boolean(loadError)} onClick={() => { createForm.resetFields(); setCreateOpen(true); }}>Record Cash Received</Button> : null}
+        extra={isSales ? <Button type="primary" disabled={Boolean(loadError || loading)} onClick={() => { createForm.resetFields(); setCreateOpen(true); }}>Record Cash Received</Button> : null}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           {loadError && <Alert type="error" showIcon message="Cash custody data is unavailable" description={`${loadError} Creating or changing custody is disabled until the register reloads successfully.`} action={<Button loading={retrying} onClick={async () => { setRetrying(true); try { await onRetry(); } finally { setRetrying(false); } }}>Retry</Button>} />}
+          <FinanceListNotice label="Cash custody records" loading={loading} />
           {prefillPaymentId && !isSales && <Alert type="info" showIcon message="The assigned Sales user must record this physical cash" description="Your payment context is retained below. Finance can review an existing custody record, but only the assigned Sales user can start a new cash custody record." />}
           <Alert type="warning" showIcon message="Sales records physical cash. Finance confirms receipt, and a different Finance or Boss/Admin checker accepts or rejects custody. Finance V2 cash updates the invoice only after acceptance." />
           <div className="metricGrid">
-            <Metric label="Open custody" value={handovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length} />
-            <Metric label="Overdue handovers" value={overdueCount} danger={overdueCount > 0} />
-            <Metric label="Amount mismatches" value={mismatchCount} danger={mismatchCount > 0} />
-            <Metric label="Official receipts" value={handovers.filter((handover) => Boolean(handover.officialReceiptId)).length} />
+            <Metric label="Open custody" value={summaryUnavailable ?? handovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length} />
+            <Metric label="Overdue handovers" value={summaryUnavailable ?? overdueCount} danger={overdueCount > 0} />
+            <Metric label="Amount mismatches" value={summaryUnavailable ?? mismatchCount} danger={mismatchCount > 0} />
+            <Metric label="Official receipts" value={summaryUnavailable ?? handovers.filter((handover) => Boolean(handover.officialReceiptId)).length} />
           </div>
           <Alert
             type="info"
@@ -256,7 +263,7 @@ export function CashCustodyPage({
               }}
             />
             <Tag color={custodyFiltersActive ? "blue" : undefined}>
-              {custodyFiltersActive ? `${filteredHandovers.length} of ${handovers.length} matching` : `${handovers.length} record${handovers.length === 1 ? "" : "s"}`}
+              {summaryUnavailable ?? (custodyFiltersActive ? `${filteredHandovers.length} of ${handovers.length} matching` : `${handovers.length} record${handovers.length === 1 ? "" : "s"}`)}
             </Tag>
             {custodyFiltersActive && <Button onClick={() => {
               setKeyword("");
@@ -265,7 +272,7 @@ export function CashCustodyPage({
             }}>Clear filters</Button>}
           </Space>
           <div className="mobileRecordList">
-            {filteredHandovers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={custodyEmptyText} />}
+            {!loadError && !loading && filteredHandovers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={custodyEmptyText} />}
             {visibleHandovers.map((handover) => (
               <article className="mobileRecordCard" key={handover.id}>
                 <div className="mobileRecordHeader">
@@ -285,23 +292,9 @@ export function CashCustodyPage({
                 </div>
                 <div className="mobileRecordSection">
                   <Typography.Text className="mobileRecordLabel">Receipt / 收据</Typography.Text>
-                  {handover.officialReceiptNumber ? (
-                    <Space className="cashCustodyReceiptActions" wrap size={6}>
-                      <Tag color="green">{handover.officialReceiptNumber}</Tag>
-                      <DocumentPreviewButton
-                        fileName={`${handover.officialReceiptNumber}.pdf`}
-                        mimeType="application/pdf"
-                        downloadUrl={officialReceiptContentUrl(handover.id)}
-                        loadContent={() => getProtectedFileContent(officialReceiptContentUrl(handover.id), "Unable to load official receipt preview")}
-                        previewLabel="Preview"
-                        downloadLabel="Download"
-                      />
-                      <Button size="small" onClick={() => composeReceiptEmail(handover, customers)}>Compose Email</Button>
-                    </Space>
-                  ) : <Typography.Text type="secondary">Not issued</Typography.Text>}
+                  {handover.officialReceiptNumber ? <Tag color="green">{handover.officialReceiptNumber}</Tag> : <Typography.Text type="secondary">Not issued</Typography.Text>}
                   {!handover.transactionMatches && <Tag color="red">Transaction mismatch</Tag>}
                 </div>
-                <CashCustodyDetails handover={handover} />
                 <div className="mobileRecordFooter">{renderHandoverActions(handover)}</div>
               </article>
             ))}
@@ -363,6 +356,7 @@ export function CashCustodyPage({
       </ProCard>
 
       <Modal
+        rootClassName="financeOverlay"
         title="Record Cash Received / 记录现金收款"
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
@@ -403,20 +397,21 @@ export function CashCustodyPage({
           <Form.Item>
             <Space>
               <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-              <Button type="primary" htmlType="submit">Review Cash Received</Button>
+              <Button type="primary" htmlType="submit" disabled={Boolean(loadError || loading)}>Review Cash Received</Button>
             </Space>
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
+        rootClassName="financeOverlay"
         title="Confirm Cash Received from Customer"
         open={Boolean(createDraft)}
         onCancel={() => { setCreateDraft(null); setCreateOpen(true); }}
         cancelText="Back to edit"
         okText="Confirm & Save Cash Received"
         confirmLoading={submitting}
-        okButtonProps={{ disabled: Boolean(createDraft && createDraft.payment.financeWorkflowVersion !== 2 && createDraft.amount !== createDraft.payment.nettPrice) }}
+        okButtonProps={{ disabled: Boolean(loadError || loading || (createDraft && createDraft.payment.financeWorkflowVersion !== 2 && createDraft.amount !== createDraft.payment.nettPrice)) }}
         onOk={async () => {
           if (!createDraft) return;
           setSubmitting(true);
@@ -441,11 +436,14 @@ export function CashCustodyPage({
         </Space>}
       </Modal>
 
-      <Modal title="Cash Custody Details" open={Boolean(viewing)} onCancel={() => setViewing(null)} footer={<Button onClick={() => setViewing(null)}>Close</Button>} width={720}>
-        {viewing && <CashCustodyDetails handover={viewing} />}
-      </Modal>
+      <Drawer title="Cash Custody Details / 现金交接详情" open={Boolean(viewing)} onClose={() => setViewing(null)} footer={<Button onClick={() => setViewing(null)}>Close</Button>} width={720} className="recordEditDrawer financeRecordDrawer" destroyOnClose>
+        {viewing && <Space direction="vertical" size={16} className="fullWidth">
+          <CashCustodyDetails handover={viewing} />
+          {viewing.officialReceiptNumber && <section className="financeDetailDocuments" aria-label="Official receipt"><Typography.Text strong>{viewing.officialReceiptNumber}</Typography.Text>{renderReceiptActions(viewing)}</section>}
+        </Space>}
+      </Drawer>
 
-      <Modal title={reviewing ? actionTitle(reviewing.action) : "Review custody action"} open={Boolean(reviewing)} onCancel={() => setReviewing(null)} confirmLoading={submitting} okText={reviewing ? actionConfirmText(reviewing.action) : "Confirm"} onOk={async () => {
+      <Modal rootClassName="financeOverlay" title={reviewing ? actionTitle(reviewing.action) : "Review custody action"} open={Boolean(reviewing)} onCancel={() => setReviewing(null)} confirmLoading={submitting} okButtonProps={{ disabled: Boolean(loadError || loading) }} okText={reviewing ? actionConfirmText(reviewing.action) : "Confirm"} onOk={async () => {
         if (!reviewing) return;
         setSubmitting(true);
         try {
@@ -459,6 +457,7 @@ export function CashCustodyPage({
       </Modal>
 
       <Modal
+        rootClassName="financeOverlay"
         title="Reject Cash Handover"
         open={Boolean(rejecting)}
         onCancel={() => setRejecting(null)}
@@ -485,7 +484,7 @@ export function CashCustodyPage({
           <Form.Item>
             <Space>
               <Button onClick={() => setRejecting(null)}>Cancel</Button>
-              <Button danger type="primary" htmlType="submit" loading={submitting}>Confirm Rejection</Button>
+              <Button danger type="primary" htmlType="submit" loading={submitting} disabled={Boolean(loadError || loading)}>Confirm Rejection</Button>
             </Space>
           </Form.Item>
         </Form>
@@ -559,7 +558,7 @@ function actionMessage(action: CustodyAction) {
   return { request: "Confirm the physical cash is ready to hand to Finance.", record: "Count the physical cash and confirm Finance received it from the named collector.", accept: "As the independent checker, verify the amount, transaction link, and custody trail before issuing the official receipt." }[action];
 }
 
-function Metric({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) {
+function Metric({ label, value, danger = false }: { label: string; value: number | string; danger?: boolean }) {
   return (
     <div className="metricCard">
       <Typography.Text type="secondary">{label}</Typography.Text>

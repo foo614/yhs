@@ -1236,6 +1236,16 @@ body {
 }
 
 @media (max-width: 720px) {
+  .financeRecordDrawer .purchaseInvoiceSnapshot .ant-descriptions-item-container {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .financeRecordDrawer .purchaseInvoiceSnapshot .ant-descriptions-item-label,
+  .financeRecordDrawer .purchaseInvoiceSnapshot .ant-descriptions-item-content {
+    width: 100%;
+  }
+
   .metricGrid.dashboardHeadlineMetrics,
   .metricGrid.dashboardSupportingMetrics {
     grid-template-columns: minmax(0, 1fr);
@@ -4410,15 +4420,6 @@ body {
   object-fit: contain;
 }
 
-.secureDocumentPdf iframe {
-  width: 100%;
-  height: 260px;
-  display: block;
-  border: 1px solid rgba(20, 72, 61, .18);
-  border-radius: 6px;
-  background: #fff;
-}
-
 @media (max-width: 640px) {
   .secureDocumentEvidenceHeader {
     align-items: stretch;
@@ -4430,9 +4431,6 @@ body {
     width: 100%;
   }
 
-  .secureDocumentPdf iframe {
-    height: 220px;
-  }
 }
 
 .financeV2ReverseReason {
@@ -7454,4 +7452,161 @@ body {
   .vehicleCatalogModal .ant-modal-footer .ant-btn {
     min-height: 44px;
   }
+}
+
+/* Finance keeps record, document and save actions usable at every list layout. */
+.financePage,
+.financePage > .ant-space-item,
+.financePage .ant-pro-card-body,
+.financePage .ant-pro-query-filter .ant-col,
+.financePage .ant-pro-query-filter .ant-form-item-control,
+.financePage .ant-pro-query-filter .ant-form-item-control-input-content {
+  min-width: 0;
+}
+
+.financePage .ant-pro-query-filter .ant-space {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 8px;
+}
+
+.financePage .tableActionGroup > .ant-space-item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.financeInvoiceRequestQueueEmpty .ant-pro-card-header {
+  padding-block: 12px 4px;
+}
+
+.financeInvoiceRequestQueueEmpty .ant-pro-card-body {
+  padding-block: 8px 12px;
+}
+
+.financeListLoading {
+  min-height: 44px;
+  padding-block: 8px;
+}
+
+.financeDetailDocuments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.financeFormFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.financeRecordDrawer .ant-drawer-footer,
+.financeCreateModal .ant-modal-footer {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.financeRecordDrawer .ant-drawer-footer .ant-btn,
+.financeCreateModal .ant-modal-footer .ant-btn,
+.financeOverlay .ant-modal-footer .ant-btn,
+.documentPreviewFooter .ant-btn {
+  min-height: 44px;
+  height: auto;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.financeRecordDrawer .ant-drawer-close,
+.financeCreateModal .ant-modal-close,
+.financeOverlay .ant-modal-close,
+.documentPreviewDrawer .ant-drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.financeCreateModal .ant-modal-title,
+.financeOverlay .ant-modal-title {
+  padding-inline-end: 44px;
+}
+
+.documentPreviewMeta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.documentPreviewState {
+  gap: 12px;
+}
+
+.documentDownloadError {
+  margin-block: 6px 0 !important;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .financePage .ant-alert:has(> .ant-alert-action) {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 12px 8px;
+    align-items: start;
+  }
+
+  .financePage .ant-alert:has(> .ant-alert-action) .ant-alert-icon {
+    margin-inline-end: 0;
+  }
+
+  .financePage .ant-alert:has(> .ant-alert-action) .ant-alert-content {
+    min-width: 0;
+  }
+
+  .financePage .ant-alert > .ant-alert-action {
+    grid-column: 2;
+    justify-self: end;
+    margin-inline-start: 0;
+  }
+
+  .financePage .ant-alert-action .ant-btn {
+    min-height: 44px;
+  }
+
+  .financePage .mobileRecordFooter .financeVoucherActions {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .financeFormFooter .ant-btn {
+    width: 100%;
+  }
+
+  .secureDocumentEvidenceHeader .ant-space {
+    justify-content: flex-end;
+  }
+
+  .secureDocumentEvidenceHeader .ant-btn {
+    width: auto;
+    min-height: 44px;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1280px) {
+  .financePage .ant-pro-query-filter-row > .ant-col {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    margin-inline-start: 0;
+  }
+
+  .financePage .ant-pro-query-filter .ant-form-item {
+    margin-bottom: 12px;
+  }
+}
+
+.financeOverlay .ant-modal-confirm-btns .ant-btn {
+  min-height: 44px;
 }

@@ -69,6 +69,7 @@ import {
   getPriorityActions,
   getDebtRecoveries,
   getDeliveries,
+  getDeliveryAccountingCharges,
   getDeliveryActivity,
   getDeliveryInvoiceUpdateRequests,
   getDeliveryPicOptions,
@@ -94,8 +95,10 @@ import {
   getPayments,
   getPaymentVouchers,
   getPurchaseInvoices,
+  getPurchaseInvoicesStrict,
   getPurchaseInvoiceRevisionContent,
   getPurchaseInvoiceRevisions,
+  getProtectedFileDownload,
   getRepairs,
   getSettlementReminders,
   getSettlementDrafts,
@@ -220,6 +223,29 @@ function mockEmptyFetch(ok = true, status = ok ? 200 : 500) {
 }
 
 describe("backoffice api client", () => {
+  const financeRegisters = [
+    ["daily spends", getDailySpends, "/api/daily-spends"],
+    ["broker commissions", getBrokerCommissions, "/api/broker-commissions"],
+    ["debt recoveries", getDebtRecoveries, "/api/debt-recoveries"],
+    ["payment vouchers", getPaymentVouchers, "/api/payment-vouchers"],
+    ["purchase invoices", getPurchaseInvoicesStrict, "/api/purchase-invoices"],
+    ["delivery accounting charges", getDeliveryAccountingCharges, "/api/delivery-accounting-charges"]
+  ] as const;
+
+  it.each(financeRegisters)("surfaces unavailable %s instead of reporting empty finance records", async (_name, load) => {
+    mockFetch({ message: "Finance register unavailable" }, false, 503);
+    await expect(load()).rejects.toThrow("Finance register unavailable");
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(load()).rejects.toThrow("Failed to fetch");
+  });
+
+  it.each(financeRegisters)("accepts an authoritative empty %s register with authenticated requests", async (_name, load, endpoint) => {
+    const fetchMock = mockFetch([]);
+    await expect(load()).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith(`http://localhost:5000${endpoint}`, { credentials: "include" });
+  });
+
   it("loads authoritative masked staff connection statuses and never replaces denied access with disconnected demo data", async () => {
     const summaries = [{ staffUserId: "staff-1", state: "Connected", maskedNumber: "***1234", verifiedAt: 1800000000 }];
     const fetchMock = mockFetch(summaries);
@@ -1558,9 +1584,9 @@ describe("backoffice api client", () => {
     await expect(getLoans()).resolves.toEqual([]);
     await expect(getDeliveries()).resolves.toEqual([]);
     await expect(getPayments()).rejects.toThrow("Forbidden");
-    await expect(getBrokerCommissions()).resolves.toEqual([]);
-    await expect(getDebtRecoveries()).resolves.toEqual([]);
-    await expect(getPaymentVouchers()).resolves.toEqual([]);
+    await expect(getBrokerCommissions()).rejects.toThrow("Forbidden");
+    await expect(getDebtRecoveries()).rejects.toThrow("Forbidden");
+    await expect(getPaymentVouchers()).rejects.toThrow("Forbidden");
     await expect(getLeads()).resolves.toEqual([]);
     await expect(getAuditLog()).resolves.toEqual([]);
   });
@@ -2105,6 +2131,42 @@ describe("backoffice api client", () => {
       "http://localhost:5000/api/vehicles/vehicle-1/documents/document-1/content",
       { credentials: "include" }
     );
+  });
+
+  it.each([
+    ["attachment; filename=\"fallback.pdf\"; filename*=UTF-8''PV%20%2F001%5C%00.pdf", "PV 001.pdf"],
+    ["attachment; filename=\"PV-002.pdf\"; filename*=UTF-8''%E0%A4%A", "PV-002.pdf"],
+    ["attachment; filename=\"PV-003.pdf\"", "PV-003.pdf"],
+    ["attachment", undefined]
+  ])("downloads authenticated file bytes and safely reads filename metadata: %s", async (disposition, fileName) => {
+    const content = new Blob(["official finance document"], { type: "application/pdf" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "Content-Disposition": disposition }),
+      blob: vi.fn().mockResolvedValue(content)
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getProtectedFileDownload("http://localhost:5000/api/payment-vouchers/voucher-1/pdf")).resolves.toEqual({ blob: content, fileName });
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/payment-vouchers/voucher-1/pdf", { credentials: "include" });
+  });
+
+  it("rejects protected file download denials and expires only unauthenticated sessions", async () => {
+    const browserWindow = new EventTarget();
+    let expiryEvents = 0;
+    browserWindow.addEventListener(sessionExpiredEventName, () => expiryEvents++);
+    vi.stubGlobal("window", browserWindow);
+    try {
+      mockFetch({ message: "Sign in again to download" }, false, 401);
+      await expect(getProtectedFileDownload("http://localhost:5000/api/payment-vouchers/voucher-1/pdf")).rejects.toThrow("Sign in again to download");
+      expect(expiryEvents).toBe(1);
+
+      mockFetch({ message: "Finance access required" }, false, 403);
+      await expect(getProtectedFileDownload("http://localhost:5000/api/payment-vouchers/voucher-1/pdf")).rejects.toThrow("Finance access required");
+      expect(expiryEvents).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("surfaces protected document preview errors without returning a fallback blob", async () => {
