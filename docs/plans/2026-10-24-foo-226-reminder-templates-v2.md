@@ -2,9 +2,10 @@
 
 ## Scope and decision
 
-Separate initiative from FOO-224, FOO-225 and Customer 360. This branch does not
-merge or deploy their changes. No template submission, production configuration
-change, real recipient send, merge or deployment is authorized here.
+Separate initiative from the deployed FOO-224, FOO-225 and Customer 360 changes.
+Code-only integration preserves their current behavior and keeps v1 configured.
+Template submission, production configuration, real recipient sends and deployment
+remain outside this integration scope.
 
 Use four category-specific designs with eight distinct provider template names,
 one English name ending in `_en` and one Malay name ending in `_ms` per design.
@@ -33,7 +34,11 @@ from the production screenshot and current release context. It also matches
 `BACKOFFICE_ORIGIN`, `PUBLIC_API_BASE_URL`, `BACKOFFICE_DOMAIN` and `API_DOMAIN`
 in `infra/test-aspire-production-compose.ps1:43`. This is source/configuration-fixture
 corroboration, not a read of production secrets or a live authenticated Portal check.
-Paths are exact existing routes: `/dashboard`, `/delivery`, `/hr-salary`.
+Paths are exact existing routes: `/dashboard`, `/leads`, `/hr-salary`.
+Sales recipients open `/leads` and choose **Cars I'm Handling** to review their
+assigned work. `/delivery` requires the Delivery role and is not a valid Sales
+template destination. Delivery v2 variants approved with that older URL must stay
+inactive until Meta approves the exact `/leads` button and activation is authorized.
 
 All templates have no header or footer. Each has one static URL button, labeled
 `Open Portal` for English and `Buka Portal` for Bahasa Malaysia. The URL contains
@@ -159,8 +164,8 @@ that is the actual approved provider code; the internal language stays `en_US`.
 | --- | --- | --- |
 | `ysheng_due_summary_v2_en` | `en_US` | `https://yshenghub.com.my/dashboard` |
 | `ysheng_due_summary_v2_ms` | `ms` | `https://yshenghub.com.my/dashboard` |
-| `ysheng_delivery_summary_v2_en` | `en_US` | `https://yshenghub.com.my/delivery` |
-| `ysheng_delivery_summary_v2_ms` | `ms` | `https://yshenghub.com.my/delivery` |
+| `ysheng_delivery_summary_v2_en` | `en_US` | `https://yshenghub.com.my/leads` |
+| `ysheng_delivery_summary_v2_ms` | `ms` | `https://yshenghub.com.my/leads` |
 | `ysheng_leave_summary_v2_en` | `en_US` | `https://yshenghub.com.my/hr-salary` |
 | `ysheng_leave_summary_v2_ms` | `ms` | `https://yshenghub.com.my/hr-salary` |
 | `ysheng_attendance_summary_v2_en` | `en_US` | `https://yshenghub.com.my/hr-salary` |
@@ -259,7 +264,7 @@ Overdue: {{4}}
 Review preparation and handover steps in Portal.
 ```
 
-Button: `https://yshenghub.com.my/delivery`
+Button: `https://yshenghub.com.my/leads`
 
 ### ysheng_delivery_summary_v2_ms (ms)
 
@@ -271,7 +276,7 @@ Lewat: {{4}}
 Semak persediaan dan langkah serahan di Portal.
 ```
 
-Button: `https://yshenghub.com.my/delivery`
+Button: `https://yshenghub.com.my/leads`
 
 ### ysheng_leave_summary_v2_en (en_US)
 

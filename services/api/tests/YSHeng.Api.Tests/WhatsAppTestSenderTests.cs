@@ -44,7 +44,7 @@ public sealed class WhatsAppTestSenderTests
             var manifest = new WhatsAppApprovedTemplate { Key = key, Name = expectedName, Language = language, ProviderLanguage = providerLanguage, Approved = true,
                 ApprovalEvidence = "synthetic approval", BodyText = WhatsAppReminderV2.BodyText(key, language),
                 PortalUrl = "https://yshenghub.com.my" + (key is WhatsAppReminderV2.Leave or WhatsAppReminderV2.Attendance
-                    ? "/hr-salary" : key == WhatsAppReminderV2.Delivery ? "/delivery" : "/dashboard") };
+                    ? "/hr-salary" : key == WhatsAppReminderV2.Delivery ? "/leads" : "/dashboard") };
             var values = Enumerable.Repeat("1", count).ToArray();
             var item = StaffItem() with { TemplateVersion = key, Language = language, RequiredStaffRole = role,
                 MessageKind = category, TemplateReference = JsonSerializer.Serialize(values), Body = WhatsAppReminderV2.Render(key, language, values)! };

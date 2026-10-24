@@ -116,8 +116,10 @@ public sealed class WhatsAppOutboxTests
         });
     }
 
-    [Fact]
-    public async Task Reminder_v2_sales_summary_contains_only_assigned_deliveries_and_no_finance()
+    [Theory]
+    [InlineData("/leads", true)]
+    [InlineData("/delivery", false)]
+    public async Task Reminder_v2_sales_summary_contains_only_assigned_deliveries_and_no_finance(string portalPath, bool accessible)
     {
         await using var fixture = await Fixture.Create();
         await using var db = fixture.Open();
@@ -132,10 +134,15 @@ public sealed class WhatsAppOutboxTests
         await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 0, 3, 0), "admin", Now);
         var template = new WhatsAppApprovedTemplate { Key = WhatsAppReminderV2.Delivery, Name = "ysheng_delivery_summary_v2_en",
             Language = "en_US", Approved = true, ApprovalEvidence = "synthetic approval",
-            BodyText = WhatsAppReminderV2.BodyText(WhatsAppReminderV2.Delivery, "en_US"), PortalUrl = "https://yshenghub.com.my/delivery" };
+            BodyText = WhatsAppReminderV2.BodyText(WhatsAppReminderV2.Delivery, "en_US"), PortalUrl = "https://yshenghub.com.my" + portalPath };
         var current = new WhatsAppOutbox { Audience = "Staff", EventKind = "staff.notification", MessageKind = "OutstandingDigest",
             StaffUserId = "sales", RequiredStaffRole = "Sales", Language = "en_US" };
         var selected = await WhatsAppReminderV2.SelectAsync(db, StaffDispatch(template), current, Now);
+        if (!accessible)
+        {
+            Assert.Same(current, selected); // An approved but inaccessible older button must keep v1.
+            return;
+        }
         Assert.Equal(new[] { "1", "0" }, WhatsAppReminderV2.Parameters(selected)![2..]);
         Assert.DoesNotContain("99999", selected.TemplateReference);
         Assert.DoesNotContain("PRIVATE", selected.Body);

@@ -46,7 +46,7 @@ public static class WhatsAppReminderV2
     public static bool ValidManifest(WhatsAppApprovedTemplate template) => template.Name == NameFor(template.Key, template.Language) &&
         template.BodyText == BodyText(template.Key, template.Language) && template.BodyText.Length > 0 &&
         template.PortalUrl == "https://yshenghub.com.my" +
-            (template.Key is Leave or Attendance ? "/hr-salary" : template.Key == Delivery ? "/delivery" : "/dashboard");
+            (template.Key is Leave or Attendance ? "/hr-salary" : template.Key == Delivery ? "/leads" : "/dashboard");
 
     public static string? Render(string key, string language, IReadOnlyList<string> values)
     {
