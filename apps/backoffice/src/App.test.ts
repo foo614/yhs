@@ -195,7 +195,7 @@ describe("management dashboard", () => {
       leadsAwaitingFirstResponse: 0,
       repairWorkInProgress: [],
       realisedProfit: 5000,
-      monthlyProfitTrend: [],
+      monthlyProfitTrend: [{ label: "May 26", estimatedProfit: 5000, soldProfit: -6000, soldCount: 1 }, { label: "Jun 26", estimatedProfit: -2000, soldProfit: 4000, soldCount: 1 }],
       profitBreakdown: [],
       supplierSpendTop: [],
       totalSales: 2,
@@ -242,15 +242,22 @@ describe("management dashboard", () => {
 
     expect(markup).toContain("Total Stock / 总库存");
     expect(markup).toContain("Total Sales / 销售总数");
-    expect(markup).toContain("Total Profit / 实际利润");
+    expect(markup).toContain("Sold Vehicle Margin / 已售车辆毛利");
     expect(markup).toContain("Outstanding Collection / 待收总额");
     expect(markup).toContain("Settlement Due / 结算到期");
     expect(markup).toContain("Purchase Cost / 收车成本");
     expect(markup).toContain("Repair Cost / 整备费用");
-    expect(markup).toContain("Projected Stock Profit / 库存预计利润");
+    expect(markup).toContain("Projected Stock Margin / 库存预计毛利");
     expect(markup).toContain("Current unsold stock");
     expect(markup).toContain("New enquiry needs first contact");
     expect(markup).not.toContain("NaN");
+    const financialSeries = [...markup.matchAll(/class="profitLine(?:Estimated|Sold)" points="([^"]+)"/g)];
+    expect(financialSeries).toHaveLength(2);
+    for (const series of financialSeries) {
+      const ys = series[1].split(" ").map(point => Number(point.split(",")[1]));
+      expect(ys.every(y => y >= 0 && y <= 178)).toBe(true);
+    }
+
     expect(markup).not.toContain("All clear");
     expect(markup).toContain("Management snapshot / 管理概览");
     expect(markup).not.toContain("Business health and decisions at a glance");
@@ -263,12 +270,12 @@ describe("management dashboard", () => {
     expect(markup).toContain("Department action / 部门行动");
     expect(markup).toContain("1-1 of 1 / 共 1 条");
     expect(markup).toContain("All reminders / 全部提醒");
-    expect(markup).toContain("This inbox contains every reminder.");
+    expect(markup).toContain("Current reminders at the Actions update above.");
     expect(markup.indexOf("Act now / 立即处理")).toBeLessThan(markup.indexOf("Operational exposure / 运营风险"));
     expect(markup.indexOf("Operational exposure / 运营风险")).toBeLessThan(markup.indexOf("All reminders / 全部提醒"));
     expect(markup.indexOf("Executive intelligence / 决策图表")).toBeLessThan(markup.indexOf("AI document processing / AI 文件处理"));
     expect(markup).toContain("AI document processing / AI 文件处理");
-    expect(markup).toContain("OCR field accuracy / OCR 字段准确率");
+    expect(markup).toContain("Fields unchanged after review / 复核未改字段");
     expect(markup).toContain("Staff-reviewed field outcomes / 员工复核结果");
     expect(markup).toContain("Corrected by staff");
     expect(markup).not.toContain("Review workload / 复核工作量");
@@ -331,7 +338,7 @@ describe("management dashboard", () => {
       dashboard: null,
       dashboardLoadError: "Dashboard request failed",
       reminders: [],
-      priorityActions: [],
+      priorityActions: [{ type: "LeadFollowUp", title: "Independent action remains available", target: "Leads", dueDate: "2026-06-01", subject: "Synthetic enquiry" }],
       reminderLoadError: null,
       lastCheckedAt: null,
       refreshing: false,
@@ -342,6 +349,9 @@ describe("management dashboard", () => {
       onNavigate: () => {}
     }));
     expect(errorMarkup).toContain("Dashboard data could not be loaded");
+    expect(errorMarkup).toContain("Independent action remains available");
+    expect(errorMarkup).toContain("Operations calendar / 工作日历");
+    expect(errorMarkup).not.toContain("Outstanding Collection / 待收总额");
     expect(errorMarkup).not.toContain("identity text");
   });
 });

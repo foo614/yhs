@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Calendar, DatePicker, Drawer, Empty, Grid, List, Space, Spin, Tag, Typography } from "antd";
+import { Alert, Button, Calendar, DatePicker, Drawer, Empty, Grid, List, Skeleton, Space, Spin, Tag, Typography } from "antd";
 import { ClockCircleOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
 import dayjs from "dayjs";
 import { getOperationsCalendar, type OperationsCalendarEvent } from "../../api";
+import { DataFreshness } from "./DataFreshness";
 
 export function eventsOnDate(events: OperationsCalendarEvent[], date: string) {
   return events.filter(event => event.startDate <= date && event.endDate >= date);
@@ -82,7 +83,9 @@ export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliv
   const isMobile = !screens.md;
   const [date, setDate] = useState(() => dayjs());
   const [events, setEvents] = useState<OperationsCalendarEvent[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [loadedMonth, setLoadedMonth] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [mobileDayDrawerOpen, setMobileDayDrawerOpen] = useState(false);
@@ -95,7 +98,7 @@ export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliv
     setEvents([]);
     const start = dayjs(`${month}-01`);
     getOperationsCalendar(start.startOf("week").format("YYYY-MM-DD"), start.endOf("month").endOf("week").format("YYYY-MM-DD"))
-      .then(result => { if (active) setEvents(result); })
+      .then(result => { if (active) { setEvents(result); setUpdatedAt(new Date()); setLoadedMonth(month); } })
       .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "Calendar could not load. Please retry."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -115,8 +118,9 @@ export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliv
     requestAnimationFrame(() => calendarRegionRef.current?.focus());
   };
 
-  return <ProCard title="Operations calendar / 工作日历" className="operationsCalendar" extra={<Button loading={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</Button>}>
+  return <ProCard title="Operations calendar / 工作日历" className="operationsCalendar" extra={<Button aria-label="Refresh calendar" loading={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</Button>}>
     <Typography.Paragraph type="secondary">Delivery dates and staff availability, visible to all staff. Personal leave and trip details are not shown. / 出车日期与员工忙碌时间，所有员工可查看。</Typography.Paragraph>
+    <DataFreshness label="Calendar" updatedAt={loadedMonth === month ? updatedAt : null} loading={loading} error={error} />
     {error && <Alert type="error" showIcon message="Calendar unavailable" description={error} />}
     <Spin spinning={loading}>
       <div className="operationsCalendarLayout" ref={calendarRegionRef} tabIndex={-1} aria-label="Operations calendar">
@@ -132,7 +136,7 @@ export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliv
         }} />
         <section className="operationsCalendarDesktopAgenda" aria-label="Selected day events">
           <Typography.Title level={5}>{date.format("ddd, D MMM YYYY")}</Typography.Title>
-          {!error && <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}
+          {loading ? <Skeleton active paragraph={{ rows: 2 }} /> : !error && <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}
         </section>
       </div>
     </Spin>
@@ -147,7 +151,7 @@ export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliv
     >
       {error
         ? <Alert type="error" showIcon message="Calendar unavailable" description={error} action={<Button onClick={() => setRefresh(value => value + 1)}>Try again</Button>} />
-        : <Spin spinning={loading}><SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} /></Spin>}
+        : loading ? <Skeleton active paragraph={{ rows: 2 }} /> : <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}
     </Drawer>
   </ProCard>;
 }

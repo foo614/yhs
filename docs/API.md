@@ -525,6 +525,8 @@ Statutory EPF, SOCSO, EIS, and PCB calculations are excluded from this MVP.
 
 ## Dashboard, Audit, And Admin
 
+The portal labels sales as vehicle counts and calculated vehicle margin separately from cash received or accounting profit. Current balances and stock are independent of the analytics period. All-time monthly series show the latest six months and identify their displayed window; the enquiry total includes every case in the selected period. Summary, action queue and calendar report separate successful-update times and failures. Outstanding Collection opens the existing payment-balance and open-debt categories; their calculations and Finance authorization are unchanged.
+
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/dashboard/summary?from=YYYY-MM-DD&to=YYYY-MM-DD` | `Dashboard` | Boss/Admin operational metrics. `from` and `to` are optional but must be supplied together as an inclusive analytics period. Live stock, loan, collection, settlement, purchase cost, repair cost, and aging metrics remain current; the period scopes sales, actual profit, lead, refurbishment, and aggregate OCR activity analysis. The response preserves `totalProfit` and `estimatedProfit`, and adds `purchaseCost`, `totalSales`, `actualProfit`, `outstandingCollection`, `settlementDueAmount`, `refurbishment`, and `aiDocumentProcessing`. OCR reporting contains aggregate category counts, reviewed outcomes, low-confidence and failed counts, the live pending-review backlog, and current quota capacity only; it never returns document IDs, file names, images, identity data, raw OCR text, or extracted values. |

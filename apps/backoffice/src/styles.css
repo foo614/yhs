@@ -2228,13 +2228,14 @@ body {
 
 .profitLineChart svg { display: block; width: 100%; height: auto; margin-top: 8px; }
 .profitLineChart line { stroke: #e6eeeb; stroke-width: 1; }
+.profitLineChart .profitZeroLine { stroke: #687973; stroke-width: 1.5; }
 .profitLineEstimated, .profitLineSold { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .profitLineEstimated { stroke: #9aa7a2; stroke-dasharray: 5 5; }
 .profitLineSold { stroke: #2563a8; }
 .profitPointSold { fill: #fff; stroke: #2563a8; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .profitLineChart text { fill: #14251f; font-size: 11px; font-weight: 760; text-anchor: middle; }
-.profitLineLabels { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; padding: 0 3%; }
-.profitLineLabels small { color: #60746e; font-size: 10px; font-weight: 700; text-align: center; white-space: nowrap; }
+.profitLineLabels { position: relative; min-height: 36px; }
+.profitLineLabels small { position: absolute; transform: translateX(-50%); color: #60746e; font-size: 10px; font-weight: 700; text-align: center; white-space: nowrap; }
 
 .leadLineChart svg {
   display: block;
@@ -2277,13 +2278,13 @@ body {
 }
 
 .leadLineLabels {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 4px;
-  padding: 0 3%;
+  position: relative;
+  min-height: 20px;
 }
 
 .leadLineLabels small {
+  position: absolute;
+  transform: translateX(-50%);
   color: #60746e;
   font-size: 10px;
   font-weight: 760;
@@ -7435,3 +7436,6 @@ body {
     width: 100%;
   }
 }
+
+.dataFreshness { display: block; margin-block: 8px; overflow-wrap: anywhere; }
+.dashboardCollectionCategory { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
