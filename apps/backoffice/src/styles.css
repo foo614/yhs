@@ -1236,6 +1236,16 @@ body {
 }
 
 @media (max-width: 720px) {
+  .financeRecordDrawer .purchaseInvoiceSnapshot .ant-descriptions-item-container {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .financeRecordDrawer .purchaseInvoiceSnapshot .ant-descriptions-item-label,
+  .financeRecordDrawer .purchaseInvoiceSnapshot .ant-descriptions-item-content {
+    width: 100%;
+  }
+
   .metricGrid.dashboardHeadlineMetrics,
   .metricGrid.dashboardSupportingMetrics {
     grid-template-columns: minmax(0, 1fr);
@@ -7550,6 +7560,11 @@ body {
     min-height: 44px;
   }
 
+  .financePage .mobileRecordFooter .financeVoucherActions {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
   .financeFormFooter .ant-btn {
     width: 100%;
   }
@@ -7565,9 +7580,10 @@ body {
 }
 
 @media (min-width: 721px) and (max-width: 1280px) {
-  .financePage .ant-pro-query-filter .ant-col {
+  .financePage .ant-pro-query-filter-row > .ant-col {
     flex: 0 0 100% !important;
     max-width: 100% !important;
+    margin-inline-start: 0;
   }
 
   .financePage .ant-pro-query-filter .ant-form-item {

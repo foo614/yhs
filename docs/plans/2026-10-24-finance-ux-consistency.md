@@ -45,3 +45,20 @@ consequential-action confirmations retain their current meaning.
   frontend build, independent correctness/UI review and PR CI/CodeQL.
 - Deliver a focused PR. Merge and production deployment require subsequent
   human authorization.
+
+## Verified implementation
+
+- Updated against `origin/main` at `db92e4f`; Dashboard and WhatsApp changes
+  remain intact. Back-office unit suite passed: 44 files, 520 tests.
+- Back-office TypeScript and production build passed. Finance browser checks
+  passed at all 11 widths above, plus three financial failure/file/validation
+  flows at 320, 820 and 1440 pixels (14 Playwright tests total).
+- Synthetic browser checks covered authenticated download bytes and filename,
+  expired session without a file download, valid empty after retry, unavailable
+  registers, unsupported content, action parity and footer form validation.
+  They issued no mutations. Native Chrome displayed the uploaded PDF page.
+- Independent correctness and UI reviews found no remaining blocking issues.
+  App-native GPT-6.1 Sol review was the approved fallback because the installed
+  CLI rejected that model. No global tooling or model downgrade was applied.
+- Physical mobile Safari and live financial mutations were not tested.
+  CI/CodeQL and the PR delivery record remain separate release gates.

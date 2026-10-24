@@ -1282,7 +1282,7 @@ export function FinancePage({
   );
 
   const renderVoucherActions = (voucher: PaymentVoucher) => (
-    <Space className="tableActionGroup" wrap size={6}>
+    <Space className="tableActionGroup financeVoucherActions" wrap size={6}>
       <Button size="small" type="primary" onClick={() => selectPaymentVoucher(voucher.id)}>Details</Button>
       {renderVoucherDocument(voucher)}
       {voucher.status === "Pending" && <Button size="small" disabled={registerBlocked("paymentVouchers")} onClick={() => confirmApproveVoucher(voucher)}>Approve</Button>}
