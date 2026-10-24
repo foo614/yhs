@@ -175,7 +175,7 @@ public sealed class WhatsAppPostgresTests
                 Assert.False(withdrawal.IsCompleted); // Consent lock defines submission before committed withdrawal.
                 finish.SetResult(); await first; await withdrawal.WaitAsync(TimeSpan.FromSeconds(15));
                 Assert.Single(await db.WhatsAppOutbox.Where(row => row.State == "Accepted").ToListAsync());
-                Assert.Equal(2, await db.WhatsAppDispatchUsage.CountAsync(row => row.Attempts == 1 && row.ReservedCostSen == 10));
+                Assert.Equal(1, await db.WhatsAppDispatchUsage.CountAsync(row => row.Attempts == 1 && row.ReservedCostSen == 0));
             }
             finally { finish.TrySetResult(); await first; }
             await VerifyApplicationAsync(config.ConnectionString);
@@ -223,9 +223,9 @@ public sealed class WhatsAppPostgresTests
             ["WhatsApp__SenderApprovalEvidence"] = "synthetic CI approval", ["WhatsApp__GraphApiVersion"] = "v25.0",
             ["WhatsApp__PhoneNumberId"] = "123", ["WhatsApp__BusinessAccountId"] = "456", ["WhatsApp__AccessToken"] = "synthetic-token",
             ["WhatsApp__AppSecret"] = new string('s', 32), ["WhatsApp__VerifyToken"] = new string('v', 32),
-            ["WhatsApp__BudgetOwner"] = "synthetic CI budget", ["WhatsApp__DailyAttemptLimit"] = "10",
-            ["WhatsApp__MonthlyBudgetSen"] = "1000", ["WhatsApp__MaximumCostPerAttemptSen"] = "10",
-            ["WhatsApp__CostCeilingConfirmed"] = "true", ["WhatsApp__Templates__0__Key"] = "staff_invite_v1",
+            ["WhatsApp__BudgetOwner"] = "", ["WhatsApp__DailyAttemptLimit"] = "10",
+            ["WhatsApp__MonthlyBudgetSen"] = "0", ["WhatsApp__MaximumCostPerAttemptSen"] = "0",
+            ["WhatsApp__CostCeilingConfirmed"] = "false", ["WhatsApp__Templates__0__Key"] = "staff_invite_v1",
             ["WhatsApp__Templates__0__Name"] = "approved_staff_invite", ["WhatsApp__Templates__0__Language"] = "en_US",
             ["WhatsApp__Templates__0__Approved"] = "true", ["WhatsApp__Templates__0__ApprovalEvidence"] = "synthetic CI template approval",
             ["WhatsApp__Templates__1__Key"] = "staff_notice_v1", ["WhatsApp__Templates__1__Name"] = "approved_staff_notice",
@@ -245,14 +245,24 @@ public sealed class WhatsAppPostgresTests
             using var anonymous = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/whatsapp/assistant/connection")).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/whatsapp/staff/connections")).StatusCode);
-            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/whatsapp/staff/budget")).StatusCode);
-            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PutAsJsonAsync("/api/whatsapp/staff/budget", new { dailyAttemptLimit = 50, monthlyBudgetSen = 30000, maximumCostPerAttemptSen = 100 })).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/whatsapp/staff/limits")).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PutAsJsonAsync("/api/whatsapp/staff/limits", new { dailyAttemptLimit = 50 })).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync("/api/whatsapp/assistant/connection", new { recipient = "60177777777", language = "en_US", consentConfirmed = true })).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync("/api/whatsapp/assistant/disconnect", new { })).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsync("/api/whatsapp/assistant/webhook", new StringContent("{}"))).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsync("/api/whatsapp/webhook", new StringContent("{}"))).StatusCode);
             using var admin = factory.CreateClient();
             Assert.True((await admin.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "admin@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
+            var limitsResponse = await admin.GetAsync("/api/whatsapp/staff/limits");
+            Assert.Equal(HttpStatusCode.OK, limitsResponse.StatusCode);
+            Assert.Contains("no-store", limitsResponse.Headers.CacheControl!.ToString());
+            using var limits = JsonDocument.Parse(await limitsResponse.Content.ReadAsStringAsync());
+            Assert.Equal(10, limits.RootElement.GetProperty("dailyAttemptLimit").GetInt32());
+            Assert.False(limits.RootElement.TryGetProperty("monthlyBudgetSen", out _));
+            Assert.False(limits.RootElement.TryGetProperty("monthlyReservedCostSen", out _));
+            Assert.False(limits.RootElement.TryGetProperty("maximumCostPerAttemptSen", out _));
+            Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync("/api/whatsapp/staff/limits", new { dailyAttemptLimit = 0 })).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync("/api/whatsapp/staff/limits", new { dailyAttemptLimit = 10 })).StatusCode);
             var created = await admin.PostAsJsonAsync("/api/admin/users", new { email = "sales@example.test", displayName = "Synthetic Sales", password = "Synthetic-CI-123!", role = "Sales" });
             Assert.Equal(HttpStatusCode.Created, created.StatusCode);
             using var staff = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
@@ -269,8 +279,8 @@ public sealed class WhatsAppPostgresTests
             Assert.True((await sales.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "sales@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/assistant/connection?staffUserId=assistant-ci")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/staff/connections")).StatusCode);
-            Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/staff/budget")).StatusCode);
-            Assert.Equal(HttpStatusCode.Forbidden, (await sales.PutAsJsonAsync("/api/whatsapp/staff/budget", new { dailyAttemptLimit = 50, monthlyBudgetSen = 30000, maximumCostPerAttemptSen = 100 })).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/staff/limits")).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await sales.PutAsJsonAsync("/api/whatsapp/staff/limits", new { dailyAttemptLimit = 50 })).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.PostAsJsonAsync("/api/whatsapp/assistant/connection", new { recipient = "60177777777", language = "en_US", consentConfirmed = true, staffUserId = "assistant-ci" })).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.PostAsJsonAsync("/api/whatsapp/assistant/disconnect", new { staffUserId = "assistant-ci" })).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/loans")).StatusCode);

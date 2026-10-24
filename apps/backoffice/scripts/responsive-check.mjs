@@ -99,20 +99,20 @@ fixtures["/api/whatsapp/staff/policies"] = ["OutstandingDigest", "AttendanceSumm
   category, enabled: false, localMinuteOfDay: category === "AttendanceSummary" ? 600 : ["OutstandingDigest", "LeaveApproval"].includes(category) ? 540 : 0,
   leadDays: category === "OutstandingDigest" ? 3 : 0, thresholdPercent: category === "OcrUsage" ? 90 : 0,
   senderReady: false, templateReady: true, categoryReady: true,
-  senderIssues: ["Staff sending is disabled.", "Sender approval evidence is missing.", "A positive monthly messaging budget is required."],
+  senderIssues: ["Staff sending is disabled.", "Sender approval evidence is missing.", "A positive daily provider-attempt limit is required."],
   templateReadiness: [
     { language: "ms", ready: false, issues: ["No approved staff-notice template is configured for this language."] },
     { language: "en_US", ready: true, issues: [] }
   ]
 }));
 fixtures["/api/whatsapp/staff/diagnostics"] = { missingRequiredDate: 2, unassignedDelivery: 1, missingCommissionDate: 1, eligibleStaff: 4, connectedStaff: 2, unroutableWorkflowEvents: 1 };
-fixtures["/api/whatsapp/staff/budget"] = { dailyAttemptLimit: 50, monthlyBudgetSen: 30000, maximumCostPerAttemptSen: 100, dailyAttempts: 0, dailyRemainingAttempts: 50, monthlyAttempts: 30, monthlyReservedCostSen: 3000, monthlyRemainingBudgetSen: 27000, adminConfigured: true, updatedAt: 1792771200, blockedReason: null };
+fixtures["/api/whatsapp/staff/limits"] = { dailyAttemptLimit: 50, dailyAttempts: 0, dailyRemainingAttempts: 50, adminConfigured: true, updatedAt: 1792771200, blockedReason: null };
 fixtures["/api/whatsapp/staff/history"] = { page: 1, total: 1, items: [{ id: "synthetic-message", staffUserId: "responsive-test", staffName: "Layout Test With A Longer Staff Name", maskedNumber: "***6789", category: "OutstandingDigest", state: "Delivered", scheduledAt: 1791334800, acceptedAt: 1791334801, sentAt: 1791334802, deliveredAt: 1791334803, readAt: null, failedAt: null, suppressedAt: null, failureReason: null, submittedBody: "Synthetic due reminder. No real customer or financial data.", submittedTemplateName: "synthetic_staff_notice", submittedLanguage: "en_US", canRetry: false }] };
 fixtures["/api/whatsapp/staff/history"].items.push({
-  ...fixtures["/api/whatsapp/staff/history"].items[0], id: "synthetic-budget-held", state: "Queued",
+  ...fixtures["/api/whatsapp/staff/history"].items[0], id: "synthetic-daily-limit-held", state: "Queued",
   acceptedAt: null, sentAt: null, deliveredAt: null, submittedBody: null,
   submittedTemplateName: null, submittedLanguage: null,
-  waitingReason: "Monthly sending budget has no room for another attempt. Ask an operator to review the monthly budget."
+  waitingReason: "Daily sending attempt limit reached. Ask an operator to review the limit; reminders expire at midnight."
 });
 for (const [id, state, waitingReason] of [
   ["synthetic-in-progress", "Sending", "Provider submission is in progress. Do not retry."],
@@ -561,7 +561,7 @@ try {
           await closeOverlay();
           await page.locator(".staffWhatsAppSettings").getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).nth(1).click();
           await page.getByText("Sending status / 发送状态", { exact: true }).waitFor();
-          await inspect("whatsapp-budget-held-details", width);
+          await inspect("whatsapp-daily-limit-held-details", width);
           await closeOverlay();
           for (const [index, label] of [[2, "in-progress"], [3, "expired"]]) {
             await page.locator(".staffWhatsAppSettings").getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).nth(index).click();
@@ -577,18 +577,18 @@ try {
           await page.locator(".ant-drawer-open").getByRole("button", { name: "Review and save", exact: true }).waitFor();
           await inspect("whatsapp-policy-editor", width);
           await closeOverlay();
-          await page.getByRole("tab", { name: "Sending budget", exact: true }).click();
-          await page.getByRole("spinbutton", { name: /Monthly reserved-cost budget/ }).waitFor();
-          await inspect("whatsapp-budget", width);
-          let budgetWrites = 0;
-          const countBudgetWrite = request => { if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/whatsapp/staff/budget") budgetWrites++; };
-          page.on("request", countBudgetWrite);
+          await page.getByRole("tab", { name: "Sending limits", exact: true }).click();
+          await page.getByRole("spinbutton", { name: /Daily provider attempts/ }).waitFor();
+          await inspect("whatsapp-limits", width);
+          let limitWrites = 0;
+          const countLimitWrite = request => { if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/whatsapp/staff/limits") limitWrites++; };
+          page.on("request", countLimitWrite);
           await page.getByRole("button", { name: "Review and save", exact: true }).click();
           await page.getByRole("dialog").getByRole("button", { name: "Confirm and save", exact: true }).waitFor();
-          await inspect("whatsapp-budget-confirmation", width);
+          await inspect("whatsapp-limits-confirmation", width);
           await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
-          if (budgetWrites !== 0) throw new Error("Budget update must wait for explicit confirmation.");
-          page.off("request", countBudgetWrite);
+          if (limitWrites !== 0) throw new Error("Sending-limit update must wait for explicit confirmation.");
+          page.off("request", countLimitWrite);
         }
         if (route === "finance") {
           const commissionTab = page.getByRole("tab", { name: "Broker Commission / 经纪佣金", exact: true });
