@@ -1,6 +1,7 @@
 import { formatDisplayDate } from "./dateDisplay";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
+import { DataFreshness } from "./modules/shared/DataFreshness";
 import {
   AuditOutlined,
   BankOutlined,
@@ -500,7 +501,10 @@ export default function App() {
   const [reminderLoadError, setReminderLoadError] = useState<string | null>(null);
   const [dashboardLastCheckedAt, setDashboardLastCheckedAt] = useState<Date | null>(null);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
+  const [actionsLastCheckedAt, setActionsLastCheckedAt] = useState<Date | null>(null);
+  const [actionsRefreshing, setActionsRefreshing] = useState(false);
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardAnalyticsPeriod>(defaultDashboardAnalyticsPeriod);
+  const dashboardPeriodRef = useRef(dashboardPeriod);
   const [dashboardRangePreset, setDashboardRangePreset] = useState<DashboardAnalyticsRangePreset>("AllTime");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -570,6 +574,7 @@ export default function App() {
   );
 
   const loadBackOfficeData = useCallback(async (roles?: string[]) => {
+    const requestedDashboardPeriod = dashboardPeriodRef.current;
     const allowed = new Set(backOfficeDataKeysForRoles(roles));
     const canLoad = (key: BackOfficeDataKey) => allowed.has(key);
     const [
@@ -615,7 +620,7 @@ export default function App() {
       hrPayPeriodData,
       hrPayslipData
     ] = await Promise.all([
-      canLoad("dashboard") ? getDashboard(defaultDashboardAnalyticsPeriod) : Promise.resolve({ dashboard: null as DashboardSummary | null, error: undefined as string | undefined }),
+      canLoad("dashboard") ? getDashboard(requestedDashboardPeriod) : Promise.resolve({ dashboard: null as DashboardSummary | null, error: undefined as string | undefined }),
       canLoad("reminders") ? getDashboardReminders() : Promise.resolve({ reminders: [] as DashboardReminder[], error: undefined as string | undefined }),
       getPriorityActions(),
       canLoad("vehicles") ? getVehicles() : Promise.resolve([]),
@@ -675,12 +680,15 @@ export default function App() {
       canLoad("hrPayPeriods") ? getHrPayPeriods() : Promise.resolve([]),
       canLoad("hrPayslips") ? getHrPayslips() : Promise.resolve([])
     ]);
-    setDashboard(dashboardData.dashboard);
-    setDashboardLoadError(dashboardData.error ?? null);
+    if (requestedDashboardPeriod === dashboardPeriodRef.current) {
+      setDashboard(dashboardData.dashboard);
+      setDashboardLoadError(dashboardData.error ?? null);
+      if (dashboardData.dashboard) setDashboardLastCheckedAt(new Date());
+    }
     setReminders(reminderData.reminders);
     setPriorityActions(priorityActionData.actions);
     setReminderLoadError(combinedDashboardActionLoadError(reminderData.error, priorityActionData.error));
-    setDashboardLastCheckedAt(new Date());
+    if (!reminderData.error && !priorityActionData.error) setActionsLastCheckedAt(new Date());
     setVehicles(vehicleData);
     setVehicleLookup(vehicleLookupData);
     setFinanceVehicleOptions(financeVehicleOptionResult.data);
@@ -901,20 +909,33 @@ export default function App() {
     }
   }
 
-  const refreshDashboard = useCallback(async () => {
+  const refreshDashboard = useCallback(async (period = dashboardPeriod) => {
     setDashboardRefreshing(true);
+    setDashboardLoadError(null);
+    setDashboard(null);
     try {
-      const [dashboardData, reminderData, priorityActionData] = await Promise.all([getDashboard(dashboardPeriod), getDashboardReminders(), getPriorityActions()]);
+      const dashboardData = await getDashboard(period);
       setDashboard(dashboardData.dashboard);
       setDashboardLoadError(dashboardData.error ?? null);
-      setReminders(reminderData.reminders);
-      setPriorityActions(priorityActionData.actions);
-      setReminderLoadError(combinedDashboardActionLoadError(reminderData.error, priorityActionData.error));
-      setDashboardLastCheckedAt(new Date());
+      if (dashboardData.dashboard) setDashboardLastCheckedAt(new Date());
     } finally {
       setDashboardRefreshing(false);
     }
   }, [dashboardPeriod]);
+
+  const refreshDashboardActions = useCallback(async () => {
+    setActionsRefreshing(true);
+    setReminderLoadError(null);
+    try {
+      const [reminderData, priorityActionData] = await Promise.all([getDashboardReminders(), getPriorityActions()]);
+      if (!reminderData.error) setReminders(reminderData.reminders);
+      if (!priorityActionData.error) setPriorityActions(priorityActionData.actions);
+      setReminderLoadError(combinedDashboardActionLoadError(reminderData.error, priorityActionData.error));
+      if (!reminderData.error && !priorityActionData.error) setActionsLastCheckedAt(new Date());
+    } finally {
+      setActionsRefreshing(false);
+    }
+  }, []);
 
   const refreshPayments = useCallback(async () => {
     setPaymentRefreshing(true);
@@ -972,16 +993,10 @@ export default function App() {
   const changeDashboardPeriod = useCallback(async (preset: DashboardAnalyticsRangePreset, period: DashboardAnalyticsPeriod) => {
     setDashboardRangePreset(preset);
     setDashboardPeriod(period);
-    setDashboardRefreshing(true);
-    try {
-      const dashboardData = await getDashboard(period);
-      setDashboard(dashboardData.dashboard);
-      setDashboardLoadError(dashboardData.error ?? null);
-      setDashboardLastCheckedAt(new Date());
-    } finally {
-      setDashboardRefreshing(false);
-    }
-  }, []);
+    dashboardPeriodRef.current = period;
+    setDashboardLastCheckedAt(null);
+    await refreshDashboard(period);
+  }, [refreshDashboard]);
 
   async function handleLogout() {
     await logout();
@@ -1203,7 +1218,7 @@ export default function App() {
             }}
           />
           <div ref={moduleContentRef}>
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={refreshDashboard} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} />}
+          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} actionsLastCheckedAt={actionsLastCheckedAt} actionsRefreshing={actionsRefreshing} onRefreshActions={refreshDashboardActions} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={() => refreshDashboard()} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} />}
           {pathname === "/vehicles" && (
             <VehiclePage
               vehicles={vehicles}
@@ -2170,6 +2185,9 @@ export function DashboardPage({
   lastCheckedAt,
   refreshing,
   onRefresh,
+  actionsLastCheckedAt = null,
+  actionsRefreshing = false,
+  onRefreshActions = onRefresh,
   analyticsPeriod,
   analyticsRangePreset,
   onAnalyticsPeriodChange,
@@ -2187,10 +2205,14 @@ export function DashboardPage({
   analyticsPeriod: DashboardAnalyticsPeriod;
   analyticsRangePreset: DashboardAnalyticsRangePreset;
   onRefresh: () => Promise<void>;
+  actionsLastCheckedAt?: Date | null;
+  actionsRefreshing?: boolean;
+  onRefreshActions?: () => Promise<void>;
   onAnalyticsPeriodChange: (preset: DashboardAnalyticsRangePreset, period: DashboardAnalyticsPeriod) => Promise<void>;
   onNavigate: (path: string) => void;
   onOpenDelivery?: (deliveryId: string) => void;
 }) {
+  const [collectionBreakdownOpen, setCollectionBreakdownOpen] = useState(false);
   const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
   const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
   const [mobileReminderPage, setMobileReminderPage] = useState(1);
@@ -2212,6 +2234,9 @@ export function DashboardPage({
   const aiDocumentProcessing = dashboard?.aiDocumentProcessing;
   const refurbishmentHighestCosts = refurbishment?.highestCostVehicles ?? [];
   const analyticsPeriodLabel = dashboardAnalyticsPeriodLabel(analyticsPeriod);
+  const leadCount = leadStages.reduce((sum, stage) => sum + stage.count, 0);
+  const leadTrendPeriodLabel = dashboardTrendPeriodLabel(leadTrend);
+  const profitTrendPeriodLabel = dashboardTrendPeriodLabel(monthlyProfitTrend);
   const receivableLabels = new Set(["Outstanding Payment", "Open Debt Recovery"]);
   const moneyToCollect = moneyRiskBreakdown
     .filter((item) => receivableLabels.has(item.label))
@@ -2258,40 +2283,21 @@ export function DashboardPage({
   const mobilePriorityPageCount = Math.max(1, Math.ceil(priorityEntries.length / 8));
   const clampedMobilePriorityPage = Math.min(mobilePriorityPage, mobilePriorityPageCount);
   const mobilePriorityEntries = priorityEntries.slice((clampedMobilePriorityPage - 1) * 8, clampedMobilePriorityPage * 8);
-  const priorityStatus = reminderLoadError
+  const priorityStatus = actionsRefreshing
+    ? { color: "blue", label: "Checking actions" }
+    : reminderLoadError
     ? { color: "orange", label: "Check incomplete" }
     : priorityDueNowCount > 0
       ? { color: "red", label: `${priorityDueNowCount} action${priorityDueNowCount === 1 ? "" : "s"} due now` }
       : priorityEntries.length > 0
         ? { color: "blue", label: `${priorityEntries.length} active action${priorityEntries.length === 1 ? "" : "s"}` }
-        : { color: "green", label: "All clear" };
+        : actionsLastCheckedAt
+          ? { color: "green", label: "All clear" }
+          : { color: "default", label: "Not checked" };
   const cashFollowUpItems = moneyRiskBreakdown.filter((item) => item.amount > 0);
   const collectCashItemCount = cashFollowUpItems.filter((item) => receivableLabels.has(item.label)).length;
   const payCashItemCount = cashFollowUpItems.length - collectCashItemCount;
 
-  if (!dashboard && !dashboardLoadError) {
-    return (
-      <Space direction="vertical" size={16} className="fullWidth dashboardPage">
-        <ProCard title="Operations dashboard / 运营看板">
-          <Skeleton active paragraph={{ rows: 6 }} />
-        </ProCard>
-      </Space>
-    );
-  }
-
-  if (!dashboard) {
-    return (
-      <ProCard title="Operations dashboard / 运营看板">
-        <Alert
-          type="error"
-          showIcon
-          message="Dashboard data could not be loaded"
-          description={dashboardLoadError ?? "The dashboard is still loading. Please try again."}
-          action={<Button onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>}
-        />
-      </ProCard>
-    );
-  }
 
   return (
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
@@ -2299,7 +2305,7 @@ export function DashboardPage({
       <ProCard
         title="Management snapshot / 管理概览"
         className="dashboardOverviewCard"
-        extra={<div className="dashboardSnapshotActions"><Tag color={reminderLoadError ? "orange" : priorityDueNowCount > 0 ? "red" : "green"}>{reminderLoadError ? "Check incomplete" : `${priorityDueNowCount} due now`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></div>}
+        extra={<div className="dashboardSnapshotActions"><Button aria-label="Refresh summary" size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></div>}
       >
         <DashboardAnalyticsControls
           period={analyticsPeriod}
@@ -2307,7 +2313,11 @@ export function DashboardPage({
           disabled={refreshing}
           onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)}
         />
-        <Typography.Text className="dashboardSnapshotNote" type="secondary">Stock, cost, projected margin, loans, collection, settlement and aging: current. Sales, realised profit, leads and refurbishment: {analyticsPeriodLabel}. {lastCheckedAt ? `Checked ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : "Not checked yet."}</Typography.Text>
+        <DataFreshness label="Summary" updatedAt={lastCheckedAt} loading={refreshing || (!dashboard && !dashboardLoadError)} error={dashboardLoadError} />
+        {dashboardLoadError && <Alert type="error" showIcon message="Dashboard data could not be loaded" description={dashboardLoadError} action={<Button onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
+        {!dashboard && !dashboardLoadError && <Skeleton active paragraph={{ rows: 6 }} />}
+        {dashboard && <>
+        <Typography.Text className="dashboardSnapshotNote" type="secondary">Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update above. Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Calculated vehicle margins use recorded selling prices and costs; they do not measure cash received or accounting profit.</Typography.Text>
         <section className="dashboardMetricSection" aria-labelledby="dashboard-performance-title">
           <div className="dashboardMetricSectionHeader">
             <h3 id="dashboard-performance-title">Business performance / 经营表现</h3>
@@ -2315,12 +2325,22 @@ export function DashboardPage({
           </div>
           <div className="metricGrid dashboardMetricGrid dashboardHeadlineMetrics">
             <Metric label="Total Sales / 销售总数" value={totalSales} meta={analyticsPeriodLabel} tone="profit" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
-            <Metric label="Total Profit / 实际利润" value={formatCompactMoney(actualProfit)} meta={analyticsPeriodLabel} tone={actualProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
-            <Metric label="Outstanding Collection / 待收总额" value={formatCompactMoney(outstandingCollection)} meta="Unreconciled payments + open debt" tone={outstandingCollection > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("payments"))} />
-            <Metric label="Projected Stock Profit / 库存预计利润" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+            <Metric label="Sold Vehicle Margin / 已售车辆毛利" value={formatCompactMoney(actualProfit)} meta={analyticsPeriodLabel} tone={actualProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
+            <Metric label="Outstanding Collection / 待收总额" value={formatCompactMoney(outstandingCollection)} meta="Current payment balances + open debt recovery" tone={outstandingCollection > 0 ? "risk" : "neutral"} onClick={() => setCollectionBreakdownOpen(true)} />
+            <Metric label="Projected Stock Margin / 库存预计毛利" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
           </div>
         </section>
+        </>}
       </ProCard>
+      <Modal title="Outstanding Collection / 待收总额" open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
+        <Typography.Paragraph>Current outstanding payment balances plus open debt recovery. These are operational record totals, not cash received.</Typography.Paragraph>
+        <Space direction="vertical" className="fullWidth" size={12}>
+          {moneyRiskBreakdown.filter(item => receivableLabels.has(item.label)).map(item => <div className="dashboardCollectionCategory" key={item.label}>
+            <Typography.Text>{dashboardLabel(item.label)}: {formatMoney(item.amount)}</Typography.Text>
+            <Button onClick={() => onNavigate(financeRiskTarget(item.label))}>Open {dashboardLabel(item.label)}</Button>
+          </div>)}
+        </Space>
+      </Modal>
 
         {/* The upstream fallback is retained in data-safe form by the priority, cash, and aging panels below. */}
         {/*
@@ -2366,8 +2386,9 @@ export function DashboardPage({
         <ProCard
           title="Act now / 立即处理"
           className="dashboardPriorityCard"
-          extra={<Tag color={priorityStatus.color}>{priorityStatus.label}</Tag>}
+          extra={<Space wrap><Tag color={priorityStatus.color}>{priorityStatus.label}</Tag><Button aria-label="Refresh actions" size="small" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Refresh actions</Button></Space>}
         >
+          <DataFreshness label="Actions" updatedAt={actionsLastCheckedAt} loading={actionsRefreshing} error={reminderLoadError} />
           <Typography.Text className="dashboardPriorityIntro" type="secondary">Overdue and due today first. / 优先处理逾期及今日到期事项。</Typography.Text>
           <div className="mobileRecordList dashboardPriorityMobileList">
             {mobilePriorityEntries.map((entry) => (
@@ -2386,7 +2407,7 @@ export function DashboardPage({
                 <div className="mobileRecordFooter"><Button type="primary" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button></div>
               </article>
             ))}
-            {priorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "The action queue could not be checked completely." : "No overdue, due-today, due-soon, or department actions."} />}
+            {priorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking actions…" : reminderLoadError ? "The action queue could not be checked completely." : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions." : "Actions have not been checked yet."} />}
             <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={8} total={priorityEntries.length} showSizeChanger={false} hideOnSinglePage onChange={setMobilePriorityPage} />
           </div>
           <Table
@@ -2404,13 +2425,13 @@ export function DashboardPage({
             dataSource={priorityEntries}
             pagination={tablePagination(8)}
             scroll={{ x: 900 }}
-            locale={{ emptyText: reminderLoadError ? "The action queue could not be checked completely." : "No overdue, due-today, due-soon, or department actions." }}
+            locale={{ emptyText: actionsRefreshing ? "Checking actions…" : reminderLoadError ? "The action queue could not be checked completely." : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions." : "Actions have not been checked yet." }}
           />
-          {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
-          <div className="dashboardCashActions">
+          {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Try again</Button>} />}
+          {dashboard && <div className="dashboardCashActions">
             <div className="dashboardCashActionsHeader">
-              <div><strong>Cash follow-up / 收付款跟进</strong><span>Money requiring a decision or follow-up.</span></div>
-              <Space size={4} wrap><Tag className="dashboardStatusBadge" color={moneyToCollect > 0 ? "blue" : "green"}>Collect total {formatCompactMoney(moneyToCollect)} · {collectCashItemCount} item{collectCashItemCount === 1 ? "" : "s"}</Tag><Tag className="dashboardStatusBadge" color={moneyToPay > 0 ? "red" : "green"}>Pay total {formatCompactMoney(moneyToPay)} · {payCashItemCount} item{payCashItemCount === 1 ? "" : "s"}</Tag></Space>
+              <div><strong>Cash follow-up / 收付款跟进</strong><span>Current outstanding record totals by category.</span></div>
+              <Space size={4} wrap><Tag className="dashboardStatusBadge" color={moneyToCollect > 0 ? "blue" : "green"}>Collect total {formatCompactMoney(moneyToCollect)} · {collectCashItemCount} categor{collectCashItemCount === 1 ? "y" : "ies"}</Tag><Tag className="dashboardStatusBadge" color={moneyToPay > 0 ? "red" : "green"}>Pay total {formatCompactMoney(moneyToPay)} · {payCashItemCount} categor{payCashItemCount === 1 ? "y" : "ies"}</Tag></Space>
             </div>
             {cashFollowUpItems.length > 0 ? (
               <div className="dashboardCashActionList">
@@ -2421,26 +2442,26 @@ export function DashboardPage({
                       <Tag className="dashboardStatusBadge" color={collect ? "blue" : "red"}>{collect ? "Collect / 待收" : "Pay / 待付"}</Tag>
                       <strong>{dashboardLabel(item.label)}</strong>
                       <span>{formatMoney(item.amount)}</span>
-                      <Button size="small" aria-label={`Open ${dashboardLabel(item.label)}`} onClick={() => onNavigate(financeRiskTarget(item.label))}>Open cash item</Button>
+                      <Button size="small" aria-label={`Open ${dashboardLabel(item.label)}`} onClick={() => onNavigate(financeRiskTarget(item.label))}>Open category</Button>
                     </article>
                   );
                 })}
               </div>
             ) : <Typography.Text type="secondary">No outstanding cash follow-up.</Typography.Text>}
-          </div>
+          </div>}
         </ProCard>
 
-        <ProCard title="Operational exposure / 运营风险" className="dashboardOverviewCard">
-          <Typography.Text type="secondary">Stock, workflow, and cost indicators that may need management intervention.</Typography.Text>
+        {dashboard && <ProCard title="Operational exposure / 运营风险" className="dashboardOverviewCard">
+          <Typography.Text type="secondary">Current unsold stock, workflow and cost indicators at the summary update above; unaffected by the analytics range.</Typography.Text>
           <div className="metricGrid dashboardMetricGrid dashboardSupportingMetrics">
-            <Metric label="Total Stock / 总库存" value={dashboard.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Pending Loan / 贷款待跟进" value={dashboard.pendingLoan} tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
-            <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} meta={formatCompactMoney(settlementDueAmount)} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
-            <Metric label="Aging / 超60天库存" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
+            <Metric label="Total Stock / 总库存" meta="Current unsold vehicles" value={dashboard.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+            <Metric label="Pending Loan / 贷款待跟进" meta="Current Pending applications" value={dashboard.pendingLoan} tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
+            <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} meta={`Current due amount ${formatCompactMoney(settlementDueAmount)}`} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
+            <Metric label="Aging / 超60天库存" meta="Current unsold vehicles since intake" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
             <Metric label="Purchase Cost / 收车成本" value={formatCompactMoney(purchaseCost)} meta="Current unsold stock" tone="neutral" onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
             <Metric label="Repair Cost / 整备费用" value={formatCompactMoney(dashboard.repairCost)} meta="Current unsold stock" tone={dashboard.repairCost > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
           </div>
-        </ProCard>
+        </ProCard>}
 
       {/*
       <ProCard
@@ -2496,7 +2517,7 @@ export function DashboardPage({
               <div className="mobileRecordFooter"><Button type="primary" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
             </article>
           ))}
-          {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "Retry to load reminders." : "No reminders match the current filters."} />}
+          {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet."} />}
           <Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} />
         </div>
         <Table
@@ -2520,13 +2541,13 @@ export function DashboardPage({
         <ProCard
           title="All reminders / 全部提醒"
           className="dashboardReminderCard"
-          extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
+          extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag><Button size="small" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Refresh</Button></Space>}
         >
-          <Typography.Text type="secondary">This inbox contains every reminder. Act now shows only urgent reminders alongside department actions. / 此处显示全部提醒；立即处理只显示紧急提醒与部门行动。</Typography.Text>
+          <Typography.Text type="secondary">Current reminders at the Actions update above. Act now shows only urgent reminders alongside department actions. / 此处显示全部提醒；立即处理只显示紧急提醒与部门行动。</Typography.Text>
           {reminderLoadError && <Alert type="warning" showIcon message="Reminder inbox could not be refreshed" description={reminderLoadError} />}
           <Space className="toolbarForm" wrap>
-            <Select value={reminderTypeFilter} options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: dashboardLabel(type) }))]} onChange={(value) => { setReminderTypeFilter(value); setMobileReminderPage(1); }} style={{ width: 220 }} />
-            <Select value={reminderDueFilter} options={[{ value: "All", label: "All Due / 全部到期" }, { value: "Overdue", label: "Overdue / 已逾期" }, { value: "DueToday", label: "Due today / 今日到期" }, { value: "DueSoon", label: "Due soon / 即将到期" }, { value: "Upcoming", label: "Upcoming / 后续到期" }]} onChange={(value) => { setReminderDueFilter(value); setMobileReminderPage(1); }} style={{ width: 170 }} />
+            <Select aria-label="Reminder type" value={reminderTypeFilter} options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: dashboardLabel(type) }))]} onChange={(value) => { setReminderTypeFilter(value); setMobileReminderPage(1); }} style={{ width: 220 }} />
+            <Select aria-label="Reminder due status" value={reminderDueFilter} options={[{ value: "All", label: "All Due / 全部到期" }, { value: "Overdue", label: "Overdue / 已逾期" }, { value: "DueToday", label: "Due today / 今日到期" }, { value: "DueSoon", label: "Due soon / 即将到期" }, { value: "Upcoming", label: "Upcoming / 后续到期" }]} onChange={(value) => { setReminderDueFilter(value); setMobileReminderPage(1); }} style={{ width: 170 }} />
             {reminderFiltersActive && <Button size="small" onClick={resetReminderFilters}>Clear filters</Button>}
           </Space>
           <div className="mobileRecordList dashboardReminderMobileList">
@@ -2547,7 +2568,7 @@ export function DashboardPage({
                 <div className="mobileRecordFooter"><Button type="primary" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
               </article>
             ))}
-            {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={reminderLoadError ? "Retry to load reminders." : "No reminders match the current filters."} />}
+            {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet."} />}
             <Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} />
           </div>
           <Table
@@ -2564,17 +2585,18 @@ export function DashboardPage({
             dataSource={filteredReminders}
             pagination={tablePagination(8)}
             scroll={{ x: 760 }}
-            locale={{ emptyText: "No reminders match the current filters." }}
+            locale={{ emptyText: actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet." }}
           />
         </ProCard>
 
+        {dashboard && <>
         <section className="dashboardPanel" aria-labelledby="dashboard-intelligence-title">
           <div className="dashboardPanelHeader">
             <div>
               <span id="dashboard-intelligence-title">Executive intelligence / 决策图表</span>
               <strong>Ranked answers for the questions a boss asks first.</strong>
             </div>
-            <Tag color="green">Live protected data</Tag>
+            <Tag>Summary update above</Tag>
           </div>
           <div className="dashboardInsightGrid dashboardInsightGridOperations">
             <ProCard
@@ -2582,7 +2604,8 @@ export function DashboardPage({
               className="dashboardInsightCard dashboardInsightCardPriority"
               extra={<Button size="small" onClick={() => onNavigate("/repairs")}>Open repairs</Button>}
             >
-              <div className="insightCaption"><span>Final repair cost in {analyticsPeriodLabel}</span><strong>{formatCompactMoney(refurbishment?.finalRepairSpend ?? 0)}</strong></div>
+              <div className="insightCaption"><span>Final cost for repair jobs created in {analyticsPeriodLabel}</span><strong>{formatCompactMoney(refurbishment?.finalRepairSpend ?? 0)}</strong></div>
+              <Typography.Paragraph type="secondary">Current completion and overdue status of jobs created in this period.</Typography.Paragraph>
               <div className="refurbishmentSummaryGrid">
                 <span><small>Vehicles repaired</small><strong>{refurbishment?.vehicleCount ?? 0}</strong></span>
                 <span><small>Average per vehicle</small><strong>{formatCompactMoney(refurbishment?.averageSpendPerVehicle ?? 0)}</strong></span>
@@ -2612,16 +2635,17 @@ export function DashboardPage({
               className="dashboardInsightCard dashboardInsightCardWide"
               extra={<Button size="small" onClick={() => onNavigate("/leads")}>Open leads</Button>}
             >
-              <div className="insightCaption"><span>Enquiries in {analyticsPeriodLabel}, separate from confirmed sales</span><strong>{leadTrend.reduce((sum, item) => sum + item.count, 0)} enquiries</strong></div>
+              <div className="insightCaption"><span>Enquiries created in {analyticsPeriodLabel}</span><strong>{leadCount} enquiries</strong></div>
+              <Typography.Paragraph type="secondary">Monthly trend: {leadTrendPeriodLabel}. Top enquired vehicles: {analyticsPeriodLabel}.</Typography.Paragraph>
               <DashboardLeadTrend items={leadTrend} />
-              <DashboardLeadVehicleList items={topEnquiredVehicles} />
+              <DashboardLeadVehicleList items={topEnquiredVehicles} periodLabel={analyticsPeriodLabel} />
             </ProCard>
             <ProCard
-              title="Monthly sales & profit / 月度销售与利润"
+              title="Monthly vehicle margin / 月度车辆毛利"
               className="dashboardInsightCard dashboardInsightCardWide"
               extra={<Button size="small" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))}>Open sold vehicles</Button>}
             >
-              <div className="insightCaption"><span>Blue: actual sold profit · Grey: projected profit from stock introduced</span><strong>{formatCompactMoney(monthlyProfitTrend.reduce((sum, item) => sum + item.soldProfit, 0))} realised</strong></div>
+              <div className="insightCaption"><span>Monthly series: {profitTrendPeriodLabel}. Sold margin by sale month; projected margin of current unsold stock by intake month.</span><strong>{formatCompactMoney(monthlyProfitTrend.reduce((sum, item) => sum + item.soldProfit, 0))} sold margin in displayed months</strong></div>
               <DashboardProfitTrend items={monthlyProfitTrend} />
             </ProCard>
             <ProCard
@@ -2629,7 +2653,7 @@ export function DashboardPage({
               className="dashboardInsightCard"
               extra={<Button size="small" onClick={() => onNavigate("/leads")}>Follow up</Button>}
             >
-              <div className="insightCaption"><span>Case status, not confirmed sales</span><strong>{leadsAwaitingFirstResponse > 0 ? `${leadsAwaitingFirstResponse} waiting over 24h` : "All new leads covered"}</strong></div>
+              <div className="insightCaption"><span>Current case status of enquiries created in {analyticsPeriodLabel}</span><strong>{leadsAwaitingFirstResponse} new enquiries over 24h in this period</strong></div>
               <DashboardLeadStatus stages={leadStages} closureRate={leadClosureRate} />
             </ProCard>
           </div>
@@ -2642,11 +2666,13 @@ export function DashboardPage({
               <strong>{dashboard.vehicleAging} vehicles over 60 days</strong>
               <small>{dashboard.vehicleAging > 0 ? "Review price or clearance action now." : "No urgent aging stock."}</small>
             </div>
+            <Typography.Paragraph type="secondary">Current unsold vehicles by days since intake, at the summary update above.</Typography.Paragraph>
             <DashboardAgingActionBoard items={agingBuckets} onNavigate={onNavigate} />
           </ProCard>
         </div>
 
         {aiDocumentProcessing && <DashboardAiDocumentProcessingPanel processing={aiDocumentProcessing} analyticsPeriodLabel={analyticsPeriodLabel} />}
+        </>}
     </Space>
   );
 }
@@ -2664,20 +2690,20 @@ function DashboardAiDocumentProcessingPanel({
     <ProCard
       title="AI document processing / AI 文件处理"
       className="dashboardPriorityCard"
-      extra={<Tag color={processing.pendingReviewCount > 0 ? "orange" : "green"}>{processing.pendingReviewCount > 0 ? `${processing.pendingReviewCount} pending staff check${processing.pendingReviewCount === 1 ? "" : "s"}` : "Staff check queue clear"}</Tag>}
+      extra={<Tag color={processing.pendingReviewCount > 0 ? "orange" : "green"}>{processing.pendingReviewCount > 0 ? `${processing.pendingReviewCount} pending staff check${processing.pendingReviewCount === 1 ? "" : "s"} currently` : "Current staff check queue clear"}</Tag>}
     >
       <Alert className="operationalInfoAlert sectionIntroAlert" type="info" showIcon message="Review AI values before saving. Document and personal details are hidden here." />
       <div className="metricGrid dashboardMetricGrid">
         <Metric label="Scans / 扫描" value={processing.scanCount} meta={analyticsPeriodLabel} />
-        <Metric label="Reviewed AI documents / 已复核 AI 文件" value={processing.reviewedCount} meta="Staff-corrected values are retained" tone="profit" />
-        <Metric label="OCR field accuracy / OCR 字段准确率" value={processing.accuracyPercent === null || processing.accuracyPercent === undefined ? "Pending" : `${processing.accuracyPercent}%`} meta={processing.comparedFieldCount > 0 ? `${processing.correctFieldCount} unchanged · ${processing.correctedFieldCount} corrected` : "Appears after the first saved review"} tone={processing.correctedFieldCount > 0 ? "work" : "neutral"} />
+        <Metric label="Reviewed AI documents / 已复核 AI 文件" value={processing.reviewedCount} meta={`${analyticsPeriodLabel}; saved staff reviews`} tone="profit" />
+        <Metric label="Fields unchanged after review / 复核未改字段" value={processing.accuracyPercent === null || processing.accuracyPercent === undefined ? "Pending" : `${processing.accuracyPercent}%`} meta={processing.comparedFieldCount > 0 ? `${analyticsPeriodLabel}: ${processing.correctFieldCount} unchanged · ${processing.correctedFieldCount} corrected of ${processing.comparedFieldCount} compared` : "Appears after the first saved review"} tone={processing.correctedFieldCount > 0 ? "work" : "neutral"} />
         <Metric label="Failed scans / 失败扫描" value={processing.failedCount} meta={analyticsPeriodLabel} tone={processing.failedCount > 0 ? "risk" : "neutral"} />
         <Metric label="OCR capacity / OCR 容量" value={`${processing.remainingThisMonth} left`} meta={`${processing.usedThisMonth} of ${processing.monthlyRequestLimit} used this month`} tone={processing.remainingThisMonth === 0 ? "risk" : "neutral"} />
       </div>
       <div className="dashboardAiCharts">
         <section className="dashboardAiChart" aria-labelledby="ai-review-outcomes-title">
           <div className="dashboardAiChartHeading">
-            <strong id="ai-review-outcomes-title">Staff-reviewed field outcomes / 员工复核结果</strong>
+            <strong id="ai-review-outcomes-title">Staff-reviewed field outcomes / 员工复核结果 · {analyticsPeriodLabel}</strong>
             <span>{processing.comparedFieldCount} compared fields</span>
           </div>
           {processing.comparedFieldCount > 0 ? (
@@ -2692,6 +2718,7 @@ function DashboardAiDocumentProcessingPanel({
           </div>
         </section>
       </div>
+      <Typography.Paragraph type="secondary">Document category activity and saved review outcomes: {analyticsPeriodLabel}. Unchanged fields are not an independent accuracy assessment. Pending staff checks and this month’s capacity are current at the summary update.</Typography.Paragraph>
       <Input.Search className="dashboardDocumentSearch" aria-label="Search document types" placeholder="Search document types / 搜索文件类型" allowClear value={categorySearch} onChange={(event) => setCategorySearch(event.target.value)} />
       <Table
         search={false}
@@ -2705,7 +2732,7 @@ function DashboardAiDocumentProcessingPanel({
           { title: "Document type / 文件类型", dataIndex: "label" },
           { title: "Scans", dataIndex: "scanCount", align: "right" },
           { title: "Reviewed", dataIndex: "reviewedCount", align: "right" },
-          { title: "Accuracy", dataIndex: "accuracyPercent", align: "right", render: (value: number | null | undefined) => value === null || value === undefined ? "—" : `${value}%` },
+          { title: "Unchanged after review", dataIndex: "accuracyPercent", align: "right", render: (value: number | null | undefined) => value === null || value === undefined ? "—" : `${value}%` },
           { title: "Corrected", dataIndex: "correctedFieldCount", align: "right", render: (value: number) => <Tag color={value > 0 ? "orange" : "default"}>{value}</Tag> },
           { title: "Failed", dataIndex: "failedCount", align: "right", render: (value: number) => <Tag color={value > 0 ? "red" : "default"}>{value}</Tag> }
         ]}
@@ -2775,6 +2802,10 @@ function DashboardAnalyticsControls({
       </Space>
     </div>
   );
+}
+
+function dashboardTrendPeriodLabel(items: Array<{ label: string }>) {
+  return items.length ? `${items[0].label} to ${items[items.length - 1].label}` : "No monthly data";
 }
 
 function dashboardAnalyticsPeriodLabel(period: DashboardAnalyticsPeriod) {
@@ -2898,6 +2929,8 @@ function DashboardLeadTrend({ items }: { items: Array<{ label: string; count: nu
   const maxCount = Math.max(...items.map((item) => item.count), 1);
   const accessibleSummary = items.map((item) => `${item.label}: ${item.count}`).join(", ");
   const chartWidth = 780;
+  const labelStride = Math.ceil(items.length / 6);
+  const showLabel = (index: number) => items.length <= 6 || index === 0 || index === items.length - 1 || (index % labelStride === 0 && items.length - 1 - index >= labelStride);
   const chartHeight = 156;
   const baseline = 130;
   const leftInset = 30;
@@ -2917,10 +2950,10 @@ function DashboardLeadTrend({ items }: { items: Array<{ label: string; count: nu
         {[34, 82, baseline].map((y) => <line key={y} x1={leftInset} x2={chartWidth - rightInset} y1={y} y2={y} vectorEffect="non-scaling-stroke" shapeRendering="crispEdges" />)}
         {areaPath && <path className="leadLineArea" d={areaPath} />}
         {linePoints && <polyline className="leadLinePath" points={linePoints} vectorEffect="non-scaling-stroke" />}
-        {points.map((point) => <g key={point.label}><circle cx={point.x} cy={point.y} r="4.5" vectorEffect="non-scaling-stroke" /><text x={point.x} y={Math.max(17, point.y - 12)}>{point.count}</text></g>)}
+        {points.map((point, index) => <g key={point.label}><circle cx={point.x} cy={point.y} r="4.5" vectorEffect="non-scaling-stroke" />{showLabel(index) && <text x={point.x} y={Math.max(17, point.y - 12)}>{point.count}</text>}</g>)}
       </svg>
       <div className="leadLineLabels">
-        {items.map((item) => <small key={item.label}>{item.label}</small>)}
+        {points.map((point, index) => <small key={point.label} style={{ left: `${point.x * 100 / chartWidth}%` }}>{showLabel(index) ? point.label : null}</small>)}
       </div>
     </div>
   );
@@ -2932,35 +2965,42 @@ function DashboardProfitTrend({ items }: { items: Array<{ label: string; estimat
   const height = 178;
   const baseline = 138;
   const inset = 30;
-  const maxValue = Math.max(...items.flatMap((item) => [Math.abs(item.estimatedProfit), Math.abs(item.soldProfit)]), 1);
+  const values = items.flatMap((item) => [item.estimatedProfit, item.soldProfit]);
+  const minValue = Math.min(0, ...values);
+  const maxValue = Math.max(0, ...values);
+  const range = Math.max(maxValue - minValue, 1);
+  const yFor = (value: number) => baseline - ((value - minValue) / range) * 114;
   const pointFor = (value: number, index: number) => ({
     x: items.length === 1 ? width / 2 : inset + ((width - inset * 2) * index / (items.length - 1)),
-    y: baseline - (value / maxValue) * 94
+    y: yFor(value)
   });
   const estimatedPoints = items.map((item, index) => pointFor(item.estimatedProfit, index));
   const soldPoints = items.map((item, index) => pointFor(item.soldProfit, index));
   const path = (points: Array<{ x: number; y: number }>) => points.map((point) => `${point.x},${point.y}`).join(" ");
+  const labelStride = Math.ceil(items.length / 6);
 
   return (
     <div className="profitLineChart" role="img" aria-label={items.map((item) => `${item.label}: sold ${formatCompactMoney(item.soldProfit)}, projected ${formatCompactMoney(item.estimatedProfit)}`).join(", ")}>
-      <div className="profitLegend"><span><i className="profitLegendSold" />Actual sold profit</span><span><i className="profitLegendEstimated" />Projected stock profit</span></div>
+      <div className="profitLegend"><span><i className="profitLegendSold" />Sold vehicle margin</span><span><i className="profitLegendEstimated" />Current stock margin by intake month</span></div>
       <svg viewBox={`0 0 ${width} ${height}`} aria-hidden="true" preserveAspectRatio="xMidYMid meet">
         {[44, 91, baseline].map((y) => <line key={y} x1={inset} x2={width - inset} y1={y} y2={y} />)}
+        <line className="profitZeroLine" x1={inset} x2={width - inset} y1={yFor(0)} y2={yFor(0)} />
+        <text x={12} y={yFor(0) + 4}>0</text>
         <polyline className="profitLineEstimated" points={path(estimatedPoints)} />
         <polyline className="profitLineSold" points={path(soldPoints)} />
         {soldPoints.map((point, index) => <g key={items[index].label}><circle className="profitPointSold" cx={point.x} cy={point.y} r="4" /><text x={point.x} y={Math.max(18, point.y - 12)}>{formatCompactMoney(items[index].soldProfit)}</text></g>)}
       </svg>
-      <div className="profitLineLabels">{items.map((item) => <small key={item.label}>{item.label}<br />{item.soldCount} sold</small>)}</div>
+      <div className="profitLineLabels">{items.map((item, index) => <small key={item.label} style={{ left: `${soldPoints[index].x * 100 / width}%` }}>{items.length <= 6 || index === 0 || index === items.length - 1 || (index % labelStride === 0 && items.length - 1 - index >= labelStride) ? <>{item.label}<br />{item.soldCount} sold</> : null}</small>)}</div>
     </div>
   );
 }
 
-function DashboardLeadVehicleList({ items }: { items: Array<{ label: string; count: number }> }) {
+function DashboardLeadVehicleList({ items, periodLabel }: { items: Array<{ label: string; count: number }>; periodLabel: string }) {
   return (
     <section className="leadVehicleList" aria-labelledby="lead-vehicle-list-title">
       <div className="leadVehicleListHeader">
         <strong id="lead-vehicle-list-title">Enquiry vehicles / 询问车辆</strong>
-        <span>All-time count</span>
+        <span>{periodLabel}</span>
       </div>
       {items.length > 0 ? (
         <div className="leadVehicleListRows" role="list">

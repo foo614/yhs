@@ -1,3 +1,4 @@
+import { expect } from "playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 
 const baseURL = process.env.RESPONSIVE_BASE_URL ?? "http://127.0.0.1:4176";
@@ -21,12 +22,24 @@ const fixtures = {
   "/api/admin/ai-limits/ocr": { limit: { isEnabled: true, monthlyRequestLimit: 100, perStaffDailyRequestLimit: 10, updatedAt: "2026-09-01T00:00:00Z", updatedBy: "Layout Test" }, usedThisMonth: 0, remainingThisMonth: 100 },
   "/api/sales/workboard": { soldThisMonth: 0, inProgressCount: 0, availableAgents: [], items: [] }
 };
+Object.assign(fixtures["/api/dashboard/summary"], {
+  outstandingPayment: 12000, outstandingCollection: 15000,
+  moneyRiskBreakdown: [{ label: "Outstanding Payment", amount: 12000 }, { label: "Open Debt Recovery", amount: 3000 }],
+  salesFunnel: { stages: [{ label: "New", count: 8 }, { label: "Contacted", count: 3 }, { label: "Closed", count: 1 }], conversionRate: 8.3 },
+  leadTrend: [{ label: "May 26", count: 2 }, { label: "Jun 26", count: 3 }],
+  monthlyProfitTrend: [{ label: "May 26", estimatedProfit: 5000, soldProfit: -6000, soldCount: 1 }, { label: "Jun 26", estimatedProfit: -2000, soldProfit: 4000, soldCount: 1 }]
+});
 fixtures["/api/dashboard/summary"].agingBuckets = [{ label: "0-30", count: 16 }, { label: "31-60", count: 1 }, { label: "61+", count: 0 }];
 fixtures["/api/dashboard/summary"].aiDocumentProcessing = {
   scanCount: 8, reviewedCount: 4, comparedFieldCount: 10, correctFieldCount: 9, correctedFieldCount: 1, accuracyPercent: 90,
   lowConfidenceCount: 0, failedCount: 0, pendingReviewCount: 4, usedThisMonth: 8, monthlyRequestLimit: 100, remainingThisMonth: 92,
   categories: ["Identity card", "Vehicle ownership certificate"].map((label, index) => ({ category: index ? "Voc" : "IdentityCard", label, scanCount: 4, reviewedCount: 2, comparedFieldCount: 5, correctFieldCount: 4, correctedFieldCount: 1, accuracyPercent: 80, lowConfidenceCount: 0, failedCount: 0 }))
 };
+const dashboardDate = "2026-09-01";
+fixtures["/api/operations-calendar"] = [
+  { id: "test-delivery", kind: "Delivery", title: "TEST1234", vehicleYear: 2024, vehicleMake: "Toyota", vehicleModel: "Corolla Cross Hybrid Premium", startDate: dashboardDate, endDate: dashboardDate, time: "10:30", status: "PreparingDocuments", customerName: "Synthetic Customer With A Longer Display Name", customerContact: "0000000000", customerAccess: "Full" },
+  { id: "test-availability", kind: "Busy", title: "Synthetic Staff", startDate: dashboardDate, endDate: dashboardDate, time: null, status: null }
+];
 fixtures["/api/priority-actions"] = [{ type: "SettlementDue", title: "Settlement deadline due", target: "Finance", dueDate: "2026-01-01", subject: "TEST0001", amount: 20000 }];
 // These collection endpoints intentionally exercise empty states. Unknown paths
 // fail the run rather than silently turning a missing fixture into an empty page.
@@ -127,6 +140,12 @@ const emptyCollectionTemplate = emptyCollections;
 export async function runResponsiveWidth({ page, context, width, output, visualEvidence = false }) {
   const fixtureState = structuredClone(fixtureTemplate);
   const fixtures = fixtureState;
+  // Match Calendar's browser-local day, including UTC CI runs around midnight.
+  const browserToday = await page.evaluate(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
+  fixtures["/api/operations-calendar"] = fixtures["/api/operations-calendar"].map(event => ({ ...event, startDate: browserToday, endDate: browserToday }));
   const emptyCollectionState = new Set(emptyCollectionTemplate);
   const emptyCollections = emptyCollectionState;
   const unknownRequests = new Set();
@@ -303,6 +322,97 @@ async function inspectDetailTabs(route, width) {
     }
   }
 }
+async function verifyDashboardClarity() {
+  const status = label => page.getByRole("status", { name: `${label} data status`, exact: true });
+  const updated = label => status(label).locator("time").getAttribute("datetime");
+  await status("Calendar").locator("time").waitFor();
+  if (width < 768) {
+    await page.locator(".operationsCalendar .ant-picker-cell").filter({ has: page.getByRole("img", { name: "2 events", exact: true }) }).first().click();
+    await expect(page.getByRole("dialog")).toContainText("Synthetic Customer With A Longer Display Name");
+    await inspect("dashboard-populated-day-agenda", width);
+    await closeOverlay();
+  } else {
+    await expect(page.locator(".operationsCalendarDesktopAgenda")).toContainText("Synthetic Customer With A Longer Display Name");
+  }
+  const actionTime = await updated("Actions");
+  let calendarTime = await updated("Calendar");
+  const summaryTime = await updated("Summary");
+  await expect(page.locator(".insightCaption").filter({ hasText: /^Enquiries created in all time/ })).toContainText("12 enquiries");
+  // Losses must remain inside the actual rendered chart viewport.
+  const points = await page.locator(".profitLineChart polyline").evaluateAll(lines => lines.flatMap(line => line.getAttribute("points").split(" ").map(point => Number(point.split(",")[1]))));
+  if (points.some(y => y < 0 || y > 178)) throw new Error("A financial loss was clipped from the chart.");
+  await page.getByRole("button", { name: /Outstanding Collection/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("12,000");
+  await expect(dialog).toContainText("3,000");
+  const payments = dialog.getByRole("button", { name: /Open Outstanding Payment/ });
+  const debt = dialog.getByRole("button", { name: /Open Open Debt Recovery/ });
+  await expect(payments).toBeVisible();
+  await expect(debt).toBeVisible();
+  await inspect("dashboard-collection-categories", width);
+  await payments.click();
+  await expect(page).toHaveURL(/finance\?tab=payments&attention=open/);
+  await page.goBack();
+  await page.getByRole("button", { name: /Outstanding Collection/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Open Open Debt Recovery/ }).click();
+  await expect(page).toHaveURL(/finance\?tab=debt&attention=open/);
+  await page.goBack();
+  await status("Calendar").locator("time").waitFor();
+  calendarTime = await updated("Calendar");
+  const extraRequests = [];
+  const recordRequest = request => { const path = new URL(request.url()).pathname; if (["/api/dashboard/reminders", "/api/priority-actions", "/api/operations-calendar"].includes(path)) extraRequests.push(path); };
+  page.on("request", recordRequest);
+  await page.locator(".dashboardAnalyticsControls .ant-select").click();
+  await page.getByText("Last month", { exact: true }).last().click();
+  await expect.poll(() => updated("Summary")).not.toBe(summaryTime);
+  await expect(status("Summary")).not.toContainText("Loading");
+  expect(await updated("Actions")).toBe(actionTime);
+  expect(await updated("Calendar")).toBe(calendarTime);
+  expect(extraRequests).toEqual([]);
+  page.off("request", recordRequest);
+  // A failing summary cannot hide an independently loaded action or calendar.
+  const fail = route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Synthetic panel unavailable" }) });
+  const summaryPattern = "**/api/dashboard/summary*";
+  await page.route(summaryPattern, fail);
+  await page.locator(".dashboardSnapshotActions").getByRole("button", { name: "Refresh summary", exact: true }).click();
+  await expect(status("Summary")).toContainText("Update failed");
+  expect(await updated("Actions")).toBe(actionTime);
+  expect(await updated("Calendar")).toBe(calendarTime);
+  await expect(page.getByRole("button", { name: "Open Settlement deadline due" }).filter({ visible: true })).toBeVisible();
+  await expect(page.locator(".operationsCalendar")).toBeVisible();
+  await inspect("dashboard-summary-unavailable", width);
+  await page.unroute(summaryPattern, fail);
+  await page.locator(".dashboardSnapshotActions").getByRole("button", { name: "Refresh summary", exact: true }).click();
+  await expect(status("Summary")).not.toContainText("Update failed");
+  await expect(status("Summary").locator("time")).toBeVisible();
+  // A failed action refresh preserves its last complete timestamp, never all clear.
+  await page.route("**/api/priority-actions", fail);
+  await page.getByRole("button", { name: "Refresh actions", exact: true }).click();
+  await expect(status("Actions")).toContainText("Update failed");
+  expect(await updated("Actions")).toBe(actionTime);
+  await expect(page.locator(".dashboardPriorityCard").first()).toContainText("Check incomplete");
+  await expect(page.locator(".dashboardPriorityCard").first()).not.toContainText("All clear");
+  await inspect("dashboard-actions-unavailable", width);
+  await page.unroute("**/api/priority-actions", fail);
+  await page.getByRole("button", { name: "Refresh actions", exact: true }).click();
+  await expect(status("Actions")).not.toContainText("Update failed");
+  await expect.poll(() => updated("Actions")).not.toBe(actionTime);
+  const goodSummaryTime = await updated("Summary");
+  // Calendar failure must not manufacture an empty schedule or alter other clocks.
+  await page.route("**/api/operations-calendar*", fail);
+  await page.locator(".operationsCalendar").getByRole("button", { name: "Refresh calendar", exact: true }).click();
+  await expect(status("Calendar")).toContainText("Update failed");
+  expect(await updated("Calendar")).toBe(calendarTime);
+  expect(await updated("Summary")).toBe(goodSummaryTime);
+  await expect(page.locator(".operationsCalendar")).not.toContainText("No scheduled events");
+  await inspect("dashboard-calendar-unavailable", width);
+  await page.unroute("**/api/operations-calendar*", fail);
+  await page.locator(".operationsCalendar").getByRole("button", { name: "Refresh calendar", exact: true }).click();
+  await expect(status("Calendar")).not.toContainText("Update failed");
+  await expect.poll(() => updated("Calendar")).not.toBe(calendarTime);
+  diagnostics.dashboardFailureChecks = "Summary, actions and calendar failures were injected as HTTP 503; unaffected panels and last successful timestamps verified.";
+}
+
 try {
   await page.setViewportSize({ width, height: Number(process.env.RESPONSIVE_HEIGHT ?? 900) });
   for (const route of routes) {
@@ -427,8 +537,9 @@ try {
           await closeOverlay();
         }
         if (route === "dashboard") {
+          await verifyDashboardClarity();
           const snapshotActions = page.locator(".dashboardSnapshotActions");
-          const refreshBox = await snapshotActions.getByRole("button", { name: "Refresh", exact: true }).boundingBox();
+          const refreshBox = await snapshotActions.getByRole("button", { name: "Refresh summary", exact: true }).boundingBox();
           const actionsBox = await snapshotActions.boundingBox();
           if (!refreshBox || !actionsBox || refreshBox.width > 110 || Math.abs(refreshBox.x + refreshBox.width - actionsBox.x - actionsBox.width) > 2) throw new Error("Refresh must be compact and right-aligned.");
           const agingGap = await page.locator(".dashboardAgingCard").evaluate(card => card.querySelector(".agingActionBoard").getBoundingClientRect().top - card.querySelector(".dashboardFocusQueue").getBoundingClientRect().bottom);
@@ -629,7 +740,7 @@ const knownWarnings = new Set([
   "Warning: `disabled` should not set with empty `value`. You should set `allowEmpty` or `value` instead.",
   "Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?"
 ]);
-const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message));
+const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !(diagnostics.dashboardFailureChecks && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
 const summary = { width, checks: results.length, failed, unknownRequests: [...unknownRequests], failedRequests: diagnostics.failedRequests, unexpectedConsoleErrors };
 console.log(JSON.stringify(summary, null, 2));
 if (failed.length || unknownRequests.size || diagnostics.failedRequests.length || unexpectedConsoleErrors.length) {
