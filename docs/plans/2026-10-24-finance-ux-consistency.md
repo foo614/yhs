@@ -57,6 +57,9 @@ consequential-action confirmations retain their current meaning.
   expired session without a file download, valid empty after retry, unavailable
   registers, unsupported content, action parity and footer form validation.
   They issued no mutations. Native Chrome displayed the uploaded PDF page.
+- Customer 360's existing receipt checks now exercise authenticated downloads
+  instead of the replaced anchor links: correct active/legacy source, filename,
+  bytes and no download for voided receipts. Its seven browser cases passed.
 - Independent correctness and UI reviews found no remaining blocking issues.
   App-native GPT-6.1 Sol review was the approved fallback because the installed
   CLI rejected that model. No global tooling or model downgrade was applied.

@@ -1,4 +1,5 @@
 import { test, expect } from "playwright/test";
+import { readFile } from "node:fs/promises";
 import { routes, widths } from "./responsive-check.mjs";
 
 test.setTimeout(30000);
@@ -97,14 +98,32 @@ for (const width of widths.filter(value => [360, 820, 1440].includes(value))) {
       { vehicleId: "vehicle-a", category: "Policy", message: "Delivery documentation is missing Policy.", sourceModule: "Delivery", sourceRecordId: "delivery-cancelled", isActiveBlocker: false }
     ];
     await mockApi(context, route => route.fulfill({ json: populated }));
+    const receiptBytes = Buffer.from("%PDF-1.4\nSynthetic customer receipt only\n%%EOF");
+    const receiptRequests = [];
+    await context.route("**/official-receipt/content", async route => {
+      expect(route.request().method()).toBe("GET");
+      receiptRequests.push(new URL(route.request().url()).pathname);
+      await route.fulfill({ contentType: "application/pdf", body: receiptBytes });
+    });
     await page.goto("/customer-360?customerId=customer-a");
     const coverage = page.locator("#customer360-delivery");
     for (const value of ["POLICY-123", "ROAD-123", "WIND-123", "23 Oct 2026", "Expired", "Expiring within 30 days", "Expiry date missing"]) await expect(coverage.getByText(value, { exact: false })).toBeVisible();
     await expect(page.locator("#customer360-finance")).toContainText("Collected: RM 40.00");
     await expect(page.locator("#customer360-finance")).toContainText("Remaining: RM 60.00");
-    await expect(page.locator('a[href$="/collection-transactions/collection-active/official-receipt/content"]')).toHaveCount(1);
-    await expect(page.locator('a[href$="/cash-handovers/handover-legacy/official-receipt/content"]')).toHaveCount(1);
-    await expect(page.locator('a[href*="collection-void"]')).toHaveCount(0);
+    for (const [id, fileName] of [["receipt-active", "SYN-ACTIVE.pdf"], ["receipt-legacy", "SYN-LEGACY.pdf"]]) {
+      const receipt = page.locator(`[data-row-key="${id}"]`);
+      const [download] = await Promise.all([
+        page.waitForEvent("download"),
+        receipt.getByRole("button", { name: /Download PDF$/ }).click()
+      ]);
+      expect(download.suggestedFilename()).toBe(fileName);
+      expect((await readFile(await download.path())).equals(receiptBytes)).toBe(true);
+    }
+    await expect(page.locator('[data-row-key="receipt-void"]').getByRole("button", { name: /Download PDF$/ })).toHaveCount(0);
+    expect(receiptRequests).toEqual([
+      "/api/collection-transactions/collection-active/official-receipt/content",
+      "/api/cash-handovers/handover-legacy/official-receipt/content"
+    ]);
     const active = page.locator("#customer360-missing");
     await expect(active.locator(".ant-collapse-header .ant-tag")).toHaveText("2");
     await active.locator(".ant-collapse-header").click();
