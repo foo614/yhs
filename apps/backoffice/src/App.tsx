@@ -258,6 +258,8 @@ import {
   type DashboardReminder,
   type DashboardSummary,
   type DebtRecoveryCase,
+  type FinanceRegisterKey,
+  type FinanceRegisterLoadState,
   type DeliverySchedule,
   type DeliveryAccountingCharge,
   type DocumentCategory,
@@ -516,18 +518,25 @@ export default function App() {
   const [deliveries, setDeliveries] = useState<DeliverySchedule[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [paymentLoadError, setPaymentLoadError] = useState<string | null>(null);
-  const [paymentRefreshing, setPaymentRefreshing] = useState(false);
+  const [paymentRefreshing, setPaymentRefreshing] = useState(true);
   const [cashHandovers, setCashHandovers] = useState<CashHandover[]>([]);
   const [cashHandoverPaymentLookup, setCashHandoverPaymentLookup] = useState<CashHandoverPaymentLookup[]>([]);
   const [cashCustodyLoadError, setCashCustodyLoadError] = useState<string | null>(null);
+  const [cashCustodyRefreshing, setCashCustodyRefreshing] = useState(true);
   const [settlements, setSettlements] = useState<SettlementReminder[]>([]);
   const [settlementDrafts, setSettlementDrafts] = useState<SettlementDraft[]>([]);
   const [settlementLoadError, setSettlementLoadError] = useState<string | null>(null);
-  const [settlementRefreshing, setSettlementRefreshing] = useState(false);
+  const [settlementRefreshing, setSettlementRefreshing] = useState(true);
   const [dailySpends, setDailySpends] = useState<DailySpend[]>([]);
   const [brokerCommissions, setBrokerCommissions] = useState<BrokerCommission[]>([]);
   const [debtRecoveries, setDebtRecoveries] = useState<DebtRecoveryCase[]>([]);
   const [paymentVouchers, setPaymentVouchers] = useState<PaymentVoucher[]>([]);
+  const [registerLoadState, setRegisterLoadState] = useState<FinanceRegisterLoadState>({
+    dailySpends: { loading: true, error: null },
+    brokerCommissions: { loading: true, error: null },
+    debtRecoveries: { loading: true, error: null },
+    paymentVouchers: { loading: true, error: null }
+  });
   const [leads, setLeads] = useState<Lead[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLog[]>([]);
   const [auditLogFilters, setAuditLogFilters] = useState<AuditLogFilters>({});
@@ -553,7 +562,7 @@ export default function App() {
   const [vehicleLookup, setVehicleLookup] = useState<VehicleLookup[]>([]);
   const [financeVehicleOptions, setFinanceVehicleOptions] = useState<FinanceVehicleOption[]>([]);
   const [financeVehicleOptionLoadError, setFinanceVehicleOptionLoadError] = useState<string | null>(null);
-  const [financeVehicleOptionRefreshing, setFinanceVehicleOptionRefreshing] = useState(false);
+  const [financeVehicleOptionRefreshing, setFinanceVehicleOptionRefreshing] = useState(true);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [logoutSucceeded, setLogoutSucceeded] = useState(false);
@@ -577,6 +586,16 @@ export default function App() {
     const requestedDashboardPeriod = dashboardPeriodRef.current;
     const allowed = new Set(backOfficeDataKeysForRoles(roles));
     const canLoad = (key: BackOfficeDataKey) => allowed.has(key);
+    setPaymentRefreshing(canLoad("payments"));
+    setSettlementRefreshing(canLoad("settlements"));
+    setCashCustodyRefreshing(canLoad("cashHandovers") || canLoad("cashHandoverPaymentLookup"));
+    setFinanceVehicleOptionRefreshing(canLoad("financeVehicleOptions"));
+    setRegisterLoadState((current) => ({
+      dailySpends: { ...current.dailySpends, loading: canLoad("dailySpends") },
+      brokerCommissions: { ...current.brokerCommissions, loading: canLoad("brokerCommissions") },
+      debtRecoveries: { ...current.debtRecoveries, loading: canLoad("debtRecoveries") },
+      paymentVouchers: { ...current.paymentVouchers, loading: canLoad("paymentVouchers") }
+    }));
     const [
       dashboardData,
       reminderData,
@@ -656,10 +675,22 @@ export default function App() {
         .then((data) => ({ data, error: null as string | null }))
         .catch((error) => ({ data: [] as SettlementDraft[], error: humanizeApiError(error, "Settlement source prices could not be loaded.") }))
         : Promise.resolve({ data: [] as SettlementDraft[], error: null as string | null }),
-      canLoad("dailySpends") ? getDailySpends() : Promise.resolve([]),
-      canLoad("brokerCommissions") ? getBrokerCommissions() : Promise.resolve([]),
-      canLoad("debtRecoveries") ? getDebtRecoveries() : Promise.resolve([]),
-      canLoad("paymentVouchers") ? getPaymentVouchers() : Promise.resolve([]),
+      canLoad("dailySpends") ? getDailySpends()
+        .then((data) => ({ data, error: null as string | null }))
+        .catch((error) => ({ data: [] as DailySpend[], error: humanizeApiError(error, "Daily spend records could not be loaded.") }))
+        : Promise.resolve({ data: [] as DailySpend[], error: null as string | null }),
+      canLoad("brokerCommissions") ? getBrokerCommissions()
+        .then((data) => ({ data, error: null as string | null }))
+        .catch((error) => ({ data: [] as BrokerCommission[], error: humanizeApiError(error, "Broker commissions could not be loaded.") }))
+        : Promise.resolve({ data: [] as BrokerCommission[], error: null as string | null }),
+      canLoad("debtRecoveries") ? getDebtRecoveries()
+        .then((data) => ({ data, error: null as string | null }))
+        .catch((error) => ({ data: [] as DebtRecoveryCase[], error: humanizeApiError(error, "Debt recovery records could not be loaded.") }))
+        : Promise.resolve({ data: [] as DebtRecoveryCase[], error: null as string | null }),
+      canLoad("paymentVouchers") ? getPaymentVouchers()
+        .then((data) => ({ data, error: null as string | null }))
+        .catch((error) => ({ data: [] as PaymentVoucher[], error: humanizeApiError(error, "Payment vouchers could not be loaded.") }))
+        : Promise.resolve({ data: [] as PaymentVoucher[], error: null as string | null }),
       canLoad("leads") ? getLeads() : Promise.resolve([]),
       canLoad("auditLog") ? getAuditLog() : Promise.resolve([]),
       canLoad("staffUsers") ? getStaffUsers() : Promise.resolve([]),
@@ -691,8 +722,9 @@ export default function App() {
     if (!reminderData.error && !priorityActionData.error) setActionsLastCheckedAt(new Date());
     setVehicles(vehicleData);
     setVehicleLookup(vehicleLookupData);
-    setFinanceVehicleOptions(financeVehicleOptionResult.data);
+    if (!financeVehicleOptionResult.error) setFinanceVehicleOptions(financeVehicleOptionResult.data);
     setFinanceVehicleOptionLoadError(financeVehicleOptionResult.error);
+    setFinanceVehicleOptionRefreshing(false);
     setCustomers(customerData);
     setOwners(ownerData);
     setPurchaseInvoices(purchaseInvoiceData);
@@ -700,18 +732,27 @@ export default function App() {
     setRepairs(repairData);
     setLoans(loanData);
     setDeliveries(deliveryData);
-    setPayments(paymentResult.data);
+    if (!paymentResult.error) setPayments(paymentResult.data);
     setPaymentLoadError(paymentResult.error);
-    setCashHandovers(cashHandoverResult.data);
-    setCashHandoverPaymentLookup(cashHandoverPaymentLookupResult.data);
+    setPaymentRefreshing(false);
+    if (!cashHandoverResult.error) setCashHandovers(cashHandoverResult.data);
+    if (!cashHandoverPaymentLookupResult.error) setCashHandoverPaymentLookup(cashHandoverPaymentLookupResult.data);
     setCashCustodyLoadError(cashHandoverResult.error ?? cashHandoverPaymentLookupResult.error);
-    setSettlements(settlementData.data);
-    setSettlementDrafts(settlementDraftData.data);
+    setCashCustodyRefreshing(false);
+    if (!settlementData.error) setSettlements(settlementData.data);
+    if (!settlementDraftData.error) setSettlementDrafts(settlementDraftData.data);
     setSettlementLoadError(settlementData.error ?? settlementDraftData.error);
-    setDailySpends(dailySpendData);
-    setBrokerCommissions(brokerCommissionData);
-    setDebtRecoveries(debtRecoveryData);
-    setPaymentVouchers(paymentVoucherData);
+    setSettlementRefreshing(false);
+    if (!dailySpendData.error) setDailySpends(dailySpendData.data);
+    if (!brokerCommissionData.error) setBrokerCommissions(brokerCommissionData.data);
+    if (!debtRecoveryData.error) setDebtRecoveries(debtRecoveryData.data);
+    if (!paymentVoucherData.error) setPaymentVouchers(paymentVoucherData.data);
+    setRegisterLoadState({
+      dailySpends: { loading: false, error: dailySpendData.error },
+      brokerCommissions: { loading: false, error: brokerCommissionData.error },
+      debtRecoveries: { loading: false, error: debtRecoveryData.error },
+      paymentVouchers: { loading: false, error: paymentVoucherData.error }
+    });
     setLeads(leadData);
     setAuditLog(auditData);
     setStaffUsers(staffUserData);
@@ -944,7 +985,6 @@ export default function App() {
       setPayments(records);
       setPaymentLoadError(null);
     } catch (error) {
-      setPayments([]);
       setPaymentLoadError(humanizeApiError(error, "Finance records could not be loaded."));
     } finally {
       setPaymentRefreshing(false);
@@ -958,7 +998,6 @@ export default function App() {
       setFinanceVehicleOptions(options);
       setFinanceVehicleOptionLoadError(null);
     } catch (error) {
-      setFinanceVehicleOptions([]);
       setFinanceVehicleOptionLoadError(humanizeApiError(error, "Vehicle prices could not be loaded."));
     } finally {
       setFinanceVehicleOptionRefreshing(false);
@@ -966,6 +1005,7 @@ export default function App() {
   }, []);
 
   const refreshCashCustody = useCallback(async () => {
+    setCashCustodyRefreshing(true);
     try {
       const [handovers, lookup] = await Promise.all([getCashHandovers(), getCashHandoverPaymentLookup()]);
       setCashHandovers(handovers);
@@ -973,6 +1013,23 @@ export default function App() {
       setCashCustodyLoadError(null);
     } catch (error) {
       setCashCustodyLoadError(humanizeApiError(error, "Cash custody data could not be loaded. Retry before recording or changing custody."));
+    } finally {
+      setCashCustodyRefreshing(false);
+    }
+  }, []);
+
+  const refreshFinanceRegister = useCallback(async (register: FinanceRegisterKey) => {
+    setRegisterLoadState((current) => ({ ...current, [register]: { ...current[register], loading: true } }));
+    try {
+      switch (register) {
+        case "dailySpends": setDailySpends(await getDailySpends()); break;
+        case "brokerCommissions": setBrokerCommissions(await getBrokerCommissions()); break;
+        case "debtRecoveries": setDebtRecoveries(await getDebtRecoveries()); break;
+        case "paymentVouchers": setPaymentVouchers(await getPaymentVouchers()); break;
+      }
+      setRegisterLoadState((current) => ({ ...current, [register]: { loading: false, error: null } }));
+    } catch (error) {
+      setRegisterLoadState((current) => ({ ...current, [register]: { loading: false, error: humanizeApiError(error, "Finance records could not be loaded. Retry to check the latest records.") } }));
     }
   }, []);
 
@@ -1204,6 +1261,10 @@ export default function App() {
             deliveries={deliveries}
             payments={payments}
             cashHandovers={cashHandovers}
+            paymentLoadError={paymentLoadError}
+            paymentRefreshing={paymentRefreshing}
+            cashCustodyLoadError={cashCustodyLoadError}
+            cashCustodyRefreshing={cashCustodyRefreshing}
             settlements={settlements}
             leads={leads}
             staffUsers={staffUsers}
@@ -1352,6 +1413,9 @@ export default function App() {
               brokerCommissions={brokerCommissions}
               debtRecoveries={debtRecoveries}
               paymentVouchers={paymentVouchers}
+              registerLoadState={registerLoadState}
+              onRetryRegister={refreshFinanceRegister}
+              cashCustodyRefreshing={cashCustodyRefreshing}
               currentUser={currentUser}
               dashboardFocus={dashboardDrilldown}
               onClearDashboardFocus={(tab, cashCollectionId, cashPaymentId) => navigateTo(`/finance?tab=${encodeURIComponent(tab)}${cashCollectionId ? `&cashCollectionId=${encodeURIComponent(cashCollectionId)}` : ""}${cashPaymentId ? `&cashPaymentId=${encodeURIComponent(cashPaymentId)}` : ""}`)}
@@ -1702,6 +1766,10 @@ function ModuleCommandBar({
   deliveries,
   payments,
   cashHandovers,
+  paymentLoadError,
+  paymentRefreshing,
+  cashCustodyLoadError,
+  cashCustodyRefreshing,
   settlements,
   leads,
   staffUsers,
@@ -1725,6 +1793,10 @@ function ModuleCommandBar({
   deliveries: DeliverySchedule[];
   payments: PaymentRecord[];
   cashHandovers: CashHandover[];
+  paymentLoadError: string | null;
+  paymentRefreshing: boolean;
+  cashCustodyLoadError: string | null;
+  cashCustodyRefreshing: boolean;
   settlements: SettlementReminder[];
   leads: Lead[];
   staffUsers: StaffUser[];
@@ -1746,6 +1818,10 @@ function ModuleCommandBar({
     deliveries,
     payments,
     cashHandovers,
+    paymentLoadError,
+    paymentRefreshing,
+    cashCustodyLoadError,
+    cashCustodyRefreshing,
     settlements,
     leads,
     staffUsers,
@@ -1830,6 +1906,10 @@ function moduleStats(pathname: string, data: {
   deliveries: DeliverySchedule[];
   payments: PaymentRecord[];
   cashHandovers: CashHandover[];
+  paymentLoadError: string | null;
+  paymentRefreshing: boolean;
+  cashCustodyLoadError: string | null;
+  cashCustodyRefreshing: boolean;
   settlements: SettlementReminder[];
   leads: Lead[];
   staffUsers: StaffUser[];
@@ -1871,9 +1951,9 @@ function moduleStats(pathname: string, data: {
       return [];
     case "/finance":
       return [
-        { label: "payments", value: data.payments.length },
-        { label: "open bank", value: openPayments },
-        { label: "open custody", value: data.cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length }
+        { label: "payments", value: data.paymentRefreshing ? "Loading" : data.paymentLoadError ? "Unavailable" : data.payments.length },
+        { label: "open bank", value: data.paymentRefreshing ? "Loading" : data.paymentLoadError ? "Unavailable" : openPayments },
+        { label: "open custody", value: data.cashCustodyRefreshing ? "Loading" : data.cashCustodyLoadError ? "Unavailable" : data.cashHandovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length }
       ];
     case "/leads":
       return [

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Drawer, Empty, Spin, Typography } from "antd";
 
 export type DocumentPreviewSource = {
@@ -34,6 +35,9 @@ export function DocumentPreviewDrawer({
   onClose: () => void;
 }) {
   const kind = source ? documentPreviewKind(source.mimeType) : "unsupported";
+  const [displayError, setDisplayError] = useState(false);
+
+  useEffect(() => setDisplayError(false), [open, source?.url]);
 
   return (
     <Drawer
@@ -46,7 +50,7 @@ export function DocumentPreviewDrawer({
       className="documentPreviewDrawer"
     >
       {loading ? (
-        <div className="documentPreviewState"><Spin tip="Loading preview" /></div>
+        <div className="documentPreviewState"><Spin /><Typography.Text type="secondary">Loading preview…</Typography.Text></div>
       ) : error ? (
         <Alert type="error" showIcon message="Preview unavailable" description={error} />
       ) : source ? (
@@ -55,8 +59,10 @@ export function DocumentPreviewDrawer({
             <Typography.Text strong>{source.fileName}</Typography.Text>
             <Typography.Text type="secondary">{source.mimeType || "Unknown file type"}</Typography.Text>
           </div>
-          {kind === "image" && <img src={source.url} alt={`Preview of ${source.fileName}`} />}
-          {kind === "pdf" && <iframe src={source.url} title={`Preview of ${source.fileName}`} />}
+          {displayError ? <Alert type="warning" showIcon message="Preview cannot be displayed" description="Download the file to view it, or close this preview and try again." /> : <>
+            {kind === "image" && <img src={source.url} alt={`Preview of ${source.fileName}`} onError={() => setDisplayError(true)} />}
+            {kind === "pdf" && <iframe src={source.url} title={`Preview of ${source.fileName}`} onError={() => setDisplayError(true)} />}
+          </>}
           {kind === "unsupported" && (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}

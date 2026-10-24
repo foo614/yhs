@@ -6,6 +6,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
+import { FinanceListNotice } from "./FinanceListNotice";
 import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, filterFinanceRowsByFields, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
@@ -42,7 +43,7 @@ import {
   getProtectedFileContent,
   getDeliveryAccountingCharges,
   getDeliveryInvoiceUpdateRequests,
-  getPurchaseInvoices,
+  getPurchaseInvoicesStrict,
   getSalesAgents,
   getVehicleDocumentsStrict,
   humanizeApiError,
@@ -51,6 +52,8 @@ import {
   type BrokerCommission,
   type CashHandover,
   type CashHandoverPaymentLookup,
+  type FinanceRegisterKey,
+  type FinanceRegisterLoadState,
   type CollectionCreateInput,
   type CollectionMethod,
   type CollectionTransaction,
@@ -311,6 +314,8 @@ export function financeSearchCopy(tab: string) {
   }
 }
 
+type FinanceDataKey = FinanceRegisterKey | "payments" | "settlements" | "purchaseInvoices" | "deliveryAccounting" | "vehiclePrices";
+
 type CollectionFormValues = Omit<CollectionCreateInput, "receivedDate" | "idempotencyKey"> & { receivedDate?: Dayjs };
 type SettlementFormValues = SettlementCreateInput & { ownerId?: string };
 
@@ -332,12 +337,12 @@ export function InvoiceUpdateRequestQueue({
   return (
     <ProCard
       title="Delivery invoice update requests / 交车发票更新"
-      extra={<Tag color={requests.length > 0 ? "orange" : "green"}>{requests.length} open</Tag>}
+      extra={<Tag color={!error && requests.length > 0 ? "orange" : "default"}>{error ? "Unavailable" : loading ? "Loading" : `${requests.length} open`}</Tag>}
       loading={loading}
-      className="financeInvoiceRequestQueue"
+      className={`financeInvoiceRequestQueue${!loading && !error && requests.length === 0 ? " financeInvoiceRequestQueueEmpty" : ""}`}
     >
       {error ? <Alert type="error" showIcon message={error} action={<Button onClick={onRetry}>Try again</Button>} />
-        : requests.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No open delivery invoice requests." />
+        : requests.length === 0 ? <Typography.Text type="secondary">No open delivery invoice requests.</Typography.Text>
           : <div className="financeInvoiceRequestList">
             {newestRecordsFirst(requests, (requestItem) => requestItem.requestedAt).map((requestItem) => (
               <article key={requestItem.id} className="financeInvoiceRequestItem">
@@ -388,6 +393,8 @@ export function FinancePage({
   brokerCommissions,
   debtRecoveries,
   paymentVouchers,
+  registerLoadState,
+  onRetryRegister,
   currentUser,
   dashboardFocus,
   onClearDashboardFocus,
@@ -396,6 +403,7 @@ export function FinancePage({
   cashHandovers,
   cashHandoverPaymentLookup,
   cashCustodyLoadError,
+  cashCustodyRefreshing = false,
   onRetryCashCustody,
   onCreate,
   onUpdate,
@@ -448,6 +456,8 @@ export function FinancePage({
   brokerCommissions: BrokerCommission[];
   debtRecoveries: DebtRecoveryCase[];
   paymentVouchers: PaymentVoucher[];
+  registerLoadState?: Partial<FinanceRegisterLoadState>;
+  onRetryRegister?: (register: FinanceRegisterKey) => Promise<void>;
   currentUser: CurrentUser | null;
   dashboardFocus: DashboardDrilldown;
   onClearDashboardFocus: (tab: string, cashCollectionId?: string, cashPaymentId?: string) => void;
@@ -456,6 +466,7 @@ export function FinancePage({
   cashHandovers: CashHandover[];
   cashHandoverPaymentLookup: CashHandoverPaymentLookup[];
   cashCustodyLoadError: string | null;
+  cashCustodyRefreshing?: boolean;
   onRetryCashCustody: () => Promise<void>;
   onCreate: (payment: PaymentRecord) => void;
   onUpdate: (payment: PaymentRecord) => void;
@@ -494,7 +505,8 @@ export function FinancePage({
   const canApproveManagementReview = Boolean(currentUser?.roles.includes("BossAdmin"));
   const approvedBuyerVehicles = financeApprovedBuyerVehicles(vehicles);
   const eligibleInvoiceVehicles = approvedBuyerVehicles.filter((vehicle) => !payments.some((payment) => payment.vehicleId === vehicle.id));
-  const canPrepareInvoice = canPrepareFinanceInvoice(paymentLoadError, financeVehicleOptionLoadError, eligibleInvoiceVehicles.length);
+  const canPrepareInvoice = !paymentRefreshing && !financeVehicleOptionRefreshing && canPrepareFinanceInvoice(paymentLoadError, financeVehicleOptionLoadError, eligibleInvoiceVehicles.length);
+  const registerBlocked = (register: FinanceRegisterKey) => Boolean(registerLoadState?.[register]?.loading || registerLoadState?.[register]?.error);
   const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
   const [editPaymentId, setEditPaymentId] = useState(payments[0]?.id ?? "");
   const [editSettlementId, setEditSettlementId] = useState(settlements[0]?.id ?? "");
@@ -531,6 +543,28 @@ export function FinancePage({
   const [salesAgents, setSalesAgents] = useState<StaffUser[]>([]);
   const [deliveryAccountingCharges, setDeliveryAccountingCharges] = useState<DeliveryAccountingCharge[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
+  const [purchaseInvoiceLoad, setPurchaseInvoiceLoad] = useState<{ loading: boolean; error: string | null }>({ loading: true, error: null });
+  const [deliveryAccountingLoad, setDeliveryAccountingLoad] = useState<{ loading: boolean; error: string | null }>({ loading: true, error: null });
+  const blockedData = {
+    payments: Boolean(paymentLoadError || paymentRefreshing),
+    settlements: Boolean(settlementLoadError || settlementRefreshing),
+    vehiclePrices: Boolean(financeVehicleOptionLoadError || financeVehicleOptionRefreshing),
+    dailySpends: registerBlocked("dailySpends"),
+    brokerCommissions: registerBlocked("brokerCommissions"),
+    debtRecoveries: registerBlocked("debtRecoveries"),
+    paymentVouchers: registerBlocked("paymentVouchers"),
+    purchaseInvoices: Boolean(purchaseInvoiceLoad.error || purchaseInvoiceLoad.loading),
+    deliveryAccounting: Boolean(deliveryAccountingLoad.error || deliveryAccountingLoad.loading)
+  };
+  const blockedDataRef = useRef<Record<FinanceDataKey, boolean>>(blockedData);
+  blockedDataRef.current = blockedData;
+  const requireCurrentData = (register: FinanceDataKey) => {
+    if (blockedDataRef.current[register]) {
+      const error = new Error("Reload this list before making changes. Your entries have been retained.");
+      message.warning(error.message);
+      throw error;
+    }
+  };
   const [purchaseInvoiceDetailsId, setPurchaseInvoiceDetailsId] = useState<string>();
   const [confirmingPurchaseInvoiceId, setConfirmingPurchaseInvoiceId] = useState<string>();
   const [purchaseInvoiceConfirmationError, setPurchaseInvoiceConfirmationError] = useState<{ invoiceId: string; message: string }>();
@@ -606,17 +640,29 @@ export function FinancePage({
       .catch((error) => message.error(humanizeApiError(error, "Unable to load sales agents.")));
   }, []);
 
-  const reloadDeliveryAccountingCharges = async () => {
-    try { setDeliveryAccountingCharges(await getDeliveryAccountingCharges()); }
-    catch (error) { message.error(humanizeApiError(error, "Unable to load delivery accounting drafts.")); }
-  };
-  useEffect(() => { void reloadDeliveryAccountingCharges(); }, []);
+  const reloadDeliveryAccountingCharges = useCallback(async () => {
+    if (!canManageFinance) { setDeliveryAccountingLoad({ loading: false, error: null }); return; }
+    setDeliveryAccountingLoad({ loading: true, error: null });
+    try {
+      setDeliveryAccountingCharges(await getDeliveryAccountingCharges());
+      setDeliveryAccountingLoad({ loading: false, error: null });
+    } catch (error) {
+      setDeliveryAccountingLoad({ loading: false, error: humanizeApiError(error, "Unable to load delivery accounting drafts.") });
+    }
+  }, [canManageFinance]);
+  useEffect(() => { void reloadDeliveryAccountingCharges(); }, [reloadDeliveryAccountingCharges]);
 
-  const reloadPurchaseInvoices = async () => {
-    try { setPurchaseInvoices(await getPurchaseInvoices()); }
-    catch (error) { message.error(humanizeApiError(error, "Unable to load purchase invoices for accounting review.")); }
-  };
-  useEffect(() => { void reloadPurchaseInvoices(); }, []);
+  const reloadPurchaseInvoices = useCallback(async () => {
+    if (!canManageFinance) { setPurchaseInvoiceLoad({ loading: false, error: null }); return; }
+    setPurchaseInvoiceLoad({ loading: true, error: null });
+    try {
+      setPurchaseInvoices(await getPurchaseInvoicesStrict());
+      setPurchaseInvoiceLoad({ loading: false, error: null });
+    } catch (error) {
+      setPurchaseInvoiceLoad({ loading: false, error: humanizeApiError(error, "Unable to load purchase invoices for accounting review.") });
+    }
+  }, [canManageFinance]);
+  useEffect(() => { void reloadPurchaseInvoices(); }, [reloadPurchaseInvoices]);
 
   const confirmPurchaseInvoice = async (invoice: PurchaseInvoice) => {
     const displayedRevision = invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber;
@@ -627,6 +673,7 @@ export function FinancePage({
     setPurchaseInvoiceConfirmationError(undefined);
     setConfirmingPurchaseInvoiceId(invoice.id);
     try {
+      requireCurrentData("purchaseInvoices");
       await confirmPurchaseInvoiceAccounting(invoice.id, invoice.sourceType === "OwnerAcquisition" ? displayedRevision : undefined);
       message.success("Purchase invoice accounting confirmed for the displayed version.");
       await reloadPurchaseInvoices();
@@ -797,6 +844,7 @@ export function FinancePage({
   const confirmMarkVoucherPaid = (voucher: PaymentVoucher) => {
     let evidenceReference = "";
     Modal.confirm({
+      rootClassName: "financeOverlay",
       title: "Mark voucher paid?",
       content: <Input autoFocus placeholder="Bank transaction, cheque-clearance or receipt reference" onChange={(event) => { evidenceReference = event.target.value; }} />,
       okText: "Mark paid",
@@ -805,12 +853,15 @@ export function FinancePage({
           message.warning("Enter the payment evidence reference before confirming payment.");
           throw new Error("Enter the payment evidence reference.");
         }
+        requireCurrentData("paymentVouchers");
         await onMarkPaymentVoucherPaid(voucher.id, evidenceReference.trim());
       }
     });
   };
 
   const runV2Mutation = async <T,>(key: string, action: () => Promise<T>) => {
+    requireCurrentData("payments");
+    if (key === "prepare-invoice") requireCurrentData("vehiclePrices");
     setV2MutationKey(key);
     try {
       return await action();
@@ -819,11 +870,12 @@ export function FinancePage({
     }
   };
 
-  const runLegacyMutation = async (key: string, action: () => void | Promise<void>, afterSave?: () => void) => {
+  const runLegacyMutation = async (register: FinanceDataKey, key: string, action: () => void | Promise<void>, afterSave?: () => void) => {
     if (legacyMutationKeys.current.has(key)) return;
     legacyMutationKeys.current.add(key);
     setLegacySaving(true);
     try {
+      requireCurrentData(register);
       await action();
       afterSave?.();
     } catch (error) {
@@ -836,11 +888,12 @@ export function FinancePage({
 
   const confirmApproveVoucher = (voucher: PaymentVoucher) => {
     Modal.confirm({
+      rootClassName: "financeOverlay",
       title: "Approve payment voucher?",
       content: `${voucher.payeeName}: ${formatMoney(voucher.amount)}. This approves the voucher only; it does not record payment.`,
       okText: "Approve voucher",
       cancelText: "Cancel",
-      onOk: () => onApprovePaymentVoucher(voucher.id)
+      onOk: async () => { requireCurrentData("paymentVouchers"); await onApprovePaymentVoucher(voucher.id); }
     });
   };
 
@@ -922,13 +975,14 @@ export function FinancePage({
       return;
     }
     Modal.confirm({
+      rootClassName: "financeOverlay",
       title: isPaid ? settlementCompletionLabel(settlement) : "Reopen settlement?",
       content: isPaid
         ? `${settlementDirectionLabel(settlement.direction)}: ${formatMoney(settlement.amount)}. Confirm only after the payment, receipt or internal offset has been checked. This records completion; it does not transfer money or post to AutoCount.`
         : "This returns the settlement to follow-up. The existing amount and history are retained.",
       okText: isPaid ? settlementCompletionLabel(settlement) : "Reopen settlement",
       cancelText: "Cancel",
-      onOk: () => onUpdateSettlementStatus({ id: settlement.id, isPaid, ...settlementExpectedState(settlement) })
+      onOk: async () => { requireCurrentData("settlements"); await onUpdateSettlementStatus({ id: settlement.id, isPaid, ...settlementExpectedState(settlement) }); }
     });
   };
 
@@ -975,6 +1029,7 @@ export function FinancePage({
     const balance = selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice;
     if (input.amount === balance) {
       Modal.confirm({
+      rootClassName: "financeOverlay",
         title: "This payment covers the remaining balance",
         content: "Add it now? The sale becomes Paid only after Finance reconciles the payment.",
         okText: "Add payment",
@@ -992,6 +1047,7 @@ export function FinancePage({
 
   const approveAndIssueInvoice = (payment: PaymentRecord) => {
     Modal.confirm({
+      rootClassName: "financeOverlay",
       title: "Approve the NCD or nett-price adjustment and issue the invoice?",
       content: <Space direction="vertical" size={12} className="fullWidth">
         <Typography.Text strong>{plateFor(vehicles, payment.vehicleId)}</Typography.Text>
@@ -1058,14 +1114,14 @@ export function FinancePage({
     const available = payment.availableToAllocate ?? payment.balanceAmount ?? payment.nettPrice;
     if (payment.receivableStatus === "WaitingForApproval") {
       return canApproveFinanceAdjustment(payment, currentUser)
-        ? <Button size="small" type="primary" loading={v2MutationKey === `approve-${payment.id}`} onClick={() => approveAndIssueInvoice(payment)}>Approve & issue</Button>
-        : <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View approval request</Button>;
+        ? <Button size="small" type="primary" loading={v2MutationKey === `approve-${payment.id}`} disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => approveAndIssueInvoice(payment)}>Approve & issue</Button>
+        : null;
     }
-    if (!payment.invoice) return <Button size="small" type="primary" loading={v2MutationKey === `invoice-${payment.id}`} onClick={() => void runV2Mutation(`invoice-${payment.id}`, () => onIssueInvoice(payment.id)).catch(() => undefined)}>Issue invoice</Button>;
-    if (payment.collections?.some((collection) => collection.status === "Pending")) return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>Review payment</Button>;
-    if (payment.receivableStatus === "Paid") return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View</Button>;
-    if (available > 0 && payment.receivableStatus !== "AttentionNeeded") return <Button size="small" type="primary" onClick={() => openAddPayment(payment)}>Add payment</Button>;
-    return <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>View</Button>;
+    if (!payment.invoice) return <Button size="small" type="primary" loading={v2MutationKey === `invoice-${payment.id}`} disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => void runV2Mutation(`invoice-${payment.id}`, () => onIssueInvoice(payment.id)).catch(() => undefined)}>Issue invoice</Button>;
+    if (payment.collections?.some((collection) => collection.status === "Pending")) return null;
+    if (payment.receivableStatus === "Paid") return null;
+    if (available > 0 && payment.receivableStatus !== "AttentionNeeded") return <Button size="small" type="primary" disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => openAddPayment(payment)}>Add payment</Button>;
+    return null;
   };
 
   const openV2Details = (paymentId: string) => {
@@ -1086,7 +1142,7 @@ export function FinancePage({
         const evidence = paymentCollectionEvidence(paymentDocuments, payment.id, collection.id);
         const hasEvidence = evidence.length > 0;
         const evidenceUnavailable = selectedPayment?.id !== payment.id || paymentDocumentsLoading || Boolean(paymentDocumentsLoadError);
-        const canReconcile = collection.status === "Pending" && !evidenceUnavailable && hasEvidence && (!bankDisbursement || collection.financingStatus === "Disbursed");
+        const canReconcile = !paymentLoadError && !paymentRefreshing && collection.status === "Pending" && !evidenceUnavailable && hasEvidence && (!bankDisbursement || collection.financingStatus === "Disbursed");
         return <article className="financeCollectionItem" key={collection.id}>
           <div><strong>{formatMoney(collection.amount)}</strong><Tag color={collection.status === "Reconciled" ? "green" : collection.status === "Reversed" ? "red" : "gold"}>{collectionStatusLabel(collection.status)}</Tag></div>
           <dl>
@@ -1105,8 +1161,9 @@ export function FinancePage({
           {collection.reversalReason && <Alert type="warning" showIcon message={`Reversed: ${collection.reversalReason}`} />}
           {physicalCash ? <Alert type="info" showIcon message="Physical cash is controlled in Cash Custody" description="Finance reconciliation and reversal happen only through the linked custody acceptance or rejection." action={<Button size="small" onClick={() => changeFinanceTab("cash-custody", collection.id)}>Open linked custody record</Button>} /> : <Space wrap size={6}>
             <Tag color={evidenceUnavailable ? "red" : hasEvidence ? "green" : "gold"}>{evidenceUnavailable ? paymentDocumentsLoading ? "Loading evidence" : "Evidence unavailable" : hasEvidence ? `${evidence.length} evidence file${evidence.length === 1 ? "" : "s"}` : "Evidence needed"}</Tag>
-            {collection.status === "Pending" && <Upload accept="image/*,.pdf" maxCount={1} showUploadList={false} customRequest={async (option) => {
+            {collection.status === "Pending" && <Upload disabled={Boolean(paymentLoadError || paymentRefreshing)} accept="image/*,.pdf" maxCount={1} showUploadList={false} customRequest={async (option) => {
               try {
+                requireCurrentData("payments");
                 await onUploadDocument(payment.vehicleId, option.file as File, "PaymentReceipt", { paymentRecordId: payment.id, collectionTransactionId: collection.id });
                 setDocumentReloadKey((value) => value + 1);
                 option.onSuccess?.({ ok: true });
@@ -1128,14 +1185,109 @@ export function FinancePage({
             />}
           </Space>}
           {!physicalCash && collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
-            {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
-            {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} onClick={() => Modal.confirm({ title: "Record funds disbursed?", content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.", okText: "Record funds disbursed", cancelText: "Cancel", onOk: () => updateFinancing(collection, "Disbursed") })}>Record funds disbursed</Button>}
-            {collection.status === "Pending" && <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : "Bank financing must be disbursed before reconciliation."}><span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({ title: "Reconcile and issue official receipt?", content: "Confirm the amount is visible in the company account. Successful reconciliation automatically issues one official Customer Receipt using the linked evidence and records your action in the audit trail.", okText: "Reconcile & issue receipt", cancelText: "Cancel", onOk: () => reconcileV2Collection(collection) })}>Reconcile</Button></span></Tooltip>}
-            {collection.status === "Reconciled" && canApproveManagementReview && <Button size="small" danger onClick={() => { setReverseCollectionId(collection.id); setReverseReason(""); }}>Reverse</Button>}
+            {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
+            {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => Modal.confirm({
+      rootClassName: "financeOverlay", title: "Record funds disbursed?", content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.", okText: "Record funds disbursed", cancelText: "Cancel", onOk: () => updateFinancing(collection, "Disbursed") })}>Record funds disbursed</Button>}
+            {collection.status === "Pending" && <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : "Bank financing must be disbursed before reconciliation."}><span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({
+      rootClassName: "financeOverlay", title: "Reconcile and issue official receipt?", content: "Confirm the amount is visible in the company account. Successful reconciliation automatically issues one official Customer Receipt using the linked evidence and records your action in the audit trail.", okText: "Reconcile & issue receipt", cancelText: "Cancel", onOk: () => reconcileV2Collection(collection) })}>Reconcile</Button></span></Tooltip>}
+            {collection.status === "Reconciled" && canApproveManagementReview && <Button size="small" danger disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => { setReverseCollectionId(collection.id); setReverseReason(""); }}>Reverse</Button>}
           </Space>}
         </article>;
       })}
     </section>
+  );
+
+  const renderInvoiceActions = (payment: PaymentRecord) => payment.invoice ? (
+    <DocumentPreviewButton
+      fileName={`${payment.invoice.invoiceNumber}.pdf`}
+      mimeType="application/pdf"
+      downloadUrl={financeInvoiceContentUrl(payment.invoice.id)}
+      loadContent={() => getProtectedFileContent(financeInvoiceContentUrl(payment.invoice!.id), "Unable to load sales invoice preview")}
+      previewLabel="Preview invoice"
+      downloadLabel="Download invoice"
+    />
+  ) : null;
+
+  const renderV2Actions = (payment: PaymentRecord) => (
+    <Space className="tableActionGroup" wrap size={6}>
+      <Button size="small" type="primary" onClick={() => openV2Details(payment.id)}>Details</Button>
+      {renderInvoiceActions(payment)}
+      {v2PrimaryAction(payment)}
+    </Space>
+  );
+
+  const approveManagementReview = async (paymentId: string) => {
+    try { requireCurrentData("payments"); await onApproveManagementReview(paymentId); }
+    catch (error) { message.error(humanizeApiError(error, "Unable to approve management review.")); }
+  };
+
+  const renderLegacyPaymentActions = (payment: PaymentRecord) => (
+    <Space className="tableActionGroup" wrap size={6}>
+      <Button size="small" type="primary" onClick={() => selectPayment(payment.id)}>Details</Button>
+      {canApproveManagementReview && !payment.bossChecked && <Button size="small" disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => void approveManagementReview(payment.id)}>Approve review</Button>}
+      <Tooltip title={paymentReconcileBlockReason(payment, payments) ?? ""}>
+        <span><Button size="small" onClick={() => void runLegacyMutation("payments", `collection-${payment.id}`, () => onUpdate({ ...payment, status: "Reconciled" }))} disabled={Boolean(paymentLoadError || paymentRefreshing) || !canReconcilePayment(payment, payments) || legacySaving}>Reconcile</Button></span>
+      </Tooltip>
+    </Space>
+  );
+
+  const renderSettlementActions = (settlement: SettlementReminder) => (
+    <Space className="tableActionGroup" wrap size={6}>
+      <Button size="small" type="primary" onClick={() => selectSettlement(settlement.id)}>Details</Button>
+      <Button size="small" onClick={() => confirmSettlementStatus(settlement, true)} disabled={settlement.isPaid || Boolean(settlementLoadError || settlementRefreshing)}>{settlementCompletionLabel(settlement)}</Button>
+      <Button size="small" onClick={() => confirmSettlementStatus(settlement, false)} disabled={!canReopenPaidSettlement(settlement) || Boolean(settlementLoadError || settlementRefreshing)}>Reopen</Button>
+    </Space>
+  );
+
+  const renderCommissionActions = (commission: BrokerCommission) => (
+    <Space className="tableActionGroup" wrap size={6}>
+      <Button size="small" type="primary" onClick={() => selectBrokerCommission(commission.id)}>Details</Button>
+      <Button size="small" onClick={() => void runLegacyMutation("brokerCommissions", `commission-${commission.id}`, () => onUpdateBrokerCommission({ ...commission, isPaid: true }))} disabled={commission.isPaid || legacySaving || registerBlocked("brokerCommissions")}>Mark paid</Button>
+      <Tooltip title="Record that the Malaysian commission tax form has been prepared">
+        <span><Button size="small" onClick={() => void runLegacyMutation("brokerCommissions", `commission-${commission.id}`, () => onUpdateBrokerCommission({ ...commission, cp58Required: true, cp58Prepared: true }))} disabled={!commission.cp58Required || commission.cp58Prepared || legacySaving || registerBlocked("brokerCommissions")}>Mark CP58 prepared</Button></span>
+      </Tooltip>
+      <Button size="small" onClick={() => void runLegacyMutation("brokerCommissions", `commission-${commission.id}`, () => onUpdateBrokerCommission({ ...commission, isPaid: false }))} disabled={!commission.isPaid || legacySaving || registerBlocked("brokerCommissions")}>Reopen</Button>
+    </Space>
+  );
+
+  const renderDailySpendActions = (spend: DailySpend) => (
+    <Space className="tableActionGroup" wrap size={6}>
+      <Button size="small" type="primary" onClick={() => selectDailySpend(spend.id)}>Details</Button>
+      <Button size="small" onClick={() => void runLegacyMutation("dailySpends", `spend-${spend.id}`, () => onUpdateDailySpend(payDailySpend(spend)))} disabled={spend.isPaid || legacySaving || registerBlocked("dailySpends")}>Mark paid</Button>
+      <Button size="small" onClick={() => void runLegacyMutation("dailySpends", `spend-${spend.id}`, () => onUpdateDailySpend({ ...spend, isPaid: false }))} disabled={!canReopenPaidDailySpend(spend) || legacySaving || registerBlocked("dailySpends")}>Reopen</Button>
+    </Space>
+  );
+
+  const renderDebtActions = (debt: DebtRecoveryCase) => (
+    <Space className="tableActionGroup" wrap size={6}>
+      <Button size="small" type="primary" onClick={() => selectDebtRecovery(debt.id)}>Details</Button>
+      <Button size="small" onClick={() => onOpenCustomer(debt.customerId)}>Customer 360</Button>
+      {debt.status === "Open" ? (
+        <Button size="small" disabled={legacySaving || registerBlocked("debtRecoveries")} onClick={() => void runLegacyMutation("debtRecoveries", `debt-${debt.id}`, () => onUpdateDebtRecovery({ ...debt, status: "FollowedUp" }))}>Mark followed up</Button>
+      ) : (
+        <Button size="small" onClick={() => void runLegacyMutation("debtRecoveries", `debt-${debt.id}`, () => onUpdateDebtRecovery({ ...debt, status: "Closed" }))} disabled={debt.status === "Closed" || legacySaving || registerBlocked("debtRecoveries")}>Close</Button>
+      )}
+    </Space>
+  );
+
+  const renderVoucherDocument = (voucher: PaymentVoucher) => (
+    <DocumentPreviewButton
+      fileName={`YSV-${voucher.issuedDate.replaceAll("-", "")}-${voucher.id.replaceAll("-", "").slice(0, 6).toUpperCase()}.pdf`}
+      mimeType="application/pdf"
+      downloadUrl={paymentVoucherPdfUrl(voucher.id)}
+      loadContent={() => getProtectedFileContent(paymentVoucherPdfUrl(voucher.id), "Unable to load payment voucher preview")}
+      previewLabel="Preview PDF"
+      downloadLabel="Download PDF"
+    />
+  );
+
+  const renderVoucherActions = (voucher: PaymentVoucher) => (
+    <Space className="tableActionGroup financeVoucherActions" wrap size={6}>
+      <Button size="small" type="primary" onClick={() => selectPaymentVoucher(voucher.id)}>Details</Button>
+      {renderVoucherDocument(voucher)}
+      {voucher.status === "Pending" && <Button size="small" disabled={registerBlocked("paymentVouchers")} onClick={() => confirmApproveVoucher(voucher)}>Approve</Button>}
+      {voucher.status === "Approved" && <Button size="small" disabled={registerBlocked("paymentVouchers")} onClick={() => confirmMarkVoucherPaid(voucher)}>Mark paid</Button>}
+    </Space>
   );
 
   const columns: ColumnsType<PaymentRecord> = [
@@ -1180,14 +1332,7 @@ export function FinancePage({
       render: (_, row) => isFinanceV2(row) ? (
         <Space direction="vertical" size={2}>
           <Tag color={receivableStatusColor(row.receivableStatus)}>{receivableStatusLabel(row.receivableStatus)}</Tag>
-          {row.invoice ? <DocumentPreviewButton
-            fileName={`${row.invoice.invoiceNumber}.pdf`}
-            mimeType="application/pdf"
-            downloadUrl={financeInvoiceContentUrl(row.invoice.id)}
-            loadContent={() => getProtectedFileContent(financeInvoiceContentUrl(row.invoice!.id), "Unable to load sales invoice preview")}
-            previewLabel="Preview invoice"
-            downloadLabel="Download invoice"
-          /> : <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
+          {!row.invoice && <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
         </Space>
       ) : (
         <Space wrap size={4}>
@@ -1198,24 +1343,10 @@ export function FinancePage({
       )
     },
     {
-      title: "Next Action / 操作",
+      title: "Action / 操作",
       fixed: "right",
-      width: 210,
-      render: (_, row) => {
-        if (isFinanceV2(row)) return <div className="financeV2PrimaryAction">{v2PrimaryAction(row)}</div>;
-        const reconcileReason = paymentReconcileBlockReason(row, payments);
-        return (
-          <Space className="tableActionGroup" wrap size={6}>
-            <Button size="small" type="primary" onClick={() => selectPayment(row.id)}>Details</Button>
-            {canApproveManagementReview && !row.bossChecked && <Button size="small" onClick={() => onApproveManagementReview(row.id)}>Approve review</Button>}
-            <Tooltip title={reconcileReason ?? ""}>
-              <span>
-                <Button size="small" onClick={() => void runLegacyMutation(`collection-${row.id}`, () => onUpdate({ ...row, status: "Reconciled" }))} disabled={!canReconcilePayment(row, payments) || legacySaving}>Reconcile</Button>
-              </span>
-            </Tooltip>
-          </Space>
-        );
-      }
+      width: 300,
+      render: (_, row) => isFinanceV2(row) ? renderV2Actions(row) : renderLegacyPaymentActions(row)
     }
   ];
   const settlementColumns: ColumnsType<SettlementReminder> = [
@@ -1229,13 +1360,7 @@ export function FinancePage({
       title: "Action / 操作",
       fixed: "right",
       width: 270,
-      render: (_, row) => (
-        <Space className="tableActionGroup" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => selectSettlement(row.id)}>Details</Button>
-          <Button size="small" onClick={() => confirmSettlementStatus(row, true)} disabled={row.isPaid}>{settlementCompletionLabel(row)}</Button>
-          {row.isPaid && <Button size="small" onClick={() => confirmSettlementStatus(row, false)}>Reopen</Button>}
-        </Space>
-      )
+      render: (_, row) => renderSettlementActions(row)
     }
   ];
   const dailySpendColumns: ColumnsType<DailySpend> = [
@@ -1246,13 +1371,8 @@ export function FinancePage({
     {
       title: "Action / 操作",
       fixed: "right",
-      width: 190,
-      render: (_, row) => (
-        <Space className="tableActionGroup" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => selectDailySpend(row.id)}>Details</Button>
-          <Button size="small" onClick={() => void runLegacyMutation(`spend-${row.id}`, () => onUpdateDailySpend(payDailySpend(row)))} disabled={row.isPaid || legacySaving}>Pay</Button>
-        </Space>
-      )
+      width: 270,
+      render: (_, row) => renderDailySpendActions(row)
     }
   ];
   const brokerCommissionColumns: ColumnsType<BrokerCommission> = [
@@ -1262,21 +1382,16 @@ export function FinancePage({
         ? <Tag color={row.cp58Prepared ? "green" : "gold"}>{row.cp58Prepared ? "Prepared" : "Required"}</Tag>
         : <Tag>Not Required</Tag>
     },
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
+    { title: "Car Plate / 车牌", width: 120, dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Broker / 经纪人", dataIndex: "brokerName" },
-    { title: "Due Date / 到期日", dataIndex: "dueDate", render: (_, row) => row.dueDate ? dayjs(row.dueDate).format("DD MMM YYYY") : row.isPaid ? "—" : <Tag color="gold">Date required</Tag> },
-    { title: "Commission / 佣金", dataIndex: "amount", render: (value) => formatMoney(value) },
+    { title: "Due Date / 到期日", width: 150, dataIndex: "dueDate", render: (_, row) => row.dueDate ? dayjs(row.dueDate).format("DD MMM YYYY") : row.isPaid ? "—" : <Tag color="gold">Date required</Tag> },
+    { title: "Commission / 佣金", width: 170, dataIndex: "amount", render: (value) => formatMoney(value) },
     { title: "Status / 状态", dataIndex: "isPaid", render: (isPaid) => <Tag color={isPaid ? "green" : "orange"}>{isPaid ? "Paid" : "Unpaid"}</Tag> },
     {
       title: "Action / 操作",
       fixed: "right",
       width: 270,
-      render: (_, row) => (
-        <Space className="tableActionGroup" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => selectBrokerCommission(row.id)}>Details</Button>
-          <Button size="small" onClick={() => void runLegacyMutation(`commission-${row.id}`, () => onUpdateBrokerCommission({ ...row, isPaid: true }))} disabled={row.isPaid || legacySaving}>Mark Paid</Button>
-        </Space>
-      )
+      render: (_, row) => renderCommissionActions(row)
     }
   ];
   const debtRecoveryColumns: ColumnsType<DebtRecoveryCase> = [
@@ -1290,17 +1405,7 @@ export function FinancePage({
       title: "Action / 操作",
       fixed: "right",
       width: 290,
-      render: (_, row) => (
-        <Space className="tableActionGroup" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => selectDebtRecovery(row.id)}>Details</Button>
-          <Button size="small" onClick={() => onOpenCustomer(row.customerId)}>Customer 360</Button>
-          {row.status === "Open" ? (
-            <Button size="small" disabled={legacySaving} onClick={() => void runLegacyMutation(`debt-${row.id}`, () => onUpdateDebtRecovery({ ...row, status: "FollowedUp" }))}>Followed</Button>
-          ) : (
-            <Button size="small" onClick={() => void runLegacyMutation(`debt-${row.id}`, () => onUpdateDebtRecovery({ ...row, status: "Closed" }))} disabled={row.status === "Closed" || legacySaving}>Close</Button>
-          )}
-        </Space>
-      )
+      render: (_, row) => renderDebtActions(row)
     }
   ];
   const paymentVoucherColumns: ColumnsType<PaymentVoucher> = [
@@ -1314,22 +1419,8 @@ export function FinancePage({
     {
       title: "Action / 操作",
       fixed: "right",
-      width: 260,
-      render: (_, row) => (
-        <Space className="tableActionGroup" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => selectPaymentVoucher(row.id)}>Details</Button>
-          <DocumentPreviewButton
-            fileName={`payment-voucher-${row.id}.pdf`}
-            mimeType="application/pdf"
-            downloadUrl={paymentVoucherPdfUrl(row.id)}
-            loadContent={() => getProtectedFileContent(paymentVoucherPdfUrl(row.id), "Unable to load payment voucher preview")}
-            previewLabel="Preview PDF"
-            downloadLabel="Download PDF"
-          />
-          {row.status === "Pending" && <Button size="small" onClick={() => confirmApproveVoucher(row)}>Approve</Button>}
-          {row.status === "Approved" && <Button size="small" onClick={() => confirmMarkVoucherPaid(row)}>Mark paid</Button>}
-        </Space>
-      )
+      width: 300,
+      render: (_, row) => renderVoucherActions(row)
     }
   ];
   const purchaseInvoiceColumns: ColumnsType<PurchaseInvoice> = [
@@ -1352,7 +1443,7 @@ export function FinancePage({
           {purchaseInvoiceConfirmationError?.invoiceId === invoice.id && <PurchaseInvoiceConfirmationError error={purchaseInvoiceConfirmationError.message} onClose={() => setPurchaseInvoiceConfirmationError(undefined)} />}
           <Space className="tableActionGroup" wrap size={6}>
             {invoice.sourceType === "OwnerAcquisition" && <Button size="small" type="primary" onClick={() => setPurchaseInvoiceDetailsId(invoice.id)}>Details</Button>}
-            {invoice.accountingStatus !== "FinanceConfirmed" && <Tooltip title={ownerVersionUnavailable ? "Reload the issued invoice version before Finance confirmation." : undefined}><span><Button size="small" loading={confirmingPurchaseInvoiceId === invoice.id} disabled={ownerVersionUnavailable} onClick={() => void confirmPurchaseInvoice(invoice)}>Confirm version</Button></span></Tooltip>}
+            {invoice.accountingStatus !== "FinanceConfirmed" && <Tooltip title={ownerVersionUnavailable ? "Reload the issued invoice version before Finance confirmation." : undefined}><span><Button size="small" loading={confirmingPurchaseInvoiceId === invoice.id} disabled={ownerVersionUnavailable || purchaseInvoiceLoad.loading || Boolean(purchaseInvoiceLoad.error)} onClick={() => void confirmPurchaseInvoice(invoice)}>Confirm version</Button></span></Tooltip>}
           </Space>
         </Space>;
       }
@@ -1442,7 +1533,17 @@ export function FinancePage({
       setFinancePage(1);
     }
   };
+  const registerForTab: Partial<Record<string, FinanceRegisterKey>> = { commissions: "brokerCommissions", debt: "debtRecoveries", vouchers: "paymentVouchers", daily: "dailySpends" };
+  const activeRegister = registerForTab[financeTab];
+  const activeLoad = activeRegister ? registerLoadState?.[activeRegister] : financeTab === "settlements"
+    ? { loading: settlementRefreshing, error: settlementLoadError }
+    : financeTab === "cash-custody" ? { loading: cashCustodyRefreshing, error: cashCustodyLoadError }
+      : { loading: paymentRefreshing, error: paymentLoadError };
+  const unknownSummary = activeLoad?.error ? "Unavailable" : activeLoad?.loading ? "Loading" : null;
+  const activeRegisterLabel = activeRegister ? ({ brokerCommissions: "Broker commissions", debtRecoveries: "Debt recovery", paymentVouchers: "Payment vouchers", dailySpends: "Daily spend" } as const)[activeRegister] : "";
   const financeFilters = (
+    <>
+    {activeRegister && <FinanceListNotice label={activeRegisterLabel} loading={activeLoad?.loading} error={activeLoad?.error} onRetry={onRetryRegister ? () => onRetryRegister(activeRegister) : undefined} />}
     <Space wrap className="toolbarForm financeToolbarForm pageFilterMobileOnly">
       <Input.Search
         aria-label={searchCopy.ariaLabel}
@@ -1471,7 +1572,7 @@ export function FinancePage({
           setFinancePage(1);
         }}
       />
-      <Tag color={financeFiltersActive ? "blue" : undefined}>{financeFiltersActive ? `${activeFinanceList.filtered} of ${activeFinanceList.total} matching` : `${activeFinanceList.total} record${activeFinanceList.total === 1 ? "" : "s"}`}</Tag>
+      <Tag color={financeFiltersActive ? "blue" : undefined}>{unknownSummary ?? (financeFiltersActive ? `${activeFinanceList.filtered} of ${activeFinanceList.total} matching` : `${activeFinanceList.total} record${activeFinanceList.total === 1 ? "" : "s"}`)}</Tag>
       {dashboardFocusActive && <Button
         onClick={() => onClearDashboardFocus(financeTab)}
       >
@@ -1488,6 +1589,7 @@ export function FinancePage({
         Clear filters
       </Button>}
     </Space>
+    </>
   );
   const purchaseInvoiceFiltersActive = Boolean(String(purchaseInvoiceFieldFilters.invoiceSearch ?? "").trim() || String(purchaseInvoiceFieldFilters.status ?? "").trim());
   const purchaseInvoiceNativeSearch = {
@@ -1537,7 +1639,7 @@ export function FinancePage({
           setPurchaseInvoicePage(1);
         }}
       />
-      <Tag color={purchaseInvoiceFiltersActive ? "blue" : undefined}>{purchaseInvoiceFiltersActive ? `${filteredPurchaseInvoices.length} of ${purchaseInvoices.length} matching` : `${purchaseInvoices.length} invoice${purchaseInvoices.length === 1 ? "" : "s"}`}</Tag>
+      <Tag color={purchaseInvoiceFiltersActive ? "blue" : undefined}>{purchaseInvoiceLoad.error ? "Unavailable" : purchaseInvoiceLoad.loading ? "Loading" : purchaseInvoiceFiltersActive ? `${filteredPurchaseInvoices.length} of ${purchaseInvoices.length} matching` : `${purchaseInvoices.length} invoice${purchaseInvoices.length === 1 ? "" : "s"}`}</Tag>
       {purchaseInvoiceFiltersActive && <Button onClick={() => {
         setPurchaseInvoiceFieldFilters({});
         setPurchaseInvoicePage(1);
@@ -1558,13 +1660,13 @@ export function FinancePage({
   const visibleDebtRecoveries = pageFinanceRows(filteredDebtRecoveries, debtRecoveryPage);
   const visiblePaymentVouchers = pageFinanceRows(filteredPaymentVouchers, paymentVoucherPage);
   const visiblePurchaseInvoices = pageFinanceRows(filteredPurchaseInvoices, purchaseInvoicePageNumber);
-  const paymentEmptyText = financeEmptyText(salesInvoicePayments.length, filteredPayments.length, "sales invoice records");
-  const settlementEmptyText = settlementLoadError ? "Settlements unavailable. Retry to load the current records." : financeEmptyText(settlements.length, filteredSettlements.length, "settlement reminders");
-  const dailySpendEmptyText = financeEmptyText(dailySpends.length, filteredDailySpends.length, "daily spend records");
-  const brokerCommissionEmptyText = financeEmptyText(brokerCommissions.length, filteredBrokerCommissions.length, "broker commissions");
-  const debtRecoveryEmptyText = financeEmptyText(debtRecoveries.length, filteredDebtRecoveries.length, "debt recovery cases");
-  const paymentVoucherEmptyText = financeEmptyText(paymentVouchers.length, filteredPaymentVouchers.length, "payment vouchers");
-  const purchaseInvoiceEmptyText = financeEmptyText(purchaseInvoices.length, filteredPurchaseInvoices.length, "purchase invoices");
+  const paymentEmptyText = paymentLoadError ? "Records unavailable. Retry to load this list." : paymentRefreshing ? "Loading records…" : financeEmptyText(salesInvoicePayments.length, filteredPayments.length, "sales invoice records");
+  const settlementEmptyText = settlementLoadError ? "Records unavailable. Retry to load this list." : settlementRefreshing ? "Loading records…" : financeEmptyText(settlements.length, filteredSettlements.length, "settlement reminders");
+  const dailySpendEmptyText = registerLoadState?.dailySpends?.error ? "Records unavailable. Retry to load this list." : registerLoadState?.dailySpends?.loading ? "Loading records…" : financeEmptyText(dailySpends.length, filteredDailySpends.length, "daily spend records");
+  const brokerCommissionEmptyText = registerLoadState?.brokerCommissions?.error ? "Records unavailable. Retry to load this list." : registerLoadState?.brokerCommissions?.loading ? "Loading records…" : financeEmptyText(brokerCommissions.length, filteredBrokerCommissions.length, "broker commissions");
+  const debtRecoveryEmptyText = registerLoadState?.debtRecoveries?.error ? "Records unavailable. Retry to load this list." : registerLoadState?.debtRecoveries?.loading ? "Loading records…" : financeEmptyText(debtRecoveries.length, filteredDebtRecoveries.length, "debt recovery cases");
+  const paymentVoucherEmptyText = registerLoadState?.paymentVouchers?.error ? "Records unavailable. Retry to load this list." : registerLoadState?.paymentVouchers?.loading ? "Loading records…" : financeEmptyText(paymentVouchers.length, filteredPaymentVouchers.length, "payment vouchers");
+  const purchaseInvoiceEmptyText = purchaseInvoiceLoad.error ? "Records unavailable. Retry to load this list." : purchaseInvoiceLoad.loading ? "Loading records…" : financeEmptyText(purchaseInvoices.length, filteredPurchaseInvoices.length, "purchase invoices");
   const outstanding = salesInvoicePayments.reduce((sum, payment) => sum + (payment.balanceAmount ?? payment.nettPrice), 0);
   const settlementSummary = settlementTotals(settlements);
   const settlementOutstanding = settlementSummary.toPay;
@@ -1620,7 +1722,7 @@ export function FinancePage({
   })();
 
   return (
-    <Space direction="vertical" size={16} className="fullWidth">
+    <Space direction="vertical" size={16} className="fullWidth financePage">
       <ProCard>
         <Tabs
           activeKey={financeTab}
@@ -1640,7 +1742,7 @@ export function FinancePage({
         <div className="financeSummaryStrip">
           {activeFinanceSummary.map((item) => (
             <span key={item.label}>
-              <strong>{item.value}</strong>
+              <strong>{unknownSummary ?? item.value}</strong>
               {item.label}
             </span>
           ))}
@@ -1661,6 +1763,7 @@ export function FinancePage({
         onResolve={confirmInvoiceRequestResolved}
       />}
       <Modal
+        rootClassName="financeOverlay"
         title={invoiceRequestToResolve ? `Mark ${invoiceRequestToResolve.plateNumber} invoice request resolved?` : "Mark invoice request resolved?"}
         open={Boolean(invoiceRequestToResolve)}
         okText="Picked up"
@@ -1693,6 +1796,7 @@ export function FinancePage({
           focusCollectionId={cashCustodyFocusCollectionId}
           prefillPaymentId={cashCustodyPrefillPaymentId}
           loadError={cashCustodyLoadError}
+          loading={cashCustodyRefreshing}
           onRetry={onRetryCashCustody}
           onCreate={onCreateCashHandover}
           onRequestHandover={onRequestCashHandover}
@@ -1730,11 +1834,12 @@ export function FinancePage({
           <Alert type="info" showIcon message="Sales invoices bill customers. Receipts record collections. Seller payouts are under Settlement." description="Open PasteGuide in the AutoCount Excel. Fill the client account codes and check amounts, then paste each PI/RI/SI sheet once into an empty Purchase Invoice or Sales > Invoice draft. Copy purchase supplier reference numbers separately. Resolve blocked rows before entry." />
           {paymentLoadError && <Alert type="error" showIcon message="Finance records are unavailable" description={`${paymentLoadError} No demo or cached balances are shown.`} action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>} />}
           {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
+          <FinanceListNotice label="Finance records" loading={paymentRefreshing} />
           {financeFilters}
-          {!financeVehicleOptionLoadError && approvedBuyerVehicles.length === 0 && <Alert type="warning" showIcon message="Only a Boss/Admin-approved vehicle with a confirmed buyer can be prepared for invoicing." />}
-          {!financeVehicleOptionLoadError && approvedBuyerVehicles.length > 0 && eligibleInvoiceVehicles.length === 0 && <Alert type="info" showIcon message="All approved, buyer-linked vehicles already have a finance record. Search the records below to continue collection work." />}
+          {!paymentRefreshing && !financeVehicleOptionRefreshing && !paymentLoadError && !financeVehicleOptionLoadError && approvedBuyerVehicles.length === 0 && <Alert type="warning" showIcon message="Only a Boss/Admin-approved vehicle with a confirmed buyer can be prepared for invoicing." />}
+          {!paymentRefreshing && !financeVehicleOptionRefreshing && !paymentLoadError && !financeVehicleOptionLoadError && approvedBuyerVehicles.length > 0 && eligibleInvoiceVehicles.length === 0 && <Alert type="info" showIcon message="All approved, buyer-linked vehicles already have a finance record. Search the records below to continue collection work." />}
           <div className="mobileRecordList">
-          {filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
+          {!paymentLoadError && !paymentRefreshing && filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
           {visiblePayments.map((payment) => {
             const customerId = financePaymentCustomerId(payment, vehicles, loans);
             if (isFinanceV2(payment)) {
@@ -1755,15 +1860,7 @@ export function FinancePage({
                     <span><small>Balance Due / 未收</small><strong>{formatMoney(payment.balanceAmount ?? payment.nettPrice)}</strong></span>
                   </div>
                   <div className="mobileRecordFooter">
-                    {payment.invoice ? <DocumentPreviewButton
-                      fileName={`${payment.invoice.invoiceNumber}.pdf`}
-                      mimeType="application/pdf"
-                      downloadUrl={financeInvoiceContentUrl(payment.invoice.id)}
-                      loadContent={() => getProtectedFileContent(financeInvoiceContentUrl(payment.invoice!.id), "Unable to load sales invoice preview")}
-                      previewLabel="Preview invoice"
-                      downloadLabel="Download invoice"
-                    /> : <Typography.Text type="secondary">Sales invoice not issued</Typography.Text>}
-                    <div className="financeV2PrimaryAction">{v2PrimaryAction(payment)}</div>
+                    {renderV2Actions(payment)}
                   </div>
                 </article>
               );
@@ -1793,25 +1890,18 @@ export function FinancePage({
                   <Tag>{payment.receiptNumber || "No customer receipt"}</Tag>
                   <Tag>{payment.invoiceNumber || "No sales invoice"}</Tag>
                 </Space>
-                <Space className="tableActionGroup" wrap size={6}>
-                  <Button size="small" type="primary" onClick={() => selectPayment(payment.id)}>Details</Button>
-                  {canApproveManagementReview && !payment.bossChecked && <Button size="small" onClick={() => onApproveManagementReview(payment.id)}>Approve review</Button>}
-                  <Tooltip title={paymentReconcileBlockReason(payment, payments) ?? ""}>
-                    <span>
-                      <Button size="small" onClick={() => void runLegacyMutation(`collection-${payment.id}`, () => onUpdate({ ...payment, status: "Reconciled" }))} disabled={!canReconcilePayment(payment, payments) || legacySaving}>Reconcile</Button>
-                    </span>
-                  </Tooltip>
-                </Space>
+                {renderLegacyPaymentActions(payment)}
               </div>
             </article>
             );
           })}
           <Pagination className="mobileRecordPagination" current={paymentPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPayments.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={columns} dataSource={filteredPayments} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={columns} dataSource={filteredPayments} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 1120 }} locale={{ emptyText: paymentEmptyText }} />
         </Space>
       </ProCard>}
       <Modal
+        rootClassName="financeOverlay"
         title="Prepare sales invoice / 准备销售发票"
         width={700}
         open={prepareInvoiceOpen}
@@ -1822,11 +1912,11 @@ export function FinancePage({
           setAdjustInvoicePrice(false);
           prepareInvoiceForm.resetFields();
         }}
-        footer={null}
+        footer={<div className="financeFormFooter"><Button form="financePrepareInvoice" type="primary" htmlType="submit" disabled={!canPrepareInvoice} loading={v2MutationKey === "prepare-invoice"}>{invoiceSubmitLabel}</Button></div>}
         destroyOnClose
-        className="recordCreateModal financeV2Modal"
+        className="recordCreateModal financeCreateModal financeV2Modal"
       >
-        <Form name="financePrepareInvoice" form={prepareInvoiceForm} layout="vertical" className="modalForm" onFinish={prepareFinanceSale} onValuesChange={() => { if (invoiceSubmitError) setInvoiceSubmitError(undefined); }}>
+        <Form id="financePrepareInvoice" name="financePrepareInvoice" form={prepareInvoiceForm} layout="vertical" className="modalForm" onFinish={prepareFinanceSale} onValuesChange={() => { if (invoiceSubmitError) setInvoiceSubmitError(undefined); }}>
           <Alert type="info" showIcon message="Check the buyer and amounts below. YS Heng generates the sales invoice only after all required approvals; AutoCount only receives the reviewed Excel export." />
           {invoiceSubmitError && <Alert type="error" showIcon message="Sale not prepared" description={invoiceSubmitError} />}
           <Form.Item name="vehicleId" label="Vehicle & Buyer / 车辆与买家" rules={[{ required: true, message: "Select a vehicle." }]}>
@@ -1880,10 +1970,11 @@ export function FinancePage({
             </Form.Item>
             <Alert type="warning" showIcon message="This adjustment will not issue an invoice now." description="A different Boss/Admin user must review and approve the NCD or adjusted total before the sales invoice can be issued." />
           </>}
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === "prepare-invoice"}>{invoiceSubmitLabel}</Button></Form.Item>
+
         </Form>
       </Modal>
       <Modal
+        rootClassName="financeOverlay"
         title={invoiceReviewInput && financeSaleNeedsApproval(invoiceReviewInput)
           ? "Review invoice · approval required"
           : "Review invoice"}
@@ -1905,6 +1996,7 @@ export function FinancePage({
         />}
       </Modal>
       <Drawer
+        footer={<div className="financeFormFooter"><Button form="financeCollection" type="primary" htmlType="submit" disabled={!selectedCollectionPayment || Boolean(paymentLoadError || paymentRefreshing)} loading={v2MutationKey === `collection-${selectedCollectionPayment?.id}`}>Add payment</Button></div>}
         title="Add payment / 新增收款"
         width={600}
         open={Boolean(collectionPaymentId)}
@@ -1914,11 +2006,11 @@ export function FinancePage({
           collectionForm.resetFields();
         }}
         destroyOnClose
-        className="recordEditDrawer financeV2Drawer"
+        className="recordEditDrawer financeRecordDrawer financeV2Drawer"
       >
         {selectedCollectionPayment && <Space direction="vertical" size={16} className="fullWidth">
           <FinanceV2BalanceSummary payment={selectedCollectionPayment} vehicles={vehicles} customers={customers} />
-          <Form name="financeCollection" form={collectionForm} layout="vertical" className="drawerForm" onFinish={(values) => void submitCollection(values)}>
+          <Form id="financeCollection" name="financeCollection" form={collectionForm} layout="vertical" className="drawerForm" onFinish={(values) => void submitCollection(values)}>
             <Form.Item name="amount" label="Amount received / 已收金额" rules={[{ required: true, message: "Enter the payment amount." }]}><InputNumber className="fullWidth" min={0.01} max={selectedCollectionPayment.availableToAllocate ?? selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="method" label="Payment method / 收款方式" rules={[{ required: true, message: "Choose a payment method." }]}><Select onChange={(method) => collectionForm.setFieldValue("financingStatus", method === "BankDisbursement" ? "Pending" : "NotApplicable")} options={collectionMethodOptions} /></Form.Item>
             {selectedCollectionMethod === "BankDisbursement" && <Form.Item name="financingStatus" label="Bank financing status / 银行放款状态" rules={[{ required: true }]}><Select disabled options={[{ value: "Pending", label: financingStatusLabel("Pending") }]} /></Form.Item>}
@@ -1926,7 +2018,7 @@ export function FinancePage({
             <Form.Item name="reference" label="Payment reference / 收款编号" rules={[{ required: true, whitespace: true, message: "Enter a bank, cheque, card, or agreement reference." }]}><Input maxLength={100} placeholder="Example: bank transaction or cheque number" /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
             <Alert type="info" showIcon message="For physical cash, use Cash Custody" description="Cash Custody records the actual partial amount, physical handover, independent checker, and official receipt." action={<Button size="small" onClick={() => { setCollectionPaymentId(undefined); changeFinanceTab("cash-custody", undefined, selectedCollectionPayment.id); }}>Open Cash Custody</Button>} />
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={v2MutationKey === `collection-${selectedCollectionPayment.id}`}>Add payment</Button></Form.Item>
+
           </Form>
           {collectionHistory(selectedCollectionPayment)}
         </Space>}
@@ -1936,7 +2028,7 @@ export function FinancePage({
         width={600}
         open={Boolean(v2DetailsPaymentId)}
         onClose={() => setV2DetailsPaymentId(undefined)}
-        className="recordEditDrawer financeV2Drawer"
+        className="recordEditDrawer financeRecordDrawer financeV2Drawer"
       >
         {selectedV2DetailsPayment && <Space direction="vertical" size={16} className="fullWidth">
           <FinanceV2BalanceSummary payment={selectedV2DetailsPayment} vehicles={vehicles} customers={customers} />
@@ -1947,19 +2039,12 @@ export function FinancePage({
               <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for a different Boss/Admin user"}</Descriptions.Item>
             </Descriptions>
           </ProCard>}
-          {selectedV2DetailsPayment.invoice && <DocumentPreviewButton
-            fileName={`${selectedV2DetailsPayment.invoice.invoiceNumber}.pdf`}
-            mimeType="application/pdf"
-            downloadUrl={financeInvoiceContentUrl(selectedV2DetailsPayment.invoice.id)}
-            loadContent={() => getProtectedFileContent(financeInvoiceContentUrl(selectedV2DetailsPayment.invoice!.id), "Unable to load sales invoice preview")}
-            previewLabel={`Preview invoice · ${selectedV2DetailsPayment.invoice.invoiceNumber}`}
-            downloadLabel="Download invoice"
-          />}
-          {selectedV2DetailsPayment.receivableStatus !== "Paid" && (selectedV2DetailsPayment.availableToAllocate ?? 0) > 0 && <Button block type="primary" onClick={() => { setV2DetailsPaymentId(undefined); openAddPayment(selectedV2DetailsPayment); }}>Add payment</Button>}
+          {selectedV2DetailsPayment.invoice && <Space direction="vertical" size={6}><Typography.Text type="secondary">{selectedV2DetailsPayment.invoice.invoiceNumber}</Typography.Text>{renderInvoiceActions(selectedV2DetailsPayment)}</Space>}
+          {selectedV2DetailsPayment.receivableStatus !== "Paid" && (selectedV2DetailsPayment.availableToAllocate ?? 0) > 0 && <Button block type="primary" disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => { setV2DetailsPaymentId(undefined); openAddPayment(selectedV2DetailsPayment); }}>Add payment</Button>}
           {collectionHistory(selectedV2DetailsPayment)}
         </Space>}
       </Drawer>
-      <Modal title="Reverse reconciled payment" open={Boolean(reverseCollectionId)} okText="Reverse payment" okButtonProps={{ danger: true, disabled: !reverseReason.trim(), loading: v2MutationKey === `reverse-${reverseCollectionId}` }} onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }} onOk={async () => {
+      <Modal rootClassName="financeOverlay" title="Reverse reconciled payment" open={Boolean(reverseCollectionId)} okText="Reverse payment" okButtonProps={{ danger: true, disabled: !reverseReason.trim() || Boolean(paymentLoadError || paymentRefreshing), loading: v2MutationKey === `reverse-${reverseCollectionId}` }} onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }} onOk={async () => {
         if (!reverseCollectionId || !reverseReason.trim()) return;
         await runV2Mutation(`reverse-${reverseCollectionId}`, () => onReverseCollection(reverseCollectionId, reverseReason.trim()));
         setReverseCollectionId(undefined);
@@ -1970,13 +2055,14 @@ export function FinancePage({
         <Input.TextArea aria-label="Reason for reversal" className="financeV2ReverseReason" rows={3} maxLength={500} showCount value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="Explain why this reconciled payment must be reversed" />
       </Modal>
       <Modal
+        rootClassName="financeOverlay"
         title="New Bank Collection / 新增收款"
         width={680}
         open={financeCreateOpen === "payment"}
         onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
         footer={null}
         destroyOnClose
-        className="recordCreateModal"
+        className="recordCreateModal financeCreateModal"
       >
         <Form name="financeLegacyCollection" form={legacyCollectionForm} layout="vertical" className="modalForm" onFinish={(values) => {
           const vehicle = approvedBuyerVehicles.find((item) => item.id === values.vehicleId);
@@ -2007,7 +2093,7 @@ export function FinancePage({
             message.warning(blockReason);
             return;
           }
-          void runLegacyMutation("collection-create", () => onCreate(payment), () => setFinanceCreateOpen(null));
+          void runLegacyMutation("payments", "collection-create", () => onCreate(payment), () => setFinanceCreateOpen(null));
         }} initialValues={{ vehicleId: approvedBuyerVehicles[0]?.id, nettPrice: approvedBuyerVehicles[0]?.sellingPrice }}>
           <Alert type="info" showIcon message="New sales belong in Prepare sales invoice" description="This legacy collection path accepts only a Boss/Admin-approved vehicle price. The amount is loaded from the Vehicle record and cannot be reduced here." />
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}>
@@ -2071,6 +2157,7 @@ export function FinancePage({
         </Form>
       </ProCard>}
       <Drawer
+        footer={<div className="financeFormFooter"><Button form="financePaymentEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPayment || Boolean(paymentLoadError || paymentRefreshing)}>Update Payment</Button></div>}
         title="Payment Details / 收款详情"
         width={560}
         open={financeEditorOpen === "payment"}
@@ -2078,10 +2165,10 @@ export function FinancePage({
           if (!legacySaving) setFinanceEditorOpen(null);
         }}
         destroyOnClose
-        className="recordEditDrawer"
+        className="recordEditDrawer financeRecordDrawer"
       >
         <Form
-          name="financePaymentEdit"
+          id="financePaymentEdit" name="financePaymentEdit"
           key={selectedEditPayment?.id ?? "payment-edit"}
           layout="vertical"
           className="drawerForm"
@@ -2094,7 +2181,7 @@ export function FinancePage({
               message.warning(blockReason);
               return;
             }
-            void runLegacyMutation(`collection-${payment.id}`, () => onUpdate(payment), () => setFinanceEditorOpen(null));
+            void runLegacyMutation("payments", `collection-${payment.id}`, () => onUpdate(payment), () => setFinanceEditorOpen(null));
           }}
         >
           <Form.Item name="id" label="Selected Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No customer receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
@@ -2107,7 +2194,7 @@ export function FinancePage({
           <Descriptions size="small" column={1} className="fullWidth">
             <Descriptions.Item label="Management Review / 管理层审核">{selectedEditPayment?.bossChecked ? "Reviewed" : "Pending"}</Descriptions.Item>
           </Descriptions>
-          {canApproveManagementReview && selectedEditPayment && !selectedEditPayment.bossChecked && <Button onClick={() => onApproveManagementReview(selectedEditPayment.id)}>Approve Management Review</Button>}
+          {canApproveManagementReview && selectedEditPayment && !selectedEditPayment.bossChecked && <Button disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => void approveManagementReview(selectedEditPayment.id)}>Approve Management Review</Button>}
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" /></Form.Item>
@@ -2121,7 +2208,7 @@ export function FinancePage({
           </Descriptions>
           <Form.Item name="bankName" label="Bank"><Input placeholder="Maybank" /></Form.Item>
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPayment}>Update Payment</Button></Form.Item>
+
         </Form>
       </Drawer>
       {financeTab === "settlements" && <ProCard
@@ -2131,21 +2218,22 @@ export function FinancePage({
       >
         <Space direction="vertical" size={16} className="fullWidth">
           {settlementLoadError && <Alert type="error" showIcon message="Settlement records could not be loaded" description={settlementLoadError} action={<Button loading={settlementRefreshing} onClick={() => void onRetrySettlements?.()}>Retry settlements</Button>} />}
+          <FinanceListNotice label="Settlements" loading={settlementRefreshing} />
           {financeFilters}
           <Descriptions bordered column={1}>
             <Descriptions.Item label="Follow-up">Payment and collection have separate reminders. Equal-price offsets require confirmation, not cash payment.</Descriptions.Item>
             <Descriptions.Item label="Bank collection export">Export a spreadsheet for staff to submit manually in AutoCount.</Descriptions.Item>
-            <Descriptions.Item label="Outstanding Bank Collection">{formatMoney(outstanding)}</Descriptions.Item>
-            <Descriptions.Item label="To pay seller">{settlementLoadError ? "Unavailable" : formatMoney(settlementOutstanding)}</Descriptions.Item>
-            <Descriptions.Item label="To collect from seller">{settlementLoadError ? "Unavailable" : formatMoney(settlementSummary.toCollect)}</Descriptions.Item>
-            <Descriptions.Item label="Offsets to confirm">{settlementLoadError ? "Unavailable" : settlementSummary.offsets}</Descriptions.Item>
-            <Descriptions.Item label="Daily Spend Due">{formatMoney(dailySpendOutstanding)}</Descriptions.Item>
-            <Descriptions.Item label="Broker Commission Due">{formatMoney(brokerCommissionOutstanding)}</Descriptions.Item>
-            <Descriptions.Item label="Debt Recovery Balance">{formatMoney(debtOutstanding)}</Descriptions.Item>
-            <Descriptions.Item label="Payment Voucher Open">{formatMoney(voucherOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Outstanding Bank Collection">{paymentLoadError ? "Unavailable" : paymentRefreshing ? "Loading" : formatMoney(outstanding)}</Descriptions.Item>
+            <Descriptions.Item label="To pay seller">{settlementLoadError ? "Unavailable" : settlementRefreshing ? "Loading" : formatMoney(settlementOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="To collect from seller">{settlementLoadError ? "Unavailable" : settlementRefreshing ? "Loading" : formatMoney(settlementSummary.toCollect)}</Descriptions.Item>
+            <Descriptions.Item label="Offsets to confirm">{settlementLoadError ? "Unavailable" : settlementRefreshing ? "Loading" : settlementSummary.offsets}</Descriptions.Item>
+            <Descriptions.Item label="Daily Spend Due">{registerLoadState?.dailySpends?.error ? "Unavailable" : registerLoadState?.dailySpends?.loading ? "Loading" : formatMoney(dailySpendOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Broker Commission Due">{registerLoadState?.brokerCommissions?.error ? "Unavailable" : registerLoadState?.brokerCommissions?.loading ? "Loading" : formatMoney(brokerCommissionOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Debt Recovery Balance">{registerLoadState?.debtRecoveries?.error ? "Unavailable" : registerLoadState?.debtRecoveries?.loading ? "Loading" : formatMoney(debtOutstanding)}</Descriptions.Item>
+            <Descriptions.Item label="Payment Voucher Open">{registerLoadState?.paymentVouchers?.error ? "Unavailable" : registerLoadState?.paymentVouchers?.loading ? "Loading" : formatMoney(voucherOutstanding)}</Descriptions.Item>
           </Descriptions>
           <div className="mobileRecordList">
-            {filteredSettlements.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={settlementEmptyText} />}
+            {!settlementLoadError && !settlementRefreshing && filteredSettlements.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={settlementEmptyText} />}
             {visibleSettlements.map((settlement) => (
               <article className="mobileRecordCard" key={settlement.id}>
                 <div className="mobileRecordHeader">
@@ -2162,11 +2250,7 @@ export function FinancePage({
                 </div>
                 <div className="mobileRecordFooter">
                   <Tag>Deadline: {settlement.deadline}</Tag>
-                  <Space className="tableActionGroup" wrap size={6}>
-                    <Button size="small" type="primary" onClick={() => selectSettlement(settlement.id)}>Details</Button>
-                    <Button size="small" onClick={() => confirmSettlementStatus(settlement, true)} disabled={settlement.isPaid}>{settlementCompletionLabel(settlement)}</Button>
-                    <Button size="small" onClick={() => confirmSettlementStatus(settlement, false)} disabled={!canReopenPaidSettlement(settlement)}>Reopen</Button>
-                  </Space>
+                  {renderSettlementActions(settlement)}
                 </div>
               </article>
             ))}
@@ -2174,6 +2258,7 @@ export function FinancePage({
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={settlementColumns} dataSource={filteredSettlements} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredSettlements.length, settlementPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: settlementEmptyText }} />
           <Modal
+        rootClassName="financeOverlay"
             title="New Settlement / 新增结算提醒"
             width={620}
             open={financeCreateOpen === "settlement"}
@@ -2182,11 +2267,11 @@ export function FinancePage({
               setFinanceCreateOpen(null);
               settlementForm.resetFields();
             }}
-            footer={null}
+            footer={<div className="financeFormFooter"><Button form="financeSettlement" type="primary" htmlType="submit" disabled={Boolean(settlementLoadError || settlementRefreshing)} loading={settlementSaving}>Create settlement</Button></div>}
             destroyOnClose
-            className="recordCreateModal"
+            className="recordCreateModal financeCreateModal"
           >
-          <Form name="financeSettlement" form={settlementForm} disabled={settlementSaving} layout="vertical" className="modalForm" onFinish={async (values) => {
+          <Form id="financeSettlement" name="financeSettlement" form={settlementForm} disabled={settlementSaving} layout="vertical" className="modalForm" onFinish={async (values) => {
             if (settlementSaving) return;
             const preview = settlementPreview(Number(values.expectedPurchasePrice), Number(values.bankDebtAmount));
             if (!preview || !values.ownerId || (preview.direction !== "InternalOffset" && !values.deadline?.trim())) {
@@ -2226,21 +2311,22 @@ export function FinancePage({
                 </>;
               }}
             </Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={settlementSaving}>Create settlement</Button></Form.Item>
+
           </Form>
           </Modal>
         </Space>
       </ProCard>}
       <Drawer
+        footer={<div className="financeFormFooter"><Button form="financeSettlementEdit" type="primary" htmlType="submit" loading={settlementSaving} disabled={!selectedEditSettlement || selectedEditSettlement.isPaid || Boolean(settlementLoadError || settlementRefreshing)}>Update settlement</Button></div>}
         title="Settlement Details / 结算详情"
         width={560}
         open={financeEditorOpen === "settlement"}
         onClose={() => { if (!settlementSaving) setFinanceEditorOpen(null); }}
         destroyOnClose
-        className="recordEditDrawer"
+        className="recordEditDrawer financeRecordDrawer"
       >
           <Form
-            name="financeSettlementEdit"
+            id="financeSettlementEdit" name="financeSettlementEdit"
             key={selectedEditSettlement?.id ?? "settlement-edit"}
             layout="vertical"
             className="drawerForm"
@@ -2280,18 +2366,18 @@ export function FinancePage({
             </>}
             <Form.Item name="deadline" label="Deadline / Offset date" rules={[{ required: true }]} getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}><DatePicker className="fullWidth" disabled={selectedEditSettlement?.isPaid} format="DD MMM YYYY" /></Form.Item>
             {selectedEditSettlement?.isPaid && <Alert type="info" message="Completed settlement. Reopen from the list before editing." />}
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={settlementSaving} disabled={!selectedEditSettlement || selectedEditSettlement.isPaid || Boolean(settlementLoadError)}>Update settlement</Button></Form.Item>
+
           </Form>
       </Drawer>
       {financeTab === "commissions" && <ProCard
         id="broker-commission-list-card"
         title="Broker Commission / 经纪人佣金"
-        extra={<Button type="primary" onClick={() => setFinanceCreateOpen("brokerCommission")}>New Commission</Button>}
+        extra={<Button type="primary" disabled={registerBlocked("brokerCommissions")} onClick={() => setFinanceCreateOpen("brokerCommission")}>New Commission</Button>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           {financeFilters}
           <div className="mobileRecordList">
-            {filteredBrokerCommissions.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={brokerCommissionEmptyText} />}
+            {!registerLoadState?.brokerCommissions?.error && !registerLoadState?.brokerCommissions?.loading && filteredBrokerCommissions.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={brokerCommissionEmptyText} />}
             {visibleBrokerCommissions.map((commission) => (
               <article className="mobileRecordCard" key={commission.id}>
                 <div className="mobileRecordHeader">
@@ -2310,32 +2396,24 @@ export function FinancePage({
                   <Tag color={commission.cp58Required ? commission.cp58Prepared ? "green" : "gold" : "default"}>
                     {commission.cp58Required ? commission.cp58Prepared ? "CP58 prepared" : "CP58 required" : "CP58 not required"}
                   </Tag>
-                  <Space className="tableActionGroup" wrap size={6}>
-                    <Button size="small" type="primary" onClick={() => selectBrokerCommission(commission.id)}>Details</Button>
-                    <Button size="small" onClick={() => void runLegacyMutation(`commission-${commission.id}`, () => onUpdateBrokerCommission({ ...commission, isPaid: true }))} disabled={commission.isPaid || legacySaving}>Mark Paid</Button>
-                    <Tooltip title="Malaysian commission tax form">
-                      <span>
-                        <Button size="small" onClick={() => void runLegacyMutation(`commission-${commission.id}`, () => onUpdateBrokerCommission({ ...commission, cp58Required: true, cp58Prepared: true }))} disabled={!commission.cp58Required || commission.cp58Prepared || legacySaving}>CP58</Button>
-                      </span>
-                    </Tooltip>
-                    <Button size="small" onClick={() => void runLegacyMutation(`commission-${commission.id}`, () => onUpdateBrokerCommission({ ...commission, isPaid: false }))} disabled={!commission.isPaid || legacySaving}>Reopen</Button>
-                  </Space>
+                  {renderCommissionActions(commission)}
                 </div>
               </article>
             ))}
             <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredBrokerCommissions.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
           </div>
-          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage)} scroll={{ x: 760 }} locale={{ emptyText: brokerCommissionEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage)} scroll={{ x: 1040 }} locale={{ emptyText: brokerCommissionEmptyText }} />
           <Modal
+        rootClassName="financeOverlay"
             title="New Broker Commission / 新增经纪人佣金"
             width={620}
             open={financeCreateOpen === "brokerCommission"}
             onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
-            footer={null}
+            footer={<div className="financeFormFooter"><Button form="financeCommissionCreate" type="primary" htmlType="submit" disabled={registerBlocked("brokerCommissions")} loading={legacySaving}>Save Commission</Button></div>}
             destroyOnClose
-            className="recordCreateModal"
+            className="recordCreateModal financeCreateModal"
           >
-          <Form name="financeCommissionCreate" layout="vertical" className="modalForm" onFinish={(values) => {
+          <Form id="financeCommissionCreate" name="financeCommissionCreate" layout="vertical" className="modalForm" onFinish={(values) => {
             const commission: BrokerCommission = {
               id: newId(),
               vehicleId: values.vehicleId,
@@ -2351,7 +2429,7 @@ export function FinancePage({
               message.warning(blockReason);
               return;
             }
-            void runLegacyMutation("commission-create", () => onCreateBrokerCommission(commission), () => setFinanceCreateOpen(null));
+            void runLegacyMutation("brokerCommissions", "commission-create", () => onCreateBrokerCommission(commission), () => setFinanceCreateOpen(null));
           }} initialValues={{ vehicleId: vehicles[0]?.id, isPaid: false, cp58Required: false, cp58Prepared: false }}>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
@@ -2360,21 +2438,22 @@ export function FinancePage({
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label={shortformLabel("CP58 Required", "Malaysian commission tax form required")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
             <Form.Item name="cp58Prepared" label={shortformLabel("CP58 Prepared", "Malaysian commission tax form prepared")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving}>Save Commission</Button></Form.Item>
+
           </Form>
           </Modal>
         </Space>
       </ProCard>}
       <Drawer
+        footer={<div className="financeFormFooter"><Button form="financeCommissionEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditBrokerCommission || registerBlocked("brokerCommissions")}>Update Commission</Button></div>}
         title="Broker Commission Details / 经纪人佣金详情"
         width={560}
         open={financeEditorOpen === "brokerCommission"}
         onClose={() => { if (!legacySaving) setFinanceEditorOpen(null); }}
         destroyOnClose
-        className="recordEditDrawer"
+        className="recordEditDrawer financeRecordDrawer"
       >
           <Form
-            name="financeCommissionEdit"
+            id="financeCommissionEdit" name="financeCommissionEdit"
             key={selectedEditBrokerCommission?.id ?? "broker-commission-edit"}
             layout="vertical"
             className="drawerForm"
@@ -2396,7 +2475,7 @@ export function FinancePage({
                 message.warning(blockReason);
                 return;
               }
-              void runLegacyMutation(`commission-${commission.id}`, () => onUpdateBrokerCommission(commission), () => setFinanceEditorOpen(null));
+              void runLegacyMutation("brokerCommissions", `commission-${commission.id}`, () => onUpdateBrokerCommission(commission), () => setFinanceEditorOpen(null));
             }}
           >
             <Form.Item name="id" label="Selected Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / ${formatMoney(commission.amount)}` }))} onChange={selectBrokerCommission} /></Form.Item>
@@ -2407,18 +2486,18 @@ export function FinancePage({
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label={shortformLabel("CP58 Required", "Malaysian commission tax form required")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
             <Form.Item name="cp58Prepared" label={shortformLabel("CP58 Prepared", "Malaysian commission tax form prepared")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditBrokerCommission}>Update Commission</Button></Form.Item>
+
           </Form>
       </Drawer>
       {financeTab === "debt" && <ProCard
         id="debt-recovery-list-card"
         title="Debt Recovery / 欠款追讨"
-        extra={<Button type="primary" onClick={() => setFinanceCreateOpen("debtRecovery")}>New Debt Case</Button>}
+        extra={<Button type="primary" disabled={registerBlocked("debtRecoveries")} onClick={() => setFinanceCreateOpen("debtRecovery")}>New Debt Case</Button>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           {financeFilters}
           <div className="mobileRecordList">
-            {filteredDebtRecoveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={debtRecoveryEmptyText} />}
+            {!registerLoadState?.debtRecoveries?.error && !registerLoadState?.debtRecoveries?.loading && filteredDebtRecoveries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={debtRecoveryEmptyText} />}
             {visibleDebtRecoveries.map((debt) => (
               <article className="mobileRecordCard" key={debt.id}>
                 <div className="mobileRecordHeader">
@@ -2438,7 +2517,7 @@ export function FinancePage({
                 </div>
                 <div className="mobileRecordFooter">
                   <Tag>Follow-up: {debt.followUpDate}</Tag>
-                  <Button size="small" type="primary" onClick={() => selectDebtRecovery(debt.id)}>Details</Button>
+                  {renderDebtActions(debt)}
                 </div>
               </article>
             ))}
@@ -2446,15 +2525,16 @@ export function FinancePage({
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
           <Modal
+        rootClassName="financeOverlay"
             title="New Debt Recovery Case / 新增欠款追讨"
             width={620}
             open={financeCreateOpen === "debtRecovery"}
             onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
-            footer={null}
+            footer={<div className="financeFormFooter"><Button form="financeDebtRecoveryCreate" type="primary" htmlType="submit" disabled={registerBlocked("debtRecoveries")} loading={legacySaving}>Save Debt Case</Button></div>}
             destroyOnClose
-            className="recordCreateModal"
+            className="recordCreateModal financeCreateModal"
           >
-          <Form name="financeDebtRecoveryCreate" layout="vertical" className="modalForm" onFinish={(values) => {
+          <Form id="financeDebtRecoveryCreate" name="financeDebtRecoveryCreate" layout="vertical" className="modalForm" onFinish={(values) => {
             const debt: DebtRecoveryCase = {
               id: newId(),
               vehicleId: values.vehicleId,
@@ -2469,7 +2549,7 @@ export function FinancePage({
               message.warning(blockReason);
               return;
             }
-            void runLegacyMutation("debt-create", () => onCreateDebtRecovery(debt), () => setFinanceCreateOpen(null));
+            void runLegacyMutation("debtRecoveries", "debt-create", () => onCreateDebtRecovery(debt), () => setFinanceCreateOpen(null));
           }} initialValues={{ vehicleId: vehicles[0]?.id, customerId: customers[0]?.id, status: "Open", followUpDate: today() }}>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}><Select options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item>
@@ -2477,21 +2557,22 @@ export function FinancePage({
             <Form.Item name="followUpDate" label="Follow-up Date / 跟进日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Open", "FollowedUp", "Closed"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving}>Save Debt Case</Button></Form.Item>
+
           </Form>
           </Modal>
         </Space>
       </ProCard>}
       <Drawer
+        footer={<div className="financeFormFooter"><Button form="financeDebtRecoveryEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDebtRecovery || registerBlocked("debtRecoveries")}>Update Debt Case</Button></div>}
         title="Debt Case Details / 欠款追讨详情"
         width={560}
         open={financeEditorOpen === "debtRecovery"}
         onClose={() => { if (!legacySaving) setFinanceEditorOpen(null); }}
         destroyOnClose
-        className="recordEditDrawer"
+        className="recordEditDrawer financeRecordDrawer"
       >
           <Form
-            name="financeDebtRecoveryEdit"
+            id="financeDebtRecoveryEdit" name="financeDebtRecoveryEdit"
             key={selectedEditDebtRecovery?.id ?? "debt-recovery-edit"}
             layout="vertical"
             className="drawerForm"
@@ -2512,7 +2593,7 @@ export function FinancePage({
                 message.warning(blockReason);
                 return;
               }
-              void runLegacyMutation(`debt-${debt.id}`, () => onUpdateDebtRecovery(debt), () => setFinanceEditorOpen(null));
+              void runLegacyMutation("debtRecoveries", `debt-${debt.id}`, () => onUpdateDebtRecovery(debt), () => setFinanceEditorOpen(null));
             }}
           >
             <Form.Item name="id" label="Selected Debt Case"><Select options={debtRecoveries.map((debt) => ({ value: debt.id, label: `${plateFor(vehicles, debt.vehicleId)} / ${customerLabel(customers, debt.customerId)} / ${formatMoney(debt.balanceAmount)}` }))} onChange={selectDebtRecovery} /></Form.Item>
@@ -2522,15 +2603,16 @@ export function FinancePage({
             <Form.Item name="followUpDate" label="Follow-up Date / 跟进日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="status" label="Status / 状态"><Select options={["Open", "FollowedUp", "Closed"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDebtRecovery}>Update Debt Case</Button></Form.Item>
+
           </Form>
       </Drawer>
       {financeTab === "vouchers" && <ProCard title="Purchase invoice accounting review / 收车发票审核">
         <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm the displayed official version, invoice date and classified fee lines before AutoCount export." description="Owner-acquisition corrections reset Finance confirmation. An issued official invoice and a pending Finance review are different states." />
         <Space direction="vertical" size={12} className="fullWidth">
+          <FinanceListNotice label="Purchase invoices" {...purchaseInvoiceLoad} onRetry={reloadPurchaseInvoices} />
           {purchaseInvoiceFilters}
           <div className="mobileRecordList">
-            {filteredPurchaseInvoices.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={purchaseInvoiceEmptyText} />}
+            {!purchaseInvoiceLoad.error && !purchaseInvoiceLoad.loading && filteredPurchaseInvoices.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={purchaseInvoiceEmptyText} />}
             {visiblePurchaseInvoices.map((invoice) => {
               const displayedRevision = invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber;
               const ownerVersionUnavailable = invoice.sourceType === "OwnerAcquisition" && displayedRevision === undefined;
@@ -2555,7 +2637,7 @@ export function FinancePage({
                   <Tag>{invoice.purchaseDate ? `Purchased: ${invoice.purchaseDate}` : "Purchase date not recorded"}</Tag>
                   <Space wrap size={6}>
                     {invoice.sourceType === "OwnerAcquisition" && <Button size="small" type="primary" onClick={() => setPurchaseInvoiceDetailsId(invoice.id)}>Details</Button>}
-                    {invoice.accountingStatus !== "FinanceConfirmed" && <Tooltip title={ownerVersionUnavailable ? "Reload the issued invoice version before Finance confirmation." : undefined}><span><Button size="small" loading={confirmingPurchaseInvoiceId === invoice.id} disabled={ownerVersionUnavailable} onClick={() => void confirmPurchaseInvoice(invoice)}>Confirm version</Button></span></Tooltip>}
+                    {invoice.accountingStatus !== "FinanceConfirmed" && <Tooltip title={ownerVersionUnavailable ? "Reload the issued invoice version before Finance confirmation." : undefined}><span><Button size="small" loading={confirmingPurchaseInvoiceId === invoice.id} disabled={ownerVersionUnavailable || purchaseInvoiceLoad.loading || Boolean(purchaseInvoiceLoad.error)} onClick={() => void confirmPurchaseInvoice(invoice)}>Confirm version</Button></span></Tooltip>}
                   </Space>
                 </div>
                 {purchaseInvoiceConfirmationError?.invoiceId === invoice.id && <PurchaseInvoiceConfirmationError error={purchaseInvoiceConfirmationError.message} onClose={() => setPurchaseInvoiceConfirmationError(undefined)} />}
@@ -2577,8 +2659,11 @@ export function FinancePage({
       </ProCard>}
       {financeTab === "vouchers" && <ProCard title="Delivery accounting review / 出车会计审核">
         <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm delivery-entered insurance and road-tax drafts before they are eligible for AutoCount review." />
+        <FinanceListNotice label="Delivery accounting" {...deliveryAccountingLoad} onRetry={reloadDeliveryAccountingCharges} />
         <OperationsProTable<DeliveryAccountingCharge>
           rowKey="id"
+          scroll={{ x: 900 }}
+          locale={{ emptyText: deliveryAccountingLoad.error ? "Records unavailable. Retry to load this list." : deliveryAccountingLoad.loading ? "Loading records…" : "No delivery accounting records yet." }}
           dataSource={deliveryAccountingCharges}
           pagination={false}
           columns={[
@@ -2588,19 +2673,19 @@ export function FinancePage({
             { title: "Invoice date", dataIndex: "invoiceDate" },
             { title: "Amount", dataIndex: "amount", render: (value) => formatMoney(Number(value)) },
             { title: "Status", dataIndex: "accountingStatus", render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Confirmed" : "Draft"}</Tag> },
-            { title: "Action", render: (_, charge) => charge.accountingStatus === "Draft" ? <Button size="small" onClick={async () => { try { await confirmDeliveryAccountingCharge(charge.id); message.success("Delivery accounting detail confirmed."); await reloadDeliveryAccountingCharges(); } catch (error) { message.error(humanizeApiError(error, "Unable to confirm delivery accounting detail.")); } }}>Confirm</Button> : null }
+            { title: "Action / 操作", fixed: "right", width: 110, render: (_, charge) => charge.accountingStatus === "Draft" ? <Button size="small" disabled={deliveryAccountingLoad.loading || Boolean(deliveryAccountingLoad.error)} onClick={async () => { try { requireCurrentData("deliveryAccounting"); await confirmDeliveryAccountingCharge(charge.id); message.success("Delivery accounting detail confirmed."); await reloadDeliveryAccountingCharges(); } catch (error) { message.error(humanizeApiError(error, "Unable to confirm delivery accounting detail.")); } }}>Confirm</Button> : null }
           ]}
         />
       </ProCard>}
       {financeTab === "vouchers" && <ProCard
         id="payment-voucher-list-card"
         title="Payment Voucher / 付款凭证"
-        extra={<Button type="primary" onClick={() => setFinanceCreateOpen("paymentVoucher")}>New Voucher</Button>}
+        extra={<Button type="primary" disabled={registerBlocked("paymentVouchers")} onClick={() => setFinanceCreateOpen("paymentVoucher")}>New Voucher</Button>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           {financeFilters}
           <div className="mobileRecordList">
-            {filteredPaymentVouchers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentVoucherEmptyText} />}
+            {!registerLoadState?.paymentVouchers?.error && !registerLoadState?.paymentVouchers?.loading && filteredPaymentVouchers.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentVoucherEmptyText} />}
             {visiblePaymentVouchers.map((voucher) => (
               <article className="mobileRecordCard" key={voucher.id}>
                 <div className="mobileRecordHeader">
@@ -2620,11 +2705,7 @@ export function FinancePage({
                 </div>
                 <div className="mobileRecordFooter">
                   <Tag>Issued: {voucher.issuedDate}</Tag>
-                  <Space wrap>
-                    <Button size="small" type="primary" onClick={() => selectPaymentVoucher(voucher.id)}>Details</Button>
-                    {voucher.status === "Pending" && <Button size="small" onClick={() => confirmApproveVoucher(voucher)}>Approve</Button>}
-                    {voucher.status === "Approved" && <Button size="small" onClick={() => confirmMarkVoucherPaid(voucher)}>Mark paid</Button>}
-                  </Space>
+                  {renderVoucherActions(voucher)}
                 </div>
               </article>
             ))}
@@ -2632,15 +2713,16 @@ export function FinancePage({
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
           <Modal
+        rootClassName="financeOverlay"
             title="New Payment Voucher / 新增付款凭证"
             width={620}
             open={financeCreateOpen === "paymentVoucher"}
             onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
-            footer={null}
+            footer={<div className="financeFormFooter"><Button form="financePaymentVoucherCreate" type="primary" htmlType="submit" disabled={registerBlocked("paymentVouchers")} loading={legacySaving}>Save Voucher</Button></div>}
             destroyOnClose
-            className="recordCreateModal"
+            className="recordCreateModal financeCreateModal"
           >
-          <Form name="financePaymentVoucherCreate" layout="vertical" className="modalForm" onFinish={(values) => {
+          <Form id="financePaymentVoucherCreate" name="financePaymentVoucherCreate" layout="vertical" className="modalForm" onFinish={(values) => {
             const voucher: PaymentVoucher = {
               id: newId(),
               vehicleId: values.vehicleId,
@@ -2663,7 +2745,7 @@ export function FinancePage({
               message.warning(blockReason);
               return;
             }
-            void runLegacyMutation("voucher-create", () => onCreatePaymentVoucher(voucher), () => setFinanceCreateOpen(null));
+            void runLegacyMutation("paymentVouchers", "voucher-create", () => onCreatePaymentVoucher(voucher), () => setFinanceCreateOpen(null));
           }} initialValues={{ vehicleId: vehicles[0]?.id, purpose: "Outstation Pickup Allowance", status: "Pending", issuedDate: today(), paymentMethod: "BankTransfer", bankChargeAmount: 0 }}>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="payeeName" label="Payee / 收款人" rules={[{ required: true }]}><Input placeholder="Driver / staff name" /></Form.Item>
@@ -2677,21 +2759,23 @@ export function FinancePage({
             <Form.Item name="bankChargeAmount" label="Bank charge"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item noStyle shouldUpdate={(previous, current) => previous.bankChargeAmount !== current.bankChargeAmount}>{({ getFieldValue }) => Number(getFieldValue("bankChargeAmount") ?? 0) > 0 ? <Form.Item name="bankChargeAccountCode" label="Bank charge account" rules={[{ required: true }]}><Input /></Form.Item> : null}</Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving}>Save Voucher</Button></Form.Item>
+
           </Form>
           </Modal>
         </Space>
       </ProCard>}
       <Drawer
+        footer={<div className="financeFormFooter"><Button form="financePaymentVoucherEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPaymentVoucher || selectedEditPaymentVoucher.status !== "Pending" || registerBlocked("paymentVouchers")}>Update pending voucher</Button></div>}
         title="Payment Voucher Details / 付款凭证详情"
         width={560}
         open={financeEditorOpen === "paymentVoucher"}
         onClose={() => { if (!legacySaving) setFinanceEditorOpen(null); }}
         destroyOnClose
-        className="recordEditDrawer"
+        className="recordEditDrawer financeRecordDrawer"
       >
+          {selectedEditPaymentVoucher && <section className="financeDetailDocuments" aria-label="Payment voucher PDF">{renderVoucherDocument(selectedEditPaymentVoucher)}</section>}
           <Form
-            name="financePaymentVoucherEdit"
+            id="financePaymentVoucherEdit" name="financePaymentVoucherEdit"
             key={selectedEditPaymentVoucher?.id ?? "payment-voucher-edit"}
             layout="vertical"
             className="drawerForm"
@@ -2719,7 +2803,7 @@ export function FinancePage({
                 message.warning(blockReason);
                 return;
               }
-              void runLegacyMutation(`voucher-${voucher.id}`, () => onUpdatePaymentVoucher(voucher), () => setFinanceEditorOpen(null));
+              void runLegacyMutation("paymentVouchers", `voucher-${voucher.id}`, () => onUpdatePaymentVoucher(voucher), () => setFinanceEditorOpen(null));
             }}
           >
             <Form.Item name="id" label="Selected Voucher"><Select options={paymentVouchers.map((voucher) => ({ value: voucher.id, label: `${plateFor(vehicles, voucher.vehicleId)} / ${voucher.payeeName} / ${formatMoney(voucher.amount)}` }))} onChange={selectPaymentVoucher} /></Form.Item>
@@ -2737,18 +2821,18 @@ export function FinancePage({
             <Form.Item name="bankChargeAmount" label="Bank charge"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="bankChargeAccountCode" label="Bank charge account"><Input /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPaymentVoucher || selectedEditPaymentVoucher.status !== "Pending"}>Update pending voucher</Button></Form.Item>
+
           </Form>
       </Drawer>
       {financeTab === "daily" && <ProCard
         id="daily-spend-list-card"
         title="Daily Spend / 日常支出"
-        extra={<Button type="primary" onClick={() => setFinanceCreateOpen("dailySpend")}>New Daily Spend</Button>}
+        extra={<Button type="primary" disabled={registerBlocked("dailySpends")} onClick={() => setFinanceCreateOpen("dailySpend")}>New Daily Spend</Button>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           {financeFilters}
           <div className="mobileRecordList">
-            {filteredDailySpends.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={dailySpendEmptyText} />}
+            {!registerLoadState?.dailySpends?.error && !registerLoadState?.dailySpends?.loading && filteredDailySpends.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={dailySpendEmptyText} />}
             {visibleDailySpends.map((spend) => (
               <article className="mobileRecordCard" key={spend.id}>
                 <div className="mobileRecordHeader">
@@ -2763,11 +2847,7 @@ export function FinancePage({
                   <span><small>Due / 到期</small><strong>{spend.dueDate}</strong></span>
                 </div>
                 <div className="mobileRecordFooter">
-                  <Space className="tableActionGroup" wrap size={6}>
-                    <Button size="small" type="primary" onClick={() => selectDailySpend(spend.id)}>Details</Button>
-                    <Button size="small" onClick={() => void runLegacyMutation(`spend-${spend.id}`, () => onUpdateDailySpend(payDailySpend(spend)))} disabled={spend.isPaid || legacySaving}>Pay</Button>
-                    <Button size="small" onClick={() => void runLegacyMutation(`spend-${spend.id}`, () => onUpdateDailySpend({ ...spend, isPaid: false }))} disabled={!canReopenPaidDailySpend(spend) || legacySaving}>Reopen</Button>
-                  </Space>
+                  {renderDailySpendActions(spend)}
                 </div>
               </article>
             ))}
@@ -2775,15 +2855,16 @@ export function FinancePage({
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
           <Modal
+        rootClassName="financeOverlay"
             title="New Daily Spend / 新增日常支出"
             width={560}
             open={financeCreateOpen === "dailySpend"}
             onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
-            footer={null}
+            footer={<div className="financeFormFooter"><Button form="financeDailySpendCreate" type="primary" htmlType="submit" disabled={registerBlocked("dailySpends")} loading={legacySaving}>Save Daily Spend</Button></div>}
             destroyOnClose
-            className="recordCreateModal"
+            className="recordCreateModal financeCreateModal"
           >
-          <Form name="financeDailySpendCreate" layout="vertical" className="modalForm" onFinish={(values) => {
+          <Form id="financeDailySpendCreate" name="financeDailySpendCreate" layout="vertical" className="modalForm" onFinish={(values) => {
             const spend = createUnpaidDailySpend(
               newId(),
               values.description,
@@ -2795,26 +2876,27 @@ export function FinancePage({
               message.warning(blockReason);
               return;
             }
-            void runLegacyMutation("spend-create", () => onCreateDailySpend(spend), () => setFinanceCreateOpen(null));
+            void runLegacyMutation("dailySpends", "spend-create", () => onCreateDailySpend(spend), () => setFinanceCreateOpen(null));
           }} initialValues={{ description: "Electric Bill", dueDate: dayjs(monthlyElectricBillDueDate()) }}>
             <Form.Item name="description" label="Description / 项目" rules={[{ required: true }]}><Input placeholder="Electric Bill" /></Form.Item>
             <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving}>Save Daily Spend</Button></Form.Item>
+
           </Form>
           </Modal>
         </Space>
       </ProCard>}
       <Drawer
+        footer={<div className="financeFormFooter"><Button form="financeDailySpendEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDailySpend || registerBlocked("dailySpends")}>Update Daily Spend</Button></div>}
         title="Daily Spend Details / 日常支出详情"
         width={560}
         open={financeEditorOpen === "dailySpend"}
         onClose={() => { if (!legacySaving) setFinanceEditorOpen(null); }}
         destroyOnClose
-        className="recordEditDrawer"
+        className="recordEditDrawer financeRecordDrawer"
       >
           <Form
-            name="financeDailySpendEdit"
+            id="financeDailySpendEdit" name="financeDailySpendEdit"
             key={selectedEditDailySpend?.id ?? "daily-spend-edit"}
             layout="vertical"
             className="drawerForm"
@@ -2833,7 +2915,7 @@ export function FinancePage({
                 message.warning(blockReason);
                 return;
               }
-              void runLegacyMutation(`spend-${spend.id}`, () => onUpdateDailySpend(spend), () => setFinanceEditorOpen(null));
+              void runLegacyMutation("dailySpends", `spend-${spend.id}`, () => onUpdateDailySpend(spend), () => setFinanceEditorOpen(null));
             }}
           >
             <Form.Item name="id" label="Selected Daily Spend"><Select options={dailySpends.map((spend) => ({ value: spend.id, label: `${spend.description} / ${formatMoney(spend.amount)} / ${spend.dueDate}` }))} onChange={selectDailySpend} /></Form.Item>
@@ -2841,7 +2923,7 @@ export function FinancePage({
             <Form.Item name="amount" label="Amount / 金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="dueDate" label="Due Date / 到期日" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
-            <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDailySpend}>Update Daily Spend</Button></Form.Item>
+
           </Form>
       </Drawer>
       <Drawer
@@ -2850,7 +2932,7 @@ export function FinancePage({
         open={Boolean(selectedPurchaseInvoiceDetails)}
         onClose={() => setPurchaseInvoiceDetailsId(undefined)}
         destroyOnClose
-        className="recordEditDrawer"
+        className="recordEditDrawer financeRecordDrawer"
       >
         {selectedPurchaseInvoiceDetails && <OwnerPurchaseInvoiceDetails invoice={selectedPurchaseInvoiceDetails} allowCorrections={false} />}
       </Drawer>
