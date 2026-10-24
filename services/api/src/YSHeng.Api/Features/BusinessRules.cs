@@ -164,8 +164,8 @@ public sealed record DashboardAiDocumentProcessing(
 }
 public sealed record SupplierSummary(string SupplierName, int InvoiceCount, decimal TotalAmount);
 public sealed record SupplierInvoiceAgingView(Guid InvoiceId, string SupplierName, string InvoiceNumber, Guid VehicleId, SupplierInvoiceAgingStatus Status, DateOnly? DueDate, DateOnly? PaidAt, decimal Amount);
-public sealed record ReminderItem(string Type, string Title, string VehiclePlate, Guid VehicleId, DateOnly DueDate, decimal? Amount);
-public sealed record PriorityActionItem(string Type, string Title, string Target, DateOnly DueDate, string? Subject = null, decimal? Amount = null);
+public sealed record ReminderItem(string Type, string Title, string VehiclePlate, Guid VehicleId, DateOnly DueDate, decimal? Amount, string? SourceType = null, Guid? SourceId = null);
+public sealed record PriorityActionItem(string Type, string Title, string Target, DateOnly DueDate, string? Subject = null, decimal? Amount = null, string? SourceType = null, Guid? SourceId = null, Guid? VehicleId = null);
 public sealed record OperationsCalendarCustomerContext(string Name, string? Contact, string Access);
 
 public static class OperationsCalendarPrivacy
@@ -2133,7 +2133,7 @@ public static class ReminderInbox
                 PlateFor(vehicleById, loan.VehicleId),
                 loan.VehicleId,
                 loan.SubmittedAt!.Value.AddDays(3),
-                null));
+                null, nameof(LoanApplication), loan.Id));
         }
 
         foreach (var delivery in deliveries.Where(delivery => ReminderRules.IsDeliveryPreparationDue(delivery, today)))
@@ -2144,7 +2144,7 @@ public static class ReminderInbox
                 PlateFor(vehicleById, delivery.VehicleId),
                 delivery.VehicleId,
                 delivery.ScheduledDate,
-                null));
+                null, nameof(DeliverySchedule), delivery.Id));
         }
 
         foreach (var settlement in settlements.Where(settlement => ReminderRules.IsSettlementDue(settlement, today)))
@@ -2156,7 +2156,7 @@ public static class ReminderInbox
                 PlateFor(vehicleById, settlement.VehicleId),
                 settlement.VehicleId,
                 settlement.Deadline,
-                settlement.Amount));
+                settlement.Amount, nameof(SettlementReminder), settlement.Id));
         }
 
         foreach (var payment in payments.Where(payment => ReminderRules.IsPaymentBankFollowUpDue(payment, today)))
@@ -2167,7 +2167,7 @@ public static class ReminderInbox
                 PlateFor(vehicleById, payment.VehicleId),
                 payment.VehicleId,
                 payment.BankFollowUpDate!.Value,
-                payment.NettPrice));
+                payment.NettPrice, nameof(PaymentRecord), payment.Id));
         }
 
         foreach (var payment in payments.Where(payment => ReminderRules.IsPaymentStatusFollowUpDue(payment, today)))
@@ -2178,7 +2178,7 @@ public static class ReminderInbox
                 PlateFor(vehicleById, payment.VehicleId),
                 payment.VehicleId,
                 DateOnly.FromDateTime(payment.CreatedAt.ToUniversalTime()),
-                payment.NettPrice));
+                payment.NettPrice, nameof(PaymentRecord), payment.Id));
         }
 
         foreach (var spend in dailySpends.Where(spend => ReminderRules.IsDailySpendDue(spend, today) || IsDailySpendDueSoon(spend, today)))
@@ -2189,7 +2189,7 @@ public static class ReminderInbox
                 "General",
                 Guid.Empty,
                 spend.DueDate,
-                spend.Amount));
+                spend.Amount, nameof(DailySpend), spend.Id));
         }
 
         foreach (var debt in debtRecoveries.Where(debt => ReminderRules.IsDebtRecoveryFollowUpDue(debt, today)))
@@ -2200,7 +2200,7 @@ public static class ReminderInbox
                 PlateFor(vehicleById, debt.VehicleId),
                 debt.VehicleId,
                 debt.FollowUpDate,
-                debt.BalanceAmount));
+                debt.BalanceAmount, nameof(DebtRecoveryCase), debt.Id));
         }
 
         foreach (var voucher in paymentVouchers.Where(voucher => ReminderRules.IsPaymentVoucherFollowUpDue(voucher, today)))
@@ -2211,7 +2211,7 @@ public static class ReminderInbox
                 PlateFor(vehicleById, voucher.VehicleId),
                 voucher.VehicleId,
                 voucher.IssuedDate,
-                voucher.Amount));
+                voucher.Amount, nameof(PaymentVoucher), voucher.Id));
         }
 
         return reminders.OrderBy(reminder => reminder.DueDate).ThenBy(reminder => reminder.Type).ToList();
@@ -2659,7 +2659,7 @@ public static class PriorityActionQueue
         var reminders = ReminderInbox.Create(loans, deliveries, settlements, payments, dailySpends, debtRecoveries, paymentVouchers, vehicles, today);
 
         void AddReminders(IEnumerable<ReminderItem> source, string target) =>
-            items.AddRange(source.Select(item => new PriorityActionItem(item.Type, item.Title, target, item.DueDate, item.VehiclePlate, item.Amount)));
+            items.AddRange(source.Select(item => new PriorityActionItem(item.Type, item.Title, target, item.DueDate, item.VehiclePlate, item.Amount, item.SourceType, item.SourceId, item.VehicleId == Guid.Empty ? null : item.VehicleId)));
 
         if (isBoss || roleSet.Contains("Loan")) AddReminders(reminders.Where(item => item.Type == "LoanFollowUp"), "Loans");
         if (isBoss || roleSet.Contains("Delivery")) AddReminders(reminders.Where(item => item.Type == "DeliveryPreparation"), "Delivery");
@@ -2677,13 +2677,14 @@ public static class PriorityActionQueue
                         : today,
                     vehicleById.TryGetValue(delivery.VehicleId, out var vehicle)
                         ? $"{vehicle.PlateNumber}: {delivery.InvoiceUpdateRequestReason}"
-                        : delivery.InvoiceUpdateRequestReason)));
+                        : delivery.InvoiceUpdateRequestReason,
+                    SourceType: nameof(DeliverySchedule), SourceId: delivery.Id, VehicleId: delivery.VehicleId)));
         }
 
         if (isBoss || roleSet.Contains("Sales"))
         {
             items.AddRange(leads.Where(lead => lead.Status == LeadStatus.New)
-                .Select(lead => new PriorityActionItem("LeadFollowUp", "New enquiry needs first contact", "Leads", DateOnly.FromDateTime(lead.CreatedAt.ToUniversalTime()), lead.CustomerName)));
+                .Select(lead => new PriorityActionItem("LeadFollowUp", "New enquiry needs first contact", "Leads", DateOnly.FromDateTime(lead.CreatedAt.ToUniversalTime()), lead.CustomerName, SourceType: nameof(Lead), SourceId: lead.Id, VehicleId: lead.VehicleId)));
         }
 
         if (isBoss || roleSet.Contains("Repair"))
@@ -2694,13 +2695,14 @@ public static class PriorityActionQueue
                     repair.ExpectedCompletionDate is { } expected && expected < today ? "Repair work overdue" : "Repair work in progress",
                     "Repairs",
                     repair.ExpectedCompletionDate ?? DateOnly.FromDateTime(repair.CreatedAt.ToUniversalTime()),
-                    vehicleById.TryGetValue(repair.VehicleId, out var vehicle) ? vehicle.PlateNumber : "Unknown")));
+                    vehicleById.TryGetValue(repair.VehicleId, out var vehicle) ? vehicle.PlateNumber : "Unknown",
+                    SourceType: nameof(RepairJob), SourceId: repair.Id, VehicleId: repair.VehicleId)));
         }
 
         if (isBoss || roleSet.Contains("HrSalary"))
         {
             items.AddRange(leaveRequests.Where(request => request.Status == HrLeaveStatus.Pending)
-                .Select(request => new PriorityActionItem("LeaveApproval", "Leave request awaiting decision", "HrSalary", request.StartDate, request.Type.ToString())));
+                .Select(request => new PriorityActionItem("LeaveApproval", "Leave request awaiting decision", "HrSalary", request.StartDate, request.Type.ToString(), SourceType: nameof(HrLeaveRequest), SourceId: request.Id)));
         }
 
         return items.OrderBy(item => item.DueDate).ThenBy(item => item.Type).ToList();

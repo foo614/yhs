@@ -1,4 +1,4 @@
-import type { DashboardAnalyticsPeriod, DashboardReminder, DashboardReminderFilters, PriorityActionItem, Vehicle } from "./api";
+import type { ActionRecordIdentity, DashboardAnalyticsPeriod, DashboardReminder, DashboardReminderFilters, PriorityActionItem, Vehicle } from "./api";
 
 export type ReminderDueFilter = NonNullable<DashboardReminderFilters["due"]>;
 
@@ -128,12 +128,17 @@ export function urgentDashboardReminders(reminders: DashboardReminder[], today =
     });
 }
 
+export function dashboardActionKey(item: ActionRecordIdentity & { type: string }, fallback: string) {
+  const sourceType = item.sourceType?.trim();
+  const sourceId = item.sourceId?.trim().toLowerCase();
+  if (!sourceType || !sourceId || sourceId === "00000000-0000-0000-0000-000000000000") return fallback;
+  return `record:${JSON.stringify([item.type, sourceType, sourceId])}`;
+}
+
 export function dashboardPriorityEntries(reminders: DashboardReminder[], priorityActions: PriorityActionItem[], today = todayIsoDate()): DashboardPriorityEntry[] {
-  const equivalenceKey = (entry: Pick<DashboardPriorityEntry, "type" | "subject" | "dueDate">) =>
-    `${entry.type}:${(entry.subject ?? "").toLocaleUpperCase().replace(/[^A-Z0-9]/g, "")}:${entry.dueDate}`;
-  const reminderEntries = urgentDashboardReminders(reminders, today).map((reminder): DashboardPriorityEntry => ({
+  const reminderEntries = urgentDashboardReminders(reminders, today).map((reminder, index): DashboardPriorityEntry => ({
     source: "reminder",
-    key: `reminder:${reminder.type}:${reminder.vehicleId}:${reminder.dueDate}`,
+    key: dashboardActionKey(reminder, `reminder:${index}`),
     type: reminder.type,
     title: reminder.title,
     subject: reminder.vehiclePlate,
@@ -141,9 +146,9 @@ export function dashboardPriorityEntries(reminders: DashboardReminder[], priorit
     amount: reminder.amount,
     target: dashboardReminderTarget(reminder)
   }));
-  const actionEntries = priorityActions.map((action): DashboardPriorityEntry => ({
+  const actionEntries = priorityActions.map((action, index): DashboardPriorityEntry => ({
     source: "action",
-    key: `action:${action.type}:${action.subject ?? ""}:${action.dueDate}`,
+    key: dashboardActionKey(action, `action:${index}`),
     type: action.type,
     title: action.title,
     subject: action.subject,
@@ -151,10 +156,21 @@ export function dashboardPriorityEntries(reminders: DashboardReminder[], priorit
     amount: action.amount,
     target: priorityActionTarget(action)
   }));
-
-  return [...actionEntries, ...reminderEntries]
-    .filter((entry, index, entries) => entries.findIndex((candidate) => equivalenceKey(candidate) === equivalenceKey(entry)) === index)
+  const entries = new Map<string, DashboardPriorityEntry>();
+  for (const entry of [...actionEntries, ...reminderEntries]) {
+    const existing = entries.get(entry.key);
+    if (!existing) entries.set(entry.key, entry);
+    else if (actionTargetSpecificity(entry.target) > actionTargetSpecificity(existing.target)) existing.target = entry.target;
+  }
+  return [...entries.values()]
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || (right.amount ?? 0) - (left.amount ?? 0));
+}
+
+function actionTargetSpecificity(target: string) {
+  const params = new URLSearchParams(target.split("?")[1]);
+  if (params.has("loanId") || params.has("deliveryId")) return 3;
+  if (params.has("vehicleId")) return 2;
+  return target.includes("?") ? 1 : 0;
 }
 
 export function sidebarActionBadges(reminders: DashboardReminder[], priorityActions: PriorityActionItem[], today = todayIsoDate()) {
@@ -177,23 +193,30 @@ export function sidebarActionBadges(reminders: DashboardReminder[], priorityActi
   }, {});
 }
 
-export function dashboardReminderTarget(reminder: Pick<DashboardReminder, "type" | "vehicleId">) {
+export function dashboardReminderTarget(reminder: ActionRecordIdentity & Pick<DashboardReminder, "type"> & { vehicleId?: string | null }) {
+  const vehicleId = reminder.vehicleId && reminder.vehicleId !== "00000000-0000-0000-0000-000000000000" ? reminder.vehicleId : undefined;
+  const vehicleQuery = vehicleId ? `&vehicleId=${encodeURIComponent(vehicleId)}` : "";
+  const sourceId = reminder.sourceId?.trim();
+  const hasSource = sourceId && sourceId !== "00000000-0000-0000-0000-000000000000";
   switch (reminder.type) {
     case "LoanFollowUp":
-      return `/loans?vehicleId=${encodeURIComponent(reminder.vehicleId)}`;
+      if (reminder.sourceType === "LoanApplication" && hasSource) return `/loans?loanId=${encodeURIComponent(sourceId)}`;
+      return vehicleId ? `/loans?vehicleId=${encodeURIComponent(vehicleId)}` : "/loans?status=Pending";
     case "DeliveryPreparation":
-      return `/delivery?vehicleId=${encodeURIComponent(reminder.vehicleId)}`;
+      if (reminder.sourceType === "DeliverySchedule" && hasSource) return `/delivery?deliveryId=${encodeURIComponent(sourceId)}`;
+      return vehicleId ? `/delivery?vehicleId=${encodeURIComponent(vehicleId)}` : "/delivery";
     case "SettlementDue":
-      return `/finance?tab=settlements&vehicleId=${encodeURIComponent(reminder.vehicleId)}&attention=due`;
+    case "SettlementCollectionDue":
+      return `/finance?tab=settlements${vehicleQuery}&attention=due`;
     case "PaymentBankFollowUp":
     case "PaymentStatusFollowUp":
-      return `/finance?tab=payments&vehicleId=${encodeURIComponent(reminder.vehicleId)}&attention=open`;
+      return `/finance?tab=payments${vehicleQuery}&attention=open`;
     case "DailySpendDue":
       return "/finance?tab=daily&attention=dueSoon";
     case "DebtRecoveryFollowUp":
-      return `/finance?tab=debt&vehicleId=${encodeURIComponent(reminder.vehicleId)}&attention=open`;
+      return `/finance?tab=debt${vehicleQuery}&attention=open`;
     case "PaymentVoucherFollowUp":
-      return `/finance?tab=vouchers&vehicleId=${encodeURIComponent(reminder.vehicleId)}&attention=open`;
+      return `/finance?tab=vouchers${vehicleQuery}&attention=open`;
   }
 }
 
@@ -205,24 +228,18 @@ export function financeRiskTarget(label: string) {
   return "/finance?tab=payments&attention=open";
 }
 
-export function priorityActionTarget(action: Pick<PriorityActionItem, "type" | "target">) {
+export function priorityActionTarget(action: Pick<PriorityActionItem, "type" | "target" | "vehicleId" | "sourceType" | "sourceId">) {
   switch (action.type) {
     case "LoanFollowUp":
-      return "/loans?status=Pending";
     case "DeliveryPreparation":
-      return "/delivery";
     case "SettlementDue":
     case "SettlementCollectionDue":
-      return "/finance?tab=settlements&attention=due";
     case "PaymentBankFollowUp":
     case "PaymentStatusFollowUp":
-      return "/finance?tab=payments&attention=open";
     case "DailySpendDue":
-      return "/finance?tab=daily&attention=dueSoon";
     case "DebtRecoveryFollowUp":
-      return "/finance?tab=debt&attention=open";
     case "PaymentVoucherFollowUp":
-      return "/finance?tab=vouchers&attention=open";
+      return dashboardReminderTarget({ ...action, type: action.type });
     case "DeliveryInvoiceUpdate":
       return "/finance?tab=payments&attention=open";
     case "LeadFollowUp":
