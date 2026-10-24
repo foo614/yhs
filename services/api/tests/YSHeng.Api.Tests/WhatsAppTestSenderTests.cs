@@ -28,18 +28,20 @@ public sealed class WhatsAppTestSenderTests
     }
 
     [Theory]
-    [InlineData(WhatsAppReminderV2.Due, "BossAdmin", "OutstandingDigest", 9)]
-    [InlineData(WhatsAppReminderV2.Delivery, "Sales", "OutstandingDigest", 4)]
-    [InlineData(WhatsAppReminderV2.Leave, "HrSalary", "LeaveApproval", 3)]
-    [InlineData(WhatsAppReminderV2.Attendance, "BossAdmin", "AttendanceSummary", 8)]
-    public async Task Reminder_v2_sender_submits_fixed_metric_parameters_and_blocks_invalid_values(string key, string role, string category, int count)
+    [InlineData(WhatsAppReminderV2.Due, "BossAdmin", "OutstandingDigest", 9, "ysheng_due_summary_v2_en", "ysheng_due_summary_v2_ms")]
+    [InlineData(WhatsAppReminderV2.Delivery, "Sales", "OutstandingDigest", 4, "ysheng_delivery_summary_v2_en", "ysheng_delivery_summary_v2_ms")]
+    [InlineData(WhatsAppReminderV2.Leave, "HrSalary", "LeaveApproval", 3, "ysheng_leave_summary_v2_en", "ysheng_leave_summary_v2_ms")]
+    [InlineData(WhatsAppReminderV2.Attendance, "BossAdmin", "AttendanceSummary", 8, "ysheng_attendance_summary_v2_en", "ysheng_attendance_summary_v2_ms")]
+    public async Task Reminder_v2_sender_submits_fixed_metric_parameters_and_blocks_invalid_values(string key, string role, string category, int count,
+        string englishName, string malayName)
     {
         using var handler = new StubHandler();
         using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
         foreach (var providerLanguage in new[] { "ms", "en_US", "en" })
         {
             var language = providerLanguage == "en" ? "en_US" : providerLanguage;
-            var manifest = new WhatsAppApprovedTemplate { Key = key, Name = key, Language = language, ProviderLanguage = providerLanguage, Approved = true,
+            var expectedName = language == "ms" ? malayName : englishName;
+            var manifest = new WhatsAppApprovedTemplate { Key = key, Name = expectedName, Language = language, ProviderLanguage = providerLanguage, Approved = true,
                 ApprovalEvidence = "synthetic approval", BodyText = WhatsAppReminderV2.BodyText(key, language),
                 PortalUrl = "https://yshenghub.com.my" + (key is WhatsAppReminderV2.Leave or WhatsAppReminderV2.Attendance
                     ? "/hr-salary" : key == WhatsAppReminderV2.Delivery ? "/delivery" : "/dashboard") };
@@ -48,6 +50,7 @@ public sealed class WhatsAppTestSenderTests
                 MessageKind = category, TemplateReference = JsonSerializer.Serialize(values), Body = WhatsAppReminderV2.Render(key, language, values)! };
             Assert.Equal("Accepted", (await sender.SendAsync(StaffOptions(manifest), item)).Outcome);
             using var payload = JsonDocument.Parse(handler.Body!);
+            Assert.Equal(expectedName, payload.RootElement.GetProperty("template").GetProperty("name").GetString());
             Assert.Equal(providerLanguage, payload.RootElement.GetProperty("template").GetProperty("language").GetProperty("code").GetString());
             var components = payload.RootElement.GetProperty("template").GetProperty("components");
             Assert.Equal(count, components[0].GetProperty("parameters").GetArrayLength());

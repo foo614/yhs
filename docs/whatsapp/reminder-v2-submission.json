@@ -1,6 +1,6 @@
 [
   {
-    "name": "ysheng_due_summary_v2",
+    "name": "ysheng_due_summary_v2_en",
     "language": "en_US",
     "category": "UTILITY",
     "parameter_format": "POSITIONAL",
@@ -37,7 +37,7 @@
     ]
   },
   {
-    "name": "ysheng_due_summary_v2",
+    "name": "ysheng_due_summary_v2_ms",
     "language": "ms",
     "category": "UTILITY",
     "parameter_format": "POSITIONAL",
@@ -74,7 +74,7 @@
     ]
   },
   {
-    "name": "ysheng_delivery_summary_v2",
+    "name": "ysheng_delivery_summary_v2_en",
     "language": "en_US",
     "category": "UTILITY",
     "parameter_format": "POSITIONAL",
@@ -106,7 +106,7 @@
     ]
   },
   {
-    "name": "ysheng_delivery_summary_v2",
+    "name": "ysheng_delivery_summary_v2_ms",
     "language": "ms",
     "category": "UTILITY",
     "parameter_format": "POSITIONAL",
@@ -138,7 +138,7 @@
     ]
   },
   {
-    "name": "ysheng_leave_summary_v2",
+    "name": "ysheng_leave_summary_v2_en",
     "language": "en_US",
     "category": "UTILITY",
     "parameter_format": "POSITIONAL",
@@ -169,7 +169,7 @@
     ]
   },
   {
-    "name": "ysheng_leave_summary_v2",
+    "name": "ysheng_leave_summary_v2_ms",
     "language": "ms",
     "category": "UTILITY",
     "parameter_format": "POSITIONAL",
@@ -200,7 +200,7 @@
     ]
   },
   {
-    "name": "ysheng_attendance_summary_v2",
+    "name": "ysheng_attendance_summary_v2_en",
     "language": "en_US",
     "category": "UTILITY",
     "parameter_format": "POSITIONAL",
@@ -236,7 +236,7 @@
     ]
   },
   {
-    "name": "ysheng_attendance_summary_v2",
+    "name": "ysheng_attendance_summary_v2_ms",
     "language": "ms",
     "category": "UTILITY",
     "parameter_format": "POSITIONAL",

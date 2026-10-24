@@ -29,6 +29,8 @@ public sealed class WhatsAppOutboxTests
     [InlineData("unapproved")]
     [InlineData("wrong-body")]
     [InlineData("wrong-origin")]
+    [InlineData("wrong-name")]
+    [InlineData("unsuffixed")]
     [InlineData("wrong-language")]
     [InlineData("duplicate")]
     public async Task Reminder_v2_activation_preserves_full_counts_privacy_and_one_daily_send(string mode)
@@ -61,7 +63,8 @@ public sealed class WhatsAppOutboxTests
         {
             if (mode == "missing") continue;
             var language = mode == "wrong-language" ? "en_US" : "ms";
-            var entry = new WhatsAppApprovedTemplate { Key = key, Name = key, Language = language,
+            var name = mode == "wrong-name" ? key + "_en" : mode == "unsuffixed" ? key : WhatsAppReminderV2.NameFor(key, language);
+            var entry = new WhatsAppApprovedTemplate { Key = key, Name = name, Language = language,
                 Approved = mode != "unapproved", ApprovalEvidence = "synthetic exact-body and button approval",
                 BodyText = mode == "wrong-body" ? "Unapproved text" : WhatsAppReminderV2.BodyText(key, language),
                 PortalUrl = (mode == "wrong-origin" ? "https://wrong.example.test" : "https://yshenghub.com.my") +
@@ -108,7 +111,8 @@ public sealed class WhatsAppOutboxTests
             Assert.Equal(1, row.Attempts);
             Assert.Equal("Accepted", row.State);
             Assert.NotNull(row.SubmittedBody);
-            Assert.Equal(mode == "approved", WhatsAppReminderV2.Known(row.SubmittedTemplateName!));
+            Assert.Equal(mode == "approved" ? WhatsAppReminderV2.NameFor(WhatsAppReminderV2.KeyFor(row)!, row.Language) :
+                "approved_staff_notice", row.SubmittedTemplateName);
         });
     }
 
@@ -126,7 +130,7 @@ public sealed class WhatsAppOutboxTests
         db.SettlementReminders.Add(new SettlementReminder { Deadline = day, Amount = 99999, Direction = SettlementDirection.PaySeller });
         await db.SaveChangesAsync();
         await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "OutstandingDigest", new(true, 0, 3, 0), "admin", Now);
-        var template = new WhatsAppApprovedTemplate { Key = WhatsAppReminderV2.Delivery, Name = WhatsAppReminderV2.Delivery,
+        var template = new WhatsAppApprovedTemplate { Key = WhatsAppReminderV2.Delivery, Name = "ysheng_delivery_summary_v2_en",
             Language = "en_US", Approved = true, ApprovalEvidence = "synthetic approval",
             BodyText = WhatsAppReminderV2.BodyText(WhatsAppReminderV2.Delivery, "en_US"), PortalUrl = "https://yshenghub.com.my/delivery" };
         var current = new WhatsAppOutbox { Audience = "Staff", EventKind = "staff.notification", MessageKind = "OutstandingDigest",
@@ -156,7 +160,7 @@ public sealed class WhatsAppOutboxTests
         await db.SaveChangesAsync();
         await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(db, assistant, now, "scheduler");
         var templates = StaffDispatch().Templates.Append(new WhatsAppApprovedTemplate { Key = WhatsAppReminderV2.Due,
-            Name = WhatsAppReminderV2.Due, Language = "ms", Approved = true, ApprovalEvidence = "synthetic approval",
+            Name = "ysheng_due_summary_v2_ms", Language = "ms", Approved = true, ApprovalEvidence = "synthetic approval",
             BodyText = WhatsAppReminderV2.BodyText(WhatsAppReminderV2.Due, "ms"), PortalUrl = "https://yshenghub.com.my/dashboard" }).ToArray();
         var calls = 0;
         Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(templates), (item, _) =>

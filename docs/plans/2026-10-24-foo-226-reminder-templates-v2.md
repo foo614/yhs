@@ -6,7 +6,10 @@ Separate initiative from FOO-224, FOO-225 and Customer 360. This branch does not
 merge or deploy their changes. No template submission, production configuration
 change, real recipient send, merge or deployment is authorized here.
 
-Use four category-specific templates in both `ms` and `en_US`, proposed category
+Use four category-specific designs with eight distinct provider template names,
+one English name ending in `_en` and one Malay name ending in `_ms` per design.
+The user's Meta flow requires separate names per language. Language codes remain
+`ms` and `en_US`, proposed category
 `UTILITY`. Meta must confirm the category and approve each exact language variant.
 Do not silently accept recategorization, change language codes or rewrite approved
 bodies at activation. A generic variable-heavy template makes the three categories
@@ -40,7 +43,12 @@ parameters. Body line breaks are literal static template text. Every runtime bod
 variable is a nonempty single line, at most 64 characters, without control characters,
 braces or repeated spaces. No empty record slots or per-record paid templates.
 
-| Name (also internal key) | Recipient scope | Variables in order | Example values (`en_US`) |
+Provider names are language-specific. Internal category keys in the following
+mapping table remain stable across languages and are not Meta submission names.
+The manifest validates the exact provider name for its logical language; an old
+unsuffixed name or the other language's name uses v1 fallback.
+
+| Internal category key | Recipient scope | Variables in order | Example values (`en_US`) |
 | --- | --- | --- | --- |
 | `ysheng_due_summary_v2` | BossAdmin, existing due-work window | As-of date; inclusive through date; all due items; overdue items; seller payment count; seller payment total; seller collection count; seller collection total; other item count | `24 Oct 2026`, `27 Oct 2026`, `14`, `11`, `12`, `RM600,000`, `1`, `RM1,234.50`, `1` |
 | `ysheng_delivery_summary_v2` | Sales, own assigned deliveries | As-of date; inclusive through date; own due deliveries; overdue deliveries | `24 Oct 2026`, `27 Oct 2026`, `4`, `1` |
@@ -106,7 +114,8 @@ workarounds. Verify static line breaks and every example in Meta's template prev
    in the change record. Check these again immediately before activation.
 3. Keep both existing production v1 mappings active. Add only approved v2 entries
    to `WhatsApp:Templates` using unused indices, separately from this PR. Each entry
-   needs `Key`, `Name` (equal to the exact name above), `Language`, `Approved=true`,
+   needs `Key` (internal category key), `Name` (exact language-specific provider name
+   in the checklist below), `Language`, `Approved=true`,
    `ApprovalEvidence`, `BodyText` (exact static body) and `PortalUrl` (exact approved
    button destination). Request `ms` or `en_US` as in the pack. If Meta instead
    approves English as `en`, explicitly set `ProviderLanguage=en` on that approved
@@ -140,11 +149,28 @@ workarounds. Verify static line breaks and every example in Meta's template prev
 
 ## Submission and activation checklist
 
+Create eight separate templates with the exact names and language codes below.
+All request category `UTILITY`, use the exact static body/examples in the JSON
+pack, no header/footer and one static URL button. English button text is `Open
+Portal`; Malay button text is `Buka Portal`. English `en` is permitted only when
+that is the actual approved provider code; the internal language stays `en_US`.
+
+| Exact Meta name | Requested language | Static button URL |
+| --- | --- | --- |
+| `ysheng_due_summary_v2_en` | `en_US` | `https://yshenghub.com.my/dashboard` |
+| `ysheng_due_summary_v2_ms` | `ms` | `https://yshenghub.com.my/dashboard` |
+| `ysheng_delivery_summary_v2_en` | `en_US` | `https://yshenghub.com.my/delivery` |
+| `ysheng_delivery_summary_v2_ms` | `ms` | `https://yshenghub.com.my/delivery` |
+| `ysheng_leave_summary_v2_en` | `en_US` | `https://yshenghub.com.my/hr-salary` |
+| `ysheng_leave_summary_v2_ms` | `ms` | `https://yshenghub.com.my/hr-salary` |
+| `ysheng_attendance_summary_v2_en` | `en_US` | `https://yshenghub.com.my/hr-salary` |
+| `ysheng_attendance_summary_v2_ms` | `ms` | `https://yshenghub.com.my/hr-salary` |
+
 - Reconfirm the approved HTTPS Portal origin is `https://yshenghub.com.my`.
 - Confirm staff reminder eligibility under the current Meta category rules; the
   requested category is `UTILITY`, not an approval claim.
-- Submit each of four names in both `ms` and `en_US`; verify actual approved provider
-  codes and explicitly configure `en` only if Meta approved that English variant.
+- Submit the eight names above separately; verify actual approved provider codes
+  and explicitly configure `en` only if Meta approved that English variant.
   Include examples for every variable, no header/footer and one static button.
 - Confirm real line breaks in the body, nonempty one-line values, zero values,
   date localization, full-set counts and separate payment/collection totals.
@@ -166,7 +192,7 @@ No new UI means no responsive UI acceptance run is needed.
 
 Local checks on 24 October 2026:
 
-- Full API suite: 799 passed; one PostgreSQL integration test skipped because
+- Full API suite: 801 passed; one PostgreSQL integration test skipped because
   `WHATSAPP_TEST_POSTGRES` was not configured. Synthetic SQLite outbox/dispatcher
   and HTTP sender coverage passed. This does not claim PostgreSQL runtime proof.
 - API Release build passed. Existing `System.Security.Cryptography.Pkcs` NuGet
@@ -181,9 +207,13 @@ Local checks on 24 October 2026:
 - `git diff --check` passed. Independent read-only CLI review identified the
   activation configuration path, explicit English alias and exact Portal-origin
   validation. These were addressed. The wrong-origin regression failed before
-  the fix and passed after it; all 16 focused v2 cases pass. The final focused
+  the fix and passed after it; all 18 focused v2 cases pass, including unsuffixed
+  and wrong-language provider-name fallback. The final focused
   re-review confirmed the exact destination check and fallback coverage with no
-  remaining actionable findings. No model reviewer ran mutations or tests.
+  remaining actionable findings. A further focused review of the language-specific
+  names found no actionable defects in provider names, stable internal keys,
+  explicit English alias, sender payloads or fallback/deduplication.
+  No model reviewer ran mutations or tests.
 
 No live provider send or current Meta approval is asserted by these tests.
 
@@ -191,7 +221,7 @@ No live provider send or current Meta approval is asserted by these tests.
 
 The following bodies are copied from the code contract and match the JSON pack.
 
-### ysheng_due_summary_v2 (en_US)
+### ysheng_due_summary_v2_en (en_US)
 
 ```text
 YS Heng due work | {{1}}
@@ -205,7 +235,7 @@ Review all items in Portal before taking action.
 
 Button: `https://yshenghub.com.my/dashboard`
 
-### ysheng_due_summary_v2 (ms)
+### ysheng_due_summary_v2_ms (ms)
 
 ```text
 Urusan perlu tindakan YS Heng | {{1}}
@@ -219,7 +249,7 @@ Semak semua urusan di Portal sebelum mengambil tindakan.
 
 Button: `https://yshenghub.com.my/dashboard`
 
-### ysheng_delivery_summary_v2 (en_US)
+### ysheng_delivery_summary_v2_en (en_US)
 
 ```text
 YS Heng assigned deliveries | {{1}}
@@ -231,7 +261,7 @@ Review preparation and handover steps in Portal.
 
 Button: `https://yshenghub.com.my/delivery`
 
-### ysheng_delivery_summary_v2 (ms)
+### ysheng_delivery_summary_v2_ms (ms)
 
 ```text
 Penghantaran tugasan YS Heng | {{1}}
@@ -243,7 +273,7 @@ Semak persediaan dan langkah serahan di Portal.
 
 Button: `https://yshenghub.com.my/delivery`
 
-### ysheng_leave_summary_v2 (en_US)
+### ysheng_leave_summary_v2_en (en_US)
 
 ```text
 YS Heng leave approvals | {{1}}
@@ -254,7 +284,7 @@ Open Portal to review all requests and decide.
 
 Button: `https://yshenghub.com.my/hr-salary`
 
-### ysheng_leave_summary_v2 (ms)
+### ysheng_leave_summary_v2_ms (ms)
 
 ```text
 Kelulusan cuti YS Heng | {{1}}
@@ -265,7 +295,7 @@ Buka Portal untuk menyemak semua permohonan dan membuat keputusan.
 
 Button: `https://yshenghub.com.my/hr-salary`
 
-### ysheng_attendance_summary_v2 (en_US)
+### ysheng_attendance_summary_v2_en (en_US)
 
 ```text
 YS Heng attendance | {{1}}
@@ -281,7 +311,7 @@ Schedule coverage unverified. No check-in is not an absence decision. Review in 
 
 Button: `https://yshenghub.com.my/hr-salary`
 
-### ysheng_attendance_summary_v2 (ms)
+### ysheng_attendance_summary_v2_ms (ms)
 
 ```text
 Kehadiran YS Heng | {{1}}

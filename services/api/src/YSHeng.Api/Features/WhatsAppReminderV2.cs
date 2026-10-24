@@ -15,6 +15,12 @@ public static class WhatsAppReminderV2
     public const string Attendance = "ysheng_attendance_summary_v2";
 
     public static bool Known(string key) => key is Due or Delivery or Leave or Attendance;
+    public static string NameFor(string key, string language) => Known(key) ? language switch
+    {
+        "en_US" => key + "_en",
+        "ms" => key + "_ms",
+        _ => ""
+    } : "";
     public static string? KeyFor(WhatsAppOutbox item) => (item.MessageKind, item.RequiredStaffRole) switch
     {
         ("OutstandingDigest", "BossAdmin") => Due,
@@ -37,7 +43,7 @@ public static class WhatsAppReminderV2
         _ => ""
     };
 
-    public static bool ValidManifest(WhatsAppApprovedTemplate template) => template.Name == template.Key &&
+    public static bool ValidManifest(WhatsAppApprovedTemplate template) => template.Name == NameFor(template.Key, template.Language) &&
         template.BodyText == BodyText(template.Key, template.Language) && template.BodyText.Length > 0 &&
         template.PortalUrl == "https://yshenghub.com.my" +
             (template.Key is Leave or Attendance ? "/hr-salary" : template.Key == Delivery ? "/delivery" : "/dashboard");
