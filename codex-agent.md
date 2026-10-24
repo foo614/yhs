@@ -33,15 +33,15 @@ Local URLs and validation commands live in the domain skills. Project-shared beh
 
 ## Repo-wide workflow routing
 
-This is the shared model policy for all project and auxiliary workflows. Choose by scope and consequence; the primary session defaults to GPT-5.6 Sol at Medium when no explicit user selection overrides it. These shared defaults were verified against the installed CLI catalog. Desktop and CLI catalogs can differ; verify availability in the intended client before changing model IDs.
+This is the shared model policy for all project and auxiliary workflows. The user selected GPT-6.1 Sol for this project, so the primary session and reusable agents default to that model. Choose reasoning effort by scope and consequence. Desktop and CLI catalogs can differ; verify availability in the intended client and report an unavailable model rather than silently substituting another one.
 
 | Work | Model | Reasoning |
 | --- | --- | --- |
-| Bounded file discovery or straightforward documentation | `gpt-5.6-luna` | Low |
-| Small implementation with clear behavior and existing patterns | `gpt-5.6-luna` | High |
-| Features across several files or substantial debugging | `gpt-5.6-sol` | Medium |
-| Independent correctness, UX, business-process, or security review | `gpt-5.6-sol` | High |
-| Difficult architecture or an investigation blocked after focused attempts | `gpt-6-astra` when available; otherwise `gpt-5.6-sol` | Low for Astra; High for Sol; increase only when justified |
+| Bounded file discovery or straightforward documentation | `gpt-6.1-sol` | Low |
+| Small implementation with clear behavior and existing patterns | `gpt-6.1-sol` | Medium |
+| Features across several files or substantial debugging | `gpt-6.1-sol` | Medium |
+| Independent correctness, UX, business-process, or security review | `gpt-6.1-sol` | High |
+| Difficult architecture or an investigation blocked after focused attempts | `gpt-6.1-sol` | High; increase only for a concrete unresolved reasoning problem |
 
 - Set both `model` and `model_reasoning_effort` in `.codex/agents/*.toml`; `.codex/config.toml` supplies primary and generic subagent defaults. Keep these settings aligned with this table.
 - Respect the user's selected model. Markdown cannot switch an active session. Apply routing when selecting a supported session or subagent model; do not create extra chats or agents just to change models.
@@ -66,6 +66,8 @@ Personal integrations such as external code search, web research, and hosted MCP
 - Use the main agent alone for small tasks. For larger work, delegate only a bounded independent subtask or a justified independent review; normally use at most two concurrent subagents.
 - Give each subagent a concrete question or deliverable, required context, scope or owned files, and a short result format. Prefer a small brief over copying the full conversation when it is sufficient.
 - Reuse an existing subagent for related work. The main agent integrates its findings, resolves disagreements, verifies the result, and returns one combined response; do not repeat the same exploration or review without a reason.
+- Use the fixed project roles and reuse procedure in `docs/CODEX_LOOP_ENGINEERING.md`. Reuse an addressable agent for the same workstream before spawning another; create a fresh instance for unrelated scope or when the prior instance is unavailable. Profiles persist in the repository, while a new instance needs a concise current handoff and does not automatically inherit another instance's conversation.
+- For frontend work, UI/UX is a primary acceptance concern. Use the UI/UX reviewer for a bounded design or interaction assessment when needed, and verify affected phone, tablet, and desktop layouts with populated states. Do not launch every specialist for every task.
 - Subagents run in child agent threads. A separate thread does not isolate the filesystem: avoid overlapping edits, and tell workers to preserve others' changes. Independent feature work needs separate worktrees under the branching strategy.
 - Create a standalone user-visible chat only when the user asks. Do not create one merely to delegate a subtask.
 

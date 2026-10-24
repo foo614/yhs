@@ -26,6 +26,31 @@ Use this as the project-shared operating guide for Codex automations, worktrees,
 | State | Codex Triage, GitHub issues/PRs, or a small repo doc when a loop needs shared state |
 | Guardrails | `.codex/config.toml` hooks plus the high-risk gates in `codex-agent.md` |
 
+## Reusable Project Team
+
+Keep these role definitions in `.codex/agents/` and reuse their names. The primary agent owns scope, coordination, integration, release authorization, and the combined user-facing result; it can handle small tasks without delegation.
+
+| Agent | Responsibility | Use when |
+| --- | --- | --- |
+| `ysheng_explorer` | Read-only file, contract, and evidence mapping | A bounded codebase question needs discovery |
+| `ysheng_implementer` | Approved changes in explicitly owned files | A coherent implementation can be delegated independently |
+| `ysheng_reviewer` | Independent correctness and regression review | A non-trivial diff needs a checker |
+| `ysheng_uiux_reviewer` | Read-only task flow, layout, and interaction review | Frontend work needs design input or visual acceptance |
+| `ysheng_security_reviewer` | Read-only trust-boundary review | The change has a distinct auth, finance, file, data, or deployment risk |
+| `ysheng_admin_process_reviewer` | Read-only dealership workflow and handoff review | The requested scope changes operational process or module responsibilities |
+
+All profiles use the project's selected GPT-6.1 Sol model. Reasoning defaults and escalation policy live in `codex-agent.md`; the primary and generic subagent defaults live in `.codex/config.toml`. Keep at most two child agents active at once. Choose only the roles that add independent value, and serialize work that overlaps files or contracts.
+
+For each delegation:
+
+1. Inspect the agents already available in the current task. Continue or resume an addressable agent for the same workstream through the client's supported controls before creating a replacement. Do not send simultaneous independent assignments to one running agent.
+2. Give a concise handoff: objective and authority, owned files/worktree, current revision and decisions, existing evidence, unresolved question, acceptance, and verification gaps. Do not copy an entire old conversation or repeat completed discovery.
+3. Create a fresh instance of the same project role when the previous instance is unavailable, the scope is unrelated, or independent review requires a different checker. Record the useful handoff in the issue/PR when it must survive across chats. A saved role is a reusable configuration, not a permanently running agent or automatic cross-chat memory.
+4. Preserve maker/checker independence. Reuse a reviewer for related follow-up review, but do not ask the implementation author to approve its own changes. For frontend work, treat phone/tablet/desktop task completion and visible states as primary evidence alongside relevant code checks.
+5. Return one short integrated result to the user. Create a separate user-visible chat only when requested, not merely to use a specialist role.
+
+Custom profiles inherit the parent's permissions; read-only role instructions do not create a separate sandbox. Do not add permission overrides to agent files or use role reuse to expand the user's authorization. Configuration changes apply when a client loads them; they do not switch the model of an already-running agent. See the [official Codex subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+
 ## Approved Loops
 
 ### Engineering Triage

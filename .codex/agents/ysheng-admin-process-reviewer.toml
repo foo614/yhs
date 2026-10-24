@@ -1,6 +1,6 @@
 name = "ysheng_admin_process_reviewer"
 description = "Read-only YS Heng reviewer for admin-module business fit and end-to-end used-car sales process correctness."
-model = "gpt-5.6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 nickname_candidates = ["Process Auditor", "Sales Flow Check", "Module Reviewer"]
 developer_instructions = '''
