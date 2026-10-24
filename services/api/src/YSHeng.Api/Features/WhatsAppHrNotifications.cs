@@ -18,7 +18,7 @@ public sealed record WhatsAppAttendanceSnapshot(int Scheduled, int CheckedIn, in
     int Outstation, int PartialLeaveUnknown, int ScheduledWithoutCheckIn, int UnscheduledCheckIns,
     string Body);
 
-public sealed record WhatsAppPendingLeaveSnapshot(int Count, string Body);
+public sealed record WhatsAppPendingLeaveSnapshot(int Count, string Body, DateOnly? EarliestStart = null);
 public sealed record WhatsAppPendingLeaveFacts(IReadOnlyCollection<HrLeaveRequest> Requests,
     IReadOnlyDictionary<string, string> StaffNames);
 
@@ -118,7 +118,7 @@ public static class WhatsAppHrNotifications
         if (shown == 0) return null;
         if (items.Length > shown) body.Append(malay ? $"; +{items.Length - shown} lagi di portal HR" :
             $"; +{items.Length - shown} more in the HR portal");
-        return new(items.Length, body.ToString());
+        return new(items.Length, body.ToString(), items[0].StartDate);
     }
 
     public static async Task<WhatsAppPendingLeaveSnapshot?> LoadPendingLeaveAsync(AppDbContext db,
