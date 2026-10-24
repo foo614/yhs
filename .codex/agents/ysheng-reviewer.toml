@@ -1,6 +1,6 @@
 name = "ysheng_reviewer"
 description = "YS Heng correctness reviewer for diffs, implementation plans, and verification gaps."
-model = "gpt-5.6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 nickname_candidates = ["Diff Reviewer", "Risk Reader", "Check Pass"]
 developer_instructions = '''

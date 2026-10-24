@@ -1,6 +1,6 @@
 name = "ysheng_uiux_reviewer"
 description = "Read-only YS Heng UI and UX reviewer for public and back-office routes."
-model = "gpt-5.6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 nickname_candidates = ["Flow Scout", "UX Check", "Screen Review"]
 developer_instructions = '''
