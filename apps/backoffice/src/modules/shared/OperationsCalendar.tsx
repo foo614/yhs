@@ -5,6 +5,7 @@ import { ProCard } from "@ant-design/pro-components";
 import dayjs from "dayjs";
 import { getOperationsCalendar, type OperationsCalendarEvent } from "../../api";
 import { DataFreshness } from "./DataFreshness";
+import "./operationsCalendar.css";
 
 export function eventsOnDate(events: OperationsCalendarEvent[], date: string) {
   return events.filter(event => event.startDate <= date && event.endDate >= date);
@@ -78,10 +79,10 @@ export function SelectedDayEvents({
   );
 }
 
-export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliveryId: string) => void }) {
+export function OperationsCalendar({ onOpenDelivery, compact = false }: { onOpenDelivery?: (deliveryId: string) => void; compact?: boolean }) {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
-  const [monthExpanded, setMonthExpanded] = useState(false);
+  const [monthExpanded, setMonthExpanded] = useState(compact);
   const [date, setDate] = useState(() => dayjs());
   const [events, setEvents] = useState<OperationsCalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +111,7 @@ export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliv
   }, [isMobile]);
 
   const selected = eventsOnDate(events, date.format("YYYY-MM-DD"));
+  const monthCollapsed = (compact || isMobile) && !monthExpanded;
   const navigateMonth = (direction: -1 | 1) => {
     setDate(current => current.add(direction, "month"));
     setMobileDayDrawerOpen(false);
@@ -119,24 +121,26 @@ export function OperationsCalendar({ onOpenDelivery }: { onOpenDelivery?: (deliv
     requestAnimationFrame(() => calendarRegionRef.current?.focus());
   };
 
-  return <ProCard title="Operations calendar / 工作日历" className="operationsCalendar" extra={<Button aria-label="Refresh calendar" loading={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</Button>}>
-    <Typography.Paragraph type="secondary">Delivery dates and staff availability, visible to all staff. Personal leave and trip details are not shown. / 出车日期与员工忙碌时间，所有员工可查看。</Typography.Paragraph>
+  return <ProCard title="Operations calendar / 工作日历" className={`operationsCalendar${compact ? " operationsCalendarCompact" : ""}`} extra={<Button aria-label="Refresh calendar" loading={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</Button>}>
+    <Typography.Paragraph type="secondary">Delivery dates and staff availability. Personal leave and trip details are not shown. / 出车日期与员工忙碌时间，不显示私人详情。</Typography.Paragraph>
     <DataFreshness label="Calendar" updatedAt={loadedMonth === month ? updatedAt : null} loading={loading} error={error} />
     {error && <Alert type="error" showIcon message="Calendar unavailable" description={error} />}
-    {isMobile && <Button className="operationsCalendarToggle" aria-expanded={monthExpanded} aria-controls="operations-month-grid" onClick={() => setMonthExpanded(value => !value)}>{monthExpanded ? "Hide month / 收起月历" : "Show month / 展开月历"}</Button>}
+    {(compact || isMobile) && <Button className="operationsCalendarToggle" aria-expanded={monthExpanded} aria-controls="operations-month-grid" onClick={() => setMonthExpanded(value => !value)}>{monthExpanded ? "Hide month / 收起月历" : "Show month / 展开月历"}</Button>}
+    {compact && <div className="operationsCalendarLegend"><span><span className="operationsCalendarLegendDelivery" aria-hidden="true" />Delivery / 出车</span><span><span className="operationsCalendarLegendBusy" aria-hidden="true" />Staff busy / 员工忙碌</span><span>Numbers show events that day / 数字为当天安排数量</span></div>}
     <Spin spinning={loading}>
       <div className="operationsCalendarLayout" ref={calendarRegionRef} tabIndex={-1} aria-label="Operations calendar">
-        <div id="operations-month-grid" hidden={isMobile && !monthExpanded}><Calendar fullscreen={false} value={date} onSelect={(nextDate, info) => { setDate(nextDate); if (shouldOpenCalendarDayDrawer(info.source, isMobile)) setMobileDayDrawerOpen(true); }} headerRender={() => <Space wrap className="operationsCalendarToolbar"><Button aria-label="Previous month" onClick={() => navigateMonth(-1)}>‹</Button><DatePicker picker="month" allowClear={false} value={date} onChange={value => { if (value) { setDate(value); setMobileDayDrawerOpen(false); } }} /><Button aria-label="Next month" onClick={() => navigateMonth(1)}>›</Button><Button onClick={() => { setDate(dayjs()); setMobileDayDrawerOpen(false); }}>Today</Button></Space>} cellRender={(value, info) => {
+        <div id="operations-month-grid" hidden={monthCollapsed}><Calendar fullscreen={false} value={date} onSelect={(nextDate, info) => { setDate(nextDate); if (shouldOpenCalendarDayDrawer(info.source, isMobile)) setMobileDayDrawerOpen(true); }} headerRender={() => <Space wrap className="operationsCalendarToolbar"><Button aria-label="Previous month" onClick={() => navigateMonth(-1)}>‹</Button><DatePicker picker="month" allowClear={false} value={date} onChange={value => { if (value) { setDate(value); setMobileDayDrawerOpen(false); } }} /><Button aria-label="Next month" onClick={() => navigateMonth(1)}>›</Button><Button onClick={() => { setDate(dayjs()); setMobileDayDrawerOpen(false); }}>Today</Button></Space>} cellRender={(value, info) => {
           if (info.type !== "date") return null;
           const dateEvents = eventsOnDate(events, value.format("YYYY-MM-DD"));
           if (dateEvents.length === 0) return null;
           const kinds = operationsCalendarCellKinds(dateEvents);
-          return <span className="operationsCalendarCellState" role="img" aria-label={`${dateEvents.length} events`}>
+          return <span className="operationsCalendarCellState" role="img" aria-label={compact ? `${dateEvents.length} events: ${kinds.delivery} deliveries, ${kinds.busy} staff busy` : `${dateEvents.length} events`}>
+            {compact && <span className="operationsCalendarCellCount">{dateEvents.length}</span>}
             {kinds.delivery > 0 && <span className="operationsCalendarCellCue operationsCalendarCellCueDelivery" aria-hidden="true" />}
             {kinds.busy > 0 && <span className="operationsCalendarCellCue operationsCalendarCellCueBusy" aria-hidden="true" />}
           </span>;
         }} /></div>
-        <section className={`operationsCalendarDesktopAgenda${isMobile && !monthExpanded ? " operationsCalendarCollapsedAgenda" : ""}`} aria-label="Selected day events">
+        <section className={`operationsCalendarDesktopAgenda${monthCollapsed ? " operationsCalendarCollapsedAgenda" : ""}`} aria-label="Selected day events">
           <Typography.Title level={5}>{date.format("ddd, D MMM YYYY")}</Typography.Title>
           {loading ? <Skeleton active paragraph={{ rows: 2 }} /> : !error && <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}
         </section>

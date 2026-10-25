@@ -251,29 +251,33 @@ describe("management dashboard", () => {
     expect(markup).toContain("Current unsold stock");
     expect(markup).toContain("New enquiry needs first contact");
     expect(markup).not.toContain("NaN");
-    const financialSeries = [...markup.matchAll(/class="profitLine(?:Estimated|Sold)" points="([^"]+)"/g)];
-    expect(financialSeries).toHaveLength(2);
+    const financialSeries = [...markup.matchAll(/class="dashboardTrendLine" d="([^"]+)"/g)];
+    expect(financialSeries).toHaveLength(1);
     for (const series of financialSeries) {
-      const ys = series[1].split(" ").map(point => Number(point.split(",")[1]));
-      expect(ys.every(y => y >= 0 && y <= 178)).toBe(true);
+      const coordinates = series[1].match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+      const ys = coordinates.filter((_, index) => index % 2 === 1);
+      expect(ys.length).toBeGreaterThan(0);
+      expect(ys.every(y => y >= 0 && y <= 205)).toBe(true);
     }
+    const financialBars = [...markup.matchAll(/class="dashboardTrendBar(?: dashboardTrendBar-negative)?"[^>]*y="([^"]+)"[^>]*height="([^"]+)"/g)];
+    expect(financialBars).toHaveLength(2);
+    expect(markup).toContain('class="dashboardTrendBar dashboardTrendBar-negative"');
+    expect(financialBars.every(bar => Number(bar[1]) >= 0 && Number(bar[1]) + Number(bar[2]) <= 205)).toBe(true);
+    const financialText = markup.replaceAll("\u00a0", " ");
+    expect(financialText).toContain("-RM 6,000.00");
+    expect(financialText).toContain("RM 4,000.00");
+    expect(financialText).toContain("-RM 2,000.00");
 
     expect(markup).not.toContain("All clear");
     expect(markup).toContain("Management snapshot / 管理概览");
     expect(markup).not.toContain("Business health and decisions at a glance");
     expect(markup).not.toContain("Management dashboard / 管理看板");
-    expect(markup.indexOf("URGENT STOCK")).toBeGreaterThan(markup.indexOf("Vehicle aging / 库存车龄"));
-    expect(markup).toContain("Business performance / 经营表现");
-    expect(markup).toContain("Operational exposure / 运营风险");
     expect(markup.indexOf("Management snapshot / 管理概览")).toBeLessThan(markup.indexOf("Act now / 立即处理"));
     expect(markup).toContain("Act now / 立即处理");
     expect(markup).toContain("Department action / 部门行动");
     expect(markup).toContain("1-1 of 1 / 共 1 条");
     expect(markup).toContain("All reminders / 全部提醒");
     expect(markup).toContain("Current reminders at the Actions update above.");
-    expect(markup.indexOf("Act now / 立即处理")).toBeLessThan(markup.indexOf("Operational exposure / 运营风险"));
-    expect(markup.indexOf("Operational exposure / 运营风险")).toBeLessThan(markup.indexOf("All reminders / 全部提醒"));
-    expect(markup.indexOf("Executive intelligence / 决策图表")).toBeLessThan(markup.indexOf("AI document processing / AI 文件处理"));
     expect(markup).toContain("AI document processing / AI 文件处理");
     expect(markup).toContain("Fields unchanged after review / 复核未改字段");
     expect(markup).toContain("Staff-reviewed field outcomes / 员工复核结果");

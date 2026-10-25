@@ -3,9 +3,13 @@ import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type Rea
 import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
 import { CollectionAgeingPanel } from "./modules/dashboard/CollectionAgeingPanel";
 import { DataFreshness } from "./modules/shared/DataFreshness";
+import { DashboardLeadTrend, DashboardMarginTrend } from "./modules/dashboard/DashboardTrendCharts";
+import "./modules/dashboard/dashboardWorkspace.css";
 import {
   AuditOutlined,
+  AccountBookOutlined,
   BankOutlined,
+  BarChartOutlined,
   CalendarOutlined,
   CarOutlined,
   DashboardOutlined,
@@ -74,7 +78,7 @@ import {
 } from "./leads";
 import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, staffWhatsAppStatusLabel, type StaffStatusFilter } from "./staff";
-import { dashboardActionWorkload, filterDashboardActions, type DashboardActionDueFilter, dashboardActionKey, dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
+import { dashboardActionWorkload, filterDashboardActions, type DashboardActionDueFilter, dashboardActionKey, dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, sidebarActionBadges, singaporeTodayIsoDate, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
@@ -1833,7 +1837,7 @@ function ModuleCommandBar({
   const roles = currentUser?.roles ?? [];
 
   return (
-    <section className="moduleCommandBar" ref={commandBarRef}>
+    <section className={"moduleCommandBar" + (pathname === "/dashboard" ? " dashboardCommandBar" : "")} ref={commandBarRef}>
       <div>
         <span className="moduleEyebrow">YS Heng Operations</span>
         <h1>{title}</h1>
@@ -2293,6 +2297,7 @@ export function DashboardPage({
   onNavigate: (path: string) => void;
   onOpenDelivery?: (deliveryId: string) => void;
 }) {
+  const [actionFiltersOpen, setActionFiltersOpen] = useState(false);
   const [actionType, setActionType] = useState("All");
   const [actionDepartment, setActionDepartment] = useState("All");
   const [actionDue, setActionDue] = useState<DashboardActionDueFilter>("All");
@@ -2302,7 +2307,6 @@ export function DashboardPage({
   const [mobileReminderPage, setMobileReminderPage] = useState(1);
   const [mobilePriorityPage, setMobilePriorityPage] = useState(1);
   const dashboardReminderTypes = Array.from(new Set(reminders.map((reminder) => reminder.type)));
-  const safeStock = safeDashboardStockSummary(vehicles);
   const agingBuckets = dashboard?.agingBuckets ?? [];
   const moneyRiskBreakdown = dashboard?.moneyRiskBreakdown ?? [];
   const topEnquiredVehicles = dashboard?.topEnquiredVehicles ?? [];
@@ -2313,7 +2317,6 @@ export function DashboardPage({
   const leadStages = dashboard?.salesFunnel?.stages ?? [];
   const leadClosureRate = Math.min(100, Math.max(0, dashboard?.salesFunnel?.conversionRate ?? 0));
   const topSellingDisplayItems = topSellingModels;
-  const topSellingModel = topSellingDisplayItems[0];
   const refurbishment = dashboard?.refurbishment;
   const aiDocumentProcessing = dashboard?.aiDocumentProcessing;
   const refurbishmentHighestCosts = refurbishment?.highestCostVehicles ?? [];
@@ -2336,10 +2339,6 @@ export function DashboardPage({
   const totalSales = dashboard?.totalSales ?? 0;
   const outstandingCollection = dashboard?.outstandingCollection ?? dashboard?.outstandingPayment ?? 0;
   const settlementDueAmount = dashboard?.settlementDueAmount ?? 0;
-  const urgentReminderCount = reminders.filter((reminder) => {
-    const dueLabel = reminderDueLabel(reminder);
-    return dueLabel === "Overdue" || dueLabel === "Due today";
-  }).length;
   const reminderFiltersActive = reminderTypeFilter !== "All" || reminderDueFilter !== "All";
   const resetReminderFilters = () => {
     setReminderTypeFilter("All");
@@ -2349,7 +2348,6 @@ export function DashboardPage({
   const mobileReminderPageCount = Math.max(1, Math.ceil(filteredReminders.length / 8));
   const clampedMobileReminderPage = Math.min(mobileReminderPage, mobileReminderPageCount);
   const mobileReminders = filteredReminders.slice((clampedMobileReminderPage - 1) * 8, clampedMobileReminderPage * 8);
-  const urgentReminders = urgentDashboardReminders(reminders);
   const dashboardToday = singaporeTodayIsoDate();
   const priorityEntries = dashboardPriorityEntries(reminders, priorityActions, dashboardToday);
   const filteredPriorityEntries = filterDashboardActions(priorityEntries, { type: actionType, department: actionDepartment, due: actionDue }, dashboardToday);
@@ -2389,398 +2387,160 @@ export function DashboardPage({
   const payCashItemCount = cashFollowUpItems.length - collectCashItemCount;
 
 
+  const actionEmptyText = actionFiltersActive
+    ? "No actions match these filters. Reset filters to see the full queue."
+    : actionsRefreshing ? "Checking actions…"
+    : reminderLoadError ? "The action queue could not be checked completely."
+    : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions."
+    : "Actions have not been checked yet.";
+
   return (
-    <Space direction="vertical" size={16} className="fullWidth dashboardPage">
-      <ProCard
-        title="Management snapshot / 管理概览"
-        className="dashboardOverviewCard"
-        extra={<div className="dashboardSnapshotActions"><Button aria-label="Refresh summary" size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></div>}
-      >
-        <DashboardAnalyticsControls
-          period={analyticsPeriod}
-          preset={analyticsRangePreset}
-          disabled={refreshing}
-          onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)}
-        />
+    <div className="dashboardPage dashboardWorkspace">
+      <div className="dashboardPageToolbar">
+        <DashboardAnalyticsControls period={analyticsPeriod} preset={analyticsRangePreset} disabled={refreshing} onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)} />
         <DataFreshness label="Summary" updatedAt={lastCheckedAt} loading={refreshing || (!dashboard && !dashboardLoadError)} error={dashboardLoadError} />
+        <div className="dashboardSnapshotActions"><Button aria-label="Refresh summary" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></div>
+      </div>
+      <ProCard title="Management snapshot / 管理概览" className="dashboardOverviewCard">
         {dashboardLoadError && <Alert type="error" showIcon message="Dashboard data could not be loaded" description={dashboardLoadError} action={<Button onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
-        {!dashboard && !dashboardLoadError && <Skeleton active paragraph={{ rows: 6 }} />}
-        {dashboard && <>
-        <section className="dashboardMetricSection" aria-labelledby="dashboard-performance-title">
-          <div className="dashboardMetricSectionHeader">
-            <h3 id="dashboard-performance-title">Business performance / 经营表现</h3>
-            <span>The outcomes and cash position management checks first.</span>
-          </div>
-          <div className="metricGrid dashboardMetricGrid dashboardHeadlineMetrics">
-            <Metric label="Total Sales / 销售总数" value={totalSales} meta={analyticsPeriodLabel} tone="profit" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
-            <Metric label="Sold Vehicle Margin / 已售车辆毛利" value={formatCompactMoney(actualProfit)} meta={analyticsPeriodLabel} tone={actualProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
-            <Metric label="Outstanding Collection / 待收总额" value={formatCompactMoney(outstandingCollection)} meta="Current payment balances + open debt recovery" tone={outstandingCollection > 0 ? "risk" : "neutral"} onClick={() => setCollectionBreakdownOpen(true)} />
-            <Metric label="Projected Stock Margin / 库存预计毛利" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
-          </div>
-        </section>
+        {!dashboard && !dashboardLoadError && <Skeleton active paragraph={{ rows: 4 }} />}
+        {dashboard && <div className="metricGrid dashboardMetricGrid dashboardHeadlineMetrics">
+          <Metric icon={<CarOutlined />} label="Total Sales / 销售总数" value={totalSales} meta={analyticsPeriodLabel} tone="profit" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
+          <Metric icon={<BarChartOutlined />} label="Sold Vehicle Margin / 已售车辆毛利" value={formatCompactMoney(actualProfit)} meta={analyticsPeriodLabel} tone={actualProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
+          <Metric icon={<FileDoneOutlined />} label="Outstanding Collection / 待收总额" value={formatCompactMoney(outstandingCollection)} meta="Current payment balances + open debt recovery" onClick={() => setCollectionBreakdownOpen(true)} />
+          <Metric icon={<AccountBookOutlined />} label="Projected Stock Margin / 库存预计毛利" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+        </div>}
         <details className="dashboardSnapshotDefinitions"><summary>Metric periods and calculation / 指标说明</summary>
-        <Typography.Text className="dashboardSnapshotNote" type="secondary">Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update above. Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Calculated vehicle margins use recorded selling prices and costs; they do not measure cash received or accounting profit.</Typography.Text>
+          <Typography.Paragraph>Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update. Calculated vehicle margins use recorded prices and costs, not cash received or accounting profit.</Typography.Paragraph>
         </details>
-        </>}
       </ProCard>
       <Modal title="Outstanding Collection / 待收总额" open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
         <Typography.Paragraph>Current outstanding payment balances plus open debt recovery. These are operational record totals, not cash received.</Typography.Paragraph>
-        <Space direction="vertical" className="fullWidth" size={12}>
-          {moneyRiskBreakdown.filter(item => receivableLabels.has(item.label)).map(item => <div className="dashboardCollectionCategory" key={item.label}>
-            <Typography.Text>{dashboardLabel(item.label)}: {formatMoney(item.amount)}</Typography.Text>
-            <Button onClick={() => onNavigate(financeRiskTarget(item.label))}>Open {dashboardLabel(item.label)}</Button>
-          </div>)}
-        </Space>
+        <Space direction="vertical" className="fullWidth" size={12}>{moneyRiskBreakdown.filter(item => receivableLabels.has(item.label)).map(item => <div className="dashboardCollectionCategory" key={item.label}>
+          <Typography.Text>{dashboardLabel(item.label)}: {formatMoney(item.amount)}</Typography.Text><Button onClick={() => onNavigate(financeRiskTarget(item.label))}>Open {dashboardLabel(item.label)}</Button>
+        </div>)}</Space>
       </Modal>
 
-        {/* The upstream fallback is retained in data-safe form by the priority, cash, and aging panels below. */}
-        {/*
-        <div className="dashboardSimpleGrid">
-          <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard">
-          <Table
-            rowKey="label"
-            size="small"
-            columns={[
-              { title: "Age / 车龄", dataIndex: "label", render: (value) => `${value} days` },
-              { title: "Stock / 库存", dataIndex: "count" }
-            ]}
-            dataSource={agingBuckets}
-            pagination={false}
-            locale={{ emptyText: "No aging buckets available." }}
-          />
-          </ProCard>
-          <ProCard title="Cash follow-up / 收付款跟进" className="dashboardSimpleCard" extra={<Space size={4} wrap><Tag color={moneyToCollect > 0 ? "blue" : "green"}>Collect {formatCompactMoney(moneyToCollect)}</Tag><Tag color={moneyToPay > 0 ? "volcano" : "green"}>Pay {formatCompactMoney(moneyToPay)}</Tag></Space>}>
-          <Table
-            rowKey="label"
-            size="small"
-            columns={[
-              { title: "Item / 项目", dataIndex: "label", render: dashboardLabel },
-              { title: "Direction / 方向", render: (_, row) => <Tag color={receivableLabels.has(row.label) ? "blue" : "volcano"}>{receivableLabels.has(row.label) ? "Collect / 待收" : "Pay / 待付"}</Tag> },
-              { title: "Amount / 金额", dataIndex: "amount", align: "right", render: (value) => formatMoney(Number(value)) },
-              { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(financeRiskTarget(row.label))}>Open</Button> }
-            ]}
-            dataSource={moneyRiskBreakdown}
-            pagination={false}
-            locale={{ emptyText: "No money follow-up items available." }}
-          />
-          </ProCard>
-        </div>
-      </> : (
-        <ProCard title="Dashboard summary unavailable / 看板摘要暂不可用" className="dashboardOverviewCard">
-          <Alert type="warning" showIcon message="Live dashboard metrics could not be loaded." description="Only the authorized vehicle counts below are shown; finance, profit, aging, and workflow values are unavailable." />
-          <div className="metricGrid dashboardMetricGrid">
-            <Metric label="Authorized stock / 已加载库存" value={safeStock.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Available / 可售" value={safeStock.available} tone={safeStock.available > 0 ? "neutral" : "work"} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Loan processing / 贷款处理中" value={safeStock.loanProcessing} tone={safeStock.loanProcessing > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
-            <Metric label="Sold / 已售" value={safeStock.sold} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-        */}
-        <ProCard
-          title="Act now / 立即处理"
-          className="dashboardPriorityCard"
-          extra={<Space wrap><Tag color={priorityStatus.color}>{priorityStatus.label}</Tag><Button aria-label="Refresh actions" size="small" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Refresh actions</Button></Space>}
-        >
-          <DataFreshness label="Actions" updatedAt={actionsLastCheckedAt} loading={actionsRefreshing} error={reminderLoadError} />
-          <Typography.Text className="dashboardPriorityIntro" type="secondary">Overdue and due today first. / 优先处理逾期及今日到期事项。</Typography.Text>
-          <div className="dashboardActionFilters">
-            <label>Department / 部门<Select aria-label="Act now department" value={actionDepartment} onChange={value => { setActionDepartment(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All departments / 全部部门" }, ...workload.map(item => ({ value: item.department, label: item.department }))]} /></label>
-            <label>Type / 类型<Select aria-label="Act now type" value={actionType} onChange={value => { setActionType(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All types / 全部类型" }, ...actionTypes.map(type => ({ value: type, label: dashboardLabel(type) }))]} /></label>
-            <label>Due / 到期<Select aria-label="Act now due" value={actionDue} onChange={value => { setActionDue(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All dates / 全部日期" }, { value: "Overdue", label: "Overdue / 逾期" }, { value: "Today", label: "Today / 今日" }]} /></label>
-            <Button onClick={resetActionFilters} disabled={!actionFiltersActive}>Reset filters / 重置</Button>
-          </div>
-          <Typography.Paragraph role="status">Showing {filteredPriorityEntries.length} of {priorityEntries.length} distinct actions / 待办事项</Typography.Paragraph>
-          {priorityEntries.length > 0 && <section className="dashboardWorkload" aria-label="Workload by department">
-            <strong>Workload by department / 部门待办</strong>
-            <Typography.Text type="secondary">{priorityEntries.length} distinct actions in the full queue. Select a department to view all its actions.</Typography.Text>
-            {workload.map(item => <button type="button" key={item.department} className="dashboardWorkloadBar" aria-pressed={actionDepartment === item.department} aria-label={`${item.department}: ${item.count} actions`} onClick={() => { setActionDepartment(item.department); setActionType("All"); setActionDue("All"); setMobilePriorityPage(1); }}>
-              <span>{item.department}</span><span className="dashboardWorkloadTrack" aria-hidden="true"><span style={{ width: `${item.count / Math.max(...workload.map(row => row.count)) * 100}%` }} /></span><strong>{item.count}</strong>
-            </button>)}
-          </section>}
-          <div className="mobileRecordList dashboardPriorityMobileList">
-            {mobilePriorityEntries.map((entry) => (
-              <article className="mobileRecordCard" key={entry.key}>
-                <div className="mobileRecordHeader">
-                  <div>
-                    <Typography.Text className="mobileRecordEyebrow">{dashboardLabel(priorityDueLabel(entry))}</Typography.Text>
-                    <Typography.Title level={5}>{entry.title}</Typography.Title>
-                  </div>
-                </div>
-                <div className="mobileRecordMeta">
-                  <span><small>Type / 类型</small><strong>{dashboardLabel(entry.type)} · {entry.subject ?? "General"}</strong></span>
-                  <span><small>Due / 到期</small><strong>{entry.dueDate}</strong></span>
-                  <span><small>Exposure / 金额</small><strong>{entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount))}</strong></span>
-                </div>
-                <div className="mobileRecordFooter"><Button type="primary" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button></div>
-              </article>
-            ))}
-            {filteredPriorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionFiltersActive ? "No actions match these filters. Reset filters to see the full queue." : actionsRefreshing ? "Checking actions…" : reminderLoadError ? "The action queue could not be checked completely." : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions." : "Actions have not been checked yet."} />}
-            <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={8} total={filteredPriorityEntries.length} showSizeChanger={false} hideOnSinglePage onChange={setMobilePriorityPage} />
-          </div>
-          <Table
-            className="desktopDataTable dashboardPriorityTable"
-            rowKey="key"
-            search={false}
-            columns={[
-              { title: "Status / 状态", render: (_, entry) => <Tag className="dashboardStatusBadge" color={priorityDueColor(entry)}>{dashboardLabel(priorityDueLabel(entry))}</Tag> },
-              { title: "Action / 事项", dataIndex: "title" },
-              { title: "Source / 来源", render: (_, entry) => <Space direction="vertical" size={0}><span>{prioritySourceLabel(entry.source)}</span><Typography.Text type="secondary">{dashboardLabel(entry.type)} · {entry.subject ?? "General"}</Typography.Text></Space> },
-              { title: "Due / 到期", dataIndex: "dueDate", sorter: false },
-              { title: "Exposure / 金额", dataIndex: "amount", render: (_, entry) => entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount)) },
-              { title: "Action / 操作", width: 140, fixed: "right", render: (_, entry) => <Button type="primary" size="small" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button> }
-            ]}
-            dataSource={filteredPriorityEntries}
-            pagination={tablePagination(8)}
-            scroll={{ x: 900 }}
-            locale={{ emptyText: actionFiltersActive ? "No actions match these filters. Reset filters to see the full queue." : actionsRefreshing ? "Checking actions…" : reminderLoadError ? "The action queue could not be checked completely." : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions." : "Actions have not been checked yet." }}
-          />
-          {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Try again</Button>} />}
-          {dashboard && <div className="dashboardCashActions">
-            <div className="dashboardCashActionsHeader">
-              <div><strong>Cash follow-up / 收付款跟进</strong><span>Current outstanding record totals by category.</span></div>
-              <Space size={4} wrap><Tag className="dashboardStatusBadge" color={moneyToCollect > 0 ? "blue" : "green"}>Collect total {formatCompactMoney(moneyToCollect)} · {collectCashItemCount} categor{collectCashItemCount === 1 ? "y" : "ies"}</Tag><Tag className="dashboardStatusBadge" color={moneyToPay > 0 ? "red" : "green"}>Pay total {formatCompactMoney(moneyToPay)} · {payCashItemCount} categor{payCashItemCount === 1 ? "y" : "ies"}</Tag></Space>
-            </div>
-            {cashFollowUpItems.length > 0 ? (
-              <div className="dashboardCashActionList">
-                {cashFollowUpItems.map((item) => {
-                  const collect = receivableLabels.has(item.label);
-                  return (
-                    <article className="dashboardCashAction" key={item.label}>
-                      <Tag className="dashboardStatusBadge" color={collect ? "blue" : "red"}>{collect ? "Collect / 待收" : "Pay / 待付"}</Tag>
-                      <strong>{dashboardLabel(item.label)}</strong>
-                      <span>{formatMoney(item.amount)}</span>
-                      <Button size="small" aria-label={`Open ${dashboardLabel(item.label)}`} onClick={() => onNavigate(financeRiskTarget(item.label))}>Open category</Button>
-                    </article>
-                  );
-                })}
+      <section className="dashboardCurrentWork" aria-labelledby="dashboard-work-title">
+        <h2 id="dashboard-work-title" className="dashboardSectionTitle">Current work / 当前工作</h2>
+        <div className="dashboardWorkGrid">
+          <div className="dashboardWorkPrimary">
+            <ProCard title="Act now / 立即处理" className="dashboardPriorityCard" extra={<Space size={8} wrap><Tag color={priorityStatus.color}>{priorityStatus.label}</Tag><Button aria-label="Refresh actions" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Refresh actions</Button></Space>}>
+              <DataFreshness label="Actions" updatedAt={actionsLastCheckedAt} loading={actionsRefreshing} error={reminderLoadError} />
+              {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Try again</Button>} />}
+              <div className="dashboardQueueToolbar">
+                <Typography.Text type="secondary">Overdue and due today first. / 优先处理逾期及今日到期事项。</Typography.Text>
+                <Button className="dashboardFilterToggle" aria-expanded={actionFiltersOpen} aria-controls="dashboard-action-filters" onClick={() => setActionFiltersOpen(value => !value)}>Filters / 筛选{actionFiltersActive ? " · active" : ""}</Button>
               </div>
-            ) : <Typography.Text type="secondary">No outstanding cash follow-up.</Typography.Text>}
-          </div>}
-        </ProCard>
-
+              <div id="dashboard-action-filters" className={"dashboardActionFilters" + (actionFiltersOpen ? " dashboardFiltersOpen" : "")}>
+                <label>Department / 部门<Select aria-label="Act now department" value={actionDepartment} onChange={value => { setActionDepartment(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All departments / 全部部门" }, ...workload.map(item => ({ value: item.department, label: item.department }))]} /></label>
+                <label>Type / 类型<Select aria-label="Act now type" value={actionType} onChange={value => { setActionType(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All types / 全部类型" }, ...actionTypes.map(type => ({ value: type, label: dashboardLabel(type) }))]} /></label>
+                <label>Due / 到期<Select aria-label="Act now due" value={actionDue} onChange={value => { setActionDue(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All dates / 全部日期" }, { value: "Overdue", label: "Overdue / 逾期" }, { value: "Today", label: "Today / 今日" }]} /></label>
+              </div>
+              <div className="dashboardQueueCount" role="status"><span>Showing {filteredPriorityEntries.length} of {priorityEntries.length} distinct actions / 待办事项</span>{actionFiltersActive && <Button type="link" onClick={resetActionFilters}>Reset filters / 重置</Button>}</div>
+              {actionFiltersActive && <div className="dashboardActiveFilters" aria-label="Active action filters">{actionDepartment !== "All" && <Tag>{actionDepartment}</Tag>}{actionType !== "All" && <Tag>{dashboardLabel(actionType)}</Tag>}{actionDue !== "All" && <Tag>{actionDue === "Overdue" ? "Overdue / 逾期" : "Today / 今日"}</Tag>}</div>}
+              <div className="mobileRecordList dashboardPriorityMobileList">
+                {mobilePriorityEntries.map(entry => <article className="mobileRecordCard dashboardTaskRecord" key={entry.key}>
+                  <Tag className="dashboardStatusBadge" color={priorityDueColor(entry)}>{dashboardLabel(priorityDueLabel(entry))}</Tag>
+                  <Typography.Title level={5}>{entry.title}</Typography.Title>
+                  <div className="dashboardTaskSubject">{entry.subject ?? "General"}</div>
+                  <Typography.Text type="secondary" className="dashboardTaskSource">{dashboardLabel(entry.type)} · {prioritySourceLabel(entry.source)}</Typography.Text>
+                  <div className="dashboardTaskFacts"><span><small>Due / 到期</small><strong>{formatDisplayDate(entry.dueDate)}</strong></span><span><small>Exposure / 金额</small><strong>{entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount))}</strong></span></div>
+                  <div className="mobileRecordFooter"><Button type="primary" aria-label={"Open " + entry.title} onClick={() => onNavigate(entry.target)}>Open action</Button></div>
+                </article>)}
+                {filteredPriorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionEmptyText} />}
+                <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={8} total={filteredPriorityEntries.length} showSizeChanger={false} hideOnSinglePage onChange={setMobilePriorityPage} />
+              </div>
+              <Table className="desktopDataTable dashboardPriorityTable" rowKey="key" search={false} size="small" columns={[
+                { title: "Task / 事项", render: (_, entry) => <div className="dashboardTableTask"><Tag className="dashboardStatusBadge" color={priorityDueColor(entry)}>{dashboardLabel(priorityDueLabel(entry))}</Tag><strong>{entry.title}</strong><span>{entry.subject ?? "General"}</span><small>{dashboardLabel(entry.type)} · {prioritySourceLabel(entry.source)}</small></div> },
+                { title: "Due / 到期", dataIndex: "dueDate", sorter: false, width: 112, render: value => formatDisplayDate(value) },
+                { title: "Exposure / 金额", dataIndex: "amount", align: "right", width: 142, render: (_, entry) => entry.amount === undefined || entry.amount === null ? "—" : <span className="dashboardMoney">{formatMoney(Number(entry.amount))}</span> },
+                { title: "Action / 操作", width: 124, fixed: "right", render: (_, entry) => <Button type="primary" aria-label={"Open " + entry.title} onClick={() => onNavigate(entry.target)}>Open action</Button> }
+              ]} dataSource={filteredPriorityEntries} pagination={tablePagination(8)} scroll={{ x: 700 }} locale={{ emptyText: actionEmptyText }} />
+              {priorityEntries.length > 0 && <details className="dashboardWorkloadDisclosure"><summary>Workload by department / 部门待办 <span>{priorityEntries.length} actions in full queue</span></summary>
+                <section className="dashboardWorkload" aria-label="Workload by department"><Typography.Text type="secondary">Select a department to view all its actions.</Typography.Text>{workload.map(item => <button type="button" key={item.department} className="dashboardWorkloadBar" aria-pressed={actionDepartment === item.department} aria-label={item.department + ": " + item.count + " actions"} onClick={() => { setActionDepartment(item.department); setActionType("All"); setActionDue("All"); setMobilePriorityPage(1); }}><span>{item.department}</span><span className="dashboardWorkloadTrack" aria-hidden="true"><span style={{ width: (item.count / Math.max(...workload.map(row => row.count)) * 100) + "%" }} /></span><strong>{item.count}</strong></button>)}</section>
+              </details>}
+            </ProCard>
+            <details className="dashboardInboxDisclosure"><summary>All reminders / 全部提醒 <span>{reminderFiltersActive ? filteredReminders.length + " matching of " + reminders.length + " · Filters active" : reminders.length + " reminders"}{reminderLoadError ? " · Check incomplete" : actionsRefreshing ? " · Checking" : ""}</span></summary>
+              <div className="dashboardInboxBody">
+                <Typography.Text type="secondary">Current reminders at the Actions update above.</Typography.Text>
+                {reminderLoadError && <Alert type="warning" showIcon message="Reminder inbox could not be refreshed" description={reminderLoadError} />}
+                <div className="dashboardInboxFilters">
+                  <Select aria-label="Reminder type" value={reminderTypeFilter} options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map(type => ({ value: type, label: dashboardLabel(type) }))]} onChange={value => { setReminderTypeFilter(value); setMobileReminderPage(1); }} />
+                  <Select aria-label="Reminder due status" value={reminderDueFilter} options={[{ value: "All", label: "All Due / 全部到期" }, { value: "Overdue", label: "Overdue / 已逾期" }, { value: "DueToday", label: "Due today / 今日到期" }, { value: "DueSoon", label: "Due soon / 即将到期" }, { value: "Upcoming", label: "Upcoming / 后续到期" }]} onChange={value => { setReminderDueFilter(value); setMobileReminderPage(1); }} />
+                  {reminderFiltersActive && <Button onClick={resetReminderFilters}>Clear filters</Button>}
+                </div>
+                <div className="mobileRecordList dashboardReminderMobileList">{mobileReminders.map(reminder => <article className="mobileRecordCard" key={reminder.key}>
+                  <Tag>{dashboardLabel(reminder.type)}</Tag><Typography.Title level={5}>{reminder.vehiclePlate}</Typography.Title><p>{reminder.title}</p><div className="dashboardTaskFacts"><span><small>Due / 到期</small><strong>{formatDisplayDate(reminder.dueDate)} · {dashboardLabel(reminderDueLabel(reminder))}</strong></span><span><small>Amount / 金额</small><strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "—"}</strong></span></div><div className="mobileRecordFooter"><Button onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
+                </article>)}{filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet."} />}<Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} /></div>
+                <Table className="desktopDataTable" search={false} rowKey="key" columns={[
+                  { title: "Reminder / 提醒", render: (_, row) => <Space direction="vertical" size={4}><Tag>{dashboardLabel(row.type)}</Tag><strong>{row.title}</strong><span>{row.vehiclePlate}</span></Space> },
+                  { title: "Due / 到期", dataIndex: "dueDate", sorter: false, render: (_, row) => <Space direction="vertical" size={4}><span>{formatDisplayDate(row.dueDate)}</span><Tag>{dashboardLabel(reminderDueLabel(row))}</Tag></Space> },
+                  { title: "Amount / 金额", dataIndex: "amount", align: "right", render: value => value ? <span className="dashboardMoney">{formatMoney(Number(value))}</span> : "—" },
+                  { title: "Action / 操作", width: 124, fixed: "right", render: (_, row) => <Button onClick={() => onNavigate(dashboardReminderTarget(row))}>Open follow-up</Button> }
+                ]} dataSource={filteredReminders} pagination={tablePagination(8)} scroll={{ x: 680 }} locale={{ emptyText: actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet." }} />
+              </div>
+            </details>
+          </div>
+          <aside className="dashboardWorkContext" aria-label="Cash and calendar context">
+            <ProCard title="Cash follow-up / 收付款跟进" className="dashboardCashCard">
+              <Typography.Text type="secondary">Current outstanding record totals by category.</Typography.Text>
+              {dashboard ? <><div className="dashboardCashTotals"><span>Collect <strong>{formatCompactMoney(moneyToCollect)}</strong> · {collectCashItemCount} categories</span><span>Pay <strong>{formatCompactMoney(moneyToPay)}</strong> · {payCashItemCount} categories</span></div>
+                <div className="dashboardCashActionList">{cashFollowUpItems.map(item => <article className="dashboardCashAction" key={item.label}>
+                  <span className="dashboardCashIcon" aria-hidden="true"><BankOutlined /></span><div className="dashboardCashDetails"><strong>{dashboardLabel(item.label)}</strong><span>{formatMoney(item.amount)}</span><small>{receivableLabels.has(item.label) ? "Collect / 待收" : "Pay / 待付"}</small></div><Button aria-label={"Open " + dashboardLabel(item.label)} onClick={() => onNavigate(financeRiskTarget(item.label))}>Open category</Button>
+                </article>)}</div>{cashFollowUpItems.length === 0 && <Typography.Text type="secondary">No outstanding cash follow-up.</Typography.Text>}</> : <Typography.Text type="secondary">Cash totals unavailable until summary loads.</Typography.Text>}
+            </ProCard>
+          </aside>
+        </div>
+        <OperationsCalendar compact onOpenDelivery={onOpenDelivery} />
         <CollectionAgeingPanel refreshKey={lastCheckedAt?.getTime() ?? 0} />
-        <OperationsCalendar onOpenDelivery={onOpenDelivery} />
-        {dashboard && <ProCard title="Operational exposure / 运营风险" className="dashboardOverviewCard">
-          <Typography.Text type="secondary">Current unsold stock, workflow and cost indicators at the summary update above; unaffected by the analytics range.</Typography.Text>
-          <div className="metricGrid dashboardMetricGrid dashboardSupportingMetrics">
-            <Metric label="Total Stock / 总库存" meta="Current unsold vehicles" value={dashboard.totalStock} onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Pending Loan / 贷款待跟进" meta="Current Pending applications" value={dashboard.pendingLoan} tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
-            <Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} meta={`Current due amount ${formatCompactMoney(settlementDueAmount)}`} tone={dashboard.settlementDue > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} />
-            <Metric label="Aging / 超60天库存" meta="Current unsold vehicles since intake" value={dashboard.vehicleAging} tone={dashboard.vehicleAging > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
-            <Metric label="Purchase Cost / 收车成本" value={formatCompactMoney(purchaseCost)} meta="Current unsold stock" tone="neutral" onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
-            <Metric label="Repair Cost / 整备费用" value={formatCompactMoney(dashboard.repairCost)} meta="Current unsold stock" tone={dashboard.repairCost > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
-          </div>
-        </ProCard>}
+      </section>
 
-      {/*
-      <ProCard
-        title="Reminder inbox / 提醒事项"
-        className="dashboardReminderCard"
-        extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag><Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></Space>}
-      >
-        {reminderLoadError && <Alert type="error" showIcon message="Reminder inbox could not be loaded" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
-        <div className="dashboardInboxHeader">
-          <Space className="toolbarForm" wrap>
-            <Select
-              value={reminderTypeFilter}
-              options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: dashboardLabel(type) }))]}
-              onChange={(value) => {
-                setReminderTypeFilter(value);
-                setMobileReminderPage(1);
-              }}
-              style={{ width: 220 }}
-            />
-            <Select
-              value={reminderDueFilter}
-              options={[
-                { value: "All", label: "All Due / 全部到期" },
-                { value: "Overdue", label: "Overdue / 已逾期" },
-                { value: "DueToday", label: "Due today / 今日到期" },
-                { value: "Upcoming", label: "Upcoming / 即将到期" }
-              ]}
-              onChange={(value) => {
-                setReminderDueFilter(value);
-                setMobileReminderPage(1);
-              }}
-              style={{ width: 160 }}
-            />
-            {reminderFiltersActive && <Button size="small" onClick={resetReminderFilters}>Clear filters</Button>}
-          </Space>
-          <Typography.Text type="secondary">{urgentReminderCount} overdue or due today across all reminders.</Typography.Text>
-        </div>
-        <div className="mobileRecordList dashboardReminderMobileList">
-          {mobileReminders.map((reminder) => (
-            <article className="mobileRecordCard" key={`${reminder.type}-${reminder.vehicleId}-${reminder.dueDate}`}>
-              <div className="mobileRecordHeader">
-                <div>
-                  <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                  <Typography.Title level={5}>{reminder.vehiclePlate}</Typography.Title>
-                </div>
-                <Tag color={reminderColor(reminder.type)}>{dashboardLabel(reminder.type)}</Tag>
-              </div>
-              <div className="mobileRecordMeta">
-                <span><small>Due / 到期</small><strong>{reminder.dueDate} · {dashboardLabel(reminderDueLabel(reminder.dueDate))}</strong></span>
-                <span><small>Amount / 金额</small><strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "-"}</strong></span>
-              </div>
-              <div className="mobileRecordTextBlock">{reminder.title}</div>
-              <div className="mobileRecordFooter"><Button type="primary" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
-            </article>
-          ))}
-          {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet."} />}
-          <Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} />
-        </div>
-        <Table
-          className="desktopDataTable"
-          rowKey={(row) => `${row.type}-${row.vehicleId}-${row.dueDate}`}
-          columns={[
-            { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag color={reminderColor(value)}>{dashboardLabel(value)}</Tag> },
-            { title: "Title / 事项", dataIndex: "title" },
-            { title: "Car Plate / 车牌", dataIndex: "vehiclePlate" },
-            { title: "Due / 到期", dataIndex: "dueDate", sorter: false, render: (value) => <Space><span>{value}</span><Tag color={reminderDueTagColor(value)}>{dashboardLabel(reminderDueLabel(value))}</Tag></Space> },
-            { title: "Amount / 金额", dataIndex: "amount", render: (value) => value ? `RM ${Number(value).toLocaleString()}` : "-" },
-            { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(dashboardReminderTarget(row))}>Open</Button> }
-          ]}
-          dataSource={filteredReminders}
-          pagination={tablePagination(8)}
-          scroll={{ x: 760 }}
-          locale={{ emptyText: "No reminders match the current filters." }}
-        />
-      </ProCard>
-      */}
-        <ProCard
-          title="All reminders / 全部提醒"
-          className="dashboardReminderCard"
-          extra={<Space size={8} wrap><Tag color={urgentReminderCount > 0 ? "red" : "blue"}>{reminderFiltersActive ? `${filteredReminders.length} matching` : `${filteredReminders.length} reminder${filteredReminders.length === 1 ? "" : "s"}`}</Tag><Button size="small" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Refresh</Button></Space>}
-        >
-          <Typography.Text type="secondary">Current reminders at the Actions update above. Act now shows only urgent reminders alongside department actions. / 此处显示全部提醒；立即处理只显示紧急提醒与部门行动。</Typography.Text>
-          {reminderLoadError && <Alert type="warning" showIcon message="Reminder inbox could not be refreshed" description={reminderLoadError} />}
-          <Space className="toolbarForm" wrap>
-            <Select aria-label="Reminder type" value={reminderTypeFilter} options={[{ value: "All", label: "All Types / 全部类型" }, ...dashboardReminderTypes.map((type) => ({ value: type, label: dashboardLabel(type) }))]} onChange={(value) => { setReminderTypeFilter(value); setMobileReminderPage(1); }} style={{ width: 220 }} />
-            <Select aria-label="Reminder due status" value={reminderDueFilter} options={[{ value: "All", label: "All Due / 全部到期" }, { value: "Overdue", label: "Overdue / 已逾期" }, { value: "DueToday", label: "Due today / 今日到期" }, { value: "DueSoon", label: "Due soon / 即将到期" }, { value: "Upcoming", label: "Upcoming / 后续到期" }]} onChange={(value) => { setReminderDueFilter(value); setMobileReminderPage(1); }} style={{ width: 170 }} />
-            {reminderFiltersActive && <Button size="small" onClick={resetReminderFilters}>Clear filters</Button>}
-          </Space>
-          <div className="mobileRecordList dashboardReminderMobileList">
-            {mobileReminders.map((reminder) => (
-              <article className="mobileRecordCard" key={reminder.key}>
-                <div className="mobileRecordHeader">
-                  <div>
-                    <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                    <Typography.Title level={5}>{reminder.vehiclePlate}</Typography.Title>
-                  </div>
-                  <Tag>{dashboardLabel(reminder.type)}</Tag>
-                </div>
-                <div className="mobileRecordMeta">
-                  <span><small>Due / 到期</small><strong>{reminder.dueDate} · {dashboardLabel(reminderDueLabel(reminder))}</strong></span>
-                  <span><small>Amount / 金额</small><strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "-"}</strong></span>
-                </div>
-                <div className="mobileRecordTextBlock">{reminder.title}</div>
-                <div className="mobileRecordFooter"><Button type="primary" onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
-              </article>
-            ))}
-            {filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet."} />}
-            <Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} />
-          </div>
-          <Table
-            className="desktopDataTable"
-            rowKey="key"
-            columns={[
-              { title: "Type / 类型", dataIndex: "type", render: (value) => <Tag>{dashboardLabel(value)}</Tag> },
-              { title: "Title / 事项", dataIndex: "title" },
-              { title: "Car Plate / 车牌", dataIndex: "vehiclePlate" },
-              { title: "Due / 到期", dataIndex: "dueDate", sorter: false, render: (value, row) => <Space><span>{value}</span><Tag color={reminderDueTagColor(row)}>{dashboardLabel(reminderDueLabel(row))}</Tag></Space> },
-              { title: "Amount / 金额", dataIndex: "amount", render: (value) => value ? `RM ${Number(value).toLocaleString()}` : "-" },
-              { title: "Action / 操作", render: (_, row) => <Button size="small" onClick={() => onNavigate(dashboardReminderTarget(row))}>Open</Button> }
-            ]}
-            dataSource={filteredReminders}
-            pagination={tablePagination(8)}
-            scroll={{ x: 760 }}
-            locale={{ emptyText: actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet." }}
-          />
-        </ProCard>
-
-        {dashboard && <>
-        <section className="dashboardPanel" aria-labelledby="dashboard-intelligence-title">
-          <div className="dashboardPanelHeader">
-            <div>
-              <span id="dashboard-intelligence-title">Executive intelligence / 决策图表</span>
-              <strong>Ranked answers for the questions a boss asks first.</strong>
+      {dashboard && <section id="dashboard-analysis" className="dashboardAnalysis" aria-labelledby="dashboard-analysis-title">
+        <div className="dashboardAnalysisHeading"><h2 id="dashboard-analysis-title" className="dashboardSectionTitle">Business analysis / 经营分析</h2><DashboardAnalyticsControls period={analyticsPeriod} preset={analyticsRangePreset} disabled={refreshing} onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)} /></div>
+        <div className="dashboardAnalysisGrid">
+          <ProCard title="Monthly vehicle margin / 月度车辆毛利" className="dashboardAnalysisCard dashboardMarginCard" extra={<Button onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))}>Open sold vehicles</Button>}>
+            <Typography.Paragraph type="secondary">Sold margin by sale month. Displayed months: {profitTrendPeriodLabel}.</Typography.Paragraph><strong className="dashboardChartTotal">{formatCompactMoney(monthlyProfitTrend.reduce((sum, item) => sum + item.soldProfit, 0))} sold margin in displayed months</strong>
+            <DashboardMarginTrend items={monthlyProfitTrend} kind="sold" />
+            <details className="dashboardDetailDisclosure"><summary>Sales model rankings / 已售车型排名</summary><Typography.Paragraph>{totalSales} confirmed sold vehicles in {analyticsPeriodLabel}.</Typography.Paragraph><DashboardBarList items={topSellingDisplayItems.map(item => ({ label: item.label, value: item.count }))} formatValue={value => value + " sold"} tone="sales" emptyText="No sold vehicle records yet." /></details>
+          </ProCard>
+          <ProCard title="Lead volume / 询问趋势" className="dashboardAnalysisCard" extra={<Button onClick={() => onNavigate("/leads")}>Open leads</Button>}>
+            <Typography.Paragraph type="secondary">Enquiries created in {analyticsPeriodLabel}. Monthly trend: {leadTrendPeriodLabel}.</Typography.Paragraph>
+            <DashboardLeadTrend items={leadTrend} />
+            <div className="dashboardLeadFollowUp"><h3>Lead follow-up / 询问跟进</h3><Typography.Paragraph type="secondary">Current case status of {leadCount} enquiries created in {analyticsPeriodLabel}. {leadsAwaitingFirstResponse} new enquiries over 24h in this period.</Typography.Paragraph><DashboardLeadStatus stages={leadStages} closureRate={leadClosureRate} /></div>
+            <details className="dashboardDetailDisclosure"><summary>Top enquired vehicles / 热门询问车辆</summary><DashboardLeadVehicleList items={topEnquiredVehicles} periodLabel={analyticsPeriodLabel} /></details>
+          </ProCard>
+          <ProCard title="Stock context / 当前库存" className="dashboardAnalysisCard dashboardStockContext">
+            <Typography.Paragraph type="secondary">Current stock and loans at the Summary update; independent of the analytics range.</Typography.Paragraph>
+            <div className="metricGrid dashboardMetricGrid dashboardSupportingMetrics">
+              <Metric icon={<CarOutlined />} label="Total Stock / 总库存" value={dashboard.totalStock} meta="Current unsold vehicles" onClick={() => onNavigate(dashboardMetricTarget("stock"))} />
+              <Metric icon={<FileDoneOutlined />} label="Pending Loan / 贷款待跟进" value={dashboard.pendingLoan} meta="Current Pending applications" tone={dashboard.pendingLoan > 0 ? "work" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("loans"))} />
+              <Metric icon={<ToolOutlined />} label="Repair Cost / 整备费用" value={formatCompactMoney(dashboard.repairCost)} meta="Current unsold stock" onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+              <Metric icon={<CalendarOutlined />} label="Aging / 超60天库存" value={dashboard.vehicleAging} meta="Current unsold vehicles since intake" tone={dashboard.vehicleAging > 0 ? "risk" : "neutral"} onClick={() => onNavigate(dashboardMetricTarget("aging"))} />
             </div>
-            <Tag>Summary update above</Tag>
-          </div>
-          <div className="dashboardInsightGrid dashboardInsightGridOperations">
-            <ProCard
-              title="Refurbishment analysis / 整备分析"
-              className="dashboardInsightCard dashboardInsightCardPriority"
-              extra={<Button size="small" onClick={() => onNavigate("/repairs")}>Open repairs</Button>}
-            >
-              <div className="insightCaption"><span>Final cost for repair jobs created in {analyticsPeriodLabel}</span><strong>{formatCompactMoney(refurbishment?.finalRepairSpend ?? 0)}</strong></div>
-              <Typography.Paragraph type="secondary">Current completion and overdue status of jobs created in this period.</Typography.Paragraph>
-              <div className="refurbishmentSummaryGrid">
-                <span><small>Vehicles repaired</small><strong>{refurbishment?.vehicleCount ?? 0}</strong></span>
-                <span><small>Average per vehicle</small><strong>{formatCompactMoney(refurbishment?.averageSpendPerVehicle ?? 0)}</strong></span>
-                <span><small>Work in progress</small><strong>{refurbishment?.workInProgressCount ?? 0}</strong></span>
-                <span><small>Overdue work</small><strong>{refurbishment?.overdueWorkCount ?? 0}</strong></span>
-              </div>
-              <DashboardRepairCostChart
-                items={refurbishmentHighestCosts.map((item) => ({ label: item.label, value: item.amount }))}
-                emptyText="No repair cost recorded yet."
-              />
-            </ProCard>
-            <ProCard
-              title="Sales performance / 销售表现"
-              className="dashboardInsightCard dashboardInsightCardPositive"
-              extra={<Button size="small" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))}>Open sold vehicles</Button>}
-            >
-              <div className="insightCaption"><span>{totalSales} confirmed sold vehicle{totalSales === 1 ? "" : "s"} in {analyticsPeriodLabel}</span><strong>{topSellingModel?.label ?? "No data"}</strong></div>
-              <DashboardBarList
-                items={topSellingDisplayItems.map((item) => ({ label: item.label, value: item.count }))}
-                formatValue={(value) => `${value} sold`}
-                tone="sales"
-                emptyText="No sold vehicle records yet."
-              />
-            </ProCard>
-            <ProCard
-              title="Lead volume / 询问趋势"
-              className="dashboardInsightCard dashboardInsightCardWide"
-              extra={<Button size="small" onClick={() => onNavigate("/leads")}>Open leads</Button>}
-            >
-              <div className="insightCaption"><span>Enquiries created in {analyticsPeriodLabel}</span><strong>{leadCount} enquiries</strong></div>
-              <Typography.Paragraph type="secondary">Monthly trend: {leadTrendPeriodLabel}. Top enquired vehicles: {analyticsPeriodLabel}.</Typography.Paragraph>
-              <DashboardLeadTrend items={leadTrend} />
-              <DashboardLeadVehicleList items={topEnquiredVehicles} periodLabel={analyticsPeriodLabel} />
-            </ProCard>
-            <ProCard
-              title="Monthly vehicle margin / 月度车辆毛利"
-              className="dashboardInsightCard dashboardInsightCardWide"
-              extra={<Button size="small" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))}>Open sold vehicles</Button>}
-            >
-              <div className="insightCaption"><span>Monthly series: {profitTrendPeriodLabel}. Sold margin by sale month; projected margin of current unsold stock by intake month.</span><strong>{formatCompactMoney(monthlyProfitTrend.reduce((sum, item) => sum + item.soldProfit, 0))} sold margin in displayed months</strong></div>
-              <DashboardProfitTrend items={monthlyProfitTrend} />
-            </ProCard>
-            <ProCard
-              title="Lead follow-up / 询问跟进"
-              className="dashboardInsightCard"
-              extra={<Button size="small" onClick={() => onNavigate("/leads")}>Follow up</Button>}
-            >
-              <div className="insightCaption"><span>Current case status of enquiries created in {analyticsPeriodLabel}</span><strong>{leadsAwaitingFirstResponse} new enquiries over 24h in this period</strong></div>
-              <DashboardLeadStatus stages={leadStages} closureRate={leadClosureRate} />
-            </ProCard>
-          </div>
-        </section>
-
-        <div className="dashboardSimpleGrid">
-          <ProCard title="Vehicle aging / 库存车龄" className="dashboardSimpleCard dashboardAgingCard">
-            <div className={dashboard.vehicleAging > 0 ? "dashboardFocusQueue dashboardFocusQueueHot" : "dashboardFocusQueue"}>
-              <span>URGENT STOCK</span>
-              <strong>{dashboard.vehicleAging} vehicles over 60 days</strong>
-              <small>{dashboard.vehicleAging > 0 ? "Review price or clearance action now." : "No urgent aging stock."}</small>
+            <div className="dashboardStockDetails">
+              <details className="dashboardDetailDisclosure dashboardAgingCard"><summary>Vehicle aging / 库存车龄</summary><div className={dashboard.vehicleAging > 0 ? "dashboardFocusQueue dashboardFocusQueueHot" : "dashboardFocusQueue"}><strong>{dashboard.vehicleAging} vehicles over 60 days</strong><small>{dashboard.vehicleAging > 0 ? "Review price or clearance action now." : "No urgent aging stock."}</small></div><DashboardAgingActionBoard items={agingBuckets} onNavigate={onNavigate} /></details>
+              <details className="dashboardDetailDisclosure"><summary>Purchase cost and settlements / 收车成本与结算</summary><div className="metricGrid dashboardMetricGrid"><Metric label="Purchase Cost / 收车成本" value={formatCompactMoney(purchaseCost)} meta="Current unsold stock" onClick={() => onNavigate(dashboardMetricTarget("stock"))} /><Metric label="Settlement Due / 结算到期" value={dashboard.settlementDue} meta={"Current due amount " + formatCompactMoney(settlementDueAmount)} onClick={() => onNavigate(dashboardMetricTarget("settlements"))} /></div></details>
             </div>
-            <Typography.Paragraph type="secondary">Current unsold vehicles by days since intake, at the summary update above.</Typography.Paragraph>
-            <DashboardAgingActionBoard items={agingBuckets} onNavigate={onNavigate} />
+          </ProCard>
+          <ProCard title="Projected stock margin / 库存预计毛利" className="dashboardAnalysisCard dashboardStockMarginPanel">
+            <Metric icon={<AccountBookOutlined />} label="Current unsold stock / 当前未售库存" value={formatCompactMoney(projectedStockProfit)} tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+            <details className="dashboardDetailDisclosure"><summary>By intake month / 按收车月份</summary><Typography.Paragraph type="secondary">Current unsold stock with intake dates in {analyticsPeriodLabel}, grouped by intake month. Displayed months: {profitTrendPeriodLabel}. This is separate from sold margin.</Typography.Paragraph><DashboardMarginTrend items={monthlyProfitTrend} kind="stock" /></details>
+          </ProCard>
+          <ProCard title="Refurbishment analysis / 整备分析" className="dashboardAnalysisCard dashboardRefurbishmentPanel" extra={<Button onClick={() => onNavigate("/repairs")}>Open repairs</Button>}>
+            <Typography.Paragraph type="secondary">Repair jobs created in {analyticsPeriodLabel}; completion and overdue status are current for those jobs.</Typography.Paragraph>
+            <strong className="dashboardChartTotal">{formatCompactMoney(refurbishment?.finalRepairSpend ?? 0)} final repair spend</strong>
+            <div className="refurbishmentSummaryGrid"><span><small>Vehicles repaired</small><strong>{refurbishment?.vehicleCount ?? 0}</strong></span><span><small>Average per vehicle</small><strong>{formatCompactMoney(refurbishment?.averageSpendPerVehicle ?? 0)}</strong></span><span><small>Work in progress</small><strong>{refurbishment?.workInProgressCount ?? 0}</strong></span><span><small>Overdue work</small><strong>{refurbishment?.overdueWorkCount ?? 0}</strong></span></div>
+            <details className="dashboardDetailDisclosure"><summary>Repair cost rankings / 整备费用排名</summary><DashboardRepairCostChart items={refurbishmentHighestCosts.map(item => ({ label: item.label, value: item.amount }))} emptyText="No repair cost recorded yet." /></details>
           </ProCard>
         </div>
-
-        {aiDocumentProcessing && <DashboardAiDocumentProcessingPanel processing={aiDocumentProcessing} analyticsPeriodLabel={analyticsPeriodLabel} />}
-        </>}
-    </Space>
+      </section>}
+      {aiDocumentProcessing && <section className="dashboardMonitoring" aria-labelledby="dashboard-monitoring-title">
+        <h2 id="dashboard-monitoring-title" className="dashboardSectionTitle">System monitoring / 系统监控</h2>
+        <div className="dashboardMonitoringSummary"><strong>Document processing / AI 文件处理</strong><span>{aiDocumentProcessing.scanCount} scans · {aiDocumentProcessing.reviewedCount} reviewed · {analyticsPeriodLabel}</span><Tag color={aiDocumentProcessing.pendingReviewCount > 0 ? "orange" : "default"}>{aiDocumentProcessing.pendingReviewCount} pending staff checks currently</Tag><Tag color={aiDocumentProcessing.failedCount > 0 ? "red" : "default"}>{aiDocumentProcessing.failedCount} failed scans in period</Tag></div>
+        <details className="dashboardMonitoringDetails"><summary>Document processing details / 文件处理详情</summary><DashboardAiDocumentProcessingPanel processing={aiDocumentProcessing} analyticsPeriodLabel={analyticsPeriodLabel} /></details>
+      </section>}
+    </div>
   );
 }
 
@@ -3033,76 +2793,6 @@ function DashboardRepairCostChart({
   );
 }
 
-function DashboardLeadTrend({ items }: { items: Array<{ label: string; count: number }> }) {
-  const maxCount = Math.max(...items.map((item) => item.count), 1);
-  const accessibleSummary = items.map((item) => `${item.label}: ${item.count}`).join(", ");
-  const chartWidth = 780;
-  const labelStride = Math.ceil(items.length / 6);
-  const showLabel = (index: number) => items.length <= 6 || index === 0 || index === items.length - 1 || (index % labelStride === 0 && items.length - 1 - index >= labelStride);
-  const chartHeight = 156;
-  const baseline = 130;
-  const leftInset = 30;
-  const rightInset = 30;
-  const usableWidth = chartWidth - leftInset - rightInset;
-  const points = items.map((item, index) => {
-    const x = items.length <= 1 ? chartWidth / 2 : leftInset + (usableWidth * index / (items.length - 1));
-    const y = baseline - (item.count / maxCount) * 96;
-    return { ...item, x, y };
-  });
-  const linePoints = points.map((point) => `${point.x},${point.y}`).join(" ");
-  const areaPath = points.length ? `M ${points[0].x} ${baseline} L ${linePoints.replaceAll(" ", " L ")} L ${points[points.length - 1].x} ${baseline} Z` : "";
-
-  return (
-    <div className="leadLineChart" role="img" aria-label={`Lead volume by month. ${accessibleSummary}`}>
-      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} aria-hidden="true" preserveAspectRatio="xMidYMid meet" shapeRendering="geometricPrecision">
-        {[34, 82, baseline].map((y) => <line key={y} x1={leftInset} x2={chartWidth - rightInset} y1={y} y2={y} vectorEffect="non-scaling-stroke" shapeRendering="crispEdges" />)}
-        {areaPath && <path className="leadLineArea" d={areaPath} />}
-        {linePoints && <polyline className="leadLinePath" points={linePoints} vectorEffect="non-scaling-stroke" />}
-        {points.map((point, index) => <g key={point.label}><circle cx={point.x} cy={point.y} r="4.5" vectorEffect="non-scaling-stroke" />{showLabel(index) && <text x={point.x} y={Math.max(17, point.y - 12)}>{point.count}</text>}</g>)}
-      </svg>
-      <div className="leadLineLabels">
-        {points.map((point, index) => <small key={point.label} style={{ left: `${point.x * 100 / chartWidth}%` }}>{showLabel(index) ? point.label : null}</small>)}
-      </div>
-    </div>
-  );
-}
-
-function DashboardProfitTrend({ items }: { items: Array<{ label: string; estimatedProfit: number; soldProfit: number; soldCount: number }> }) {
-  if (items.length === 0) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No monthly profit data yet." />;
-  const width = 780;
-  const height = 178;
-  const baseline = 138;
-  const inset = 30;
-  const values = items.flatMap((item) => [item.estimatedProfit, item.soldProfit]);
-  const minValue = Math.min(0, ...values);
-  const maxValue = Math.max(0, ...values);
-  const range = Math.max(maxValue - minValue, 1);
-  const yFor = (value: number) => baseline - ((value - minValue) / range) * 114;
-  const pointFor = (value: number, index: number) => ({
-    x: items.length === 1 ? width / 2 : inset + ((width - inset * 2) * index / (items.length - 1)),
-    y: yFor(value)
-  });
-  const estimatedPoints = items.map((item, index) => pointFor(item.estimatedProfit, index));
-  const soldPoints = items.map((item, index) => pointFor(item.soldProfit, index));
-  const path = (points: Array<{ x: number; y: number }>) => points.map((point) => `${point.x},${point.y}`).join(" ");
-  const labelStride = Math.ceil(items.length / 6);
-
-  return (
-    <div className="profitLineChart" role="img" aria-label={items.map((item) => `${item.label}: sold ${formatCompactMoney(item.soldProfit)}, projected ${formatCompactMoney(item.estimatedProfit)}`).join(", ")}>
-      <div className="profitLegend"><span><i className="profitLegendSold" />Sold vehicle margin</span><span><i className="profitLegendEstimated" />Current stock margin by intake month</span></div>
-      <svg viewBox={`0 0 ${width} ${height}`} aria-hidden="true" preserveAspectRatio="xMidYMid meet">
-        {[44, 91, baseline].map((y) => <line key={y} x1={inset} x2={width - inset} y1={y} y2={y} />)}
-        <line className="profitZeroLine" x1={inset} x2={width - inset} y1={yFor(0)} y2={yFor(0)} />
-        <text x={12} y={yFor(0) + 4}>0</text>
-        <polyline className="profitLineEstimated" points={path(estimatedPoints)} />
-        <polyline className="profitLineSold" points={path(soldPoints)} />
-        {soldPoints.map((point, index) => <g key={items[index].label}><circle className="profitPointSold" cx={point.x} cy={point.y} r="4" /><text x={point.x} y={Math.max(18, point.y - 12)}>{formatCompactMoney(items[index].soldProfit)}</text></g>)}
-      </svg>
-      <div className="profitLineLabels">{items.map((item, index) => <small key={item.label} style={{ left: `${soldPoints[index].x * 100 / width}%` }}>{items.length <= 6 || index === 0 || index === items.length - 1 || (index % labelStride === 0 && items.length - 1 - index >= labelStride) ? <>{item.label}<br />{item.soldCount} sold</> : null}</small>)}</div>
-    </div>
-  );
-}
-
 function DashboardLeadVehicleList({ items, periodLabel }: { items: Array<{ label: string; count: number }>; periodLabel: string }) {
   return (
     <section className="leadVehicleList" aria-labelledby="lead-vehicle-list-title">
@@ -3157,19 +2847,10 @@ function DashboardAgingActionBoard({
 }
 
 function DashboardLeadStatus({ stages, closureRate }: { stages: Array<{ label: string; count: number }>; closureRate: number }) {
-  const radius = 46;
-  const circumference = 2 * Math.PI * radius;
   const maxCount = Math.max(...stages.map((stage) => stage.count), 1);
 
   return (
-    <div className="salesFunnel">
-      <div className="conversionDial" aria-label={`${closureRate}% of lead cases are closed`} role="img">
-        <svg viewBox="0 0 112 112" aria-hidden="true">
-          <circle cx="56" cy="56" r={radius} />
-          <circle cx="56" cy="56" r={radius} style={{ strokeDasharray: circumference, strokeDashoffset: circumference * (1 - closureRate / 100) }} />
-        </svg>
-        <span><strong>{closureRate}%</strong>case closure</span>
-      </div>
+    <div className="salesFunnel dashboardLeadStatus">
       <div className="funnelRows">
         {stages.map((stage) => (
           <div className="funnelRow" key={stage.label}>
@@ -3179,6 +2860,7 @@ function DashboardLeadStatus({ stages, closureRate }: { stages: Array<{ label: s
           </div>
         ))}
       </div>
+      <Typography.Text type="secondary">{closureRate}% case closure in this enquiry cohort.</Typography.Text>
     </div>
   );
 }
@@ -3223,12 +2905,14 @@ export function loanHeaderStats(loans: Pick<LoanApplication, "status">[]) {
 }
 
 function Metric({
+  icon,
   label,
   value,
   meta,
   tone = "neutral",
   onClick
 }: {
+  icon?: ReactNode;
   label: string;
   value: string | number;
   meta?: string;
@@ -3237,6 +2921,7 @@ function Metric({
 }) {
   const content = (
     <>
+      {icon && <span className="dashboardMetricIcon" aria-hidden="true">{icon}</span>}
       <span>{label}</span>
       <strong>{value}</strong>
       {meta ? <small>{meta}</small> : null}
