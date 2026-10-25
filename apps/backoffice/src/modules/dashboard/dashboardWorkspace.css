@@ -1,0 +1,198 @@
+.dashboardWorkspace { --dashboard-border: #e4ebef; display: grid; gap: 12px; min-width: 0; color: #182429; font-family: Arial, "Microsoft YaHei", sans-serif; }
+.ant-pro-layout:has(.dashboardWorkspace) { font-family: Arial, "Microsoft YaHei", sans-serif; background: #f3f7f8; }
+.ant-pro-layout:has(.dashboardWorkspace) .ant-layout { background: #f3f7f8; }
+.ant-pro-page-container-children-container:has(.dashboardWorkspace) { padding: 16px 24px; }
+.dashboardCommandBar.moduleCommandBar { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; font-family: Arial, "Microsoft YaHei", sans-serif; }
+.dashboardCommandBar .moduleEyebrow, .dashboardCommandBar .moduleRoles, .dashboardCommandBar .moduleStats { display: none; }
+.dashboardCommandBar.moduleCommandBar h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+.dashboardCommandBar .moduleGuideButton { min-height: 36px; font-size: 12px; }
+.dashboardWorkspace .ant-pro-card, .dashboardWorkspace .ant-card { box-shadow: none; border-color: var(--dashboard-border); border-radius: 5px; }
+.dashboardWorkspace .ant-pro-card-title { font: 700 16px/1.5 Arial, "Microsoft YaHei", sans-serif; color: #17232a; white-space: normal; }
+.dashboardWorkspace .ant-pro-card > .ant-pro-card-body { padding: 12px; }
+.dashboardWorkspace .ant-pro-card .ant-pro-card-header { padding: 12px 12px 0; gap: 8px; }
+.dashboardWorkspace .ant-pro-card-extra { flex: 0 1 auto; margin: 0; }
+.dashboardWorkspace .ant-btn { box-shadow: none; font-family: inherit; }
+.dashboardWorkspace .ant-pro-card-extra .ant-btn { min-height: 36px; font-size: 12px; }
+.dashboardWorkspace .ant-typography-secondary, .dashboardWorkspace .dataFreshness { color: #657580; }
+.dashboardWorkspace .dataFreshness { display: block; font-size: 12px; margin: 0 0 10px; }
+.dashboardWorkspace .dashboardAnalyticsControls { border: 0; background: none; padding: 0; margin: 0; gap: 8px; }
+.dashboardWorkspace .dashboardAnalyticsControls > div:first-child span { display: none; }
+.dashboardWorkspace .dashboardAnalyticsControls strong { font-size: 12px; }
+.dashboardWorkspace .dashboardAnalyticsControls .ant-select { width: 180px; }
+.dashboardWorkspace .dashboardPageToolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.dashboardWorkspace .dashboardPageToolbar .dashboardAnalyticsControls > div:first-child { display: none; }
+.dashboardWorkspace .dashboardPageToolbar .dataFreshness { flex: 1 1 280px; margin: 0; }
+.dashboardWorkspace .dashboardSnapshotActions { display: flex; margin-left: auto; width: auto; }
+.dashboardWorkspace .dashboardSnapshotActions .ant-btn { width: auto; min-height: 36px; }
+.dashboardWorkspace .dashboardOverviewCard .ant-pro-card-header { border-bottom: 1px solid var(--dashboard-border); padding-block: 10px; }
+.dashboardWorkspace .dashboardOverviewCard .ant-pro-card-body { display: grid; gap: 8px; padding: 12px; }
+.dashboardWorkspace .metricGrid.dashboardHeadlineMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
+.dashboardWorkspace .metricCard { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); align-content: start; gap: 4px 10px; padding: 12px; min-width: 0; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; text-align: left; }
+.dashboardWorkspace .metricCard::before { display: none; }
+.dashboardWorkspace .metricCard > span:not(.dashboardMetricIcon), .dashboardWorkspace .metricCard > strong, .dashboardWorkspace .metricCard > small { grid-column: 2; }
+.dashboardWorkspace .metricCard > span:not(.dashboardMetricIcon) { font-size: 12px; font-weight: 400; color: #42515d; line-height: 1.5; overflow-wrap: anywhere; }
+.dashboardWorkspace .metricCard > strong { font-size: 22px; line-height: 1.3; letter-spacing: -.02em; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; color: #17232a; }
+.dashboardWorkspace .metricCard > small { color: #657580; font-size: 12px; line-height: 1.4; font-weight: 400; }
+.dashboardWorkspace .metricCard > .dashboardMetricIcon { grid-column: 1; grid-row: 1 / 4; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #edf8f4; color: #08765f; font-size: 20px; }
+.dashboardWorkspace .dashboardMetricIcon .anticon { font-size: 22px; color: inherit; }
+.dashboardWorkspace .dashboardHeadlineMetrics .metricCard > strong { font-size: 24px; }
+.dashboardWorkspace .dashboardHeadlineMetrics .metricCard > span:not(.dashboardMetricIcon) { font-size: 13px; }
+.dashboardWorkspace .metricCardButton:hover { background: #f5faf8; }
+.dashboardWorkspace .metricCard:not(:has(.dashboardMetricIcon)) { grid-template-columns: minmax(0, 1fr); }
+.dashboardWorkspace .metricCard:not(:has(.dashboardMetricIcon)) > * { grid-column: 1; }
+.dashboardWorkspace .dashboardHeadlineMetrics .metricCard + .metricCard { border-left: 1px solid var(--dashboard-border); }
+.dashboardWorkspace .dashboardSnapshotDefinitions { margin: 0; border-top: 1px solid var(--dashboard-border); }
+.dashboardWorkspace summary { cursor: pointer; min-height: 36px; padding-block: 10px; color: #385766; font-size: 12px; font-weight: 600; }
+.dashboardWorkspace summary:focus-visible, .dashboardWorkspace button:focus-visible { outline: 2px solid #08765f; outline-offset: 3px; }
+.dashboardSectionTitle { margin: 0; font: 700 16px/1.5 Arial, "Microsoft YaHei", sans-serif; color: #17232a; }
+.dashboardCurrentWork, .dashboardAnalysis, .dashboardMonitoring { min-width: 0; padding: 12px; border: 1px solid var(--dashboard-border); border-radius: 5px; background: #fff; }
+.dashboardCurrentWork { display: grid; gap: 12px; }
+.dashboardWorkGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; min-width: 0; }
+.dashboardWorkPrimary, .dashboardWorkContext { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
+.dashboardWorkPrimary > *, .dashboardWorkContext > * { min-width: 0; max-width: 100%; }
+.dashboardWorkspace .dashboardPriorityCard.ant-pro-card { border: 1px solid var(--dashboard-border); }
+.dashboardWorkspace .dashboardPriorityAlert { margin-bottom: 10px; }
+.dashboardQueueToolbar, .dashboardQueueCount { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.dashboardQueueToolbar { margin-bottom: 10px; }
+.dashboardQueueToolbar > .ant-typography, .dashboardQueueCount { font-size: 12px; color: #657580; }
+.dashboardWorkspace .dashboardFilterToggle { display: none; }
+.dashboardWorkspace .dashboardActionFilters { display: flex; gap: 8px; margin: 0 0 10px; align-items: end; flex-wrap: wrap; }
+.dashboardWorkspace .dashboardActionFilters label { display: grid; gap: 5px; flex: 1 1 180px; min-width: 0; font-size: 12px; }
+.dashboardWorkspace .dashboardActionFilters .ant-select { width: 100%; }
+.dashboardQueueCount { margin-bottom: 10px; }
+.dashboardQueueCount .ant-btn { min-height: 36px; height: auto; padding-inline: 4px; }
+.dashboardActiveFilters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.dashboardWorkspace .dashboardTaskRecord { padding: 12px; border-radius: 4px; box-shadow: none; }
+.dashboardWorkspace .dashboardTaskRecord > .ant-tag { justify-self: start; }
+.dashboardWorkspace .dashboardTaskRecord h5 { margin: 3px 0; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.dashboardTaskSubject { font-size: 13px; font-weight: 600; }
+.dashboardTaskSource { display: block; color: #657580; font-size: 12px; overflow-wrap: anywhere; }
+.dashboardTaskFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding-block: 10px; }
+.dashboardTaskFacts > span { display: grid; gap: 4px; min-width: 0; }
+.dashboardTaskFacts small { color: #657580; font-size: 12px; }
+.dashboardTaskFacts strong { font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dashboardWorkspace .dashboardTaskRecord .mobileRecordFooter { display: flex; justify-content: flex-end; border: 0; padding: 0; margin: 0; }
+.dashboardWorkspace .mobileRecordFooter .ant-btn { width: auto; min-height: 44px; }
+.dashboardTableTask { display: grid; justify-items: start; gap: 4px; min-width: 0; }
+.dashboardTableTask strong { font-size: 13px; overflow-wrap: anywhere; }
+.dashboardTableTask span, .dashboardTableTask small { font-size: 12px; }
+.dashboardTableTask small { color: #657580; }
+.dashboardWorkspace .dashboardPriorityTable .ant-pro-card-body { padding: 0; }
+.dashboardWorkspace .dashboardPriorityTable .ant-table-tbody > tr > td { padding: 10px 8px; vertical-align: top; }
+.dashboardWorkspace .dashboardPriorityTable .ant-btn { min-height: 36px; font-size: 12px; }
+.dashboardMoney { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dashboardWorkloadDisclosure { border-top: 1px solid var(--dashboard-border); margin-top: 8px; }
+.dashboardWorkloadDisclosure summary span, .dashboardInboxDisclosure > summary > span { font-size: 12px; font-weight: 400; margin-left: 8px; color: #657580; }
+.dashboardWorkspace .dashboardWorkload { margin: 0; max-width: none; gap: 4px; }
+.dashboardWorkspace .dashboardWorkloadBar { grid-template-columns: 80px minmax(0, 1fr) 32px; min-height: 44px; }
+.dashboardWorkspace .dashboardWorkloadBar:hover, .dashboardWorkspace .dashboardWorkloadBar[aria-pressed="true"] { background: #f1f8f5; border-color: #cde5da; }
+.dashboardWorkspace .dashboardWorkloadTrack { height: 6px; background: #edf2f2; }
+.dashboardWorkspace .dashboardWorkloadTrack > span { background: #08765f; }
+.dashboardInboxDisclosure { border: 1px solid var(--dashboard-border); border-radius: 4px; padding-inline: 10px; min-width: 0; }
+.dashboardInboxBody { display: grid; gap: 12px; padding-bottom: 12px; }
+.dashboardInboxFilters { display: flex; flex-wrap: wrap; gap: 8px; }
+.dashboardInboxFilters .ant-select { width: 220px; max-width: 100%; }
+.dashboardWorkspace .dashboardCashCard .ant-pro-card-body { display: grid; gap: 8px; }
+.dashboardWorkspace .dashboardCashCard .ant-pro-card-body > .ant-typography { font-size: 12px; }
+.dashboardCashTotals { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 12px; color: #657580; }
+.dashboardCashTotals strong { color: #17232a; white-space: nowrap; }
+.dashboardWorkspace .dashboardCashActionList { gap: 0; }
+.dashboardWorkspace .dashboardCashAction { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--dashboard-border); border-radius: 0; background: none; }
+.dashboardWorkspace .dashboardCashAction:last-child { border: 0; }
+.dashboardCashIcon { display: grid; place-items: center; border-radius: 50%; width: 28px; height: 28px; color: #08765f; background: #edf8f4; font-size: 16px; }
+.dashboardCashDetails { display: grid; gap: 3px; min-width: 0; }
+.dashboardCashDetails strong { font-size: 12px; font-weight: 400; line-height: 1.4; }
+.dashboardCashDetails > span { font-size: 17px; font-weight: 700; white-space: nowrap; }
+.dashboardCashDetails small { font-size: 11px; color: #657580; }
+.dashboardWorkspace .dashboardCashAction > .ant-btn { min-height: 36px; width: auto; font-size: 12px; padding-inline: 8px; }
+.dashboardAnalysisHeading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.dashboardAnalysisGrid { display: grid; gap: 12px; min-width: 0; align-items: start; }
+.dashboardAnalysisGrid > * { min-width: 0; }
+.dashboardWorkspace .dashboardMarginCard { align-self: stretch; }
+.dashboardAnalysisCard .ant-pro-card-body > .ant-typography { font-size: 12px; margin-bottom: 8px; }
+.dashboardChartTotal { display: block; font-size: 14px; margin-block: 8px 12px; }
+.dashboardLeadFollowUp { border-top: 1px solid var(--dashboard-border); margin-top: 12px; padding-top: 12px; }
+.dashboardLeadFollowUp h3 { font-size: 14px; margin: 0 0 6px; }
+.dashboardLeadFollowUp p { font-size: 12px; }
+.dashboardDetailDisclosure { border-top: 1px solid var(--dashboard-border); margin-top: 10px; min-width: 0; }
+.dashboardWorkspace .dashboardDetailDisclosure > summary { overflow-wrap: anywhere; }
+.dashboardStockDetails { display: grid; gap: 0; }
+.dashboardWorkspace .metricGrid.dashboardSupportingMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
+.dashboardWorkspace .dashboardSupportingMetrics .metricCard { grid-template-columns: 24px minmax(0, 1fr); padding: 8px; gap: 4px 6px; }
+.dashboardWorkspace .dashboardSupportingMetrics .metricCard > .dashboardMetricIcon { width: 24px; height: 24px; font-size: 17px; background: none; }
+.dashboardWorkspace .dashboardSupportingMetrics .dashboardMetricIcon .anticon { font-size: 20px; }
+.dashboardWorkspace .dashboardSupportingMetrics .metricCard > strong { font-size: 17px; }
+.dashboardWorkspace .dashboardSupportingMetrics .metricCard > small { font-size: 11px; }
+.dashboardWorkspace .insightCaption span, .dashboardWorkspace .insightCaption strong { white-space: normal; text-overflow: clip; overflow: visible; }
+.dashboardWorkspace .agingActionBoard { margin-top: 16px; }
+.dashboardWorkspace .dashboardLeadStatus { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.dashboardWorkspace .dashboardLeadStatus .funnelRow { grid-template-columns: 110px minmax(0, 1fr) 28px; }
+.dashboardWorkspace .dashboardLeadStatus .funnelRow > span { font-size: 12px; }
+.dashboardWorkspace .dashboardLeadStatus .funnel-new { background: #08765f; }
+.dashboardWorkspace .dashboardLeadStatus .funnel-contacted { background: #50a982; }
+.dashboardWorkspace .dashboardLeadStatus .funnel-closed { background: #9acfb6; }
+.dashboardWorkspace .collectionAgeing .collectionAgeingContent { grid-template-columns: 210px minmax(0, 1fr); gap: 10px 16px; }
+.dashboardWorkspace .collectionAgeingSummary { grid-column: 1; grid-row: 1 / 4; align-self: stretch; padding: 14px; background: #f3f8fc; border-radius: 4px; }
+.dashboardWorkspace .collectionAgeingDateNotice, .dashboardWorkspace .collectionAgeingBuckets, .dashboardWorkspace .collectionAgeingAllBuckets, .dashboardWorkspace .collectionAgeingContent > .ant-empty { grid-column: 2; }
+.dashboardWorkspace .collectionAgeingContent > .ant-typography { grid-column: 1 / -1; }
+.dashboardWorkspace .collectionAgeing .collectionAgeingDateNotice > strong, .dashboardWorkspace .collectionAgeing .collectionAgeingDateNotice .ant-typography, .dashboardWorkspace .collectionAgeing .collectionAgeingSummary > span { font-size: 12px; }
+.dashboardMonitoringSummary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; font-size: 12px; margin-top: 10px; }
+.dashboardMonitoringSummary > strong { font-size: 14px; }
+.dashboardMonitoringDetails { margin-top: 8px; }
+.dashboardMonitoringDetails .ant-pro-card { border: 0; }
+@media (min-width: 1025px) {
+  .dashboardAnalysisGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboardWorkspace .dashboardStockContext, .dashboardWorkspace .dashboardStockMarginPanel { grid-column: auto; }
+  .dashboardWorkspace .dashboardRefurbishmentPanel { grid-column: 1 / -1; }
+  .dashboardWorkspace .refurbishmentSummaryGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 1280px) {
+  .dashboardWorkspace .metricGrid.dashboardHeadlineMetrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .dashboardWorkspace .metricGrid.dashboardSupportingMetrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .dashboardWorkspace .dashboardSupportingMetrics .metricCard > strong { font-size: 16px; }
+  .dashboardWorkGrid { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+}
+@media (max-width: 1024px) {
+  .dashboardCommandBar.moduleCommandBar { display: flex; justify-content: flex-end; }
+  .dashboardCommandBar .moduleCommandAside { display: flex; width: auto; }
+  .dashboardCommandBar .moduleGuideButtonWrap, .dashboardCommandBar .moduleGuideButton { width: auto; }
+  .dashboardWorkspace .dashboardPriorityTable { display: none; }
+  .dashboardWorkspace .dashboardPriorityMobileList { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .dashboardWorkspace .dashboardPriorityMobileList .mobileRecordPagination { grid-column: 1 / -1; }
+  .dashboardWorkspace .dashboardHeadlineMetrics .metricCard:nth-child(3) { border-left: 0; }
+}
+@media (max-width: 720px) {
+  .dashboardWorkspace .collectionAgeing .collectionAgeingContent { grid-template-columns: minmax(0, 1fr); }
+  .dashboardWorkspace .collectionAgeingSummary, .dashboardWorkspace .collectionAgeingDateNotice, .dashboardWorkspace .collectionAgeingBuckets, .dashboardWorkspace .collectionAgeingAllBuckets, .dashboardWorkspace .collectionAgeingContent > .ant-empty { grid-column: 1; grid-row: auto; }
+  .ant-pro-page-container-children-container:has(.dashboardWorkspace) { padding: 12px; }
+  .dashboardWorkspace .dashboardPageToolbar .dashboardAnalyticsControls { flex: 1 1 180px; }
+  .dashboardWorkspace .dashboardPageToolbar .dashboardAnalyticsControls > .ant-space { width: auto; }
+  .dashboardWorkspace .dashboardPageToolbar .dashboardAnalyticsControls .ant-space-item { width: auto; }
+  .dashboardWorkspace .dashboardPageToolbar .dataFreshness { order: 3; flex-basis: 100%; }
+  .dashboardWorkspace .dashboardPageToolbar .dashboardAnalyticsControls .ant-select { width: 180px; }
+  .dashboardWorkspace .metricCard { grid-template-columns: minmax(0, 1fr); padding: 10px 8px; }
+  .dashboardWorkspace .metricCard > .dashboardMetricIcon { width: 28px; height: 28px; font-size: 18px; grid-column: 1; grid-row: auto; }
+  .dashboardWorkspace .metricCard > span:not(.dashboardMetricIcon), .dashboardWorkspace .metricCard > strong, .dashboardWorkspace .metricCard > small { grid-column: 1; }
+  .dashboardWorkspace .metricCard > strong { font-size: 20px; }
+  .dashboardWorkspace .dashboardHeadlineMetrics .metricCard > strong { font-size: 20px; }
+  .dashboardWorkspace .dashboardFilterToggle { display: inline-flex; }
+  .dashboardWorkspace .dashboardActionFilters { display: none; }
+  .dashboardWorkspace .dashboardActionFilters.dashboardFiltersOpen { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .dashboardWorkspace .dashboardActionFilters .ant-select-selector, .dashboardWorkspace .dashboardActionFilters > .ant-btn { min-height: 44px; }
+  .dashboardWorkspace .mobileRecordFooter .ant-btn,
+  .dashboardWorkspace .dashboardPageToolbar .ant-btn,
+  .dashboardWorkspace .ant-pro-card-header .ant-pro-card-extra .ant-btn,
+  .dashboardWorkspace .operationsCalendarEvent .ant-btn,
+  .dashboardWorkspace .dashboardFilterToggle,
+  .dashboardWorkspace .dashboardCashAction > .ant-btn { min-height: 36px; height: auto; padding: 6px 10px; font-size: 13px; line-height: 1.4; border-radius: 4px; }
+  .dashboardWorkspace .mobileRecordFooter .ant-btn { min-height: 44px; }
+  /* Keep a 44px primary tap target around the 36px visible button. */
+  .dashboardWorkspace .mobileRecordFooter .ant-btn-primary { border: 4px solid transparent; border-radius: 8px; background-clip: padding-box; padding-block: 4px; }
+  .dashboardWorkspace .dashboardCashAction { grid-template-columns: 28px minmax(0, 1fr); }
+  .dashboardWorkspace .dashboardCashAction > .dashboardCashIcon { grid-column: 1; grid-row: 1; }
+  .dashboardWorkspace .dashboardCashDetails { grid-column: 2; grid-row: 1; }
+  .dashboardWorkspace .dashboardCashAction > .ant-btn { grid-column: 1 / -1; grid-row: 2; justify-self: end; }
+  .dashboardWorkspace .dashboardTrendReadout { font-size: 12px; }
+  .dashboardInboxFilters .ant-select { width: 100%; }
+  .dashboardWorkspace .dashboardSupportingMetrics .metricCard { grid-template-columns: minmax(0, 1fr); }
+}

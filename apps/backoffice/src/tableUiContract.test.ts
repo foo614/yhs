@@ -86,11 +86,14 @@ describe("operational table UI contract", () => {
     const priorityMarker = appSource.indexOf("dataSource={filteredPriorityEntries}");
     const priorityTable = appSource.slice(appSource.lastIndexOf("<Table", priorityMarker), appSource.indexOf("/>", priorityMarker));
     expect(priorityTable, "the paginated Act now queue does not need a duplicate query form").toContain("search={false}");
+    const remindersMarker = appSource.indexOf("dataSource={filteredReminders}");
+    const remindersTable = appSource.slice(appSource.lastIndexOf("<Table", remindersMarker), appSource.indexOf("/>", remindersMarker));
+    expect(remindersTable, "the reminder inbox shares its labelled filters across cards and rows").toContain("search={false}");
     const documentMarker = appSource.indexOf("dataSource={matchingCategories}");
     const documentTable = appSource.slice(appSource.lastIndexOf("<Table", documentMarker), appSource.indexOf("/>", documentMarker));
     expect(documentTable, "OCR summary uses the compact document-type search instead of numeric query fields").toContain("search={false}");
     expect(appSource).toContain('aria-label="Search document types"');
-    expect(appSource.match(/search=\{false\}/g), "only nested leads, the Act now queue and the compact OCR summary may replace their query forms").toHaveLength(3);
+    expect(appSource.match(/search=\{false\}/g), "only nested leads, the action queue, reminder inbox and compact OCR summary may replace their query forms").toHaveLength(4);
 
     const vehicleSource = readFileSync(join(sourceRoot, "modules/vehicles/VehiclePage.tsx"), "utf8");
     const vehicleMarker = vehicleSource.indexOf("dataSource={filteredVehicles}");

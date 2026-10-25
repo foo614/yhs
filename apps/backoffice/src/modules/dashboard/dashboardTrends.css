@@ -1,0 +1,58 @@
+.dashboardTrend {
+  min-width: 0;
+  margin: 0;
+  color: #43534d;
+  font-size: 14px;
+}
+
+.dashboardTrendReadout {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 0 0 8px;
+  line-height: 1.6;
+}
+
+.dashboardTrendReadout strong { color: #183b2e; font-weight: 600; }
+.dashboardTrendPlot { width: 100%; min-width: 0; }
+.dashboardTrendPlot svg { display: block; max-width: 100%; overflow: visible; }
+.dashboardTrendPlot text { font-family: inherit; font-size: 12px; }
+.dashboardTrendGrid { stroke: #e8eeeb; stroke-width: 1; }
+.dashboardTrendZero { stroke: #a0afa8; stroke-width: 1; }
+.dashboardTrendAxis { fill: #52665c; }
+.dashboardTrendValue { fill: #236344; font-weight: 600; }
+.dashboardTrendLine { fill: none; stroke: #347c55; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.dashboardTrendPoint { fill: #347c55; stroke: #fff; stroke-width: 1.5; }
+.dashboardTrendBar { fill: #08765f; }
+.dashboardTrendBar-negative { fill: #d44455; }
+.dashboardTrendValue-negative { fill: #b8423e; }
+.dashboardTrendPlot-sold .dashboardTrendLine { stroke: #3276ad; }
+.dashboardTrendPlot-sold .dashboardTrendPoint { fill: #3276ad; }
+.dashboardTrendPlot-stock .dashboardTrendLine { stroke: #347c55; stroke-dasharray: 5 4; }
+.dashboardTrendPlot .dashboardTrendPoint-negative { fill: #b8423e; }
+.dashboardTrend .dashboardTrendLoss { color: #a73532; }
+
+.dashboardTrendDetails { margin-top: 4px; }
+.dashboardTrendDetails summary {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 10px 2px;
+  color: #32664c;
+  line-height: 24px;
+  cursor: pointer;
+}
+.dashboardTrendDetails summary:focus-visible, .dashboardTrendTableWrap:focus-visible { outline: 2px solid #3276ad; outline-offset: 2px; border-radius: 3px; }
+.dashboardTrendTableWrap { max-height: 320px; overflow: auto; }
+.dashboardTrendDetails table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.dashboardTrendDetails caption { padding: 4px 0 12px; text-align: left; color: #52665c; }
+.dashboardTrendDetails th, .dashboardTrendDetails td { padding: 10px 8px; text-align: right; border-bottom: 1px solid #e8eeeb; overflow-wrap: anywhere; }
+.dashboardTrendDetails th:first-child { text-align: left; }
+.dashboardTrendDetails tbody th { font-weight: 400; }
+.dashboardTrendDetails thead th { color: #43534d; font-weight: 600; }
+
+@media (max-width: 575px) {
+  .dashboardTrendReadout { flex-direction: column; }
+  .dashboardTrendDetails th, .dashboardTrendDetails td { padding-inline: 4px; }
+}

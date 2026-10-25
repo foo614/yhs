@@ -214,6 +214,14 @@ async function inspect(name, width) {
     // Observe the settled panel, not the transient off-screen entrance frame.
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const animations = document.getAnimations().filter(animation => {
+      // Native details can keep a descendant animation running without painting it.
+      // Only visible motion needs to settle before inspecting the current view.
+      const target = animation.effect?.target;
+      if (target instanceof Element) {
+        const closedDetails = target.closest("details:not([open])");
+        if (closedDetails && !closedDetails.querySelector(":scope > summary")?.contains(target)) return false;
+        if (!target.getClientRects().length || !target.checkVisibility()) return false;
+      }
       const duration = animation.effect?.getComputedTiming().activeDuration;
       return animation.playState === "running" && Number.isFinite(duration);
     });
@@ -373,8 +381,11 @@ async function verifyDashboardActionIdentity() {
   }
   await inspect("dashboard-distinct-source-actions", width);
   await expect(queue.getByRole("status").filter({ hasText: "Showing 6 of 6" })).toBeVisible();
+  await queue.locator(".dashboardWorkloadDisclosure > summary").click();
   await queue.getByRole("button", { name: "Loans: 2 actions", exact: true }).click();
   await expect(queue.getByRole("status").filter({ hasText: "Showing 2 of 6" })).toBeVisible();
+  const filters = queue.locator(".dashboardFilterToggle");
+  if (await filters.isVisible()) await filters.click();
   await queue.getByRole("combobox", { name: "Act now due", exact: true }).press("ArrowDown");
   await page.getByTitle("Today / 今日", { exact: true }).click();
   await expect(queue.getByRole("status").filter({ hasText: "Showing 0 of 6" })).toBeVisible();
@@ -387,7 +398,7 @@ async function verifyDashboardActionIdentity() {
   await expect(queue.getByRole("button", { name: "Open Delivery preparation", exact: true }).filter({ visible: true })).toHaveCount(0);
   await inspect("dashboard-filtered-workload", width);
   if (visualEvidence) await queue.screenshot({ path: `${output}/dashboard-filtered-workload-detail-${width}.png` });
-  await queue.getByRole("button", { name: "Reset filters / 重置", exact: true }).click();
+  await queue.getByRole("button", { name: "Reset filters / 重置", exact: true }).filter({ visible: true }).first().click();
 
   await queue.getByRole("button", { name: "Open Loan follow-up", exact: true }).filter({ visible: true }).nth(1).click();
   await expect(page).toHaveURL(/loans\?loanId=second-loan$/);
@@ -413,13 +424,12 @@ async function verifyDashboardClarity() {
   const status = label => page.getByRole("status", { name: `${label} data status`, exact: true });
   const updated = label => status(label).locator("time").getAttribute("datetime");
   await status("Calendar").locator("time").waitFor();
+  await expect(page.locator("#operations-month-grid")).toBeVisible();
   if (width < 768) {
-    await expect(page.locator(".operationsCalendarCollapsedAgenda")).toContainText("Synthetic Customer With A Longer Display Name");
-    await expect(page.locator("#operations-month-grid")).toBeHidden();
-    if (visualEvidence) await page.locator(".operationsCalendar").screenshot({ path: `${output}/dashboard-calendar-collapsed-detail-${width}.png` });
-    await page.getByRole("button", { name: "Show month / 展开月历", exact: true }).click();
+    await expect(page.locator(".operationsCalendarDesktopAgenda")).toContainText("Synthetic Customer With A Longer Display Name");
+    if (visualEvidence) await page.locator(".operationsCalendar").screenshot({ path: `${output}/dashboard-calendar-month-detail-${width}.png` });
     await expect(page.getByRole("button", { name: "Hide month / 收起月历", exact: true })).toHaveAttribute("aria-expanded", "true");
-    await page.locator(".operationsCalendar .ant-picker-cell").filter({ has: page.getByRole("img", { name: "2 events", exact: true }) }).first().click();
+    await page.locator(".operationsCalendar .ant-picker-cell").filter({ has: page.getByRole("img", { name: /^2 events:/ }) }).first().click();
     await expect(page.getByRole("dialog")).toContainText("Synthetic Customer With A Longer Display Name");
     await inspect("dashboard-populated-day-agenda", width);
     await closeOverlay();
@@ -429,10 +439,10 @@ async function verifyDashboardClarity() {
   const actionTime = await updated("Actions");
   let calendarTime = await updated("Calendar");
   const summaryTime = await updated("Summary");
-  await expect(page.locator(".insightCaption").filter({ hasText: /^Enquiries created in all time/ })).toContainText("12 enquiries");
+  await expect(page.locator(".dashboardLeadFollowUp")).toContainText("12 enquiries created in all time");
   // Losses must remain inside the actual rendered chart viewport.
-  const points = await page.locator(".profitLineChart polyline").evaluateAll(lines => lines.flatMap(line => line.getAttribute("points").split(" ").map(point => Number(point.split(",")[1]))));
-  if (points.some(y => y < 0 || y > 178)) throw new Error("A financial loss was clipped from the chart.");
+  const bars = await page.locator(".dashboardMarginTrend-sold .dashboardTrendBar").evaluateAll(bars => bars.map(bar => ({ y: Number(bar.getAttribute("y")), height: Number(bar.getAttribute("height")), viewportHeight: Number(bar.closest("svg").getAttribute("height")) })));
+  if (!bars.length || bars.some(bar => bar.y < 0 || bar.y + bar.height > bar.viewportHeight)) throw new Error("A financial loss was missing or clipped from the chart.");
   await page.getByRole("button", { name: /Outstanding Collection/ }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("12,000");
@@ -454,7 +464,7 @@ async function verifyDashboardClarity() {
   const extraRequests = [];
   const recordRequest = request => { const path = new URL(request.url()).pathname; if (["/api/dashboard/reminders", "/api/priority-actions", "/api/operations-calendar"].includes(path)) extraRequests.push(path); };
   page.on("request", recordRequest);
-  await page.locator(".dashboardAnalyticsControls .ant-select").click();
+  await page.locator(".dashboardAnalyticsControls .ant-select").first().click();
   await page.getByText("Last month", { exact: true }).last().click();
   await expect.poll(() => updated("Summary")).not.toBe(summaryTime);
   await expect(status("Summary")).not.toContainText("Loading");
@@ -635,11 +645,13 @@ try {
           const refreshBox = await snapshotActions.getByRole("button", { name: "Refresh summary", exact: true }).boundingBox();
           const actionsBox = await snapshotActions.boundingBox();
           if (!refreshBox || !actionsBox || refreshBox.width > 110 || Math.abs(refreshBox.x + refreshBox.width - actionsBox.x - actionsBox.width) > 2) throw new Error("Refresh must be compact and right-aligned.");
+          await page.locator(".dashboardAgingCard > summary").click();
           const agingGap = await page.locator(".dashboardAgingCard").evaluate(card => card.querySelector(".agingActionBoard").getBoundingClientRect().top - card.querySelector(".dashboardFocusQueue").getBoundingClientRect().bottom);
           if (agingGap < 10) throw new Error("Aging summary must have space before its cards.");
           for (const [name, selector] of [["snapshot", ".dashboardOverviewCard"], ["aging", ".dashboardAgingCard"], ["priority", ".dashboardPriorityCard"]]) {
             if (visualEvidence) await page.locator(selector).first().screenshot({ path: `${output}/dashboard-${name}-detail-${width}.png` });
           }
+          await page.locator(".dashboardMonitoringDetails > summary").click();
           const documentSearch = page.getByRole("textbox", { name: "Search document types" });
           await documentSearch.fill("NO-MATCH");
           await page.getByText("No document types match your search.", { exact: true }).waitFor();
@@ -649,7 +661,7 @@ try {
           await inspect("dashboard-document-search", width);
           if (visualEvidence) await documentSearch.locator("xpath=ancestor::*[contains(@class,'ant-pro-card-body')][1]").screenshot({ path: `${output}/dashboard-ocr-detail-${width}.png` });
           await documentSearch.fill("");
-          await page.locator(".dashboardAnalyticsControls .ant-select").click();
+          await page.locator(".dashboardAnalyticsControls .ant-select").first().click();
           await page.getByText("Custom dates", { exact: true }).last().click();
           await inspect("dashboard-custom-dates", width);
         }

@@ -1,17 +1,29 @@
 .collectionAgeing { min-width: 0; }
 .collectionAgeing .ant-card-head-title, .collectionAgeingRecords .ant-card-head-title { white-space: normal; overflow-wrap: anywhere; padding-block: 12px; }
 .collectionAgeing .ant-btn, .collectionAgeingRecords .ant-btn { min-height: 44px; }
+.collectionAgeing .collectionAgeingContent { display: grid; gap: 14px; font-size: 14px; }
 .collectionAgeing .collectionAgeingSummary { display: flex; flex-direction: column; gap: 4px; }
-.collectionAgeing .collectionAgeingSummary strong { font-size: 24px; }
-.collectionAgeing .collectionAgeingBuckets { display: grid; gap: 12px; }
-.collectionAgeing .collectionAgeingBucket { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #d9d9d9; border-radius: 6px; color: inherit; min-width: 0; overflow-wrap: anywhere; }
-.collectionAgeing .collectionAgeingBucket:hover { border-color: #1677ff; }
+.collectionAgeing .collectionAgeingSummary strong { font-size: 26px; color: #183b2e; line-height: 1.3; }
+.collectionAgeing .collectionAgeingSummary > span { color: #52665c; line-height: 1.6; }
+.collectionAgeing .collectionAgeingDateNotice { line-height: 1.6; }
+.collectionAgeing .collectionAgeingDateNotice > strong { color: #87601a; font-size: 14px; font-weight: 600; }
+.collectionAgeing .collectionAgeingDateNotice .ant-typography { margin: 4px 0 0; font-size: 14px; }
+.collectionAgeing .collectionAgeingBuckets { display: grid; gap: 6px; }
+.collectionAgeing .collectionAgeingBucket { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 10px 12px; border-radius: 5px; color: inherit; min-width: 0; overflow-wrap: anywhere; border-bottom: 1px solid #e8eeeb; }
+.collectionAgeing .collectionAgeingBucketUnknown { background: #faf6e9; border-bottom-color: transparent; order: -1; }
+.collectionAgeing .collectionAgeingBucket strong { font-size: 16px; color: #183b2e; text-align: right; font-variant-numeric: tabular-nums; }
+.collectionAgeing .collectionAgeingBucketLabel { font-weight: 600; }
+.collectionAgeing .collectionAgeingBucketMeta { grid-column: 1 / -1; font-size: 13px; color: #52665c; }
+.collectionAgeing .collectionAgeingBucket:hover { background: #edf5ef; }
 .collectionAgeing .collectionAgeingBucket:focus-visible { outline: 2px solid #1677ff; outline-offset: 3px; }
-.collectionAgeing .collectionAgeingTrack { height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
-.collectionAgeing .collectionAgeingTrack > span { display: block; height: 100%; background: #1677ff; }
+.collectionAgeing .collectionAgeingAllBuckets summary { padding: 10px 2px; min-height: 44px; line-height: 24px; color: #32664c; cursor: pointer; }
+.collectionAgeing .collectionAgeingAllBuckets summary span { color: #52665c; }
+.collectionAgeing .collectionAgeingAllBuckets summary:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
+.collectionAgeing .collectionAgeingAllBuckets .collectionAgeingBucket { padding-block: 8px; }
+.collectionAgeing .collectionAgeingAllBuckets .collectionAgeingBucketLabel { font-weight: 400; }
+.collectionAgeing .collectionAgeingAllBuckets .collectionAgeingBucket strong { font-size: 14px; }
 .collectionAgeingRecords .collectionAgeingRecord { display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid #d9d9d9; min-width: 0; overflow-wrap: anywhere; }
 .collectionAgeingRecords .collectionAgeingRecord p { margin: 0; }
 .collectionAgeingRecords .collectionAgeingRecordActions { display: flex; justify-content: flex-end; }
 .collectionAgeingRecords .collectionAgeingRecordActions .ant-btn { min-height: 44px; }
-@media (min-width: 768px) { .collectionAgeing .collectionAgeingBuckets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (min-width: 1200px) { .collectionAgeing .collectionAgeingBuckets { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 575px) { .collectionAgeing .collectionAgeingBucket { grid-template-columns: minmax(0, 1fr); } .collectionAgeing .collectionAgeingBucket strong { text-align: left; } }

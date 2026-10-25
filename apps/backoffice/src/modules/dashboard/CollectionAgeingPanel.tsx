@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Card, Empty, Skeleton, Space, Typography } from "antd";
+import { Alert, Button, Card, Empty, Skeleton, Typography } from "antd";
 import { getCollectionAgeing, type CollectionAgeingBucketKey, type CollectionAgeingSummary } from "../../api";
 import "./collectionAgeing.css";
 
@@ -37,20 +37,24 @@ export function CollectionAgeingPanel({ refreshKey = 0 }: { refreshKey?: number 
     return () => { active = false; };
   }, [refreshKey, attempt]);
 
+  const visibleBuckets = data?.buckets.filter(bucket => bucket.key === "UnknownDueDate" || bucket.count !== 0 || bucket.amount !== 0) ?? [];
+  const emptyBuckets = data?.buckets.filter(bucket => bucket.key !== "UnknownDueDate" && bucket.count === 0 && bucket.amount === 0) ?? [];
+  const renderBucket = (bucket: CollectionAgeingSummary["buckets"][number]) => <a key={bucket.key} href={collectionAgeingTarget(bucket.key)} className={`collectionAgeingBucket${bucket.key === "UnknownDueDate" ? " collectionAgeingBucketUnknown" : ""}`} aria-label={`${collectionAgeingLabels[bucket.key]}, ${collectionMoney(bucket.amount)}, ${bucket.count} balance records. View records.`}>
+    <span className="collectionAgeingBucketLabel">{collectionAgeingLabels[bucket.key]}</span>
+    <strong>{collectionMoney(bucket.amount)}</strong><span className="collectionAgeingBucketMeta">{bucket.count} records · View records →</span>
+  </a>;
+
   return <Card className="collectionAgeing" title="Outstanding collection ageing / 待收款账龄">
     {error ? <Alert type="error" showIcon message={error} action={<Button onClick={() => setAttempt(value => value + 1)}>Retry</Button>} />
-      : !data ? <Skeleton active paragraph={{ rows: 5 }} /> : <Space direction="vertical" size={16} className="fullWidth">
+      : !data ? <Skeleton active paragraph={{ rows: 5 }} /> : <div className="collectionAgeingContent">
         <div className="collectionAgeingSummary"><strong>{collectionMoney(data.totalAmount)}</strong><span>{data.totalCount} balance records · As of {data.asOfDate} ({data.timeZone}) · Current balances across all dates</span></div>
-        <Alert type="info" showIcon message="Due dates unavailable / 暂无收款到期日" description={collectionDateLimitation} />
+        <div className="collectionAgeingDateNotice"><strong>Due dates unavailable / 暂无收款到期日</strong><Typography.Paragraph type="secondary">{collectionDateLimitation}</Typography.Paragraph></div>
         {data.totalCount === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No outstanding collection balances" />}
         <div className="collectionAgeingBuckets">
-          {data.buckets.map(bucket => <a key={bucket.key} href={collectionAgeingTarget(bucket.key)} className="collectionAgeingBucket" aria-label={`${collectionAgeingLabels[bucket.key]}, ${collectionMoney(bucket.amount)}, ${bucket.count} balance records. View records.`}>
-            <span>{collectionAgeingLabels[bucket.key]}</span>
-            <strong>{collectionMoney(bucket.amount)}</strong><span>{bucket.count} records · View records →</span>
-            <span className="collectionAgeingTrack" aria-hidden="true"><span style={{ width: `${data.totalAmount > 0 ? Math.min(100, Math.max(0, bucket.amount / data.totalAmount * 100)) : 0}%` }} /></span>
-          </a>)}
+          {visibleBuckets.map(renderBucket)}
         </div>
+        {emptyBuckets.length > 0 && <details className="collectionAgeingAllBuckets"><summary>All ageing buckets / 全部账龄分类 <span>· {emptyBuckets.length} empty</span></summary><div className="collectionAgeingBuckets">{emptyBuckets.map(renderBucket)}</div></details>}
         <Typography.Text type="secondary">Current outstanding balance; amounts are not cash receipts or a forecast. Due today is included in Not yet due.</Typography.Text>
-      </Space>}
+      </div>}
   </Card>;
 }

@@ -1,0 +1,33 @@
+.operationsCalendarCompact { min-width: 0; }
+.operationsCalendarCompact .ant-pro-card-title { white-space: normal; overflow-wrap: anywhere; }
+.operationsCalendarCompact .operationsCalendarLayout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.operationsCalendarCompact .operationsCalendarDesktopAgenda { display: block; }
+.operationsCalendarCompact .operationsCalendarDesktopAgenda h5 { margin: 0 0 8px; font-size: 16px; }
+.operationsCalendarCompact .operationsCalendarEvent { padding-block: 12px; }
+.operationsCalendarCompact .operationsCalendarEventBody { font-size: 14px; }
+.operationsCalendarCompact .ant-list-empty-text { padding-block: 8px; }
+.operationsCalendarCompact .ant-empty-normal { margin-block: 8px; }
+.operationsCalendarCompact .ant-empty-image { display: none; }
+.operationsCalendarCompact .operationsCalendarToggle { min-height: 44px; margin-block: 4px 12px; }
+.operationsCalendarCompact .operationsCalendarToolbar .ant-btn,
+.operationsCalendarCompact .operationsCalendarToolbar .ant-picker,
+.operationsCalendarCompact .operationsCalendarEvent .ant-btn,
+.operationsCalendarCompact .ant-pro-card-extra .ant-btn { min-height: 44px; }
+.operationsCalendarCompact .operationsCalendarEvent .ant-btn { padding-inline: 4px; }
+.operationsCalendarCompact .ant-picker-cell-inner { width: 100%; min-height: 48px; height: auto; padding-bottom: 20px; }
+.operationsCalendarCompact .operationsCalendarCellState { position: absolute; inset: auto 1px 3px; display: flex; justify-content: center; align-items: center; gap: 2px; width: auto; height: 17px; overflow: visible; clip: auto; clip-path: none; border-radius: 3px; background: #fff; color: #215147; }
+.operationsCalendarCompact .operationsCalendarCellCount { font-size: 12px; font-weight: 600; line-height: 17px; }
+.operationsCalendarCompact .operationsCalendarCellCue, .operationsCalendarLegend span > span { display: inline-block; width: 5px; height: 5px; border-radius: 50%; }
+.operationsCalendarCompact .operationsCalendarCellCueDelivery, .operationsCalendarLegendDelivery { background: #08765f; }
+.operationsCalendarCompact .operationsCalendarCellCueBusy, .operationsCalendarLegendBusy { background: #c37a20; }
+.operationsCalendarLegend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; color: #657580; font-size: 12px; }
+.operationsCalendarLegend > span { display: inline-flex; align-items: center; gap: 5px; }
+.operationsCalendarCompact .operationsCalendarDesktopAgenda { border-top: 1px solid #e4ebef; padding-top: 12px; }
+@media (min-width: 820px) {
+  .operationsCalendarCompact .operationsCalendarLayout { grid-template-columns: minmax(0, 1.2fr) minmax(240px, 1fr); }
+  .operationsCalendarCompact .operationsCalendarDesktopAgenda { border-top: 0; border-left: 1px solid #e4ebef; padding-top: 0; padding-left: 16px; }
+}
+@media (max-width: 575px) {
+  .operationsCalendarCompact .operationsCalendarEvent { flex-wrap: wrap; }
+  .operationsCalendarCompact .operationsCalendarEvent > .ant-btn { margin-left: auto; }
+}
