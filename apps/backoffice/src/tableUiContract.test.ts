@@ -83,7 +83,7 @@ describe("operational table UI contract", () => {
     const nestedLeadMarker = appSource.indexOf("dataSource={group.leads}");
     const nestedLeadTable = appSource.slice(appSource.lastIndexOf("<Table", nestedLeadMarker), appSource.indexOf("/>", nestedLeadMarker));
     expect(nestedLeadTable, "nested lead rows must rely on their parent table search").toContain("search={false}");
-    const priorityMarker = appSource.indexOf("dataSource={priorityEntries}");
+    const priorityMarker = appSource.indexOf("dataSource={filteredPriorityEntries}");
     const priorityTable = appSource.slice(appSource.lastIndexOf("<Table", priorityMarker), appSource.indexOf("/>", priorityMarker));
     expect(priorityTable, "the paginated Act now queue does not need a duplicate query form").toContain("search={false}");
     const documentMarker = appSource.indexOf("dataSource={matchingCategories}");

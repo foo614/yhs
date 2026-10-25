@@ -166,6 +166,29 @@ export function dashboardPriorityEntries(reminders: DashboardReminder[], priorit
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || (right.amount ?? 0) - (left.amount ?? 0));
 }
 
+export type DashboardActionDueFilter = "All" | "Overdue" | "Today";
+
+export function dashboardActionDepartment(entry: DashboardPriorityEntry) {
+  const path = entry.target.split("?", 1)[0];
+  return ({ "/loans": "Loans", "/delivery": "Delivery", "/finance": "Finance", "/leads": "Leads", "/repairs": "Repairs", "/hr-salary": "HR" } as Record<string, string>)[path] ?? "Other";
+}
+
+export function filterDashboardActions(entries: DashboardPriorityEntry[], filters: { type: string; department: string; due: DashboardActionDueFilter }, today = singaporeTodayIsoDate()) {
+  return entries.filter(entry => (filters.type === "All" || entry.type === filters.type)
+    && (filters.department === "All" || dashboardActionDepartment(entry) === filters.department)
+    && (filters.due === "All" || (filters.due === "Overdue" ? entry.dueDate < today : entry.dueDate === today)));
+}
+
+export function dashboardActionWorkload(entries: DashboardPriorityEntry[]) {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const department = dashboardActionDepartment(entry);
+    counts.set(department, (counts.get(department) ?? 0) + 1);
+  }
+  return [...counts].map(([department, count]) => ({ department, count }))
+    .sort((a, b) => b.count - a.count || a.department.localeCompare(b.department));
+}
+
 function actionTargetSpecificity(target: string) {
   const params = new URLSearchParams(target.split("?")[1]);
   if (params.has("loanId") || params.has("deliveryId")) return 3;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, priorityActionTarget, reminderDueLabel, reminderDueTagColor, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
+import { dashboardActionWorkload, filterDashboardActions, dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, priorityActionTarget, reminderDueLabel, reminderDueTagColor, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders } from "./dashboard";
 import type { DashboardReminder } from "./api";
 
 describe("dashboard reminder helpers", () => {
@@ -92,6 +92,25 @@ describe("dashboard reminder helpers", () => {
     expect(new Set(entries.map(entry => entry.key)).size).toBe(2);
     const loan = { type: "LoanFollowUp" as const, title: "Loan follow-up", target: "Loans" as const, subject: "TEST1", vehicleId: "vehicle-1", dueDate: "2026-05-31", sourceType: "LoanApplication" };
     expect(dashboardPriorityEntries([], [{ ...loan, sourceId: "loan-1" }, { ...loan, sourceId: "loan-2" }], "2026-05-31")).toHaveLength(2);
+  });
+
+  // Filtering must never collapse distinct applications or rewrite their destinations.
+  it("filters the distinct queue without changing identities, workload totals or global badges", () => {
+    const actions = [
+      { type: "LoanFollowUp" as const, title: "Loan", target: "Loans" as const, dueDate: "2026-05-30", sourceType: "LoanApplication", sourceId: "loan-one" },
+      { type: "LoanFollowUp" as const, title: "Loan", target: "Loans" as const, dueDate: "2026-05-31", sourceType: "LoanApplication", sourceId: "loan-two" },
+      { type: "LeaveApproval" as const, title: "Leave", target: "HrSalary" as const, dueDate: "2026-06-01", sourceType: "HrLeaveRequest", sourceId: "leave-one" }
+    ];
+    const queue = dashboardPriorityEntries([], actions, "2026-05-31");
+    const before = structuredClone(queue);
+    expect(dashboardActionWorkload(queue)).toEqual([{ department: "Loans", count: 2 }, { department: "HR", count: 1 }]);
+    const today = filterDashboardActions(queue, { type: "LoanFollowUp", department: "Loans", due: "Today" }, "2026-05-31");
+    expect(today).toEqual([queue[1]]);
+    expect(today[0].target).toBe("/loans?loanId=loan-two");
+    expect(filterDashboardActions(queue, { type: "All", department: "Loans", due: "Overdue" }, "2026-05-31")).toEqual([queue[0]]);
+    expect(filterDashboardActions(queue, { type: "LeaveApproval", department: "Loans", due: "All" }, "2026-05-31")).toEqual([]);
+    expect(queue).toEqual(before);
+    expect(sidebarActionBadges([], actions, "2026-05-31")["/loans"].count).toBe(2);
   });
 
   it("merges the same Loan or Delivery action once and opens its exact source record", () => {

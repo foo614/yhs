@@ -372,6 +372,23 @@ async function verifyDashboardActionIdentity() {
     await expect(queue.getByRole("button", { name: `Open ${title}`, exact: true }).filter({ visible: true })).toHaveCount(2);
   }
   await inspect("dashboard-distinct-source-actions", width);
+  await expect(queue.getByRole("status").filter({ hasText: "Showing 6 of 6" })).toBeVisible();
+  await queue.getByRole("button", { name: "Loans: 2 actions", exact: true }).click();
+  await expect(queue.getByRole("status").filter({ hasText: "Showing 2 of 6" })).toBeVisible();
+  await queue.getByRole("combobox", { name: "Act now due", exact: true }).press("ArrowDown");
+  await page.getByTitle("Today / 今日", { exact: true }).click();
+  await expect(queue.getByRole("status").filter({ hasText: "Showing 0 of 6" })).toBeVisible();
+  await expect(queue.getByText("No actions match these filters. Reset filters to see the full queue.", { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(queue.getByText("6 actions due now", { exact: true })).toBeVisible();
+  await queue.getByRole("button", { name: "Loans: 2 actions", exact: true }).click();
+  await expect(queue.getByRole("status").filter({ hasText: "Showing 2 of 6" })).toBeVisible();
+
+  await expect(queue.getByRole("button", { name: "Open Loan follow-up", exact: true }).filter({ visible: true })).toHaveCount(2);
+  await expect(queue.getByRole("button", { name: "Open Delivery preparation", exact: true }).filter({ visible: true })).toHaveCount(0);
+  await inspect("dashboard-filtered-workload", width);
+  if (visualEvidence) await queue.screenshot({ path: `${output}/dashboard-filtered-workload-detail-${width}.png` });
+  await queue.getByRole("button", { name: "Reset filters / 重置", exact: true }).click();
+
   await queue.getByRole("button", { name: "Open Loan follow-up", exact: true }).filter({ visible: true }).nth(1).click();
   await expect(page).toHaveURL(/loans\?loanId=second-loan$/);
   await expect(page.locator(".ant-descriptions").first()).toContainText("Second Application Borrower");
@@ -397,6 +414,11 @@ async function verifyDashboardClarity() {
   const updated = label => status(label).locator("time").getAttribute("datetime");
   await status("Calendar").locator("time").waitFor();
   if (width < 768) {
+    await expect(page.locator(".operationsCalendarCollapsedAgenda")).toContainText("Synthetic Customer With A Longer Display Name");
+    await expect(page.locator("#operations-month-grid")).toBeHidden();
+    if (visualEvidence) await page.locator(".operationsCalendar").screenshot({ path: `${output}/dashboard-calendar-collapsed-detail-${width}.png` });
+    await page.getByRole("button", { name: "Show month / 展开月历", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Hide month / 收起月历", exact: true })).toHaveAttribute("aria-expanded", "true");
     await page.locator(".operationsCalendar .ant-picker-cell").filter({ has: page.getByRole("img", { name: "2 events", exact: true }) }).first().click();
     await expect(page.getByRole("dialog")).toContainText("Synthetic Customer With A Longer Display Name");
     await inspect("dashboard-populated-day-agenda", width);
