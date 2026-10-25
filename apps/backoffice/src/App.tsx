@@ -73,7 +73,7 @@ import {
 } from "./leads";
 import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, staffWhatsAppStatusLabel, type StaffStatusFilter } from "./staff";
-import { dashboardActionKey, dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
+import { dashboardActionWorkload, filterDashboardActions, type DashboardActionDueFilter, dashboardActionKey, dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, safeDashboardStockSummary, sidebarActionBadges, singaporeTodayIsoDate, urgentDashboardReminders, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
 import { Customer360Page } from "./modules/customers/Customer360Page";
 import { HrSalaryPage as HrSalaryModulePage } from "./modules/hr/HrSalaryPage";
@@ -2292,6 +2292,9 @@ export function DashboardPage({
   onNavigate: (path: string) => void;
   onOpenDelivery?: (deliveryId: string) => void;
 }) {
+  const [actionType, setActionType] = useState("All");
+  const [actionDepartment, setActionDepartment] = useState("All");
+  const [actionDue, setActionDue] = useState<DashboardActionDueFilter>("All");
   const [collectionBreakdownOpen, setCollectionBreakdownOpen] = useState(false);
   const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
   const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
@@ -2348,6 +2351,11 @@ export function DashboardPage({
   const urgentReminders = urgentDashboardReminders(reminders);
   const dashboardToday = singaporeTodayIsoDate();
   const priorityEntries = dashboardPriorityEntries(reminders, priorityActions, dashboardToday);
+  const filteredPriorityEntries = filterDashboardActions(priorityEntries, { type: actionType, department: actionDepartment, due: actionDue }, dashboardToday);
+  const workload = dashboardActionWorkload(priorityEntries);
+  const actionTypes = Array.from(new Set(priorityEntries.map(entry => entry.type)));
+  const actionFiltersActive = actionType !== "All" || actionDepartment !== "All" || actionDue !== "All";
+  const resetActionFilters = () => { setActionType("All"); setActionDepartment("All"); setActionDue("All"); setMobilePriorityPage(1); };
   const priorityDueNowCount = priorityEntries.filter((entry) => entry.dueDate <= dashboardToday).length;
   const priorityDueLabel = (entry: typeof priorityEntries[number]) => entry.dueDate < dashboardToday
     ? "Overdue"
@@ -2361,9 +2369,9 @@ export function DashboardPage({
     return label === "Overdue" ? "red" : label === "Due today" ? "orange" : label === "Due soon" ? "blue" : "default";
   };
   const prioritySourceLabel = (source: typeof priorityEntries[number]["source"]) => source === "reminder" ? "Reminder / 提醒" : "Department action / 部门行动";
-  const mobilePriorityPageCount = Math.max(1, Math.ceil(priorityEntries.length / 8));
+  const mobilePriorityPageCount = Math.max(1, Math.ceil(filteredPriorityEntries.length / 8));
   const clampedMobilePriorityPage = Math.min(mobilePriorityPage, mobilePriorityPageCount);
-  const mobilePriorityEntries = priorityEntries.slice((clampedMobilePriorityPage - 1) * 8, clampedMobilePriorityPage * 8);
+  const mobilePriorityEntries = filteredPriorityEntries.slice((clampedMobilePriorityPage - 1) * 8, clampedMobilePriorityPage * 8);
   const priorityStatus = actionsRefreshing
     ? { color: "blue", label: "Checking actions" }
     : reminderLoadError
@@ -2382,7 +2390,6 @@ export function DashboardPage({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth dashboardPage">
-      <OperationsCalendar onOpenDelivery={onOpenDelivery} />
       <ProCard
         title="Management snapshot / 管理概览"
         className="dashboardOverviewCard"
@@ -2398,7 +2405,6 @@ export function DashboardPage({
         {dashboardLoadError && <Alert type="error" showIcon message="Dashboard data could not be loaded" description={dashboardLoadError} action={<Button onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
         {!dashboard && !dashboardLoadError && <Skeleton active paragraph={{ rows: 6 }} />}
         {dashboard && <>
-        <Typography.Text className="dashboardSnapshotNote" type="secondary">Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update above. Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Calculated vehicle margins use recorded selling prices and costs; they do not measure cash received or accounting profit.</Typography.Text>
         <section className="dashboardMetricSection" aria-labelledby="dashboard-performance-title">
           <div className="dashboardMetricSectionHeader">
             <h3 id="dashboard-performance-title">Business performance / 经营表现</h3>
@@ -2411,6 +2417,9 @@ export function DashboardPage({
             <Metric label="Projected Stock Margin / 库存预计毛利" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
           </div>
         </section>
+        <details className="dashboardSnapshotDefinitions"><summary>Metric periods and calculation / 指标说明</summary>
+        <Typography.Text className="dashboardSnapshotNote" type="secondary">Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update above. Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Calculated vehicle margins use recorded selling prices and costs; they do not measure cash received or accounting profit.</Typography.Text>
+        </details>
         </>}
       </ProCard>
       <Modal title="Outstanding Collection / 待收总额" open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
@@ -2471,6 +2480,20 @@ export function DashboardPage({
         >
           <DataFreshness label="Actions" updatedAt={actionsLastCheckedAt} loading={actionsRefreshing} error={reminderLoadError} />
           <Typography.Text className="dashboardPriorityIntro" type="secondary">Overdue and due today first. / 优先处理逾期及今日到期事项。</Typography.Text>
+          <div className="dashboardActionFilters">
+            <label>Department / 部门<Select aria-label="Act now department" value={actionDepartment} onChange={value => { setActionDepartment(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All departments / 全部部门" }, ...workload.map(item => ({ value: item.department, label: item.department }))]} /></label>
+            <label>Type / 类型<Select aria-label="Act now type" value={actionType} onChange={value => { setActionType(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All types / 全部类型" }, ...actionTypes.map(type => ({ value: type, label: dashboardLabel(type) }))]} /></label>
+            <label>Due / 到期<Select aria-label="Act now due" value={actionDue} onChange={value => { setActionDue(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All dates / 全部日期" }, { value: "Overdue", label: "Overdue / 逾期" }, { value: "Today", label: "Today / 今日" }]} /></label>
+            <Button onClick={resetActionFilters} disabled={!actionFiltersActive}>Reset filters / 重置</Button>
+          </div>
+          <Typography.Paragraph role="status">Showing {filteredPriorityEntries.length} of {priorityEntries.length} distinct actions / 待办事项</Typography.Paragraph>
+          {priorityEntries.length > 0 && <section className="dashboardWorkload" aria-label="Workload by department">
+            <strong>Workload by department / 部门待办</strong>
+            <Typography.Text type="secondary">{priorityEntries.length} distinct actions in the full queue. Select a department to view all its actions.</Typography.Text>
+            {workload.map(item => <button type="button" key={item.department} className="dashboardWorkloadBar" aria-pressed={actionDepartment === item.department} aria-label={`${item.department}: ${item.count} actions`} onClick={() => { setActionDepartment(item.department); setActionType("All"); setActionDue("All"); setMobilePriorityPage(1); }}>
+              <span>{item.department}</span><span className="dashboardWorkloadTrack" aria-hidden="true"><span style={{ width: `${item.count / Math.max(...workload.map(row => row.count)) * 100}%` }} /></span><strong>{item.count}</strong>
+            </button>)}
+          </section>}
           <div className="mobileRecordList dashboardPriorityMobileList">
             {mobilePriorityEntries.map((entry) => (
               <article className="mobileRecordCard" key={entry.key}>
@@ -2488,8 +2511,8 @@ export function DashboardPage({
                 <div className="mobileRecordFooter"><Button type="primary" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button></div>
               </article>
             ))}
-            {priorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking actions…" : reminderLoadError ? "The action queue could not be checked completely." : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions." : "Actions have not been checked yet."} />}
-            <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={8} total={priorityEntries.length} showSizeChanger={false} hideOnSinglePage onChange={setMobilePriorityPage} />
+            {filteredPriorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionFiltersActive ? "No actions match these filters. Reset filters to see the full queue." : actionsRefreshing ? "Checking actions…" : reminderLoadError ? "The action queue could not be checked completely." : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions." : "Actions have not been checked yet."} />}
+            <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={8} total={filteredPriorityEntries.length} showSizeChanger={false} hideOnSinglePage onChange={setMobilePriorityPage} />
           </div>
           <Table
             className="desktopDataTable dashboardPriorityTable"
@@ -2503,10 +2526,10 @@ export function DashboardPage({
               { title: "Exposure / 金额", dataIndex: "amount", render: (_, entry) => entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount)) },
               { title: "Action / 操作", width: 140, fixed: "right", render: (_, entry) => <Button type="primary" size="small" aria-label={`Open ${entry.title}`} onClick={() => onNavigate(entry.target)}>Open action</Button> }
             ]}
-            dataSource={priorityEntries}
+            dataSource={filteredPriorityEntries}
             pagination={tablePagination(8)}
             scroll={{ x: 900 }}
-            locale={{ emptyText: actionsRefreshing ? "Checking actions…" : reminderLoadError ? "The action queue could not be checked completely." : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions." : "Actions have not been checked yet." }}
+            locale={{ emptyText: actionFiltersActive ? "No actions match these filters. Reset filters to see the full queue." : actionsRefreshing ? "Checking actions…" : reminderLoadError ? "The action queue could not be checked completely." : actionsLastCheckedAt ? "No overdue, due-today, due-soon, or department actions." : "Actions have not been checked yet." }}
           />
           {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button size="small" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Try again</Button>} />}
           {dashboard && <div className="dashboardCashActions">
@@ -2532,6 +2555,7 @@ export function DashboardPage({
           </div>}
         </ProCard>
 
+        <OperationsCalendar onOpenDelivery={onOpenDelivery} />
         {dashboard && <ProCard title="Operational exposure / 运营风险" className="dashboardOverviewCard">
           <Typography.Text type="secondary">Current unsold stock, workflow and cost indicators at the summary update above; unaffected by the analytics range.</Typography.Text>
           <div className="metricGrid dashboardMetricGrid dashboardSupportingMetrics">
@@ -2869,6 +2893,7 @@ function DashboardAnalyticsControls({
         {preset === "Custom" && <>
           <DatePicker.RangePicker
             aria-label="Dashboard analytics date range"
+            popupClassName="dashboardAnalyticsPopup"
             disabled={disabled}
             format="YYYY-MM-DD"
             placeholder={["Start date", "End date"]}
