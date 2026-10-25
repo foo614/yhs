@@ -59,6 +59,8 @@ describe("finance module navigation", () => {
     expect(financeTabForUrl("/finance", "", true)).toBe("payments");
     expect(financeTabForUrl("/finance", "?tab=daily", true)).toBe("daily");
     expect(financeTabForUrl("/finance", "?tab=payments", false)).toBe("cash-custody");
+    expect(financeTabForUrl("/finance", "?tab=collection-ageing&collectionBucket=UnknownDueDate", false)).toBe("cash-custody");
+    expect(financeTabForUrl("/finance", "?tab=collection-ageing&collectionBucket=UnknownDueDate", true)).toBe("collection-ageing");
     expect(financeTabForUrl("/finance", "?tab=settlements", true)).toBe("settlements");
     expect(financeTabForUrl("/finance", "?tab=unknown", true)).toBe("payments");
   });

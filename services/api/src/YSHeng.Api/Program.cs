@@ -4894,6 +4894,22 @@ hr.MapPut("/payslips/{id:guid}/decision", async (Guid id, HrPayrollDecision deci
     return Results.Ok(saved);
 });
 
+backOffice.MapGet("/dashboard/collection-ageing", async (AppDbContext db, CancellationToken cancellationToken) =>
+{
+    var today = BusinessClock.Today();
+    return Results.Ok(CollectionAgeingRules.Summarize(await CollectionAgeingQueries.ReadAsync(db, cancellationToken), today));
+}).RequireAuthorization("Dashboard");
+
+backOffice.MapGet("/finance/collection-ageing", async (AppDbContext db, string? bucket, CancellationToken cancellationToken) =>
+{
+    if (bucket is null || !CollectionAgeingRules.BucketKeys.Contains(bucket))
+        return Results.BadRequest(new { message = "Select a valid collection ageing bucket." });
+    var today = BusinessClock.Today();
+    var records = (await CollectionAgeingQueries.ReadAsync(db, cancellationToken))
+        .Where(record => CollectionAgeingRules.Bucket(record.DueDate, today) == bucket).ToArray();
+    return Results.Ok(new CollectionAgeingRecords(today, bucket, records.Sum(record => record.Amount), records));
+}).RequireAuthorization("Finance");
+
 backOffice.MapGet("/dashboard/summary", async (AppDbContext db, AiUsageQuotaService aiUsageQuota, string? from, string? to, CancellationToken cancellationToken) =>
 {
     if (!DashboardAnalyticsPeriodRules.TryParse(from, to, out var analyticsPeriod, out var error))

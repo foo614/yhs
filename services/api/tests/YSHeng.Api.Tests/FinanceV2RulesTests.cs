@@ -724,6 +724,22 @@ public sealed class FinanceV2RulesTests
         Assert.Equal(100m, reversedSummary.OutstandingPayment);
     }
 
+    // Prevent an off-by-one date from moving money into the wrong overdue bucket.
+    [Theory]
+    [InlineData(-1, "NotYetDue")]
+    [InlineData(0, "NotYetDue")]
+    [InlineData(1, "Overdue1To7")]
+    [InlineData(7, "Overdue1To7")]
+    [InlineData(8, "Overdue8To30")]
+    [InlineData(30, "Overdue8To30")]
+    [InlineData(31, "OverdueOver30")]
+    public void Collection_ageing_uses_calendar_day_boundaries(int overdueDays, string expected)
+    {
+        var today = new DateOnly(2026, 10, 25);
+        Assert.Equal(expected, CollectionAgeingRules.Bucket(today.AddDays(-overdueDays), today));
+        Assert.Equal("UnknownDueDate", CollectionAgeingRules.Bucket(null, today));
+    }
+
     [Fact]
     public void V2_receivable_settlement_requires_invoice_and_approved_adjustment()
     {

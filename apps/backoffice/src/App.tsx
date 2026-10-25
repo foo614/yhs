@@ -1,6 +1,7 @@
 import { formatDisplayDate } from "./dateDisplay";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
+import { CollectionAgeingPanel } from "./modules/dashboard/CollectionAgeingPanel";
 import { DataFreshness } from "./modules/shared/DataFreshness";
 import {
   AuditOutlined,
@@ -2555,6 +2556,7 @@ export function DashboardPage({
           </div>}
         </ProCard>
 
+        <CollectionAgeingPanel refreshKey={lastCheckedAt?.getTime() ?? 0} />
         <OperationsCalendar onOpenDelivery={onOpenDelivery} />
         {dashboard && <ProCard title="Operational exposure / 运营风险" className="dashboardOverviewCard">
           <Typography.Text type="secondary">Current unsold stock, workflow and cost indicators at the summary update above; unaffected by the analytics range.</Typography.Text>

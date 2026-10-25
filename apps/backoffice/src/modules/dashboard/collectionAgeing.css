@@ -1,0 +1,17 @@
+.collectionAgeing { min-width: 0; }
+.collectionAgeing .ant-card-head-title, .collectionAgeingRecords .ant-card-head-title { white-space: normal; overflow-wrap: anywhere; padding-block: 12px; }
+.collectionAgeing .ant-btn, .collectionAgeingRecords .ant-btn { min-height: 44px; }
+.collectionAgeing .collectionAgeingSummary { display: flex; flex-direction: column; gap: 4px; }
+.collectionAgeing .collectionAgeingSummary strong { font-size: 24px; }
+.collectionAgeing .collectionAgeingBuckets { display: grid; gap: 12px; }
+.collectionAgeing .collectionAgeingBucket { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #d9d9d9; border-radius: 6px; color: inherit; min-width: 0; overflow-wrap: anywhere; }
+.collectionAgeing .collectionAgeingBucket:hover { border-color: #1677ff; }
+.collectionAgeing .collectionAgeingBucket:focus-visible { outline: 2px solid #1677ff; outline-offset: 3px; }
+.collectionAgeing .collectionAgeingTrack { height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+.collectionAgeing .collectionAgeingTrack > span { display: block; height: 100%; background: #1677ff; }
+.collectionAgeingRecords .collectionAgeingRecord { display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid #d9d9d9; min-width: 0; overflow-wrap: anywhere; }
+.collectionAgeingRecords .collectionAgeingRecord p { margin: 0; }
+.collectionAgeingRecords .collectionAgeingRecordActions { display: flex; justify-content: flex-end; }
+.collectionAgeingRecords .collectionAgeingRecordActions .ant-btn { min-height: 44px; }
+@media (min-width: 768px) { .collectionAgeing .collectionAgeingBuckets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .collectionAgeing .collectionAgeingBuckets { grid-template-columns: repeat(5, minmax(0, 1fr)); } }

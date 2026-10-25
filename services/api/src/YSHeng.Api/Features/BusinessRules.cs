@@ -3730,6 +3730,33 @@ public static class DeliveryDocumentRules
     }
 }
 
+public sealed record CollectionAgeingRecord(string SourceType, Guid SourceId, Guid VehicleId, decimal Amount, DateOnly? DueDate);
+public sealed record CollectionAgeingBucket(string Key, decimal Amount, int Count);
+public sealed record CollectionAgeingSummary(DateOnly AsOfDate, string TimeZone, decimal TotalAmount, int TotalCount, IReadOnlyList<CollectionAgeingBucket> Buckets);
+public sealed record CollectionAgeingRecords(DateOnly AsOfDate, string Bucket, decimal TotalAmount, IReadOnlyList<CollectionAgeingRecord> Records);
+
+public static class CollectionAgeingRules
+{
+    public static readonly string[] BucketKeys = ["NotYetDue", "Overdue1To7", "Overdue8To30", "OverdueOver30", "UnknownDueDate"];
+
+    public static string Bucket(DateOnly? dueDate, DateOnly asOfDate) => dueDate is null ? "UnknownDueDate"
+        : (asOfDate.DayNumber - dueDate.Value.DayNumber) switch
+        {
+            <= 0 => "NotYetDue",
+            <= 7 => "Overdue1To7",
+            <= 30 => "Overdue8To30",
+            _ => "OverdueOver30"
+        };
+
+    public static CollectionAgeingSummary Summarize(IReadOnlyList<CollectionAgeingRecord> records, DateOnly asOfDate) =>
+        new(asOfDate, "Asia/Singapore", records.Sum(record => record.Amount), records.Count,
+            BucketKeys.Select(key =>
+            {
+                var matching = records.Where(record => Bucket(record.DueDate, asOfDate) == key).ToArray();
+                return new CollectionAgeingBucket(key, matching.Sum(record => record.Amount), matching.Length);
+            }).ToArray());
+}
+
 public static class BusinessClock
 {
     private static readonly TimeZoneInfo SingaporeTimeZone = FindSingaporeTimeZone();
