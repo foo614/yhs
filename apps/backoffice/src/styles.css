@@ -7616,3 +7616,31 @@ body {
 .financeOverlay .ant-modal-confirm-btns .ant-btn {
   min-height: 44px;
 }
+
+/* Dashboard filters and workload share the distinct Act now queue. */
+.dashboardActionFilters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 16px 0; }
+.dashboardActionFilters label { display: flex; flex-direction: column; gap: 6px; flex: 1 1 180px; min-width: 0; }
+.dashboardActionFilters .ant-select { width: 100%; }
+.dashboardWorkload { display: grid; gap: 8px; margin: 16px 0 24px; max-width: 760px; }
+.dashboardWorkloadBar { display: grid; grid-template-columns: 80px minmax(0, 1fr) 32px; gap: 12px; align-items: center; min-height: 44px; padding: 8px; border: 1px solid transparent; background: transparent; color: inherit; text-align: left; border-radius: 6px; cursor: pointer; }
+.dashboardWorkloadBar:hover, .dashboardWorkloadBar[aria-pressed="true"] { background: #e6f4ff; border-color: #91caff; }
+.dashboardWorkloadBar:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
+.dashboardWorkloadTrack { height: 12px; background: #f0f0f0; border-radius: 3px; overflow: hidden; }
+.dashboardWorkloadTrack > span { display: block; height: 100%; background: #1677ff; }
+.operationsCalendarToggle { margin-bottom: 12px; min-height: 44px; }
+@media (max-width: 767px) {
+  .dashboardActionFilters label { flex-basis: 100%; }
+  .dashboardActionFilters .ant-select-selector, .dashboardActionFilters > .ant-btn { min-height: 44px; }
+  .operationsCalendarCollapsedAgenda { display: block !important; }
+}
+
+.dashboardSnapshotDefinitions summary { cursor: pointer; color: #52675e; padding: 8px 0; }
+.dashboardSnapshotDefinitions summary:focus-visible { outline: 2px solid #1677ff; }
+@media (max-width: 720px) {
+  .metricGrid.dashboardHeadlineMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .metricGrid.dashboardHeadlineMetrics .metricCard { padding: 10px; min-height: 120px; }
+  .metricGrid.dashboardHeadlineMetrics .metricCard strong { font-size: 22px; }
+}
+@media (max-width: 767px) {
+  .operationsCalendarCollapsedAgenda .ant-btn { min-height: 44px; }
+}
