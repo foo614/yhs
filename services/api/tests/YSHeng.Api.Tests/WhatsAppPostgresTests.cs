@@ -355,8 +355,39 @@ public sealed class WhatsAppPostgresTests
                 Assert.Equal(new[] { "AttendanceSummary", "LeaveApproval", "OutstandingDigest" }, daily.Select(row => row.MessageKind).Order().ToArray());
                 Assert.All(daily, row => { Assert.Equal("Accepted", row.State); Assert.Equal(1, row.Attempts); Assert.False(string.IsNullOrWhiteSpace(row.SubmittedBody)); });
             }
+            await VerifyCollectionAgeingApplicationAsync(factory, admin, sales, anonymous);
         }
         finally { foreach (var value in previous) Environment.SetEnvironmentVariable(value.Key, value.Value); }
+    }
+
+    // Reuse the isolated real-Program PostgreSQL harness: financial reads must enforce
+    // permissions and reconcile over HTTP, not merely through pure rule tests.
+    private static async Task VerifyCollectionAgeingApplicationAsync(StaffApplicationFactory factory, HttpClient admin, HttpClient sales, HttpClient anonymous)
+    {
+        const string summaryPath = "/api/dashboard/collection-ageing";
+        const string recordsPath = "/api/finance/collection-ageing?bucket=UnknownDueDate";
+        foreach (var path in new[] { summaryPath, recordsPath })
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync(path)).StatusCode);
+        }
+        var ageing = (await admin.GetFromJsonAsync<CollectionAgeingSummary>(summaryPath))!;
+        var records = (await admin.GetFromJsonAsync<CollectionAgeingRecords>(recordsPath))!;
+        using var headline = JsonDocument.Parse(await admin.GetStringAsync("/api/dashboard/summary"));
+        Assert.Equal(headline.RootElement.GetProperty("outstandingCollection").GetDecimal(), ageing.TotalAmount);
+        Assert.Equal(ageing.TotalAmount, records.TotalAmount);
+        Assert.Equal(ageing.TotalCount, records.Records.Count);
+        Assert.Equal(ageing.TotalCount, ageing.Buckets.Single(bucket => bucket.Key == "UnknownDueDate").Count);
+        Assert.Equal(records.Records.Count, records.Records.Select(record => (record.SourceType, record.SourceId)).Distinct().Count());
+        Assert.All(records.Records, record => Assert.Null(record.DueDate));
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync("/api/finance/collection-ageing?bucket=invalid")).StatusCode);
+        Assert.Empty((await admin.GetFromJsonAsync<CollectionAgeingRecords>("/api/finance/collection-ageing?bucket=NotYetDue"))!.Records);
+        var created = await admin.PostAsJsonAsync("/api/admin/users", new { email = "ageing-finance@example.test", displayName = "Synthetic Finance", password = "Synthetic-CI-123!", role = "Finance" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var finance = factory.CreateClient();
+        Assert.True((await finance.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "ageing-finance@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await finance.GetAsync(recordsPath)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await finance.GetAsync(summaryPath)).StatusCode);
     }
 
     private sealed class StaffApplicationFactory(ConcurrentQueue<string> submitted) : WebApplicationFactory<Program>

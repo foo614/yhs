@@ -6,6 +6,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { CashCustodyPage } from "./CashCustodyPage";
+import { CollectionAgeingRecordsPanel } from "./CollectionAgeingRecordsPanel";
 import { FinanceListNotice } from "./FinanceListNotice";
 import { FINANCE_LIST_PAGE_SIZE, filterFinanceRows, filterFinanceRowsByFields, financeEmptyText, financePageFor, financeStatusLabel, pageFinanceRows } from "./financeList";
 import { singaporeTodayIsoDate, type DashboardDrilldown } from "../../dashboard";
@@ -518,6 +519,7 @@ export function FinancePage({
   const [financeEditorOpen, setFinanceEditorOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [financeCreateOpen, setFinanceCreateOpen] = useState<"payment" | "settlement" | "dailySpend" | "brokerCommission" | "debtRecovery" | "paymentVoucher" | null>(null);
   const [financeTab, setFinanceTab] = useState(() => financeTabFromLocation(canManageFinance));
+  const [collectionAgeingSearch, setCollectionAgeingSearch] = useState(() => typeof window === "undefined" ? "" : window.location.search);
   const [cashCustodyFocusCollectionId, setCashCustodyFocusCollectionId] = useState(() => cashCollectionIdFromLocation());
   const [cashCustodyPrefillPaymentId, setCashCustodyPrefillPaymentId] = useState(() => cashPaymentIdFromLocation());
   const [financeKeyword, setFinanceKeyword] = useState("");
@@ -707,6 +709,7 @@ export function FinancePage({
 
   useEffect(() => {
     const syncFinanceTabFromLocation = () => {
+      setCollectionAgeingSearch(window.location.search);
       setFinanceTab(financeTabFromLocation(canManageFinance));
       setCashCustodyFocusCollectionId(cashCollectionIdFromLocation());
       setCashCustodyPrefillPaymentId(cashPaymentIdFromLocation());
@@ -1730,6 +1733,7 @@ export function FinancePage({
           items={[
             ...(canManageFinance ? [
               { key: "payments", label: "Sales Invoices & Collections / 销售发票与收款" },
+              ...(financeTab === "collection-ageing" ? [{ key: "collection-ageing", label: "Collection ageing / 收款账龄" }] : []),
               { key: "settlements", label: "Settlement / 结算" },
               { key: "commissions", label: "Broker Commission / 经纪佣金" },
               { key: "debt", label: "Debt Recovery / 欠款追讨" },
@@ -1739,14 +1743,14 @@ export function FinancePage({
             { key: "cash-custody", label: "Cash Handover / Official Receipts" }
           ]}
         />
-        <div className="financeSummaryStrip">
+        {financeTab !== "collection-ageing" && <div className="financeSummaryStrip">
           {activeFinanceSummary.map((item) => (
             <span key={item.label}>
               <strong>{unknownSummary ?? item.value}</strong>
               {item.label}
             </span>
           ))}
-        </div>
+        </div>}
       </ProCard>
       {dashboardFocusActive && <Alert
         type="info"
@@ -1754,7 +1758,34 @@ export function FinancePage({
         message={dashboardFocus.vehicleId ? "Dashboard focus: records for the selected vehicle" : dashboardFocus.attention === "dueSoon" ? "Dashboard focus: Daily Spend due soon" : dashboardFocus.attention === "due" ? "Dashboard focus: due follow-up items" : "Dashboard focus: open follow-up items"}
         action={<Button size="small" onClick={() => onClearDashboardFocus(financeTab)}>Clear focus</Button>}
       />}
-      {canManageFinance && <InvoiceUpdateRequestQueue
+      {canManageFinance && financeTab === "collection-ageing" && <CollectionAgeingRecordsPanel
+        search={collectionAgeingSearch}
+        plateFor={(vehicleId) => plateFor(vehicles, vehicleId)}
+        sourceStatus={(record) => record.sourceType === "PaymentRecord"
+          ? { loading: paymentRefreshing, unavailable: Boolean(paymentLoadError) || !payments.some(item => item.id === record.sourceId) }
+          : { loading: Boolean(registerLoadState?.debtRecoveries?.loading), unavailable: Boolean(registerLoadState?.debtRecoveries?.error) || !debtRecoveries.some(item => item.id === record.sourceId) }}
+        onRetrySource={(record) => record.sourceType === "PaymentRecord" ? onRetryPayments() : onRetryRegister?.("debtRecoveries") ?? Promise.resolve()}
+        onOpen={(record) => {
+          if (record.sourceType === "PaymentRecord") {
+            const payment = payments.find(item => item.id === record.sourceId);
+            if (!payment || paymentLoadError || paymentRefreshing) {
+              message.error("Reload Finance records before opening this receivable.");
+              return;
+            }
+            changeFinanceTab("payments");
+            if (isFinanceV2(payment)) openV2Details(payment.id);
+            else selectPayment(payment.id);
+          } else {
+            if (!debtRecoveries.some(item => item.id === record.sourceId) || registerBlocked("debtRecoveries")) {
+              message.error("Reload Finance records before opening this debt case.");
+              return;
+            }
+            changeFinanceTab("debt");
+            selectDebtRecovery(record.sourceId);
+          }
+        }}
+      />}
+      {canManageFinance && financeTab !== "collection-ageing" && <InvoiceUpdateRequestQueue
         requests={invoiceUpdateRequests}
         loading={invoiceRequestLoading}
         error={invoiceRequestError}
@@ -3011,7 +3042,7 @@ export function financeTabForUrl(pathname: string, search: string, canManageFina
   const tab = new URLSearchParams(search).get("tab");
   if (tab === "cash-custody") return "cash-custody";
   if (!canManageFinance) return "cash-custody";
-  return ["payments", "settlements", "commissions", "debt", "vouchers", "daily"].includes(tab ?? "") ? tab ?? "payments" : "payments";
+  return ["payments", "settlements", "commissions", "debt", "vouchers", "daily", "collection-ageing"].includes(tab ?? "") ? tab ?? "payments" : "payments";
 }
 
 export function visibleSalesInvoicePayments(payments: PaymentRecord[]) {

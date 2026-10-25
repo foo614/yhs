@@ -138,6 +138,10 @@ for (const [id, state, waitingReason] of [
   ...fixtures["/api/whatsapp/staff/history"].items[1], id, state, waitingReason
 });
 fixtures["/api/whatsapp/staff/history"].total = fixtures["/api/whatsapp/staff/history"].items.length;
+fixtures["/api/dashboard/collection-ageing"] = {
+  asOfDate: "2026-09-01", timeZone: "Asia/Singapore", totalAmount: 15000, totalCount: 2,
+  buckets: ["NotYetDue", "Overdue1To7", "Overdue8To30", "OverdueOver30", "UnknownDueDate"].map(key => ({ key, amount: key === "UnknownDueDate" ? 15000 : 0, count: key === "UnknownDueDate" ? 2 : 0 }))
+};
 export const fixtureTemplate = fixtures;
 export const emptyCollectionTemplate = emptyCollections;
 

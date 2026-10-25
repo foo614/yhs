@@ -1660,6 +1660,35 @@ const sampleVehicle: Vehicle = {
     ownerId: undefined
 };
 
+export type CollectionAgeingBucketKey = "NotYetDue" | "Overdue1To7" | "Overdue8To30" | "OverdueOver30" | "UnknownDueDate";
+export type CollectionAgeingSummary = {
+  asOfDate: string;
+  timeZone: string;
+  totalAmount: number;
+  totalCount: number;
+  buckets: { key: CollectionAgeingBucketKey; amount: number; count: number }[];
+};
+export type CollectionAgeingRecord = {
+  sourceType: "PaymentRecord" | "DebtRecoveryCase";
+  sourceId: string;
+  vehicleId: string;
+  amount: number;
+  dueDate: string | null;
+};
+export type CollectionAgeingRecords = { asOfDate: string; bucket: CollectionAgeingBucketKey; totalAmount: number; records: CollectionAgeingRecord[] };
+
+export async function getCollectionAgeing(): Promise<CollectionAgeingSummary> {
+  const response = await fetch(`${apiBaseUrl}/api/dashboard/collection-ageing`, { credentials: "include" });
+  if (!response.ok) throw new Error(await responseErrorMessage(response, "Collection ageing could not be loaded. Please retry."));
+  return response.json();
+}
+
+export async function getCollectionAgeingRecords(bucket: CollectionAgeingBucketKey): Promise<CollectionAgeingRecords> {
+  const response = await fetch(`${apiBaseUrl}/api/finance/collection-ageing?bucket=${encodeURIComponent(bucket)}`, { credentials: "include" });
+  if (!response.ok) throw new Error(await responseErrorMessage(response, "Collection records could not be loaded. Please retry."));
+  return response.json();
+}
+
 export async function getDashboard(period: DashboardAnalyticsPeriod = {}): Promise<DashboardLoadResult> {
   const params = new URLSearchParams();
   if (period.from && period.to) {

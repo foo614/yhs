@@ -371,6 +371,14 @@ public sealed class ApiDocumentationTests
             program.IndexOf("backOffice.MapGet(\"/collection-transactions/{id:guid}/official-receipt/content\"", StringComparison.Ordinal)..
             program.IndexOf("backOffice.MapGet(\"/cash-handovers\"", StringComparison.Ordinal)];
         Assert.Contains("RequireAuthorization(\"Finance\")", receiptDownload);
+        // Financial read paths must not inherit only the general BackOffice policy.
+        var ageing = program[
+            program.IndexOf("backOffice.MapGet(\"/dashboard/collection-ageing\"", StringComparison.Ordinal)..
+            program.IndexOf("backOffice.MapGet(\"/dashboard/summary\"", StringComparison.Ordinal)];
+        var ageingFinance = ageing[ageing.IndexOf("backOffice.MapGet(\"/finance/collection-ageing\"", StringComparison.Ordinal)..];
+        Assert.Contains("RequireAuthorization(\"Dashboard\")", ageing);
+        Assert.Contains("RequireAuthorization(\"Finance\")", ageingFinance);
+        Assert.DoesNotContain("AllowAnonymous", ageing);
     }
 
     [Fact]

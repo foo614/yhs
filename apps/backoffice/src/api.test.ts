@@ -65,6 +65,8 @@ import {
   getCashHandoverPaymentLookup,
   getDailySpends,
   getDashboard,
+  getCollectionAgeing,
+  getCollectionAgeingRecords,
   getDashboardReminders,
   getPriorityActions,
   getDebtRecoveries,
@@ -1486,6 +1488,21 @@ describe("backoffice api client", () => {
     await getDashboard({ from: "2026-06-01", to: "2026-06-30" });
 
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/summary?from=2026-06-01&to=2026-06-30", { credentials: "include" });
+  });
+
+  it("keeps collection ageing reads authenticated and binds the selected bucket", async () => {
+    const summary = { asOfDate: "2026-10-25", totalAmount: 50, totalCount: 1, buckets: [{ key: "UnknownDueDate", amount: 50, count: 1 }] };
+    let fetchMock = mockFetch(summary);
+    expect(await getCollectionAgeing()).toEqual(summary);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/dashboard/collection-ageing", { credentials: "include" });
+    const records = { asOfDate: "2026-10-25", bucket: "UnknownDueDate", totalAmount: 50, records: [{ sourceType: "PaymentRecord", sourceId: "synthetic", vehicleId: "vehicle", amount: 50, dueDate: null }] };
+    fetchMock = mockFetch(records);
+    expect(await getCollectionAgeingRecords("UnknownDueDate")).toEqual(records);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/finance/collection-ageing?bucket=UnknownDueDate", { credentials: "include" });
+    mockFetch({ message: "Access denied" }, false, 403);
+    await expect(getCollectionAgeingRecords("UnknownDueDate")).rejects.toThrow("Access denied");
+    mockFetch({ message: "Balance read unavailable" }, false, 503);
+    await expect(getCollectionAgeing()).rejects.toThrow("Balance read unavailable");
   });
 
   it("reports a dashboard summary failure instead of leaving the dashboard in an indefinite loading state", async () => {
