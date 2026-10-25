@@ -7644,3 +7644,8 @@ body {
 @media (max-width: 767px) {
   .operationsCalendarCollapsedAgenda .ant-btn { min-height: 44px; }
 }
+
+@media (min-width: 721px) and (max-width: 767px) {
+  .dashboardAnalyticsPopup .ant-picker-panels { flex-direction: column; }
+  .dashboardAnalyticsPopup .ant-picker-panel-container { max-width: calc(100vw - 16px); max-height: calc(100dvh - 24px); overflow: auto; }
+}

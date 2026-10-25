@@ -2893,6 +2893,7 @@ function DashboardAnalyticsControls({
         {preset === "Custom" && <>
           <DatePicker.RangePicker
             aria-label="Dashboard analytics date range"
+            popupClassName="dashboardAnalyticsPopup"
             disabled={disabled}
             format="YYYY-MM-DD"
             placeholder={["Start date", "End date"]}
