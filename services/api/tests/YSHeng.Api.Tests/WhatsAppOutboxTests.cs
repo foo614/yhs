@@ -25,6 +25,8 @@ public sealed class WhatsAppOutboxTests
 
     [Theory]
     [InlineData("approved")]
+    [InlineData("approved-no-ms-v1")]
+    [InlineData("unapproved-no-ms-v1")]
     [InlineData("missing")]
     [InlineData("unapproved")]
     [InlineData("wrong-body")]
@@ -58,14 +60,21 @@ public sealed class WhatsAppOutboxTests
         await db.SaveChangesAsync();
         await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(db, assistant, now, "scheduler");
         await WhatsAppHrNotifications.EnqueueCurrentDayAsync(db, assistant, now, "scheduler");
-        var entries = new List<WhatsAppApprovedTemplate>(StaffDispatch().Templates);
+        // Production has only English v1; approved Malay daily v2 must still be
+        // reachable without enabling unrelated Malay v1 notification categories.
+        var noMalayV1 = mode.EndsWith("-no-ms-v1", StringComparison.Ordinal);
+        var v2Approved = mode is "approved" or "approved-no-ms-v1";
+        var entries = new List<WhatsAppApprovedTemplate>(noMalayV1
+            ? [new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Name = "approved_staff_notice_en",
+                Language = "en_US", Approved = true, ApprovalEvidence = "synthetic English fallback" }]
+            : StaffDispatch().Templates);
         foreach (var key in new[] { WhatsAppReminderV2.Due, WhatsAppReminderV2.Leave, WhatsAppReminderV2.Attendance })
         {
             if (mode == "missing") continue;
             var language = mode == "wrong-language" ? "en_US" : "ms";
             var name = mode == "wrong-name" ? key + "_en" : mode == "unsuffixed" ? key : WhatsAppReminderV2.NameFor(key, language);
             var entry = new WhatsAppApprovedTemplate { Key = key, Name = name, Language = language,
-                Approved = mode != "unapproved", ApprovalEvidence = "synthetic exact-body and button approval",
+                Approved = !mode.StartsWith("unapproved", StringComparison.Ordinal), ApprovalEvidence = "synthetic exact-body and button approval",
                 BodyText = mode == "wrong-body" ? "Unapproved text" : WhatsAppReminderV2.BodyText(key, language),
                 PortalUrl = (mode == "wrong-origin" ? "https://wrong.example.test" : "https://yshenghub.com.my") +
                     (key == WhatsAppReminderV2.Due ? "/dashboard" : "/hr-salary") };
@@ -74,11 +83,41 @@ public sealed class WhatsAppOutboxTests
         }
         var dispatch = StaffDispatch(entries.ToArray());
         var submitted = new List<WhatsAppOutbox>();
+        if (mode == "approved-no-ms-v1")
+        {
+            var history = await WhatsAppStaffNotifications.HistoryAsync(db, null, null, null, null, null, 1, now,
+                dispatch: dispatch, assistant: assistant);
+            Assert.All(history.Items, item => Assert.Contains("Waiting for the background sender", item.WaitingReason));
+        }
+        Guid? unrelatedId = null;
+        if (mode == "approved-no-ms-v1")
+        {
+            var unrelated = (await db.WhatsAppOutbox.AsNoTracking().FirstAsync()) with
+            {
+                Id = Guid.NewGuid(), IdempotencyKey = "unrelated-malay-v1", MessageKind = "OcrUsage", CreatedAt = now - 1
+            };
+            unrelatedId = unrelated.Id;
+            db.WhatsAppOutbox.Add(unrelated);
+            await db.SaveChangesAsync();
+        }
+        if (mode == "unapproved-no-ms-v1")
+        {
+            Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, dispatch, (_, _) =>
+                throw new InvalidOperationException("Unapproved Malay templates must not send"), now,
+                assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+            Assert.All(await db.WhatsAppOutbox.AsNoTracking().ToListAsync(), row =>
+            {
+                Assert.Equal("Queued", row.State);
+                Assert.Equal(0, row.Attempts);
+                Assert.Null(row.SubmittedTemplateName);
+            });
+            return;
+        }
         for (var index = 0; index < 3; index++)
             Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, dispatch, (item, _) =>
             {
                 submitted.Add(item);
-                if (mode == "approved")
+                if (v2Approved)
                 {
                     Assert.True(WhatsAppReminderV2.Known(item.TemplateVersion));
                     Assert.NotNull(WhatsAppReminderV2.Parameters(item));
@@ -89,7 +128,7 @@ public sealed class WhatsAppOutboxTests
                 else Assert.Equal("staff_notice_v1", item.TemplateVersion);
                 return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.v2-" + item.MessageKind));
             }, now, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
-        if (mode == "approved")
+        if (v2Approved)
         {
             var due = submitted.Single(item => item.MessageKind == "OutstandingDigest");
             Assert.Equal(new[] { "14", "11", "12", "RM600,000", "1", "RM1,234.50", "1" }, WhatsAppReminderV2.Parameters(due)![2..]);
@@ -101,17 +140,25 @@ public sealed class WhatsAppOutboxTests
         await using var restarted = fixture.Open();
         await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(restarted, assistant, now, "scheduler-restart");
         await WhatsAppHrNotifications.EnqueueCurrentDayAsync(restarted, assistant, now, "scheduler-restart");
-        Assert.Equal(3, await restarted.WhatsAppOutbox.CountAsync());
-        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(restarted, StaffDispatch(), (_, _) =>
+        Assert.Equal(unrelatedId is null ? 3 : 4, await restarted.WhatsAppOutbox.CountAsync());
+        var rollback = noMalayV1 ? StaffDispatch(entries.Where(entry => !WhatsAppReminderV2.Known(entry.Key)).ToArray()) : StaffDispatch();
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(restarted, rollback, (_, _) =>
             throw new InvalidOperationException("Already accepted daily event must not send again"), now,
             assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
-        Assert.All(await restarted.WhatsAppOutbox.AsNoTracking().ToListAsync(), row =>
+        var rows = await restarted.WhatsAppOutbox.AsNoTracking().ToListAsync();
+        if (unrelatedId is not null)
+        {
+            var unrelated = Assert.Single(rows, row => row.Id == unrelatedId);
+            Assert.Equal("Queued", unrelated.State);
+            Assert.Equal(0, unrelated.Attempts);
+        }
+        Assert.All(rows.Where(row => row.Id != unrelatedId), row =>
         {
             Assert.Equal("staff_notice_v1", row.TemplateVersion);
             Assert.Equal(1, row.Attempts);
             Assert.Equal("Accepted", row.State);
             Assert.NotNull(row.SubmittedBody);
-            Assert.Equal(mode == "approved" ? WhatsAppReminderV2.NameFor(WhatsAppReminderV2.KeyFor(row)!, row.Language) :
+            Assert.Equal(v2Approved ? WhatsAppReminderV2.NameFor(WhatsAppReminderV2.KeyFor(row)!, row.Language) :
                 "approved_staff_notice", row.SubmittedTemplateName);
         });
     }
@@ -147,6 +194,32 @@ public sealed class WhatsAppOutboxTests
         Assert.DoesNotContain("99999", selected.TemplateReference);
         Assert.DoesNotContain("PRIVATE", selected.Body);
         Assert.Null(WhatsAppReminderV2.Parameters(selected with { RequiredStaffRole = "Finance" }));
+
+        // Exercise SQL candidate admission for the fourth v2 design with no Malay
+        // v1 mapping, using the real role/binding and current-assignment checks.
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        db.Roles.Add(new IdentityRole("Sales") { Id = "v2-sales", NormalizedName = "SALES" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff-notification", RoleId = "v2-sales" });
+        await db.Vehicles.Where(row => row.Id == vehicle.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.SalesAgentUserId, "staff-notification"));
+        await db.SaveChangesAsync();
+        var binding = await db.WhatsAppStaffBindings.SingleAsync();
+        await WhatsAppStaffNotifications.StageAsync(db, assistant, binding.Id, "OutstandingDigest", "Sales",
+            "v2-sales-daily", 1, "Synthetic delivery", Now, Now + 3600, Now, "scheduler");
+        await db.SaveChangesAsync();
+        var salesTemplate = new WhatsAppApprovedTemplate { Key = WhatsAppReminderV2.Delivery, Name = "ysheng_delivery_summary_v2_ms",
+            Language = "ms", Approved = true, ApprovalEvidence = "synthetic approval",
+            BodyText = WhatsAppReminderV2.BodyText(WhatsAppReminderV2.Delivery, "ms"), PortalUrl = "https://yshenghub.com.my/leads" };
+        var dispatch = StaffDispatch(salesTemplate, new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Name = "english_fallback",
+            Language = "en_US", Approved = true, ApprovalEvidence = "synthetic English fallback" });
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, dispatch, (item, _) =>
+        {
+            Assert.Equal(WhatsAppReminderV2.Delivery, item.TemplateVersion);
+            Assert.Equal(new[] { "1", "0" }, WhatsAppReminderV2.Parameters(item)![2..]);
+            Assert.DoesNotContain("99999", item.TemplateReference);
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.sales-v2"));
+        }, Now, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
     }
 
     [Theory]

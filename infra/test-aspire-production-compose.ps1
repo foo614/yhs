@@ -87,6 +87,17 @@ $testEnvironment = [ordered]@{
   GOOGLE_APPLICATION_CREDENTIALS_HOST_PATH = "/tmp/google-document-ai.json"
 }
 
+# Prevent a missing/wrong production mapping silently selecting the unreadable v1
+# fallback; also prove an operator can disable v2 without removing v1.
+$v2Pack = @(Get-Content -LiteralPath (Join-Path $repoRoot "docs/whatsapp/reminder-v2-submission.json") -Raw | ConvertFrom-Json)
+$v2Approval = Get-Content -LiteralPath (Join-Path $repoRoot "docs/whatsapp/reminder-v2-approval-2026-10-26.json") -Raw | ConvertFrom-Json
+foreach ($template in $v2Pack) {
+  $setting = "WHATSAPP_V2_" + ($template.name -replace '^ysheng_', '' -replace '_summary_v2', '').ToUpperInvariant()
+  foreach ($suffix in @("APPROVED", "APPROVAL_EVIDENCE", "PROVIDER_LANGUAGE")) {
+    $testEnvironment["${setting}_$suffix"] = $null
+  }
+}
+
 $originalEnvironment = @{}
 foreach ($entry in $testEnvironment.GetEnumerator()) {
   $originalEnvironment[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, "Process")
@@ -188,6 +199,31 @@ try {
     Assert-Equal -Name "$prefix evidence" -Actual $whatsApp."${prefix}ApprovalEvidence" -Expected $template.Evidence
   }
   Assert-Equal -Name "English staff notice provider language" -Actual $whatsApp.WhatsApp__Templates__3__ProviderLanguage -Expected "en"
+  for ($index = 0; $index -lt $v2Pack.Count; $index++) {
+    $template = $v2Pack[$index]
+    $approval = @($v2Approval.templates | Where-Object { $_.name -ceq $template.name })
+    if ($approval.Count -ne 1 -or $approval[0].status -cne "APPROVED") {
+      throw "V2 template must have exactly one approved provider record."
+    }
+    $approval = $approval[0]
+    $prefix = "WhatsApp__Templates__$($index + 4)__"
+    Assert-Equal -Name "$prefix key" -Actual $whatsApp."${prefix}Key" -Expected ($template.name -replace '_(en|ms)$', '')
+    Assert-Equal -Name "$prefix name" -Actual $whatsApp."${prefix}Name" -Expected $approval.name
+    Assert-Equal -Name "$prefix logical language" -Actual $whatsApp."${prefix}Language" -Expected $template.language
+    Assert-Equal -Name "$prefix provider language" -Actual $whatsApp."${prefix}ProviderLanguage" -Expected $approval.language
+    Assert-Equal -Name "$prefix approval" -Actual $whatsApp."${prefix}Approved" -Expected "true"
+    Assert-Equal -Name "$prefix evidence" -Actual $whatsApp."${prefix}ApprovalEvidence" -Expected "Meta $($approval.id) APPROVED $($approval.category) 2026-10-26; FOO-236"
+    $body = @($template.components | Where-Object type -eq BODY)[0].text
+    $approvedBody = @($approval.components | Where-Object type -eq BODY)[0].text
+    if ($whatsApp."${prefix}BodyText" -cne $body -or $body -cne $approvedBody) {
+      throw "$prefix body must exactly match the application pack and approved provider text."
+    }
+    $button = @($template.components | Where-Object type -eq BUTTONS)[0].buttons[0]
+    $approvedButton = @($approval.components | Where-Object type -eq BUTTONS)[0].buttons[0]
+    Assert-Equal -Name "$prefix URL" -Actual $whatsApp."${prefix}PortalUrl" -Expected $approvedButton.url
+    Assert-Equal -Name "$prefix pack URL" -Actual $button.url -Expected $approvedButton.url
+    Assert-Equal -Name "$prefix button label" -Actual $button.text -Expected $approvedButton.text
+  }
   if ($compose.services.worker.environment.PSObject.Properties.Name -match "^WhatsApp(Assistant)?__") {
     throw "Only the API may receive WhatsApp configuration; the general worker must not send duplicate staff replies or alerts."
   }
@@ -238,7 +274,20 @@ try {
     throw "API and worker must wait for the Collector runtime health probe."
   }
 
-  Write-Host "Merged Aspire production Compose dashboard contract passed."
+  foreach ($template in $v2Pack) {
+    $setting = "WHATSAPP_V2_" + ($template.name -replace '^ysheng_', '' -replace '_summary_v2', '').ToUpperInvariant() + "_APPROVED"
+    [Environment]::SetEnvironmentVariable($setting, "false", "Process")
+  }
+  $rollbackOutput = & docker compose --project-directory $projectDirectory -f $composePath -f $overridePath config --format json 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "Could not render v2 rollback configuration." }
+  $rollback = ($rollbackOutput | ConvertFrom-Json).services.api.environment
+  foreach ($index in 4..11) {
+    Assert-Equal -Name "V2 rollback slot $index" -Actual $rollback."WhatsApp__Templates__${index}__Approved" -Expected "false"
+  }
+  foreach ($property in $whatsApp.PSObject.Properties | Where-Object Name -match '^WhatsApp__Templates__[0-3]__') {
+    Assert-Equal -Name "V1 retained during rollback: $($property.Name)" -Actual $rollback.($property.Name) -Expected $property.Value
+  }
+  Write-Host "Merged Aspire production Compose and WhatsApp v2 activation/rollback contracts passed."
 }
 finally {
   foreach ($entry in $originalEnvironment.GetEnumerator()) {

@@ -282,7 +282,9 @@ public static class WhatsAppStaffNotifications
             }
             else if (!dispatch.InvitationSenderReady)
                 return "Invitation sending is unavailable. Ask an operator to review the invitation sender configuration.";
-            if (dispatch.TemplateFor(row) is null)
+            var dailyV2Key = row.Audience == "Staff" && row.EventKind == "staff.notification" && row.TemplateVersion == "staff_notice_v1"
+                ? WhatsAppReminderV2.KeyFor(row) : null;
+            if (dispatch.TemplateFor(row) is null && (dailyV2Key is null || dispatch.TemplateFor(dailyV2Key, row.Language) is null))
                 return $"No approved {row.Language} template is configured for this message. Ask an operator to check its template mapping.";
             if (string.IsNullOrWhiteSpace(row.TemplateReference)) return "This record has no valid message content and cannot be sent.";
             if (row.Attempts >= 3) return "The maximum sending attempts have been reached; this record cannot be sent again.";
