@@ -105,6 +105,9 @@
 .dashboardCashDetails > span { font-size: 17px; font-weight: 700; white-space: nowrap; }
 .dashboardCashDetails small { font-size: 11px; color: #657580; }
 .dashboardWorkspace .dashboardCashAction > .ant-btn { min-height: 36px; width: auto; font-size: 12px; padding-inline: 8px; }
+.dashboardWorkspace .dashboardCashAction > .dashboardCashIcon { grid-column: 1; grid-row: 1; }
+.dashboardWorkspace .dashboardCashAction > .dashboardCashDetails { grid-column: 2; grid-row: 1; }
+.dashboardWorkspace .dashboardCashAction > .ant-btn { grid-column: 3; grid-row: 1; }
 .dashboardAnalysisHeading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .dashboardAnalysisGrid { display: grid; gap: 12px; min-width: 0; align-items: start; }
 .dashboardAnalysisGrid > * { min-width: 0; }
@@ -150,7 +153,8 @@
   .dashboardWorkspace .metricGrid.dashboardHeadlineMetrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .dashboardWorkspace .metricGrid.dashboardSupportingMetrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .dashboardWorkspace .dashboardSupportingMetrics .metricCard > strong { font-size: 16px; }
-  .dashboardWorkGrid { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+  .dashboardWorkspace .dashboardCashActionList { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 24px; }
+  .dashboardWorkspace .dashboardCashAction { align-self: start; }
 }
 @media (max-width: 1024px) {
   .dashboardCommandBar.moduleCommandBar { display: flex; justify-content: flex-end; }
