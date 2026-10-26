@@ -381,7 +381,6 @@ async function verifyDashboardActionIdentity() {
   }
   await inspect("dashboard-distinct-source-actions", width);
   await expect(queue.getByRole("status").filter({ hasText: "Showing 6 of 6" })).toBeVisible();
-  await queue.locator(".dashboardWorkloadDisclosure > summary").click();
   await queue.getByRole("button", { name: "Loans: 2 actions", exact: true }).click();
   await expect(queue.getByRole("status").filter({ hasText: "Showing 2 of 6" })).toBeVisible();
   const filters = queue.locator(".dashboardFilterToggle");
@@ -391,6 +390,12 @@ async function verifyDashboardActionIdentity() {
   await expect(queue.getByRole("status").filter({ hasText: "Showing 0 of 6" })).toBeVisible();
   await expect(queue.getByText("No actions match these filters. Reset filters to see the full queue.", { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(queue.getByText("6 actions due now", { exact: true })).toBeVisible();
+  await queue.getByRole("button", { name: "Delivery: 2 actions", exact: true }).click();
+  await expect(queue.getByRole("button", { name: "Delivery: 2 actions", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(queue.getByRole("button", { name: "Loans: 2 actions", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect(queue.getByRole("status").filter({ hasText: "Showing 0 of 6" })).toBeVisible();
+  await queue.getByRole("button", { name: "Reset filters / 重置", exact: true }).click();
+  await expect(queue.getByRole("button", { name: "All: 6 actions", exact: true })).toHaveAttribute("aria-pressed", "true");
   await queue.getByRole("button", { name: "Loans: 2 actions", exact: true }).click();
   await expect(queue.getByRole("status").filter({ hasText: "Showing 2 of 6" })).toBeVisible();
 
