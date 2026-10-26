@@ -112,6 +112,11 @@ workarounds. Verify static line breaks and every example in Meta's template prev
 
 ## Activation, fallback and rollback
 
+Production follow-up: FOO-236 activates the eight provider-approved mappings in
+the production override. See `docs/whatsapp/reminder-v2-activation.md` and its
+dated approval record. The steps below describe the original code-only handoff;
+the separate draft overlay is no longer needed by the production release.
+
 1. Review the names, exact bodies below, proposed category, example values and
    confirmed Portal URLs. After separate authorization, submit through Meta.
 2. Wait for `APPROVED` for each name/language. Save the provider template ID,

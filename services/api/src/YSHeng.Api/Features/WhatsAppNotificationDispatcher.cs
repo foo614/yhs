@@ -61,11 +61,24 @@ public static class WhatsAppNotificationDispatcher
                 options.TemplateFor(template.Key, "ms") is not null).Select(template => template.Key).Distinct().ToArray();
             var en = options.Templates.Where(template => template.Language == "en_US" &&
                 options.TemplateFor(template.Key, "en_US") is not null).Select(template => template.Key).Distinct().ToArray();
+            // Daily rows retain their v1 identity. Admit an approved matching v2
+            // even when that language has no v1 fallback; other categories stay gated.
+            string[] V2Languages(string key) => refreshStaff is null ? [] :
+                new[] { "ms", "en_US" }.Where(language => options.TemplateFor(key, language) is not null).ToArray();
+            var dueLanguages = V2Languages(WhatsAppReminderV2.Due);
+            var deliveryLanguages = V2Languages(WhatsAppReminderV2.Delivery);
+            var leaveLanguages = V2Languages(WhatsAppReminderV2.Leave);
+            var attendanceLanguages = V2Languages(WhatsAppReminderV2.Attendance);
             candidate = await db.WhatsAppOutbox.AsNoTracking().Where(row => row.EventKind != "test" && row.ProviderMessageId == null &&
                 ((row.Audience == "Customer" && options.Ready) || (row.Audience == "Staff" && options.StaffReady) ||
                  (row.Audience == "Enrollment" && options.InvitationReady)) &&
                 (row.State == "HeldForApproval" || row.State == "Queued" || row.State == "RetryScheduled") && row.TemplateReference != "" && row.NextAttemptAt <= now &&
-                ((row.Language == "ms" && ms.Contains(row.TemplateVersion)) || (row.Language == "en_US" && en.Contains(row.TemplateVersion))))
+                ((row.Language == "ms" && ms.Contains(row.TemplateVersion)) || (row.Language == "en_US" && en.Contains(row.TemplateVersion)) ||
+                 (row.Audience == "Staff" && row.EventKind == "staff.notification" && row.TemplateVersion == "staff_notice_v1" &&
+                  ((row.MessageKind == "OutstandingDigest" && row.RequiredStaffRole == "BossAdmin" && dueLanguages.Contains(row.Language)) ||
+                   (row.MessageKind == "OutstandingDigest" && row.RequiredStaffRole == "Sales" && deliveryLanguages.Contains(row.Language)) ||
+                   (row.MessageKind == "LeaveApproval" && (row.RequiredStaffRole == "BossAdmin" || row.RequiredStaffRole == "HrSalary") && leaveLanguages.Contains(row.Language)) ||
+                   (row.MessageKind == "AttendanceSummary" && row.RequiredStaffRole == "BossAdmin" && attendanceLanguages.Contains(row.Language))))))
                 .OrderBy(row => row.CreatedAt).ThenBy(row => row.Id).FirstOrDefaultAsync(ct);
             if (candidate is null)
             {
