@@ -56,3 +56,6 @@
   .operationsCalendarCompact .operationsCalendarDesktopAgenda { padding-left: 24px; }
   .operationsCalendarCompact .operationsCalendarCollapsedAgenda { padding-left: 0; }
 }
+@media (min-width: 1280px) {
+  .operationsCalendarCompact .operationsCalendarLayout { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+}
