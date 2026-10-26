@@ -81,13 +81,13 @@
 .dashboardWorkspace .dashboardPriorityTable .ant-table-tbody > tr > td { padding: 10px 8px; vertical-align: top; }
 .dashboardWorkspace .dashboardPriorityTable .ant-btn { min-height: 36px; font-size: 12px; }
 .dashboardMoney { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.dashboardWorkloadDisclosure { border-top: 1px solid var(--dashboard-border); margin-top: 8px; }
-.dashboardWorkloadDisclosure summary span, .dashboardInboxDisclosure > summary > span { font-size: 12px; font-weight: 400; margin-left: 8px; color: #657580; }
-.dashboardWorkspace .dashboardWorkload { margin: 0; max-width: none; gap: 4px; }
-.dashboardWorkspace .dashboardWorkloadBar { grid-template-columns: 80px minmax(0, 1fr) 32px; min-height: 44px; }
-.dashboardWorkspace .dashboardWorkloadBar:hover, .dashboardWorkspace .dashboardWorkloadBar[aria-pressed="true"] { background: #f1f8f5; border-color: #cde5da; }
-.dashboardWorkspace .dashboardWorkloadTrack { height: 6px; background: #edf2f2; }
-.dashboardWorkspace .dashboardWorkloadTrack > span { background: #08765f; }
+.dashboardInboxDisclosure > summary > span { font-size: 12px; font-weight: 400; margin-left: 8px; color: #657580; }
+.dashboardDepartmentFilters { display: grid; gap: 8px; margin-bottom: 12px; }
+.dashboardDepartmentFilters > .ant-typography { font-size: 12px; }
+.dashboardDepartmentButtons { display: flex; flex-wrap: wrap; gap: 8px; }
+.dashboardWorkspace .dashboardDepartmentButtons .ant-btn { min-height: 44px; height: auto; white-space: normal; }
+.dashboardDepartmentCount { padding-inline: 6px; border-radius: 4px; background: #edf2f2; color: #385766; font-variant-numeric: tabular-nums; }
+.dashboardDepartmentButtons [aria-pressed="true"] .dashboardDepartmentCount { background: #ffffff26; color: inherit; }
 .dashboardInboxDisclosure { border: 1px solid var(--dashboard-border); border-radius: 4px; padding-inline: 10px; min-width: 0; }
 .dashboardInboxBody { display: grid; gap: 12px; padding-bottom: 12px; }
 .dashboardInboxFilters { display: flex; flex-wrap: wrap; gap: 8px; }

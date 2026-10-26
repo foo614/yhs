@@ -2432,8 +2432,13 @@ export function DashboardPage({
                 <Typography.Text type="secondary">Overdue and due today first. / 优先处理逾期及今日到期事项。</Typography.Text>
                 <Button className="dashboardFilterToggle" aria-expanded={actionFiltersOpen} aria-controls="dashboard-action-filters" onClick={() => setActionFiltersOpen(value => !value)}>Filters / 筛选{actionFiltersActive ? " · active" : ""}</Button>
               </div>
+              <div className="dashboardDepartmentFilters" role="group" aria-label="Filter actions by department">
+                <Typography.Text type="secondary">Department / 部门 · Counts include all actions / 数量包含全部待办</Typography.Text>
+                <div className="dashboardDepartmentButtons">
+                  {[{ department: "All", count: priorityEntries.length }, ...workload].map(item => <Button key={item.department} type={actionDepartment === item.department ? "primary" : "default"} aria-pressed={actionDepartment === item.department} aria-label={item.department + ": " + item.count + " actions"} onClick={() => { setActionDepartment(item.department); setMobilePriorityPage(1); }}>{item.department === "All" ? "All / 全部" : item.department}<span className="dashboardDepartmentCount">{item.count}</span></Button>)}
+                </div>
+              </div>
               <div id="dashboard-action-filters" className={"dashboardActionFilters" + (actionFiltersOpen ? " dashboardFiltersOpen" : "")}>
-                <label>Department / 部门<Select aria-label="Act now department" value={actionDepartment} onChange={value => { setActionDepartment(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All departments / 全部部门" }, ...workload.map(item => ({ value: item.department, label: item.department }))]} /></label>
                 <label>Type / 类型<Select aria-label="Act now type" value={actionType} onChange={value => { setActionType(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All types / 全部类型" }, ...actionTypes.map(type => ({ value: type, label: dashboardLabel(type) }))]} /></label>
                 <label>Due / 到期<Select aria-label="Act now due" value={actionDue} onChange={value => { setActionDue(value); setMobilePriorityPage(1); }} options={[{ value: "All", label: "All dates / 全部日期" }, { value: "Overdue", label: "Overdue / 逾期" }, { value: "Today", label: "Today / 今日" }]} /></label>
               </div>
@@ -2457,9 +2462,6 @@ export function DashboardPage({
                 { title: "Exposure / 金额", dataIndex: "amount", align: "right", width: 142, render: (_, entry) => entry.amount === undefined || entry.amount === null ? "—" : <span className="dashboardMoney">{formatMoney(Number(entry.amount))}</span> },
                 { title: "Action / 操作", width: 124, fixed: "right", render: (_, entry) => <Button type="primary" aria-label={"Open " + entry.title} onClick={() => onNavigate(entry.target)}>Open action</Button> }
               ]} dataSource={filteredPriorityEntries} pagination={tablePagination(8)} scroll={{ x: 700 }} locale={{ emptyText: actionEmptyText }} />
-              {priorityEntries.length > 0 && <details className="dashboardWorkloadDisclosure"><summary>Workload by department / 部门待办 <span>{priorityEntries.length} actions in full queue</span></summary>
-                <section className="dashboardWorkload" aria-label="Workload by department"><Typography.Text type="secondary">Select a department to view all its actions.</Typography.Text>{workload.map(item => <button type="button" key={item.department} className="dashboardWorkloadBar" aria-pressed={actionDepartment === item.department} aria-label={item.department + ": " + item.count + " actions"} onClick={() => { setActionDepartment(item.department); setActionType("All"); setActionDue("All"); setMobilePriorityPage(1); }}><span>{item.department}</span><span className="dashboardWorkloadTrack" aria-hidden="true"><span style={{ width: (item.count / Math.max(...workload.map(row => row.count)) * 100) + "%" }} /></span><strong>{item.count}</strong></button>)}</section>
-              </details>}
             </ProCard>
             <details className="dashboardInboxDisclosure"><summary>All reminders / 全部提醒 <span>{reminderFiltersActive ? filteredReminders.length + " matching of " + reminders.length + " · Filters active" : reminders.length + " reminders"}{reminderLoadError ? " · Check incomplete" : actionsRefreshing ? " · Checking" : ""}</span></summary>
               <div className="dashboardInboxBody">
