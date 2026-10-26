@@ -2482,7 +2482,7 @@ export function DashboardPage({
               </div>
             </details>
           </div>
-          <aside className="dashboardWorkContext" aria-label="Cash and calendar context">
+          <aside className="dashboardWorkContext" aria-label="Cash follow-up">
             <ProCard title="Cash follow-up / 收付款跟进" className="dashboardCashCard">
               <Typography.Text type="secondary">Current outstanding record totals by category.</Typography.Text>
               {dashboard ? <><div className="dashboardCashTotals"><span>Collect <strong>{formatCompactMoney(moneyToCollect)}</strong> · {collectCashItemCount} categories</span><span>Pay <strong>{formatCompactMoney(moneyToPay)}</strong> · {payCashItemCount} categories</span></div>
