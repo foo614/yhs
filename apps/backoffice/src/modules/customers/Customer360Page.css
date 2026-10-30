@@ -124,6 +124,48 @@
 }
 
 @media (max-width: 767px) {
+  .customer360MobileRecords {
+    display: grid;
+    min-width: 0;
+    gap: 12px;
+  }
+
+  .customer360MobileRecord {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    overflow-wrap: anywhere;
+  }
+
+  .customer360MobileRecord .ant-descriptions-item-content {
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .customer360MobileRecord .ant-space {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .customer360MobileRecord .ant-btn {
+    min-height: 44px;
+    height: auto;
+    white-space: normal;
+  }
+
+  .customer360MobileActions {
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+  }
+
+  .customer360MobilePagination {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
   .customer360CustomerPicker,
   .customerProfileSelect {
     width: 100%;

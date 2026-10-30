@@ -2441,23 +2441,9 @@ export function VehiclePage({
                   <strong>{formatMoney(vehicle.sellingPrice)}</strong>
                 </span>
                 <span>
-                  <small>Invoice / 发票</small>
-                  <strong>{invoiceCountForVehicle(vehicle.id) > 0 ? `${invoiceCountForVehicle(vehicle.id)} linked` : "Missing"}</strong>
+                  <small>Buyer / 买家</small>
+                  <strong>{customerLinkFor(vehicle.customerId)}</strong>
                 </span>
-                <span>
-                  <small>Active enquiries / 活跃询盘</small>
-                  <strong>{activeLeadCountForVehicle(vehicle.id)}</strong>
-                </span>
-              </div>
-              <div className="mobileRecordSection">
-                <Typography.Text className="mobileRecordLabel">Cost & margin / 成本与利润</Typography.Text>
-                <div className="mobileRecordMeta">
-                  <span><small>Real Purchase / 真实收车价</small><strong>{formatMoney(vehicle.purchasePrice)}</strong></span>
-                  <span><small>Modified Cost / 修改成本</small><strong>{formatMoney(effectivePurchaseCost(vehicle))}</strong></span>
-                  <span><small>Repair Cost / 整备费用</small><strong>{formatMoney(repairCostFor(vehicle))}</strong></span>
-                  <span><small>Selling / 售价</small><strong>{formatMoney(vehicle.sellingPrice)}</strong></span>
-                  <span><small>Est. Profit / 预估利润</small><strong>{formatMoney(profitFor(vehicle))}</strong></span>
-                </div>
               </div>
               <div className={`vehicleWorkflowGuide vehicleWorkflowGuide-${workflow.color}`}>
                 <div className="vehicleWorkflowTop">
@@ -2465,30 +2451,26 @@ export function VehiclePage({
                   <Tag color={workflow.color}>{workflow.status}</Tag>
                 </div>
                 <strong>{workflow.next}</strong>
-                <div className="vehicleWorkflowChecks">
-                  <span className={vehicle.bossConfirmed ? "done" : "pending"}>{vehicle.bossConfirmed ? "Approved" : "Need approval"}</span>
-                  <span className={vehicle.status !== "Available" || vehicle.isPublic ? "done" : "pending"}>{vehicle.status === "LoanProcessing" ? "Website hidden for loan" : vehicle.status === "Sold" ? "Website hidden after sale" : vehicle.isPublic ? "Website visible" : "Website hidden"}</span>
-                  <span className={vehicle.customerId ? "done" : "pending"}>{vehicle.customerId ? "Customer linked" : "No customer"}</span>
-                </div>
               </div>
-              <div className="mobileRecordSection">
-                <Typography.Text className="mobileRecordLabel">Workflow / 流程</Typography.Text>
+              <div className="mobileRecordFooter">
+                {renderVehicleActions(vehicle)}
+              </div>
+              <details className="vehicleMobileSupportingDetails">
+                <summary>Costs & supporting details / 成本与详情</summary>
+                <div className="mobileRecordMeta">
+                  <span><small>Real Purchase / 真实收车价</small><strong>{formatMoney(vehicle.purchasePrice)}</strong></span>
+                  <span><small>Modified Cost / 修改成本</small><strong>{formatMoney(effectivePurchaseCost(vehicle))}</strong></span>
+                  <span><small>Repair Cost / 整备费用</small><strong>{formatMoney(repairCostFor(vehicle))}</strong></span>
+                  <span><small>Est. Profit / 预估利润</small><strong>{formatMoney(profitFor(vehicle))}</strong></span>
+                  <span><small>Invoice / 发票</small><strong>{invoiceCountForVehicle(vehicle.id) > 0 ? `${invoiceCountForVehicle(vehicle.id)} linked` : "Missing"}</strong></span>
+                  <span><small>Active enquiries / 活跃询盘</small><strong>{activeLeadCountForVehicle(vehicle.id)}</strong></span>
+                  <span><small>Owner / 车主</small><strong>{contactFor(owners, vehicle.ownerId)}</strong></span>
+                </div>
                 <Space wrap size={6}>
                   <Badge status={vehicle.bossConfirmed ? "success" : "warning"} text={vehicle.bossConfirmed ? "Approved" : "Approval pending"} />
                   <Badge status={vehicle.isPublic ? "success" : "default"} text={vehicle.isPublic ? "Website visible" : "Website hidden"} />
                 </Space>
-              </div>
-              <div className="mobileRecordSection">
-                <Typography.Text className="mobileRecordLabel">Contacts / 联系人</Typography.Text>
-                <div className="mobileRecordTextBlock">
-                  <span>Buyer: {customerLinkFor(vehicle.customerId)}</span>
-                  <span>Owner: {contactFor(owners, vehicle.ownerId)}</span>
-                </div>
-              </div>
-              <div className="mobileRecordFooter">
-                <Tag color={workflow.color}>Next: {workflow.nextLabel}</Tag>
-                {renderVehicleActions(vehicle)}
-              </div>
+              </details>
             </article>
             );
           })}

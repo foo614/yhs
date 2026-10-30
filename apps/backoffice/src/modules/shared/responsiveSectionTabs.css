@@ -1,0 +1,51 @@
+.responsiveSectionTabs {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.responsiveSectionTabPanels {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.responsiveSectionPicker {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.responsiveSectionPicker > label {
+  font-weight: 600;
+}
+
+.responsiveSectionSelect {
+  width: 100%;
+}
+
+.responsiveSectionSelect.ant-select-single.ant-select-lg {
+  height: auto;
+  min-height: 44px;
+}
+
+.responsiveSectionSelect.ant-select-single .ant-select-selector .ant-select-selection-item {
+  white-space: normal;
+  line-height: 1.5;
+  padding-block: 8px;
+}
+
+.responsiveSectionDropdown .ant-select-item-option-content {
+  white-space: normal;
+}
+
+@media (max-width: 767px) {
+  .responsiveSectionTabPanels > .ant-tabs-nav {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .responsiveSectionPicker {
+    display: none;
+  }
+}

@@ -272,7 +272,7 @@ describe("management dashboard", () => {
     expect(markup).toContain("Management snapshot / 管理概览");
     expect(markup).not.toContain("Business health and decisions at a glance");
     expect(markup).not.toContain("Management dashboard / 管理看板");
-    expect(markup.indexOf("Management snapshot / 管理概览")).toBeLessThan(markup.indexOf("Act now / 立即处理"));
+    expect(markup.indexOf("Act now / 立即处理")).toBeLessThan(markup.indexOf("Management snapshot / 管理概览"));
     expect(markup).toContain("Act now / 立即处理");
     expect(markup).toContain("Department action / 部门行动");
     expect(markup).toContain("1-1 of 1 / 共 1 条");

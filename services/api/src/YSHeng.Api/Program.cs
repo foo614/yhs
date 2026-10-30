@@ -3715,6 +3715,9 @@ backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db
     var currentUser = string.IsNullOrWhiteSpace(currentUserId) ? null : await userManager.FindByIdAsync(currentUserId);
     var currentUserName = string.IsNullOrWhiteSpace(currentUser?.DisplayName) ? AuditTrail.ActorFrom(context.User) : currentUser.DisplayName;
     var updatedLead = LeadRules.ApplyBackOfficeUpdate(existingLead, lead, currentUserId, currentUserName, DateTime.UtcNow);
+    await using var transaction = updatedLead.Status == LeadStatus.Closed && updatedLead.ClosureOutcome == LeadClosureOutcome.Sold
+        ? await DeliveryConcurrencyLock.BeginVehiclesAsync(db, [updatedLead.VehicleId])
+        : null;
     var validation = LeadRules.ValidateBackOfficeLead(
         updatedLead,
         await db.Vehicles.AsNoTracking().ToListAsync(),
@@ -3743,6 +3746,7 @@ backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db
     db.Entry(existingLead).CurrentValues.SetValues(updatedLead);
     ApiAudit.Add(db, context.User, "lead.updated", nameof(Lead), updatedLead.Id);
     await db.SaveChangesAsync();
+    if (transaction is not null) await transaction.CommitAsync();
     return Results.Ok(updatedLead);
 }).RequireAuthorization("Sales");
 backOffice.MapGet("/sales/workboard", async (string? agentUserId, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>

@@ -1,10 +1,11 @@
 import { formatDisplayDateTime } from "../../dateDisplay";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, Checkbox, DatePicker, Descriptions, Drawer, Dropdown, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, Badge, Button, Checkbox, Collapse, DatePicker, Descriptions, Drawer, Dropdown, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Tooltip, Typography, Upload, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
+import { ResponsiveSectionTabs } from "../shared/ResponsiveSectionTabs";
 import { CashCustodyPage } from "./CashCustodyPage";
 import { CollectionAgeingRecordsPanel } from "./CollectionAgeingRecordsPanel";
 import { FinanceListNotice } from "./FinanceListNotice";
@@ -1219,17 +1220,42 @@ export function FinancePage({
     </Space>
   );
 
-  const approveManagementReview = async (paymentId: string) => {
-    try { requireCurrentData("payments"); await onApproveManagementReview(paymentId); }
-    catch (error) { message.error(humanizeApiError(error, "Unable to approve management review.")); }
+  const approveManagementReview = (payment: PaymentRecord) => {
+    if (paymentLoadError || paymentRefreshing || legacySaving) return;
+    Modal.confirm({
+      rootClassName: "financeOverlay",
+      title: "Approve legacy payment management review?",
+      content: `${plateFor(vehicles, payment.vehicleId)} · ${formatMoney(payment.nettPrice)} · ${payment.invoiceNumber || "No sales invoice"}. Confirm that the recorded sale and payment evidence have been reviewed. This records management approval; it does not reconcile the payment.`,
+      okText: "Approve management review",
+      cancelText: "Cancel",
+      onOk: () => runLegacyMutation("payments", `collection-${payment.id}`, () => onApproveManagementReview(payment.id))
+    });
+  };
+
+  const saveLegacyPayment = (payment: PaymentRecord, closeEditor = false) => {
+    if (paymentLoadError || paymentRefreshing || legacySaving) return;
+    const save = () => runLegacyMutation("payments", `collection-${payment.id}`, () => onUpdate(payment), closeEditor ? () => setFinanceEditorOpen(null) : undefined);
+    const current = payments.find(item => item.id === payment.id);
+    if (payment.status === "Reconciled" && current?.status !== "Reconciled") {
+      const blockReason = paymentReconcileBlockReason({ ...payment, status: current?.status ?? "Pending" }, payments);
+      if (blockReason) { message.warning(blockReason); return; }
+      Modal.confirm({
+        rootClassName: "financeOverlay",
+        title: "Reconcile legacy payment?",
+        content: `${plateFor(vehicles, payment.vehicleId)} · ${formatMoney(payment.nettPrice)} · ${payment.receiptNumber || "No customer receipt"}. Confirm that the collection, management review, documents and checklist have been checked. This records the payment as Reconciled.`,
+        okText: "Reconcile payment",
+        cancelText: "Cancel",
+        onOk: save
+      });
+    } else void save();
   };
 
   const renderLegacyPaymentActions = (payment: PaymentRecord) => (
     <Space className="tableActionGroup" wrap size={6}>
       <Button size="small" type="primary" onClick={() => selectPayment(payment.id)}>Details</Button>
-      {canApproveManagementReview && !payment.bossChecked && <Button size="small" disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => void approveManagementReview(payment.id)}>Approve review</Button>}
+      {canApproveManagementReview && !payment.bossChecked && <Button size="small" disabled={Boolean(paymentLoadError || paymentRefreshing) || legacySaving} loading={legacySaving} onClick={() => approveManagementReview(payment)}>Approve review</Button>}
       <Tooltip title={paymentReconcileBlockReason(payment, payments) ?? ""}>
-        <span><Button size="small" onClick={() => void runLegacyMutation("payments", `collection-${payment.id}`, () => onUpdate({ ...payment, status: "Reconciled" }))} disabled={Boolean(paymentLoadError || paymentRefreshing) || !canReconcilePayment(payment, payments) || legacySaving}>Reconcile</Button></span>
+        <span><Button size="small" onClick={() => saveLegacyPayment({ ...payment, status: "Reconciled" })} disabled={Boolean(paymentLoadError || paymentRefreshing) || !canReconcilePayment(payment, payments) || legacySaving}>Reconcile</Button></span>
       </Tooltip>
     </Space>
   );
@@ -1452,6 +1478,8 @@ export function FinancePage({
       }
     }
   ];
+  const legacyPayments = newestRecordsFirst(payments.filter(payment => !isFinanceV2(payment)), record => record.createdAt);
+  const outstandingLegacyCount = legacyPayments.filter(payment => payment.status !== "Reconciled").length;
   const salesInvoicePayments = newestRecordsFirst(visibleSalesInvoicePayments(payments), record => record.createdAt);
   const filteredPayments = filterFinanceRowsByFields(filterFinanceRows(salesInvoicePayments, financeKeyword, financeStatus, (payment) => [
     plateFor(vehicles, payment.vehicleId),
@@ -1727,7 +1755,8 @@ export function FinancePage({
   return (
     <Space direction="vertical" size={16} className="fullWidth financePage">
       <ProCard>
-        <Tabs
+        <ResponsiveSectionTabs
+          sectionLabel="Finance section / 财务分区"
           activeKey={financeTab}
           onChange={changeFinanceTab}
           items={[
@@ -1862,7 +1891,26 @@ export function FinancePage({
         </Space>}
       >
         <Space direction="vertical" size={12} className="fullWidth">
-          <Alert type="info" showIcon message="Sales invoices bill customers. Receipts record collections. Seller payouts are under Settlement." description="Open PasteGuide in the AutoCount Excel. Fill the client account codes and check amounts, then paste each PI/RI/SI sheet once into an empty Purchase Invoice or Sales > Invoice draft. Copy purchase supplier reference numbers separately. Resolve blocked rows before entry." />
+          <Alert type="info" showIcon message="Sales invoices bill customers. Receipts record collections. Seller payouts are under Settlement." />
+          <Collapse items={[{ key: "autocount-help", label: "AutoCount export instructions / 导出说明", children: <Typography.Paragraph>Open PasteGuide in the AutoCount Excel. Fill the client account codes and check amounts, then paste each PI/RI/SI sheet once into an empty Purchase Invoice or Sales &gt; Invoice draft. Copy purchase supplier reference numbers separately. Resolve blocked rows before entry.</Typography.Paragraph> }]} />
+          {canManageFinance && !paymentLoadError && legacyPayments.length > 0 && <Collapse items={[{
+            key: "legacy-payments",
+            label: `Legacy payment records / 旧版收款 (${outstandingLegacyCount} outstanding / 待处理)`,
+            children: <Space direction="vertical" className="fullWidth">
+              <Typography.Paragraph>Existing legacy records prevent a second sales invoice for the same vehicle. Select a record to review its documents, management approval and reconciliation.</Typography.Paragraph>
+              <Select
+                className="fullWidth"
+                aria-label="Review legacy payment record"
+                placeholder="Select legacy payment / 选择旧版收款"
+                showSearch
+                optionFilterProp="label"
+                disabled={paymentRefreshing || legacySaving}
+                value={null}
+                onChange={selectPayment}
+                options={[...legacyPayments.filter(payment => payment.status !== "Reconciled"), ...legacyPayments.filter(payment => payment.status === "Reconciled")].map(payment => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} · ${payment.invoiceNumber || payment.receiptNumber || "No reference"} · ${payment.status} · ${formatMoney(payment.nettPrice)}` }))}
+              />
+            </Space>
+          }]} />}
           {paymentLoadError && <Alert type="error" showIcon message="Finance records are unavailable" description={`${paymentLoadError} No demo or cached balances are shown.`} action={<Button loading={paymentRefreshing} onClick={() => void onRetryPayments()}>Retry</Button>} />}
           {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
           <FinanceListNotice label="Finance records" loading={paymentRefreshing} />
@@ -2212,10 +2260,10 @@ export function FinancePage({
               message.warning(blockReason);
               return;
             }
-            void runLegacyMutation("payments", `collection-${payment.id}`, () => onUpdate(payment), () => setFinanceEditorOpen(null));
+            saveLegacyPayment(payment, true);
           }}
         >
-          <Form.Item name="id" label="Selected Payment"><Select options={payments.map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No customer receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
+          <Form.Item name="id" label="Selected Payment"><Select showSearch optionFilterProp="label" options={payments.filter(payment => !isFinanceV2(payment)).map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No customer receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" disabled options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedEditPayment?.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
           <Alert type="info" showIcon message="Recorded sale amounts are read-only" description="Workflow and document references may be corrected here. The approved selling price and stored invoice terms cannot be rewritten." />
           <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" /></Form.Item>
@@ -2225,7 +2273,7 @@ export function FinancePage({
           <Descriptions size="small" column={1} className="fullWidth">
             <Descriptions.Item label="Management Review / 管理层审核">{selectedEditPayment?.bossChecked ? "Reviewed" : "Pending"}</Descriptions.Item>
           </Descriptions>
-          {canApproveManagementReview && selectedEditPayment && !selectedEditPayment.bossChecked && <Button disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => void approveManagementReview(selectedEditPayment.id)}>Approve Management Review</Button>}
+          {canApproveManagementReview && selectedEditPayment && !selectedEditPayment.bossChecked && <Button disabled={Boolean(paymentLoadError || paymentRefreshing) || legacySaving} loading={legacySaving} onClick={() => approveManagementReview(selectedEditPayment)}>Approve Management Review</Button>}
           <Form.Item name="documentsPrepared" label="Prepare Document"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="checklistValidated" label="Checklist Validation"><Select options={[{ value: false, label: "Pending" }, { value: true, label: "Done" }]} /></Form.Item>
           <Form.Item name="salesPrice" label="Sales Price / 销售价格"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" /></Form.Item>

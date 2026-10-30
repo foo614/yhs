@@ -46,6 +46,24 @@
   grid-column: 1 / -1;
 }
 
+.vehicleMobileSupportingDetails {
+  min-width: 0;
+  border-top: 1px solid #f0f0f0;
+}
+
+.vehicleMobileSupportingDetails > summary {
+  display: list-item;
+  min-height: 44px;
+  padding-block: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.vehicleMobileSupportingDetails > .mobileRecordMeta {
+  margin-bottom: 12px;
+}
+
 @media (max-width: 575px) {
   #vehicle-leads-card .ant-pro-query-filter > .ant-row > .ant-col {
     flex: 0 0 100%;

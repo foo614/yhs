@@ -1013,6 +1013,15 @@ public static class LeadRules
             errors.Add(new ValidationError("customer_not_found", "Lead customer link must reference an existing customer."));
         }
 
+        if (lead.Status == LeadStatus.Closed && lead.ClosureOutcome == LeadClosureOutcome.Sold)
+        {
+            var vehicle = vehicles.FirstOrDefault(item => item.Id == lead.VehicleId);
+            if (lead.CustomerId is null || vehicle?.CustomerId is null || lead.CustomerId != vehicle.CustomerId)
+            {
+                errors.Add(new ValidationError("lead_buyer_mismatch", "A Sold lead must match the vehicle's confirmed buyer. Confirm the buyer in Vehicle Details first."));
+            }
+        }
+
         if (lead.Status == LeadStatus.Closed && lead.ClosureOutcome is null)
         {
             errors.Add(new ValidationError("lead_closure_outcome_required", "Choose Sold, Lost, or Invalid before closing a lead."));

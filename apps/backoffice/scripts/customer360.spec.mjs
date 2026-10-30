@@ -111,7 +111,9 @@ for (const width of widths.filter(value => [360, 820, 1440].includes(value))) {
     await expect(page.locator("#customer360-finance")).toContainText("Collected: RM 40.00");
     await expect(page.locator("#customer360-finance")).toContainText("Remaining: RM 60.00");
     for (const [id, fileName] of [["receipt-active", "SYN-ACTIVE.pdf"], ["receipt-legacy", "SYN-LEGACY.pdf"]]) {
-      const receipt = page.locator(`[data-row-key="${id}"]`);
+      const receipt = width < 768
+        ? page.locator(".customer360MobileRecord").filter({ hasText: fileName.replace(/\.pdf$/, "") })
+        : page.locator(`[data-row-key="${id}"]`);
       const [download] = await Promise.all([
         page.waitForEvent("download"),
         receipt.getByRole("button", { name: /Download PDF$/ }).click()
@@ -119,7 +121,10 @@ for (const width of widths.filter(value => [360, 820, 1440].includes(value))) {
       expect(download.suggestedFilename()).toBe(fileName);
       expect((await readFile(await download.path())).equals(receiptBytes)).toBe(true);
     }
-    await expect(page.locator('[data-row-key="receipt-void"]').getByRole("button", { name: /Download PDF$/ })).toHaveCount(0);
+    const voidReceipt = width < 768
+      ? page.locator(".customer360MobileRecord").filter({ hasText: "SYN-VOID" })
+      : page.locator('[data-row-key="receipt-void"]');
+    await expect(voidReceipt.getByRole("button", { name: /Download PDF$/ })).toHaveCount(0);
     expect(receiptRequests).toEqual([
       "/api/collection-transactions/collection-active/official-receipt/content",
       "/api/cash-handovers/handover-legacy/official-receipt/content"
