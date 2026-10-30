@@ -68,8 +68,13 @@ for (const width of widths.filter(value => [360, 768, 1440].includes(value))) {
     });
     const openPayroll = async () => {
       await page.goto("/hr-salary");
-      const tab = page.getByRole("tab", { name: /Pay Slip/ });
-      await tab.focus(); await tab.press("Enter");
+      if (width <= 767) {
+        await page.locator(".hrMobileSectionPicker .ant-select-selector").click();
+        await page.locator(".hrSectionOptions .ant-select-item-option").filter({ hasText: "Pay Slip" }).click();
+      } else {
+        const tab = page.getByRole("tab", { name: /Pay Slip/ });
+        await tab.focus(); await tab.press("Enter");
+      }
       await expect(page.getByRole("combobox", { name: "Selected pay month / 选择薪资月份" })).toBeVisible();
     };
     const dialog = () => page.getByRole("dialog").filter({ visible: true }).last();

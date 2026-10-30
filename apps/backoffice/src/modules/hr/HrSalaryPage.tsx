@@ -14,6 +14,7 @@ import { Calendar } from "antd";
 import dayjs from "dayjs";
 import { compareRecordDates, newestRecordsFirst } from "../../recordDates";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { TabsProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { getHrMedicalCertificateContent, humanizeApiError, staffRoleValues } from "../../api";
@@ -362,14 +363,7 @@ export function HrSalaryPage({
   const today = malaysiaDate(new Date());
   const cancellationBusinessDate = malaysiaBusinessDate(clockNow);
   const openSession = attendance.find((record) => record.staffUserId === selfId && record.checkInAt && !record.checkOutAt);
-  const canCheckInToday = !openSession;
-  const canCheckOutToday = Boolean(openSession);
   const attendanceActionText = openSession ? "Checked in now / 已上班" : "Ready to check in / 可以打卡";
-  const checkInHelpText = canCheckInToday ? "" : "Already checked in. Check out before starting a new session.";
-  const checkOutHelpText = canCheckOutToday ? "" : "Check in first before checking out.";
-  const attendanceActionHint = openSession
-    ? "Scan the office QR when the shift ends, or use manual Check Out as a fallback."
-    : "Scan the office QR to start today attendance, or use manual Check In as a fallback.";
   const qrAction: HrAttendanceAction = openSession ? "CheckOut" : "CheckIn";
   const qrUrl = attendanceQrChallenge ? `${window.location.origin}/hr-salary#attendanceQr=${attendanceQrChallenge.token}` : "";
   const qrSecondsRemaining = attendanceQrChallenge ? Math.max(0, Math.ceil((new Date(attendanceQrChallenge.expiresAt).getTime() - clockNow.getTime()) / 1000)) : 0;
@@ -413,6 +407,13 @@ export function HrSalaryPage({
     setPreviewError("");
   }, [payPeriods, payslips, payrollProfiles, attendance, leaveRequests]);
 
+  const clockIn = async () => {
+    setClockBusy(true);
+    setClockError("");
+    try { await onCheckIn(); }
+    catch (error) { setClockError(humanizeApiError(error)); }
+    finally { setClockBusy(false); }
+  };
   const finishClock = async (qr: boolean, input: HrCheckOutInput = {}) => {
     if (qr && attendanceQrToken) { await onRedeemQr({ token: attendanceQrToken, action: qrAction, ...input }); onClearAttendanceQrToken(); }
     else await onCheckOut(input);
@@ -887,132 +888,117 @@ export function HrSalaryPage({
     </div>
   );
 
-  return (
-    <Space direction="vertical" size={16} className="fullWidth">
-      {decisionError && <Alert type="error" showIcon closable message="The HR decision was not saved" description={decisionError} onClose={() => setDecisionError(null)} />}
-      <Alert
-        className="operationalInfoAlert"
-        type="info"
-        showIcon
-        message="HR Records / 人事记录"
-        description="Attendance guide: Office staff — scan the office QR at both the start and end of the shift; use Manual Check In/Out only if QR is unavailable. Outstation staff follow their approved Business Trip / Outstation Duty flow on mobile. / 打卡说明：办公室员工——上班和放工都扫描办公室二维码，二维码不能用时才手动打卡；外勤员工按已批准的出差流程在手机上开始和结束打卡。"
-      />
-
-      <HrAttendanceDashboard summary={attendanceDashboard} />
-
-      <ProCard title="Business Trip / Outstation Duty / 出差外勤">
-        <Space direction="vertical" size={14} className="fullWidth">
-          <Typography.Text type="secondary">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</Typography.Text>
-          <Form name="hrBusinessTrip" form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: dayjs(today), endDate: dayjs(today), isUrgentException: false }}>
-            <div className="leaveDetailsGrid businessTripDetailsGrid">
-              {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>}
-              <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-              <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-              <Form.Item name="location" label="Location / 地点" rules={[{ required: true }]}><Input placeholder="Customer site / 客户地点" /></Form.Item>
-              <div className="businessTripPurposeRow">
-                <Form.Item name="purpose" label="Purpose / 目的" rules={[{ required: true }]}><Input placeholder="Sales visit / 跑销" /></Form.Item>
-                <Form.Item name="isUrgentException" label="Urgent exception / 临时外勤例外" valuePropName="checked"><Checkbox>Apply / 申请</Checkbox></Form.Item>
-              </div>
-            </div>
-            <Form.Item className="businessTripActions"><Button type="primary" htmlType="submit">Submit Outstation Request / 提交外勤申请</Button></Form.Item>
-          </Form>
-          <Space wrap>
-            {ownBusinessTrips.slice(0, 4).map((trip) => (
-              <Space key={trip.id} className="tableActionGroup" wrap>
-                <Tag color={businessTripStatusColor(trip.status)}>{businessTripStatusLabel(trip.status)}</Tag>
-                <Typography.Text>{trip.startDate} to {trip.endDate} · {trip.location}</Typography.Text>
-                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && !openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>Start Duty / 开始外勤</Button></Tooltip>}
-                {trip.status === "Approved" && approvedTripForToday?.id === trip.id && openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>End Duty / 结束外勤</Button></Tooltip>}
-                {!isHrManager && canCancelBusinessTrip(trip, cancellationBusinessDate) && businessTripCancellationButton(trip, true)}
-                {!isHrManager && !canCancelBusinessTrip(trip, cancellationBusinessDate) && <Typography.Text type="secondary">{businessTripCancellationMessage(trip, cancellationBusinessDate)}</Typography.Text>}
-              </Space>
-            ))}
-            {ownBusinessTrips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No outstation requests / 暂无外勤申请" />}
-          </Space>
-          {isHrManager && <>
-            <HrRecordFilterControls
-              filters={recordFilters.businessTrips}
-              total={businessTrips.length}
-              filtered={filteredBusinessTrips.length}
-              keywordPlaceholder="Search staff, location or purpose / 搜索员工、地点或目的"
-              statusOptions={businessTripStatusOptions}
-              onKeywordChange={(value) => updateRecordFilter("businessTrips", "keyword", value)}
-              onStatusChange={(value) => updateRecordFilter("businessTrips", "status", value)}
-              onClear={() => clearRecordFilters("businessTrips")}
-            />
-            {businessTripMobileCards}
-            <OperationsProTable
-              className="desktopDataTable"
-              rowKey="id"
-              size="small"
-              pagination={{ ...tablePagination(businessTripPageSize), current: businessTripPage.current, onChange: (page) => setRecordPage("businessTrips", page) }}
-              scroll={{ x: "max-content" }}
-              locale={{ emptyText: businessTripEmptyText }}
-              dataSource={filteredBusinessTrips}
-              columns={[
-                { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
-                { title: "Dates / 日期", render: (_: unknown, trip: HrBusinessTrip) => `${trip.startDate} to ${trip.endDate}` },
-                { title: "Location / 地点", dataIndex: "location" },
-                { title: "Purpose / 目的", dataIndex: "purpose" },
-                { title: "Status / 状态", dataIndex: "status", render: (status: HrBusinessTripStatus) => <Tag color={businessTripStatusColor(status)}>{businessTripStatusLabel(status)}</Tag> },
-                {
-                  title: "Action / 操作",
-                  fixed: "right",
-                  width: 260,
-                  render: (_: unknown, trip: HrBusinessTrip) => {
-                    const canCancel = canCancelBusinessTrip(trip, cancellationBusinessDate);
-                    const hasWorkflowActions = trip.status === "Pending" || canCancel;
-                    return (
-                      <Space direction="vertical" size={4} className="tableActionGroup">
-                        {hasWorkflowActions && <Space wrap size={6}>
-                          {trip.status === "Pending" && businessTripDecisionButtons(trip, true)}
-                          {canCancel && businessTripCancellationButton(trip, true)}
-                        </Space>}
-                        {trip.decisionNotes && <Typography.Text type="secondary">{trip.decisionNotes}</Typography.Text>}
-                        {!canCancel && <Typography.Text type="secondary">{businessTripCancellationMessage(trip, cancellationBusinessDate)}</Typography.Text>}
+  const sectionItems: NonNullable<TabsProps["items"]> = [
+          {
+            key: "attendance",
+            label: tabLabel("Attendance / 打卡记录", attendance.length),
+            children: (
+              <>
+                <HrRecordFilterControls
+                  filters={recordFilters.attendance}
+                  total={attendance.length}
+                  filtered={filteredAttendance.length}
+                  keywordPlaceholder="Search staff or date / 搜索员工或日期"
+                  statusOptions={attendanceStatusOptions}
+                  onKeywordChange={(value) => updateRecordFilter("attendance", "keyword", value)}
+                  onStatusChange={(value) => updateRecordFilter("attendance", "status", value)}
+                  onClear={() => clearRecordFilters("attendance")}
+                />
+                {attendanceMobileCards}
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} nativeSearch={recordNativeSearch("attendance", [{ name: "staff", label: "Staff / 员工" }, { name: "date", label: "Date / 日期" }], attendanceStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
+              </>
+            )
+          },
+          {
+            key: "corrections",
+            label: "Corrections & shifts / 更正与班次",
+            children: <HrAttendanceWorkflow currentUser={currentUser} staff={staffUsers} attendance={attendance} onChanged={onWorkflowChanged} />
+          },
+          {
+            key: "business-trips",
+            label: tabLabel("Outstation / 外勤", businessTrips.length),
+            children: (
+              <ProCard title="Business Trip / Outstation Duty / 出差外勤">
+                <Space direction="vertical" size={14} className="fullWidth">
+                  <Typography.Text type="secondary">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</Typography.Text>
+                  <Form name="hrBusinessTrip" form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: dayjs(today), endDate: dayjs(today), isUrgentException: false }}>
+                    <div className="leaveDetailsGrid businessTripDetailsGrid">
+                      {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>}
+                      <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+                      <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+                      <Form.Item name="location" label="Location / 地点" rules={[{ required: true }]}><Input placeholder="Customer site / 客户地点" /></Form.Item>
+                      <div className="businessTripPurposeRow">
+                        <Form.Item name="purpose" label="Purpose / 目的" rules={[{ required: true }]}><Input placeholder="Sales visit / 跑销" /></Form.Item>
+                        <Form.Item name="isUrgentException" label="Urgent exception / 临时外勤例外" valuePropName="checked"><Checkbox>Apply / 申请</Checkbox></Form.Item>
+                      </div>
+                    </div>
+                    <Form.Item className="businessTripActions"><Button type="primary" htmlType="submit">Submit Outstation Request / 提交外勤申请</Button></Form.Item>
+                  </Form>
+                  <Space wrap>
+                    {ownBusinessTrips.slice(0, 4).map((trip) => (
+                      <Space key={trip.id} className="tableActionGroup" wrap>
+                        <Tag color={businessTripStatusColor(trip.status)}>{businessTripStatusLabel(trip.status)}</Tag>
+                        <Typography.Text>{trip.startDate} to {trip.endDate} · {trip.location}</Typography.Text>
+                        {trip.status === "Approved" && approvedTripForToday?.id === trip.id && !openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>Start Duty / 开始外勤</Button></Tooltip>}
+                        {trip.status === "Approved" && approvedTripForToday?.id === trip.id && openSession && <Tooltip title="Outstation attendance is not available yet. Use office IP attendance or ask HR for a correction."><Button size="small" disabled>End Duty / 结束外勤</Button></Tooltip>}
+                        {!isHrManager && canCancelBusinessTrip(trip, cancellationBusinessDate) && businessTripCancellationButton(trip, true)}
+                        {!isHrManager && !canCancelBusinessTrip(trip, cancellationBusinessDate) && <Typography.Text type="secondary">{businessTripCancellationMessage(trip, cancellationBusinessDate)}</Typography.Text>}
                       </Space>
-                    );
-                  }
-                }
-              ]}
-            />
-          </>}
-        </Space>
-      </ProCard>
-
-      <ProCard title="Today Attendance / 今日打卡">
-        <Space direction="vertical" size={12} className="fullWidth attendancePunchCard">
-          <div className="attendancePunchStatus">
-            <Typography.Text className="mobileRecordEyebrow">Current Status / 当前状态</Typography.Text>
-            <Typography.Title level={4}>{attendanceActionText}</Typography.Title>
-            <Typography.Text type="secondary">{attendanceActionHint}</Typography.Text>
-            <div className="attendanceLiveClock" aria-label="Current time">
-              <ClockCircleOutlined />
-              <span>{formatLiveClock(clockNow)}</span>
-              <small>{formatLiveDate(clockNow)}</small>
-            </div>
-          </div>
-          <div className="attendancePunchActions">
-            <Tooltip title={checkInHelpText}>
-              <Button icon={<ClockCircleOutlined />} onClick={onCheckIn} disabled={!canCheckInToday}>Manual Check In / 手动上班</Button>
-            </Tooltip>
-            <Tooltip title={checkOutHelpText}>
-              <Button onClick={() => void clockOut()} loading={clockBusy} disabled={!canCheckOutToday}>Manual Check Out / 手动放工</Button>
-            </Tooltip>
-            <Tooltip title="Use your phone camera to scan the rotating QR shown on the office screen.">
-              <Button type="primary" icon={<QrcodeOutlined />} disabled={!canCheckInToday && !canCheckOutToday} onClick={() => window.alert("Use your phone camera to scan the QR shown on the office screen. / 请用手机相机扫描办公室屏幕上的二维码。")}>Scan Office QR / 扫码打卡</Button>
-            </Tooltip>
-          </div>
-          {clockError && <Alert type="error" showIcon message={clockError} />}
-          {attendanceQrToken && <Alert type="info" showIcon message="Office QR detected / 已识别办公室二维码" description={<Button loading={clockBusy} onClick={() => void clockOut(true)}>{qrAction === "CheckIn" ? "Confirm QR Check In / 确认上班" : "Confirm QR Check Out / 确认放工"}</Button>} />}
-
-        </Space>
-      </ProCard>
-
-      <Tabs
-        activeKey={activeTab}
-        onChange={changeTab}
-        items={[
+                    ))}
+                    {ownBusinessTrips.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No outstation requests / 暂无外勤申请" />}
+                  </Space>
+                  {isHrManager && <>
+                    <HrRecordFilterControls
+                      filters={recordFilters.businessTrips}
+                      total={businessTrips.length}
+                      filtered={filteredBusinessTrips.length}
+                      keywordPlaceholder="Search staff, location or purpose / 搜索员工、地点或目的"
+                      statusOptions={businessTripStatusOptions}
+                      onKeywordChange={(value) => updateRecordFilter("businessTrips", "keyword", value)}
+                      onStatusChange={(value) => updateRecordFilter("businessTrips", "status", value)}
+                      onClear={() => clearRecordFilters("businessTrips")}
+                    />
+                    {businessTripMobileCards}
+                    <OperationsProTable
+                      className="desktopDataTable"
+                      rowKey="id"
+                      size="small"
+                      pagination={{ ...tablePagination(businessTripPageSize), current: businessTripPage.current, onChange: (page) => setRecordPage("businessTrips", page) }}
+                      scroll={{ x: "max-content" }}
+                      locale={{ emptyText: businessTripEmptyText }}
+                      dataSource={filteredBusinessTrips}
+                      columns={[
+                        { title: "Staff / 员工", dataIndex: "staffUserId", render: (id: string) => staffName(id, visibleStaff) },
+                        { title: "Dates / 日期", render: (_: unknown, trip: HrBusinessTrip) => `${trip.startDate} to ${trip.endDate}` },
+                        { title: "Location / 地点", dataIndex: "location" },
+                        { title: "Purpose / 目的", dataIndex: "purpose" },
+                        { title: "Status / 状态", dataIndex: "status", render: (status: HrBusinessTripStatus) => <Tag color={businessTripStatusColor(status)}>{businessTripStatusLabel(status)}</Tag> },
+                        {
+                          title: "Action / 操作",
+                          fixed: "right",
+                          width: 260,
+                          render: (_: unknown, trip: HrBusinessTrip) => {
+                            const canCancel = canCancelBusinessTrip(trip, cancellationBusinessDate);
+                            const hasWorkflowActions = trip.status === "Pending" || canCancel;
+                            return (
+                              <Space direction="vertical" size={4} className="tableActionGroup">
+                                {hasWorkflowActions && <Space wrap size={6}>
+                                  {trip.status === "Pending" && businessTripDecisionButtons(trip, true)}
+                                  {canCancel && businessTripCancellationButton(trip, true)}
+                                </Space>}
+                                {trip.decisionNotes && <Typography.Text type="secondary">{trip.decisionNotes}</Typography.Text>}
+                                {!canCancel && <Typography.Text type="secondary">{businessTripCancellationMessage(trip, cancellationBusinessDate)}</Typography.Text>}
+                              </Space>
+                            );
+                          }
+                        }
+                      ]}
+                    />
+                  </>}
+                </Space>
+              </ProCard>
+            )
+          },
           ...(isBossAdmin ? [{
             key: "staff-calendar",
             label: "Staff Calendar / 员工日历",
@@ -1076,27 +1062,6 @@ export function HrSalaryPage({
               </Space>
             )
           }] : []),
-          {
-            key: "attendance",
-            label: tabLabel("Attendance / 打卡记录", attendance.length),
-            children: (
-              <>
-                <HrAttendanceWorkflow currentUser={currentUser} staff={staffUsers} attendance={attendance} onChanged={onWorkflowChanged} />
-                <HrRecordFilterControls
-                  filters={recordFilters.attendance}
-                  total={attendance.length}
-                  filtered={filteredAttendance.length}
-                  keywordPlaceholder="Search staff or date / 搜索员工或日期"
-                  statusOptions={attendanceStatusOptions}
-                  onKeywordChange={(value) => updateRecordFilter("attendance", "keyword", value)}
-                  onStatusChange={(value) => updateRecordFilter("attendance", "status", value)}
-                  onClear={() => clearRecordFilters("attendance")}
-                />
-                {attendanceMobileCards}
-                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} nativeSearch={recordNativeSearch("attendance", [{ name: "staff", label: "Staff / 员工" }, { name: "date", label: "Date / 日期" }], attendanceStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
-              </>
-            )
-          },
           ...(isHrManager ? [{
             key: "qr-display",
             label: "QR Display / 二维码",
@@ -1357,10 +1322,66 @@ export function HrSalaryPage({
                 <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} nativeSearch={recordNativeSearch("payslips", [{ name: "staff", label: "Staff / 员工" }], payslipStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
               </Space>
             )
+          },
+          {
+            key: "overview",
+            label: "Attendance Dashboard / 打卡概览",
+            children: <HrAttendanceDashboard summary={attendanceDashboard} />
           }
-        ]}
-      />
-      <Modal title="Clock out early? / 提早放工？" open={Boolean(earlyAction)} confirmLoading={clockBusy} onCancel={() => setEarlyAction(undefined)} onOk={() => earlyForm.submit()} okText="Confirm clock out / 确认放工">
+  ];
+
+  return (
+    <Space direction="vertical" size={16} className="fullWidth hrSalaryPage">
+      <ProCard title="Today Attendance / 今日打卡" className="hrTodayAttendance">
+        <div className="attendancePunchCard">
+          <div className="attendancePunchStatus">
+            <Typography.Title level={4}>{attendanceActionText}</Typography.Title>
+            {openSession && <Typography.Text>Checked in / 上班时间: {malaysiaTime(openSession.checkInAt)}</Typography.Text>}
+            <div className="attendanceLiveClock" aria-label="Current time">
+              <ClockCircleOutlined />
+              <span>{formatLiveClock(clockNow)}</span>
+              <small>{formatLiveDate(clockNow)}</small>
+            </div>
+          </div>
+          {attendanceQrToken ? <div className="attendancePunchActions">
+            <Typography.Text>Office QR detected / 已识别办公室二维码</Typography.Text>
+            <Button type="primary" icon={<QrcodeOutlined aria-hidden />} loading={clockBusy} onClick={() => void clockOut(true)}>
+              {qrAction === "CheckIn" ? "Confirm QR Check In / 确认上班" : "Confirm QR Check Out / 确认放工"}
+            </Button>
+            <Button disabled={clockBusy} onClick={() => { onClearAttendanceQrToken(); setClockError(""); }}>Use manual attendance / 改用手动打卡</Button>
+          </div> : <>
+            <div className="attendanceQrInstructions">
+              <QrcodeOutlined aria-hidden />
+              <div>
+                <Typography.Text strong>Office QR / 办公室二维码</Typography.Text>
+                <Typography.Paragraph>Use your phone camera to scan the office QR, then confirm. / 用手机相机扫描办公室二维码，再确认打卡。</Typography.Paragraph>
+              </div>
+            </div>
+            <div className="attendancePunchActions">
+              <Button type="primary" icon={<ClockCircleOutlined aria-hidden />} loading={clockBusy} onClick={() => void (openSession ? clockOut() : clockIn())}>
+                {openSession ? "Manual Check Out / 手动放工" : "Manual Check In / 手动上班"}
+              </Button>
+              <Typography.Text type="secondary">QR unavailable? Use manual attendance. / 二维码无法使用时可手动打卡。</Typography.Text>
+            </div>
+          </>}
+          {clockError && <Alert type="error" showIcon message={clockError} />}
+        </div>
+      </ProCard>
+      {decisionError && <Alert type="error" showIcon closable message="The HR decision was not saved" description={decisionError} onClose={() => setDecisionError(null)} />}
+      <div className="hrMobileSectionPicker">
+        <label htmlFor="hr-section">HR section / 人事功能</label>
+        <Select
+          id="hr-section"
+          value={activeTab}
+          onChange={changeTab}
+          options={sectionItems.map(item => ({ value: item.key, label: item.label }))}
+          popupClassName="hrSectionOptions"
+          virtual={false}
+          className="fullWidth"
+        />
+      </div>
+      <Tabs className="hrSectionTabs" activeKey={activeTab} onChange={changeTab} items={sectionItems} />
+      <Modal title="Clock out early? / 提早放工？" zIndex={2100} open={Boolean(earlyAction)} confirmLoading={clockBusy} onCancel={() => setEarlyAction(undefined)} onOk={() => earlyForm.submit()} okText="Confirm clock out / 确认放工">
         <Typography.Paragraph>Your scheduled finish is {malaysiaTime(earlyAction?.scheduledEndAt)}. Enter a reason to clock out now.</Typography.Paragraph>
         {clockError && <Alert type="error" message={clockError} />}
         <Form form={earlyForm} layout="vertical" onFinish={async values => { if (!earlyAction) return; setClockBusy(true); setClockError(""); try { await finishClock(earlyAction.qr, { confirmEarly: true, reason: values.reason }); setEarlyAction(undefined); } catch (error) { setClockError(humanizeApiError(error)); } finally { setClockBusy(false); } }}><Form.Item name="reason" label="Reason / 原因" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item></Form>

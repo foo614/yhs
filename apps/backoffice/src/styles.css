@@ -4507,6 +4507,17 @@ body {
     padding: 0;
   }
 
+  .mobileTopBar .mobileAttendanceButton {
+    min-width: 76px;
+    padding-inline: 10px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .mobileTopBar:has(.mobileAttendanceButton) {
+    grid-template-columns: 44px minmax(0, 1fr) auto 44px;
+  }
+
   .ant-pro-layout .ant-pro-sider,
   .ant-pro-layout .ant-layout-sider,
   .ant-pro-layout .ant-layout-header,
