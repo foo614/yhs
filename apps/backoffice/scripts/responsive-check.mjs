@@ -223,7 +223,14 @@ async function inspect(name, width) {
         if (!target.getClientRects().length || !target.checkVisibility()) return false;
       }
       const duration = animation.effect?.getComputedTiming().activeDuration;
-      return animation.playState === "running" && Number.isFinite(duration);
+      if (animation.playState !== "running" || !Number.isFinite(duration)) return false;
+      // Ant Design's absolute, pointer-free click ripple fades for two seconds.
+      // Capture its settled state without charging every layout check that delay.
+      if (target instanceof Element && target.closest(".ant-wave")) {
+        animation.finish();
+        return false;
+      }
+      return true;
     });
     await Promise.all(animations.map(animation => animation.finished.catch(() => undefined)));
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
