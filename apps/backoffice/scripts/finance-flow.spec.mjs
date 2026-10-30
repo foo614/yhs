@@ -99,8 +99,13 @@ for (const width of [320, 820, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`${baseURL}/finance?tab=payments`);
     const activate = async index => {
-      const tab = page.getByRole("tab", { name: tabs[index], exact: true });
-      await tab.focus(); await tab.press("Enter"); await expect(tab).toHaveAttribute("aria-selected", "true");
+      if (width < 768) {
+        await page.locator(".responsiveSectionPicker .ant-select-selector").click();
+        await page.locator(".responsiveSectionDropdown .ant-select-item-option").filter({ hasText: tabs[index] }).click();
+      } else {
+        const tab = page.getByRole("tab", { name: tabs[index], exact: true });
+        await tab.focus(); await tab.press("Enter"); await expect(tab).toHaveAttribute("aria-selected", "true");
+      }
     };
     const record = name => page.locator(width <= 720 ? ".mobileRecordCard" : ".ant-table-row").filter({ visible: true }).filter({ hasText: name }).first();
     const close = async () => { await page.locator(".ant-drawer-open .ant-drawer-close,.ant-modal-close:visible").last().click(); };
@@ -192,5 +197,93 @@ for (const width of [320, 820, 1440]) {
     await expect(page.getByRole("button", { name: /^Sign in$/i })).toBeVisible();
     expect(downloads).toEqual([]);
     await capture("expired-session");
+  });
+}
+
+// Legacy financial approval and reconciliation must remain reachable without
+// Dashboard access, require confirmation, and send only one pending mutation.
+for (const width of [320, 820, 1440]) {
+  test(`Legacy payment review and reconciliation at ${width}px`, async ({ page, context, baseURL }, testInfo) => {
+    page.setDefaultTimeout(15000);
+    if (!["localhost", "127.0.0.1"].includes(new URL(baseURL).hostname)) throw new Error("Use local fixtures only.");
+    const data = structuredClone(fixtureTemplate);
+    let role = "BossAdmin";
+    let payment = { id: "test-legacy", vehicleId: "test-vehicle", nettPrice: 98000, salesPrice: 98000, status: "Disbursed", receiptNumber: "TEST-RCPT", invoiceNumber: "TEST-INV", bossChecked: false, documentsPrepared: true, checklistValidated: true, financeWorkflowVersion: 1 };
+    const writes = [];
+    let release;
+    await context.addInitScript(() => {
+      for (const role of ["BossAdmin", "Finance", "Sales"]) localStorage.setItem(`ysheng:module-guide:v2:${encodeURIComponent(`responsive-test:${role}`)}:${encodeURIComponent("/finance")}`, "seen");
+    });
+    await context.route("**/api/**", async route => {
+      const req = route.request();
+      const path = new URL(req.url()).pathname;
+      if (req.method() !== "GET") {
+        writes.push({ path, method: req.method(), body: req.postDataJSON() });
+        if (path.endsWith("/management-review")) {
+          await new Promise(resolve => { release = resolve; });
+          payment = { ...payment, bossChecked: true };
+        } else {
+          expect(path).toBe("/api/payments/test-legacy");
+          payment = req.postDataJSON();
+        }
+        return route.fulfill({ status: 200, json: payment });
+      }
+      if (path === "/api/auth/me") return route.fulfill({ status: 200, json: { isAuthenticated: true, id: "responsive-test", name: "Layout Test", roles: [role] } });
+      if (path === "/api/payments") return route.fulfill({ status: 200, json: [payment] });
+      return route.fulfill({ status: 200, json: data[path] ?? [] });
+    });
+    await page.setViewportSize({ width, height: 900 });
+    const openLegacy = async () => {
+      await page.goto(`${baseURL}/finance?tab=payments`);
+      await page.getByRole("button", { name: /Legacy payment records/ }).click();
+      await page.locator(".ant-select").filter({ has: page.getByRole("combobox", { name: "Review legacy payment record", exact: true }) }).locator(".ant-select-selector").click();
+      await page.locator(".ant-select-item-option").filter({ hasText: "TEST-INV" }).click();
+    };
+    const drawer = page.locator(".ant-drawer-open").filter({ hasText: "Payment Details / 收款详情" });
+    const confirm = page.locator(".ant-modal-confirm:visible");
+    try {
+      await openLegacy();
+      const approve = drawer.getByRole("button", { name: "Approve Management Review", exact: true });
+      await approve.click();
+      await expect(confirm).toContainText("TEST1234");
+      await expect(confirm).toContainText("98,000");
+      await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+      expect(writes).toHaveLength(0);
+      await approve.click();
+      const confirmReview = confirm.getByRole("button", { name: /Approve management review/ });
+      await confirmReview.click();
+      await expect.poll(() => Boolean(release)).toBe(true);
+      await expect(confirmReview).toHaveClass(/ant-btn-loading/);
+      await confirmReview.dispatchEvent("click");
+      expect(writes).toHaveLength(1);
+      release();
+      await expect(confirm).toBeHidden();
+      await expect(drawer).toContainText("Reviewed");
+      await drawer.screenshot({ path: testInfo.outputPath("legacy-reviewed.png") });
+
+      role = "Finance";
+      await openLegacy();
+      await expect(drawer.getByRole("button", { name: "Approve Management Review", exact: true })).toHaveCount(0);
+      await drawer.locator(".ant-form-item").filter({ has: page.locator("label").filter({ hasText: /^Status$/ }) }).locator(".ant-select-selector").click();
+      await page.locator(".ant-select-item-option").filter({ hasText: /^Reconciled$/ }).click();
+      await drawer.getByRole("button", { name: "Update Payment", exact: true }).click();
+      await expect(confirm).toContainText("Reconcile legacy payment?");
+      await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+      expect(writes).toHaveLength(1);
+      await expect(drawer).toBeVisible();
+      await drawer.getByRole("button", { name: "Update Payment", exact: true }).click();
+      await confirm.getByRole("button", { name: "Reconcile payment", exact: true }).click();
+      await expect(confirm).toBeHidden();
+      expect(writes).toHaveLength(2);
+      expect(writes[1]).toMatchObject({ path: "/api/payments/test-legacy", method: "PUT", body: { status: "Reconciled", bossChecked: true } });
+
+      role = "Sales";
+      await page.goto(`${baseURL}/finance?tab=payments`);
+      await expect(page.getByText("Cash Handover / Official Receipts", { exact: true }).filter({ visible: true }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: /Legacy payment records/ })).toHaveCount(0);
+    } finally {
+      release?.();
+      await context.unrouteAll({ behavior: "wait" });
+    }
   });
 }

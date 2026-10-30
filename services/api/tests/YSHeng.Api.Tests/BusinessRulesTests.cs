@@ -1603,6 +1603,30 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Sold_lead_requires_the_confirmed_vehicle_buyer_before_sales_attribution()
+    {
+        var buyer = new Customer { Id = Guid.NewGuid(), Name = "Confirmed buyer", Phone = "0000000000" };
+        var otherBuyer = new Customer { Id = Guid.NewGuid(), Name = "Other enquiry", Phone = "0000000001" };
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = buyer.Id };
+        var lead = new Lead
+        {
+            Id = Guid.NewGuid(), VehicleId = vehicle.Id, CustomerId = buyer.Id,
+            CustomerName = buyer.Name, Phone = buyer.Phone, Status = LeadStatus.Closed,
+            ClosureOutcome = LeadClosureOutcome.Sold, TakenByUserId = "sales-1"
+        };
+
+        Assert.True(LeadRules.ValidateBackOfficeLead(lead, [vehicle], [buyer, otherBuyer]).IsValid);
+        foreach (var invalid in new[] { lead with { CustomerId = otherBuyer.Id }, lead with { CustomerId = null } })
+        {
+            var result = LeadRules.ValidateBackOfficeLead(invalid, [vehicle], [buyer, otherBuyer]);
+            Assert.Contains(result.Errors, error => error.Code == "lead_buyer_mismatch");
+        }
+        var unassigned = LeadRules.ValidateBackOfficeLead(lead, [vehicle with { CustomerId = null }], [buyer]);
+        Assert.Contains(unassigned.Errors, error => error.Code == "lead_buyer_mismatch");
+        Assert.True(LeadRules.ValidateBackOfficeLead(lead with { CustomerId = otherBuyer.Id, ClosureOutcome = LeadClosureOutcome.Lost }, [vehicle], [buyer, otherBuyer]).IsValid);
+    }
+
+    [Fact]
     public void Backoffice_lead_status_change_requires_original_taker()
     {
         var existing = new Lead

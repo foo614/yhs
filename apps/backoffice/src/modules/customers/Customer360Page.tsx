@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { FileImageOutlined, FileTextOutlined, WarningOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Collapse, Descriptions, Empty, Image, Input, Select, Space, Spin, Tag, Tooltip, Typography } from "antd";
-import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
-import { OperationsProTable } from "../shared/OperationsProTable";
+import { Alert, Button, Collapse, Descriptions, Empty, Grid, Image, Input, Pagination, Select, Space, Spin, Tag, Tooltip, Typography } from "antd";
+import type { ColumnType, ColumnsType, TablePaginationConfig } from "antd/es/table";
+import { addOperationsDefaultDateSort, OperationsProTable } from "../shared/OperationsProTable";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import {
   getProtectedFileContent,
@@ -190,18 +190,50 @@ function ProfileTable<RecordType extends object>({
   pagination?: false | TablePaginationConfig;
   rowKey?: string | ((record: RecordType) => string);
 }) {
-  return dataSource.length > 0 ? (
+  const screens = Grid.useBreakpoint();
+  const mobile = screens.md === false;
+  const recordKey = rowKey ?? ((record: RecordType) => (record as { id?: string }).id ?? JSON.stringify(record));
+  if (dataSource.length === 0) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No linked records yet." />;
+  if (mobile) {
+    const pageSize = pagination ? pagination.pageSize ?? 10 : dataSource.length;
+    const current = pagination ? pagination.current ?? 1 : 1;
+    const pageStart = (current - 1) * pageSize;
+    const dateColumn = addOperationsDefaultDateSort(columns)?.find(column => column.defaultSortOrder) as ColumnType<RecordType> | undefined;
+    const compare = dateColumn?.sorter;
+    const records = typeof compare === "function"
+      ? [...dataSource].sort((left, right) => -compare(left, right, "descend"))
+      : dataSource;
+    return <div className="customer360MobileRecords">
+      {records.slice(pageStart, pageStart + pageSize).map((record, index) => (
+        <article className="customer360MobileRecord" key={typeof recordKey === "function" ? recordKey(record) : String(record[recordKey as keyof RecordType])}>
+          <Descriptions column={1} size="small" layout="vertical" items={columns.map((column, columnIndex) => {
+            const field = column as ColumnType<RecordType>;
+            const value = field.dataIndex === undefined ? undefined : (Array.isArray(field.dataIndex) ? field.dataIndex : [field.dataIndex])
+              .reduce<unknown>((item, key) => item && typeof item === "object" ? (item as Record<string, unknown>)[String(key)] : undefined, record);
+            const content = field.render ? field.render(value, record, pageStart + index) as ReactNode : displayValue(value as string | number | null);
+            return {
+              key: String(field.key ?? columnIndex),
+              label: typeof field.title === "function" ? undefined : field.title,
+              children: field.fixed === "right" ? <div className="customer360MobileActions">{content}</div> : content
+            };
+          })} />
+        </article>
+      ))}
+      {pagination && <Pagination {...pagination} total={dataSource.length} className="customer360MobilePagination" />}
+    </div>;
+  }
+  return (
     <OperationsProTable<RecordType>
       columns={columns}
       dataSource={dataSource}
       pagination={pagination}
       className="customer360ProfileTable"
-      rowKey={rowKey ?? ((record) => (record as { id?: string }).id ?? JSON.stringify(record))}
+      rowKey={recordKey}
       scroll={{ x: "max-content" }}
       search={false}
       size="small"
     />
-  ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No linked records yet." />;
+  );
 }
 
 function isPreviewableImage(mimeType: string) {

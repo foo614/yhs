@@ -320,13 +320,123 @@ async function inspect(name, width) {
   const currentErrors = errors.splice(0);
   results.push({ name, width, ...layout, errors: currentErrors });
   const hasLayoutFailure = layout.outside.length || layout.overlappingSelects.length || layout.scrollWidth > layout.viewport + 1 || layout.controlIssues.length || currentErrors.length;
-  if ((visualEvidence && [360, 719, 720, 721, 820, 1024, 1025, 1440].includes(width)) || hasLayoutFailure) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
+  if ((visualEvidence && [320, 360, 390, 719, 720, 721, 820, 1024, 1025, 1440].includes(width)) || hasLayoutFailure) await page.screenshot({ path: `${output}/${name}-${width}.png`, fullPage: true });
+  if (visualEvidence && routes.includes(name)) await page.screenshot({ path: `${output}/${name}-${width}-entry.png` });
+}
+async function activateSection(label) {
+  const picker = page.locator(".responsiveSectionPicker .ant-select-selector");
+  if (await picker.isVisible()) {
+    await picker.click();
+    await page.locator(".responsiveSectionDropdown .ant-select-item-option").filter({ hasText: label }).click();
+    await page.locator(".responsiveSectionDropdown:visible").waitFor({ state: "hidden" });
+  } else {
+    const tab = page.getByRole("tab", { name: label, exact: true });
+    await tab.focus();
+    await tab.press("Enter");
+  }
 }
 async function closeOverlay() {
   const close = page.locator(".ant-modal-close:visible,.ant-drawer-close:visible").last();
   if (await close.isVisible().catch(() => false)) await close.click();
   else await page.keyboard.press("Escape");
   await page.locator(".ant-modal:visible,.ant-drawer-content:visible").waitFor({ state: "hidden" });
+}
+// Critical mutation coverage: a repeated tap must not create duplicate lead work,
+// and a terminal loan transition must require confirmation and retain failed input.
+async function verifyLeadRecovery() {
+  const original = structuredClone(fixtures["/api/leads"]);
+  const lead = original.find(item => item.status === "New" && !item.customerId);
+  const writes = [];
+  let release;
+  const pattern = `**/api/leads/${lead.id}`;
+  await page.route(pattern, async route => {
+    writes.push(route.request().postDataJSON());
+    if (writes.length === 1) {
+      await new Promise(resolve => { release = resolve; });
+      return route.fulfill({ status: 503, json: { message: "Synthetic lead save failed. Please retry." } });
+    }
+    const saved = { ...writes.at(-1), takenByUserId: "responsive-test", takenByName: "Layout Test" };
+    fixtures["/api/leads"] = fixtures["/api/leads"].map(item => item.id === saved.id ? saved : item);
+    return route.fulfill({ status: 200, json: saved });
+  });
+  try {
+    const expandGroup = page.locator(".desktopDataTable .ant-table-row-expand-icon-collapsed").filter({ visible: true }).first();
+    if (await expandGroup.isVisible()) await expandGroup.click();
+    const button = page.getByRole("button", { name: /Take Lead/ }).filter({ visible: true }).first();
+    const feedback = button.locator("xpath=ancestor::div[contains(@class,'leadActionsWithFeedback')][1]");
+    await button.click();
+    await expect.poll(() => Boolean(release)).toBe(true);
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveClass(/ant-btn-loading/);
+    await button.dispatchEvent("click");
+    expect(writes).toHaveLength(1);
+    await inspect("lead-save-pending", width);
+    release();
+    await expect(feedback.getByRole("alert")).toContainText("Synthetic lead save failed");
+    await expect(button).toBeEnabled();
+    await inspect("lead-save-error", width);
+    await button.click();
+    await expect.poll(() => writes.length).toBe(2);
+    await expect(page.getByRole("button", { name: "Take Lead", exact: true }).filter({ visible: true })).toHaveCount(0);
+    expect(writes[0]).toMatchObject({ id: lead.id, status: "Contacted", customerId: "test-customer" });
+    diagnostics.leadRecovery = "Pending duplicate blocked; rejected link visible; retry succeeds.";
+  } finally {
+    release?.();
+    await page.unrouteAll({ behavior: "wait" });
+    fixtures["/api/leads"] = original;
+    await page.reload();
+  }
+}
+
+async function verifyLoanCompletion() {
+  const original = structuredClone(fixtures["/api/loans"]);
+  const originalCheck = fixtures["/api/loans/test-loan/document-check"];
+  fixtures["/api/loans"] = [{ ...original[0], status: "Approved", louApproved: true, louDone: false }];
+  fixtures["/api/loans/test-loan/document-check"] = { isComplete: true, missingCategories: [] };
+  const writes = [];
+  let release;
+  const pattern = "**/api/loans/test-loan";
+  await page.route(pattern, async route => {
+    writes.push(route.request().postDataJSON());
+    if (writes.length === 1) {
+      await new Promise(resolve => { release = resolve; });
+      return route.fulfill({ status: 503, json: { message: "Synthetic loan completion failed. Please retry." } });
+    }
+    fixtures["/api/loans"] = [writes.at(-1)];
+    return route.fulfill({ status: 200, json: writes.at(-1) });
+  });
+  try {
+    await page.reload();
+    const action = page.getByRole("button", { name: "Mark Done", exact: true }).filter({ visible: true });
+    const dialog = page.getByRole("dialog", { name: "Complete loan / 完成贷款", exact: true });
+    await expect(action).toBeEnabled();
+    await action.click();
+    await expect(dialog).toBeVisible();
+    expect(writes).toHaveLength(0);
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(writes).toHaveLength(0);
+    await action.click();
+    const confirm = dialog.getByRole("button", { name: /Confirm completion/ });
+    await confirm.click();
+    await expect.poll(() => Boolean(release)).toBe(true);
+    await expect(confirm).toHaveClass(/ant-btn-loading/);
+    await confirm.dispatchEvent("click");
+    expect(writes).toHaveLength(1);
+    release();
+    await expect(dialog.getByRole("alert").filter({ hasText: "Synthetic loan completion failed" })).toBeVisible();
+    await inspect("loan-completion-error", width);
+    await confirm.click();
+    await expect(dialog).toBeHidden();
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toMatchObject({ id: "test-loan", status: "Done", louDone: true });
+    diagnostics.loanConfirmation = "Cancel writes nothing; pending duplicate blocked; failure retained; confirmed retry sends Done.";
+  } finally {
+    release?.();
+    await page.unrouteAll({ behavior: "wait" });
+    fixtures["/api/loans"] = original;
+    fixtures["/api/loans/test-loan/document-check"] = originalCheck;
+    await page.reload();
+  }
 }
 async function inspectDetailTabs(route, width) {
   const overlay = page.locator(".ant-modal:visible,.ant-drawer-content:visible").last();
@@ -381,10 +491,10 @@ async function verifyDashboardActionIdentity() {
   }
   await inspect("dashboard-distinct-source-actions", width);
   await expect(queue.getByRole("status").filter({ hasText: "Showing 6 of 6" })).toBeVisible();
-  await queue.getByRole("button", { name: "Loans: 2 actions", exact: true }).click();
-  await expect(queue.getByRole("status").filter({ hasText: "Showing 2 of 6" })).toBeVisible();
   const filters = queue.locator(".dashboardFilterToggle");
   if (await filters.isVisible()) await filters.click();
+  await queue.getByRole("button", { name: "Loans: 2 actions", exact: true }).click();
+  await expect(queue.getByRole("status").filter({ hasText: "Showing 2 of 6" })).toBeVisible();
   await queue.getByRole("combobox", { name: "Act now due", exact: true }).press("ArrowDown");
   await page.getByTitle("Today / 今日", { exact: true }).click();
   await expect(queue.getByRole("status").filter({ hasText: "Showing 0 of 6" })).toBeVisible();
@@ -543,6 +653,8 @@ try {
       }
       const checkInteractions = process.env.RESPONSIVE_INTERACTIONS === "1" || (process.env.RESPONSIVE_INTERACTIONS !== "0" && [360, 820, 1440].includes(width));
       if (checkInteractions) {
+        if (route === "leads") await verifyLeadRecovery();
+        if (route === "loans") await verifyLoanCompletion();
         if (route === "admin" && [360, 820, 1440].includes(width)) {
           connectionChecks = true;
           connectionMutations.length = 0;
@@ -698,6 +810,7 @@ try {
           await inspect(`${route}-selected-dates`, width);
         }
         for (const label of ["New Vehicle", "New Supplier", "New Repair", "Manual loan record", "New sales invoice"]) {
+          if (route === "repairs" && label === "New Supplier") await page.locator(".secondaryWorkspaceSection > summary").click();
           const button = page.getByRole("button", { name: label, exact: true });
           if (!await button.isVisible().catch(() => false)) continue;
           await button.click();
@@ -773,6 +886,16 @@ try {
             await inspect(`${route}-section-${index}`, width);
           }
         }
+        if (["finance", "admin"].includes(route) && width <= 767) {
+          const picker = page.locator(".responsiveSectionPicker .ant-select-selector");
+          await picker.click();
+          const labels = await page.locator(".responsiveSectionDropdown .ant-select-item-option").allTextContents();
+          await page.keyboard.press("Escape");
+          for (const [index, label] of labels.entries()) {
+            await activateSection(label);
+            await inspect(`${route}-section-${index}`, width);
+          }
+        }
         const tabs = page.getByRole("tab");
         const ids = await tabs.evaluateAll(elements => elements.map(element => element.id));
         for (const [index, id] of ids.entries()) {
@@ -788,9 +911,7 @@ try {
           // Prevent consequential catalogue regressions: wrong-ID edits, stale create values,
           // discarded failed input, and cancellation accidentally writing a record.
           catalogChecks = true;
-          const catalogTab = page.getByRole("tab", { name: "Make & Model / 品牌车型", exact: true });
-          await catalogTab.focus();
-          await catalogTab.press("Enter");
+          await activateSection("Make & Model / 品牌车型");
           await inspect("catalogue-list", width);
           const newOption = () => page.getByRole("button", { name: "New make & model", exact: true }).filter({ visible: true });
           const dialog = page.getByRole("dialog");
@@ -855,15 +976,11 @@ try {
           await page.locator(".ant-message-notice").waitFor({ state: "hidden" });
           expect(catalogMutations).toHaveLength(beforeCancel);
           catalogChecks = false;
-          const usersTab = page.getByRole("tab", { name: "Staff Users / 员工账号", exact: true });
-          await usersTab.focus();
-          await usersTab.press("Enter");
+          await activateSection("Staff Users / 员工账号");
           for (const label of ["Connected / 已连接", "Awaiting verification / 待验证", "Not connected / 未连接"])
             await page.getByText(label, { exact: true }).filter({ visible: true }).waitFor();
           await inspect("staff-whatsapp-connections", width);
-          const staffTab = page.getByRole("tab", { name: "Staff WhatsApp / 员工 WhatsApp", exact: true });
-          await staffTab.focus();
-          await staffTab.press("Enter");
+          await activateSection("Staff WhatsApp / 员工 WhatsApp");
           await page.locator(".staffWhatsAppSettings").getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).first().click();
           await page.getByText("Synthetic due reminder. No real customer or financial data.", { exact: true }).waitFor();
           await inspect("whatsapp-history-details", width);
@@ -900,9 +1017,7 @@ try {
           page.off("request", countLimitWrite);
         }
         if (route === "finance") {
-          const commissionTab = page.getByRole("tab", { name: "Broker Commission / 经纪佣金", exact: true });
-          await commissionTab.focus();
-          await commissionTab.press("Enter");
+          await activateSection("Broker Commission / 经纪佣金");
           await page.getByText("Date required", { exact: true }).filter({ visible: true }).first().waitFor();
           await page.getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).first().click();
           await page.getByLabel("Due Date / 到期日", { exact: true }).waitFor();
@@ -938,7 +1053,7 @@ const knownWarnings = new Set([
   "Warning: `disabled` should not set with empty `value`. You should set `allowEmpty` or `value` instead.",
   "Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?"
 ]);
-const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !(diagnostics.dashboardFailureChecks && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
+const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !((diagnostics.dashboardFailureChecks || diagnostics.leadRecovery || diagnostics.loanConfirmation) && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
 const summary = { width, checks: results.length, failed, unknownRequests: [...unknownRequests], failedRequests: diagnostics.failedRequests, unexpectedConsoleErrors };
 console.log(JSON.stringify(summary, null, 2));
 if (failed.length || unknownRequests.size || diagnostics.failedRequests.length || unexpectedConsoleErrors.length) {

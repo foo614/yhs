@@ -7652,6 +7652,97 @@ body {
   .metricGrid.dashboardHeadlineMetrics .metricCard { padding: 10px; min-height: 120px; }
   .metricGrid.dashboardHeadlineMetrics .metricCard strong { font-size: 22px; }
 }
+
+.secondaryWorkspaceSection,
+.leadQueueOverview {
+  min-width: 0;
+}
+
+.secondaryWorkspaceSection > summary,
+.leadQueueOverview > summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 12px;
+  color: #176c5c;
+  font-weight: 600;
+  border: 1px solid #dce6e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.secondaryWorkspaceSection[open] > summary,
+.leadQueueOverview[open] > summary {
+  margin-bottom: 12px;
+}
+
+.secondaryWorkspaceSection > .metricGrid {
+  margin-bottom: 16px;
+}
+
+.secondaryWorkspaceSection > summary:focus-visible,
+.leadQueueOverview > summary:focus-visible {
+  outline: 2px solid #08765f;
+  outline-offset: 2px;
+}
+
+.leadActionsWithFeedback {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.leadMobileActions .leadActionsWithFeedback > .tableActionGroup {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.supplierMasterMobileList { display: none; }
+
+@media (max-width: 767px) {
+  .moduleCommandBar:not(.hrCommandBar):not(.dashboardCommandBar) {
+    padding: 10px 12px;
+  }
+
+  .moduleCommandBar:not(.hrCommandBar) .moduleStats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+
+  .moduleCommandBar:not(.hrCommandBar) .moduleStats > span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 12px;
+  }
+
+  .moduleCommandBar:not(.hrCommandBar) .moduleStats strong { font-size: 14px; }
+  .moduleCommandAside { gap: 8px; }
+  .supplierMasterDesktop { display: none; }
+  .financeInvoiceRequestQueueEmpty { display: none; }
+  .supplierMasterMobileList { display: flex; flex-direction: column; gap: 12px; }
+  .supplierMasterMobileList .ant-descriptions-item-content { overflow-wrap: anywhere; }
+  .leadsPage .mobileRecordMeta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .leadQueueOverview { margin-bottom: 12px; }
+  .deliveryWorkboardStats button { flex-direction: row; align-items: center; padding: 8px 10px; gap: 8px; min-height: 44px; }
+  .deliveryWorkboardStats strong { font-size: 16px; }
+  .dashboardWorkspace .metricGrid.dashboardHeadlineMetrics .metricCard > strong { font-size: clamp(16px, 4.8vw, 22px); white-space: normal; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 720px) {
+  .dashboardDepartmentFilters:not(.dashboardFiltersOpen) { display: none; }
+}
+
+@media (max-width: 340px) {
+  .dashboardWorkspace .metricGrid.dashboardHeadlineMetrics { grid-template-columns: minmax(0, 1fr); }
+  .dashboardWorkspace .dashboardHeadlineMetrics .metricCard + .metricCard { border-left: 0; border-top: 1px solid #e4ebef; }
+}
 @media (max-width: 767px) {
   .operationsCalendarCollapsedAgenda .ant-btn { min-height: 44px; }
 }

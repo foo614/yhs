@@ -95,6 +95,7 @@ import { OcrUploadReview, type OcrFieldSection, type OcrReviewValues } from "./m
 import { ModuleGuideExperience } from "./modules/shared/ModuleGuideExperience";
 import { OperationsProTable as Table, operationsKeywordFromFields } from "./modules/shared/OperationsProTable";
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
+import { ResponsiveSectionTabs } from "./modules/shared/ResponsiveSectionTabs";
 import { DeliveryWorkboardPage } from "./modules/delivery/DeliveryWorkboardPage";
 import { SalesMyCarsPanel } from "./modules/leads/SalesMyCarsPanel";
 import { markModuleGuideTourSeen, moduleGuideForPath, shouldShowModuleGuideTour } from "./moduleGuides";
@@ -2402,31 +2403,6 @@ export function DashboardPage({
 
   return (
     <div className="dashboardPage dashboardWorkspace">
-      <div className="dashboardPageToolbar">
-        <DashboardAnalyticsControls period={analyticsPeriod} preset={analyticsRangePreset} disabled={refreshing} onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)} />
-        <DataFreshness label="Summary" updatedAt={lastCheckedAt} loading={refreshing || (!dashboard && !dashboardLoadError)} error={dashboardLoadError} />
-        <div className="dashboardSnapshotActions"><Button aria-label="Refresh summary" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></div>
-      </div>
-      <ProCard title="Management snapshot / 管理概览" className="dashboardOverviewCard">
-        {dashboardLoadError && <Alert type="error" showIcon message="Dashboard data could not be loaded" description={dashboardLoadError} action={<Button onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
-        {!dashboard && !dashboardLoadError && <Skeleton active paragraph={{ rows: 4 }} />}
-        {dashboard && <div className="metricGrid dashboardMetricGrid dashboardHeadlineMetrics">
-          <Metric icon={<CarOutlined />} label="Total Sales / 销售总数" value={totalSales} meta={analyticsPeriodLabel} tone="profit" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
-          <Metric icon={<BarChartOutlined />} label="Sold Vehicle Margin / 已售车辆毛利" value={formatCompactMoney(actualProfit)} meta={analyticsPeriodLabel} tone={actualProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
-          <Metric icon={<FileDoneOutlined />} label="Outstanding Collection / 待收总额" value={formatCompactMoney(outstandingCollection)} meta="Current payment balances + open debt recovery" onClick={() => setCollectionBreakdownOpen(true)} />
-          <Metric icon={<AccountBookOutlined />} label="Projected Stock Margin / 库存预计毛利" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
-        </div>}
-        <details className="dashboardSnapshotDefinitions"><summary>Metric periods and calculation / 指标说明</summary>
-          <Typography.Paragraph>Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update. Calculated vehicle margins use recorded prices and costs, not cash received or accounting profit.</Typography.Paragraph>
-        </details>
-      </ProCard>
-      <Modal title="Outstanding Collection / 待收总额" open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
-        <Typography.Paragraph>Current outstanding payment balances plus open debt recovery. These are operational record totals, not cash received.</Typography.Paragraph>
-        <Space direction="vertical" className="fullWidth" size={12}>{moneyRiskBreakdown.filter(item => receivableLabels.has(item.label)).map(item => <div className="dashboardCollectionCategory" key={item.label}>
-          <Typography.Text>{dashboardLabel(item.label)}: {formatMoney(item.amount)}</Typography.Text><Button onClick={() => onNavigate(financeRiskTarget(item.label))}>Open {dashboardLabel(item.label)}</Button>
-        </div>)}</Space>
-      </Modal>
-
       <section className="dashboardCurrentWork" aria-labelledby="dashboard-work-title">
         <h2 id="dashboard-work-title" className="dashboardSectionTitle">Current work / 当前工作</h2>
         <div className="dashboardWorkGrid">
@@ -2436,9 +2412,9 @@ export function DashboardPage({
               {reminderLoadError && <Alert className="dashboardPriorityAlert" type="warning" showIcon message="Priority actions could not be refreshed" description={reminderLoadError} action={<Button onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Try again</Button>} />}
               <div className="dashboardQueueToolbar">
                 <Typography.Text type="secondary">Overdue and due today first. / 优先处理逾期及今日到期事项。</Typography.Text>
-                <Button className="dashboardFilterToggle" aria-expanded={actionFiltersOpen} aria-controls="dashboard-action-filters" onClick={() => setActionFiltersOpen(value => !value)}>Filters / 筛选{actionFiltersActive ? " · active" : ""}</Button>
+                <Button className="dashboardFilterToggle" aria-expanded={actionFiltersOpen} aria-controls="dashboard-department-filters dashboard-action-filters" onClick={() => setActionFiltersOpen(value => !value)}>Filters / 筛选{actionFiltersActive ? " · active" : ""}</Button>
               </div>
-              <div className="dashboardDepartmentFilters" role="group" aria-label="Filter actions by department">
+              <div id="dashboard-department-filters" className={"dashboardDepartmentFilters" + (actionFiltersOpen ? " dashboardFiltersOpen" : "")} role="group" aria-label="Filter actions by department">
                 <Typography.Text type="secondary">Department / 部门 · Counts include all actions / 数量包含全部待办</Typography.Text>
                 <div className="dashboardDepartmentButtons">
                   {[{ department: "All", count: priorityEntries.length }, ...workload].map(item => <Button key={item.department} type={actionDepartment === item.department ? "primary" : "default"} aria-pressed={actionDepartment === item.department} aria-label={item.department + ": " + item.count + " actions"} onClick={() => { setActionDepartment(item.department); setMobilePriorityPage(1); }}>{item.department === "All" ? "All / 全部" : item.department}<span className="dashboardDepartmentCount">{item.count}</span></Button>)}
@@ -2454,10 +2430,10 @@ export function DashboardPage({
                 {mobilePriorityEntries.map(entry => <article className="mobileRecordCard dashboardTaskRecord" key={entry.key}>
                   <Tag className="dashboardStatusBadge" color={priorityDueColor(entry)}>{dashboardLabel(priorityDueLabel(entry))}</Tag>
                   <Typography.Title level={5}>{entry.title}</Typography.Title>
+                  <div className="mobileRecordFooter"><Button type="primary" aria-label={"Open " + entry.title} onClick={() => onNavigate(entry.target)}>Open action</Button></div>
                   <div className="dashboardTaskSubject">{entry.subject ?? "General"}</div>
                   <Typography.Text type="secondary" className="dashboardTaskSource">{dashboardLabel(entry.type)} · {prioritySourceLabel(entry.source)}</Typography.Text>
                   <div className="dashboardTaskFacts"><span><small>Due / 到期</small><strong>{formatDisplayDate(entry.dueDate)}</strong></span><span><small>Exposure / 金额</small><strong>{entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount))}</strong></span></div>
-                  <div className="mobileRecordFooter"><Button type="primary" aria-label={"Open " + entry.title} onClick={() => onNavigate(entry.target)}>Open action</Button></div>
                 </article>)}
                 {filteredPriorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionEmptyText} />}
                 <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={8} total={filteredPriorityEntries.length} showSizeChanger={false} hideOnSinglePage onChange={setMobilePriorityPage} />
@@ -2503,6 +2479,31 @@ export function DashboardPage({
         <OperationsCalendar compact onOpenDelivery={onOpenDelivery} />
         <CollectionAgeingPanel refreshKey={lastCheckedAt?.getTime() ?? 0} />
       </section>
+
+      <div className="dashboardPageToolbar">
+        <DashboardAnalyticsControls period={analyticsPeriod} preset={analyticsRangePreset} disabled={refreshing} onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)} />
+        <DataFreshness label="Summary" updatedAt={lastCheckedAt} loading={refreshing || (!dashboard && !dashboardLoadError)} error={dashboardLoadError} />
+        <div className="dashboardSnapshotActions"><Button aria-label="Refresh summary" onClick={() => void onRefresh()} loading={refreshing}>Refresh</Button></div>
+      </div>
+      <ProCard title="Management snapshot / 管理概览" className="dashboardOverviewCard">
+        {dashboardLoadError && <Alert type="error" showIcon message="Dashboard data could not be loaded" description={dashboardLoadError} action={<Button onClick={() => void onRefresh()} loading={refreshing}>Try again</Button>} />}
+        {!dashboard && !dashboardLoadError && <Skeleton active paragraph={{ rows: 4 }} />}
+        {dashboard && <div className="metricGrid dashboardMetricGrid dashboardHeadlineMetrics">
+          <Metric icon={<CarOutlined />} label="Total Sales / 销售总数" value={totalSales} meta={analyticsPeriodLabel} tone="profit" onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
+          <Metric icon={<BarChartOutlined />} label="Sold Vehicle Margin / 已售车辆毛利" value={formatCompactMoney(actualProfit)} meta={analyticsPeriodLabel} tone={actualProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("sold", analyticsPeriod))} />
+          <Metric icon={<FileDoneOutlined />} label="Outstanding Collection / 待收总额" value={formatCompactMoney(outstandingCollection)} meta="Current payment balances + open debt recovery" onClick={() => setCollectionBreakdownOpen(true)} />
+          <Metric icon={<AccountBookOutlined />} label="Projected Stock Margin / 库存预计毛利" value={formatCompactMoney(projectedStockProfit)} meta="Current unsold stock" tone={projectedStockProfit >= 0 ? "profit" : "risk"} onClick={() => onNavigate(dashboardMetricTarget("profit"))} />
+        </div>}
+        <details className="dashboardSnapshotDefinitions"><summary>Metric periods and calculation / 指标说明</summary>
+          <Typography.Paragraph>Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update. Calculated vehicle margins use recorded prices and costs, not cash received or accounting profit.</Typography.Paragraph>
+        </details>
+      </ProCard>
+      <Modal title="Outstanding Collection / 待收总额" open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
+        <Typography.Paragraph>Current outstanding payment balances plus open debt recovery. These are operational record totals, not cash received.</Typography.Paragraph>
+        <Space direction="vertical" className="fullWidth" size={12}>{moneyRiskBreakdown.filter(item => receivableLabels.has(item.label)).map(item => <div className="dashboardCollectionCategory" key={item.label}>
+          <Typography.Text>{dashboardLabel(item.label)}: {formatMoney(item.amount)}</Typography.Text><Button onClick={() => onNavigate(financeRiskTarget(item.label))}>Open {dashboardLabel(item.label)}</Button>
+        </div>)}</Space>
+      </Modal>
 
       {dashboard && <section id="dashboard-analysis" className="dashboardAnalysis" aria-labelledby="dashboard-analysis-title">
         <div className="dashboardAnalysisHeading"><h2 id="dashboard-analysis-title" className="dashboardSectionTitle">Business analysis / 经营分析</h2><DashboardAnalyticsControls period={analyticsPeriod} preset={analyticsRangePreset} disabled={refreshing} onChange={(preset, period) => void onAnalyticsPeriodChange(preset, period)} /></div>
@@ -3258,6 +3259,7 @@ function RepairPage({
   const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
   const [supplierKeyword, setSupplierKeyword] = useState("");
   const [supplierStatus, setSupplierStatus] = useState<Supplier["status"] | "All">("All");
+  const [mobileSupplierPage, setMobileSupplierPage] = useState(1);
   const [repairCreateMode, setRepairCreateMode] = useState<"receipt" | "manual">("receipt");
   const [receiptDraft, setReceiptDraft] = useState<ConfirmRepairReceiptRequest | null>(null);
   const [repairCreateForm] = Form.useForm();
@@ -3389,6 +3391,8 @@ function RepairPage({
   const highCostPendingRepairs = repairStats.highCostPending;
   const filteredSupplierMaster = filterSupplierMaster(supplierMaster, supplierKeyword, supplierStatus);
   const supplierFiltersActive = Boolean(supplierKeyword.trim()) || supplierStatus !== "All";
+  const supplierPage = Math.min(mobileSupplierPage, Math.max(1, Math.ceil(filteredSupplierMaster.length / 5)));
+  useEffect(() => setMobileSupplierPage(1), [supplierKeyword, supplierStatus]);
   const showRepairCompletionConfirmation = (repair: RepairJob, onConfirm: () => Promise<void> | void) => {
     Modal.confirm({
       title: "Confirm Repair Completed / 确认维修完成",
@@ -3738,82 +3742,6 @@ function RepairPage({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
-      <div className="metricGrid">
-        <Metric label="Repair records / 整备记录" value={repairs.length} />
-        <Metric label="Open repair work / 未完成整备" value={pendingRepairs} />
-        <Metric label="Repair Cost / 整备费用" value={formatMoney(repairTotal)} />
-        <Metric label="Overdue repair work / 已逾期整备" value={overdueRepairs} tone="risk" />
-        <Metric label="High-cost pending approval / 高额待审批" value={highCostPendingRepairs} tone="work" />
-      </div>
-      <ProCard
-        title="Supplier Master / 供应商资料"
-        extra={<Button type="primary" onClick={openNewSupplier}>New Supplier</Button>}
-      >
-        <Alert className="sectionIntroAlert" type="info" showIcon message="New suppliers are Active immediately. Set a supplier Inactive when it should not be used for new purchase, repair, or supplier-invoice records; existing records remain available." />
-        <Space className="toolbarForm workflowFilterBar pageFilterMobileOnly" wrap>
-          <Input.Search
-            allowClear
-            aria-label="Search supplier master"
-            placeholder="Company, phone, TIN, or creditor code"
-            value={supplierKeyword}
-            onChange={(event) => setSupplierKeyword(event.target.value)}
-            onSearch={setSupplierKeyword}
-            style={{ width: 300 }}
-          />
-          <Select
-            aria-label="Filter supplier status"
-            value={supplierStatus}
-            onChange={setSupplierStatus}
-            style={{ width: 170 }}
-            options={[
-              { value: "All", label: "All statuses" },
-              { value: "Active", label: "Active" },
-              { value: "Inactive", label: "Inactive" }
-            ]}
-          />
-          <Tag color={supplierFiltersActive ? "blue" : "default"}>{supplierFiltersActive ? `${filteredSupplierMaster.length} of ${supplierMaster.length} matching` : `${supplierMaster.length} suppliers`}</Tag>
-          {supplierFiltersActive && <Button onClick={() => { setSupplierKeyword(""); setSupplierStatus("All"); }}>Clear filters</Button>}
-        </Space>
-        <Table<Supplier>
-          className="nativeSearchDesktopOnly"
-          rowKey="id"
-          dataSource={filteredSupplierMaster}
-          nativeSearch={{
-            fields: [
-              { name: "company", label: "Company / 公司" },
-              { name: "phone", label: "Phone / 电话" },
-              { name: "tin", label: "TIN / 税务识别号" },
-              { name: "creditor", label: "Creditor code / 债权人代码" },
-              { name: "status", label: "Status / 状态", options: [
-                { value: "Active", label: "Active" },
-                { value: "Inactive", label: "Inactive" }
-              ] }
-            ],
-            values: { status: supplierStatus === "All" ? undefined : supplierStatus },
-            onSubmit: (values) => {
-              setSupplierKeyword(operationsKeywordFromFields(values, ["company", "phone", "tin", "creditor"]));
-              setSupplierStatus((values.status as Supplier["status"] | undefined) ?? "All");
-            },
-            onReset: () => {
-              setSupplierKeyword("");
-              setSupplierStatus("All");
-            }
-          }}
-          pagination={tablePagination(5)}
-          locale={{ emptyText: supplierMaster.length === 0 ? "No suppliers yet." : "No suppliers match the current filters." }}
-          columns={[
-            { title: "Company / 公司", dataIndex: "companyName" },
-            { title: "Phone / 电话", dataIndex: "phone" },
-            { title: "TIN / 税务识别号", dataIndex: "tinNumber", render: (value) => value || "-" },
-            { title: "AutoCount creditor code / AutoCount 债权人代码", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
-            { title: "Status / 状态", dataIndex: "status", render: (value) => <Tag color={value === "Active" ? "green" : "gold"}>{value}</Tag> },
-            { title: "Action / 操作", render: (_, supplier) => {
-              const nextStatus = supplier.status === "Active" ? "Inactive" : "Active";
-              return <Button size="small" danger={nextStatus === "Inactive"} loading={supplierSaving} onClick={() => { void updateSupplierStatus(supplier, nextStatus); }}>{nextStatus === "Inactive" ? "Set inactive" : "Reactivate"}</Button>;
-            } }
-          ]}
-        />
-      </ProCard>
       <ProCard
         id="repair-supplier-card"
         title="Supplier & Refurbishment / 供应商与整备"
@@ -3959,6 +3887,105 @@ function RepairPage({
           locale={{ emptyText: refurbishmentEmptyText }}
         />
       </ProCard>
+      <details className="secondaryWorkspaceSection">
+        <summary>Suppliers & repair overview / 供应商与整备概览</summary>
+      <div className="metricGrid">
+        <Metric label="Repair records / 整备记录" value={repairs.length} />
+        <Metric label="Open repair work / 未完成整备" value={pendingRepairs} />
+        <Metric label="Repair Cost / 整备费用" value={formatMoney(repairTotal)} />
+        <Metric label="Overdue repair work / 已逾期整备" value={overdueRepairs} tone="risk" />
+        <Metric label="High-cost pending approval / 高额待审批" value={highCostPendingRepairs} tone="work" />
+      </div>
+      <ProCard
+        title="Supplier Master / 供应商资料"
+        extra={<Button type="primary" onClick={openNewSupplier}>New Supplier</Button>}
+      >
+        <Alert className="sectionIntroAlert" type="info" showIcon message="New suppliers are Active immediately. Set a supplier Inactive when it should not be used for new purchase, repair, or supplier-invoice records; existing records remain available." />
+        <Space className="toolbarForm workflowFilterBar pageFilterMobileOnly" wrap>
+          <Input.Search
+            allowClear
+            aria-label="Search supplier master"
+            placeholder="Company, phone, TIN, or creditor code"
+            value={supplierKeyword}
+            onChange={(event) => setSupplierKeyword(event.target.value)}
+            onSearch={setSupplierKeyword}
+            style={{ width: 300 }}
+          />
+          <Select
+            aria-label="Filter supplier status"
+            value={supplierStatus}
+            onChange={setSupplierStatus}
+            style={{ width: 170 }}
+            options={[
+              { value: "All", label: "All statuses" },
+              { value: "Active", label: "Active" },
+              { value: "Inactive", label: "Inactive" }
+            ]}
+          />
+          <Tag color={supplierFiltersActive ? "blue" : "default"}>{supplierFiltersActive ? `${filteredSupplierMaster.length} of ${supplierMaster.length} matching` : `${supplierMaster.length} suppliers`}</Tag>
+          {supplierFiltersActive && <Button onClick={() => { setSupplierKeyword(""); setSupplierStatus("All"); }}>Clear filters</Button>}
+        </Space>
+        <Table<Supplier>
+          className="desktopDataTable nativeSearchDesktopOnly supplierMasterDesktop"
+          rowKey="id"
+          dataSource={filteredSupplierMaster}
+          nativeSearch={{
+            fields: [
+              { name: "company", label: "Company / 公司" },
+              { name: "phone", label: "Phone / 电话" },
+              { name: "tin", label: "TIN / 税务识别号" },
+              { name: "creditor", label: "Creditor code / 债权人代码" },
+              { name: "status", label: "Status / 状态", options: [
+                { value: "Active", label: "Active" },
+                { value: "Inactive", label: "Inactive" }
+              ] }
+            ],
+            values: { status: supplierStatus === "All" ? undefined : supplierStatus },
+            onSubmit: (values) => {
+              setSupplierKeyword(operationsKeywordFromFields(values, ["company", "phone", "tin", "creditor"]));
+              setSupplierStatus((values.status as Supplier["status"] | undefined) ?? "All");
+            },
+            onReset: () => {
+              setSupplierKeyword("");
+              setSupplierStatus("All");
+            }
+          }}
+          pagination={tablePagination(5)}
+          locale={{ emptyText: supplierMaster.length === 0 ? "No suppliers yet." : "No suppliers match the current filters." }}
+          columns={[
+            { title: "Company / 公司", dataIndex: "companyName" },
+            { title: "Phone / 电话", dataIndex: "phone" },
+            { title: "TIN / 税务识别号", dataIndex: "tinNumber", render: (value) => value || "-" },
+            { title: "AutoCount creditor code / AutoCount 债权人代码", dataIndex: "autoCountCreditorCode", render: (value) => value || "Auto-create" },
+            { title: "Status / 状态", dataIndex: "status", render: (value) => <Tag color={value === "Active" ? "green" : "gold"}>{value}</Tag> },
+            { title: "Action / 操作", render: (_, supplier) => {
+              const nextStatus = supplier.status === "Active" ? "Inactive" : "Active";
+              return <Button size="small" danger={nextStatus === "Inactive"} loading={supplierSaving} onClick={() => { void updateSupplierStatus(supplier, nextStatus); }}>{nextStatus === "Inactive" ? "Set inactive" : "Reactivate"}</Button>;
+            } }
+          ]}
+        />
+        <div className="mobileRecordList supplierMasterMobileList">
+          {filteredSupplierMaster.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={supplierMaster.length === 0 ? "No suppliers yet." : "No suppliers match the current filters."} />}
+          {filteredSupplierMaster.slice((supplierPage - 1) * 5, supplierPage * 5).map(supplier => (
+            <article className="mobileRecordCard" key={supplier.id}>
+              <div className="mobileRecordHeader">
+                <Typography.Text strong>{supplier.companyName}</Typography.Text>
+                <Tag color={supplier.status === "Active" ? "green" : "gold"}>{supplier.status}</Tag>
+              </div>
+              <Descriptions size="small" column={1} items={[
+                { key: "phone", label: "Phone / 电话", children: supplier.phone || "-" },
+                { key: "tin", label: "TIN / 税务识别号", children: supplier.tinNumber || "-" },
+                { key: "code", label: "Creditor code / 债权人代码", children: supplier.autoCountCreditorCode || "Auto-create" }
+              ]} />
+              <div className="mobileRecordFooter">
+                <Button danger={supplier.status === "Active"} loading={supplierSaving} onClick={() => void updateSupplierStatus(supplier, supplier.status === "Active" ? "Inactive" : "Active")}>{supplier.status === "Active" ? "Set inactive" : "Reactivate"}</Button>
+              </div>
+            </article>
+          ))}
+          <Pagination size="small" current={supplierPage} pageSize={5} total={filteredSupplierMaster.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileSupplierPage} />
+        </div>
+      </ProCard>
+      </details>
       <Modal
         title={creatingSupplierFromReceipt ? "Create supplier from receipt / 从收据建立供应商" : "New Supplier / 新增供应商"}
         open={supplierCreateOpen}
@@ -4345,7 +4372,7 @@ export function LoanPage({
   onClearDashboardFocus: () => void;
   onBackToList: () => void;
   onCreate: (loan: LoanApplication) => void;
-  onUpdate: (loan: LoanApplication) => void;
+  onUpdate: (loan: LoanApplication) => Promise<void> | void;
   onDecide: (loanId: string, status: LoanDecisionStatus, rejectionReason?: string) => Promise<void>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, onProgress: UploadProgressHandler, owner: DocumentUploadOwner) => Promise<void>;
 }) {
@@ -4361,6 +4388,10 @@ export function LoanPage({
   const [rejectionLoan, setRejectionLoan] = useState<LoanApplication>();
   const [rejectionReason, setRejectionReason] = useState("");
   const [decisionSubmitting, setDecisionSubmitting] = useState(false);
+  const [completionLoan, setCompletionLoan] = useState<LoanApplication>();
+  const [completionSaving, setCompletionSaving] = useState(false);
+  const [completionError, setCompletionError] = useState("");
+  const completionPending = useRef(false);
   const selectedLoan: LoanApplication | undefined = loans.find((loan) => loan.id === uploadLoanId);
   const loanIds = useMemo(() => loans.map((loan) => loan.id).join(","), [loans]);
   const filteredLoans = filterLoanApplications(loans, vehicles, customers, documentChecks, loanFilters);
@@ -4504,7 +4535,7 @@ export function LoanPage({
       const blockReason = loanCompletionBlockReason(loan.id);
       return (
         <Tooltip title={blockReason}>
-          <span><Button size="small" type="primary" disabled={Boolean(blockReason)} onClick={() => onUpdate(markLoanDone(loan))}>Mark Done</Button></span>
+          <span><Button size="small" type="primary" disabled={Boolean(blockReason)} onClick={() => { setCompletionError(""); setCompletionLoan(loan); }}>Mark Done</Button></span>
         </Tooltip>
       );
     }
@@ -4564,6 +4595,48 @@ export function LoanPage({
             autoFocus
           />
         </div>
+      </Space>
+    </Modal>
+  );
+
+  const completionModal = (
+    <Modal
+      title="Complete loan / 完成贷款"
+      open={Boolean(completionLoan)}
+      okText="Confirm completion / 确认完成"
+      confirmLoading={completionSaving}
+      zIndex={2100}
+      onCancel={() => { if (!completionPending.current) setCompletionLoan(undefined); }}
+      onOk={async () => {
+        if (!completionLoan || completionPending.current) return;
+        const current = loans.find(loan => loan.id === completionLoan.id);
+        const block = loanCompletionBlockReason(completionLoan.id);
+        if (!current || current.status !== "Approved" || block) {
+          setCompletionError(block || "This loan has changed. Close this dialog and review its current status.");
+          return;
+        }
+        completionPending.current = true;
+        setCompletionSaving(true);
+        setCompletionError("");
+        try {
+          await onUpdate(markLoanDone(current));
+          setCompletionLoan(undefined);
+        } catch (error) {
+          setCompletionError(humanizeApiError(error, "The loan could not be completed. Please retry."));
+        } finally {
+          completionPending.current = false;
+          setCompletionSaving(false);
+        }
+      }}
+    >
+      <Space direction="vertical" size={12} className="fullWidth">
+        {completionLoan && <Descriptions column={1} size="small" items={[
+          { key: "vehicle", label: "Vehicle / 车辆", children: plateFor(vehicles, completionLoan.vehicleId) },
+          { key: "customer", label: "Buyer / 买家", children: contactFor(customers, completionLoan.customerId) },
+          { key: "documents", label: "Documents / 文件", children: loanCompletionBlockReason(completionLoan.id) || "Required loan documents are complete." }
+        ]} />}
+        <Alert type="warning" showIcon message="Completed loans become read-only. Confirm the buyer and documents before continuing." />
+        {completionError && <Alert type="error" showIcon message={completionError} />}
       </Space>
     </Modal>
   );
@@ -4726,18 +4799,13 @@ export function LoanPage({
           </Space>
         </ProCard>
         {rejectionModal}
+        {completionModal}
       </Space>
     );
   }
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
-      <div className="metricGrid">
-        <Metric label="Approved loans / 已批准贷款" value={loanStats.approved} tone="profit" />
-        <Metric label="In progress / 处理中" value={loanStats.inProgress} tone="work" />
-        <Metric label="Rejected / 已拒绝" value={loanStats.rejected} tone="risk" />
-        <Metric label="Done / 已完成" value={loanStats.done} />
-      </div>
       <ProCard
         title="Loan Workflow / 贷款流程"
         extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending").length} pending</Tag>{canCreateManually ? <Button onClick={() => setLoanCreateOpen(true)}>Manual loan record</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
@@ -4930,7 +4998,17 @@ export function LoanPage({
           locale={{ emptyText: loanEmptyText }}
         />
       </ProCard>
+      <details className="secondaryWorkspaceSection">
+        <summary>Loan overview / 贷款概览</summary>
+      <div className="metricGrid">
+        <Metric label="Approved loans / 已批准贷款" value={loanStats.approved} tone="profit" />
+        <Metric label="In progress / 处理中" value={loanStats.inProgress} tone="work" />
+        <Metric label="Rejected / 已拒绝" value={loanStats.rejected} tone="risk" />
+        <Metric label="Done / 已完成" value={loanStats.done} />
+      </div>
+      </details>
       {rejectionModal}
+        {completionModal}
       <Modal
         title="Manual Loan Record / 手动贷款记录"
         width={680}
@@ -5030,7 +5108,7 @@ export function DeliveryPage({
   );
 }
 
-export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate }: { currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => void }) {
+export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate }: { currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => Promise<void> | void }) {
   const [leadKeyword, setLeadKeyword] = useState("");
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
@@ -5038,6 +5116,27 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
   const [closingLead, setClosingLead] = useState<Lead | null>(null);
   const [closureOutcome, setClosureOutcome] = useState<"Sold" | "Lost" | "Invalid">("Lost");
   const [leadView, setLeadView] = useState<"Leads" | "MyCars">("Leads");
+  const [pendingLeadIds, setPendingLeadIds] = useState<Set<string>>(new Set());
+  const [leadErrors, setLeadErrors] = useState<Record<string, string>>({});
+  const pendingLeadRequests = useRef(new Set<string>());
+  const closingVehicle = vehicles.find(vehicle => vehicle.id === closingLead?.vehicleId);
+  const canCloseSold = Boolean(closingLead?.customerId && closingVehicle?.customerId === closingLead.customerId);
+  const runLeadAction = async (lead: Lead, action: () => Promise<void> | void) => {
+    if (pendingLeadRequests.current.has(lead.id)) return false;
+    pendingLeadRequests.current.add(lead.id);
+    setPendingLeadIds(new Set(pendingLeadRequests.current));
+    setLeadErrors(current => ({ ...current, [lead.id]: "" }));
+    try {
+      await action();
+      return true;
+    } catch (error) {
+      setLeadErrors(current => ({ ...current, [lead.id]: humanizeApiError(error, "This lead could not be updated. Please retry.") }));
+      return false;
+    } finally {
+      pendingLeadRequests.current.delete(lead.id);
+      setPendingLeadIds(new Set(pendingLeadRequests.current));
+    }
+  };
   const filteredLeads = filterLeadsForTriage(leads, { status: leadStatusFilter, link: leadLinkFilter });
   const displayedLeads = leadSortMode === "CloseAsap"
     ? sortLeadsByHotCarDemand(filteredLeads, vehicles)
@@ -5067,22 +5166,22 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
     return "Not taken";
   };
   const canReleaseLead = (lead: Lead) => lead.status === "Contacted" && isTakenByCurrentUser(lead);
-  const releaseLead = (lead: Lead) => onUpdate({
+  const releaseLead = (lead: Lead) => runLeadAction(lead, () => onUpdate({
     ...lead,
     status: "New",
     takenByUserId: undefined,
     takenByName: undefined,
     takenAt: undefined
-  });
+  }));
   const renderLeadReleaseButton = (lead: Lead) => canReleaseLead(lead) ? (
-    <Button size="small" className="leadReleaseButton" onClick={() => releaseLead(lead)}>
+    <Button size="small" className="leadReleaseButton" disabled={pendingLeadIds.has(lead.id)} onClick={() => void releaseLead(lead)}>
       Release Lead
     </Button>
   ) : null;
 
   const renderLeadWorkflowButton = (lead: Lead) => {
     const takenByOther = isTakenByOtherUser(lead);
-    const disabled = lead.status === "Closed" || takenByOther || !currentUserId;
+    const disabled = lead.status === "Closed" || takenByOther || !currentUserId || pendingLeadIds.has(lead.id);
     const label = !currentUserId
       ? "Sign in"
       : takenByOther
@@ -5098,17 +5197,15 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
         size="small"
         type={lead.status === "Closed" || takenByOther ? "default" : "primary"}
         disabled={disabled}
+        loading={pendingLeadIds.has(lead.id)}
         onClick={() => {
           if (lead.status === "New") {
-            if (lead.customerId) {
-              onUpdate({ ...lead, status: "Contacted" });
-            } else {
-              void onCreateCustomer(lead);
-            }
+            void runLeadAction(lead, () => lead.customerId ? onUpdate({ ...lead, status: "Contacted" }) : onCreateCustomer(lead));
             return;
           }
 
           if (lead.status === "Contacted") {
+            setClosureOutcome("Lost");
             setClosingLead(lead);
           }
         }}
@@ -5118,10 +5215,13 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
     );
   };
   const renderLeadActions = (lead: Lead) => (
-    <Space className="tableActionGroup leadActionGroup" wrap size={6}>
-      {renderLeadWorkflowButton(lead)}
-      {renderLeadReleaseButton(lead)}
-    </Space>
+    <div className="leadActionsWithFeedback">
+      <Space className="tableActionGroup leadActionGroup" wrap size={6}>
+        {renderLeadWorkflowButton(lead)}
+        {renderLeadReleaseButton(lead)}
+      </Space>
+      {leadErrors[lead.id] && <Alert type="error" showIcon message={leadErrors[lead.id]} />}
+    </div>
   );
   const renderLeadCustomer = (lead: Lead) => {
     const customer = customerRecordForLead(lead);
@@ -5231,6 +5331,8 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
       />
       {leadView === "Leads" ? <>
       <ProCard title={bilingual.leads}>
+        <details className="leadQueueOverview">
+          <summary>Lead demand overview / 客户需求概览</summary>
         <div className="leadCloseAsapBand">
           <div>
             <Typography.Text className="moduleEyebrow">Close ASAP</Typography.Text>
@@ -5243,6 +5345,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
             <span><strong>{multiLeadVehicleCount}</strong>Multi-lead cars</span>
           </div>
         </div>
+        </details>
         <Space className="leadFilterControls pageFilterMobileOnly" wrap>
           <label className="leadFilterControl">
             <span>Search</span>
@@ -5378,15 +5481,25 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
         title="Close lead / 结束询问"
         open={Boolean(closingLead)}
         okText="Close lead"
-        onCancel={() => setClosingLead(null)}
-        onOk={() => {
-          if (closingLead) onUpdate({ ...closingLead, status: "Closed", closureOutcome });
-          setClosingLead(null);
+        zIndex={2100}
+        confirmLoading={Boolean(closingLead && pendingLeadIds.has(closingLead.id))}
+        okButtonProps={{ disabled: closureOutcome === "Sold" && !canCloseSold }}
+        onCancel={() => { if (!closingLead || !pendingLeadRequests.current.has(closingLead.id)) setClosingLead(null); }}
+        onOk={async () => {
+          if (!closingLead || (closureOutcome === "Sold" && !canCloseSold)) return;
+          if (await runLeadAction(closingLead, () => onUpdate({ ...closingLead, status: "Closed", closureOutcome }))) setClosingLead(null);
         }}
       >
+        {closingLead && <Descriptions column={1} size="small" items={[
+          { key: "vehicle", label: "Vehicle / 车辆", children: leadVehicleLabel(closingLead, vehicles) },
+          { key: "customer", label: "Enquirer / 询问客户", children: renderLeadCustomer(closingLead) },
+          { key: "buyer", label: "Confirmed buyer / 确认买家", children: closingVehicle?.customerId ? contactFor(customers, closingVehicle.customerId) : "Not assigned / 尚未指定" }
+        ]} />}
         <Typography.Paragraph type="secondary">Record the real outcome so the Dashboard can distinguish sales from lost enquiries.</Typography.Paragraph>
+        {!canCloseSold && <Alert type="info" showIcon message="Sold is available only when this lead is linked to the vehicle's confirmed buyer. Confirm the buyer in Vehicle Details first." />}
+        {closingLead && leadErrors[closingLead.id] && <Alert type="error" showIcon message={leadErrors[closingLead.id]} />}
         <Select value={closureOutcome} onChange={setClosureOutcome} className="fullWidth" options={[
-          { value: "Sold", label: "Sold / 已成交" },
+          { value: "Sold", label: "Sold / 已成交", disabled: !canCloseSold },
           { value: "Lost", label: "Lost / 已流失" },
           { value: "Invalid", label: "Invalid / 无效询问" }
         ]} />
@@ -5718,7 +5831,8 @@ function AdminPage({
 
   return (
     <ProCard title={bilingual.settings}>
-      <Tabs
+      <ResponsiveSectionTabs
+        sectionLabel="Settings section / 设置分区"
         items={[
           { key: "flow", label: "System Flow / 系统流程", children: <SystemFlowReference /> },
           {
