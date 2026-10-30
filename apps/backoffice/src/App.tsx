@@ -1199,12 +1199,6 @@ export default function App() {
           <strong>YS Heng · {currentRoles[0] ? displayRoleLabel(currentRoles[0]) : "Guest"}{currentRoles.length > 1 ? ` +${currentRoles.length - 1}` : ""}</strong>
           <span role="heading" aria-level={1}>{pageTitle}</span>
         </div>
-        {route.routes.some((item) => item.path === "/hr-salary") && <Button
-          aria-label="Attendance / 打卡"
-          className="mobileAttendanceButton"
-          type={pathname === "/hr-salary" ? "primary" : "default"}
-          onClick={() => { navigateTo("/hr-salary"); window.scrollTo({ top: 0 }); }}
-        ><span>Attendance<br />打卡</span></Button>}
         <Button
           aria-label="Logout"
           className="mobileLogoutButton"
