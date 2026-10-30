@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, consumeExpiredSessionNotice, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, LoginHome, loanIdFromRouteUrl, LoanPage, markExpiredSession, ModuleDocumentList, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, consumeExpiredSessionNotice, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, LoginHome, loanIdFromRouteUrl, LoanPage, markExpiredSession, ModuleDocumentList, postLoginRoute, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 
 describe("admin sidebar layout", () => {
@@ -23,6 +23,15 @@ describe("browser route state", () => {
     expect(restoredSessionRoute("/admin", ["Finance"])).toBe("/finance");
     expect(restoredSessionRoute("//evil.example/finance", ["Finance"])).toBe("/finance");
     expect(restoredSessionRoute("/unknown?next=/finance", ["Finance"])).toBe("/finance");
+  });
+
+  it("returns a signed-in employee to the directly requested attendance route", () => {
+    expect(postLoginRoute(null, "/hr-salary", ["Sales"])).toBe("/hr-salary");
+    expect(postLoginRoute(null, "/?redirecturl=hr-salary", ["Sales"])).toBe("/hr-salary");
+    expect(postLoginRoute(null, "/?redirecturl=admin", ["Sales"])).toBe("/vehicles");
+    expect(postLoginRoute(null, "/?redirecturl=unknown", ["Sales"])).toBe("/vehicles");
+    expect(postLoginRoute(null, "//evil.example/hr-salary", ["Sales"])).toBe("/vehicles");
+    expect(postLoginRoute(null, "/?redirecturl=https%3A%2F%2Fevil.example", ["Sales"])).toBe("/vehicles");
   });
 
   it("stores a non-sensitive one-time notice for an established-session expiry", () => {
