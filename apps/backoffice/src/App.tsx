@@ -425,6 +425,20 @@ export function restoredSessionRoute(storedRoute: string | null, roles: string[]
     : firstAccessiblePath(roles);
 }
 
+export function postLoginRoute(storedRoute: string | null, requestedRoute: string, roles: string[]) {
+  if (storedRoute) return restoredSessionRoute(storedRoute, roles);
+
+  const queryIndex = requestedRoute.indexOf("?");
+  const redirectUrl = queryIndex >= 0
+    ? new URLSearchParams(requestedRoute.slice(queryIndex + 1)).get("redirecturl")
+    : null;
+  const redirectRoute = redirectUrl
+    ? redirectUrl.startsWith("/") ? redirectUrl : `/${redirectUrl}`
+    : requestedRoute;
+
+  return restoredSessionRoute(redirectRoute, roles);
+}
+
 export function customerIdFromRouteUrl(routeUrl: string) {
   const queryIndex = routeUrl.indexOf("?");
   return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("customerId") ?? undefined;
@@ -790,6 +804,11 @@ export default function App() {
 
         setCurrentUser(user);
         if (user.isAuthenticated) {
+          const nextRoute = postLoginRoute(null, browserRouteUrl(window.location), user.roles);
+          const nextPath = normalizeRoutePath(nextRoute);
+          setPathname(nextPath);
+          setRouteUrl(nextRoute);
+          window.history.replaceState(null, "", nextRoute);
           await loadBackOfficeData(user.roles);
         }
       } catch {
@@ -925,7 +944,11 @@ export default function App() {
       setCurrentUser(user);
       setLogoutSucceeded(false);
       setSessionExpiredNotice(false);
-      const nextRoute = restoredSessionRoute(sessionStorage.getItem(expiredSessionRouteKey), user.roles);
+      const nextRoute = postLoginRoute(
+        sessionStorage.getItem(expiredSessionRouteKey),
+        browserRouteUrl(window.location),
+        user.roles
+      );
       sessionStorage.removeItem(expiredSessionRouteKey);
       sessionStorage.removeItem(expiredSessionNoticeKey);
       const nextPath = normalizeRoutePath(nextRoute);
