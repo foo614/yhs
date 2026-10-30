@@ -603,6 +603,12 @@ try {
           fixtures["/api/whatsapp/assistant/connection"] = { enabled: false, state: "Disabled", language: "ms" };
         }
         if (route === "hr-salary") {
+          if (width <= 767) {
+            await page.locator(".hrMobileSectionPicker .ant-select-selector").click();
+            await page.locator(".hrSectionOptions .ant-select-item-option").filter({ hasText: "Outstation / 外勤" }).click();
+          } else {
+            await page.getByRole("tab", { name: /Outstation \/ 外勤/ }).click();
+          }
           const rowSelector = ".mobileRecordCard, .ant-table-tbody > tr";
           const tripRow = location => page.locator(rowSelector).filter({ hasText: location }).filter({ visible: true });
           const cancel = tripRow("Future approved trip").getByRole("button", { name: "Cancel / 取消", exact: true });
@@ -755,6 +761,18 @@ try {
         }
       }
       if (process.env.RESPONSIVE_TABS === "1" || (process.env.RESPONSIVE_TABS !== "0" && [360, 820, 1440].includes(width))) {
+        if (route === "hr-salary" && width <= 767) {
+          const picker = page.locator(".hrMobileSectionPicker .ant-select-selector");
+          await picker.click();
+          const options = page.locator(".hrSectionOptions .ant-select-item-option");
+          const labels = await options.allTextContents();
+          await page.keyboard.press("Escape");
+          for (const [index, label] of labels.entries()) {
+            await picker.click();
+            await options.filter({ hasText: label }).click();
+            await inspect(`${route}-section-${index}`, width);
+          }
+        }
         const tabs = page.getByRole("tab");
         const ids = await tabs.evaluateAll(elements => elements.map(element => element.id));
         for (const [index, id] of ids.entries()) {

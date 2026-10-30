@@ -28,9 +28,9 @@ export function HrAttendanceWorkflow({ currentUser, staff, attendance, onChanged
   const reload = async () => { const [nextCorrections, nextSchedules] = await Promise.all([getHrAttendanceCorrections(), getHrWorkSchedules()]); setCorrections(nextCorrections); setSchedules(nextSchedules); };
   useEffect(() => { let active = true; void Promise.all([getHrAttendanceCorrections(), getHrWorkSchedules()]).then(([items, shifts]) => { if (active) { setCorrections(items); setSchedules(shifts); } }).catch(e => { if (active) setError(humanizeApiError(e)); }); return () => { active = false; }; }, [currentUser?.id]);
   const run = async (action: () => Promise<unknown>) => { setBusy(true); setError(""); try { await action(); await reload(); await onChanged?.(); } catch (e) { setError(humanizeApiError(e)); } finally { setBusy(false); } };
-  return <Space direction="vertical" className="fullWidth" size={16}>
+  return <Space direction="vertical" className="fullWidth hrAttendanceWorkflow" size={16}>
     {error && <Alert type="error" showIcon message={error} />}
-    <Card title="Attendance corrections / 打卡更正" extra={<Button onClick={() => { form.resetFields(); form.setFieldsValue({ staffUserId: currentUser?.id }); setEditing(true); }}>Request correction / 申请更正</Button>}>
+    <Card className="hrCorrectionCard" title="Attendance corrections / 打卡更正" extra={<Button onClick={() => { form.resetFields(); form.setFieldsValue({ staffUserId: currentUser?.id }); setEditing(true); }}>Request correction / 申请更正</Button>}>
       <Typography.Paragraph>Forgot to clock out? Enter the actual times and a reason. HR must approve before hours change. All times are Malaysia time.</Typography.Paragraph>
       <Space direction="vertical" className="fullWidth">
         {corrections.length === 0 && <Typography.Text type="secondary">No correction requests / 暂无更正申请</Typography.Text>}
@@ -56,7 +56,7 @@ export function HrAttendanceWorkflow({ currentUser, staff, attendance, onChanged
       </Form>}
       <Space direction="vertical" className="fullWidth">{schedules.length === 0 && <Typography.Text type="secondary">No schedules configured / 尚未设置时间表</Typography.Text>}{schedules.map(item => <div key={item.id}><strong>{name(item.staffUserId)}</strong> · {malaysiaTime(item.startAt)} → {malaysiaTime(item.endAt)} {isHr && new Date(item.startAt) > new Date() && <Button size="small" onClick={() => scheduleForm.setFieldsValue({ staffUserId: item.staffUserId, startAt: malaysiaInput(item.startAt), endAt: malaysiaInput(item.endAt) })}>Edit / 编辑</Button>}</div>)}</Space>
     </Card>
-    <Modal title="Request attendance correction / 申请打卡更正" open={editing} confirmLoading={busy} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="Submit for HR approval / 提交审批">
+    <Modal title="Request attendance correction / 申请打卡更正" zIndex={2100} open={editing} confirmLoading={busy} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="Submit for HR approval / 提交审批">
       {error && <Alert type="error" message={error} />}
       <Form form={form} layout="vertical" onFinish={values => void run(async () => {
         await createHrAttendanceCorrection({ staffUserId: values.staffUserId, attendanceRecordId: values.attendanceRecordId || undefined, attendanceDate: values.checkInAt.format("YYYY-MM-DD"), checkInAt: malaysiaUtc(values.checkInAt), checkOutAt: malaysiaUtc(values.checkOutAt), reason: values.reason }); setEditing(false);
@@ -69,7 +69,7 @@ export function HrAttendanceWorkflow({ currentUser, staff, attendance, onChanged
         <Form.Item name="reason" label="Reason / 原因" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item>
       </Form>
     </Modal>
-    <Modal title={decision?.approve ? "Approve corrected times? / 批准更正时间？" : "Reject correction / 拒绝更正"} open={Boolean(decision)} confirmLoading={busy} onCancel={() => setDecision(undefined)} onOk={() => decisionForm.submit()}>
+    <Modal title={decision?.approve ? "Approve corrected times? / 批准更正时间？" : "Reject correction / 拒绝更正"} zIndex={2100} open={Boolean(decision)} confirmLoading={busy} onCancel={() => setDecision(undefined)} onOk={() => decisionForm.submit()}>
       {error && <Alert type="error" message={error} />}
       <Typography.Paragraph>{decision && `${malaysiaTime(decision.item.checkInAt)} → ${malaysiaTime(decision.item.checkOutAt)}`}</Typography.Paragraph>
       <Form form={decisionForm} onFinish={values => { if (decision) void run(async () => { await decideHrAttendanceCorrection(decision.item.id, decision.approve, values.notes); setDecision(undefined); }); }}><Form.Item name="notes" label="Review note / 审批说明" rules={[{ required: decision?.approve === false, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item></Form>

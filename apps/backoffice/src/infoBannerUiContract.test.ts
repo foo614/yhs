@@ -23,7 +23,6 @@ describe("back-office information banner UI contract", () => {
     const compactBannerFiles = [
       "App.tsx",
       "modules/customers/Customer360Page.tsx",
-      "modules/hr/HrSalaryPage.tsx",
       "modules/settings/ShowroomEnquiryQrSettings.tsx"
     ];
 

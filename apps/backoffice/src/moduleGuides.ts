@@ -1004,11 +1004,11 @@ const hrSelfServiceSections: readonly ModuleGuideSection[] = [
     label: "Today Attendance / 今日打卡",
     kind: "section",
     audience: "All staff",
-    purpose: "Record the current workday from an approved office network.",
-    actions: ["Check In at shift start.", "Check Out at shift end.", "Report a missing or wrong entry to HR."],
-    requiredItems: ["Authenticated staff identity", "Active approved office network"],
-    completeWhen: "Today's row shows both timestamps and the office-network verification label.",
-    handoff: "HR for a correction that staff cannot make.",
+    purpose: "Record your own shift from the first card on the attendance page.",
+    actions: ["On a phone, tap Attendance / 打卡 in the top bar from any module.", "Scan the office QR with your phone camera, then confirm check-in or check-out.", "If QR is unavailable, use the displayed Manual Check In or Manual Check Out action.", "Use the HR section menu on phones or tabs on larger screens to open records, corrections, leave, or outstation requests."],
+    requiredItems: ["Authenticated staff identity", "Valid office QR or an approved office network for manual attendance"],
+    completeWhen: "Your attendance row shows the intended timestamps and verification method.",
+    handoff: "Corrections & shifts / 更正与班次 for a missing or wrong entry.",
     warnings: ["Duplicate check-in, checkout without an open session, and off-network attendance are server-rejected."]
   },
   {
@@ -1017,7 +1017,7 @@ const hrSelfServiceSections: readonly ModuleGuideSection[] = [
     kind: "tab",
     audience: "Staff self-service: own records only",
     purpose: "Review personal attendance history and identify differences.",
-    actions: ["Filter your own records by date or status.", "Compare the shown times with your workday.", "Report a difference to HR with the exact date."],
+    actions: ["Filter your own records by date or status.", "Compare the shown times with your workday.", "For a wrong or missing entry, choose Corrections & shifts, then Request correction. Enter actual times and a reason for HR approval."],
     requiredItems: ["Your own attendance date and record"],
     completeWhen: "Your attendance history is understood or a precise correction request has been raised.",
     handoff: "HR/Payroll for manual correction.",
@@ -1067,24 +1067,24 @@ const hrManagementSections: readonly ModuleGuideSection[] = [
     label: "Today Attendance / 今日打卡",
     kind: "section",
     audience: "HR Payroll and Boss/Admin",
-    purpose: "Monitor current-day attendance while staff record their own check-in/out.",
-    actions: ["Review today's present/missing records.", "Confirm office-network verification.", "Investigate exceptions in Attendance."],
-    requiredItems: ["Authenticated staff and approved network for each genuine check-in"],
-    completeWhen: "Current exceptions are understood and assigned for correction.",
-    handoff: "Attendance / 打卡记录.",
-    warnings: ["Today Attendance is monitoring; corrections are made in Attendance with a note."]
+    purpose: "Record your own check-in or check-out; team monitoring is in Attendance Dashboard.",
+    actions: ["Use the top-bar Attendance shortcut on phones.", "Scan the office QR with your phone camera and confirm, or use manual attendance when QR is unavailable.", "Choose Attendance Dashboard for team counts, Attendance for records, or Corrections & shifts for correction requests and schedules."],
+    requiredItems: ["Your authenticated staff identity", "Valid office QR or approved office network"],
+    completeWhen: "Your own shift is recorded and team exceptions have been reviewed in the relevant section.",
+    handoff: "Attendance and Corrections & shifts.",
+    warnings: ["Today Attendance records your own shift, not another staff member's attendance."]
   },
   {
     key: "attendance",
     label: "Attendance / 打卡记录",
     kind: "tab",
     audience: "HR Payroll and Boss/Admin",
-    purpose: "Review all attendance and record auditable manual corrections.",
-    actions: ["Find the exact staff/date record.", "Choose the corrected status.", "Enter the mandatory correction note.", "Save and verify Manual correction appears."],
-    requiredItems: ["Exact staff/date record", "Corrected status", "Correction note"],
-    completeWhen: "The row shows Manual correction and the intended status.",
+    purpose: "Review staff attendance history and identify records needing correction.",
+    actions: ["Find the exact staff/date record.", "Open Corrections & shifts to request or review corrected times.", "Review the actual times and reason before approving another staff member's correction."],
+    requiredItems: ["Exact staff/date record", "Actual check-in and check-out times", "Correction reason"],
+    completeWhen: "The approved correction is reflected in the attendance record.",
     handoff: "Payroll period review.",
-    warnings: ["Correction replaces office verification metadata and is audited."]
+    warnings: ["A request does not change hours until approved. Self-approval is not allowed."]
   },
   {
     key: "leave",
@@ -1161,7 +1161,7 @@ const hrSelfServiceGuide: ModuleGuideDefinition = {
   quickSteps: [
     {
       title: "Record attendance / 记录考勤",
-      description: "Check in and out from the approved office network and report a missing or incorrect record promptly."
+      description: "Tap Attendance / 打卡 in the phone header. Scan the office QR with your phone camera and confirm, or use manual attendance when QR is unavailable."
     },
     {
       title: "Submit leave correctly / 正确提交请假",
@@ -1184,7 +1184,7 @@ const hrManagementGuide: ModuleGuideDefinition = {
   quickSteps: [
     {
       title: "Review attendance / 核对考勤",
-      description: "Monitor today’s records and use reasoned manual corrections for the exact staff/date record."
+      description: "Use Attendance Dashboard for team counts and Attendance for records. Review correction requests in Corrections & shifts."
     },
     {
       title: "Process leave and balances / 处理请假与余额",
@@ -1207,7 +1207,7 @@ const hrBossGuide: ModuleGuideDefinition = {
   quickSteps: [
     {
       title: "Review staffing and attendance / 查看人员与考勤",
-      description: "Use Today Attendance, Staff Calendar, and Attendance to find coverage needs and correct exact records."
+      description: "Today Attendance records your own shift. Use Attendance Dashboard and Staff Calendar for coverage, then Corrections & shifts to review corrections."
     },
     {
       title: "Control leave and access / 管理请假与网络",

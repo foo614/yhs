@@ -1,3 +1,115 @@
+.hrSalaryPage .ant-pro-card-title,
+.hrAttendanceWorkflow .ant-card-head-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.hrTodayAttendance .attendancePunchCard {
+  display: grid;
+  gap: 12px;
+}
+
+.hrTodayAttendance .attendancePunchActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  max-width: 480px;
+}
+
+.hrTodayAttendance .attendancePunchActions .ant-btn {
+  width: 100%;
+  min-height: 48px;
+  height: auto;
+  padding: 10px 14px;
+  white-space: normal;
+  line-height: 1.5;
+}
+
+.attendanceQrInstructions {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: 64ch;
+}
+
+.attendanceQrInstructions > .anticon {
+  padding-top: 3px;
+  font-size: 20px;
+  color: #0b705c;
+}
+
+.attendanceQrInstructions .ant-typography {
+  margin-bottom: 0;
+}
+
+.hrMobileSectionPicker {
+  display: none;
+}
+
+.hrAttendanceWorkflow p {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .moduleCommandBar.hrCommandBar {
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .hrCommandBar .moduleStats {
+    display: none;
+  }
+
+  .hrMobileSectionPicker {
+    display: grid;
+    gap: 8px;
+  }
+
+  .hrMobileSectionPicker label {
+    font-weight: 600;
+  }
+
+  .hrMobileSectionPicker .ant-select {
+    min-height: 48px;
+    height: auto;
+  }
+
+  .hrMobileSectionPicker .ant-select-selection-item,
+  .hrSectionOptions .ant-select-item-option-content {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .hrSectionOptions .ant-select-item {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .hrSectionTabs > .ant-tabs-nav {
+    display: none;
+  }
+
+  .hrCorrectionCard > .ant-card-head .ant-card-head-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding-block: 16px;
+  }
+
+  .hrCorrectionCard > .ant-card-head .ant-card-extra {
+    margin-inline-start: 0;
+  }
+
+  .hrCorrectionCard > .ant-card-head .ant-btn {
+    width: 100%;
+    min-height: 44px;
+    height: auto;
+    white-space: normal;
+  }
+}
+
 .hrAttendanceDashboard .ant-pro-card-body {
   display: grid;
   gap: 16px;
