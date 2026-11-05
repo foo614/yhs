@@ -4,6 +4,15 @@ This runbook is the operator checklist for proving and deploying the Docker VPS 
 
 ## Shinjiru Ubuntu CI/CD (Production)
 
+Production API stdout/stderr is stored in the persistent host journal namespace
+`ysheng-api`. Use `journalctl --namespace=ysheng-api -t ysheng-api --since '7 days ago'`
+across API container recreations, and `journalctl --namespace=ysheng-api --disk-usage`
+to measure storage. The namespace retains up to seven days with a 1 GiB target;
+under pressure journald expires the oldest archived files first. Limits apply at
+file granularity (16 MiB or hourly rotation), not as a byte-exact quota. Docker's
+local read cache is disabled; use journalctl instead of docker logs for this service.
+Existing JSON logs are not migrated and expire with their original container.
+
 The production path publishes the Aspire AppHost into a Docker Compose artifact during CI, then deploys that verified artifact and the matching source commit to an Ubuntu VPS through GitHub Actions. It preserves the `postgres`, `api`, `worker`, `frontoffice`, and `backoffice` service names, PostgreSQL 17, and the `postgres_data` volume. An internal OpenTelemetry Collector fans API and worker logs, metrics, and traces out to both the Aspire dashboard and Grafana Cloud. The Aspire dashboard is reachable only through Caddy at `https://<BACKOFFICE_DOMAIN>/ops`; application, database, Collector, OTLP, and dashboard services have no public host ports. Caddy obtains and renews TLS certificates after DNS records resolve to the VPS.
 
 Before the first deployment:
