@@ -93,6 +93,10 @@ Before production deploy, replace:
 The production Collector also exports host-level CPU, load, memory, paging, physical-disk, root-filesystem, and physical-network metrics to the existing Aspire and Grafana Cloud exporters. It runs without privileged mode, Docker socket access, cAdvisor, or container discovery. The host filesystem is mounted read-only solely for the `hostmetrics` receiver; the container has all Linux capabilities dropped, `no-new-privileges`, a read-only root filesystem, and a small no-exec temporary filesystem. Collection excludes virtual filesystems, non-physical disks, loopback, Docker bridges, and virtual network interfaces to prevent sensitive or high-cardinality labels.
 
 Import `infra/grafana/ysheng-vps-host-dashboard.json` into the Grafana Cloud stack connected to the OTLP endpoint. Confirm the dashboard receives `service.name = ysheng-vps-host` data for CPU, memory, root filesystem, disk I/O, and network throughput. Do not add Docker socket mounts, privileged mode, cAdvisor, per-process collection, container names, command lines, customer identifiers, or raw mount paths beyond `/`.
+
+The host-side `ysheng-docker-capacity.timer` samples the ten approved Compose service labels every five minutes. The oneshot queries the local Engine and measures JSON log files by size. It sends numeric OTLP gauges via the authenticated internal collector HTTP listener without publishing a host port. Check `systemctl status ysheng-docker-capacity.timer` and the most recent oneshot exit status after release. Disable sampling with `systemctl disable --now ysheng-docker-capacity.timer` if disk accounting puts pressure on the host.
+
+For the on-call dashboard, show running state, restart count, writable bytes and log bytes per Compose service; sort by the sum of log and writable bytes. Running state zero includes missing expected services. Missing storage data means unavailable. Image-layer bytes are Engine-wide and count shared layers once; volume bytes are also Engine-wide. Neither includes backup files. A stale sample should be reported as unknown.
 - `PUBLIC_API_BASE_URL`
 - `FRONTOFFICE_ORIGIN`
 - `BACKOFFICE_ORIGIN`
