@@ -72,6 +72,15 @@ def collect():
                     except FileNotFoundError:
                         pass
                 gauge("ysheng_docker_log_bytes", size, service)
+        elif (service == "api" and details["HostConfig"]["LogConfig"]["Type"] == "syslog"
+              and details["HostConfig"]["LogConfig"].get("Config", {}).get("syslog-address")
+              == "unixgram:///run/systemd/journal.ysheng-api/dev-log"):
+            machine = Path("/etc/machine-id").read_text().strip()
+            journal = Path("/var/log/journal") / (machine + ".ysheng-api")
+            if journal.is_dir():
+                gauge("ysheng_docker_log_bytes", sum(
+                    f.lstat().st_blocks * 512 for f in journal.iterdir()
+                    if f.name.endswith((".journal", ".journal~"))), service)
         if service == "otel-collector":
             networks = details["NetworkSettings"]["Networks"].values()
             collector_ip = next(n["IPAddress"] for n in networks if n.get("IPAddress"))
