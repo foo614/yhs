@@ -318,6 +318,9 @@ jobs:
         shell: pwsh
         run: ./infra/test-ubuntu-deployment.ps1
 
+      - name: Verify local API logs survive container recreation
+        run: bash infra/testing/test-api-log-retention.sh
+
       - name: Check production WhatsApp display number override
         shell: bash
         run: python3 infra/test-business-display-number.py

@@ -96,6 +96,12 @@ install -d -m 0750 -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" "$TARGET_RELEASE"
 cp -a "$RELEASE_DIR/." "$TARGET_RELEASE/"
 chown -R "$DEPLOY_USER:$DEPLOY_GROUP" "$TARGET_RELEASE"
 
+# Docker must find this socket at container creation and after a host reboot.
+install -D -m 0644 "$TARGET_RELEASE/infra/ubuntu/ysheng-api-journal.conf" /etc/systemd/journald@ysheng-api.conf.d/retention.conf
+systemctl add-wants sockets.target systemd-journald@ysheng-api.socket
+systemctl start systemd-journald@ysheng-api.socket
+test -S /run/systemd/journal.ysheng-api/dev-log
+
 sed "s/__DEPLOY_USER__/$DEPLOY_USER/g" "$TARGET_RELEASE/infra/ubuntu/ysheng-backup.service" > /etc/systemd/system/ysheng-backup.service
 install -m 0644 "$TARGET_RELEASE/infra/ubuntu/ysheng-backup.timer" /etc/systemd/system/ysheng-backup.timer
 install -D -m 0644 "$TARGET_RELEASE/infra/ubuntu/docker-capacity.py" /usr/local/lib/ysheng/docker-capacity.py

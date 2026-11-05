@@ -8,6 +8,12 @@ services:
       retries: 5
 
   api:
+    logging:
+      driver: syslog
+      options:
+        syslog-address: unixgram:///run/systemd/journal.ysheng-api/dev-log
+        tag: ysheng-api
+        cache-disabled: "true"
     build:
       context: ..
       dockerfile: services/api/src/YSHeng.Api/Dockerfile
