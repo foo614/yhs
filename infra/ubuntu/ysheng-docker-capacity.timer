@@ -1,0 +1,9 @@
+[Unit]
+Description=Sample YS Heng Docker capacity every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

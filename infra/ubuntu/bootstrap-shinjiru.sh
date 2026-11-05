@@ -98,8 +98,11 @@ chown -R "$DEPLOY_USER:$DEPLOY_GROUP" "$TARGET_RELEASE"
 
 sed "s/__DEPLOY_USER__/$DEPLOY_USER/g" "$TARGET_RELEASE/infra/ubuntu/ysheng-backup.service" > /etc/systemd/system/ysheng-backup.service
 install -m 0644 "$TARGET_RELEASE/infra/ubuntu/ysheng-backup.timer" /etc/systemd/system/ysheng-backup.timer
+install -D -m 0644 "$TARGET_RELEASE/infra/ubuntu/docker-capacity.py" /usr/local/lib/ysheng/docker-capacity.py
+install -m 0644 "$TARGET_RELEASE/infra/ubuntu/ysheng-docker-capacity."{service,timer} /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now ysheng-backup.timer
+systemctl enable --now ysheng-docker-capacity.timer
 
 ufw allow "${SSH_PORT}/tcp"
 ufw allow 80/tcp

@@ -276,6 +276,9 @@ jobs:
         shell: pwsh
         run: ./infra/test-otel-collector.ps1
 
+      - name: Check Docker capacity metric boundaries
+        run: python3 -B infra/testing/test-docker-capacity.py
+
       - name: Check Aspire /ops login proxy
         shell: pwsh
         run: ./infra/test-ops-dashboard-proxy.ps1

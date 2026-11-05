@@ -15,6 +15,10 @@ receivers:
         endpoint: 0.0.0.0:4317
         auth:
           authenticator: bearertokenauth/ingest
+      http:
+        endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth/ingest
   prometheus/collector:
     config:
       scrape_configs:
