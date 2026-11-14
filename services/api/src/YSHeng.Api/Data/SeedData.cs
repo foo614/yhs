@@ -1468,6 +1468,9 @@ public static class SeedData
                 "DiscountVoucherReference" text NULL,
                 CONSTRAINT "PK_PurchaseInvoiceRevisionLines" PRIMARY KEY ("Id")
             );
+            ALTER TABLE "PurchaseInvoiceRevisionLines" ADD COLUMN IF NOT EXISTS "SupplierInvoiceNumber" text NULL;
+            ALTER TABLE "PurchaseInvoiceRevisionLines" ADD COLUMN IF NOT EXISTS "SupplierInvoiceDate" date NULL;
+            ALTER TABLE "PurchaseInvoiceRevisionLines" ADD COLUMN IF NOT EXISTS "DiscountVoucherReference" text NULL;
             CREATE UNIQUE INDEX IF NOT EXISTS "UX_PurchaseInvoiceRevisionLines_Revision_SortOrder"
                 ON "PurchaseInvoiceRevisionLines" ("PurchaseInvoiceRevisionId", "SortOrder");
         """);
