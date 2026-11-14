@@ -23,6 +23,96 @@ namespace YSHeng.Api.Tests;
 public sealed class WhatsAppPostgresTests
 {
     [PostgresFact]
+    public async Task Owner_purchase_invoice_schema_upgrade_is_idempotent_and_hydrates_legacy_revision_lines_on_postgres()
+    {
+        var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("WHATSAPP_TEST_POSTGRES"));
+        Assert.Contains(config.Host, new[] { "127.0.0.1", "localhost" });
+        Assert.Equal("whatsapp_ci", config.Database);
+        var database = "purchase_invoice_check_" + Guid.NewGuid().ToString("N");
+        config.Pooling = false;
+        await using var admin = new NpgsqlConnection(config.ConnectionString);
+        await admin.OpenAsync();
+        await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{database}\"", admin)) await create.ExecuteNonQueryAsync();
+        config.Database = database;
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(config.ConnectionString).Options;
+        try
+        {
+            Guid invoiceId;
+            await using (var db = new AppDbContext(options))
+            {
+                await db.Database.EnsureCreatedAsync();
+                var owner = new Owner { Name = "Legacy Owner", Phone = "0123456789" };
+                var vehicle = new Vehicle
+                {
+                    PlateNumber = "PGINV1",
+                    Make = "Synthetic",
+                    Model = "Legacy",
+                    Year = 2022,
+                    OwnerId = owner.Id,
+                    PurchasePrice = 50_000m,
+                    PurchaseSource = VehiclePurchaseSource.YSHeng,
+                    Status = VehicleStatus.Available,
+                    BossConfirmed = true
+                };
+                var invoice = new PurchaseInvoice
+                {
+                    VehicleId = vehicle.Id,
+                    OwnerId = owner.Id,
+                    SourceType = PurchaseInvoiceSourceType.OwnerAcquisition,
+                    CurrentRevisionNumber = 1,
+                    InvoiceNumber = "YSH-PINV-2026-000001",
+                    InvoiceDate = new DateOnly(2026, 11, 14),
+                    PurchaseDate = new DateOnly(2026, 11, 14),
+                    Amount = 50_000m
+                };
+                var revision = new PurchaseInvoiceRevision
+                {
+                    PurchaseInvoiceId = invoice.Id,
+                    RevisionNumber = 1,
+                    InvoiceNumber = invoice.InvoiceNumber,
+                    SourceVehicleId = vehicle.Id,
+                    SourceOwnerId = owner.Id,
+                    InvoiceDate = invoice.InvoiceDate,
+                    PurchaseDate = invoice.PurchaseDate!.Value,
+                    SellerName = owner.Name,
+                    SellerPhone = owner.Phone,
+                    VehiclePlateNumber = vehicle.PlateNumber,
+                    VehicleDescription = $"{vehicle.Make} {vehicle.Model}",
+                    Amount = invoice.Amount,
+                    CreatedBy = "legacy-ci",
+                    Content = []
+                };
+                var line = new PurchaseInvoiceRevisionLine
+                {
+                    PurchaseInvoiceRevisionId = revision.Id,
+                    LineType = PurchaseInvoiceLineType.VehiclePurchase,
+                    Description = "Legacy vehicle line",
+                    Amount = invoice.Amount,
+                    CapitaliseIntoVehicleCost = true,
+                    SortOrder = 1
+                };
+                db.AddRange(owner, vehicle, invoice, revision, line);
+                await db.SaveChangesAsync();
+                invoiceId = invoice.Id;
+
+                await db.Database.ExecuteSqlRawAsync("""
+                    ALTER TABLE "PurchaseInvoiceRevisionLines" DROP COLUMN IF EXISTS "SupplierInvoiceNumber";
+                    ALTER TABLE "PurchaseInvoiceRevisionLines" DROP COLUMN IF EXISTS "SupplierInvoiceDate";
+                    ALTER TABLE "PurchaseInvoiceRevisionLines" DROP COLUMN IF EXISTS "DiscountVoucherReference";
+                    """);
+            }
+
+            await VerifyOwnerPurchaseInvoiceHydrationAsync(config.ConnectionString, invoiceId);
+            await VerifyOwnerPurchaseInvoiceHydrationAsync(config.ConnectionString, invoiceId);
+        }
+        finally
+        {
+            await using var drop = new NpgsqlCommand($"DROP DATABASE \"{database}\" WITH (FORCE)", admin);
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    [PostgresFact]
     public async Task Schema_is_idempotent_and_capture_serializes_with_revocation_on_postgres()
     {
         var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("WHATSAPP_TEST_POSTGRES"));
@@ -423,6 +513,36 @@ public sealed class WhatsAppPostgresTests
             var saved = await db.CalendarTasks.SingleAsync(task => task.Id == timed.Id);
             Assert.Equal(new TimeOnly(9, 0), saved.StartTime);
             Assert.Equal(new TimeOnly(17, 30), saved.EndTime);
+        }
+        finally
+        {
+            foreach (var value in previous) Environment.SetEnvironmentVariable(value.Key, value.Value);
+        }
+    }
+
+    private static async Task VerifyOwnerPurchaseInvoiceHydrationAsync(string connectionString, Guid invoiceId)
+    {
+        var keys = new[] { "ConnectionStrings__Default", "SeedData__Enabled", "Worker__Enabled", "WhatsAppAssistant__Enabled" };
+        var previous = keys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable("ConnectionStrings__Default", connectionString);
+            Environment.SetEnvironmentVariable("SeedData__Enabled", "false");
+            Environment.SetEnvironmentVariable("Worker__Enabled", "false");
+            Environment.SetEnvironmentVariable("WhatsAppAssistant__Enabled", "false");
+            await using var factory = new StaffApplicationFactory(new ConcurrentQueue<string>());
+            using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health/ready")).StatusCode);
+
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options;
+            await using var db = new AppDbContext(options);
+            var invoice = await db.PurchaseInvoices.AsNoTracking().SingleAsync(row => row.Id == invoiceId);
+            var hydrated = await OwnerPurchaseInvoiceReader.HydrateAsync(db, [invoice]);
+            var current = Assert.Single(hydrated).CurrentRevision;
+            Assert.NotNull(current);
+            var line = Assert.Single(current!.Lines);
+            Assert.Equal("Legacy vehicle line", line.Description);
+            Assert.Equal(50_000m, line.Amount);
         }
         finally
         {
