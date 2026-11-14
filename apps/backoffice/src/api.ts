@@ -1,4 +1,5 @@
 export type StockOwner = "YSHeng" | "KS";
+export type VehiclePurchaseSource = "Carsome" | "Carro" | "KSA" | "YSHeng";
 export type VehicleStatus = "Available" | "LoanProcessing" | "Sold";
 export type LeadStatus = "New" | "Contacted" | "Closed";
 export type LeadClosureOutcome = "Sold" | "Lost" | "Invalid";
@@ -31,7 +32,7 @@ export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "U
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated" | "PendingFinance" | "PendingBoss" | "Published";
 export type HrEmploymentType = "Monthly" | "Hourly";
-export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate" | "InspectionReport" | "WindscreenPolicy";
+export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate" | "InspectionReport" | "WindscreenPolicy" | "SettlementEvidence" | "BankSettlementPayment" | "InspectionReceipt" | "InspectionAppointmentConfirmation";
 export type DocumentOwnershipType = "Seller" | "Buyer" | "Vehicle";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed" | "Reviewed";
 export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected" | "Reviewed";
@@ -127,7 +128,52 @@ export type DocumentUploadOwner = {
   paymentRecordId?: string;
   collectionTransactionId?: string;
   deliveryScheduleId?: string;
+  inspectionId?: string;
   loanApplicationId?: string;
+};
+
+export type InspectionTypeCode = 9001 | 9002 | 9003 | 9004 | 9011;
+export type InspectionCompany = "YSHengAuto" | "YSHengAutomotive";
+export type InspectionStatus = "Booked" | "Completed" | "Cancelled";
+export type InspectionRecord = {
+  id: string;
+  vehicleId: string;
+  type: InspectionTypeCode;
+  company: InspectionCompany;
+  status: InspectionStatus;
+  isLorry: boolean;
+  appointmentDate: string;
+  appointmentTime?: string | null;
+  reportExpiryDate: string;
+  bookingReference: string;
+  sourceReceiptNumber: string;
+  receiptTotal: number;
+  allocatedAmount: number;
+  supplierInvoiceReference: string;
+  notes?: string | null;
+  createdAt: string;
+  createdBy: string;
+  completedAt?: string | null;
+  completedBy?: string | null;
+  plateNumber?: string | null;
+  vehicleLabel?: string | null;
+  documents?: VehicleDocument[];
+};
+export type CreateInspectionRequest = {
+  vehicleId: string;
+  type: InspectionTypeCode;
+  company: InspectionCompany;
+  isLorry: boolean;
+  appointmentDate: string;
+  appointmentTime?: string | null;
+  bookingReference: string;
+  sourceReceiptNumber: string;
+  receiptTotal: number;
+  allocatedAmount: number;
+  notes?: string | null;
+};
+export type UpdateInspectionRequest = Omit<CreateInspectionRequest, "vehicleId" | "sourceReceiptNumber"> & {
+  status: InspectionStatus;
 };
 
 export type Vehicle = {
@@ -139,6 +185,7 @@ export type Vehicle = {
   model: string;
   year: number;
   stockOwner: StockOwner;
+  purchaseSource?: VehiclePurchaseSource;
   stockLocation?: string;
   status: VehicleStatus;
   isPublic: boolean;
@@ -146,6 +193,11 @@ export type Vehicle = {
   purchasePrice: number;
   modifiedPurchasePrice?: number;
   sellingPrice: number;
+  dealerProcessingFee?: number | null;
+  dealerTrailerFee?: number | null;
+  dealerParkingFee?: number | null;
+  dealerLateCharge?: number | null;
+  dealerDiscount?: number | null;
   additionalCharges: number;
   refurbishmentTotal: number;
   repairCost?: number;
@@ -155,6 +207,7 @@ export type Vehicle = {
   ucdStatus?: string;
   customerId?: string;
   ownerId?: string;
+  hasSpareKey?: boolean;
   intakeDate?: string;
   intakeAt?: string;
   soldAt?: string;
@@ -382,6 +435,13 @@ export type PurchaseInvoice = {
   accountingStatus?: AccountingConfirmationStatus;
   accountingConfirmedBy?: string;
   accountingConfirmedAt?: string;
+  supplierInvoiceNumber?: string;
+  supplierInvoiceDate?: string;
+  discountVoucherReference?: string;
+  autoCountInvoiceNumber?: string;
+  autoCountKeyed?: boolean;
+  autoCountKeyedBy?: string;
+  autoCountKeyedAt?: string;
   /** Legacy supplier records remain revision zero. Owner-acquisition records start at one. */
   currentRevisionNumber?: number;
   /** The current snapshot is metadata only; official PDF bytes use the protected content route. */
@@ -398,6 +458,9 @@ export type PurchaseInvoiceLine = {
   description: string;
   amount: number;
   capitaliseIntoVehicleCost: boolean;
+  supplierInvoiceNumber?: string;
+  supplierInvoiceDate?: string;
+  discountVoucherReference?: string;
 };
 
 export type PurchaseInvoiceRevisionLine = PurchaseInvoiceLine & {
@@ -419,6 +482,11 @@ export type PurchaseInvoiceRevision = {
   sellerIcNumber?: string;
   sellerTinNumber?: string;
   sellerAddress?: string;
+  sellerType?: "Private" | "Company";
+  sellerRegistrationNumber?: string;
+  supplierInvoiceNumber?: string;
+  supplierInvoiceDate?: string;
+  discountVoucherReference?: string;
   vehiclePlateNumber: string;
   vehicleDescription: string;
   amount: number;
@@ -435,6 +503,15 @@ export type GeneratePurchaseInvoiceInput = {
   expectedOwnerId: string;
   expectedPurchasePrice: number;
   expectedIntakeDate: string;
+  expectedSupplierId?: string;
+  supplierInvoiceNumber?: string;
+  supplierInvoiceDate?: string;
+  discountVoucherReference?: string;
+};
+
+export type RecordAutoCountKeyInput = {
+  expectedRevision: number;
+  autoCountInvoiceNumber: string;
 };
 
 export type PurchaseInvoiceRevisionSellerInput = {
@@ -453,6 +530,9 @@ export type CreatePurchaseInvoiceRevisionInput = {
   paymentReference?: string;
   seller: PurchaseInvoiceRevisionSellerInput;
   lines: Array<Pick<PurchaseInvoiceLine, "lineType" | "description" | "amount" | "capitaliseIntoVehicleCost">>;
+  supplierInvoiceNumber?: string;
+  supplierInvoiceDate?: string;
+  discountVoucherReference?: string;
 };
 
 export type Supplier = {
@@ -667,6 +747,7 @@ export type SalesWorkboardItem = {
   responsibleDepartment: string;
   nextAction: string;
   soldAt?: string | null;
+  actualSellingPrice?: number | null;
 };
 
 export type SalesWorkboard = {
@@ -747,12 +828,38 @@ export type SettlementReminder = {
   amount: number;
   deadline: string;
   isPaid: boolean;
-  direction?: "LegacyPaySeller" | "PaySeller" | "CollectFromSeller" | "InternalOffset";
+  direction?: "LegacyPaySeller" | "PaySeller" | "CollectFromSeller" | "InternalOffset" | "PayBank";
   purchasePriceSnapshot?: number;
   bankDebtAmount?: number;
+  bankName?: string;
+  bankAccountNumber?: string;
+  replacesSettlementId?: string;
+  supersededById?: string;
+  paymentDocumentId?: string;
+  paidOn?: string;
 };
 
+export type BankSettlementInput = { vehicleId: string; bankDebtAmount: number; deadline: string; bankName: string; bankAccountNumber: string; replacesSettlementId?: string };
+export function createBankSettlement(input: BankSettlementInput) {
+  return request<SettlementReminder>("/api/bank-settlements", { method: "POST", body: JSON.stringify(input) });
+}
+export function updateBankSettlement(id: string, input: Omit<BankSettlementInput, "vehicleId" | "replacesSettlementId"> & { expectedBankDebtAmount: number; expectedDeadline: string; expectedBankName: string; expectedBankAccountNumber: string }) {
+  return request<SettlementReminder>(`/api/bank-settlements/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+export async function uploadBankSettlementEvidence(vehicleId: string, settlementId: string, file: File) {
+  const body = new FormData(); body.append("file", file);
+  const response = await fetch(`${apiBaseUrl}/api/vehicles/${vehicleId}/documents?category=BankSettlementPayment&bankSettlementId=${settlementId}`, { method: "POST", credentials: "include", body });
+  if (!response.ok) throw new Error(await responseErrorMessage(response, "Bank payment evidence upload failed"));
+  return parseOptionalJson<VehicleDocument>(response);
+}
+export function completeBankSettlement(id: string, input: { paymentDocumentId: string; paidOn: string; expectedBankDebtAmount: number; expectedDeadline: string; expectedBankName: string; expectedBankAccountNumber: string }) {
+  return request<SettlementReminder>(`/api/bank-settlements/${id}/complete`, { method: "POST", body: JSON.stringify(input) });
+}
+
 export type VehicleIntakeSettlementInput = {
+  hasDebt?: boolean;
+  bankName?: string;
+  bankAccountNumber?: string;
   bankDebtAmount: number;
   expectedPurchasePrice?: number;
   deadline?: string;
@@ -1357,9 +1464,11 @@ export type VehicleDocument = {
   customerId?: string;
   ownerId?: string;
   repairJobId?: string;
+  bankSettlementId?: string;
   paymentRecordId?: string;
   collectionTransactionId?: string;
   deliveryScheduleId?: string;
+  inspectionId?: string;
   uploadedBy: string;
   checksum: string;
   uploadedAt: string;
@@ -1460,7 +1569,7 @@ export function resendStaffWhatsAppInvitation(staffUserId?: string): Promise<{ m
 
 export type StaffWhatsAppPolicyCategory =
   "OutstandingDigest" | "AttendanceSummary" | "LeaveApproval" | "OcrUsage" |
-  "VehicleEvent" | "DeliveryEvent" | "FinanceEvent";
+  "VehicleEvent" | "DeliveryEvent" | "FinanceEvent" | "CompanyNews" | "CalendarTasks" | "InspectionReminder";
 export type StaffWhatsAppHistoryCategory = StaffWhatsAppPolicyCategory | "StaffInvitation";
 export type StaffWhatsAppPolicy = {
   category: StaffWhatsAppPolicyCategory;
@@ -1468,6 +1577,7 @@ export type StaffWhatsAppPolicy = {
   localMinuteOfDay: number;
   leadDays: number;
   thresholdPercent: number;
+  delayMinutes?: number;
   senderReady: boolean;
   templateReady: boolean;
   categoryReady: boolean;
@@ -1475,7 +1585,7 @@ export type StaffWhatsAppPolicy = {
   templateReadiness?: { language: "ms" | "en_US"; ready: boolean; issues: string[] }[];
 };
 export type StaffWhatsAppPolicyInput = Pick<StaffWhatsAppPolicy,
-  "enabled" | "localMinuteOfDay" | "leadDays" | "thresholdPercent">;
+  "enabled" | "localMinuteOfDay" | "leadDays" | "thresholdPercent" | "delayMinutes">;
 export type StaffWhatsAppHistoryItem = {
   id: string;
   staffUserId: string;
@@ -1880,6 +1990,24 @@ export async function getDeliveryActivity(deliveryId: string): Promise<DeliveryA
   return request<DeliveryActivity[]>(`/api/deliveries/${deliveryId}/activity`);
 }
 
+export async function getInspections(): Promise<InspectionRecord[]> {
+  return request<InspectionRecord[]>("/api/inspections");
+}
+
+export async function createInspection(payload: CreateInspectionRequest): Promise<InspectionRecord> {
+  return request<InspectionRecord>("/api/inspections", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }, "Unable to create inspection booking");
+}
+
+export async function updateInspection(id: string, payload: UpdateInspectionRequest): Promise<InspectionRecord> {
+  return request<InspectionRecord>(`/api/inspections/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  }, "Unable to update inspection booking");
+}
+
 export async function getPayments(): Promise<PaymentRecord[]> {
   return request<PaymentRecord[]>("/api/payments", {}, "Unable to load finance records");
 }
@@ -1952,6 +2080,13 @@ export async function getSalesWorkboard(agentUserId?: string): Promise<SalesWork
   const query = agentUserId ? `?agentUserId=${encodeURIComponent(agentUserId)}` : "";
   const path = "/api/sales/workboard";
   return request<SalesWorkboard>(`${path}${query}`);
+}
+
+export async function updateActualSellingPrice(vehicleId: string, amount: number): Promise<{ id: string; vehicleId: string; amount: number; brokerUserId: string; brokerName: string; updatedAt: string }> {
+  return request(`/api/sales/workboard/${encodeURIComponent(vehicleId)}/actual-selling-price`, {
+    method: "PUT",
+    body: JSON.stringify({ amount })
+  });
 }
 
 export async function getAuditLog(filters: AuditLogFilters = {}, options: AuditLogRequestOptions = {}): Promise<AuditLog[]> {
@@ -2038,7 +2173,7 @@ export async function getHrAvailabilityCalendar(): Promise<HrAvailabilityCalenda
 
 export type OperationsCalendarEvent = {
   id: string;
-  kind: "Delivery" | "Busy";
+  kind: "Delivery" | "Busy" | "Task" | "Inspection";
   title: string;
   vehicleYear?: number | null;
   vehicleMake?: string | null;
@@ -2046,14 +2181,60 @@ export type OperationsCalendarEvent = {
   startDate: string;
   endDate: string;
   time: string | null;
-  status: DeliveryStatus | null;
+  status: DeliveryStatus | CalendarTaskStatus | InspectionStatus | null;
   customerName?: string | null;
   customerContact?: string | null;
   customerAccess?: "Full" | "Hidden" | "NotLinked" | null;
+  assignedToUserId?: string | null;
+  assignedToName?: string | null;
+  description?: string | null;
+};
+
+export type CalendarTaskStatus = "Open" | "Done" | "Cancelled";
+export type CalendarTaskRequest = {
+  title: string;
+  description?: string | null;
+  startDate: string;
+  endDate: string;
+  assignedToUserId: string;
+};
+
+export type CalendarTask = CalendarTaskRequest & {
+  id: string;
+  assignedToName: string;
+  status: CalendarTaskStatus;
+  createdByUserId: string;
+  createdByName: string;
+  createdAt: string;
+  completedAt?: string | null;
+  completedByUserId?: string | null;
+};
+export type CalendarTaskNotificationEvent = {
+  eventType: "calendar.task.created";
+  taskId: string;
+  title: string;
+  assignedToUserId: string;
+  assignedToName: string;
+  startDate: string;
+  endDate: string;
 };
 
 export async function getOperationsCalendar(from: string, to: string): Promise<OperationsCalendarEvent[]> {
   return request(`/api/operations-calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+}
+
+export async function createCalendarTask(input: CalendarTaskRequest): Promise<{ task: CalendarTask; notificationEvent: CalendarTaskNotificationEvent }> {
+  return request<{ task: CalendarTask; notificationEvent: CalendarTaskNotificationEvent }>("/api/operations-calendar/tasks", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateCalendarTaskStatus(taskId: string, status: CalendarTaskStatus): Promise<CalendarTask> {
+  return request<CalendarTask>(`/api/operations-calendar/tasks/${encodeURIComponent(taskId)}/status`, {
+    method: "PUT",
+    body: JSON.stringify({ status })
+  });
 }
 
 export async function getHrAttendanceReminderPolicies(): Promise<HrAttendanceReminderPolicy[]> {
@@ -2229,11 +2410,12 @@ export async function createVehicle(vehicle: Vehicle): Promise<Vehicle> {
   });
 }
 
-export async function createVehicleIntake(input: VehicleIntakeCreateInput, identityCard?: File, voc?: File): Promise<VehicleIntakeCreateResponse> {
+export async function createVehicleIntake(input: VehicleIntakeCreateInput, identityCard?: File, voc?: File, settlementEvidence?: File): Promise<VehicleIntakeCreateResponse> {
   const formData = new FormData();
   formData.append("request", JSON.stringify(input));
   if (identityCard) formData.append("identityCard", identityCard);
   if (voc) formData.append("voc", voc);
+  if (settlementEvidence) formData.append("settlementEvidence", settlementEvidence);
   const response = await fetch(`${apiBaseUrl}/api/vehicle-intakes`, {
     method: "POST",
     credentials: "include",
@@ -2254,6 +2436,16 @@ export async function updateVehicle(vehicle: Vehicle): Promise<Vehicle> {
   });
 }
 
+export async function exportStockList(source?: VehiclePurchaseSource, includeSold = false): Promise<Blob> {
+  const query = new URLSearchParams();
+  if (source) query.set("source", source);
+  if (includeSold) query.set("includeSold", "true");
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const response = await fetch(`${apiBaseUrl}/api/vehicles/stock-export${suffix}`, { credentials: "include" });
+  if (!response.ok) throw new Error(await responseErrorMessage(response, `Stock list export failed with status ${response.status}`));
+  return response.blob();
+}
+
 export async function requestVehiclePublicationApproval(vehicleId: string): Promise<{ message: string }> {
   return request<{ message: string }>(`/api/vehicles/${vehicleId}/request-publication-approval`, { method: "POST" });
 }
@@ -2268,6 +2460,7 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
     model: values.model,
     year: Number(values.year),
     stockOwner: values.stockOwner,
+    purchaseSource: values.purchaseSource || "YSHeng",
     stockLocation: values.stockLocation?.trim() || undefined,
     status: values.status,
     isPublic: values.isPublic,
@@ -2275,6 +2468,11 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
     purchasePrice: Number(values.purchasePrice ?? 0),
     modifiedPurchasePrice: values.modifiedPurchasePrice == null ? Number(values.purchasePrice ?? 0) : Number(values.modifiedPurchasePrice),
     sellingPrice: Number(values.sellingPrice ?? 0),
+    dealerProcessingFee: values.dealerProcessingFee == null ? null : Number(values.dealerProcessingFee),
+    dealerTrailerFee: values.dealerTrailerFee == null ? null : Number(values.dealerTrailerFee),
+    dealerParkingFee: values.dealerParkingFee == null ? null : Number(values.dealerParkingFee),
+    dealerLateCharge: values.dealerLateCharge == null ? null : Number(values.dealerLateCharge),
+    dealerDiscount: values.dealerDiscount == null ? null : Number(values.dealerDiscount),
     additionalCharges: Number(values.additionalCharges ?? 0),
     refurbishmentTotal: Number(values.refurbishmentTotal ?? 0),
     commissionTotal: Number(values.commissionTotal ?? 0),
@@ -2283,6 +2481,7 @@ export function vehicleFromIntakeValues(values: VehicleIntakeValues, id: string)
     ucdStatus: values.ucdStatus?.trim() || undefined,
     customerId: values.customerId,
     ownerId: values.ownerId,
+    hasSpareKey: values.hasSpareKey,
     intakeAt: values.intakeAt,
     outstationPickupAllowance: Number(values.outstationPickupAllowance ?? 0),
     outstationPickupScheduledAt: values.outstationPickupScheduledAt,
@@ -2362,6 +2561,13 @@ export async function confirmPurchaseInvoiceAccounting(invoiceId: string, expect
   const confirmationPath = `/api/purchase-invoices/${invoiceId}/confirm-accounting`;
   const suffix = expectedRevision === undefined ? "" : `?expectedRevision=${encodeURIComponent(String(expectedRevision))}`;
   return request<PurchaseInvoice>(`${confirmationPath}${suffix}`, { method: "POST" });
+}
+
+export async function recordPurchaseInvoiceAutoCountKey(invoiceId: string, input: RecordAutoCountKeyInput): Promise<PurchaseInvoice> {
+  return request<PurchaseInvoice>(`/api/purchase-invoices/${invoiceId}/record-autocount`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
 }
 
 export function customerFromLead(lead: Lead, id: string): Customer {
@@ -2870,6 +3076,7 @@ function documentUploadPath(vehicleId: string, category: DocumentCategory, owner
   if (owner?.paymentRecordId) query.set("paymentRecordId", owner.paymentRecordId);
   if (owner?.collectionTransactionId) query.set("collectionTransactionId", owner.collectionTransactionId);
   if (owner?.deliveryScheduleId) query.set("deliveryScheduleId", owner.deliveryScheduleId);
+  if (owner?.inspectionId) query.set("inspectionId", owner.inspectionId);
   if (owner?.loanApplicationId) query.set("loanApplicationId", owner.loanApplicationId);
   return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
 }

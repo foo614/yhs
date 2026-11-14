@@ -15,6 +15,7 @@ export function CollectionAgeingRecordsPanel({ search, plateFor, onOpen, sourceS
   const [error, setError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   useEffect(() => {
     let active = true;
     setData(undefined);
@@ -35,13 +36,13 @@ export function CollectionAgeingRecordsPanel({ search, plateFor, onOpen, sourceS
           <Alert type="info" showIcon message="Current balances across all dates" description={`${collectionDateLimitation} Balances may have changed since the Dashboard was loaded.`} />
           {data.records.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No matching outstanding balances" />}
           <Button onClick={() => setAttempt(value => value + 1)}>Refresh balances / 刷新余额</Button>
-          {data.records.slice((page - 1) * 20, page * 20).map(record => <div className="collectionAgeingRecord" key={`${record.sourceType}:${record.sourceId}`}>
+          {data.records.slice((page - 1) * pageSize, page * pageSize).map(record => <div className="collectionAgeingRecord" key={`${record.sourceType}:${record.sourceId}`}>
             <Space wrap><strong>{plateFor(record.vehicleId)}</strong><Tag>{record.sourceType === "PaymentRecord" ? "Receivable / 应收款" : "Open debt case / 未结欠款"}</Tag></Space>
             <p><strong>{collectionMoney(record.amount)}</strong> · Due date: {record.dueDate ?? "Unknown / 未知"}</p>
             {sourceStatus(record).unavailable && <Alert type="warning" showIcon message="Source records unavailable. Reload before opening Details." action={<Button loading={sourceStatus(record).loading} onClick={() => void onRetrySource(record)}>Reload records</Button>} />}
             <div className="collectionAgeingRecordActions"><Button loading={sourceStatus(record).loading} disabled={sourceStatus(record).unavailable || sourceStatus(record).loading} onClick={() => onOpen(record)}>Details / 详情</Button></div>
           </div>)}
-          <Pagination current={page} pageSize={20} total={data.records.length} showSizeChanger={false} hideOnSinglePage onChange={setPage} />
+          <Pagination current={page} pageSize={pageSize} total={data.records.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => { setPage(size === pageSize ? next : 1); setPageSize(size); }} />
         </Space>}
   </Card>;
 }

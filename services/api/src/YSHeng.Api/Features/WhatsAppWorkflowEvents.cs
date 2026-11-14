@@ -7,6 +7,7 @@ namespace YSHeng.Api.Features;
 // Source events are captured with the source transaction. FOO-200 owns conversion to bound-staff outbox rows.
 public static class WhatsAppWorkflowEvents
 {
+    public const string NewStock = "CompanyNewStock";
     public const string Intake = "VehicleIntakeSaved";
     public const string PublicationRequest = "PublicationApprovalRequested";
     public const string DeliveryRelease = "DeliveryReleased";
@@ -71,6 +72,7 @@ public static class WhatsAppWorkflowEvents
             Diagnostic = diagnostic, CreatedAt = now, ExpiresAt = now + 86400
         };
         db.WhatsAppWorkflowEvents.Add(row);
+        if (kind == Intake) await StageAsync(db, NewStock, sourceId, version, vehicle, actor, now, ct);
         db.AuditLogs.Add(new AuditLog { Actor = actor, Action = "whatsapp.workflow.captured", EntityName = nameof(WhatsAppWorkflowEvent), EntityId = row.Id });
         return row;
     }
@@ -87,13 +89,13 @@ public static class WhatsAppWorkflowEvents
             item.State != "Pending" || item.ResolvedAt is not null || item.ExpiresAt <= now) return false;
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(row => row.Id == staffUserId, ct);
         if (!WhatsAppStaffBindings.Active(user, now) ||
-            !(await WhatsAppStaffBindings.RolesAsync(db, staffUserId, ct)).Contains(item.RequiredRole)) return false;
+            !(item.RequiredRole == "AllStaff" ? WhatsAppStaffNotifications.RoleAllowed(item.Category, await WhatsAppStaffBindings.RolesAsync(db, staffUserId, ct)) : (await WhatsAppStaffBindings.RolesAsync(db, staffUserId, ct)).Contains(item.RequiredRole))) return false;
         var vehicle = await db.Vehicles.AsNoTracking().SingleOrDefaultAsync(row => row.Id == item.VehicleId, ct);
         if (vehicle is null || item.RequiredRole == "Sales" &&
             (item.TargetUserId != staffUserId || vehicle.SalesAgentUserId != staffUserId)) return false;
         return item.EventKind switch
         {
-            Intake => item.SourceId == vehicle.Id,
+            Intake or NewStock => item.SourceId == vehicle.Id,
             PublicationRequest => item.SourceId == vehicle.Id && !vehicle.BossConfirmed && !vehicle.IsPublic &&
                 vehicle.Status == VehicleStatus.Available,
             DeliveryRelease => await db.DeliverySchedules.AsNoTracking().AnyAsync(row => row.Id == item.SourceId &&
@@ -133,6 +135,8 @@ public static class WhatsAppWorkflowEvents
         if (plate.Length > 24) plate = plate[..24];
         if (plate.Length == 0) plate = "—";
         var malay = language.StartsWith("ms", StringComparison.OrdinalIgnoreCase);
+        if (item.EventKind == NewStock)
+            return $"{(malay ? "Stok baharu" : "New stock")}: {plate} | {vehicle.Year} {WhatsAppStaffSalesQueries.Clean(vehicle.Make)} {WhatsAppStaffSalesQueries.Clean(vehicle.Model)} | RM{vehicle.SellingPrice:0.00}";
         var copy = malay ? MalayCopy[item.EventKind] : Descriptions[item.EventKind].Text;
         return malay ? $"Kenderaan {plate}: {copy}" : $"Vehicle {plate}: {copy}";
     }
@@ -153,6 +157,7 @@ public static class WhatsAppWorkflowEvents
     private static readonly IReadOnlyDictionary<string, (string Category, string Role, string Text)> Descriptions =
         new Dictionary<string, (string, string, string)>
         {
+            [NewStock] = ("CompanyNews", "AllStaff", "new stock available"),
             [Intake] = ("VehicleEvent", "BossAdmin", "new intake saved; review the vehicle in the portal."),
             [PublicationRequest] = ("VehicleEvent", "BossAdmin", "website listing approval requested; review in the portal."),
             [DeliveryRelease] = ("DeliveryEvent", "BossAdmin", "delivery released after completed handover."),

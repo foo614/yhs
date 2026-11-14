@@ -1,3 +1,4 @@
+import { BankSettlementPanel } from "./BankSettlementPanel";
 import { formatDisplayDateTime } from "../../dateDisplay";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
@@ -17,13 +18,12 @@ import { OperationsProTable } from "../shared/OperationsProTable";
 import { newestRecordsFirst } from "../../recordDates";
 import { OwnerPurchaseInvoiceDetails } from "../vehicles/OwnerPurchaseInvoiceDetails";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
-import { settlementCompletionLabel, settlementDirectionLabel, settlementExpectedState, settlementPreview, settlementStatusLabel, settlementTotals } from "../../settlements";
+import { settlementTotals } from "../../settlements";
 import {
   brokerCommissionCreateBlockReason,
   calculateFinanceNettPrice,
   canReconcilePayment,
   canReopenPaidDailySpend,
-  canReopenPaidSettlement,
   collectionCreateBlockReason,
   dailySpendCreateBlockReason,
   debtRecoveryCreateBlockReason,
@@ -319,7 +319,6 @@ export function financeSearchCopy(tab: string) {
 type FinanceDataKey = FinanceRegisterKey | "payments" | "settlements" | "purchaseInvoices" | "deliveryAccounting" | "vehiclePrices";
 
 type CollectionFormValues = Omit<CollectionCreateInput, "receivedDate" | "idempotencyKey"> & { receivedDate?: Dayjs };
-type SettlementFormValues = SettlementCreateInput & { ownerId?: string };
 
 export function InvoiceUpdateRequestQueue({
   requests,
@@ -511,8 +510,6 @@ export function FinancePage({
   const registerBlocked = (register: FinanceRegisterKey) => Boolean(registerLoadState?.[register]?.loading || registerLoadState?.[register]?.error);
   const [uploadPaymentId, setUploadPaymentId] = useState(payments[0]?.id ?? "");
   const [editPaymentId, setEditPaymentId] = useState(payments[0]?.id ?? "");
-  const [editSettlementId, setEditSettlementId] = useState(settlements[0]?.id ?? "");
-  const [settlementEditSnapshot, setSettlementEditSnapshot] = useState<SettlementReminder>();
   const [editDailySpendId, setEditDailySpendId] = useState(dailySpends[0]?.id ?? "");
   const [editBrokerCommissionId, setEditBrokerCommissionId] = useState(brokerCommissions[0]?.id ?? "");
   const [editDebtRecoveryId, setEditDebtRecoveryId] = useState(debtRecoveries[0]?.id ?? "");
@@ -527,6 +524,7 @@ export function FinancePage({
   const [financeFieldFilters, setFinanceFieldFilters] = useState<Record<string, unknown>>({});
   const [financeStatus, setFinanceStatus] = useState<string>();
   const [financePage, setFinancePage] = useState(1);
+  const [financePageSize, setFinancePageSize] = useState(FINANCE_LIST_PAGE_SIZE);
   const [purchaseInvoiceFieldFilters, setPurchaseInvoiceFieldFilters] = useState<Record<string, unknown>>({});
   const [purchaseInvoicePage, setPurchaseInvoicePage] = useState(1);
   const [autoCountPeriod, setAutoCountPeriod] = useState<{ from?: string; to?: string }>({});
@@ -581,16 +579,12 @@ export function FinancePage({
   const [prepareInvoiceForm] = Form.useForm<FinanceSaleInput>();
   const [legacyCollectionForm] = Form.useForm();
   const [collectionForm] = Form.useForm<CollectionFormValues>();
-  const [settlementForm] = Form.useForm<SettlementFormValues>();
-  const [settlementSaving, setSettlementSaving] = useState(false);
-  const [settlementSaveError, setSettlementSaveError] = useState<string | null>(null);
   const legacyMutationKeys = useRef(new Set<string>());
   const [legacySaving, setLegacySaving] = useState(false);
   const selectedPayment = payments.find((payment) => payment.id === uploadPaymentId) ?? payments[0];
   const selectedEditPayment = payments.find((payment) => payment.id === editPaymentId) ?? payments[0];
   const selectedCollectionPayment = payments.find((payment) => payment.id === collectionPaymentId);
   const selectedV2DetailsPayment = payments.find((payment) => payment.id === v2DetailsPaymentId);
-  const selectedEditSettlement = settlementEditSnapshot?.id === editSettlementId ? settlementEditSnapshot : settlements.find((settlement) => settlement.id === editSettlementId) ?? settlements[0];
   const selectedEditDailySpend = dailySpends.find((spend) => spend.id === editDailySpendId) ?? dailySpends[0];
   const selectedEditBrokerCommission = brokerCommissions.find((commission) => commission.id === editBrokerCommissionId) ?? brokerCommissions[0];
   const selectedEditDebtRecovery = debtRecoveries.find((debt) => debt.id === editDebtRecoveryId) ?? debtRecoveries[0];
@@ -752,11 +746,7 @@ export function FinancePage({
     }
   }, [editPaymentId, payments]);
 
-  useEffect(() => {
-    if (!editSettlementId && settlements[0]?.id) {
-      setEditSettlementId(settlements[0].id);
-    }
-  }, [editSettlementId, settlements]);
+
 
   useEffect(() => {
     if (!editDailySpendId && dailySpends[0]?.id) {
@@ -818,12 +808,7 @@ export function FinancePage({
     setFinanceEditorOpen("payment");
   };
 
-  const selectSettlement = (settlementId: string) => {
-    setSettlementEditSnapshot(settlements.find((settlement) => settlement.id === settlementId));
-    setSettlementSaveError(null);
-    setEditSettlementId(settlementId);
-    setFinanceEditorOpen("settlement");
-  };
+
 
   const selectDailySpend = (spendId: string) => {
     setEditDailySpendId(spendId);
@@ -951,43 +936,6 @@ export function FinancePage({
       setInvoiceSubmitError(humanizeApiError(error, "The sale could not be prepared. Refresh the vehicle price and try again."));
       setInvoiceReviewInput(undefined);
     }
-  };
-
-  const openNewSettlement = () => {
-    if (settlementLoadError || settlementRefreshing) {
-      message.warning("Reload settlements and source prices before creating a settlement.");
-      return;
-    }
-    setSettlementSaveError(null);
-    const vehicle = vehicles[0];
-    settlementForm.resetFields();
-    settlementForm.setFieldsValue({
-      vehicleId: vehicle?.id,
-      ...(vehicle ? settlementDraftForVehicle(settlementDrafts, vehicle.id) : {}),
-      deadline: today()
-    });
-    setFinanceCreateOpen("settlement");
-  };
-
-  const updateSettlementVehicleDefaults = (vehicleId: string) => {
-    settlementForm.setFieldsValue(settlementDraftForVehicle(settlementDrafts, vehicleId));
-  };
-
-  const confirmSettlementStatus = (settlement: SettlementReminder, isPaid: boolean) => {
-    if (settlementLoadError || settlementRefreshing) {
-      message.warning("Reload settlements before changing their status.");
-      return;
-    }
-    Modal.confirm({
-      rootClassName: "financeOverlay",
-      title: isPaid ? settlementCompletionLabel(settlement) : "Reopen settlement?",
-      content: isPaid
-        ? `${settlementDirectionLabel(settlement.direction)}: ${formatMoney(settlement.amount)}. Confirm only after the payment, receipt or internal offset has been checked. This records completion; it does not transfer money or post to AutoCount.`
-        : "This returns the settlement to follow-up. The existing amount and history are retained.",
-      okText: isPaid ? settlementCompletionLabel(settlement) : "Reopen settlement",
-      cancelText: "Cancel",
-      onOk: async () => { requireCurrentData("settlements"); await onUpdateSettlementStatus({ id: settlement.id, isPaid, ...settlementExpectedState(settlement) }); }
-    });
   };
 
   const openAddPayment = (payment: PaymentRecord) => {
@@ -1260,14 +1208,6 @@ export function FinancePage({
     </Space>
   );
 
-  const renderSettlementActions = (settlement: SettlementReminder) => (
-    <Space className="tableActionGroup" wrap size={6}>
-      <Button size="small" type="primary" onClick={() => selectSettlement(settlement.id)}>Details</Button>
-      <Button size="small" onClick={() => confirmSettlementStatus(settlement, true)} disabled={settlement.isPaid || Boolean(settlementLoadError || settlementRefreshing)}>{settlementCompletionLabel(settlement)}</Button>
-      <Button size="small" onClick={() => confirmSettlementStatus(settlement, false)} disabled={!canReopenPaidSettlement(settlement) || Boolean(settlementLoadError || settlementRefreshing)}>Reopen</Button>
-    </Space>
-  );
-
   const renderCommissionActions = (commission: BrokerCommission) => (
     <Space className="tableActionGroup" wrap size={6}>
       <Button size="small" type="primary" onClick={() => selectBrokerCommission(commission.id)}>Details</Button>
@@ -1378,20 +1318,7 @@ export function FinancePage({
       render: (_, row) => isFinanceV2(row) ? renderV2Actions(row) : renderLegacyPaymentActions(row)
     }
   ];
-  const settlementColumns: ColumnsType<SettlementReminder> = [
-    { title: "Owner / Previous Owner", dataIndex: "ownerId", render: (ownerId) => contactFor(owners, ownerId) },
-    { title: "Car Plate / 车牌", dataIndex: "vehicleId", render: (vehicleId) => plateFor(vehicles, vehicleId) },
-    { title: "Direction / 收付", dataIndex: "direction", render: settlementDirectionLabel },
-    { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(value) },
-    { title: "Deadline / 截止日期", dataIndex: "deadline" },
-    { title: "Status / 状态", render: (_, row) => <Tag color={row.isPaid ? "green" : "orange"}>{settlementStatusLabel(row)}</Tag> },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 270,
-      render: (_, row) => renderSettlementActions(row)
-    }
-  ];
+
   const dailySpendColumns: ColumnsType<DailySpend> = [
     { title: "Description / 项目", dataIndex: "description" },
     { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(value) },
@@ -1455,12 +1382,17 @@ export function FinancePage({
   const purchaseInvoiceColumns: ColumnsType<PurchaseInvoice> = [
     { title: "Car Plate / 车牌", render: (_, invoice) => plateFor(vehicles, invoice.vehicleId) },
     { title: "Invoice / 发票", dataIndex: "invoiceNumber" },
+    { title: "SBI / 卖方身份", render: (_, invoice) => {
+      const revision = invoice.currentRevision;
+      return revision ? `${revision.sellerType === "Company" ? "Company" : "Private"} · ${revision.sellerName}` : "Legacy supplier";
+    } },
     { title: "Version / 版本", render: (_, invoice) => invoice.sourceType === "OwnerAcquisition" ? `V${invoice.currentRevisionNumber ?? invoice.currentRevision?.revisionNumber ?? 1}` : "Legacy" },
     { title: "Invoice Date / 日期", dataIndex: "invoiceDate", render: (value) => value || "-" },
     { title: "Lines / 分类", render: (_, invoice) => (invoice.lines ?? []).map((line) => line.lineType).join(", ") || "-" },
     { title: "Amount / 金额", dataIndex: "amount", render: (value) => formatMoney(Number(value)) },
     { title: "Official / 正式", render: (_, invoice) => invoice.sourceType === "OwnerAcquisition" ? <Tag color="blue">Issued</Tag> : <Tag>Legacy record</Tag> },
     { title: "Finance Review / 财务审核", dataIndex: "accountingStatus", render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}</Tag> },
+    { title: "AutoCount / 入账", render: (_, invoice) => invoice.autoCountKeyed ? <Tag color="green">Keyed · {invoice.autoCountInvoiceNumber}</Tag> : <Tag color="gold">Not keyed</Tag> },
     {
       title: "Action / 操作",
       fixed: "right",
@@ -1677,22 +1609,19 @@ export function FinancePage({
       }}>Clear filters</Button>}
     </Space>
   );
-  const paymentPage = financePageFor(filteredPayments.length, financePage);
-  const settlementPage = financePageFor(filteredSettlements.length, financePage);
-  const dailySpendPage = financePageFor(filteredDailySpends.length, financePage);
-  const brokerCommissionPage = financePageFor(filteredBrokerCommissions.length, financePage);
-  const debtRecoveryPage = financePageFor(filteredDebtRecoveries.length, financePage);
-  const paymentVoucherPage = financePageFor(filteredPaymentVouchers.length, financePage);
-  const purchaseInvoicePageNumber = financePageFor(filteredPurchaseInvoices.length, purchaseInvoicePage);
-  const visiblePayments = pageFinanceRows(filteredPayments, paymentPage);
-  const visibleSettlements = pageFinanceRows(filteredSettlements, settlementPage);
-  const visibleDailySpends = pageFinanceRows(filteredDailySpends, dailySpendPage);
-  const visibleBrokerCommissions = pageFinanceRows(filteredBrokerCommissions, brokerCommissionPage);
-  const visibleDebtRecoveries = pageFinanceRows(filteredDebtRecoveries, debtRecoveryPage);
-  const visiblePaymentVouchers = pageFinanceRows(filteredPaymentVouchers, paymentVoucherPage);
-  const visiblePurchaseInvoices = pageFinanceRows(filteredPurchaseInvoices, purchaseInvoicePageNumber);
+  const paymentPage = financePageFor(filteredPayments.length, financePage, financePageSize);
+  const dailySpendPage = financePageFor(filteredDailySpends.length, financePage, financePageSize);
+  const brokerCommissionPage = financePageFor(filteredBrokerCommissions.length, financePage, financePageSize);
+  const debtRecoveryPage = financePageFor(filteredDebtRecoveries.length, financePage, financePageSize);
+  const paymentVoucherPage = financePageFor(filteredPaymentVouchers.length, financePage, financePageSize);
+  const purchaseInvoicePageNumber = financePageFor(filteredPurchaseInvoices.length, purchaseInvoicePage, financePageSize);
+  const visiblePayments = pageFinanceRows(filteredPayments, paymentPage, financePageSize);
+  const visibleDailySpends = pageFinanceRows(filteredDailySpends, dailySpendPage, financePageSize);
+  const visibleBrokerCommissions = pageFinanceRows(filteredBrokerCommissions, brokerCommissionPage, financePageSize);
+  const visibleDebtRecoveries = pageFinanceRows(filteredDebtRecoveries, debtRecoveryPage, financePageSize);
+  const visiblePaymentVouchers = pageFinanceRows(filteredPaymentVouchers, paymentVoucherPage, financePageSize);
+  const visiblePurchaseInvoices = pageFinanceRows(filteredPurchaseInvoices, purchaseInvoicePageNumber, financePageSize);
   const paymentEmptyText = paymentLoadError ? "Records unavailable. Retry to load this list." : paymentRefreshing ? "Loading records…" : financeEmptyText(salesInvoicePayments.length, filteredPayments.length, "sales invoice records");
-  const settlementEmptyText = settlementLoadError ? "Records unavailable. Retry to load this list." : settlementRefreshing ? "Loading records…" : financeEmptyText(settlements.length, filteredSettlements.length, "settlement reminders");
   const dailySpendEmptyText = registerLoadState?.dailySpends?.error ? "Records unavailable. Retry to load this list." : registerLoadState?.dailySpends?.loading ? "Loading records…" : financeEmptyText(dailySpends.length, filteredDailySpends.length, "daily spend records");
   const brokerCommissionEmptyText = registerLoadState?.brokerCommissions?.error ? "Records unavailable. Retry to load this list." : registerLoadState?.brokerCommissions?.loading ? "Loading records…" : financeEmptyText(brokerCommissions.length, filteredBrokerCommissions.length, "broker commissions");
   const debtRecoveryEmptyText = registerLoadState?.debtRecoveries?.error ? "Records unavailable. Retry to load this list." : registerLoadState?.debtRecoveries?.loading ? "Loading records…" : financeEmptyText(debtRecoveries.length, filteredDebtRecoveries.length, "debt recovery cases");
@@ -1715,9 +1644,9 @@ export function FinancePage({
         ];
       case "settlements":
         return [
-          { label: "To pay seller", value: settlementLoadError ? "Unavailable" : formatMoney(settlementSummary.toPay) },
-          { label: "To collect", value: settlementLoadError ? "Unavailable" : formatMoney(settlementSummary.toCollect) },
-          { label: "Offsets to confirm", value: settlementLoadError ? "Unavailable" : settlementSummary.offsets }
+          { label: "Bank debt to pay", value: settlementLoadError ? "Unavailable" : formatMoney(settlements.filter(row => row.direction === "PayBank" && !row.isPaid && !row.supersededById).reduce((total, row) => total + row.amount, 0)) },
+          { label: "Done", value: settlements.filter(row => row.direction === "PayBank" && row.isPaid).length },
+          { label: "Previous records", value: settlements.filter(row => row.direction !== "PayBank").length }
         ];
       case "commissions":
         return [
@@ -1763,7 +1692,7 @@ export function FinancePage({
             ...(canManageFinance ? [
               { key: "payments", label: "Sales Invoices & Collections / 销售发票与收款" },
               ...(financeTab === "collection-ageing" ? [{ key: "collection-ageing", label: "Collection ageing / 收款账龄" }] : []),
-              { key: "settlements", label: "Settlement / 结算" },
+              ...(canApproveManagementReview ? [{ key: "settlements", label: "Settlement / 结算" }] : []),
               { key: "commissions", label: "Broker Commission / 经纪佣金" },
               { key: "debt", label: "Debt Recovery / 欠款追讨" },
               { key: "vouchers", label: "Approvals & Vouchers / 审核与付款凭证" },
@@ -1974,9 +1903,9 @@ export function FinancePage({
             </article>
             );
           })}
-          <Pagination className="mobileRecordPagination" current={paymentPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPayments.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
+          <Pagination className="mobileRecordPagination" current={paymentPage} pageSize={financePageSize} total={filteredPayments.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
-          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={columns} dataSource={filteredPayments} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage)} scroll={{ x: 1120 }} locale={{ emptyText: paymentEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={columns} dataSource={filteredPayments} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 1120 }} locale={{ emptyText: paymentEmptyText }} />
         </Space>
       </ProCard>}
       <Modal
@@ -2290,164 +2219,11 @@ export function FinancePage({
 
         </Form>
       </Drawer>
-      {financeTab === "settlements" && <ProCard
-        id="settlement-list-card"
-        title="Settlement Reminder / 收车结算提醒"
-        extra={<Button type="primary" disabled={Boolean(settlementLoadError) || settlementRefreshing} onClick={openNewSettlement}>New Settlement</Button>}
-      >
-        <Space direction="vertical" size={16} className="fullWidth">
-          {settlementLoadError && <Alert type="error" showIcon message="Settlement records could not be loaded" description={settlementLoadError} action={<Button loading={settlementRefreshing} onClick={() => void onRetrySettlements?.()}>Retry settlements</Button>} />}
-          <FinanceListNotice label="Settlements" loading={settlementRefreshing} />
-          {financeFilters}
-          <Descriptions bordered column={1}>
-            <Descriptions.Item label="Follow-up">Payment and collection have separate reminders. Equal-price offsets require confirmation, not cash payment.</Descriptions.Item>
-            <Descriptions.Item label="Bank collection export">Export a spreadsheet for staff to submit manually in AutoCount.</Descriptions.Item>
-            <Descriptions.Item label="Outstanding Bank Collection">{paymentLoadError ? "Unavailable" : paymentRefreshing ? "Loading" : formatMoney(outstanding)}</Descriptions.Item>
-            <Descriptions.Item label="To pay seller">{settlementLoadError ? "Unavailable" : settlementRefreshing ? "Loading" : formatMoney(settlementOutstanding)}</Descriptions.Item>
-            <Descriptions.Item label="To collect from seller">{settlementLoadError ? "Unavailable" : settlementRefreshing ? "Loading" : formatMoney(settlementSummary.toCollect)}</Descriptions.Item>
-            <Descriptions.Item label="Offsets to confirm">{settlementLoadError ? "Unavailable" : settlementRefreshing ? "Loading" : settlementSummary.offsets}</Descriptions.Item>
-            <Descriptions.Item label="Daily Spend Due">{registerLoadState?.dailySpends?.error ? "Unavailable" : registerLoadState?.dailySpends?.loading ? "Loading" : formatMoney(dailySpendOutstanding)}</Descriptions.Item>
-            <Descriptions.Item label="Broker Commission Due">{registerLoadState?.brokerCommissions?.error ? "Unavailable" : registerLoadState?.brokerCommissions?.loading ? "Loading" : formatMoney(brokerCommissionOutstanding)}</Descriptions.Item>
-            <Descriptions.Item label="Debt Recovery Balance">{registerLoadState?.debtRecoveries?.error ? "Unavailable" : registerLoadState?.debtRecoveries?.loading ? "Loading" : formatMoney(debtOutstanding)}</Descriptions.Item>
-            <Descriptions.Item label="Payment Voucher Open">{registerLoadState?.paymentVouchers?.error ? "Unavailable" : registerLoadState?.paymentVouchers?.loading ? "Loading" : formatMoney(voucherOutstanding)}</Descriptions.Item>
-          </Descriptions>
-          <div className="mobileRecordList">
-            {!settlementLoadError && !settlementRefreshing && filteredSettlements.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={settlementEmptyText} />}
-            {visibleSettlements.map((settlement) => (
-              <article className="mobileRecordCard" key={settlement.id}>
-                <div className="mobileRecordHeader">
-                  <div>
-                    <Typography.Text className="mobileRecordEyebrow">Car Plate / 车牌</Typography.Text>
-                    <Typography.Title level={5}>{plateFor(vehicles, settlement.vehicleId)}</Typography.Title>
-                  </div>
-                  <Tag color={settlement.isPaid ? "green" : "orange"}>{settlementStatusLabel(settlement)}</Tag>
-                </div>
-                <div className="mobileRecordMeta">
-                  <span><small>Owner / Previous Owner</small><strong>{contactFor(owners, settlement.ownerId)}</strong></span>
-                  <span><small>Amount / 金额</small><strong>{formatMoney(settlement.amount)}</strong></span>
-                  <span><small>Direction / 收付</small><strong>{settlementDirectionLabel(settlement.direction)}</strong></span>
-                </div>
-                <div className="mobileRecordFooter">
-                  <Tag>Deadline: {settlement.deadline}</Tag>
-                  {renderSettlementActions(settlement)}
-                </div>
-              </article>
-            ))}
-            <Pagination className="mobileRecordPagination" current={settlementPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredSettlements.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
-          </div>
-          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={settlementColumns} dataSource={filteredSettlements} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredSettlements.length, settlementPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: settlementEmptyText }} />
-          <Modal
-        rootClassName="financeOverlay"
-            title="New Settlement / 新增结算提醒"
-            width={620}
-            open={financeCreateOpen === "settlement"}
-            onCancel={() => {
-              if (settlementSaving) return;
-              setFinanceCreateOpen(null);
-              settlementForm.resetFields();
-            }}
-            footer={<div className="financeFormFooter"><Button form="financeSettlement" type="primary" htmlType="submit" disabled={Boolean(settlementLoadError || settlementRefreshing)} loading={settlementSaving}>Create settlement</Button></div>}
-            destroyOnClose
-            className="recordCreateModal financeCreateModal"
-          >
-          <Form id="financeSettlement" name="financeSettlement" form={settlementForm} disabled={settlementSaving} layout="vertical" className="modalForm" onFinish={async (values) => {
-            if (settlementSaving) return;
-            const preview = settlementPreview(Number(values.expectedPurchasePrice), Number(values.bankDebtAmount));
-            if (!preview || !values.ownerId || (preview.direction !== "InternalOffset" && !values.deadline?.trim())) {
-              setSettlementSaveError("Select a vehicle with a previous owner and purchase price, enter valid bank debt, and choose a payment or collection deadline.");
-              return;
-            }
-            const settlement: SettlementCreateInput = {
-              vehicleId: values.vehicleId,
-              bankDebtAmount: Number(values.bankDebtAmount),
-              expectedPurchasePrice: Number(values.expectedPurchasePrice),
-              deadline: values.deadline || undefined
-            };
-            setSettlementSaving(true);
-            setSettlementSaveError(null);
-            try {
-              await onCreateSettlement(settlement);
-              setFinanceCreateOpen(null);
-              settlementForm.resetFields();
-            } catch (error) {
-              setSettlementSaveError(humanizeApiError(error, "Settlement could not be created. Your entries have been retained."));
-            } finally {
-              setSettlementSaving(false);
-            }
-          }}>
-            <Alert type="info" showIcon message="Purchase price minus bank debt" description="The server uses the linked previous owner and purchase price. Positive: pay the seller. Negative: collect the difference. Equal: internal offset. No money is transferred or confirmed by creating this record." />
-            {settlementSaveError && <Alert type="error" showIcon message={settlementSaveError} />}
-            <Form.Item name="vehicleId" label="Vehicle / 车辆" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" onChange={updateSettlementVehicleDefaults} options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${financeVehicleDescription(vehicles, vehicle.id)}` }))} /></Form.Item>
-            <Form.Item name="ownerId" label="Previous owner / 原车主" rules={[{ required: true }]}><Select disabled options={owners.map((owner) => ({ value: owner.id, label: owner.name }))} /></Form.Item>
-            <Form.Item name="expectedPurchasePrice" label="Purchase price / 收车价"><InputNumber className="fullWidth" disabled precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="bankDebtAmount" label="Outstanding bank debt / 银行欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item noStyle shouldUpdate>
-              {({ getFieldValue }) => {
-                const preview = settlementPreview(Number(getFieldValue("expectedPurchasePrice")), Number(getFieldValue("bankDebtAmount")));
-                return <>
-                  <Alert type={preview ? "info" : "warning"} showIcon message={preview ? `${settlementDirectionLabel(preview.direction)}: ${formatMoney(preview.amount)}` : "Enter a valid purchase price and bank debt."} />
-                  <Form.Item name="deadline" label={preview?.direction === "InternalOffset" ? "Offset date (defaults to today) / 对冲日期" : "Settlement deadline / 结算期限"} rules={[{ required: preview?.direction !== "InternalOffset" }]} getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
-                </>;
-              }}
-            </Form.Item>
-
-          </Form>
-          </Modal>
-        </Space>
+      {canApproveManagementReview && financeTab === "settlements" && <ProCard title="Bank settlement / 银行结算">
+        {settlementLoadError ? <Alert type="error" message="Settlement records could not be loaded" description={settlementLoadError} action={<Button onClick={() => void onRetrySettlements?.()}>Retry</Button>} /> :
+          <BankSettlementPanel records={settlements.filter(row => matchesDashboardFinanceFocus(dashboardFocus, row.vehicleId, settlementMatchesDashboardAttention(row, dashboardFocus.attention, dashboardToday)))} vehicles={vehicles} canManage={canApproveManagementReview && !settlementRefreshing} refresh={async () => { await onRetrySettlements?.(); }} />}
       </ProCard>}
-      <Drawer
-        footer={<div className="financeFormFooter"><Button form="financeSettlementEdit" type="primary" htmlType="submit" loading={settlementSaving} disabled={!selectedEditSettlement || selectedEditSettlement.isPaid || Boolean(settlementLoadError || settlementRefreshing)}>Update settlement</Button></div>}
-        title="Settlement Details / 结算详情"
-        width={560}
-        open={financeEditorOpen === "settlement"}
-        onClose={() => { if (!settlementSaving) setFinanceEditorOpen(null); }}
-        destroyOnClose
-        className="recordEditDrawer financeRecordDrawer"
-      >
-          <Form
-            id="financeSettlementEdit" name="financeSettlementEdit"
-            key={selectedEditSettlement?.id ?? "settlement-edit"}
-            layout="vertical"
-            className="drawerForm"
-            disabled={settlementSaving}
-            initialValues={selectedEditSettlement}
-            onFinish={async (values) => {
-              if (!selectedEditSettlement || selectedEditSettlement.isPaid || settlementSaving || settlementLoadError) return;
-              const settlement: SettlementUpdateInput = {
-                id: selectedEditSettlement.id,
-                ...settlementExpectedState(selectedEditSettlement),
-                bankDebtAmount: selectedEditSettlement.bankDebtAmount === undefined ? undefined : Number(values.bankDebtAmount),
-                deadline: values.deadline,
-              };
-              setSettlementSaving(true);
-              setSettlementSaveError(null);
-              try {
-                await onUpdateSettlement(settlement);
-                setFinanceEditorOpen(null);
-              } catch (error) {
-                setSettlementSaveError(humanizeApiError(error, "Settlement could not be updated. Your entries have been retained."));
-              } finally {
-                setSettlementSaving(false);
-              }
-            }}
-          >
-            {settlementSaveError && <Alert type="error" showIcon message={settlementSaveError} />}
-            <Alert type="info" showIcon message={selectedEditSettlement ? `${settlementDirectionLabel(selectedEditSettlement.direction)}: ${formatMoney(selectedEditSettlement.amount)}` : "Choose a settlement."} description={selectedEditSettlement?.purchasePriceSnapshot === undefined ? "Historical settlement: original amount and owner are preserved. It is not automatically recalculated from today's vehicle price." : `Original purchase price: ${formatMoney(selectedEditSettlement.purchasePriceSnapshot)}. Bank debt changes recalculate the difference from this fixed snapshot.`} />
-            <Form.Item name="id" label="Selected Settlement"><Select options={settlements.map((settlement) => ({ value: settlement.id, label: `${plateFor(vehicles, settlement.vehicleId)} / ${formatMoney(settlement.amount)} / ${settlement.deadline}` }))} onChange={selectSettlement} /></Form.Item>
-            <Form.Item name="vehicleId" label="Car Plate"><Select disabled options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-            <Form.Item name="ownerId" label="Previous owner"><Select disabled options={owners.map((owner) => ({ value: owner.id, label: owner.name }))} /></Form.Item>
-            {selectedEditSettlement?.bankDebtAmount !== undefined && <>
-              <Form.Item name="bankDebtAmount" label="Outstanding bank debt / 银行欠款" rules={[{ required: true }]}><InputNumber className="fullWidth" disabled={selectedEditSettlement.isPaid} min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item noStyle shouldUpdate>{({ getFieldValue }) => {
-                const preview = settlementPreview(selectedEditSettlement.purchasePriceSnapshot ?? 0, Number(getFieldValue("bankDebtAmount")));
-                return <Typography.Text>{preview ? `${settlementDirectionLabel(preview.direction)}: ${formatMoney(preview.amount)}` : "Enter valid bank debt."}</Typography.Text>;
-              }}</Form.Item>
-            </>}
-            <Form.Item name="deadline" label="Deadline / Offset date" rules={[{ required: true }]} getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}><DatePicker className="fullWidth" disabled={selectedEditSettlement?.isPaid} format="DD MMM YYYY" /></Form.Item>
-            {selectedEditSettlement?.isPaid && <Alert type="info" message="Completed settlement. Reopen from the list before editing." />}
 
-          </Form>
-      </Drawer>
       {financeTab === "commissions" && <ProCard
         id="broker-commission-list-card"
         title="Broker Commission / 经纪人佣金"
@@ -2479,9 +2255,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
-            <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredBrokerCommissions.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
+            <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={financePageSize} total={filteredBrokerCommissions.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
-          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage)} scroll={{ x: 1040 }} locale={{ emptyText: brokerCommissionEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 1040 }} locale={{ emptyText: brokerCommissionEmptyText }} />
           <Modal
         rootClassName="financeOverlay"
             title="New Broker Commission / 新增经纪人佣金"
@@ -2600,9 +2376,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
-            <Pagination className="mobileRecordPagination" current={debtRecoveryPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredDebtRecoveries.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
+            <Pagination className="mobileRecordPagination" current={debtRecoveryPage} pageSize={financePageSize} total={filteredDebtRecoveries.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
-          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
           <Modal
         rootClassName="financeOverlay"
             title="New Debt Recovery Case / 新增欠款追讨"
@@ -2722,13 +2498,13 @@ export function FinancePage({
                 {purchaseInvoiceConfirmationError?.invoiceId === invoice.id && <PurchaseInvoiceConfirmationError error={purchaseInvoiceConfirmationError.message} onClose={() => setPurchaseInvoiceConfirmationError(undefined)} />}
               </article>;
             })}
-            <Pagination className="mobileRecordPagination" current={purchaseInvoicePageNumber} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPurchaseInvoices.length} showSizeChanger={false} hideOnSinglePage onChange={setPurchaseInvoicePage} />
+            <Pagination className="mobileRecordPagination" current={purchaseInvoicePageNumber} pageSize={financePageSize} total={filteredPurchaseInvoices.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setPurchaseInvoicePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable<PurchaseInvoice>
             className="desktopDataTable nativeSearchDesktopOnly"
             rowKey="id"
             dataSource={filteredPurchaseInvoices}
-            pagination={tablePagination(filteredPurchaseInvoices.length, purchaseInvoicePageNumber, setPurchaseInvoicePage)}
+            pagination={tablePagination(filteredPurchaseInvoices.length, purchaseInvoicePageNumber, setPurchaseInvoicePage, financePageSize, setFinancePageSize)}
             columns={purchaseInvoiceColumns}
             nativeSearch={purchaseInvoiceNativeSearch}
             scroll={{ x: 1240 }}
@@ -2788,9 +2564,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
-            <Pagination className="mobileRecordPagination" current={paymentVoucherPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredPaymentVouchers.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
+            <Pagination className="mobileRecordPagination" current={paymentVoucherPage} pageSize={financePageSize} total={filteredPaymentVouchers.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
-          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
           <Modal
         rootClassName="financeOverlay"
             title="New Payment Voucher / 新增付款凭证"
@@ -2930,9 +2706,9 @@ export function FinancePage({
                 </div>
               </article>
             ))}
-            <Pagination className="mobileRecordPagination" current={dailySpendPage} pageSize={FINANCE_LIST_PAGE_SIZE} total={filteredDailySpends.length} showSizeChanger={false} hideOnSinglePage onChange={setFinancePage} />
+            <Pagination className="mobileRecordPagination" current={dailySpendPage} pageSize={financePageSize} total={filteredDailySpends.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
-          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
+          <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
           <Modal
         rootClassName="financeOverlay"
             title="New Daily Spend / 新增日常支出"
@@ -3150,13 +2926,14 @@ function contactFor<T extends { id: string; name: string; phone: string }>(conta
   return contact ? `${contact.name} / ${contact.phone}` : "Unknown";
 }
 
-function tablePagination(total: number, current: number, onChange: (page: number) => void): TablePaginationConfig {
+function tablePagination(total: number, current: number, onChange: (page: number) => void, pageSize: number, onPageSizeChange: (size: number) => void): TablePaginationConfig {
   return {
     current,
-    pageSize: FINANCE_LIST_PAGE_SIZE,
+    pageSize,
     total,
-    showSizeChanger: false,
-    onChange,
+    showSizeChanger: true,
+    pageSizeOptions: [10, 20, 50, 100],
+    onChange: (page, size) => { onChange(size === pageSize ? page : 1); onPageSizeChange(size); },
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`
   };
 }

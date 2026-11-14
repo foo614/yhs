@@ -43,12 +43,12 @@ public sealed class WhatsAppDispatchOptions
         LegacyTemplates.Select(template => (template.Key, template.Language)).Distinct().Count() == LegacyTemplates.Length;
     public bool Ready => CustomerConfigured && TransportReady;
     public bool StaffSenderReady => StaffCaptureEnabled && StaffSendingEnabled && TransportReady;
-    public bool StaffReady => StaffSenderReady && HasTemplate("staff_notice_v1");
+    public bool StaffReady => StaffSenderReady && (HasTemplate("staff_notice_v1") || HasTemplate(WhatsAppInspectionAttachment.TemplateKey));
     public bool InvitationSenderReady => InvitationEnabled && TransportReady;
     public bool InvitationReady => InvitationSenderReady && HasTemplate(WhatsAppStaffInvitation.TemplateKey);
 
     internal bool DispatchConfigured => CustomerConfigured ||
-        (StaffCaptureEnabled && StaffSendingEnabled && TransportConfigured && HasTemplate("staff_notice_v1")) ||
+        (StaffCaptureEnabled && StaffSendingEnabled && TransportConfigured && (HasTemplate("staff_notice_v1") || HasTemplate(WhatsAppInspectionAttachment.TemplateKey))) ||
         (InvitationEnabled && TransportConfigured && HasTemplate(WhatsAppStaffInvitation.TemplateKey));
 
     internal bool TransportConfigured => WebhookReady && SenderApproved && Evidence(SenderApprovalEvidence) &&
@@ -83,6 +83,8 @@ public sealed class WhatsAppDispatchOptions
         {
             if (!matches[0].Approved) issues.Add("Template approval flag is off.");
             if (!matches[0].ValidName) issues.Add("Template name is missing or invalid.");
+            if (key == WhatsAppInspectionAttachment.TemplateKey && matches[0].HeaderFormat != "DOCUMENT")
+                issues.Add("Inspection attachment template requires an approved DOCUMENT header.");
             if (!matches[0].ValidProviderLanguage) issues.Add("Template provider language is invalid.");
             if (!Evidence(matches[0].ApprovalEvidence)) issues.Add("Template approval evidence is missing or invalid.");
             if (WhatsAppReminderV2.Known(key) && !WhatsAppReminderV2.ValidManifest(matches[0]))
@@ -129,9 +131,11 @@ public sealed class WhatsAppApprovedTemplate
     public string ApprovalEvidence { get; init; } = "";
     // V2 approval attests the exact static body and static Portal button destination.
     public string BodyText { get; init; } = "";
+    public string HeaderFormat { get; init; } = "";
     public string PortalUrl { get; init; } = "";
     public bool ValidName => Regex.IsMatch(Name, @"\A[a-z][a-z0-9_]{0,79}\z");
     public bool Valid => Approved && (Key is "enquiry_ack_v1" or "business_update_v1" or "receipt_ready_v1" or "staff_notice_v1" or "staff_invite_v1" ||
+        Key == WhatsAppInspectionAttachment.TemplateKey && HeaderFormat == "DOCUMENT" ||
         WhatsAppReminderV2.Known(Key) && WhatsAppReminderV2.ValidManifest(this)) &&
         Language is "ms" or "en_US" && ValidName && ValidProviderLanguage &&
         WhatsAppDispatchOptions.Evidence(ApprovalEvidence);
@@ -147,11 +151,48 @@ public sealed class WhatsAppTemplateSender : IDisposable
     internal WhatsAppTemplateSender(HttpClient httpClient) => this.httpClient = httpClient;
     public void Dispose() => httpClient.Dispose();
 
-    public async Task<WhatsAppSendResult> SendAsync(WhatsAppDispatchOptions options, WhatsAppOutbox item, CancellationToken ct = default)
+    public Task<WhatsAppSendResult> SendAsync(WhatsAppDispatchOptions options, WhatsAppOutbox item, CancellationToken ct = default) =>
+        SendCoreAsync(options, item, null, ct);
+
+    public async Task<WhatsAppSendResult> SendAttachmentAsync(WhatsAppDispatchOptions options, WhatsAppOutbox item,
+        byte[] pdf, Func<CancellationToken, Task<bool>> stillEligible, CancellationToken ct = default)
+    {
+        if (!options.StaffSenderReady || item.Audience != "Staff") return new("Disabled");
+        if (item.TemplateVersion != WhatsAppInspectionAttachment.TemplateKey || options.TemplateFor(item)?.HeaderFormat != "DOCUMENT")
+            return new("TemplateNotApproved");
+        if (!WhatsAppInspectionAttachment.ValidPdf(pdf)) return new("Suppressed");
+        using var upload = new HttpRequestMessage(HttpMethod.Post,
+            $"https://graph.facebook.com/{options.GraphApiVersion}/{options.PhoneNumberId}/media");
+        upload.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.AccessToken);
+        using var multipart = new MultipartFormDataContent();
+        multipart.Add(new StringContent("whatsapp"), "messaging_product");
+        multipart.Add(new StringContent("application/pdf"), "type");
+        var file = new ByteArrayContent(pdf);
+        file.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+        multipart.Add(file, "file", "appointment-slip.pdf");
+        upload.Content = multipart;
+        try
+        {
+            using var response = await httpClient.SendAsync(upload, HttpCompletionOption.ResponseHeadersRead, ct);
+            await response.Content.LoadIntoBufferAsync(WhatsAppWebhookProbe.MaxBodyBytes, ct);
+            if (!response.IsSuccessStatusCode) return new("Rejected", HttpStatusCode: (int)response.StatusCode);
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            if (!json.RootElement.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String ||
+                id.GetString() is not { } mediaId || !Regex.IsMatch(mediaId, @"\A[0-9]{1,128}\z")) return new("Rejected");
+            if (!await stillEligible(ct)) return new("Suppressed");
+            return await SendCoreAsync(options, item, mediaId, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            return new("UnknownOutcome");
+        }
+    }
+
+    private async Task<WhatsAppSendResult> SendCoreAsync(WhatsAppDispatchOptions options, WhatsAppOutbox item, string? mediaId, CancellationToken ct)
     {
         if (item.Audience switch { "Staff" => !options.StaffSenderReady, "Enrollment" => !options.InvitationSenderReady, _ => !options.Ready }) return new("Disabled");
         var template = options.TemplateFor(item);
-        if (template is null || !WhatsAppNotificationDispatcher.Supported(item) ||
+        if (template is null || (item.TemplateVersion == WhatsAppInspectionAttachment.TemplateKey) != (mediaId is not null) || !WhatsAppNotificationDispatcher.Supported(item) ||
             (item.Audience == "Customer" && !Guid.TryParseExact(item.BusinessReference, "D", out _)) || string.IsNullOrWhiteSpace(item.TemplateReference) ||
             item.TemplateReference.Length > (item.Audience is "Staff" or "Enrollment" ? 1024 : 80) || item.TemplateReference.Any(char.IsControl)) return new("TemplateNotApproved");
         var parameters = WhatsAppReminderV2.Known(item.TemplateVersion) ? WhatsAppReminderV2.Parameters(item) : [item.TemplateReference];
@@ -169,7 +210,12 @@ public sealed class WhatsAppTemplateSender : IDisposable
             template = new
             {
                 name = template.Name, language = new { code = template.EffectiveProviderLanguage },
-                components = new[] { new { type = "body", parameters = parameters.Select(value => new { type = "text", text = value }).ToArray() } }
+                components = mediaId is null
+                    ? new object[] { new { type = "body", parameters = parameters.Select(value => new { type = "text", text = value }).ToArray() } }
+                    : new object[] {
+                        new { type = "header", parameters = new[] { new { type = "document", document = new { id = mediaId, filename = "appointment-slip.pdf" } } } },
+                        new { type = "body", parameters = parameters.Select(value => new { type = "text", text = value }).ToArray() }
+                    }
             }
         });
         try

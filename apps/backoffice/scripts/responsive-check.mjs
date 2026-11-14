@@ -872,10 +872,10 @@ try {
           await inspect("vehicles-empty-search", width);
           await page.getByRole("button", { name: "Clear filters", exact: true }).filter({ visible: true }).click();
           await inspect("vehicles-cleared-search", width);
-          fixtures["/api/vehicles"] = Array.from({ length: 9 }, (_, index) => ({ ...vehicle, id: `test-vehicle-${index}`, plateNumber: `TEST${String(index + 1).padStart(4, "0")}` }));
+          fixtures["/api/vehicles"] = Array.from({ length: 11 }, (_, index) => ({ ...vehicle, id: `test-vehicle-${index}`, plateNumber: `TEST${String(index + 1).padStart(4, "0")}` }));
           await page.reload();
           await page.locator(".mobileRecordList .ant-pagination-next").click();
-          await page.getByRole("heading", { name: "TEST0009", exact: true }).waitFor();
+          await page.getByRole("button", { name: "TEST0011", exact: true }).filter({ visible: true }).waitFor();
           await inspect("vehicles-pagination", width);
           fixtures["/api/vehicles"] = [vehicle];
         }

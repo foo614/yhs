@@ -72,7 +72,7 @@ function extractDomainEnumValues(source: string, enumName: string) {
   expect(match?.groups?.values, `Missing backend enum ${enumName}`).toBeTruthy();
 
   return match!.groups!.values.split(",")
-    .map((value) => value.trim())
+    .map((value) => value.trim().split(/\s*=\s*/)[0])
     .filter(Boolean);
 }
 

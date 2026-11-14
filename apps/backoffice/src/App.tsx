@@ -21,6 +21,7 @@ import {
   LogoutOutlined,
   MenuOutlined,
   QuestionCircleOutlined,
+  SafetyCertificateOutlined,
   SettingOutlined,
   ToolOutlined,
   UploadOutlined,
@@ -36,8 +37,10 @@ import {
   DatePicker,
   Descriptions,
   Drawer,
+  Dropdown,
   Empty,
   Form,
+  FloatButton,
   Input,
   InputNumber,
   Modal,
@@ -97,6 +100,7 @@ import { OperationsProTable as Table, operationsKeywordFromFields } from "./modu
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import { ResponsiveSectionTabs } from "./modules/shared/ResponsiveSectionTabs";
 import { DeliveryWorkboardPage } from "./modules/delivery/DeliveryWorkboardPage";
+import { InspectionPage } from "./modules/inspection/InspectionPage";
 import { SalesMyCarsPanel } from "./modules/leads/SalesMyCarsPanel";
 import { markModuleGuideTourSeen, moduleGuideForPath, shouldShowModuleGuideTour } from "./moduleGuides";
 import { formatMoney as formatRinggit, formatMoneyInput, parseMoneyInput } from "./money";
@@ -355,6 +359,7 @@ const bilingual = {
   repairs: "Repair / 整备",
   loans: "Loan / 贷款",
   delivery: "Delivery / 出车",
+  inspection: "Inspection / 验车",
   finance: "Finance / 财务",
   leads: "Leads / 客户询问",
   auditLog: "Audit Log / 操作记录",
@@ -370,6 +375,7 @@ const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
   { path: "/repairs", name: bilingual.repairs, icon: <ToolOutlined /> },
   { path: "/loans", name: bilingual.loans, icon: <FileDoneOutlined /> },
   { path: "/delivery", name: bilingual.delivery, icon: <AuditOutlined /> },
+  { path: "/inspection", name: bilingual.inspection, icon: <SafetyCertificateOutlined /> },
   { path: "/finance", name: bilingual.finance, icon: <BankOutlined /> },
   { path: "/customer-360", name: "Customer 360", icon: <UserOutlined /> },
   { path: "/leads", name: bilingual.leads, icon: <UserOutlined /> },
@@ -460,12 +466,13 @@ export function vehicleLoanCustomerId(vehicle: Pick<Vehicle, "customerId">, exis
 
 /** Preserves the optional reviewed VOC file between the Vehicle intake workflow and multipart API client. */
 export function createVehicleIntakeFromVehiclePage<T>(
-  createIntake: (input: VehicleIntakeCreateInput, identityCard?: File, voc?: File) => Promise<T>,
+  createIntake: (input: VehicleIntakeCreateInput, identityCard?: File, voc?: File, settlementEvidence?: File) => Promise<T>,
   input: VehicleIntakeCreateInput,
   identityCard: File | null | undefined,
-  voc?: File
+  voc?: File,
+  settlementEvidence?: File
 ) {
-  return createIntake(input, identityCard ?? undefined, voc);
+  return createIntake(input, identityCard ?? undefined, voc, settlementEvidence);
 }
 
 export async function createVehicleIntakeWithRefresh<T>(
@@ -1302,13 +1309,14 @@ export default function App() {
             hrPayslips={hrPayslips}
             commandBarRef={moduleCommandBarRef}
             guideButtonRef={moduleGuideButtonRef}
+            onNavigate={navigateTo}
             onOpenGuide={() => {
               finishModuleTour();
               setModuleGuideOpen(true);
             }}
           />
           <div ref={moduleContentRef}>
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} actionsLastCheckedAt={actionsLastCheckedAt} actionsRefreshing={actionsRefreshing} onRefreshActions={refreshDashboardActions} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={() => refreshDashboard()} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} />}
+          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} staffUsers={staffUsers} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} actionsLastCheckedAt={actionsLastCheckedAt} actionsRefreshing={actionsRefreshing} onRefreshActions={refreshDashboardActions} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={() => refreshDashboard()} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} />}
           {pathname === "/vehicles" && (
             <VehiclePage
               vehicles={vehicles}
@@ -1321,14 +1329,14 @@ export default function App() {
               brokerCommissions={brokerCommissions}
               paymentVouchers={paymentVouchers}
               canApproveVehicles={canApproveVehicles(currentRoles)}
-              canPrepareSettlement={currentRoles.includes("BossAdmin") || currentRoles.includes("Finance")}
+              canPrepareSettlement={currentRoles.includes("BossAdmin")}
               dashboardFocus={dashboardDrilldown.vehicleFocus}
               dashboardAnalyticsPeriod={dashboardDrilldown.analyticsPeriod}
               onClearDashboardFocus={() => navigateTo("/vehicles")}
-              onCreate={async (vehicle, settlement, newOwner, identityCard, voc) => {
+              onCreate={async (vehicle, settlement, newOwner, identityCard, voc, settlementEvidence) => {
                 try {
                   const result = await createVehicleIntakeWithRefresh(
-                    () => createVehicleIntakeFromVehiclePage(createVehicleIntake, { vehicle, settlement, newOwner }, identityCard, voc),
+                    () => createVehicleIntakeFromVehiclePage(createVehicleIntake, { vehicle, settlement, newOwner }, identityCard, voc, settlementEvidence),
                     (record) => {
                       setVehicles((items) => replaceByIdOrPrepend(items, record.vehicle));
                       if (record.settlement) setSettlements((items) => replaceByIdOrPrepend(items, record.settlement!));
@@ -1422,6 +1430,7 @@ export default function App() {
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
             />
           )}
+          {pathname === "/inspection" && <InspectionPage vehicles={vehicleLookup} />}
           {pathname === "/finance" && (
             <FinancePage
               vehicles={financeVehicles}
@@ -1807,6 +1816,7 @@ function ModuleCommandBar({
   hrPayslips,
   commandBarRef,
   guideButtonRef,
+  onNavigate,
   onOpenGuide
 }: {
   pathname: string;
@@ -1834,6 +1844,7 @@ function ModuleCommandBar({
   hrPayslips: HrPayslip[];
   commandBarRef: RefObject<HTMLElement | null>;
   guideButtonRef: RefObject<HTMLSpanElement | null>;
+  onNavigate: (path: string) => void;
   onOpenGuide: () => void;
 }) {
   const stats = moduleStats(pathname, {
@@ -1859,6 +1870,13 @@ function ModuleCommandBar({
     hrPayslips
   });
   const roles = currentUser?.roles ?? [];
+  const fastTrackItems = allRoutes
+    .filter((item) => canAccessRoute(roles, item.path))
+    .map((item) => ({
+      key: item.path,
+      label: routeDisplayName(item.path, roles),
+      onClick: () => onNavigate(item.path)
+    }));
 
   return (
     <section className={"moduleCommandBar" + (pathname === "/dashboard" ? " dashboardCommandBar" : pathname === "/hr-salary" ? " hrCommandBar" : "")} ref={commandBarRef}>
@@ -1884,6 +1902,9 @@ function ModuleCommandBar({
           </Button>
         </span>
       </div>
+      <Dropdown menu={{ items: fastTrackItems }} placement="topRight" trigger={["click"]}>
+        <FloatButton icon={<MenuOutlined />} tooltip="Fast track menu / 快速菜单" aria-label="Fast track menu" />
+      </Dropdown>
     </section>
   );
 }
@@ -2291,6 +2312,7 @@ export function DashboardPage({
   priorityActions,
   reminderLoadError,
   vehicles = [],
+  staffUsers = [],
   lastCheckedAt,
   refreshing,
   onRefresh,
@@ -2309,6 +2331,7 @@ export function DashboardPage({
   priorityActions: PriorityActionItem[];
   reminderLoadError: string | null;
   vehicles?: Vehicle[];
+  staffUsers?: StaffUser[];
   lastCheckedAt: Date | null;
   refreshing: boolean;
   analyticsPeriod: DashboardAnalyticsPeriod;
@@ -2493,7 +2516,7 @@ export function DashboardPage({
             </ProCard>
           </aside>
         </div>
-        <OperationsCalendar compact onOpenDelivery={onOpenDelivery} />
+        <OperationsCalendar compact canManageTasks staffUsers={staffUsers} onOpenDelivery={onOpenDelivery} />
         <CollectionAgeingPanel refreshKey={lastCheckedAt?.getTime() ?? 0} />
       </section>
 
@@ -6568,7 +6591,11 @@ function documentCategoryLabel(category: DocumentCategory) {
     PaymentReceipt: "Payment Receipt",
     PaymentInvoice: "Payment Invoice",
     MedicalCertificate: "Medical Certificate",
+    InspectionReceipt: "Inspection Receipt",
+    InspectionAppointmentConfirmation: "Inspection Appointment Confirmation",
     InspectionReport: "Inspection Report",
+    BankSettlementPayment: "Bank payment evidence",
+    SettlementEvidence: "Settlement supporting document / 结算证明",
     WindscreenPolicy: "Windscreen Policy"
   };
   return labels[category];

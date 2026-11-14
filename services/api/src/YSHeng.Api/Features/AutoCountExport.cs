@@ -433,13 +433,18 @@ public static class AutoCountExcel
         var suppliers = (input.Suppliers ?? []).ToDictionary(supplier => supplier.Id);
         var rows = new List<IReadOnlyList<string>>
         {
-            new[] { "SourceId", "SourceType", "InvoiceNumber", "InvoiceDate", "SupplierInvoiceNumber", "SupplierDONumber", "CarPlate", "SupplierId", "OwnerId", "CreditorCode", "CreditorName", "Address", "Phone", "TinNumber", "IdentityNumber", "Amount", "LineTotal", "Difference", "AccountingStatus", "ReviewStatus", RemarkHeader, "CreditTerm", "TaxDate", "AutoCountDocNumber", "CurrentRevision", "CurrentSupplierName", "CurrentSupplierAddress", "CurrentSupplierPhone", "CurrentSupplierTinNumber", "CurrentSupplierRegistrationNumber" }
+            new[] { "SourceId", "SourceType", "InvoiceNumber", "InvoiceDate", "SupplierInvoiceNumber", "SupplierInvoiceDate", "DiscountVoucherReference", "SupplierDONumber", "CarPlate", "SBI", "SellerType", "SupplierId", "OwnerId", "CreditorCode", "CreditorName", "Address", "Phone", "TinNumber", "IdentityNumber", "Amount", "LineTotal", "Difference", "AccountingStatus", "ReviewStatus", RemarkHeader, "CreditTerm", "TaxDate", "AutoCountInvoiceNumber", "AutoCountKeyed", "CurrentRevision", "CurrentSupplierName", "CurrentSupplierAddress", "CurrentSupplierPhone", "CurrentSupplierTinNumber", "CurrentSupplierRegistrationNumber" }
         };
         foreach (var invoice in input.PurchaseInvoices)
         {
             var ownerSource = invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition;
             var supplier = !ownerSource && invoice.SupplierId.HasValue ? suppliers.GetValueOrDefault(invoice.SupplierId.Value) : null;
             var snapshot = ownerSource ? invoice.CurrentRevision : null;
+            var plate = snapshot?.VehiclePlateNumber ?? PlateFor(vehicles, invoice.VehicleId);
+            var sellerType = ownerSource ? snapshot?.SellerType ?? PurchaseInvoiceSellerType.Private : PurchaseInvoiceSellerType.Company;
+            var sellerName = ownerSource ? snapshot?.SellerName ?? "" : supplier?.CompanyName ?? "";
+            var sellerIdentity = ownerSource ? snapshot?.SellerIcNumber : supplier?.RegistrationNumber;
+            var sbi = string.Join(" | ", ["SBI", plate, sellerName, sellerIdentity ?? ""]);
             var lineTotal = PurchaseLines(invoice).Sum(line => line.Amount);
             var remark = PurchaseRemark(invoice) + " Header totals are reference-only; post Purchases lines once after Finance review.";
             if (lineTotal != invoice.Amount) remark += " Invoice total differs from its lines; do not post.";
@@ -447,10 +452,10 @@ public static class AutoCountExcel
             if (!ownerSource && string.IsNullOrWhiteSpace(supplier?.AutoCountCreditorCode)) remark += " Missing supplier creditor mapping; do not post.";
             if (!ownerSource) remark += " Seller identity/contact snapshot is not persisted; verify the original invoice. CurrentSupplier fields are current master references only.";
             rows.Add(new[] {
-                invoice.Id.ToString(), invoice.SourceType.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), ownerSource ? "" : invoice.InvoiceNumber, "",
-                snapshot?.VehiclePlateNumber ?? PlateFor(vehicles, invoice.VehicleId), supplier?.Id.ToString() ?? "", ownerSource ? invoice.OwnerId?.ToString() ?? "" : "",
-                supplier?.AutoCountCreditorCode ?? "", snapshot?.SellerName ?? "", snapshot?.SellerAddress ?? "", snapshot?.SellerPhone ?? "", snapshot?.SellerTinNumber ?? "", snapshot?.SellerIcNumber ?? "",
-                Money(invoice.Amount), Money(lineTotal), Money(invoice.Amount - lineTotal), invoice.AccountingStatus.ToString(), lineTotal == invoice.Amount ? "ReviewRequired" : "TotalsMismatch", remark, "", "", "", ownerSource ? invoice.CurrentRevisionNumber.ToString(CultureInfo.InvariantCulture) : "",
+                invoice.Id.ToString(), invoice.SourceType.ToString(), invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.SupplierInvoiceNumber ?? (ownerSource ? "" : invoice.InvoiceNumber), Date(invoice.SupplierInvoiceDate), invoice.DiscountVoucherReference ?? "", "",
+                plate, sbi, sellerType.ToString(), supplier?.Id.ToString() ?? "", ownerSource ? invoice.OwnerId?.ToString() ?? "" : "",
+                supplier?.AutoCountCreditorCode ?? "", sellerName, ownerSource ? snapshot?.SellerAddress ?? "" : supplier?.Address ?? "", ownerSource ? snapshot?.SellerPhone ?? "" : supplier?.Phone ?? "", ownerSource ? snapshot?.SellerTinNumber ?? "" : supplier?.TinNumber ?? "", sellerIdentity ?? "",
+                Money(invoice.Amount), Money(lineTotal), Money(invoice.Amount - lineTotal), invoice.AccountingStatus.ToString(), lineTotal == invoice.Amount ? "ReviewRequired" : "TotalsMismatch", remark, "", "", invoice.AutoCountInvoiceNumber ?? "", invoice.AutoCountKeyed ? "Yes" : "No", ownerSource ? invoice.CurrentRevisionNumber.ToString(CultureInfo.InvariantCulture) : "",
                 supplier?.CompanyName ?? "", supplier?.Address ?? "", supplier?.Phone ?? "", supplier?.TinNumber ?? "", supplier?.RegistrationNumber ?? ""
             });
         }
@@ -462,9 +467,9 @@ public static class AutoCountExcel
             var remark = SupplierInvoiceRemark(invoice, supplier, receipt) + " Header totals are reference-only; post Purchases lines once after Finance review. Supplier contact/tax snapshot is not persisted; verify the original invoice. CurrentSupplier fields are current master references only.";
             if (lineTotal != invoice.Amount) remark += " Invoice total differs from receipt lines; do not post.";
             rows.Add(new[] {
-                invoice.Id.ToString(), "SupplierInvoice", invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.InvoiceNumber, "", PlateFor(vehicles, invoice.VehicleId),
-                invoice.SupplierId?.ToString() ?? "", "", supplier?.AutoCountCreditorCode ?? "", invoice.SupplierName, "", "", "", "",
-                Money(invoice.Amount), Money(lineTotal), Money(invoice.Amount - lineTotal), "ReviewRequired", lineTotal == invoice.Amount ? "ReviewRequired" : "TotalsMismatch", remark, "", "", "", "",
+                invoice.Id.ToString(), "SupplierInvoice", invoice.InvoiceNumber, Date(invoice.InvoiceDate), invoice.InvoiceNumber, Date(invoice.InvoiceDate), "", "", PlateFor(vehicles, invoice.VehicleId),
+                string.Join(" | ", ["SBI", PlateFor(vehicles, invoice.VehicleId), invoice.SupplierName, supplier?.RegistrationNumber ?? ""]), PurchaseInvoiceSellerType.Company.ToString(), invoice.SupplierId?.ToString() ?? "", "", supplier?.AutoCountCreditorCode ?? "", invoice.SupplierName, "", "", "", "",
+                Money(invoice.Amount), Money(lineTotal), Money(invoice.Amount - lineTotal), "ReviewRequired", lineTotal == invoice.Amount ? "ReviewRequired" : "TotalsMismatch", remark, "", "", "", "No", "",
                 supplier?.CompanyName ?? "", supplier?.Address ?? "", supplier?.Phone ?? "", supplier?.TinNumber ?? "", supplier?.RegistrationNumber ?? ""
             });
         }
@@ -573,7 +578,7 @@ public static class AutoCountExcel
         rows.AddRange(input.PaymentVouchers.Select(voucher => new[] {
             voucher.Id.ToString(), "PaymentVoucher", PlateFor(vehicles, voucher.VehicleId), $"{voucher.PayeeName}: {voucher.Purpose} | {voucher.PaymentMethod} | Source {voucher.SourceAccountCode} | Account {voucher.AccountingAccountCode} | Ref {voucher.ChequeNumber ?? voucher.PaymentReference ?? "-"} | Bank charge {Money(voucher.BankChargeAmount)} ({voucher.BankChargeAccountCode ?? "-"})", Money(voucher.Amount), EffectiveDateText(Present(voucher.IssuedDate), vehicles, voucher.VehicleId), voucher.Status.ToString(), voucher.Status == PaymentVoucherStatus.Paid ? "Paid with maker-checker evidence captured; TaxCode still needs Finance mapping." : "Do not post until the voucher is paid.", "ReviewRequired"
         }));
-        rows.AddRange(input.Settlements.Select(settlement => SettlementExportRow(settlement, vehicles).Append("ReviewRequired").ToArray()));
+        rows.AddRange(input.Settlements.Where(settlement => !settlement.SupersededById.HasValue).Select(settlement => SettlementExportRow(settlement, vehicles).Append("ReviewRequired").ToArray()));
         return rows;
     }
 
@@ -585,6 +590,12 @@ public static class AutoCountExcel
                 settlement.Id.ToString(), "Settlement", PlateFor(vehicles, settlement.VehicleId), "Previous owner settlement", Money(settlement.Amount), EffectiveDateText(Present(settlement.Deadline), vehicles, settlement.VehicleId), settlement.IsPaid ? "Paid" : "Due", "Settlement account mapping is not verified."
             ];
         }
+
+        if (settlement.Direction == SettlementDirection.PayBank)
+            return [settlement.Id.ToString(), "SettlementPayBank", PlateFor(vehicles, settlement.VehicleId),
+                "Bank settlement / " + settlement.BankName, Money(settlement.BankDebtAmount ?? 0m),
+                EffectiveDateText(Present(settlement.Deadline), vehicles, settlement.VehicleId), settlement.IsPaid ? "Completed" : "Open",
+                "Bank settlement account mapping needs review. Do not post automatically."];
 
         var absoluteDifference = Money(settlement.Amount);
         var purchaseSnapshot = Money(settlement.PurchasePriceSnapshot ?? 0m);

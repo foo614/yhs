@@ -10,8 +10,8 @@ namespace YSHeng.Api.Features;
 
 public sealed record WhatsAppStaffPolicyView(string Category, bool Enabled, int LocalMinuteOfDay,
     int LeadDays, int ThresholdPercent, bool SenderReady, bool TemplateReady, bool CategoryReady,
-    IReadOnlyList<string> SenderIssues, IReadOnlyList<WhatsAppTemplateReadiness> TemplateReadiness);
-public sealed record WhatsAppStaffPolicyUpdate(bool Enabled, int LocalMinuteOfDay, int LeadDays, int ThresholdPercent);
+    IReadOnlyList<string> SenderIssues, IReadOnlyList<WhatsAppTemplateReadiness> TemplateReadiness, int DelayMinutes = 0);
+public sealed record WhatsAppStaffPolicyUpdate(bool Enabled, int LocalMinuteOfDay, int LeadDays, int ThresholdPercent, int DelayMinutes = 0);
 public sealed record WhatsAppStaffHistoryItem(Guid Id, string StaffUserId, string StaffName, string MaskedNumber,
     string Category, string? SubmittedBody, string? SubmittedTemplateName, string? SubmittedLanguage,
     string State, long ScheduledAt, long? AcceptedAt, long? SentAt,
@@ -34,12 +34,14 @@ public static class WhatsAppStaffNotifications
     {
         string? body = item.MessageKind switch
         {
+            "InspectionReminder" => await WhatsAppInspectionReminders.RefreshAsync(db, item, now, ct),
+            "CalendarTasks" => await WhatsAppCalendarTasks.RefreshAsync(db, item, now, ct),
             "OutstandingDigest" => (await WhatsAppDueDigest.RefreshForDispatchAsync(db, item, now, ct: ct,
                 policy: policy, sources: dueSources))?.Body,
             "OcrUsage" => (await WhatsAppOcrUsageAlerts.RefreshForDispatchAsync(db, item, now, ct))?.Body,
             "AttendanceSummary" or "LeaveApproval" => await WhatsAppHrNotifications.RefreshForDispatchAsync(db, item, now, ct,
                 policy, attendance, pendingLeave),
-            "VehicleEvent" or "DeliveryEvent" or "FinanceEvent" => await WhatsAppWorkflowDispatch.RefreshAsync(db, item, now, ct),
+            "VehicleEvent" or "DeliveryEvent" or "FinanceEvent" or "CompanyNews" => await WhatsAppWorkflowDispatch.RefreshAsync(db, item, now, ct),
             _ => null
         };
         if (string.IsNullOrWhiteSpace(body) || body.Length > 1024 || body.Any(char.IsControl) ||
@@ -53,6 +55,9 @@ public static class WhatsAppStaffNotifications
         ["AttendanceSummary"] = ["BossAdmin"],
         ["LeaveApproval"] = ["BossAdmin", "HrSalary"],
         ["OcrUsage"] = ["BossAdmin"],
+        ["InspectionReminder"] = ["BossAdmin"],
+        ["CalendarTasks"] = ["BossAdmin", "Sales", "Loan", "Delivery", "Repair", "Finance", "HrSalary"],
+        ["CompanyNews"] = ["BossAdmin", "Sales", "Loan", "Delivery", "Repair", "Finance", "HrSalary"],
         ["VehicleEvent"] = ["BossAdmin", "Sales"],
         ["DeliveryEvent"] = ["BossAdmin", "Sales"],
         // Sales may receive only the whitelisted, amount-free receipt event renderer.
@@ -92,13 +97,46 @@ public static class WhatsAppStaffNotifications
         var binding = resolved.Value.Binding;
         // Daily user/category/date keys survive phone rebinds. The database unique index
         // arbitrates concurrent schedulers; event categories retain binding scope.
-        var daily = category is "OutstandingDigest" or "AttendanceSummary" or "LeaveApproval";
+        var daily = category is "OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder";
+        if (!daily) dueAt += policy.DelayMinutes * 60L;
+        if (dueAt >= expiresAt) return null;
         object recipientScope = daily ? binding.StaffUserId : binding.Id;
         var keyMaterial = JsonSerializer.Serialize(new object?[] { "staff", recipientScope, category,
             daily ? null : requiredRole, businessEventKey, businessEventVersion });
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(keyMaterial)));
         var existing = await db.WhatsAppOutbox.AsNoTracking().SingleOrDefaultAsync(item => item.IdempotencyKey == key, ct);
-        if (existing is not null) return existing;
+        if (existing is not null)
+        {
+            // Daily keys intentionally survive a phone rebind, but a never-attempted row must follow
+            // the newly verified binding. Never retarget a row that may have reached the provider.
+            if (daily && existing.StaffUserId == binding.StaffUserId && existing.StaffBindingId != binding.Id &&
+                existing.Attempts == 0 && existing.State is "Queued" or "Suppressed")
+            {
+                var retargeted = await db.WhatsAppOutbox
+                    .Where(item => item.Id == existing.Id && item.IdempotencyKey == key && item.StaffUserId == binding.StaffUserId &&
+                        item.StaffBindingId != binding.Id && item.Attempts == 0 && (item.State == "Queued" || item.State == "Suppressed"))
+                    .ExecuteUpdateAsync(set => set
+                        .SetProperty(item => item.StaffBindingId, binding.Id)
+                        .SetProperty(item => item.Recipient, binding.Recipient)
+                        .SetProperty(item => item.Language, binding.Language)
+                        .SetProperty(item => item.Body, body)
+                        .SetProperty(item => item.TemplateReference, body)
+                        .SetProperty(item => item.State, "Queued")
+                        .SetProperty(item => item.ScheduledAt, dueAt)
+                        .SetProperty(item => item.NextAttemptAt, Math.Max(dueAt, now))
+                        .SetProperty(item => item.ExpiresAt, expiresAt)
+                        .SetProperty(item => item.SuppressedAt, (long?)null)
+                        .SetProperty(item => item.FailureReason, (string?)null), ct);
+                if (retargeted == 1)
+                {
+                    db.AuditLogs.Add(new AuditLog { Actor = actor, Action = "whatsapp.staff.retargeted",
+                        EntityName = nameof(WhatsAppOutbox), EntityId = existing.Id });
+                    return await db.WhatsAppOutbox.SingleAsync(item => item.Id == existing.Id, ct);
+                }
+                existing = await db.WhatsAppOutbox.AsNoTracking().SingleOrDefaultAsync(item => item.Id == existing.Id, ct) ?? existing;
+            }
+            return existing;
+        }
         var item = new WhatsAppOutbox
         {
             Audience = "Staff", StaffBindingId = binding.Id, StaffUserId = binding.StaffUserId,
@@ -118,7 +156,7 @@ public static class WhatsAppStaffNotifications
     public static async Task<WhatsAppOutbox?> StageCurrentDayDigestAsync(AppDbContext db, WhatsAppAssistantOptions assistant,
         Guid bindingId, string category, string requiredRole, string body, int version, long now, string actor, CancellationToken ct = default)
     {
-        if (category is not ("OutstandingDigest" or "AttendanceSummary" or "LeaveApproval")) throw new ArgumentException("Not a daily digest.");
+        if (category is not ("OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks")) throw new ArgumentException("Not a daily digest.");
         var day = LocalDate(now);
         var policy = await db.WhatsAppStaffNotificationPolicies.AsNoTracking()
             .SingleOrDefaultAsync(item => item.Category == category && item.Enabled, ct);
@@ -136,14 +174,16 @@ public static class WhatsAppStaffNotifications
         return AllowedRoles.Keys.Select(category =>
         {
             var row = rows.SingleOrDefault(item => item.Category == category);
-            var minute = category is "OutstandingDigest" or "LeaveApproval" ? 540 : category == "AttendanceSummary" ? 600 : 0;
+            var templateKeys = category == "InspectionReminder"
+                ? new[] { "staff_notice_v1", WhatsAppInspectionAttachment.TemplateKey } : new[] { "staff_notice_v1" };
+            var minute = category is "OutstandingDigest" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" ? 540 : category == "AttendanceSummary" ? 600 : 0;
+            var templateReady = templateKeys.All(key => dispatch.TemplateFor(key, "ms") is not null || dispatch.TemplateFor(key, "en_US") is not null);
             return new WhatsAppStaffPolicyView(category, row?.Enabled ?? false, row?.LocalMinuteOfDay ?? minute,
-                row?.LeadDays ?? (category == "OutstandingDigest" ? 3 : 0),
+                row?.LeadDays ?? (category == "OutstandingDigest" ? 2 : category == "CalendarTasks" ? 1 : 0),
                 row?.ThresholdPercent ?? (category == "OcrUsage" ? 90 : 0), dispatch.StaffSenderReady,
-                dispatch.TemplateFor("staff_notice_v1", "ms") is not null ||
-                    dispatch.TemplateFor("staff_notice_v1", "en_US") is not null,
+                templateReady,
                 true, dispatch.StaffSenderIssues(),
-                [dispatch.TemplateReadiness("staff_notice_v1", "ms"), dispatch.TemplateReadiness("staff_notice_v1", "en_US")]);
+                templateKeys.SelectMany(key => new[] { dispatch.TemplateReadiness(key, "ms"), dispatch.TemplateReadiness(key, "en_US") }).ToArray(), row?.DelayMinutes ?? 0);
         }).ToArray();
     }
 
@@ -178,16 +218,18 @@ public static class WhatsAppStaffNotifications
     public static async Task<bool> UpdatePolicyAsync(AppDbContext db, string category, WhatsAppStaffPolicyUpdate request,
         string actor, long now, CancellationToken ct = default)
     {
-        if (!AllowedRoles.ContainsKey(category) || request.LocalMinuteOfDay is < 0 or >= 1440 ||
-            (category is not ("OutstandingDigest" or "AttendanceSummary" or "LeaveApproval") && request.LocalMinuteOfDay != 0) ||
-            (category == "OutstandingDigest" ? request.LeadDays is < 1 or > 30 : request.LeadDays != 0) ||
+        if (request.DelayMinutes is < 0 or > 1440 ||
+            (category is "OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" && request.DelayMinutes != 0) ||
+            !AllowedRoles.ContainsKey(category) || request.LocalMinuteOfDay is < 0 or >= 1440 ||
+            (category is not ("OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder") && request.LocalMinuteOfDay != 0) ||
+            (category is "OutstandingDigest" or "CalendarTasks" ? request.LeadDays is < 1 or > 30 : request.LeadDays != 0) ||
             (category == "OcrUsage" ? request.ThresholdPercent is < 1 or > 100 : request.ThresholdPercent != 0)) return false;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var row = await db.WhatsAppStaffNotificationPolicies.SingleOrDefaultAsync(item => item.Category == category, ct);
         var next = new WhatsAppStaffNotificationPolicy
         {
             Category = category, Enabled = request.Enabled, LocalMinuteOfDay = request.LocalMinuteOfDay,
-            LeadDays = request.LeadDays, ThresholdPercent = request.ThresholdPercent, UpdatedAt = now
+            LeadDays = request.LeadDays, ThresholdPercent = request.ThresholdPercent, DelayMinutes = request.DelayMinutes, UpdatedAt = now
         };
         if (row is null) db.WhatsAppStaffNotificationPolicies.Add(next);
         else db.Entry(row).CurrentValues.SetValues(next);

@@ -12,6 +12,7 @@ public static class WhatsAppNotificationDispatcher
           item.TemplateReference == WhatsAppStaffInvitation.ReferenceFor(item.Language)
         : item.Audience == "Staff"
         ? item.EventKind == "staff.notification" && (item.TemplateVersion == "staff_notice_v1" ||
+          item.TemplateVersion == WhatsAppInspectionAttachment.TemplateKey && WhatsAppInspectionAttachment.Required(item) ||
           WhatsAppReminderV2.Known(item.TemplateVersion) && WhatsAppReminderV2.KeyFor(item) == item.TemplateVersion) &&
           WhatsAppStaffNotifications.Categories.Contains(item.MessageKind)
         : item.Audience == "Customer" && (item.EventKind, item.TemplateVersion) is

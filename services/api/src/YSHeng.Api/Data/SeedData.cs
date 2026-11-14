@@ -15,6 +15,8 @@ public static class SeedData
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
         await EnsureLeadSchemaAsync(db);
+        await EnsureCalendarTaskSchemaAsync(db);
+        await EnsureBrokerDealPriceSchemaAsync(db);
         await EnsureHrSchemaAsync(db);
         await EnsureOcrSchemaAsync(db);
         await EnsureAiUsageSchemaAsync(db);
@@ -292,6 +294,7 @@ public static class SeedData
                 "Category" text PRIMARY KEY, "Enabled" boolean NOT NULL DEFAULT false,
                 "LocalMinuteOfDay" integer NOT NULL DEFAULT 0, "LeadDays" integer NOT NULL DEFAULT 0,
                 "ThresholdPercent" integer NOT NULL DEFAULT 0, "UpdatedAt" bigint NOT NULL DEFAULT 0);
+            ALTER TABLE "WhatsAppStaffNotificationPolicies" ADD COLUMN IF NOT EXISTS "DelayMinutes" integer NOT NULL DEFAULT 0;
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_IdempotencyKey" ON "WhatsAppOutbox" ("IdempotencyKey");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_ProviderMessageId" ON "WhatsAppOutbox" ("ProviderMessageId");
             CREATE INDEX IF NOT EXISTS "IX_WhatsAppOutbox_State_NextAttemptAt" ON "WhatsAppOutbox" ("State", "NextAttemptAt");
@@ -339,6 +342,38 @@ public static class SeedData
 
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "DeliveryScheduleId" uuid NULL;
             CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_DeliveryScheduleId" ON "DocumentBlobs" ("DeliveryScheduleId");
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "InspectionId" uuid NULL;
+            CREATE INDEX IF NOT EXISTS "IX_DocumentBlobs_InspectionId" ON "DocumentBlobs" ("InspectionId");
+
+            CREATE TABLE IF NOT EXISTS "InspectionRecords" (
+                "Id" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "Type" integer NOT NULL,
+                "Company" integer NOT NULL,
+                "Status" integer NOT NULL,
+                "IsLorry" boolean NOT NULL,
+                "AppointmentDate" date NOT NULL,
+                "AppointmentTime" time without time zone NULL,
+                "ReportExpiryDate" date NOT NULL,
+                "BookingReference" text NOT NULL,
+                "SourceReceiptNumber" text NOT NULL,
+                "ReceiptTotal" numeric NOT NULL,
+                "AllocatedAmount" numeric NOT NULL,
+                "SupplierInvoiceReference" text NOT NULL,
+                "Notes" text NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "CreatedBy" text NOT NULL,
+                "CompletedAt" timestamp with time zone NULL,
+                "CompletedBy" text NULL,
+                CONSTRAINT "PK_InspectionRecords" PRIMARY KEY ("Id")
+            );
+            CREATE INDEX IF NOT EXISTS "IX_InspectionRecords_VehicleId" ON "InspectionRecords" ("VehicleId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_InspectionRecords_SourceReceipt_Vehicle"
+                ON "InspectionRecords" ("SourceReceiptNumber", "VehicleId")
+                WHERE "SourceReceiptNumber" <> '';
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_InspectionRecords_SupplierInvoiceReference"
+                ON "InspectionRecords" ("SupplierInvoiceReference")
+                WHERE "SupplierInvoiceReference" <> '';
 
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "CustomerId" uuid NULL;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "PicUserId" text NULL;
@@ -377,6 +412,49 @@ public static class SeedData
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourcePage" text NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourceReferrer" text NULL;
             ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "SourceCampaign" text NULL;
+        """);
+    }
+
+    private static async Task EnsureCalendarTaskSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "CalendarTasks" (
+                "Id" uuid NOT NULL,
+                "Title" text NOT NULL,
+                "Description" text NULL,
+                "StartDate" date NOT NULL,
+                "EndDate" date NOT NULL,
+                "AssignedToUserId" text NOT NULL,
+                "AssignedToName" text NOT NULL,
+                "Status" integer NOT NULL DEFAULT 0,
+                "CreatedByUserId" text NOT NULL,
+                "CreatedByName" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "CompletedAt" timestamp with time zone NULL,
+                "CompletedByUserId" text NULL,
+                CONSTRAINT "PK_CalendarTasks" PRIMARY KEY ("Id")
+            );
+            CREATE INDEX IF NOT EXISTS "IX_CalendarTasks_StartDate_EndDate_Status"
+                ON "CalendarTasks" ("StartDate", "EndDate", "Status");
+            CREATE INDEX IF NOT EXISTS "IX_CalendarTasks_AssignedToUserId"
+                ON "CalendarTasks" ("AssignedToUserId");
+        """);
+    }
+
+    private static async Task EnsureBrokerDealPriceSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "BrokerDealPrices" (
+                "Id" uuid NOT NULL,
+                "VehicleId" uuid NOT NULL,
+                "Amount" numeric NOT NULL,
+                "BrokerUserId" text NOT NULL,
+                "BrokerName" text NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_BrokerDealPrices" PRIMARY KEY ("Id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_BrokerDealPrices_VehicleId"
+                ON "BrokerDealPrices" ("VehicleId");
         """);
     }
 
@@ -667,9 +745,16 @@ public static class SeedData
     {
         await db.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "StockLocation" text NOT NULL DEFAULT '';
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "PurchaseSource" integer NOT NULL DEFAULT 3;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "HasSpareKey" boolean NULL;
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "ChassisNumber" text NULL;
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "EngineNumber" text NULL;
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "PublicDescriptionMarkdown" text NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "DealerProcessingFee" numeric NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "DealerTrailerFee" numeric NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "DealerParkingFee" numeric NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "DealerLateCharge" numeric NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "DealerDiscount" numeric NULL;
 
             CREATE TABLE IF NOT EXISTS "StockMovements" (
                 "Id" uuid NOT NULL,
@@ -709,6 +794,7 @@ public static class SeedData
     {
         await db.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "IntakeAt" timestamp with time zone NULL;
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "HasBankDebt" boolean NULL;
             UPDATE "Vehicles"
             SET "IntakeAt" = ("IntakeDate"::timestamp AT TIME ZONE 'Asia/Singapore')
             WHERE "IntakeAt" IS NULL;
@@ -780,6 +866,7 @@ public static class SeedData
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "RepairJobId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "PaymentRecordId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "CollectionTransactionId" uuid NULL;
+            ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "BankSettlementId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "LoanApplicationId" uuid NULL;
             ALTER TABLE "DocumentBlobs" ADD COLUMN IF NOT EXISTS "OwnershipType" integer NOT NULL DEFAULT 2;
@@ -926,6 +1013,14 @@ public static class SeedData
             ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "Direction" integer NOT NULL DEFAULT 0;
             ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "PurchasePriceSnapshot" numeric NULL;
             ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "BankDebtAmount" numeric NULL;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "BankName" text NULL;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "BankAccountNumber" text NULL;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "ReplacesSettlementId" uuid NULL;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "SupersededById" uuid NULL;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "PaymentDocumentId" uuid NULL;
+            ALTER TABLE "SettlementReminders" ADD COLUMN IF NOT EXISTS "PaidOn" date NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_SettlementReplacement" ON "SettlementReminders" ("ReplacesSettlementId") WHERE "ReplacesSettlementId" IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_SettlementPaymentDocument" ON "SettlementReminders" ("PaymentDocumentId") WHERE "PaymentDocumentId" IS NOT NULL;
 
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsuranceExpiryDate" date NULL;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxExpiryDate" date NULL;
@@ -1279,6 +1374,18 @@ public static class SeedData
     private static async Task EnsureOwnerPurchaseInvoiceSchemaAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Vehicles" ADD COLUMN IF NOT EXISTS "PurchaseSource" integer NOT NULL DEFAULT 3;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "SupplierInvoiceNumber" text NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "SupplierInvoiceDate" date NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "DiscountVoucherReference" text NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AutoCountInvoiceNumber" text NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AutoCountKeyed" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AutoCountKeyedBy" text NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AutoCountKeyedByUserId" text NULL;
+            ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "AutoCountKeyedAt" timestamp with time zone NULL;
+            ALTER TABLE "PurchaseInvoiceLines" ADD COLUMN IF NOT EXISTS "SupplierInvoiceNumber" text NULL;
+            ALTER TABLE "PurchaseInvoiceLines" ADD COLUMN IF NOT EXISTS "SupplierInvoiceDate" date NULL;
+            ALTER TABLE "PurchaseInvoiceLines" ADD COLUMN IF NOT EXISTS "DiscountVoucherReference" text NULL;
             ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "SourceType" integer NOT NULL DEFAULT 0;
             ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
             ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "CurrentRevisionNumber" integer NOT NULL DEFAULT 0;
@@ -1304,6 +1411,11 @@ public static class SeedData
                 "SellerIcNumber" text NULL,
                 "SellerTinNumber" text NULL,
                 "SellerAddress" text NULL,
+                "SellerType" integer NOT NULL DEFAULT 0,
+                "SellerRegistrationNumber" text NULL,
+                "SupplierInvoiceNumber" text NULL,
+                "SupplierInvoiceDate" date NULL,
+                "DiscountVoucherReference" text NULL,
                 "VehiclePlateNumber" text NOT NULL,
                 "VehicleDescription" text NOT NULL,
                 "Amount" numeric NOT NULL,
@@ -1325,6 +1437,11 @@ public static class SeedData
                 ON "PurchaseInvoiceRevisions" ("InvoiceNumber", "RevisionNumber");
             ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "AccountingConfirmedByUserId" text NULL;
             ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "CreatedByUserId" text NULL;
+            ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "SellerType" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "SellerRegistrationNumber" text NULL;
+            ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "SupplierInvoiceNumber" text NULL;
+            ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "SupplierInvoiceDate" date NULL;
+            ALTER TABLE "PurchaseInvoiceRevisions" ADD COLUMN IF NOT EXISTS "DiscountVoucherReference" text NULL;
 
             CREATE TABLE IF NOT EXISTS "PurchaseInvoiceRevisionLines" (
                 "Id" uuid NOT NULL,
@@ -1334,6 +1451,9 @@ public static class SeedData
                 "Amount" numeric NOT NULL,
                 "CapitaliseIntoVehicleCost" boolean NOT NULL,
                 "SortOrder" integer NOT NULL,
+                "SupplierInvoiceNumber" text NULL,
+                "SupplierInvoiceDate" date NULL,
+                "DiscountVoucherReference" text NULL,
                 CONSTRAINT "PK_PurchaseInvoiceRevisionLines" PRIMARY KEY ("Id")
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "UX_PurchaseInvoiceRevisionLines_Revision_SortOrder"

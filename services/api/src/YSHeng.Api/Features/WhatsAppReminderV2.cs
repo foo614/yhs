@@ -119,7 +119,7 @@ public static class WhatsAppReminderV2
             Number(snapshot.Items.Count), Number(snapshot.Items.Count(item => item.DueDate < today)) };
         if (role == "Sales") return common;
         var ids = snapshot.Items.Where(item => item.Kind == "Settlement").Select(item => item.SourceId).ToHashSet();
-        var sellers = sources.Settlements.Where(item => ids.Contains(item.Id)).ToArray();
+        var sellers = sources.Settlements.Where(item => ids.Contains(item.Id) && item.Direction != SettlementDirection.PayBank).ToArray();
         var pay = sellers.Where(item => item.Direction is SettlementDirection.PaySeller or SettlementDirection.LegacyPaySeller).ToArray();
         var collect = sellers.Where(item => item.Direction == SettlementDirection.CollectFromSeller).ToArray();
         return [.. common, Number(pay.Length), Money(pay.Sum(item => item.Amount)), Number(collect.Length),

@@ -224,7 +224,7 @@ public sealed class WhatsAppStaffSender : IDisposable
     }
 }
 
-public sealed class WhatsAppStaffWorker(IServiceScopeFactory scopes, WhatsAppAssistantOptions options, WhatsAppStaffSender sender, ILogger<WhatsAppStaffWorker> logger) : BackgroundService
+public sealed class WhatsAppStaffWorker(IServiceScopeFactory scopes, WhatsAppAssistantOptions options, WhatsAppStaffSender sender, WhatsAppMediaClient mediaClient, ILogger<WhatsAppStaffWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -235,7 +235,7 @@ public sealed class WhatsAppStaffWorker(IServiceScopeFactory scopes, WhatsAppAss
             {
                 using var scope = scopes.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                await WhatsAppStaffQueue.DispatchOneRichAsync(db, options, (recipient, outbound, ct) => sender.SendAsync(options, recipient, outbound, ct), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken);
+                await WhatsAppStaffQueue.DispatchOneRichAsync(db, options, (recipient, outbound, ct) => sender.SendAsync(options, recipient, outbound, ct), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken, mediaClient);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception exception)

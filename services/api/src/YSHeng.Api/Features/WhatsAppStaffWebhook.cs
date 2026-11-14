@@ -123,6 +123,14 @@ public static class WhatsAppStaffWebhook
             var body = String(text, "body") ?? "";
             return WhatsAppStaffQueries.Parse(body) ?? WhatsAppStaffCommandHelp.RecoveryIntent(body);
         }
+        if (String(message, "type") is "document" or "image" && Object(message, String(message, "type")!, out var media))
+        {
+            var caption = (String(media, "caption") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var mediaId = String(media, "id") ?? "";
+            if (caption.Length == 2 && caption[0].ToUpperInvariant() is "VOC" or "IC" && Guid.TryParse(caption[1], out var draftId) && WhatsAppMediaClient.ValidId(mediaId))
+                return new("intake-file", $"{draftId:D}|{caption[0].ToUpperInvariant()}|{mediaId}");
+            return new("usage");
+        }
         if (String(message, "type") == "interactive" && Object(message, "interactive", out var interactive) &&
             String(interactive, "type") == "list_reply" && Object(interactive, "list_reply", out var reply))
             return WhatsAppStaffCommandHelp.ParseSelection(String(reply, "id")) ?? new("usage");

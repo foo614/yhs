@@ -20,6 +20,7 @@ export function settlementPreview(purchasePrice: number, bankDebtAmount: number)
 }
 
 export function settlementDirectionLabel(direction: SettlementReminder["direction"]) {
+  if (direction === "PayBank") return "Pay to bank / 付银行";
   if (direction === "CollectFromSeller") return "Collect from seller / 向卖家收款";
   if (direction === "InternalOffset") return "Internal offset / 内部对冲";
   return "Pay seller / 付卖家";
@@ -38,7 +39,7 @@ export function settlementStatusLabel(settlement: Pick<SettlementReminder, "dire
 }
 
 export function settlementTotals(settlements: SettlementReminder[]) {
-  return settlements.filter((item) => !item.isPaid).reduce((totals, item) => {
+  return settlements.filter((item) => !item.isPaid && !item.supersededById).reduce((totals, item) => {
     if (item.direction === "InternalOffset") totals.offsets += 1;
     else if (item.direction === "CollectFromSeller") totals.toCollect += item.amount;
     else totals.toPay += item.amount;

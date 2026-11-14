@@ -11,6 +11,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Owner> Owners => Set<Owner>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<CalendarTask> CalendarTasks => Set<CalendarTask>();
+    public DbSet<BrokerDealPrice> BrokerDealPrices => Set<BrokerDealPrice>();
     public DbSet<VehiclePhoto> VehiclePhotos => Set<VehiclePhoto>();
     public DbSet<DocumentBlob> DocumentBlobs => Set<DocumentBlob>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
@@ -25,6 +27,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<SupplierInvoice> SupplierInvoices => Set<SupplierInvoice>();
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
+    public DbSet<InspectionRecord> InspectionRecords => Set<InspectionRecord>();
     public DbSet<DeliveryActivity> DeliveryActivities => Set<DeliveryActivity>();
     public DbSet<DeliveryAccountingCharge> DeliveryAccountingCharges => Set<DeliveryAccountingCharge>();
     public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
@@ -65,10 +68,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<WhatsAppStaffBinding> WhatsAppStaffBindings => Set<WhatsAppStaffBinding>();
     public DbSet<WhatsAppStaffChallenge> WhatsAppStaffChallenges => Set<WhatsAppStaffChallenge>();
     public DbSet<WhatsAppStaffRequest> WhatsAppStaffRequests => Set<WhatsAppStaffRequest>();
+    public DbSet<WhatsAppPriceUpdateDraft> WhatsAppPriceUpdateDrafts => Set<WhatsAppPriceUpdateDraft>();
+    public DbSet<WhatsAppVehicleIntakeDraft> WhatsAppVehicleIntakeDrafts => Set<WhatsAppVehicleIntakeDraft>();
+    public DbSet<WhatsAppSettlementUpdateDraft> WhatsAppSettlementUpdateDrafts => Set<WhatsAppSettlementUpdateDraft>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        builder.Entity<SettlementReminder>().HasIndex(x => x.ReplacesSettlementId).IsUnique().HasFilter("\"ReplacesSettlementId\" IS NOT NULL").HasDatabaseName("UX_SettlementReplacement");
+        builder.Entity<SettlementReminder>().HasIndex(x => x.PaymentDocumentId).IsUnique().HasFilter("\"PaymentDocumentId\" IS NOT NULL").HasDatabaseName("UX_SettlementPaymentDocument");
         builder.Entity<WhatsAppStaffBinding>().HasIndex(item => item.StaffUserId).IsUnique().HasFilter("\"RevokedAt\" IS NULL");
         builder.Entity<WhatsAppStaffBinding>().HasIndex(item => new { item.PhoneNumberId, item.Recipient }).IsUnique().HasFilter("\"RevokedAt\" IS NULL");
         builder.Entity<WhatsAppStaffBinding>().HasOne<AppUser>().WithMany().HasForeignKey(item => item.StaffUserId).OnDelete(DeleteBehavior.Restrict);
@@ -77,6 +85,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<WhatsAppStaffRequest>().HasIndex(item => item.EventKey).IsUnique();
         builder.Entity<WhatsAppStaffRequest>().HasIndex(item => item.ProviderMessageId).IsUnique();
         builder.Entity<WhatsAppStaffRequest>().HasIndex(item => new { item.State, item.CreatedAt });
+        builder.Entity<WhatsAppPriceUpdateDraft>().HasIndex(item => item.IdempotencyKey).IsUnique();
+        builder.Entity<WhatsAppPriceUpdateDraft>().HasIndex(item => new { item.BindingId, item.State, item.ExpiresAt });
+        builder.Entity<WhatsAppVehicleIntakeDraft>().HasIndex(item => item.RequestId).IsUnique();
+        builder.Entity<WhatsAppVehicleIntakeDraft>().HasIndex(item => item.ConfirmationToken).IsUnique();
+        builder.Entity<WhatsAppVehicleIntakeDraft>().HasOne<WhatsAppStaffBinding>().WithMany().HasForeignKey(item => item.BindingId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<WhatsAppSettlementUpdateDraft>().HasIndex(item => item.IdempotencyKey).IsUnique();
+        builder.Entity<WhatsAppSettlementUpdateDraft>().HasIndex(item => new { item.BindingId, item.State, item.ExpiresAt });
+        builder.Entity<WhatsAppSettlementUpdateDraft>().HasOne<WhatsAppStaffBinding>().WithMany().HasForeignKey(item => item.BindingId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<WhatsAppSettlementUpdateDraft>().HasOne<SettlementReminder>().WithMany().HasForeignKey(item => item.SettlementId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<WhatsAppSettlementUpdateDraft>().HasOne<Vehicle>().WithMany().HasForeignKey(item => item.VehicleId).OnDelete(DeleteBehavior.Restrict);
         builder.Entity<WhatsAppStaffRequest>().HasOne<WhatsAppStaffBinding>().WithMany().HasForeignKey(item => item.BindingId).OnDelete(DeleteBehavior.Restrict);
         builder.Entity<WhatsAppDispatchUsage>().HasKey(item => item.Period);
         builder.Entity<WhatsAppDispatchUsage>().Property(item => item.Period).HasMaxLength(32);
@@ -99,6 +117,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<Supplier>().HasIndex(supplier => supplier.CompanyName).IsUnique();
         builder.Entity<Supplier>().HasIndex(supplier => supplier.AutoCountCreditorCode).IsUnique();
         builder.Entity<PurchaseInvoiceLine>().HasIndex(line => new { line.PurchaseInvoiceId, line.LineType });
+        builder.Entity<PurchaseInvoice>().HasIndex(invoice => new { invoice.AutoCountKeyed, invoice.AutoCountInvoiceNumber });
         builder.Entity<PurchaseInvoice>().HasIndex(invoice => invoice.InvoiceNumber);
         builder.Entity<PurchaseInvoice>().HasIndex(invoice => invoice.VehicleId)
             .HasDatabaseName("UX_PurchaseInvoices_OwnerAcquisitionVehicle")
@@ -120,6 +139,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
             .IsUnique();
         builder.Entity<DeliveryAccountingCharge>().HasIndex(charge => new { charge.DeliveryScheduleId, charge.ChargeType }).IsUnique();
         builder.Entity<Lead>().HasIndex(lead => lead.VehicleId);
+        builder.Entity<CalendarTask>().HasIndex(task => new { task.StartDate, task.EndDate, task.Status });
+        builder.Entity<CalendarTask>().HasIndex(task => task.AssignedToUserId);
+        builder.Entity<BrokerDealPrice>().HasIndex(price => price.VehicleId).IsUnique();
         builder.Entity<VehiclePhoto>().Property(photo => photo.Content).HasColumnType("bytea");
         builder.Entity<VehiclePhoto>().Property(photo => photo.Thumbnail).HasColumnType("bytea");
         builder.Entity<DocumentBlob>().Property(document => document.Content).HasColumnType("bytea");
@@ -131,6 +153,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<DocumentBlob>().HasIndex(document => document.DeliveryScheduleId);
         builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.VehicleId);
         builder.Entity<DeliverySchedule>().HasIndex(delivery => delivery.CustomerId);
+        builder.Entity<InspectionRecord>().HasIndex(item => item.VehicleId);
+        builder.Entity<InspectionRecord>().HasIndex(item => new { item.SourceReceiptNumber, item.VehicleId })
+            .HasDatabaseName("UX_InspectionRecords_SourceReceipt_Vehicle")
+            .HasFilter("\"SourceReceiptNumber\" <> ''")
+            .IsUnique();
+        builder.Entity<InspectionRecord>().HasIndex(item => item.SupplierInvoiceReference)
+            .HasDatabaseName("UX_InspectionRecords_SupplierInvoiceReference")
+            .HasFilter("\"SupplierInvoiceReference\" <> ''")
+            .IsUnique();
         builder.Entity<DeliveryActivity>().HasIndex(activity => new { activity.DeliveryScheduleId, activity.CreatedAt });
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.RepairJobId);
         builder.Entity<RepairReceipt>().HasIndex(receipt => receipt.DocumentId).IsUnique();

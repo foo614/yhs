@@ -48,7 +48,7 @@ describe("Cars I’m Handling", () => {
     expect(markup).toContain("salesMyCarsFilterBar");
     expect(markup).toContain("salesMyCarsTable");
     const salesTableHead = markup.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "";
-    expect(salesTableHead.match(/<th(?:\s|>)/g) ?? []).toHaveLength(3);
+    expect(salesTableHead.match(/<th(?:\s|>)/g) ?? []).toHaveLength(4);
     expect(salesTableHead).toContain("Car / 车辆");
     expect(salesTableHead).toContain("Current process / 当前流程");
     expect(salesTableHead).toContain("Current handoff / 当前跟进");
@@ -73,12 +73,12 @@ describe("Cars I’m Handling", () => {
     }));
 
     expect(bossMarkup).toContain("All agents");
-    expect(bossMarkup).toContain("Agent / 销售员");
+    expect(bossMarkup).toContain("Broker / 经纪人");
     const bossTableHead = bossMarkup.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "";
-    expect(bossTableHead.match(/<th(?:\s|>)/g) ?? []).toHaveLength(4);
+    expect(bossTableHead.match(/<th(?:\s|>)/g) ?? []).toHaveLength(5);
     expect(bossTableHead).toContain("Current handoff / 当前跟进");
     expect(salesMarkup).not.toContain("All agents");
-    expect(salesMarkup).not.toContain("Agent / 销售员");
+    expect(salesMarkup).not.toContain("Broker / 经纪人");
     expect(salesMarkup).not.toContain("Jason Tan");
   });
 

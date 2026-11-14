@@ -42,6 +42,9 @@ public sealed class WhatsAppPostgresTests
             // Upgrade the earlier application schema only inside this generated disposable database.
             await db.Database.ExecuteSqlRawAsync("""
                 ALTER TABLE "WhatsAppOutbox" DROP CONSTRAINT IF EXISTS "FK_WhatsAppOutbox_WhatsAppStaffBindings_StaffBindingId";
+                DROP TABLE "WhatsAppVehicleIntakeDrafts";
+                DROP TABLE "WhatsAppPriceUpdateDrafts";
+                DROP TABLE "WhatsAppSettlementUpdateDrafts";
                 DROP TABLE "WhatsAppStaffRequests";
                 DROP TABLE "WhatsAppStaffChallenges";
                 DROP TABLE "WhatsAppStaffBindings";

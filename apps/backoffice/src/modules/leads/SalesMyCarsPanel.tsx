@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Empty, Input, Pagination, Select, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, Button, Empty, Input, InputNumber, Pagination, Select, Skeleton, Space, Tag, Typography } from "antd";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import type { ColumnsType } from "antd/es/table";
 import {
   getSalesWorkboard,
   humanizeApiError,
+  updateActualSellingPrice,
   type CurrentUser,
   type SalesWorkboard,
   type SalesWorkboardItem
@@ -40,6 +41,9 @@ export function SalesMyCarsPanel({
   const [agentUserId, setAgentUserId] = useState<string | "All">("All");
   const [keyword, setKeyword] = useState("");
   const [mobilePage, setMobilePage] = useState(1);
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, number | undefined>>({});
+  const [priceSavingFor, setPriceSavingFor] = useState<string | null>(null);
+  const [priceSaveError, setPriceSaveError] = useState<string | null>(null);
   const isBoss = currentUser?.roles.includes("BossAdmin") ?? false;
   const mobilePageSize = 6;
   const filteredItems = filterSalesMyCars(data?.items ?? [], keyword);
@@ -47,6 +51,10 @@ export function SalesMyCarsPanel({
   const clampedMobilePage = Math.min(mobilePage, mobilePageCount);
   const mobileItems = filteredItems.slice((clampedMobilePage - 1) * mobilePageSize, clampedMobilePage * mobilePageSize);
   const showAgentColumn = isBoss;
+
+  useEffect(() => {
+    setPriceDrafts(Object.fromEntries((data?.items ?? []).map(item => [item.vehicleId, item.actualSellingPrice ?? undefined])));
+  }, [data]);
 
   const load = useCallback(async (selectedAgent: string | "All" = agentUserId) => {
     setLoading(true);
@@ -59,6 +67,29 @@ export function SalesMyCarsPanel({
       setLoading(false);
     }
   }, [agentUserId, isBoss]);
+
+  const savePrice = async (item: SalesWorkboardItem) => {
+    const amount = priceDrafts[item.vehicleId];
+    if (!amount || amount <= 0) {
+      setPriceSaveError("Enter a valid actual deal price before saving.");
+      return;
+    }
+    setPriceSavingFor(item.vehicleId);
+    setPriceSaveError(null);
+    try {
+      await updateActualSellingPrice(item.vehicleId, amount);
+      await load();
+    } catch (error) {
+      setPriceSaveError(humanizeApiError(error, "Actual deal price could not be saved."));
+    } finally {
+      setPriceSavingFor(null);
+    }
+  };
+
+  const dealPriceCell = (item: SalesWorkboardItem) => {
+    if (isBoss) return item.actualSellingPrice ? `RM ${item.actualSellingPrice.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Not filled";
+    return <Space.Compact><InputNumber aria-label={`Actual deal price for ${item.plateNumber}`} min={0.01} precision={2} value={priceDrafts[item.vehicleId]} onChange={value => setPriceDrafts(current => ({ ...current, [item.vehicleId]: value ?? undefined }))} placeholder="RM" /><Button loading={priceSavingFor === item.vehicleId} onClick={() => void savePrice(item)}>Save</Button></Space.Compact>;
+  };
 
   useEffect(() => {
     if (autoLoad) void load();
@@ -85,7 +116,8 @@ export function SalesMyCarsPanel({
         </Space>
       )
     },
-    ...(showAgentColumn ? [{ title: "Agent / 销售员", dataIndex: "salesAgentName", width: 170, render: (value: string | null | undefined) => value || "Unassigned" } as ColumnsType<SalesWorkboardItem>[number]] : [])
+    { title: "Actual deal price / 成交价", width: isBoss ? 170 : 260, render: (_, item) => dealPriceCell(item) },
+    ...(showAgentColumn ? [{ title: "Broker / 经纪人", dataIndex: "salesAgentName", width: 170, render: (value: string | null | undefined) => value || "Unassigned" } as ColumnsType<SalesWorkboardItem>[number]] : [])
   ];
 
   return (
@@ -93,6 +125,7 @@ export function SalesMyCarsPanel({
       <div className="salesMyCarsHeader">
         <Typography.Text type="secondary">See the cars you sold or are following, their current process, and which team owns the next step.</Typography.Text>
       </div>
+      {priceSaveError && <Alert type="error" showIcon message={priceSaveError} closable onClose={() => setPriceSaveError(null)} />}
       <Space wrap className="toolbarForm salesMyCarsFilterBar">
         <Input.Search
           allowClear
@@ -139,7 +172,11 @@ export function SalesMyCarsPanel({
                 <Typography.Text strong>{item.responsibleDepartment}</Typography.Text>
                 <Typography.Text type="secondary">{item.nextAction}</Typography.Text>
               </div>
-              {showAgentColumn && <Typography.Text type="secondary">Agent: {item.salesAgentName || "Unassigned"}</Typography.Text>}
+              <div className="salesMyCarsMobileSection">
+                <Typography.Text className="mobileRecordLabel">Actual deal price / 成交价</Typography.Text>
+                {dealPriceCell(item)}
+              </div>
+              {showAgentColumn && <Typography.Text type="secondary">Broker: {item.salesAgentName || "Unassigned"}</Typography.Text>}
             </article>
           ))}
           {filteredItems.length > mobilePageSize && <Pagination

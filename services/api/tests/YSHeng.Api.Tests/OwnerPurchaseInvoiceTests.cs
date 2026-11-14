@@ -320,6 +320,55 @@ public sealed class OwnerPurchaseInvoiceTests
         Assert.Contains("CurrentRevision", worksheet);
     }
 
+    [Fact]
+    public void Dealer_purchase_uses_company_identity_and_ksa_waits_until_sold()
+    {
+        var owner = Owner(Guid.NewGuid(), "VOC Previous Owner");
+        var supplier = new Supplier { Id = Guid.NewGuid(), CompanyName = "KSA Motors", RegistrationNumber = "SSM-123", Phone = "03-12345678" };
+        var vehicle = Vehicle(owner.Id) with { PurchaseSource = VehiclePurchaseSource.KSA, Status = VehicleStatus.Available };
+        var request = new GenerateOwnerPurchaseInvoiceRequest(owner.Id, vehicle.PurchasePrice, vehicle.IntakeDate, supplier.Id);
+
+        Assert.Contains(OwnerPurchaseInvoiceRules.ValidateGeneration(request, vehicle, owner, supplier).Errors, error => error.Code == "purchase_invoice_ksa_not_sold");
+
+        var sold = vehicle with { Status = VehicleStatus.Sold };
+        var validation = OwnerPurchaseInvoiceRules.ValidateGeneration(request, sold, owner, supplier);
+        Assert.True(validation.IsValid);
+        var draft = OwnerPurchaseInvoiceFactory.CreateInitial(sold, owner, supplier, "YSH-PINV-2026-000100", sold.IntakeDate, "boss", DateTime.UtcNow);
+        Assert.Equal(PurchaseInvoiceSellerType.Company, draft.Revision.SellerType);
+        Assert.Equal("KSA Motors", draft.Revision.SellerName);
+        Assert.Equal("SSM-123", draft.Revision.SellerRegistrationNumber);
+        Assert.Null(draft.Revision.SellerIcNumber);
+    }
+
+    [Fact]
+    public void AutoCount_key_requires_review_and_is_idempotent_for_same_number()
+    {
+        var invoice = new PurchaseInvoice { SourceType = PurchaseInvoiceSourceType.OwnerAcquisition, CurrentRevisionNumber = 1 };
+        var notReviewed = OwnerPurchaseInvoiceRules.ValidateAutoCountKey(invoice, new RecordAutoCountKeyRequest(1, "PI-100"));
+        Assert.Contains(notReviewed.Errors, error => error.Code == "purchase_invoice_accounting_confirmation_required");
+
+        var reviewed = invoice with { AccountingStatus = AccountingConfirmationStatus.FinanceConfirmed };
+        Assert.True(OwnerPurchaseInvoiceRules.ValidateAutoCountKey(reviewed, new RecordAutoCountKeyRequest(1, "PI-100")).IsValid);
+        Assert.Contains(OwnerPurchaseInvoiceRules.ValidateAutoCountKey(reviewed, new RecordAutoCountKeyRequest(2, "PI-100")).Errors, error => error.Code == "purchase_invoice_revision_stale");
+    }
+
+    [Fact]
+    public void Initial_invoice_uses_modified_price_and_rejects_stale_real_price_snapshot()
+    {
+        var vehicle = Vehicle(Guid.NewGuid()) with { ModifiedPurchasePrice = 48_000m };
+        var owner = Owner(vehicle.OwnerId!.Value, "Owner One");
+        var request = new GenerateOwnerPurchaseInvoiceRequest(owner.Id, 48_000m, vehicle.IntakeDate);
+        Assert.True(OwnerPurchaseInvoiceRules.ValidateGeneration(request, vehicle, owner).IsValid);
+        Assert.Contains(OwnerPurchaseInvoiceRules.ValidateGeneration(request with { ExpectedPurchasePrice = 50_000m }, vehicle, owner).Errors,
+            error => error.Code == "purchase_invoice_purchase_price_changed");
+        var draft = OwnerPurchaseInvoiceFactory.CreateInitial(vehicle, owner, "YSH-PINV-2026-000101", vehicle.IntakeDate, "boss", DateTime.UtcNow);
+        Assert.Equal(48_000m, draft.Invoice.Amount);
+        Assert.Equal(48_000m, draft.Revision.Amount);
+        Assert.Equal(48_000m, Assert.Single(draft.Lines).Amount);
+        Assert.Contains(OwnerPurchaseInvoiceRules.ValidateGeneration(request with { ExpectedPurchasePrice = 0m }, vehicle with { ModifiedPurchasePrice = 0m }, owner).Errors,
+            error => error.Code == "purchase_invoice_purchase_price_required");
+    }
+
     private static Vehicle Vehicle(Guid ownerId) => new()
     {
         PlateNumber = "ABC1234",

@@ -106,7 +106,8 @@ public sealed record SalesWorkboardItem(
     string Process,
     string ResponsibleDepartment,
     string NextAction,
-    DateTime? SoldAt);
+    DateTime? SoldAt,
+    decimal? ActualSellingPrice);
 public sealed record SalesWorkboardResponse(
     int SoldThisMonth,
     int InProgressCount,
@@ -612,7 +613,8 @@ public static class SalesWorkboardRules
         IReadOnlyList<SalesAgentOption> availableAgents,
         bool includeUnassigned = false,
         IEnumerable<FinanceInvoice>? financeInvoices = null,
-        IEnumerable<CollectionTransaction>? collections = null)
+        IEnumerable<CollectionTransaction>? collections = null,
+        IEnumerable<BrokerDealPrice>? brokerDealPrices = null)
     {
         var leadList = leads.ToList();
         var vehicleById = vehicles.ToDictionary(vehicle => vehicle.Id);
@@ -675,6 +677,7 @@ public static class SalesWorkboardRules
             .Where(payment => payment.FinanceWorkflowVersion == 2)
             .Select(payment => payment.VehicleId)
             .ToHashSet();
+        var dealPricesByVehicle = (brokerDealPrices ?? []).ToDictionary(item => item.VehicleId, item => item.Amount);
         var items = vehicleAssignments
             .Select(item => CreateItem(
                 item.Vehicle,
@@ -685,7 +688,8 @@ public static class SalesWorkboardRules
                 repairList,
                 deliveryList,
                 financeClearedVehicleIds.Contains(item.Vehicle.Id),
-                financeV2VehicleIds.Contains(item.Vehicle.Id)))
+                financeV2VehicleIds.Contains(item.Vehicle.Id),
+                dealPricesByVehicle.GetValueOrDefault(item.Vehicle.Id)))
             .ToList();
         var soldThisMonth = items.Where(item =>
             item.Process == "Completed" &&
@@ -711,7 +715,8 @@ public static class SalesWorkboardRules
         IReadOnlyList<RepairJob> repairs,
         IReadOnlyList<DeliverySchedule> deliveries,
         bool financeCleared,
-        bool hasFinanceV2Receivable)
+        bool hasFinanceV2Receivable,
+        decimal? actualSellingPrice)
     {
         string process;
         string department;
@@ -766,7 +771,8 @@ public static class SalesWorkboardRules
             process,
             department,
             nextAction,
-            vehicle.SoldAt);
+            vehicle.SoldAt,
+            actualSellingPrice);
     }
 
     private sealed record AgentVehicleAssignment(Vehicle Vehicle, string AgentUserId, string AgentName);
