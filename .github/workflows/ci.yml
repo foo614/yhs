@@ -110,7 +110,8 @@ jobs:
   responsive:
     name: Responsive layouts (shard ${{ matrix.shard }}/${{ matrix.total }})
     needs: changes
-    if: ${{ needs.changes.outputs.backoffice == 'true' }}
+    # FOO-259: temporarily paused; set the repository variable to true to resume.
+    if: ${{ vars.RESPONSIVE_CI_ENABLED == 'true' && needs.changes.outputs.backoffice == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -356,9 +357,15 @@ jobs:
       - api
       - deployment-contracts
     if: >-
+      always() &&
+      !cancelled() &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
-      inputs.deploy_production
+      inputs.deploy_production &&
+      needs.web.result == 'success' &&
+      needs.api.result == 'success' &&
+      needs.deployment-contracts.result == 'success' &&
+      (needs.responsive.result == 'success' || needs.responsive.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
