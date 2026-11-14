@@ -349,7 +349,7 @@ public static class AutoCountExcel
     private static IReadOnlyList<IReadOnlyList<string>> PurchaseRows(AutoCountExportInput input, IReadOnlyDictionary<Guid, Vehicle> vehicles, IReadOnlyDictionary<Guid, RepairReceipt> receipts)
     {
         var suppliers = (input.Suppliers ?? []).ToDictionary(supplier => supplier.Id);
-        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "Category", "CarPlate", "InvoiceNumber", "SupplierName", "InvoiceDate", "PurchaseDate", "PaymentReference", "LineType", "Description", "AccountCode", "UOM", "Amount", "CapitaliseIntoVehicleCost", "AccountingStatus", "TaxCode", RemarkHeader, "SourceType", "OwnerName", "CurrentRevision", "InvoiceSourceId", "SupplierId", "OwnerId", "SupplierCreditorCode", "ItemCode", "Quantity", "UnitPrice", "Discount", "LineNumber", "ReceiptId", "ReceiptItemId", "SupplierDONumber" } };
+        var rows = new List<IReadOnlyList<string>> { new[] { "SourceId", "Category", "CarPlate", "InvoiceNumber", "SupplierName", "InvoiceDate", "PurchaseDate", "PaymentReference", "SupplierInvoiceNumber", "SupplierInvoiceDate", "DiscountVoucherReference", "LineType", "Description", "AccountCode", "UOM", "Amount", "CapitaliseIntoVehicleCost", "AccountingStatus", "TaxCode", RemarkHeader, "SourceType", "OwnerName", "CurrentRevision", "InvoiceSourceId", "SupplierId", "OwnerId", "SupplierCreditorCode", "ItemCode", "Quantity", "UnitPrice", "Discount", "LineNumber", "ReceiptId", "ReceiptItemId", "SupplierDONumber" } };
         foreach (var invoice in input.PurchaseInvoices)
         {
             var ownerSource = invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition;
@@ -359,11 +359,11 @@ public static class AutoCountExcel
             {
                 rows.Add(new[] {
                     line.Id.ToString(), "PurchaseInvoice", invoice.CurrentRevision?.VehiclePlateNumber ?? PlateFor(vehicles, invoice.VehicleId), invoice.InvoiceNumber,
-                    supplier?.CompanyName ?? "", Date(invoice.InvoiceDate), Date(invoice.PurchaseDate), invoice.PaymentReference ?? "", line.LineType.ToString(), line.Description,
+                    supplier?.CompanyName ?? "", Date(invoice.InvoiceDate), Date(invoice.PurchaseDate), invoice.PaymentReference ?? "", line.SupplierInvoiceNumber ?? invoice.SupplierInvoiceNumber ?? "", Date(line.SupplierInvoiceDate ?? invoice.SupplierInvoiceDate), line.DiscountVoucherReference ?? invoice.DiscountVoucherReference ?? "", line.LineType.ToString(), line.Description,
                     PurchaseAccountCode(line.LineType), "UNIT", Money(line.Amount), line.CapitaliseIntoVehicleCost ? "Yes" : "No", invoice.AccountingStatus.ToString(), "",
                     PurchaseRemark(invoice), invoice.SourceType.ToString(), ownerSource ? invoice.CurrentRevision?.SellerName ?? "" : "", ownerSource ? invoice.CurrentRevisionNumber.ToString(CultureInfo.InvariantCulture) : "",
                     invoice.Id.ToString(), supplier?.Id.ToString() ?? "", ownerSource ? invoice.OwnerId?.ToString() ?? "" : "", supplier?.AutoCountCreditorCode ?? "",
-                    PurchaseItemCode(line.LineType, invoice.CurrentRevision?.VehiclePlateNumber ?? PlateFor(vehicles, invoice.VehicleId)), "1", Money(line.Amount), "0", (++lineNumber).ToString(CultureInfo.InvariantCulture), "", "", ""
+                    PurchaseItemCode(line.LineType, invoice.CurrentRevision?.VehiclePlateNumber ?? PlateFor(vehicles, invoice.VehicleId)), "1", Money(line.Amount + line.DiscountAmount), Money(line.DiscountAmount), (++lineNumber).ToString(CultureInfo.InvariantCulture), "", "", ""
                 });
             }
         }
@@ -376,7 +376,7 @@ public static class AutoCountExcel
             {
                 rows.Add(new[] {
                     line.Id.ToString(), "SupplierInvoice", PlateFor(vehicles, invoice.VehicleId), invoice.InvoiceNumber, invoice.SupplierName,
-                    Date(invoice.InvoiceDate), "", "", "Refurbishment", line.Description, "6R00-0000", line.Uom, Money(line.Amount), "No", "ReviewRequired", "",
+                    Date(invoice.InvoiceDate), "", "", "", "", "", "Refurbishment", line.Description, "6R00-0000", line.Uom, Money(line.Amount), "No", "ReviewRequired", "",
                     SupplierInvoiceRemark(invoice, supplier, receipt) + " " + line.Remark, "SupplierInvoice", "", "", invoice.Id.ToString(), invoice.SupplierId?.ToString() ?? "", "",
                     supplier?.AutoCountCreditorCode ?? "", "REFURBISHMENT", line.Quantity, line.UnitPrice, "0", (++lineNumber).ToString(CultureInfo.InvariantCulture), receipt?.Id.ToString() ?? "", line.ReceiptItemId, ""
                 });
@@ -542,7 +542,9 @@ public static class AutoCountExcel
     {
         PurchaseInvoiceLineType.VehiclePurchase => plate,
         PurchaseInvoiceLineType.PurchaseProcessing => "PROCESS (PURCHASE)",
+        PurchaseInvoiceLineType.LatePaymentCharge => "PROCESS (PURCHASE)",
         PurchaseInvoiceLineType.Parking => "PARKING",
+        PurchaseInvoiceLineType.Transport => "TRANSPORT",
         PurchaseInvoiceLineType.Refurbishment => "REFURBISHMENT",
         _ => ""
     };
@@ -744,6 +746,8 @@ public static class AutoCountExcel
     {
         PurchaseInvoiceLineType.VehiclePurchase => "6P00-0000",
         PurchaseInvoiceLineType.PurchaseProcessing => "6P00-1000",
+        PurchaseInvoiceLineType.LatePaymentCharge => "6P00-1000",
+        PurchaseInvoiceLineType.Transport => "6T00-0000",
         PurchaseInvoiceLineType.Parking => "6T00-1000",
         PurchaseInvoiceLineType.Refurbishment => "6R00-0000",
         _ => ""

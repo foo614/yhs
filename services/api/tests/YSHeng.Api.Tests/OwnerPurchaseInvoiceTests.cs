@@ -35,6 +35,42 @@ public sealed class OwnerPurchaseInvoiceTests
     }
 
     [Fact]
+    public void Dealer_initial_issue_carries_charges_into_classified_lines_and_subtracts_discount_once()
+    {
+        var vehicle = Vehicle(ownerId: Guid.NewGuid()) with
+        {
+            PurchaseSource = VehiclePurchaseSource.Carro,
+            ModifiedPurchasePrice = 48_000m,
+            DealerProcessingFee = 120m,
+            DealerTrailerFee = 80m,
+            DealerParkingFee = 40m,
+            DealerLateCharge = 20m,
+            DealerDiscount = 10m
+        };
+        var owner = Owner(vehicle.OwnerId!.Value, "Owner One");
+        var supplier = new Supplier { CompanyName = "Carro Motors", Phone = "03-12345678" };
+        var request = new GenerateOwnerPurchaseInvoiceRequest(owner.Id, 48_000m, vehicle.IntakeDate, supplier.Id, "IV-123", new DateOnly(2026, 9, 2), "DISC-10", 120m, 80m, 40m, 20m, 10m, 48_250m);
+
+        Assert.True(OwnerPurchaseInvoiceRules.ValidateGeneration(request, vehicle, owner, supplier).IsValid);
+        var draft = OwnerPurchaseInvoiceFactory.CreateInitial(vehicle, owner, supplier, "YSH-PINV-2026-000102", vehicle.IntakeDate, "boss", DateTime.UtcNow, supplierInvoiceNumber: "IV-123", supplierInvoiceDate: new DateOnly(2026, 9, 2), discountVoucherReference: "DISC-10");
+
+        Assert.Equal(48_250m, draft.Invoice.Amount);
+        Assert.Equal(48_250m, draft.Revision.Amount);
+        Assert.Equal(
+            new[] { PurchaseInvoiceLineType.VehiclePurchase, PurchaseInvoiceLineType.PurchaseProcessing, PurchaseInvoiceLineType.Transport, PurchaseInvoiceLineType.LatePaymentCharge, PurchaseInvoiceLineType.Parking },
+            draft.Lines.Select(line => line.LineType));
+        Assert.Equal(new[] { 47_990m, 120m, 80m, 20m, 40m }, draft.Lines.Select(line => line.Amount));
+        Assert.Equal(new[] { 10m, 0m, 0m, 0m, 0m }, draft.Lines.Select(line => line.DiscountAmount));
+        Assert.Contains("Discount", Encoding.ASCII.GetString(draft.Revision.Content));
+        Assert.All(draft.Lines, line =>
+        {
+            Assert.Equal("IV-123", line.SupplierInvoiceNumber);
+            Assert.Equal(new DateOnly(2026, 9, 2), line.SupplierInvoiceDate);
+            Assert.Equal("DISC-10", line.DiscountVoucherReference);
+        });
+    }
+
+    [Fact]
     public void Generation_requires_boss_confirmed_current_owner_price_and_intake()
     {
         var vehicle = Vehicle(ownerId: Guid.NewGuid()) with { BossConfirmed = false, PurchasePrice = 0m };
@@ -48,6 +84,64 @@ public sealed class OwnerPurchaseInvoiceTests
         Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_owner_changed");
         Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_purchase_price_changed");
         Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_intake_date_changed");
+    }
+
+    [Fact]
+    public void Generation_ignores_stale_dealer_charges_on_private_stock()
+    {
+        var vehicle = Vehicle(ownerId: Guid.NewGuid()) with
+        {
+            PurchaseSource = VehiclePurchaseSource.YSHeng,
+            DealerProcessingFee = 120m,
+            DealerTrailerFee = 80m,
+            DealerParkingFee = 40m,
+            DealerLateCharge = 20m,
+            DealerDiscount = 10m
+        };
+        var owner = Owner(vehicle.OwnerId!.Value, "Owner One");
+        var request = new GenerateOwnerPurchaseInvoiceRequest(owner.Id, vehicle.PurchasePrice, vehicle.IntakeDate, ExpectedPurchaseInvoiceTotal: vehicle.PurchasePrice);
+
+        Assert.Equal(vehicle.PurchasePrice, OwnerPurchaseInvoiceRules.GenerationInvoiceTotal(vehicle));
+        Assert.True(OwnerPurchaseInvoiceRules.ValidateGeneration(request, vehicle, owner).IsValid);
+        var draft = OwnerPurchaseInvoiceFactory.CreateInitial(vehicle, owner, "YSH-PINV-2026-000104", vehicle.IntakeDate, "boss", DateTime.UtcNow);
+        Assert.Equal(vehicle.PurchasePrice, draft.Invoice.Amount);
+        Assert.Equal(0m, Assert.Single(draft.Lines).DiscountAmount);
+    }
+
+    [Fact]
+    public void Generation_rejects_changed_dealer_breakdown_after_preview()
+    {
+        var vehicle = Vehicle(ownerId: Guid.NewGuid()) with
+        {
+            PurchaseSource = VehiclePurchaseSource.Carro,
+            DealerProcessingFee = 120m,
+            DealerTrailerFee = 80m,
+            DealerParkingFee = 40m,
+            DealerLateCharge = 20m,
+            DealerDiscount = 10m
+        };
+        var owner = Owner(vehicle.OwnerId!.Value, "Owner One");
+        var supplier = new Supplier { Id = Guid.NewGuid(), CompanyName = "Carro Motors", Phone = "03-12345678" };
+        var request = new GenerateOwnerPurchaseInvoiceRequest(owner.Id, vehicle.PurchasePrice, vehicle.IntakeDate, supplier.Id, ExpectedDealerProcessingFee: 100m, ExpectedDealerTrailerFee: 80m, ExpectedDealerParkingFee: 40m, ExpectedDealerLateCharge: 20m, ExpectedDealerDiscount: 10m, ExpectedPurchaseInvoiceTotal: OwnerPurchaseInvoiceRules.GenerationInvoiceTotal(vehicle) - 20m);
+
+        var result = OwnerPurchaseInvoiceRules.ValidateGeneration(request, vehicle, owner, supplier);
+
+        Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_processing_fee_changed");
+        Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_total_changed");
+        Assert.True(OwnerPurchaseInvoiceRules.IsGenerationSourceStale(result));
+    }
+
+    [Fact]
+    public void Generation_rejects_negative_or_fractional_dealer_charges()
+    {
+        var vehicle = Vehicle(ownerId: Guid.NewGuid()) with { PurchaseSource = VehiclePurchaseSource.Carro, DealerProcessingFee = 1.001m };
+        var owner = Owner(vehicle.OwnerId!.Value, "Owner One");
+        var supplier = new Supplier { Id = Guid.NewGuid(), CompanyName = "Carro Motors", Phone = "03-12345678" };
+        var imprecise = OwnerPurchaseInvoiceRules.ValidateGeneration(new GenerateOwnerPurchaseInvoiceRequest(owner.Id, vehicle.PurchasePrice, vehicle.IntakeDate, supplier.Id), vehicle, owner, supplier);
+        Assert.Contains(imprecise.Errors, error => error.Code == "purchase_invoice_dealer_processing_fee_precision_invalid");
+
+        var negative = OwnerPurchaseInvoiceRules.ValidateGeneration(new GenerateOwnerPurchaseInvoiceRequest(owner.Id, vehicle.PurchasePrice, vehicle.IntakeDate, supplier.Id), vehicle with { DealerProcessingFee = -1m }, owner, supplier);
+        Assert.Contains(negative.Errors, error => error.Code == "purchase_invoice_dealer_processing_fee_invalid");
     }
 
     [Fact]
@@ -195,6 +289,28 @@ public sealed class OwnerPurchaseInvoiceTests
 
         Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_revision_line_invalid");
         Assert.DoesNotContain(result.Errors, error => error.Code == "purchase_invoice_revision_total_invalid" && error.Message.Contains("overflow", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Revision_validation_checks_line_source_reference_lengths_and_discount_precision()
+    {
+        var request = RevisionRequest([
+            new PurchaseInvoiceRevisionLineRequest(
+                PurchaseInvoiceLineType.VehiclePurchase,
+                "Vehicle",
+                100m,
+                true,
+                new string('I', 201),
+                new DateOnly(2026, 9, 1),
+                new string('V', 201),
+                10.001m)
+        ]);
+
+        var result = OwnerPurchaseInvoiceRules.ValidateRevision(request);
+
+        Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_revision_line_supplier_number_too_long");
+        Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_revision_line_discount_reference_too_long");
+        Assert.Contains(result.Errors, error => error.Code == "purchase_invoice_revision_line_precision_invalid");
     }
 
     [Fact]

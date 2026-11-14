@@ -356,6 +356,10 @@ public sealed record PurchaseInvoiceLine
     public PurchaseInvoiceLineType LineType { get; init; }
     public string Description { get; init; } = "";
     public decimal Amount { get; init; }
+    // Amount is the net line total retained for existing invoices; this is the
+    // native AutoCount discount which produces that net amount from the gross
+    // unit price. Existing rows default to zero.
+    public decimal DiscountAmount { get; init; }
     public bool CapitaliseIntoVehicleCost { get; init; }
     public string? SupplierInvoiceNumber { get; init; }
     public DateOnly? SupplierInvoiceDate { get; init; }
@@ -410,6 +414,7 @@ public sealed record PurchaseInvoiceRevisionLine
     public PurchaseInvoiceLineType LineType { get; init; }
     public string Description { get; init; } = "";
     public decimal Amount { get; init; }
+    public decimal DiscountAmount { get; init; }
     public bool CapitaliseIntoVehicleCost { get; init; }
     public int SortOrder { get; init; }
     public string? SupplierInvoiceNumber { get; init; }

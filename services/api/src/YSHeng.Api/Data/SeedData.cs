@@ -1299,6 +1299,7 @@ public static class SeedData
                 "LineType" integer NOT NULL,
                 "Description" text NOT NULL,
                 "Amount" numeric NOT NULL,
+                "DiscountAmount" numeric NOT NULL DEFAULT 0,
                 "CapitaliseIntoVehicleCost" boolean NOT NULL,
                 CONSTRAINT "PK_PurchaseInvoiceLines" PRIMARY KEY ("Id")
             );
@@ -1398,6 +1399,7 @@ public static class SeedData
             ALTER TABLE "PurchaseInvoiceLines" ADD COLUMN IF NOT EXISTS "SupplierInvoiceNumber" text NULL;
             ALTER TABLE "PurchaseInvoiceLines" ADD COLUMN IF NOT EXISTS "SupplierInvoiceDate" date NULL;
             ALTER TABLE "PurchaseInvoiceLines" ADD COLUMN IF NOT EXISTS "DiscountVoucherReference" text NULL;
+            ALTER TABLE "PurchaseInvoiceLines" ADD COLUMN IF NOT EXISTS "DiscountAmount" numeric NOT NULL DEFAULT 0;
             ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "SourceType" integer NOT NULL DEFAULT 0;
             ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "OwnerId" uuid NULL;
             ALTER TABLE "PurchaseInvoices" ADD COLUMN IF NOT EXISTS "CurrentRevisionNumber" integer NOT NULL DEFAULT 0;
@@ -1461,6 +1463,7 @@ public static class SeedData
                 "LineType" integer NOT NULL,
                 "Description" text NOT NULL,
                 "Amount" numeric NOT NULL,
+                "DiscountAmount" numeric NOT NULL DEFAULT 0,
                 "CapitaliseIntoVehicleCost" boolean NOT NULL,
                 "SortOrder" integer NOT NULL,
                 "SupplierInvoiceNumber" text NULL,
@@ -1471,6 +1474,7 @@ public static class SeedData
             ALTER TABLE "PurchaseInvoiceRevisionLines" ADD COLUMN IF NOT EXISTS "SupplierInvoiceNumber" text NULL;
             ALTER TABLE "PurchaseInvoiceRevisionLines" ADD COLUMN IF NOT EXISTS "SupplierInvoiceDate" date NULL;
             ALTER TABLE "PurchaseInvoiceRevisionLines" ADD COLUMN IF NOT EXISTS "DiscountVoucherReference" text NULL;
+            ALTER TABLE "PurchaseInvoiceRevisionLines" ADD COLUMN IF NOT EXISTS "DiscountAmount" numeric NOT NULL DEFAULT 0;
             CREATE UNIQUE INDEX IF NOT EXISTS "UX_PurchaseInvoiceRevisionLines_Revision_SortOrder"
                 ON "PurchaseInvoiceRevisionLines" ("PurchaseInvoiceRevisionId", "SortOrder");
         """);
