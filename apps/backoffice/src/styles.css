@@ -1422,13 +1422,13 @@ body {
 }
 
 .dashboardDocumentSearch {
-  display: block;
+  display: flex;
   max-width: 360px;
   margin-block: 12px;
 }
 
 .dashboardDocumentSearch .ant-input-affix-wrapper,
-.dashboardDocumentSearch .ant-input-search-button {
+.dashboardDocumentSearch .ant-input-search-btn {
   min-height: 44px;
 }
 
@@ -5268,17 +5268,14 @@ body {
 
   .tableToolbar .ant-btn,
   .tableToolbar .ant-input-affix-wrapper,
-  .tableToolbar .ant-input-search-button,
   .tableToolbar .ant-select-selector,
   .tableToolbar .ant-select,
   .toolbarForm .ant-btn,
   .toolbarForm .ant-input-affix-wrapper,
-  .toolbarForm .ant-input-search-button,
   .toolbarForm .ant-select-selector,
   .toolbarForm .ant-select,
   .vehicleOperationFilters .ant-btn,
   .vehicleOperationFilters .ant-input-affix-wrapper,
-  .vehicleOperationFilters .ant-input-search-button,
   .vehicleOperationFilters .ant-select-selector {
     min-height: 44px !important;
   }
@@ -5287,11 +5284,8 @@ body {
     min-height: 44px;
   }
 
-  .tableToolbar .ant-input-search-button,
   .tableToolbar .ant-input-search-btn,
-  .toolbarForm .ant-input-search-button,
   .toolbarForm .ant-input-search-btn,
-  .vehicleOperationFilters .ant-input-search-button,
   .vehicleOperationFilters .ant-input-search-btn {
     width: 44px !important;
     min-width: 44px !important;
@@ -5384,7 +5378,7 @@ body {
     width: auto;
   }
 
-  .ant-input-search .ant-input-search-button {
+  .ant-input-search .ant-input-search-btn {
     height: 44px;
     min-height: 44px;
     min-width: 44px;
@@ -6289,7 +6283,7 @@ body {
   }
 
   .leadFilterControl .ant-input-affix-wrapper,
-  .leadFilterControl .ant-input-search-button,
+  .leadFilterControl .ant-input-search-btn,
   .leadFilterControl .ant-select-selector {
     min-height: 44px;
   }
@@ -6747,7 +6741,7 @@ body {
   }
 
   .deliveryWorkboardToolbar .ant-input,
-  .deliveryWorkboardToolbar .ant-input-search-button {
+  .deliveryWorkboardToolbar .ant-input-search-btn {
     height: 44px;
   }
 

@@ -259,7 +259,7 @@ async function inspect(name, width) {
     }).map(element => ({ class: element.className, height: element.getBoundingClientRect().height, selectorHeight: element.querySelector('[role="combobox"]').getBoundingClientRect().height, top: element.getBoundingClientRect().top, selectorTop: element.querySelector('[role="combobox"]').getBoundingClientRect().top }));
     const searchGeometry = viewport <= 1024 ? [...document.querySelectorAll(".ant-input-search")].filter(visible).flatMap(search => {
       const field = search.querySelector(".ant-input-affix-wrapper") ?? search.querySelector("input.ant-input");
-      const button = search.querySelector(".ant-input-search-button");
+      const button = search.querySelector(".ant-input-search-btn");
       if (!field || !button) return [];
       const a = field.getBoundingClientRect();
       const b = button.getBoundingClientRect();
