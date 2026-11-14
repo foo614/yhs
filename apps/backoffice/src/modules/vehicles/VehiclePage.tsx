@@ -98,12 +98,6 @@ function isDealerPurchaseSource(source?: VehiclePurchaseSource) {
 function DealerChargeFields() {
   return (
     <>
-      <Alert
-        type="info"
-        showIcon
-        message="Recorded dealer charges / 车行记录费用"
-        description="Boss/Admin records these supporting charges. They do not change current profit or invoice totals yet."
-      />
       <Form.Item name="dealerProcessingFee" label="Processing fee / 手续费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
       <Form.Item name="dealerTrailerFee" label="Trailer fee / 拖车费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
       <Form.Item name="dealerParkingFee" label="Parking fee / 停车费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
