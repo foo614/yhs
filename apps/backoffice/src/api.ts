@@ -2006,6 +2006,14 @@ export async function checkInspectionInvoiceNumber(invoiceNumber: string): Promi
   return request(`/api/inspections/invoice-number-check?invoiceNumber=${encodeURIComponent(invoiceNumber)}`);
 }
 
+export async function exportInspectionAutoCountWorkbook(company: InspectionCompany): Promise<Blob> {
+  const response = await fetch(`${apiBaseUrl}/api/inspections/export-autocount?company=${encodeURIComponent(company)}`, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Inspection AutoCount export failed with status ${response.status}`));
+  }
+  return response.blob();
+}
+
 export async function createInspection(payload: CreateInspectionRequest): Promise<InspectionRecord> {
   return request<InspectionRecord>("/api/inspections", {
     method: "POST",
@@ -3793,3 +3801,14 @@ export const decideHrAttendanceCorrection = (id: string, approve: boolean, notes
 export const previewHrPayslips = (id: string) => request<HrPayrollCandidate[]>(`/api/hr/pay-periods/${id}/preview`);
 export const saveHrStatutory = (id: string, input: HrStatutoryInput) => request<HrPayslip>(`/api/hr/payslips/${id}/statutory`, { method: "PUT", body: JSON.stringify(input) });
 export const decideHrPayroll = (id: string, version: number, action: HrPayrollAction, notes?: string) => request<HrPayslip>(`/api/hr/payslips/${id}/decision`, { method: "PUT", body: JSON.stringify({ version, action, notes }) });
+
+export type DashboardUpdate = {
+  id: string; kind: string; title: string; status: string; occurredAt?: string;
+  vehicleId?: string; plate?: string; broker?: string; recordedBy?: string;
+  date?: string; time?: string; daysOpen?: number; askingPrice?: number;
+  path?: string; louDocumentId?: string;
+};
+export type DashboardUpdatesResponse = { news: DashboardUpdate[]; reminders: DashboardUpdate[] };
+export function getDashboardUpdates(): Promise<DashboardUpdatesResponse> {
+  return request("/api/dashboard/updates", {}, "Unable to load dashboard updates");
+}

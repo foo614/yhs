@@ -29,17 +29,20 @@ export function filterSalesMyCars(items: readonly SalesWorkboardItem[], keyword?
 export function SalesMyCarsPanel({
   currentUser,
   initialData,
+  initialKeyword = "",
   autoLoad = true
 }: {
   currentUser: CurrentUser | null;
   initialData?: SalesWorkboard;
+  initialKeyword?: string;
   autoLoad?: boolean;
 }) {
   const [data, setData] = useState<SalesWorkboard | undefined>(initialData);
   const [loading, setLoading] = useState(autoLoad);
   const [loadError, setLoadError] = useState<string>();
   const [agentUserId, setAgentUserId] = useState<string | "All">("All");
-  const [keyword, setKeyword] = useState("");
+  const [keyword, setKeyword] = useState(initialKeyword);
+  useEffect(() => { setKeyword(initialKeyword); }, [initialKeyword]);
   const [mobilePage, setMobilePage] = useState(1);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, number | undefined>>({});
   const [priceSavingFor, setPriceSavingFor] = useState<string | null>(null);
