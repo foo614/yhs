@@ -20,6 +20,7 @@ import { PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import { ModalForm } from "@ant-design/pro-components";
 import {
   createInspection,
+  checkInspectionInvoiceNumber,
   getInspections,
   type CreateInspectionRequest,
   type InspectionRecord,
@@ -169,6 +170,15 @@ export function InspectionPage({ vehicles }: InspectionPageProps) {
             <Form.Item name="appointmentTime" label="Appointment time / 预约时间"><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
             <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号" rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="sourceReceiptNumber" label="Supplier receipt number / 供应商收据编号" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="supplierInvoiceReference" label="Supplier Invoice No / 供应商发票编号" validateTrigger="onBlur" rules={[
+              { required: true, whitespace: true, message: "Enter supplier invoice number. / 请填写供应商发票编号。" },
+              { validator: async (_, value: string) => {
+                if (!value?.trim()) return;
+                const result = await checkInspectionInvoiceNumber(value.trim());
+                if (form.getFieldValue("supplierInvoiceReference") !== value) return;
+                if (!result.available) throw new Error(`Number already used. Suggested: ${result.suggestedInvoiceNumber}. Please edit and confirm. / 编号已使用，建议改为 ${result.suggestedInvoiceNumber}，请自行修改确认。`);
+              } }
+            ]} extra="Use the original number or your confirmed bracket suffix. / 填原编号或自行确认的括号编号。"><Input /></Form.Item>
             <Form.Item name="receiptTotal" label="Receipt total (RM) / 收据总额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
             <Form.Item name="allocatedAmount" label="Allocated amount (RM) / 本车分配金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
             <Form.Item name="isLorry" label="Vehicle type / 车辆类型"><Select options={[{ value: false, label: "Car / 轿车" }, { value: true, label: "Lorry / 罗里" }]} /></Form.Item>

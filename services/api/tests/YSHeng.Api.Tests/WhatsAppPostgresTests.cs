@@ -302,6 +302,7 @@ public sealed class WhatsAppPostgresTests
             Assert.DoesNotContain(command[5..], invitation);
             using var sales = factory.CreateClient();
             Assert.True((await sales.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "sales@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
+            await VerifyInspectionInvoiceApplicationAsync(factory, admin, sales, anonymous);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/assistant/connection?staffUserId=assistant-ci")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/staff/connections")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/staff/limits")).StatusCode);
@@ -457,6 +458,92 @@ public sealed class WhatsAppPostgresTests
         Assert.True((await finance.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "ageing-finance@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
         Assert.Equal(HttpStatusCode.OK, (await finance.GetAsync(recordsPath)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await finance.GetAsync(summaryPath)).StatusCode);
+    }
+
+    private static async Task VerifyInspectionInvoiceApplicationAsync(
+        StaffApplicationFactory factory,
+        HttpClient admin,
+        HttpClient sales,
+        HttpClient anonymous)
+    {
+        const string invoiceNumber = "INSPECT-SUPPLIER-253";
+        var checkPath = "/api/inspections/invoice-number-check?invoiceNumber=" + Uri.EscapeDataString(invoiceNumber);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(checkPath)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync(checkPath)).StatusCode);
+
+        Guid firstVehicleId;
+        Guid secondVehicleId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var firstVehicle = new Vehicle
+            {
+                PlateNumber = "PGI" + Guid.NewGuid().ToString("N")[..5].ToUpperInvariant(),
+                Year = 2022,
+                Make = "Synthetic",
+                Model = "Inspection One"
+            };
+            var secondVehicle = new Vehicle
+            {
+                PlateNumber = "PGI" + Guid.NewGuid().ToString("N")[..5].ToUpperInvariant(),
+                Year = 2023,
+                Make = "Synthetic",
+                Model = "Inspection Two"
+            };
+            db.Vehicles.AddRange(firstVehicle, secondVehicle);
+            await db.SaveChangesAsync();
+            firstVehicleId = firstVehicle.Id;
+            secondVehicleId = secondVehicle.Id;
+        }
+
+        static object Request(Guid vehicleId, string receipt, string supplierReference) => new
+        {
+            vehicleId,
+            type = (int)InspectionType.Awalan,
+            company = (int)InspectionCompany.YSHengAuto,
+            isLorry = false,
+            appointmentDate = new DateOnly(2026, 12, 10),
+            appointmentTime = new TimeOnly(9, 0),
+            bookingReference = "PG-INS-BOOK-253",
+            sourceReceiptNumber = receipt,
+            receiptTotal = 100m,
+            allocatedAmount = 100m,
+            notes = "Synthetic PostgreSQL invoice uniqueness check",
+            supplierInvoiceReference = supplierReference
+        };
+
+        var firstResponseTask = admin.PostAsJsonAsync(
+            "/api/inspections",
+            Request(firstVehicleId, "PG-INS-RECEIPT-A", "  " + invoiceNumber.ToLowerInvariant() + "  "));
+        var secondResponseTask = admin.PostAsJsonAsync(
+            "/api/inspections",
+            Request(secondVehicleId, "PG-INS-RECEIPT-B", invoiceNumber));
+        using var firstResponse = await firstResponseTask;
+        using var secondResponse = await secondResponseTask;
+        var statuses = new[] { firstResponse.StatusCode, secondResponse.StatusCode };
+        Assert.Single(statuses, status => status == HttpStatusCode.Created);
+        Assert.Single(statuses, status => status == HttpStatusCode.Conflict);
+        var createdBody = firstResponse.StatusCode == HttpStatusCode.Created
+            ? await firstResponse.Content.ReadAsStringAsync()
+            : await secondResponse.Content.ReadAsStringAsync();
+        using var createdDocument = JsonDocument.Parse(createdBody);
+        var createdReference = createdDocument.RootElement.GetProperty("supplierInvoiceReference").GetString();
+        Assert.Contains(createdReference, new[] { invoiceNumber, invoiceNumber.ToLowerInvariant() });
+
+        using var listDocument = JsonDocument.Parse(await admin.GetStringAsync("/api/inspections"));
+        var saved = listDocument.RootElement.EnumerateArray()
+            .Where(item => string.Equals(
+                item.GetProperty("supplierInvoiceReference").GetString()?.Trim(),
+                invoiceNumber,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var savedInspection = Assert.Single(saved);
+        Assert.Equal(createdReference, savedInspection.GetProperty("supplierInvoiceReference").GetString());
+
+        using var checkDocument = JsonDocument.Parse(await admin.GetStringAsync(
+            "/api/inspections/invoice-number-check?invoiceNumber=" + Uri.EscapeDataString(" " + invoiceNumber.ToLowerInvariant() + " ")));
+        Assert.False(checkDocument.RootElement.GetProperty("available").GetBoolean());
+        Assert.Equal(invoiceNumber.ToLowerInvariant() + " (1)", checkDocument.RootElement.GetProperty("suggestedInvoiceNumber").GetString());
     }
 
     private sealed class StaffApplicationFactory(ConcurrentQueue<string> submitted) : WebApplicationFactory<Program>

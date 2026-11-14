@@ -45,30 +45,65 @@ public sealed class InspectionRulesTests
     }
 
     [Fact]
-    public void Split_supplier_references_are_deterministic_for_repeated_exports()
+    public void Manual_supplier_invoice_reference_is_preserved_without_automatic_suffixing()
     {
-        var ids = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        var request = new CreateInspectionRequest(
+            Guid.NewGuid(),
+            InspectionType.Awalan,
+            InspectionCompany.YSHengAuto,
+            false,
+            new DateOnly(2026, 1, 15),
+            null,
+            "BOOK-1",
+            "RECEIPT-1",
+            100m,
+            100m,
+            null,
+            "  Supplier-INV-77  ");
 
-        var first = InspectionRules.SplitSupplierInvoiceReferences("RCPT-2026-001", ids);
-        var repeated = InspectionRules.SplitSupplierInvoiceReferences("RCPT-2026-001", ids);
+        var inspection = InspectionRules.PrepareCreate(request, "boss", request.SupplierInvoiceReference!.Trim());
 
-        Assert.Equal(["RCPT-2026-001-1", "RCPT-2026-001-2", "RCPT-2026-001-3"], first);
-        Assert.Equal(first, repeated);
-        Assert.Empty(InspectionRules.SplitSupplierInvoiceReferences("", ids));
+        Assert.Equal("Supplier-INV-77", inspection.SupplierInvoiceReference);
+        Assert.Equal("RECEIPT-1", inspection.SourceReceiptNumber);
     }
 
     [Fact]
-    public void Next_supplier_reference_does_not_renumber_existing_allocations()
+    public void Supplier_invoice_check_is_case_insensitive_trimmed_and_suggests_next_root_suffix()
     {
         var existing = new[]
         {
-            new YSHeng.Api.Domain.InspectionRecord { VehicleId = Guid.NewGuid(), SourceReceiptNumber = "RCPT-2026-001", SupplierInvoiceReference = "RCPT-2026-001-1" },
-            new YSHeng.Api.Domain.InspectionRecord { VehicleId = Guid.NewGuid(), SourceReceiptNumber = "RCPT-2026-001", SupplierInvoiceReference = "RCPT-2026-001-3" }
+            new InspectionRecord { SupplierInvoiceReference = "  INV-77  " },
+            new InspectionRecord { SupplierInvoiceReference = "INV-77 (1)" },
+            new InspectionRecord { SupplierInvoiceReference = "INV-77 (3)" }
         };
 
-        Assert.Equal("RCPT-2026-001-4", InspectionRules.NextSupplierInvoiceReference("RCPT-2026-001", existing));
-        Assert.Equal("RCPT-2026-001-1", existing[0].SupplierInvoiceReference);
-        Assert.Equal("RCPT-2026-001-3", existing[1].SupplierInvoiceReference);
+        var duplicate = InspectionRules.CheckSupplierInvoiceReference(" inv-77 (1) ", existing);
+        var available = InspectionRules.CheckSupplierInvoiceReference(" new-invoice ", existing);
+
+        Assert.False(duplicate.Available);
+        Assert.Equal("inv-77 (2)", duplicate.SuggestedInvoiceNumber);
+        Assert.True(available.Available);
+        Assert.Null(available.SuggestedInvoiceNumber);
+    }
+
+    [Fact]
+    public void Create_validation_requires_manual_supplier_invoice_reference()
+    {
+        var request = new CreateInspectionRequest(
+            Guid.NewGuid(),
+            InspectionType.Awalan,
+            InspectionCompany.YSHengAuto,
+            false,
+            new DateOnly(2026, 1, 15),
+            null,
+            "BOOK-1",
+            "RECEIPT-1",
+            100m,
+            100m,
+            null);
+
+        Assert.Contains(InspectionRules.Validate(request, []).Errors,
+            error => error.Code == "inspection_supplier_invoice_reference_required");
     }
 
     [Fact]

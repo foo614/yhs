@@ -2015,6 +2015,19 @@ backOffice.MapGet("/inspections", async (AppDbContext db) =>
     }));
 }).RequireAuthorization("Deliveries");
 
+backOffice.MapGet("/inspections/invoice-number-check", async (string? invoiceNumber, AppDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(invoiceNumber))
+    {
+        return Results.BadRequest(new ValidationResult([new ValidationError(
+            "inspection_supplier_invoice_reference_required",
+            "Supplier invoice number is required.")]));
+    }
+
+    var existing = await db.InspectionRecords.AsNoTracking().ToListAsync();
+    return Results.Ok(InspectionRules.CheckSupplierInvoiceReference(invoiceNumber, existing));
+}).RequireAuthorization("Deliveries");
+
 backOffice.MapGet("/inspections/{id:guid}", async (Guid id, AppDbContext db) =>
 {
     var inspection = await db.InspectionRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);
@@ -2065,16 +2078,33 @@ backOffice.MapPost("/inspections", async (CreateInspectionRequest request, AppDb
 {
     if (string.IsNullOrWhiteSpace(request.SourceReceiptNumber))
         return Results.BadRequest(new ValidationResult([new ValidationError("inspection_receipt_number_required", "Receipt number is required.")]));
+    if (string.IsNullOrWhiteSpace(request.SupplierInvoiceReference))
+        return Results.BadRequest(new ValidationResult([new ValidationError("inspection_supplier_invoice_reference_required", "Supplier invoice number is required.")]));
+
     await using var createTransaction = await db.Database.BeginTransactionAsync();
     var normalizedReceipt = request.SourceReceiptNumber.Trim().ToUpperInvariant();
+    var normalizedSupplierInvoiceReference = InspectionRules.NormalizeSupplierInvoiceReference(request.SupplierInvoiceReference);
+    var supplierInvoiceLockKey = $"inspection-supplier-invoice:{normalizedSupplierInvoiceReference}";
     var sourceLockKey = $"inspection-receipt:{normalizedReceipt}";
     if (db.Database.IsNpgsql())
     {
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({supplierInvoiceLockKey}, 0))");
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({sourceLockKey}, 0))");
     }
     var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.VehicleId);
     if (vehicle is null) return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Record must be linked to an existing car plate.")]));
-    var existing = (await db.InspectionRecords.AsNoTracking().ToListAsync())
+    var allExisting = await db.InspectionRecords.AsNoTracking().ToListAsync();
+    if (allExisting.Any(item => string.Equals(
+        InspectionRules.NormalizeSupplierInvoiceReference(item.SupplierInvoiceReference),
+        normalizedSupplierInvoiceReference,
+        StringComparison.OrdinalIgnoreCase)))
+    {
+        return Results.Conflict(new ValidationResult([new ValidationError(
+            "inspection_supplier_invoice_reference_duplicate",
+            "This supplier invoice number is already used. Use a different number.")]));
+    }
+
+    var existing = allExisting
         .Where(item => string.Equals(item.SourceReceiptNumber.Trim(), normalizedReceipt, StringComparison.OrdinalIgnoreCase))
         .ToList();
     var validation = InspectionRules.Validate(request, existing);
@@ -2085,8 +2115,10 @@ backOffice.MapPost("/inspections", async (CreateInspectionRequest request, AppDb
     var allocated = existing.Sum(item => item.AllocatedAmount) + request.AllocatedAmount;
     if (allocated > receiptTotal)
         return Results.BadRequest(new ValidationResult([new ValidationError("inspection_receipt_allocation_exceeds_total", "This allocation would exceed the receipt total.")]));
-    var supplierInvoiceReference = InspectionRules.NextSupplierInvoiceReference(request.SourceReceiptNumber, existing);
-    var inspection = InspectionRules.PrepareCreate(request, AuditTrail.ActorFrom(context.User), supplierInvoiceReference);
+    var inspection = InspectionRules.PrepareCreate(
+        request,
+        AuditTrail.ActorFrom(context.User),
+        request.SupplierInvoiceReference.Trim());
     db.InspectionRecords.Add(inspection);
     ApiAudit.Add(db, context.User, "inspection.created", nameof(InspectionRecord), inspection.Id);
     try

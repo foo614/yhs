@@ -115,3 +115,11 @@ This is an integration checkpoint, not a completion or release declaration. Chan
 - User authorized releasing verified, ready functionality while deferring the template. Friday scheduling remains incomplete and is excluded from the release candidate; its work-in-progress patch is retained separately.
 - No new template approval, production sender change or notification enablement is part of this release. Existing document-template paths remain gated on a valid approved manifest.
 - Release candidate validation, independent review, CI, merge, deployment and HTTPS smoke must be recorded separately before declaring any feature live. Parent scope remains incomplete where source/accounting mappings and deferred automation are outstanding.
+
+## Inspection supplier invoice entry clarification (FOO-253)
+
+- Each booking contains one vehicle. The original supplier receipt number remains separate for shared receipt allocation checks.
+- Staff manually enter Supplier Invoice No, including any confirmed bracket suffix. The system does not assign or rewrite the number.
+- On field blur, check availability and suggest the next unused bracket suffix for duplicates. Submission checks again under a transaction lock; historical numbers remain reserved and unchanged.
+- Comparison trims outer whitespace and ignores case across inspection records, consistent with the existing globally unique supplier reference. AutoCount's own purchase invoice number is a different number.
+- Existing attachment ownership and company selection are unchanged. Inspection Excel export remains a separate unfinished item; this change does not claim an AutoCount import/export implementation.

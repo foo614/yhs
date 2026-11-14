@@ -21,7 +21,12 @@ public sealed record CreateInspectionRequest(
     string SourceReceiptNumber,
     decimal ReceiptTotal,
     decimal AllocatedAmount,
-    string? Notes);
+    string? Notes,
+    string? SupplierInvoiceReference = null);
+
+public sealed record SupplierInvoiceReferenceAvailability(
+    bool Available,
+    string? SuggestedInvoiceNumber);
 
 public sealed record UpdateInspectionRequest(
     InspectionType Type,
@@ -60,11 +65,59 @@ public static class InspectionRules
         if (request.AppointmentDate == default) errors.Add(new("inspection_appointment_required", "Appointment date is required."));
         if (string.IsNullOrWhiteSpace(request.BookingReference)) errors.Add(new("inspection_booking_reference_required", "Appointment confirmation reference is required."));
         if (string.IsNullOrWhiteSpace(request.SourceReceiptNumber)) errors.Add(new("inspection_receipt_number_required", "Receipt number is required."));
+        if (string.IsNullOrWhiteSpace(request.SupplierInvoiceReference)) errors.Add(new("inspection_supplier_invoice_reference_required", "Supplier invoice number is required."));
         if (request.ReceiptTotal < 0 || request.AllocatedAmount < 0) errors.Add(new("inspection_receipt_amount_invalid", "Receipt amounts cannot be negative."));
         if (request.AllocatedAmount > request.ReceiptTotal) errors.Add(new("inspection_receipt_amount_exceeds_total", "Allocated amount cannot exceed the receipt total."));
         if (existing.Any(item => item.VehicleId == request.VehicleId && string.Equals(item.SourceReceiptNumber.Trim(), request.SourceReceiptNumber.Trim(), StringComparison.OrdinalIgnoreCase)))
             errors.Add(new("inspection_receipt_vehicle_duplicate", "This receipt is already linked to the selected vehicle."));
         return new ValidationResult(errors);
+    }
+
+    public static string NormalizeSupplierInvoiceReference(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "" : value.Trim().ToUpperInvariant();
+
+    public static SupplierInvoiceReferenceAvailability CheckSupplierInvoiceReference(
+        string? value,
+        IEnumerable<InspectionRecord> existing)
+    {
+        var trimmed = value?.Trim() ?? "";
+        var normalized = NormalizeSupplierInvoiceReference(trimmed);
+        if (normalized.Length == 0)
+        {
+            return new SupplierInvoiceReferenceAvailability(false, null);
+        }
+
+        var used = existing
+            .Select(item => NormalizeSupplierInvoiceReference(item.SupplierInvoiceReference))
+            .Where(reference => reference.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!used.Contains(normalized))
+        {
+            return new SupplierInvoiceReferenceAvailability(true, null);
+        }
+
+        var root = SupplierInvoiceReferenceRoot(trimmed);
+        for (var suffix = 1; suffix < int.MaxValue; suffix++)
+        {
+            var candidate = $"{root} ({suffix})";
+            if (!used.Contains(NormalizeSupplierInvoiceReference(candidate)))
+            {
+                return new SupplierInvoiceReferenceAvailability(false, candidate);
+            }
+        }
+
+        return new SupplierInvoiceReferenceAvailability(false, null);
+    }
+
+    private static string SupplierInvoiceReferenceRoot(string value)
+    {
+        var close = value.EndsWith(')') ? value.LastIndexOf(" (", StringComparison.Ordinal) : -1;
+        if (close > 0 && int.TryParse(value[(close + 2)..^1], out var suffix) && suffix >= 0)
+        {
+            return value[..close].Trim();
+        }
+
+        return value;
     }
 
     public static ValidationResult Validate(UpdateInspectionRequest request)
@@ -78,21 +131,6 @@ public static class InspectionRules
         if (request.ReceiptTotal < 0 || request.AllocatedAmount < 0) errors.Add(new("inspection_receipt_amount_invalid", "Receipt amounts cannot be negative."));
         if (request.AllocatedAmount > request.ReceiptTotal) errors.Add(new("inspection_receipt_amount_exceeds_total", "Allocated amount cannot exceed the receipt total."));
         return new ValidationResult(errors);
-    }
-
-    public static string NextSupplierInvoiceReference(string sourceReceiptNumber, IEnumerable<InspectionRecord> existing)
-    {
-        var source = sourceReceiptNumber.Trim();
-        if (string.IsNullOrWhiteSpace(source)) return "";
-        var used = existing
-            .Where(item => string.Equals(item.SourceReceiptNumber.Trim(), source, StringComparison.OrdinalIgnoreCase))
-            .Select(item => item.SupplierInvoiceReference.Trim())
-            .Where(reference => reference.StartsWith(source + "-", StringComparison.OrdinalIgnoreCase))
-            .Select(reference => int.TryParse(reference[(source.Length + 1)..], out var number) ? number : 0)
-            .Where(number => number > 0)
-            .ToHashSet();
-        var next = used.Count == 0 ? 1 : used.Max() + 1;
-        return $"{source}-{next}";
     }
 
     public static InspectionRecord PrepareCreate(CreateInspectionRequest request, string actor, string supplierInvoiceReference) => new()
@@ -172,16 +210,4 @@ public static class InspectionRules
             : new ValidationResult([new ValidationError("inspection_receipt_allocation_mismatch", "Allocated amounts must match the receipt total.")]);
     }
 
-    public static IReadOnlyList<string> SplitSupplierInvoiceReferences(
-        string sourceInvoiceNumber,
-        IReadOnlyCollection<Guid> vehicleIds)
-    {
-        var source = sourceInvoiceNumber.Trim();
-        if (string.IsNullOrWhiteSpace(source) || vehicleIds.Count == 0 || vehicleIds.Any(id => id == Guid.Empty))
-        {
-            return [];
-        }
-
-        return vehicleIds.Select((_, index) => $"{source}-{index + 1}").ToList();
-    }
 }
