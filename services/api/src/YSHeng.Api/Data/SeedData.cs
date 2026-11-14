@@ -424,6 +424,8 @@ public static class SeedData
                 "Description" text NULL,
                 "StartDate" date NOT NULL,
                 "EndDate" date NOT NULL,
+                "StartTime" time without time zone NULL,
+                "EndTime" time without time zone NULL,
                 "AssignedToUserId" text NOT NULL,
                 "AssignedToName" text NOT NULL,
                 "Status" integer NOT NULL DEFAULT 0,
@@ -438,7 +440,17 @@ public static class SeedData
                 ON "CalendarTasks" ("StartDate", "EndDate", "Status");
             CREATE INDEX IF NOT EXISTS "IX_CalendarTasks_AssignedToUserId"
                 ON "CalendarTasks" ("AssignedToUserId");
+            ALTER TABLE "CalendarTasks" ADD COLUMN IF NOT EXISTS "StartTime" time without time zone NULL;
+            ALTER TABLE "CalendarTasks" ADD COLUMN IF NOT EXISTS "EndTime" time without time zone NULL;
         """);
+    }
+
+    public static async Task EnsureCalendarTaskSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.EnsureCreatedAsync();
+        await EnsureCalendarTaskSchemaAsync(db);
     }
 
     private static async Task EnsureBrokerDealPriceSchemaAsync(AppDbContext db)

@@ -167,6 +167,8 @@ public sealed record CalendarTask
     public string? Description { get; init; }
     public DateOnly StartDate { get; init; }
     public DateOnly EndDate { get; init; }
+    public TimeOnly? StartTime { get; init; }
+    public TimeOnly? EndTime { get; init; }
     public string AssignedToUserId { get; init; } = "";
     public string AssignedToName { get; init; } = "";
     public CalendarTaskStatus Status { get; init; } = CalendarTaskStatus.Open;

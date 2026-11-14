@@ -39,8 +39,22 @@ public sealed class WhatsAppPostgresTests
         {
             await using var db = new AppDbContext(options);
             await db.Database.EnsureCreatedAsync();
+            var legacyTask = new CalendarTask
+            {
+                Title = "Legacy calendar task",
+                StartDate = new DateOnly(2026, 11, 13),
+                EndDate = new DateOnly(2026, 11, 13),
+                AssignedToUserId = "legacy-staff",
+                AssignedToName = "Legacy Staff",
+                CreatedByUserId = "legacy-boss",
+                CreatedByName = "Legacy Boss"
+            };
+            db.CalendarTasks.Add(legacyTask);
+            await db.SaveChangesAsync();
             // Upgrade the earlier application schema only inside this generated disposable database.
             await db.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "CalendarTasks" DROP COLUMN IF EXISTS "StartTime";
+                ALTER TABLE "CalendarTasks" DROP COLUMN IF EXISTS "EndTime";
                 ALTER TABLE "WhatsAppOutbox" DROP CONSTRAINT IF EXISTS "FK_WhatsAppOutbox_WhatsAppStaffBindings_StaffBindingId";
                 DROP TABLE "WhatsAppVehicleIntakeDrafts";
                 DROP TABLE "WhatsAppPriceUpdateDrafts";
@@ -182,6 +196,14 @@ public sealed class WhatsAppPostgresTests
             }
             finally { finish.TrySetResult(); await first; }
             await VerifyApplicationAsync(config.ConnectionString);
+            await using (var schemaDb = new AppDbContext(options))
+            {
+                await schemaDb.Database.ExecuteSqlRawAsync("""
+                    ALTER TABLE "CalendarTasks" DROP COLUMN IF EXISTS "StartTime";
+                    ALTER TABLE "CalendarTasks" DROP COLUMN IF EXISTS "EndTime";
+                    """);
+            }
+            await VerifyCalendarTaskNonSeedStartupAsync(config.ConnectionString);
         }
         finally
         {
@@ -361,6 +383,50 @@ public sealed class WhatsAppPostgresTests
             await VerifyCollectionAgeingApplicationAsync(factory, admin, sales, anonymous);
         }
         finally { foreach (var value in previous) Environment.SetEnvironmentVariable(value.Key, value.Value); }
+    }
+
+    private static async Task VerifyCalendarTaskNonSeedStartupAsync(string connectionString)
+    {
+        var keys = new[] { "ConnectionStrings__Default", "SeedData__Enabled", "Worker__Enabled", "WhatsAppAssistant__Enabled" };
+        var previous = keys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable("ConnectionStrings__Default", connectionString);
+            Environment.SetEnvironmentVariable("SeedData__Enabled", "false");
+            Environment.SetEnvironmentVariable("Worker__Enabled", "false");
+            Environment.SetEnvironmentVariable("WhatsAppAssistant__Enabled", "false");
+            await using var factory = new StaffApplicationFactory(new ConcurrentQueue<string>());
+            using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health/ready")).StatusCode);
+
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options;
+            await using var db = new AppDbContext(options);
+            var legacy = await db.CalendarTasks.SingleAsync(task => task.Title == "Legacy calendar task");
+            Assert.Null(legacy.StartTime);
+            Assert.Null(legacy.EndTime);
+            var timed = new CalendarTask
+            {
+                Title = "Timed calendar task",
+                StartDate = new DateOnly(2026, 11, 13),
+                EndDate = new DateOnly(2026, 11, 14),
+                StartTime = new TimeOnly(9, 0),
+                EndTime = new TimeOnly(17, 30),
+                AssignedToUserId = "timed-staff",
+                AssignedToName = "Timed Staff",
+                CreatedByUserId = "timed-boss",
+                CreatedByName = "Timed Boss"
+            };
+            db.CalendarTasks.Add(timed);
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+            var saved = await db.CalendarTasks.SingleAsync(task => task.Id == timed.Id);
+            Assert.Equal(new TimeOnly(9, 0), saved.StartTime);
+            Assert.Equal(new TimeOnly(17, 30), saved.EndTime);
+        }
+        finally
+        {
+            foreach (var value in previous) Environment.SetEnvironmentVariable(value.Key, value.Value);
+        }
     }
 
     // Reuse the isolated real-Program PostgreSQL harness: financial reads must enforce

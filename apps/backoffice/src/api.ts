@@ -2180,6 +2180,8 @@ export type OperationsCalendarEvent = {
   vehicleModel?: string | null;
   startDate: string;
   endDate: string;
+  startTime?: string | null;
+  endTime?: string | null;
   time: string | null;
   status: DeliveryStatus | CalendarTaskStatus | InspectionStatus | null;
   customerName?: string | null;
@@ -2196,6 +2198,8 @@ export type CalendarTaskRequest = {
   description?: string | null;
   startDate: string;
   endDate: string;
+  startTime?: string | null;
+  endTime?: string | null;
   assignedToUserId: string;
 };
 
@@ -2217,6 +2221,8 @@ export type CalendarTaskNotificationEvent = {
   assignedToName: string;
   startDate: string;
   endDate: string;
+  startTime?: string | null;
+  endTime?: string | null;
 };
 
 export async function getOperationsCalendar(from: string, to: string): Promise<OperationsCalendarEvent[]> {

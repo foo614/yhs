@@ -10,7 +10,9 @@ public sealed record CalendarTaskRequest(
     string? Description,
     DateOnly StartDate,
     DateOnly EndDate,
-    string AssignedToUserId);
+    string AssignedToUserId,
+    TimeOnly? StartTime = null,
+    TimeOnly? EndTime = null);
 
 public sealed record CalendarTaskStatusRequest(CalendarTaskStatus Status);
 
@@ -21,7 +23,9 @@ public sealed record CalendarTaskNotificationEvent(
     string AssignedToUserId,
     string AssignedToName,
     DateOnly StartDate,
-    DateOnly EndDate);
+    DateOnly EndDate,
+    TimeOnly? StartTime = null,
+    TimeOnly? EndTime = null);
 
 public static class CalendarTaskRules
 {
@@ -35,6 +39,15 @@ public static class CalendarTaskRules
             return "Task end date must be on or after the start date.";
         if (request.EndDate.DayNumber - request.StartDate.DayNumber > 366)
             return "Task timeline cannot be longer than 367 days.";
+        if (request.StartTime.HasValue != request.EndTime.HasValue)
+            return "Task start and end time must both be provided.";
+        if (request.StartTime is { } startTime && request.EndTime is { } endTime)
+        {
+            var start = request.StartDate.ToDateTime(startTime);
+            var end = request.EndDate.ToDateTime(endTime);
+            if (end <= start)
+                return "Task end datetime must be after the start datetime.";
+        }
         if (string.IsNullOrWhiteSpace(request.AssignedToUserId))
             return "Select an active staff member to assign the task.";
         return null;
@@ -60,5 +73,5 @@ public static class CalendarTaskRules
 
     public static CalendarTaskNotificationEvent ToNotificationEvent(CalendarTask task)
         => new("calendar.task.created", task.Id, task.Title, task.AssignedToUserId, task.AssignedToName,
-            task.StartDate, task.EndDate);
+            task.StartDate, task.EndDate, task.StartTime, task.EndTime);
 }
