@@ -5288,8 +5288,11 @@ body {
   }
 
   .tableToolbar .ant-input-search-button,
+  .tableToolbar .ant-input-search-btn,
   .toolbarForm .ant-input-search-button,
-  .vehicleOperationFilters .ant-input-search-button {
+  .toolbarForm .ant-input-search-btn,
+  .vehicleOperationFilters .ant-input-search-button,
+  .vehicleOperationFilters .ant-input-search-btn {
     width: 44px !important;
     min-width: 44px !important;
   }
@@ -5363,6 +5366,15 @@ body {
   .ant-input-search .ant-input-group > .ant-input-affix-wrapper {
     min-width: 0;
     flex: 1 1 auto;
+    height: 44px;
+  }
+
+  /* Ant Design 6 renders Search with Space.Compact instead of input-group. */
+  .ant-input-search > .ant-input-affix-wrapper,
+  .ant-input-search > .ant-input {
+    min-width: 0;
+    flex: 1 1 0;
+    width: 0;
     height: 44px;
   }
 
