@@ -1,3 +1,6 @@
+using System.IO.Compression;
+using System.Text;
+using System.Xml.Linq;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using YSHeng.Api.Data;
@@ -68,6 +71,74 @@ public sealed class InspectionRulesTests
     }
 
     [Fact]
+    public void Inspection_export_uses_the_exact_company_mapping_and_allocated_amount()
+    {
+        var vehicle = new Vehicle { Id = Guid.Parse("00000000-0000-0000-0000-000000000101"), PlateNumber = "ABC101" };
+        var inspection = new InspectionRecord
+        {
+            Id = Guid.Parse("00000000-0000-0000-0000-000000000201"), VehicleId = vehicle.Id, Company = InspectionCompany.YSHengAutomotive,
+            Type = InspectionType.PertukaranHakMilik, AppointmentDate = new DateOnly(2026, 11, 14), BookingReference = "BOOK-101",
+            SourceReceiptNumber = "RECEIPT-SHARED", SupplierInvoiceReference = "INV-101 (2)", ReceiptTotal = 250m, AllocatedAmount = 125m
+        };
+
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new(
+            [inspection], [vehicle], InspectionCompany.YSHengAutomotive))), ZipArchiveMode.Read);
+        var row = Assert.Single(SheetRows(archive, "InspectionBookings"));
+
+        Assert.Equal("4T00-P004", row["CreditorCode"]);
+        Assert.Equal("PUSPAKOM SDN BHD", row["CreditorName"]);
+        Assert.Equal("INSPECTION (PUSPAKOM)", row["ItemCode"]);
+        Assert.Equal("6100-0000", row["AccountCode"]);
+        Assert.Equal("UNIT", row["UOM"]);
+        Assert.Equal("RECEIPT-SHARED", row["SourceReceiptNumber"]);
+        Assert.Equal("INV-101 (2)", row["SupplierInvoiceReference"]);
+        Assert.Equal("INV-101 (2)", row["SupplierDONumber"]);
+        Assert.Equal("125.00", row["AllocatedAmount"]);
+        Assert.Equal("", row["AutoCountInvoiceNumber"]);
+        Assert.Contains(NativeRows(archive, "PI_0001"), item => item.Count == 2 && item[0] == "Description" && item[1] == "9011 - PERTUKARAN HAK MILIK");
+    }
+
+    [Fact]
+    public void Inspection_export_is_company_isolated_and_keeps_each_vehicle_allocation()
+    {
+        var firstVehicle = new Vehicle { Id = Guid.Parse("00000000-0000-0000-0000-000000000111"), PlateNumber = "ABC111" };
+        var secondVehicle = new Vehicle { Id = Guid.Parse("00000000-0000-0000-0000-000000000112"), PlateNumber = "ABC112" };
+        var inspections = new[]
+        {
+            Inspection(firstVehicle, InspectionCompany.YSHengAuto, "INV-111", 70m),
+            Inspection(secondVehicle, InspectionCompany.YSHengAuto, "INV-112", 50m),
+            Inspection(firstVehicle, InspectionCompany.YSHengAutomotive, "INV-113", 999m)
+        };
+
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new(
+            inspections, [firstVehicle, secondVehicle], InspectionCompany.YSHengAuto))), ZipArchiveMode.Read);
+        var rows = SheetRows(archive, "InspectionBookings");
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(["ABC111", "ABC112"], rows.Select(row => row["CarPlate"]));
+        Assert.Equal(["70.00", "50.00"], rows.Select(row => row["AllocatedAmount"]));
+        Assert.DoesNotContain(rows, row => row["SupplierInvoiceReference"] == "INV-113");
+        Assert.Equal(2, SheetRows(archive, "PasteGuide").Count);
+    }
+
+    [Fact]
+    public void Inspection_export_is_stable_and_blocks_invalid_rows_without_a_false_pi_sheet()
+    {
+        var vehicle = new Vehicle { Id = Guid.Parse("00000000-0000-0000-0000-000000000121"), PlateNumber = "ABC121" };
+        var valid = Inspection(vehicle, InspectionCompany.YSHengAuto, "INV-121", 100m);
+        var invalid = Inspection(vehicle, InspectionCompany.YSHengAuto, "", 100m) with { Id = Guid.Parse("00000000-0000-0000-0000-000000000222") };
+        var input = new InspectionAutoCountExportInput([valid, invalid], [vehicle], InspectionCompany.YSHengAuto);
+
+        var first = AutoCountExcel.ExportInspection(input);
+        var second = AutoCountExcel.ExportInspection(input);
+        Assert.Equal(first, second);
+
+        using var archive = new ZipArchive(new MemoryStream(first), ZipArchiveMode.Read);
+        Assert.Single(WorkbookSheetNames(archive), name => name == "PI_0001");
+        Assert.Contains(SheetRows(archive, "PasteGuide"), row => row["ReviewStatus"] == "BlockedForPaste" && row["Sheet"] == "");
+    }
+
+    [Fact]
     public void Supplier_invoice_check_is_case_insensitive_trimmed_and_suggests_next_root_suffix()
     {
         var existing = new[]
@@ -84,6 +155,45 @@ public sealed class InspectionRulesTests
         Assert.Equal("inv-77 (2)", duplicate.SuggestedInvoiceNumber);
         Assert.True(available.Available);
         Assert.Null(available.SuggestedInvoiceNumber);
+    }
+
+    private static InspectionRecord Inspection(Vehicle vehicle, InspectionCompany company, string invoice, decimal amount) => new()
+    {
+        VehicleId = vehicle.Id, Company = company, Type = InspectionType.Awalan, AppointmentDate = new DateOnly(2026, 11, 14),
+        BookingReference = $"BOOK-{vehicle.PlateNumber}", SourceReceiptNumber = "RECEIPT-SHARED", SupplierInvoiceReference = invoice,
+        ReceiptTotal = 120m, AllocatedAmount = amount
+    };
+
+    private static List<Dictionary<string, string>> SheetRows(ZipArchive archive, string sheetName)
+    {
+        var rows = NativeRows(archive, sheetName);
+        var headers = rows[0];
+        return rows.Skip(1).Select(row => headers.Select((header, index) => (header, value: row.ElementAtOrDefault(index) ?? ""))
+            .ToDictionary(cell => cell.header, cell => cell.value)).ToList();
+    }
+
+    private static List<List<string>> NativeRows(ZipArchive archive, string sheetName)
+    {
+        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        var sheets = XDocument.Parse(Read(archive, "xl/workbook.xml")).Descendants(ns + "sheet").ToList();
+        var index = sheets.FindIndex(sheet => (string?)sheet.Attribute("name") == sheetName);
+        Assert.True(index >= 0);
+        return XDocument.Parse(Read(archive, $"xl/worksheets/sheet{index + 1}.xml")).Descendants(ns + "row")
+            .Select(row => row.Elements(ns + "c").Select(cell => cell.Value).ToList()).ToList();
+    }
+
+    private static List<string> WorkbookSheetNames(ZipArchive archive)
+    {
+        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        return XDocument.Parse(Read(archive, "xl/workbook.xml")).Descendants(ns + "sheet")
+            .Select(sheet => (string)sheet.Attribute("name")!).ToList();
+    }
+
+    private static string Read(ZipArchive archive, string path)
+    {
+        using var stream = archive.GetEntry(path)!.Open();
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 
     [Fact]

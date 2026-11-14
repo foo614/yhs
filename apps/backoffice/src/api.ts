@@ -1999,6 +1999,14 @@ export async function checkInspectionInvoiceNumber(invoiceNumber: string): Promi
   return request(`/api/inspections/invoice-number-check?invoiceNumber=${encodeURIComponent(invoiceNumber)}`);
 }
 
+export async function exportInspectionAutoCountWorkbook(company: InspectionCompany): Promise<Blob> {
+  const response = await fetch(`${apiBaseUrl}/api/inspections/export-autocount?company=${encodeURIComponent(company)}`, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, `Inspection AutoCount export failed with status ${response.status}`));
+  }
+  return response.blob();
+}
+
 export async function createInspection(payload: CreateInspectionRequest): Promise<InspectionRecord> {
   return request<InspectionRecord>("/api/inspections", {
     method: "POST",

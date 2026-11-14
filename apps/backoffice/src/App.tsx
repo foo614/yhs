@@ -1431,7 +1431,7 @@ export default function App() {
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
             />
           )}
-          {pathname === "/inspection" && <InspectionPage vehicles={vehicleLookup} />}
+          {pathname === "/inspection" && <InspectionPage vehicles={vehicleLookup} canExportAutoCount={currentRoles.includes("BossAdmin")} />}
           {pathname === "/finance" && (
             <FinancePage
               vehicles={financeVehicles}
