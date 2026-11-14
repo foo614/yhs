@@ -168,11 +168,12 @@ export type CreateInspectionRequest = {
   appointmentTime?: string | null;
   bookingReference: string;
   sourceReceiptNumber: string;
+  supplierInvoiceReference: string;
   receiptTotal: number;
   allocatedAmount: number;
   notes?: string | null;
 };
-export type UpdateInspectionRequest = Omit<CreateInspectionRequest, "vehicleId" | "sourceReceiptNumber"> & {
+export type UpdateInspectionRequest = Omit<CreateInspectionRequest, "vehicleId" | "sourceReceiptNumber" | "supplierInvoiceReference"> & {
   status: InspectionStatus;
 };
 
@@ -1992,6 +1993,10 @@ export async function getDeliveryActivity(deliveryId: string): Promise<DeliveryA
 
 export async function getInspections(): Promise<InspectionRecord[]> {
   return request<InspectionRecord[]>("/api/inspections");
+}
+
+export async function checkInspectionInvoiceNumber(invoiceNumber: string): Promise<{ available: boolean; suggestedInvoiceNumber: string | null }> {
+  return request(`/api/inspections/invoice-number-check?invoiceNumber=${encodeURIComponent(invoiceNumber)}`);
 }
 
 export async function createInspection(payload: CreateInspectionRequest): Promise<InspectionRecord> {
