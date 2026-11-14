@@ -1,3 +1,7 @@
+.calendarTaskTimeGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; }
+@media (max-width: 374px) {
+  .calendarTaskTimeGrid { grid-template-columns: minmax(0, 1fr); }
+}
 .operationsCalendarCompact { min-width: 0; }
 .operationsCalendarCompact .ant-pro-card-title { white-space: normal; overflow-wrap: anywhere; }
 .operationsCalendarCompact .operationsCalendarLayout { grid-template-columns: minmax(0, 1fr); gap: 16px; }

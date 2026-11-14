@@ -53,7 +53,7 @@ export function ModuleGuideExperience({
   const tourSteps = [
     {
       target: lazyTourTarget(headerTarget),
-      title: `Page purpose / 页面用途 · ${guide.title}`,
+      title: guide.title,
       description: guide.summary,
       placement: "bottom" as const
     },
@@ -230,7 +230,9 @@ export function ModuleGuideExperience({
       <Tour
         key={`${guide.path}:${guide.roleLabel}`}
         open={tourOpen}
-        type="primary"
+        type="default"
+        gap={{ offset: 6, radius: 8 }}
+        indicatorsRender={(current, total) => <span>{current + 1} / {total}</span>}
         rootClassName="moduleGuideTour"
         steps={tourSteps}
         onClose={onCloseTour}

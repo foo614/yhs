@@ -1154,8 +1154,44 @@ body {
   overflow-y: auto;
 }
 
+.moduleGuideTour.ant-tour {
+  width: min(420px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+}
+
+.moduleGuideTour .ant-tour-inner {
+  border: 1px solid #dce7e3;
+  border-radius: 12px;
+}
+
+.moduleGuideTour .ant-tour-title {
+  padding-inline-end: 32px;
+  overflow-wrap: anywhere;
+}
+
 .moduleGuideTour .ant-tour-description {
   line-height: 1.55;
+  max-height: min(280px, 40dvh);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.moduleGuideTour .ant-tour-footer {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.moduleGuideTour .ant-tour-buttons .ant-btn {
+  min-height: 44px;
+  padding-inline: 16px;
+  font-size: 14px;
+}
+
+.moduleGuideTour .ant-tour-close {
+  width: 44px;
+  height: 44px;
+  top: 4px;
+  inset-inline-end: 4px;
 }
 
 .moduleStats span {

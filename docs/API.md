@@ -244,6 +244,9 @@ Owner-invoice revision requests allow at most 100 classified lines, each with a 
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/operations-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` | `BackOffice` | Shared Dashboard calendar with delivery dates, booked inspection appointments, assigned tasks and staff availability. Non-Boss users see only their assigned tasks; inspection events exclude costs and documents. The inclusive date range must be ordered and contain at most 93 days. |
+| `POST` | `/api/operations-calendar/tasks` | `BackOffice` + Boss/Admin | Create an assigned task with `title`, optional `description`, `assignedToUserId`, `startDate`, `endDate` and optional paired `startTime` / `endTime`. |
+
+Task dates use `YYYY-MM-DD`; times use `HH:mm:ss` in Malaysia local time (MYT), without UTC conversion. Both times must be supplied together and the end datetime must be later than the start. Existing date-only tasks remain supported. Calendar task events return their original date range and optional `startTime` / `endTime` as `HH:mm`. Task clock times do not change the Boss/Admin-configured reminder sending schedule.
 
 Each event contains `id`, `kind`, `title`, `startDate`, `endDate`, `time`, `status`, `customerName`, `customerContact`, and `customerAccess`. Delivery events use the delivery ID, plate number, scheduled date/time, and delivery status; cancelled deliveries are excluded. Staff with `CustomerRead` receive the linked customer's name and contact. Other authenticated staff receive only `Customer linked` with no contact, while deliveries without a linked customer return `No customer linked`. Approved leave and business trips appear only as staff availability (`Busy`), with no reason, medical information, trip location, customer, or Finance details. Busy events have null time and status, and null customer fields.
 

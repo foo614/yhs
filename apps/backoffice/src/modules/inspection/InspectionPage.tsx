@@ -156,8 +156,10 @@ export function InspectionPage({ vehicles }: InspectionPageProps) {
             <Form.Item name="allocatedAmount" label="Allocated amount (RM)" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
             <Form.Item name="isLorry" label="Vehicle type"><Select options={[{ value: false, label: "Car" }, { value: true, label: "Lorry" }]} /></Form.Item>
             <Form.Item name="notes" label="Notes"><Input.TextArea rows={1} /></Form.Item>
+            <Form.Item className="formActions">
+              <Button type="primary" htmlType="submit" icon={<PlusOutlined />} loading={saving}>Create booking</Button>
+            </Form.Item>
           </div>
-          <Button type="primary" htmlType="submit" icon={<PlusOutlined />} loading={saving}>Create booking</Button>
         </Form>
       </Card>
 

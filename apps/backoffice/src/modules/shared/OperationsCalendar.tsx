@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Calendar, DatePicker, Drawer, Empty, Form, Grid, Input, List, Modal, Select, Skeleton, Space, Spin, Tag, Typography } from "antd";
+import { Alert, Button, Calendar, DatePicker, Drawer, Empty, Form, Grid, Input, List, Modal, Select, Skeleton, Space, Spin, Tag, TimePicker, Typography } from "antd";
 import { ClockCircleOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
 import dayjs from "dayjs";
@@ -12,8 +12,11 @@ export function eventsOnDate(events: OperationsCalendarEvent[], date: string) {
 }
 
 export function operationsCalendarEventDetail(event: OperationsCalendarEvent) {
+  const taskTimeline = event.kind === "Task" && event.startTime && event.endTime
+    ? `${event.startDate} ${event.startTime.slice(0, 5)} – ${event.endDate} ${event.endTime.slice(0, 5)} (MYT)`
+    : `${event.startDate} – ${event.endDate}`;
   return {
-    time: (event.kind === "Delivery" || event.kind === "Inspection") ? event.time ?? "Time not set" : `${event.startDate} – ${event.endDate}`,
+    time: (event.kind === "Delivery" || event.kind === "Inspection") ? event.time ?? "Time not set" : taskTimeline,
     status: (event.kind === "Delivery" || event.kind === "Inspection") ? event.status ?? "Status unavailable" : event.kind === "Task" ? event.status : undefined
   };
 }
@@ -130,21 +133,22 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
   const openTaskModal = () => {
     setTaskSaveError(null);
     taskForm.resetFields();
-    taskForm.setFieldsValue({ range: [dayjs(), dayjs()], assignedToUserId: staffUsers.find(user => user.isActive)?.id });
+    taskForm.setFieldsValue({ startDate: date, endDate: date, assignedToUserId: staffUsers.find(user => user.isActive)?.id });
     setTaskModalOpen(true);
   };
 
   const saveTask = async () => {
     try {
       const values = await taskForm.validateFields();
-      const range = values.range as [dayjs.Dayjs, dayjs.Dayjs];
       setTaskSaving(true);
       setTaskSaveError(null);
       await createCalendarTask({
         title: values.title,
         description: values.description,
-        startDate: range[0].format("YYYY-MM-DD"),
-        endDate: range[1].format("YYYY-MM-DD"),
+        startDate: values.startDate.format("YYYY-MM-DD"),
+        endDate: values.endDate.format("YYYY-MM-DD"),
+        startTime: values.startTime.format("HH:mm:ss"),
+        endTime: values.endTime.format("HH:mm:ss"),
         assignedToUserId: values.assignedToUserId
       });
       setTaskModalOpen(false);
@@ -205,7 +209,26 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
       <Form form={taskForm} layout="vertical">
         <Form.Item name="title" label="Task / 任务" rules={[{ required: true, message: "Enter a task title." }]}><Input maxLength={160} showCount /></Form.Item>
         <Form.Item name="description" label="Details / 备注"><Input.TextArea maxLength={2000} showCount rows={3} /></Form.Item>
-        <Form.Item name="range" label="Timeline / 日期" rules={[{ required: true, message: "Select the task timeline." }]}><DatePicker.RangePicker allowClear={false} /></Form.Item>
+        <Typography.Paragraph type="secondary">Date and time / 日期与时间 · Malaysia (MYT)</Typography.Paragraph>
+        <div className="calendarTaskTimeGrid">
+          <Form.Item name="startDate" label="Start / 开始日期" rules={[{ required: true, message: "Select the start date." }]}><DatePicker className="fullWidth" format="DD MMM YYYY" allowClear={false} /></Form.Item>
+          <Form.Item name="startTime" label="Time / 开始时间" rules={[{ required: true, message: "Select the start time." }]}><TimePicker className="fullWidth" format="HH:mm" needConfirm={false} /></Form.Item>
+          <Form.Item name="endDate" label="End / 结束日期" rules={[{ required: true, message: "Select the end date." }]}><DatePicker className="fullWidth" format="DD MMM YYYY" allowClear={false} /></Form.Item>
+          <Form.Item name="endTime" label="Time / 结束时间" dependencies={["startDate", "startTime", "endDate"]} rules={[
+            { required: true, message: "Select the end time." },
+            ({ getFieldValue }) => ({ validator(_, value) {
+              const startDate = getFieldValue("startDate");
+              const startTime = getFieldValue("startTime");
+              const endDate = getFieldValue("endDate");
+              if (startDate && startTime && endDate && value) {
+                const start = startDate.format("YYYY-MM-DD") + startTime.format("HH:mm");
+                const end = endDate.format("YYYY-MM-DD") + value.format("HH:mm");
+                if (end <= start) return Promise.reject(new Error("End must be after the start date and time."));
+              }
+              return Promise.resolve();
+            } })
+          ]}><TimePicker className="fullWidth" format="HH:mm" needConfirm={false} /></Form.Item>
+        </div>
         <Form.Item name="assignedToUserId" label="Assign to / 负责员工" rules={[{ required: true, message: "Select a staff member." }]}>
           <Select showSearch optionFilterProp="label" options={staffUsers.filter(user => user.isActive).map(user => ({ value: user.id, label: `${user.displayName} / ${user.roles.join(", ")}` }))} placeholder="Select staff / 选择员工" />
         </Form.Item>

@@ -12,7 +12,14 @@ public static class WhatsAppCalendarTasks
         var rows = tasks.Where(task => task.Status == CalendarTaskStatus.Open && task.StartDate <= target && task.EndDate >= target && (boss || task.AssignedToUserId == userId)).OrderBy(task => task.StartDate).ThenBy(task => task.Id).ToArray();
         if (rows.Length == 0) return null;
         var heading = language == "ms" ? "Tugasan" : "Tasks";
-        var lines = rows.Take(4).Select(task => WhatsAppStaffSalesQueries.Clean(task.Title)[..Math.Min(100, WhatsAppStaffSalesQueries.Clean(task.Title).Length)]);
+        var lines = rows.Take(4).Select(task =>
+        {
+            var title = WhatsAppStaffSalesQueries.Clean(task.Title);
+            title = title[..Math.Min(100, title.Length)];
+            return task.StartTime is { } start && task.EndTime is { } end
+                ? $"{title} ({task.StartDate:dd/MM/yyyy} {start.ToString("HH':'mm")}-{task.EndDate:dd/MM/yyyy} {end.ToString("HH':'mm")})"
+                : title;
+        });
         return $"{heading} {target:dd/MM/yyyy}: {string.Join("; ", lines)}. {rows.Length} total. Check Dashboard for details.";
     }
 
