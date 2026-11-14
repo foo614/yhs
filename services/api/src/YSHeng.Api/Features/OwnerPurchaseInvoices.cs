@@ -14,7 +14,13 @@ public sealed record GenerateOwnerPurchaseInvoiceRequest(
     Guid? ExpectedSupplierId = null,
     string? SupplierInvoiceNumber = null,
     DateOnly? SupplierInvoiceDate = null,
-    string? DiscountVoucherReference = null);
+    string? DiscountVoucherReference = null,
+    decimal? ExpectedDealerProcessingFee = null,
+    decimal? ExpectedDealerTrailerFee = null,
+    decimal? ExpectedDealerParkingFee = null,
+    decimal? ExpectedDealerLateCharge = null,
+    decimal? ExpectedDealerDiscount = null,
+    decimal? ExpectedPurchaseInvoiceTotal = null);
 
 public sealed record RecordAutoCountKeyRequest(int ExpectedRevision, string? AutoCountInvoiceNumber);
 
@@ -27,7 +33,8 @@ public sealed record PurchaseInvoiceRevisionLineRequest(
     bool CapitaliseIntoVehicleCost,
     string? SupplierInvoiceNumber = null,
     DateOnly? SupplierInvoiceDate = null,
-    string? DiscountVoucherReference = null);
+    string? DiscountVoucherReference = null,
+    decimal DiscountAmount = 0m);
 
 public sealed record CreatePurchaseInvoiceRevisionRequest(
     int ExpectedRevision,
@@ -46,6 +53,14 @@ public sealed record OwnerPurchaseInvoiceDraft(PurchaseInvoice Invoice, Purchase
 public static class OwnerPurchaseInvoiceRules
 {
     public static decimal GenerationAmount(Vehicle vehicle) => vehicle.ModifiedPurchasePrice ?? vehicle.PurchasePrice;
+
+    public static decimal GenerationInvoiceTotal(Vehicle vehicle) =>
+        GenerationAmount(vehicle)
+        + EffectiveDealerCharge(vehicle, vehicle.DealerProcessingFee)
+        + EffectiveDealerCharge(vehicle, vehicle.DealerTrailerFee)
+        + EffectiveDealerCharge(vehicle, vehicle.DealerParkingFee)
+        + EffectiveDealerCharge(vehicle, vehicle.DealerLateCharge)
+        - EffectiveDealerCharge(vehicle, vehicle.DealerDiscount);
 
     private const int MaximumRevisionLines = 100;
     private const int MaximumReasonLength = 500;
@@ -93,6 +108,31 @@ public static class OwnerPurchaseInvoiceRules
             errors.Add(new ValidationError("purchase_invoice_purchase_price_changed", "The canonical purchase price changed. Refresh and review the intake before issuing."));
         if (request.ExpectedIntakeDate != vehicle.IntakeDate)
             errors.Add(new ValidationError("purchase_invoice_intake_date_changed", "The intake date changed. Refresh and review the intake before issuing."));
+        if (IsDealerSource(vehicle))
+        {
+            foreach (var (name, value) in new[]
+            {
+                ("processing_fee", vehicle.DealerProcessingFee),
+                ("trailer_fee", vehicle.DealerTrailerFee),
+                ("parking_fee", vehicle.DealerParkingFee),
+                ("late_charge", vehicle.DealerLateCharge),
+                ("discount", vehicle.DealerDiscount)
+            })
+            {
+                if (value < 0)
+                    errors.Add(new ValidationError($"purchase_invoice_dealer_{name}_invalid", "Dealer charges cannot be negative."));
+                else if (value.HasValue && !HasCurrencyPrecision(value.Value))
+                    errors.Add(new ValidationError($"purchase_invoice_dealer_{name}_precision_invalid", "Dealer charges must have no more than two decimal places for a formal purchase invoice."));
+            }
+        }
+        AddGenerationSnapshotError(errors, request.ExpectedDealerProcessingFee, EffectiveDealerCharge(vehicle, vehicle.DealerProcessingFee), "processing_fee");
+        AddGenerationSnapshotError(errors, request.ExpectedDealerTrailerFee, EffectiveDealerCharge(vehicle, vehicle.DealerTrailerFee), "trailer_fee");
+        AddGenerationSnapshotError(errors, request.ExpectedDealerParkingFee, EffectiveDealerCharge(vehicle, vehicle.DealerParkingFee), "parking_fee");
+        AddGenerationSnapshotError(errors, request.ExpectedDealerLateCharge, EffectiveDealerCharge(vehicle, vehicle.DealerLateCharge), "late_charge");
+        AddGenerationSnapshotError(errors, request.ExpectedDealerDiscount, EffectiveDealerCharge(vehicle, vehicle.DealerDiscount), "discount");
+        AddGenerationSnapshotError(errors, request.ExpectedPurchaseInvoiceTotal, GenerationInvoiceTotal(vehicle), "total");
+        if (OwnerPurchaseInvoiceRules.GenerationInvoiceTotal(vehicle) <= 0)
+            errors.Add(new ValidationError("purchase_invoice_total_invalid", "The formal purchase invoice total must be greater than zero after dealer charges and discount."));
         if (request.SupplierInvoiceNumber?.Length > MaximumPaymentReferenceLength)
             errors.Add(new ValidationError("purchase_invoice_supplier_number_too_long", $"The supplier invoice number cannot exceed {MaximumPaymentReferenceLength} characters."));
         if (request.DiscountVoucherReference?.Length > MaximumPaymentReferenceLength)
@@ -155,8 +195,8 @@ public static class OwnerPurchaseInvoiceRules
             }
             else
             {
-                var hasInvalidLines = request.Lines.Any(line => line is null || !Enum.IsDefined(typeof(PurchaseInvoiceLineType), line.LineType) || string.IsNullOrWhiteSpace(line.Description) || line.Description.Length > MaximumLineDescriptionLength || line.Amount <= 0 || line.Amount > MaximumRevisionLineAmount);
-                var hasImpreciseAmounts = request.Lines.Any(line => line is not null && !HasCurrencyPrecision(line.Amount));
+                var hasInvalidLines = request.Lines.Any(line => line is null || !Enum.IsDefined(typeof(PurchaseInvoiceLineType), line.LineType) || string.IsNullOrWhiteSpace(line.Description) || line.Description.Length > MaximumLineDescriptionLength || line.Amount <= 0 || line.Amount > MaximumRevisionLineAmount || line.DiscountAmount < 0 || line.DiscountAmount > MaximumRevisionLineAmount);
+                var hasImpreciseAmounts = request.Lines.Any(line => line is not null && (!HasCurrencyPrecision(line.Amount) || !HasCurrencyPrecision(line.DiscountAmount)));
                 if (hasInvalidLines)
                     errors.Add(new ValidationError("purchase_invoice_revision_line_invalid", "Every revised purchase invoice line needs a description, recognised type and amount greater than zero."));
                 if (hasImpreciseAmounts)
@@ -173,7 +213,13 @@ public static class OwnerPurchaseInvoiceRules
                         errors.Add(new ValidationError("purchase_invoice_revision_total_invalid", "The revised purchase invoice total is too large."));
                     }
                 }
-                AddUnsupportedTextError(errors, request.Lines.Select(line => line?.Description));
+                AddUnsupportedTextError(errors, request.Lines.SelectMany(line => line is null
+                    ? [null]
+                    : new[] { line.Description, line.SupplierInvoiceNumber, line.DiscountVoucherReference }));
+                if (request.Lines.Any(line => line is not null && line.SupplierInvoiceNumber?.Length > MaximumPaymentReferenceLength))
+                    errors.Add(new ValidationError("purchase_invoice_revision_line_supplier_number_too_long", $"A line supplier invoice number cannot exceed {MaximumPaymentReferenceLength} characters."));
+                if (request.Lines.Any(line => line is not null && line.DiscountVoucherReference?.Length > MaximumPaymentReferenceLength))
+                    errors.Add(new ValidationError("purchase_invoice_revision_line_discount_reference_too_long", $"A line discount voucher reference cannot exceed {MaximumPaymentReferenceLength} characters."));
             }
         }
 
@@ -208,7 +254,7 @@ public static class OwnerPurchaseInvoiceRules
         return new ValidationResult(errors);
     }
 
-    public static bool IsGenerationSourceStale(ValidationResult validation) => validation.Errors.Count > 0 && validation.Errors.All(error => error.Code is "purchase_invoice_owner_changed" or "purchase_invoice_purchase_price_changed" or "purchase_invoice_intake_date_changed");
+    public static bool IsGenerationSourceStale(ValidationResult validation) => validation.Errors.Count > 0 && validation.Errors.All(error => error.Code is "purchase_invoice_owner_changed" or "purchase_invoice_purchase_price_changed" or "purchase_invoice_intake_date_changed" or "purchase_invoice_processing_fee_changed" or "purchase_invoice_trailer_fee_changed" or "purchase_invoice_parking_fee_changed" or "purchase_invoice_late_charge_changed" or "purchase_invoice_discount_changed" or "purchase_invoice_total_changed");
 
     public static bool IsReservedOfficialNumber(string? number) => OfficialNumberPattern.IsMatch(NormalizeInvoiceNumber(number));
 
@@ -258,6 +304,16 @@ public static class OwnerPurchaseInvoiceRules
             "purchase_invoice_pdf_text_unsupported",
             "Formal purchase invoices support Latin and Chinese text. Remove unsupported characters instead of replacing them in the official PDF."));
     }
+
+    private static bool IsDealerSource(Vehicle vehicle) => vehicle.PurchaseSource is VehiclePurchaseSource.Carsome or VehiclePurchaseSource.Carro or VehiclePurchaseSource.KSA;
+
+    public static decimal EffectiveDealerCharge(Vehicle vehicle, decimal? value) => IsDealerSource(vehicle) && value is > 0 ? value.Value : 0m;
+
+    private static void AddGenerationSnapshotError(List<ValidationError> errors, decimal? expected, decimal actual, string name)
+    {
+        if (expected.HasValue && expected.Value != actual)
+            errors.Add(new ValidationError($"purchase_invoice_{name}_changed", "The dealer charges or formal invoice total changed. Refresh and review the invoice breakdown before issuing."));
+    }
 }
 
 public static class OwnerPurchaseInvoiceFactory
@@ -276,6 +332,8 @@ public static class OwnerPurchaseInvoiceFactory
         var sellerIc = dealerSource ? null : CleanOptional(owner?.IcNumber);
         var sellerTin = dealerSource ? CleanOptional(supplier?.TinNumber) : CleanOptional(owner?.TinNumber);
         var sellerAddress = dealerSource ? CleanOptional(supplier?.Address) : CleanOptional(owner?.Address);
+        var lines = CreateInitialLines(vehicle, supplierInvoiceNumber, supplierInvoiceDate, discountVoucherReference);
+        var amount = lines.Sum(line => line.Amount);
         var invoice = new PurchaseInvoice
         {
             VehicleId = vehicle.Id,
@@ -286,7 +344,7 @@ public static class OwnerPurchaseInvoiceFactory
             InvoiceNumber = invoiceNumber,
             InvoiceDate = issueDate,
             PurchaseDate = vehicle.IntakeDate,
-            Amount = OwnerPurchaseInvoiceRules.GenerationAmount(vehicle),
+            Amount = amount,
             AccountingStatus = AccountingConfirmationStatus.Draft,
             SupplierInvoiceNumber = CleanOptional(supplierInvoiceNumber),
             SupplierInvoiceDate = supplierInvoiceDate,
@@ -313,29 +371,66 @@ public static class OwnerPurchaseInvoiceFactory
             DiscountVoucherReference = CleanOptional(discountVoucherReference),
             VehiclePlateNumber = vehicle.PlateNumber.Trim(),
             VehicleDescription = OwnerPurchaseInvoiceRules.VehicleDescription(vehicle),
-            Amount = OwnerPurchaseInvoiceRules.GenerationAmount(vehicle),
+            Amount = amount,
             CreatedBy = createdBy,
             CreatedByUserId = createdByUserId,
             CreatedAt = now,
             Reason = "Initial formal issue"
         };
-        var lines = new[]
+        lines = lines.Select((line, index) => line with
         {
-            new PurchaseInvoiceRevisionLine
-            {
-                PurchaseInvoiceRevisionId = revision.Id,
-                PurchaseInvoiceId = invoice.Id,
-                LineType = PurchaseInvoiceLineType.VehiclePurchase,
-                Description = string.IsNullOrWhiteSpace(revision.VehicleDescription)
-                    ? $"Vehicle purchase - {revision.VehiclePlateNumber}"
-                    : $"Vehicle purchase - {revision.VehiclePlateNumber} {revision.VehicleDescription}",
-                Amount = OwnerPurchaseInvoiceRules.GenerationAmount(vehicle),
-                CapitaliseIntoVehicleCost = true,
-                SortOrder = 1
-            }
-        };
+            PurchaseInvoiceRevisionId = revision.Id,
+            PurchaseInvoiceId = invoice.Id,
+            SortOrder = index + 1
+        }).ToList();
         revision = revision with { Content = OwnerPurchaseInvoicePdf.Create(revision, lines) };
         return new OwnerPurchaseInvoiceDraft(invoice, revision, lines);
+    }
+
+    private static IReadOnlyList<PurchaseInvoiceRevisionLine> CreateInitialLines(Vehicle vehicle, string? supplierInvoiceNumber, DateOnly? supplierInvoiceDate, string? discountVoucherReference)
+    {
+        var plate = vehicle.PlateNumber.Trim();
+        var description = string.IsNullOrWhiteSpace(OwnerPurchaseInvoiceRules.VehicleDescription(vehicle))
+            ? $"Vehicle purchase - {plate}"
+            : $"Vehicle purchase - {plate} {OwnerPurchaseInvoiceRules.VehicleDescription(vehicle)}";
+        var sourceReference = CleanOptional(supplierInvoiceNumber);
+        var voucherReference = CleanOptional(discountVoucherReference);
+        var lines = new List<PurchaseInvoiceRevisionLine>
+        {
+            new()
+            {
+                LineType = PurchaseInvoiceLineType.VehiclePurchase,
+                Description = description,
+                Amount = OwnerPurchaseInvoiceRules.GenerationAmount(vehicle) - OwnerPurchaseInvoiceRules.EffectiveDealerCharge(vehicle, vehicle.DealerDiscount),
+                DiscountAmount = OwnerPurchaseInvoiceRules.EffectiveDealerCharge(vehicle, vehicle.DealerDiscount),
+                CapitaliseIntoVehicleCost = true,
+                SupplierInvoiceNumber = sourceReference,
+                SupplierInvoiceDate = supplierInvoiceDate,
+                DiscountVoucherReference = voucherReference
+            }
+        };
+
+        void AddFee(PurchaseInvoiceLineType lineType, string label, decimal? amount)
+        {
+            if (amount is not > 0) return;
+            lines.Add(new PurchaseInvoiceRevisionLine
+            {
+                LineType = lineType,
+                Description = $"{label} - {plate}",
+                Amount = amount.Value,
+                DiscountAmount = 0m,
+                CapitaliseIntoVehicleCost = false,
+                SupplierInvoiceNumber = sourceReference,
+                SupplierInvoiceDate = supplierInvoiceDate,
+                DiscountVoucherReference = voucherReference
+            });
+        }
+
+        AddFee(PurchaseInvoiceLineType.PurchaseProcessing, "Processing fee (purchase)", OwnerPurchaseInvoiceRules.EffectiveDealerCharge(vehicle, vehicle.DealerProcessingFee));
+        AddFee(PurchaseInvoiceLineType.Transport, "Transportation fee", OwnerPurchaseInvoiceRules.EffectiveDealerCharge(vehicle, vehicle.DealerTrailerFee));
+        AddFee(PurchaseInvoiceLineType.LatePaymentCharge, "Late charge", OwnerPurchaseInvoiceRules.EffectiveDealerCharge(vehicle, vehicle.DealerLateCharge));
+        AddFee(PurchaseInvoiceLineType.Parking, "Parking fee", OwnerPurchaseInvoiceRules.EffectiveDealerCharge(vehicle, vehicle.DealerParkingFee));
+        return lines;
     }
 
     public static OwnerPurchaseInvoiceDraft CreateRevision(
@@ -382,6 +477,7 @@ public static class OwnerPurchaseInvoiceFactory
             LineType = line.LineType,
             Description = line.Description!.Trim(),
             Amount = line.Amount,
+            DiscountAmount = line.DiscountAmount,
             CapitaliseIntoVehicleCost = line.CapitaliseIntoVehicleCost,
             SortOrder = index + 1,
             SupplierInvoiceNumber = CleanOptional(line.SupplierInvoiceNumber),
@@ -421,6 +517,7 @@ public static class OwnerPurchaseInvoiceFactory
             LineType = line.LineType,
             Description = line.Description,
             Amount = line.Amount,
+            DiscountAmount = line.DiscountAmount,
             CapitaliseIntoVehicleCost = line.CapitaliseIntoVehicleCost,
             SupplierInvoiceNumber = line.SupplierInvoiceNumber,
             SupplierInvoiceDate = line.SupplierInvoiceDate,
@@ -625,9 +722,12 @@ public static class OwnerPurchaseInvoicePdf
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
             .Trim();
 
-        return string.IsNullOrWhiteSpace(description)
+        var rendered = string.IsNullOrWhiteSpace(description)
             ? label
             : $"{label}: {description}";
+        return line.DiscountAmount > 0
+            ? $"{rendered} (Discount {FormatMoney(line.DiscountAmount)})"
+            : rendered;
     }
 
     private static string HumanizeIdentifier(string value)

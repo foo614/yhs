@@ -458,6 +458,7 @@ export type PurchaseInvoiceLine = {
   lineType: PurchaseInvoiceLineType;
   description: string;
   amount: number;
+  discountAmount?: number;
   capitaliseIntoVehicleCost: boolean;
   supplierInvoiceNumber?: string;
   supplierInvoiceDate?: string;
@@ -508,6 +509,12 @@ export type GeneratePurchaseInvoiceInput = {
   supplierInvoiceNumber?: string;
   supplierInvoiceDate?: string;
   discountVoucherReference?: string;
+  expectedDealerProcessingFee?: number;
+  expectedDealerTrailerFee?: number;
+  expectedDealerParkingFee?: number;
+  expectedDealerLateCharge?: number;
+  expectedDealerDiscount?: number;
+  expectedPurchaseInvoiceTotal?: number;
 };
 
 export type RecordAutoCountKeyInput = {
@@ -530,7 +537,7 @@ export type CreatePurchaseInvoiceRevisionInput = {
   purchaseDate: string;
   paymentReference?: string;
   seller: PurchaseInvoiceRevisionSellerInput;
-  lines: Array<Pick<PurchaseInvoiceLine, "lineType" | "description" | "amount" | "capitaliseIntoVehicleCost">>;
+  lines: Array<Pick<PurchaseInvoiceLine, "lineType" | "description" | "amount" | "discountAmount" | "capitaliseIntoVehicleCost" | "supplierInvoiceNumber" | "supplierInvoiceDate" | "discountVoucherReference">>;
   supplierInvoiceNumber?: string;
   supplierInvoiceDate?: string;
   discountVoucherReference?: string;

@@ -38,6 +38,7 @@ public sealed class WhatsAppPostgresTests
         try
         {
             Guid invoiceId;
+            Guid legacyInvoiceId;
             await using (var db = new AppDbContext(options))
             {
                 await db.Database.EnsureCreatedAsync();
@@ -91,19 +92,63 @@ public sealed class WhatsAppPostgresTests
                     CapitaliseIntoVehicleCost = true,
                     SortOrder = 1
                 };
-                db.AddRange(owner, vehicle, invoice, revision, line);
+                var legacyInvoice = new PurchaseInvoice
+                {
+                    VehicleId = vehicle.Id,
+                    InvoiceNumber = "LEGACY-PINV-000001",
+                    InvoiceDate = invoice.InvoiceDate,
+                    PurchaseDate = invoice.PurchaseDate,
+                    Amount = 100m
+                };
+                var legacyLine = new PurchaseInvoiceLine
+                {
+                    PurchaseInvoiceId = legacyInvoice.Id,
+                    LineType = PurchaseInvoiceLineType.Other,
+                    Description = "Legacy supplier line",
+                    Amount = 100m,
+                    CapitaliseIntoVehicleCost = false
+                };
+                db.AddRange(owner, vehicle, invoice, revision, line, legacyInvoice, legacyLine);
                 await db.SaveChangesAsync();
                 invoiceId = invoice.Id;
+                legacyInvoiceId = legacyInvoice.Id;
 
                 await db.Database.ExecuteSqlRawAsync("""
                     ALTER TABLE "PurchaseInvoiceRevisionLines" DROP COLUMN IF EXISTS "SupplierInvoiceNumber";
                     ALTER TABLE "PurchaseInvoiceRevisionLines" DROP COLUMN IF EXISTS "SupplierInvoiceDate";
                     ALTER TABLE "PurchaseInvoiceRevisionLines" DROP COLUMN IF EXISTS "DiscountVoucherReference";
+                    ALTER TABLE "PurchaseInvoiceRevisionLines" DROP COLUMN IF EXISTS "DiscountAmount";
+                    ALTER TABLE "PurchaseInvoiceLines" DROP COLUMN IF EXISTS "DiscountAmount";
                     """);
             }
 
-            await VerifyOwnerPurchaseInvoiceHydrationAsync(config.ConnectionString, invoiceId);
-            await VerifyOwnerPurchaseInvoiceHydrationAsync(config.ConnectionString, invoiceId);
+            await VerifyOwnerPurchaseInvoiceHydrationAsync(config.ConnectionString, invoiceId, legacyInvoiceId, 0m, 0m);
+            await using (var upgraded = new AppDbContext(options))
+            {
+                Assert.Equal(2, await upgraded.Database.SqlQueryRaw<int>("""
+                    SELECT COUNT(*)::integer AS "Value"
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND ((table_name = 'PurchaseInvoiceRevisionLines' AND column_name = 'DiscountAmount')
+                        OR (table_name = 'PurchaseInvoiceLines' AND column_name = 'DiscountAmount'))
+                    """).SingleAsync());
+                var discountDefaults = await upgraded.Database.SqlQueryRaw<string>("""
+                    SELECT column_default AS "Value"
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND ((table_name = 'PurchaseInvoiceRevisionLines' AND column_name = 'DiscountAmount')
+                        OR (table_name = 'PurchaseInvoiceLines' AND column_name = 'DiscountAmount'))
+                    ORDER BY table_name
+                    """).ToListAsync();
+                Assert.Equal(2, discountDefaults.Count);
+                Assert.All(discountDefaults, value => Assert.Contains("0", value ?? ""));
+                await upgraded.Database.ExecuteSqlRawAsync("""
+                    UPDATE "PurchaseInvoiceRevisionLines" SET "DiscountAmount" = 500 WHERE "PurchaseInvoiceRevisionId" IN (SELECT "Id" FROM "PurchaseInvoiceRevisions" WHERE "PurchaseInvoiceId" = {0});
+                    UPDATE "PurchaseInvoiceLines" SET "DiscountAmount" = 5 WHERE "PurchaseInvoiceId" = {1};
+                    """, invoiceId, legacyInvoiceId);
+            }
+            await VerifyOwnerPurchaseInvoiceHydrationAsync(config.ConnectionString, invoiceId, legacyInvoiceId, 500m, 5m);
+            await VerifyOwnerPurchaseInvoiceHydrationAsync(config.ConnectionString, invoiceId, legacyInvoiceId, 500m, 5m);
         }
         finally
         {
@@ -520,7 +565,7 @@ public sealed class WhatsAppPostgresTests
         }
     }
 
-    private static async Task VerifyOwnerPurchaseInvoiceHydrationAsync(string connectionString, Guid invoiceId)
+    private static async Task VerifyOwnerPurchaseInvoiceHydrationAsync(string connectionString, Guid invoiceId, Guid legacyInvoiceId, decimal expectedRevisionDiscount, decimal expectedLegacyDiscount)
     {
         var keys = new[] { "ConnectionStrings__Default", "SeedData__Enabled", "Worker__Enabled", "WhatsAppAssistant__Enabled" };
         var previous = keys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
@@ -536,13 +581,22 @@ public sealed class WhatsAppPostgresTests
 
             var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options;
             await using var db = new AppDbContext(options);
-            var invoice = await db.PurchaseInvoices.AsNoTracking().SingleAsync(row => row.Id == invoiceId);
-            var hydrated = await OwnerPurchaseInvoiceReader.HydrateAsync(db, [invoice]);
-            var current = Assert.Single(hydrated).CurrentRevision;
+            var invoices = await db.PurchaseInvoices.AsNoTracking().Where(row => row.Id == invoiceId || row.Id == legacyInvoiceId).ToListAsync();
+            var hydrated = await OwnerPurchaseInvoiceReader.HydrateAsync(db, invoices);
+            var ownerInvoice = Assert.Single(hydrated, row => row.Id == invoiceId);
+            var current = ownerInvoice.CurrentRevision;
             Assert.NotNull(current);
             var line = Assert.Single(current!.Lines);
             Assert.Equal("Legacy vehicle line", line.Description);
             Assert.Equal(50_000m, line.Amount);
+            Assert.Equal(expectedRevisionDiscount, line.DiscountAmount);
+            Assert.Equal(expectedRevisionDiscount, Assert.Single((await OwnerPurchaseInvoiceReader.HistoryAsync(db, invoiceId)).Single().Lines).DiscountAmount);
+
+            var legacy = Assert.Single(hydrated, row => row.Id == legacyInvoiceId);
+            var legacyLine = Assert.Single(legacy.Lines);
+            Assert.Equal("Legacy supplier line", legacyLine.Description);
+            Assert.Equal(100m, legacyLine.Amount);
+            Assert.Equal(expectedLegacyDiscount, legacyLine.DiscountAmount);
         }
         finally
         {

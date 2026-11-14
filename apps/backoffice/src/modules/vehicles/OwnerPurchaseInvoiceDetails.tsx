@@ -23,6 +23,9 @@ type RevisionFormValues = {
   invoiceDate: Dayjs;
   purchaseDate: Dayjs;
   paymentReference?: string;
+  supplierInvoiceNumber?: string;
+  supplierInvoiceDate?: Dayjs;
+  discountVoucherReference?: string;
   sellerName: string;
   sellerPhone: string;
   sellerIcNumber?: string;
@@ -32,7 +35,11 @@ type RevisionFormValues = {
     lineType: PurchaseInvoiceLineType;
     description: string;
     amount: number;
+    discountAmount?: number;
     capitaliseIntoVehicleCost?: boolean;
+    supplierInvoiceNumber?: string;
+    supplierInvoiceDate?: Dayjs;
+    discountVoucherReference?: string;
   }>;
 };
 
@@ -75,9 +82,9 @@ export function createPurchaseInvoiceHistoryRequestGate(initialInvoiceId: string
 const lineTypeOptions: Array<{ value: PurchaseInvoiceLineType; label: string }> = [
   { value: "VehiclePurchase", label: "Vehicle purchase (6P00-0000)" },
   { value: "PurchaseProcessing", label: "Purchase processing (6P00-1000)" },
-  { value: "LatePaymentCharge", label: "Late payment charge (Finance mapping required)" },
+  { value: "LatePaymentCharge", label: "Late payment charge (6P00-1000)" },
   { value: "Parking", label: "Parking (6T00-1000)" },
-  { value: "Transport", label: "Transport (Finance mapping required)" },
+  { value: "Transport", label: "Transport (6T00-0000)" },
   { value: "Refurbishment", label: "Refurbishment (6R00-0000)" },
   { value: "Other", label: "Other (Finance mapping required)" }
 ];
@@ -88,7 +95,7 @@ function displayValue(value?: string | number) {
 
 function lineSummary(lines: PurchaseInvoiceRevisionLine[]) {
   return lines
-    .map((line) => `${line.description} · ${line.lineType} · ${formatMoney(Number(line.amount))}${line.capitaliseIntoVehicleCost ? " · capitalised" : ""}`)
+    .map((line) => `${line.description} · ${line.lineType} · ${formatMoney(Number(line.amount))}${Number(line.discountAmount ?? 0) > 0 ? ` · discount ${formatMoney(Number(line.discountAmount))}` : ""}${line.capitaliseIntoVehicleCost ? " · capitalised" : ""}${line.supplierInvoiceNumber ? ` · ${line.supplierInvoiceNumber}` : ""}${line.supplierInvoiceDate ? ` · ${line.supplierInvoiceDate}` : ""}${line.discountVoucherReference ? ` · voucher ${line.discountVoucherReference}` : ""}`)
     .join("; ") || "No classified lines";
 }
 
@@ -99,6 +106,9 @@ export function purchaseInvoiceRevisionChanges(previous: PurchaseInvoiceRevision
     ["Invoice date", previous.invoiceDate, current.invoiceDate],
     ["Purchase date", previous.purchaseDate, current.purchaseDate],
     ["Payment reference", previous.paymentReference, current.paymentReference],
+    ["Supplier invoice number", previous.supplierInvoiceNumber, current.supplierInvoiceNumber],
+    ["Supplier invoice date", previous.supplierInvoiceDate, current.supplierInvoiceDate],
+    ["Discount voucher", previous.discountVoucherReference, current.discountVoucherReference],
     ["Seller name", previous.sellerName, current.sellerName],
     ["Seller phone", previous.sellerPhone, current.sellerPhone],
     ["Seller IC", previous.sellerIcNumber, current.sellerIcNumber],
@@ -119,6 +129,9 @@ function revisionInitialValues(revision: PurchaseInvoiceRevision): RevisionFormV
     invoiceDate: dayjs(revision.invoiceDate),
     purchaseDate: dayjs(revision.purchaseDate),
     paymentReference: revision.paymentReference,
+    supplierInvoiceNumber: revision.supplierInvoiceNumber,
+    supplierInvoiceDate: revision.supplierInvoiceDate ? dayjs(revision.supplierInvoiceDate) : undefined,
+    discountVoucherReference: revision.discountVoucherReference,
     sellerName: revision.sellerName,
     sellerPhone: revision.sellerPhone,
     sellerIcNumber: revision.sellerIcNumber,
@@ -128,7 +141,11 @@ function revisionInitialValues(revision: PurchaseInvoiceRevision): RevisionFormV
       lineType: line.lineType,
       description: line.description,
       amount: Number(line.amount),
-      capitaliseIntoVehicleCost: line.capitaliseIntoVehicleCost
+      discountAmount: Number(line.discountAmount ?? 0),
+      capitaliseIntoVehicleCost: line.capitaliseIntoVehicleCost,
+      supplierInvoiceNumber: line.supplierInvoiceNumber,
+      supplierInvoiceDate: line.supplierInvoiceDate ? dayjs(line.supplierInvoiceDate) : undefined,
+      discountVoucherReference: line.discountVoucherReference
     }))
   };
 }
@@ -159,7 +176,11 @@ function RevisionLineFields() {
               <Form.Item {...field} name={[field.name, "lineType"]} label="Fee classification" rules={[{ required: true }]}><Select options={lineTypeOptions} /></Form.Item>
               <Form.Item {...field} name={[field.name, "description"]} label="Description" rules={[{ required: true }]}><Input /></Form.Item>
               <Form.Item {...field} name={[field.name, "amount"]} label="Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item {...field} name={[field.name, "discountAmount"]} label="Discount"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item {...field} name={[field.name, "capitaliseIntoVehicleCost"]} label="Capitalise into vehicle cost" valuePropName="checked"><Switch /></Form.Item>
+              <Form.Item {...field} name={[field.name, "supplierInvoiceNumber"]} label="Supplier invoice no."><Input /></Form.Item>
+              <Form.Item {...field} name={[field.name, "supplierInvoiceDate"]} label="Supplier invoice date"><DatePicker className="fullWidth" /></Form.Item>
+              <Form.Item {...field} name={[field.name, "discountVoucherReference"]} label="Discount voucher"><Input /></Form.Item>
               {fields.length > 1 && <Button danger onClick={() => remove(field.name)}>Remove line</Button>}
             </ProCard>
           ))}
@@ -181,6 +202,8 @@ function SnapshotDetails({ revision, simplified = false }: { revision: PurchaseI
       <Descriptions.Item label="Invoice date">{revision.invoiceDate}</Descriptions.Item>
       <Descriptions.Item label="Purchase date">{revision.purchaseDate}</Descriptions.Item>
       <Descriptions.Item label="Payment reference">{displayValue(revision.paymentReference)}</Descriptions.Item>
+      <Descriptions.Item label="Supplier invoice no. / date">{displayValue(revision.supplierInvoiceNumber)} / {displayValue(revision.supplierInvoiceDate)}</Descriptions.Item>
+      <Descriptions.Item label="Discount voucher">{displayValue(revision.discountVoucherReference)}</Descriptions.Item>
       <Descriptions.Item label="Seller">{revision.sellerName} · {revision.sellerPhone}</Descriptions.Item>
       <Descriptions.Item label="Seller IC / TIN">{displayValue(revision.sellerIcNumber)} / {displayValue(revision.sellerTinNumber)}</Descriptions.Item>
       <Descriptions.Item label="Seller address">{displayValue(revision.sellerAddress)}</Descriptions.Item>
@@ -295,6 +318,9 @@ export function OwnerPurchaseInvoiceDetails({
                   invoiceDate: values.invoiceDate.format("YYYY-MM-DD"),
                   purchaseDate: values.purchaseDate.format("YYYY-MM-DD"),
                   paymentReference: values.paymentReference?.trim() || undefined,
+                  supplierInvoiceNumber: values.supplierInvoiceNumber?.trim() || undefined,
+                  supplierInvoiceDate: values.supplierInvoiceDate?.format("YYYY-MM-DD"),
+                  discountVoucherReference: values.discountVoucherReference?.trim() || undefined,
                   seller: {
                     name: values.sellerName.trim(),
                     phone: values.sellerPhone.trim(),
@@ -306,7 +332,11 @@ export function OwnerPurchaseInvoiceDetails({
                     lineType: line.lineType,
                     description: line.description.trim(),
                     amount: Number(line.amount),
-                    capitaliseIntoVehicleCost: Boolean(line.capitaliseIntoVehicleCost)
+                    discountAmount: Number(line.discountAmount ?? 0),
+                    capitaliseIntoVehicleCost: Boolean(line.capitaliseIntoVehicleCost),
+                    supplierInvoiceNumber: line.supplierInvoiceNumber?.trim() || undefined,
+                    supplierInvoiceDate: line.supplierInvoiceDate?.format("YYYY-MM-DD"),
+                    discountVoucherReference: line.discountVoucherReference?.trim() || undefined
                   }))
                 });
                 setEditing(false);
@@ -323,6 +353,9 @@ export function OwnerPurchaseInvoiceDetails({
               <Form.Item name="invoiceDate" label="Invoice date" rules={[{ required: true }]}><DatePicker className="fullWidth" /></Form.Item>
               <Form.Item name="purchaseDate" label="Purchase date" rules={[{ required: true, message: "Purchase date is required for every official version." }]}><DatePicker className="fullWidth" /></Form.Item>
               <Form.Item name="paymentReference" label="Payment reference"><Input /></Form.Item>
+              <Form.Item name="supplierInvoiceNumber" label="Supplier invoice no."><Input /></Form.Item>
+              <Form.Item name="supplierInvoiceDate" label="Supplier invoice date"><DatePicker className="fullWidth" /></Form.Item>
+              <Form.Item name="discountVoucherReference" label="Discount voucher"><Input /></Form.Item>
               <Form.Item name="sellerName" label="Seller name" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
               <Form.Item name="sellerPhone" label="Seller phone" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
               <Form.Item name="sellerIcNumber" label="Seller IC (optional)"><Input /></Form.Item>

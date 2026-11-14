@@ -288,6 +288,22 @@ export function effectivePurchaseInvoiceAmount(vehicle: Pick<Vehicle, "purchaseP
   return vehicle.modifiedPurchasePrice ?? vehicle.purchasePrice;
 }
 
+export function purchaseInvoiceDealerCharges(vehicle: Pick<Vehicle, "purchaseSource" | "dealerProcessingFee" | "dealerTrailerFee" | "dealerParkingFee" | "dealerLateCharge" | "dealerDiscount">) {
+  const dealerSource = vehicle.purchaseSource === "Carsome" || vehicle.purchaseSource === "Carro" || vehicle.purchaseSource === "KSA";
+  return {
+    processingFee: dealerSource ? Number(vehicle.dealerProcessingFee ?? 0) : 0,
+    trailerFee: dealerSource ? Number(vehicle.dealerTrailerFee ?? 0) : 0,
+    parkingFee: dealerSource ? Number(vehicle.dealerParkingFee ?? 0) : 0,
+    lateCharge: dealerSource ? Number(vehicle.dealerLateCharge ?? 0) : 0,
+    discount: dealerSource ? Number(vehicle.dealerDiscount ?? 0) : 0
+  };
+}
+
+export function expectedPurchaseInvoiceTotal(vehicle: Pick<Vehicle, "purchasePrice" | "modifiedPurchasePrice" | "purchaseSource" | "dealerProcessingFee" | "dealerTrailerFee" | "dealerParkingFee" | "dealerLateCharge" | "dealerDiscount">) {
+  const charges = purchaseInvoiceDealerCharges(vehicle);
+  return effectivePurchaseInvoiceAmount(vehicle) + charges.processingFee + charges.trailerFee + charges.parkingFee + charges.lateCharge - charges.discount;
+}
+
 export function PurchaseInvoiceHistory({
   invoices,
   columns,
@@ -3663,11 +3679,18 @@ export function VehiclePage({
               setPurchaseInvoiceGenerating(true);
               try {
                 const effectivePurchasePrice = effectivePurchaseInvoiceAmount(selectedVehicle);
+                const dealerCharges = purchaseInvoiceDealerCharges(selectedVehicle);
                 const invoice = await onGeneratePurchaseInvoice(selectedVehicle.id, {
                   expectedOwnerId: selectedVehicleOwner?.id ?? "00000000-0000-0000-0000-000000000000",
                   expectedPurchasePrice: effectivePurchasePrice,
                   expectedIntakeDate: selectedVehicle.intakeDate!,
-                  expectedSupplierId: dealerPurchaseSource ? selectedPurchaseInvoiceSupplier?.id : undefined
+                  expectedSupplierId: dealerPurchaseSource ? selectedPurchaseInvoiceSupplier?.id : undefined,
+                  expectedDealerProcessingFee: dealerCharges.processingFee,
+                  expectedDealerTrailerFee: dealerCharges.trailerFee,
+                  expectedDealerParkingFee: dealerCharges.parkingFee,
+                  expectedDealerLateCharge: dealerCharges.lateCharge,
+                  expectedDealerDiscount: dealerCharges.discount,
+                  expectedPurchaseInvoiceTotal: expectedPurchaseInvoiceTotal(selectedVehicle)
                 });
                 setPurchaseInvoiceCreateOpen(false);
                 selectPurchaseInvoice(invoice.id);
@@ -3700,7 +3723,20 @@ export function VehiclePage({
             ) : (
               <Descriptions.Item label="Previous owner">{selectedVehicleOwner ? `${selectedVehicleOwner.name} · ${selectedVehicleOwner.phone}` : "Missing"}</Descriptions.Item>
             )}
-            {canApproveVehicles ? <Descriptions.Item label="Invoice purchase / 开票收车价">{selectedVehicle ? formatMoney(effectivePurchaseInvoiceAmount(selectedVehicle)) : "Missing"}</Descriptions.Item> : null}
+            {canApproveVehicles && selectedVehicle ? (() => {
+              const charges = purchaseInvoiceDealerCharges(selectedVehicle);
+              return <>
+                <Descriptions.Item label="Canonical purchase / 原始收车价">{formatMoney(effectivePurchaseInvoiceAmount(selectedVehicle))}</Descriptions.Item>
+                {dealerPurchaseSource && <>
+                  <Descriptions.Item label="Processing fee">{formatMoney(charges.processingFee)}</Descriptions.Item>
+                  <Descriptions.Item label="Trailer / transport fee">{formatMoney(charges.trailerFee)}</Descriptions.Item>
+                  <Descriptions.Item label="Parking fee">{formatMoney(charges.parkingFee)}</Descriptions.Item>
+                  <Descriptions.Item label="Late charge">{formatMoney(charges.lateCharge)}</Descriptions.Item>
+                  <Descriptions.Item label="Discount">-{formatMoney(charges.discount)}</Descriptions.Item>
+                </>}
+                <Descriptions.Item label="Reviewed invoice total / 已审核发票总额"><Typography.Text strong>{formatMoney(expectedPurchaseInvoiceTotal(selectedVehicle))}</Typography.Text></Descriptions.Item>
+              </>;
+            })() : null}
             <Descriptions.Item label="Intake date">{selectedVehicle?.intakeDate || "Missing"}</Descriptions.Item>
             <Descriptions.Item label="Optional seller data">IC, TIN and address stay blank when the approved Owner record has no value. They are never guessed.</Descriptions.Item>
           </Descriptions>

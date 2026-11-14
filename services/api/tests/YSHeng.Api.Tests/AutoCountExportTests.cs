@@ -261,6 +261,58 @@ public sealed class AutoCountExportTests
     }
 
     [Fact]
+    public void Dealer_purchase_invoice_export_keeps_fee_lines_and_line_source_references()
+    {
+        var vehicle = new Vehicle
+        {
+            PlateNumber = "CARRO261",
+            Make = "Perodua",
+            Model = "Axia",
+            Year = 2022,
+            PurchasePrice = 50_000m,
+            ModifiedPurchasePrice = 48_000m,
+            PurchaseSource = VehiclePurchaseSource.Carro,
+            IntakeDate = new DateOnly(2026, 9, 1),
+            OwnerId = Guid.NewGuid()
+        };
+        var owner = new Owner { Id = vehicle.OwnerId!.Value, Name = "Owner Snapshot", Phone = "0123456789" };
+        var supplier = new Supplier { CompanyName = "Carro Motors", Phone = "03-12345678" };
+        var draft = OwnerPurchaseInvoiceFactory.CreateInitial(
+            vehicle with { DealerProcessingFee = 120m, DealerTrailerFee = 80m, DealerParkingFee = 40m, DealerLateCharge = 20m, DealerDiscount = 10m },
+            owner,
+            supplier,
+            "YSH-PINV-2026-000103",
+            vehicle.IntakeDate,
+            "boss",
+            DateTime.UtcNow,
+            supplierInvoiceNumber: "IV-123",
+            supplierInvoiceDate: new DateOnly(2026, 9, 2),
+            discountVoucherReference: "DISC-10");
+        var snapshot = draft.Revision with { Lines = draft.Lines };
+        var invoice = draft.Invoice with
+        {
+            AccountingStatus = AccountingConfirmationStatus.FinanceConfirmed,
+            CurrentRevision = snapshot,
+            Lines = OwnerPurchaseInvoiceFactory.ToCurrentLines(snapshot)
+        };
+
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(Input([vehicle]) with { Owners = [owner], Suppliers = [supplier], PurchaseInvoices = [invoice] })), ZipArchiveMode.Read);
+        var lines = Rows(archive, "Purchases");
+        Assert.Equal(new[] { "CARRO261", "PROCESS (PURCHASE)", "TRANSPORT", "PROCESS (PURCHASE)", "PARKING" }, lines.Select(line => line["ItemCode"]));
+        Assert.Equal(new[] { "6P00-0000", "6P00-1000", "6T00-0000", "6P00-1000", "6T00-1000" }, lines.Select(line => line["AccountCode"]));
+        Assert.Equal(new[] { "47990", "120", "80", "20", "40" }, lines.Select(line => line["Amount"]));
+        Assert.Equal(new[] { "48000", "120", "80", "20", "40" }, lines.Select(line => line["UnitPrice"]));
+        Assert.Equal(new[] { "10", "0", "0", "0", "0" }, lines.Select(line => line["Discount"]));
+        Assert.All(lines, line =>
+        {
+            Assert.Equal("IV-123", line["SupplierInvoiceNumber"]);
+            Assert.Equal("2026-09-02", line["SupplierInvoiceDate"]);
+            Assert.Equal("DISC-10", line["DiscountVoucherReference"]);
+        });
+        Assert.Equal("48250", Assert.Single(Rows(archive, "PurchaseInvoices"))["LineTotal"]);
+    }
+
+    [Fact]
     public void Sales_export_matches_video_lines_and_retains_issued_customer_snapshot()
     {
         var vehicle = new Vehicle { PlateNumber = "TEST100", Make = "Test", Model = "Car", Year = 2020, CustomerId = Guid.NewGuid() };

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
-import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, compareVehicleIntakeDates, effectiveCommissionCost, effectivePickupAllowanceCost, effectivePurchaseCost, effectivePurchaseInvoiceAmount, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, formatDocumentTimestamp, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleCustomerPath, vehicleDetailsPersonCreateFlags, vehicleDocumentAccept, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, compareVehicleIntakeDates, effectiveCommissionCost, effectivePickupAllowanceCost, effectivePurchaseCost, effectivePurchaseInvoiceAmount, effectiveRepairCost, estimatedVehicleProfit, expectedPurchaseInvoiceTotal, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, formatDocumentTimestamp, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, purchaseInvoiceDealerCharges, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleCustomerPath, vehicleDetailsPersonCreateFlags, vehicleDocumentAccept, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument, VehicleIntakeValues } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -549,6 +549,25 @@ describe("structured purchase invoice entry", () => {
     expect(effectivePurchaseInvoiceAmount(vehicle)).toBe(47500);
     expect(ownerPurchaseInvoiceGenerationBlockReason(vehicle, { id: "owner-1", name: "Owner", phone: "0123456789" })).toBeUndefined();
     expect(ownerPurchaseInvoiceGenerationBlockReason({ ...vehicle, modifiedPurchasePrice: 0 }, { id: "owner-1", name: "Owner", phone: "0123456789" })).toContain("greater than zero");
+  });
+
+  it("shows dealer charges in the reviewed net invoice total and ignores stale charges on private stock", () => {
+    const dealerVehicle = {
+      ...baseVehicle,
+      purchaseSource: "Carro" as const,
+      modifiedPurchasePrice: 48000,
+      dealerProcessingFee: 120,
+      dealerTrailerFee: 80,
+      dealerParkingFee: 40,
+      dealerLateCharge: 20,
+      dealerDiscount: 10
+    };
+    expect(purchaseInvoiceDealerCharges(dealerVehicle)).toEqual({ processingFee: 120, trailerFee: 80, parkingFee: 40, lateCharge: 20, discount: 10 });
+    expect(expectedPurchaseInvoiceTotal(dealerVehicle)).toBe(48250);
+
+    const privateVehicle = { ...dealerVehicle, purchaseSource: "YSHeng" as const };
+    expect(purchaseInvoiceDealerCharges(privateVehicle)).toEqual({ processingFee: 0, trailerFee: 0, parkingFee: 0, lateCharge: 0, discount: 0 });
+    expect(expectedPurchaseInvoiceTotal(privateVehicle)).toBe(48000);
   });
 
   it("requires an active dealer supplier and enforces the KSA sold gate", () => {
