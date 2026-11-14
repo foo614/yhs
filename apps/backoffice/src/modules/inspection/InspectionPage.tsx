@@ -17,6 +17,7 @@ import {
   message
 } from "antd";
 import { PlusOutlined, UploadOutlined } from "@ant-design/icons";
+import { ModalForm } from "@ant-design/pro-components";
 import {
   createInspection,
   getInspections,
@@ -45,9 +46,9 @@ const companyOptions = [
 ];
 
 const documentUploads = [
-  { category: "InspectionReceipt" as const, label: "Receipt" },
-  { category: "InspectionAppointmentConfirmation" as const, label: "Appointment confirmation" },
-  { category: "InspectionReport" as const, label: "Completion report" }
+  { category: "InspectionReceipt" as const, label: "Receipt / 收据" },
+  { category: "InspectionAppointmentConfirmation" as const, label: "Appointment confirmation / 预约确认单" },
+  { category: "InspectionReport" as const, label: "Completion report / 验车报告" }
 ];
 
 function dateValue(value: string) {
@@ -63,6 +64,7 @@ export function InspectionPage({ vehicles }: InspectionPageProps) {
   const [records, setRecords] = useState<InspectionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [bookingOpen, setBookingOpen] = useState(false);
   const [selected, setSelected] = useState<InspectionRecord | null>(null);
 
   const vehicleOptions = useMemo(() => vehicles.map(vehicle => ({
@@ -92,11 +94,14 @@ export function InspectionPage({ vehicles }: InspectionPageProps) {
         appointmentTime: values.appointmentTime?.format("HH:mm") ?? null
       });
       form.resetFields();
+      setBookingOpen(false);
       setSelected(created);
       await reload();
       message.success("Inspection booking created.");
+      return true;
     } catch (error) {
       message.error(refreshableError(error));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -142,53 +147,62 @@ export function InspectionPage({ vehicles }: InspectionPageProps) {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Card title="New inspection booking" extra={<Tag color="blue">Validity: 4 months</Tag>}>
-        <Form form={form} layout="vertical" onFinish={(values) => void submit(values)} initialValues={{ company: "YSHengAuto", isLorry: false, receiptTotal: 0, allocatedAmount: 0 }}>
+      <ModalForm<InspectionFormValues>
+        form={form}
+        title="Create inspection booking / 新增验车预约"
+        width={760}
+        layout="vertical"
+        dateFormatter={false}
+        open={bookingOpen}
+        onOpenChange={(open) => { if (!saving) setBookingOpen(open); }}
+        onFinish={submit}
+        initialValues={{ company: "YSHengAuto", isLorry: false, receiptTotal: 0, allocatedAmount: 0 }}
+        modalProps={{ forceRender: true, maskClosable: false, closable: !saving, keyboard: !saving }}
+        submitter={{ searchConfig: { submitText: "Create booking / 新增预约", resetText: "Cancel / 取消" }, resetButtonProps: { disabled: saving }, submitButtonProps: { loading: saving } }}
+      >
+          <Tag color="blue" style={{ marginBottom: 16 }}>Validity: 4 months / 有效期：4个月</Tag>
           <div className="formGrid formGrid--three">
-            <Form.Item name="vehicleId" label="Vehicle" rules={[{ required: true, message: "Select a vehicle." }]}><Select showSearch optionFilterProp="label" options={vehicleOptions} placeholder="Select plate" /></Form.Item>
-            <Form.Item name="type" label="Inspection type" rules={[{ required: true, message: "Select inspection type." }]}><Select options={inspectionTypeOptions.map(option => ({ value: option.value, label: option.label }))} /></Form.Item>
-            <Form.Item name="company" label="Company" rules={[{ required: true }]}><Select options={companyOptions} /></Form.Item>
-            <Form.Item name="appointmentDate" label="Appointment date" rules={[{ required: true, message: "Select appointment date." }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="appointmentTime" label="Appointment time"><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
-            <Form.Item name="bookingReference" label="Appointment confirmation reference" rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="sourceReceiptNumber" label="Supplier receipt number" rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="receiptTotal" label="Receipt total (RM)" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-            <Form.Item name="allocatedAmount" label="Allocated amount (RM)" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-            <Form.Item name="isLorry" label="Vehicle type"><Select options={[{ value: false, label: "Car" }, { value: true, label: "Lorry" }]} /></Form.Item>
-            <Form.Item name="notes" label="Notes"><Input.TextArea rows={1} /></Form.Item>
-            <Form.Item className="formActions">
-              <Button type="primary" htmlType="submit" icon={<PlusOutlined />} loading={saving}>Create booking</Button>
-            </Form.Item>
+            <Form.Item name="vehicleId" label="Vehicle / 车辆" rules={[{ required: true, message: "Select a vehicle. / 请选择车辆。" }]}><Select showSearch optionFilterProp="label" options={vehicleOptions} placeholder="Select plate / 选择车牌" /></Form.Item>
+            <Form.Item name="type" label="Inspection type / 验车类型" rules={[{ required: true, message: "Select inspection type. / 请选择验车类型。" }]}><Select options={inspectionTypeOptions.map(option => ({ value: option.value, label: option.label }))} /></Form.Item>
+            <Form.Item name="company" label="Company / 公司" rules={[{ required: true }]}><Select options={companyOptions} /></Form.Item>
+            <Form.Item name="appointmentDate" label="Appointment date / 预约日期" rules={[{ required: true, message: "Select appointment date. / 请选择预约日期。" }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="appointmentTime" label="Appointment time / 预约时间"><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
+            <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="sourceReceiptNumber" label="Supplier receipt number / 供应商收据编号" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="receiptTotal" label="Receipt total (RM) / 收据总额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+            <Form.Item name="allocatedAmount" label="Allocated amount (RM) / 本车分配金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+            <Form.Item name="isLorry" label="Vehicle type / 车辆类型"><Select options={[{ value: false, label: "Car / 轿车" }, { value: true, label: "Lorry / 罗里" }]} /></Form.Item>
+            <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={1} /></Form.Item>
           </div>
-        </Form>
-      </Card>
+      </ModalForm>
 
-      <Card title="Inspection records">
+      <Card title="Inspection records / 验车记录">
         <Table<InspectionRecord>
           rowKey="id"
           loading={loading}
           dataSource={records}
+          toolBarRender={() => [<Button key="create" type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBookingOpen(true); }}>Create booking / 新增预约</Button>]}
           scroll={{ x: 980 }}
           columns={[
-            { title: "Vehicle", dataIndex: "vehicleLabel", render: (value: string, record) => value || record.plateNumber || record.vehicleId },
-            { title: "Type", dataIndex: "type", render: (value: number) => inspectionTypeLabel(value) },
-            { title: "Company", dataIndex: "company" },
-            { title: "Appointment", dataIndex: "appointmentDate", render: (value: string) => dateValue(value) },
-            { title: "Report expiry", dataIndex: "reportExpiryDate", render: (value: string) => dateValue(value) },
-            { title: "Status", dataIndex: "status", render: (value: InspectionStatus) => <Tag color={value === "Completed" ? "green" : value === "Cancelled" ? "red" : "gold"}>{value}</Tag> },
-            { title: "Actions", key: "actions", render: (_: unknown, record) => <Space><Button size="small" onClick={() => setSelected(record)}>View files</Button>{record.status === "Booked" && <Button size="small" type="primary" disabled={!record.documents?.some(document => document.category === "InspectionReport")} onClick={() => void setStatus(record, "Completed")} loading={saving}>Complete</Button>}</Space> }
+            { title: "Vehicle / 车辆", dataIndex: "vehicleLabel", render: (value: string, record) => value || record.plateNumber || record.vehicleId },
+            { title: "Type / 类型", dataIndex: "type", render: (value: number) => inspectionTypeLabel(value) },
+            { title: "Company / 公司", dataIndex: "company" },
+            { title: "Appointment / 预约日期", dataIndex: "appointmentDate", render: (value: string) => dateValue(value) },
+            { title: "Report expiry / 报告到期日", dataIndex: "reportExpiryDate", render: (value: string) => dateValue(value) },
+            { title: "Status / 状态", dataIndex: "status", render: (value: InspectionStatus) => <Tag color={value === "Completed" ? "green" : value === "Cancelled" ? "red" : "gold"}>{value === "Booked" ? "Booked / 已预约" : value === "Completed" ? "Completed / 已完成" : "Cancelled / 已取消"}</Tag> },
+            { title: "Action / 操作", key: "actions", render: (_: unknown, record) => <Space><Button size="small" onClick={() => setSelected(record)}>View files / 查看文件</Button>{record.status === "Booked" && <Button size="small" type="primary" disabled={!record.documents?.some(document => document.category === "InspectionReport")} onClick={() => void setStatus(record, "Completed")} loading={saving}>Complete / 完成</Button>}</Space> }
           ]}
         />
       </Card>
 
-      <Drawer title={selected ? `Inspection · ${selected.plateNumber ?? selected.vehicleId}` : "Inspection"} open={selected !== null} onClose={() => setSelected(null)} width={560}>
+      <Drawer title={selected ? `Inspection / 验车 · ${selected.plateNumber ?? selected.vehicleId}` : "Inspection / 验车"} open={selected !== null} onClose={() => setSelected(null)} width={560}>
         {selected && <Space direction="vertical" size="large" style={{ width: "100%" }}>
           <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="Type">{inspectionTypeLabel(selected.type)}</Descriptions.Item>
-            <Descriptions.Item label="Appointment">{dateValue(selected.appointmentDate)}{selected.appointmentTime ? ` · ${selected.appointmentTime}` : ""}</Descriptions.Item>
-            <Descriptions.Item label="Booking reference">{selected.bookingReference}</Descriptions.Item>
-            <Descriptions.Item label="Supplier invoice reference">{selected.supplierInvoiceReference}</Descriptions.Item>
-            <Descriptions.Item label="Report expiry">{dateValue(selected.reportExpiryDate)}</Descriptions.Item>
+            <Descriptions.Item label="Type / 类型">{inspectionTypeLabel(selected.type)}</Descriptions.Item>
+            <Descriptions.Item label="Appointment / 预约日期">{dateValue(selected.appointmentDate)}{selected.appointmentTime ? ` · ${selected.appointmentTime}` : ""}</Descriptions.Item>
+            <Descriptions.Item label="Booking reference / 预约编号">{selected.bookingReference}</Descriptions.Item>
+            <Descriptions.Item label="Supplier invoice reference / 供应商发票编号">{selected.supplierInvoiceReference}</Descriptions.Item>
+            <Descriptions.Item label="Report expiry / 报告到期日">{dateValue(selected.reportExpiryDate)}</Descriptions.Item>
           </Descriptions>
           {documentUploads.map(item => <div key={item.category}>
             <Space direction="vertical" size="small">
@@ -196,7 +210,7 @@ export function InspectionPage({ vehicles }: InspectionPageProps) {
               <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={selected.status === "Cancelled"} customRequest={(options) => {
                 void uploadEvidence(selected, item.category, options.file as File).then(() => options.onSuccess?.({}, options.file)).catch(error => options.onError?.(error));
               }}>
-                <Button icon={<UploadOutlined />} disabled={selected.status === "Cancelled"}>Upload</Button>
+                <Button icon={<UploadOutlined />} disabled={selected.status === "Cancelled"}>Upload / 上传</Button>
               </Upload>
             </Space>
           </div>)}
