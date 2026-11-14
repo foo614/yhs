@@ -1909,14 +1909,14 @@ function ModuleCommandBar({
         </div>
       </div>
       <div className="moduleCommandAside">
-        <div className="moduleStats">
+        {(pathname !== "/dashboard" || roles.includes("BossAdmin")) && <div className="moduleStats">
           {stats.map((stat) => (
             <span key={stat.label}>
               <strong>{stat.value}</strong>
               {stat.label}
             </span>
           ))}
-        </div>
+        </div>}
         <span className="moduleGuideButtonWrap" ref={guideButtonRef}>
           <Button className="moduleGuideButton" icon={<QuestionCircleOutlined />} onClick={onOpenGuide}>
             How to use / 使用指南
