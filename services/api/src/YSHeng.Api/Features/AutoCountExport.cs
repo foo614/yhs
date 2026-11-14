@@ -33,7 +33,7 @@ public sealed record AutoCountExportInput(
 /// Builds a small, dependency-free Open XML workbook for manual AutoCount mapping.
 /// This is intentionally not presented as a verified direct-import file.
 /// </summary>
-public static class AutoCountExcel
+public static partial class AutoCountExcel
 {
     private const string RemarkHeader = "Remark";
     private const string MappingVersion = "native-paste-2026-10-02";
@@ -239,10 +239,11 @@ public static class AutoCountExcel
             ["Date"] = DateOnly.ParseExact(invoice["InvoiceDate"], "yyyy-MM-dd", CultureInfo.InvariantCulture).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
             ["DisplayTerm"] = invoice["CreditTerm"],
             ["CurrencyCode"] = "MYR", ["CurrencyRate"] = "1.0", ["ToTaxCurrencyRate"] = "1.0",
-            ["Description"] = sales ? "INVOICE" : "PURCHASE INVOICE",
+            ["Description"] = invoice.GetValueOrDefault("DocumentDescription", sales ? "INVOICE" : "PURCHASE INVOICE"),
             ["Remark1"] = invoice["InvoiceNumber"][..Math.Min(40, invoice["InvoiceNumber"].Length)],
             ["Remark2"] = invoice["InvoiceNumber"].Length > 40 ? invoice["InvoiceNumber"][40..] : "",
             ["Remark3"] = invoice["CarPlate"],
+            ["Remark4"] = invoice.GetValueOrDefault("SourceReceiptNumber", ""),
             ["Footer1Amt"] = "0", ["Footer2Amt"] = "0", ["Footer3Amt"] = "0"
         };
         if (sales) values["SalesAgent"] = invoice["SalesAgent"];
@@ -758,6 +759,7 @@ public static class AutoCountExcel
     private static void WriteEntry(ZipArchive archive, string path, string content)
     {
         var entry = archive.CreateEntry(path, CompressionLevel.Optimal);
+        entry.LastWriteTime = new DateTimeOffset(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
         using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
         writer.Write(content);
     }
