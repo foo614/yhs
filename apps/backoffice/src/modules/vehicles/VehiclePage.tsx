@@ -879,6 +879,7 @@ export function filterOperationIntakeVehicles(
 }
 
 export function VehiclePage({
+  initialVehicleId,
   vehicles,
   leads,
   loans,
@@ -907,6 +908,7 @@ export function VehiclePage({
   onUploadPhoto,
   onUploadDocument
 }: {
+  initialVehicleId?: string;
   vehicles: Vehicle[];
   leads: Lead[];
   loans: LoanApplication[];
@@ -1390,6 +1392,17 @@ export function VehiclePage({
     setVehicleAssetTab("documents");
     setVehicleDetailOpen(true);
   };
+
+  const openedRouteVehicle = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!initialVehicleId || openedRouteVehicle.current === initialVehicleId || !vehicles.some(vehicle => vehicle.id === initialVehicleId)) return;
+    openedRouteVehicle.current = initialVehicleId;
+    setEditVehicleId(initialVehicleId);
+    setUploadVehicleId(initialVehicleId);
+    setVehicleDetailTab("overview");
+    setVehicleAssetTab("documents");
+    setVehicleDetailOpen(true);
+  }, [initialVehicleId, vehicles]);
 
   const openVehicleAssets = (assetTab: "documents" | "photos") => {
     setVehicleDetailTab("documents");

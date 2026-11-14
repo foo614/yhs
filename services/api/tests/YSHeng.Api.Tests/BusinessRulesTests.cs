@@ -22,6 +22,50 @@ namespace YSHeng.Api.Tests;
 public sealed class BusinessRulesTests
 {
     [Fact]
+    public void Dashboard_updates_keep_personal_reminders_and_loan_documents_scoped()
+    {
+        var today = new DateOnly(2026, 11, 14);
+        var mine = new Vehicle { PlateNumber = "OWN1", SalesAgentUserId = "broker-a", Status = VehicleStatus.Sold,
+            CustomerId = Guid.NewGuid(), IntakeDate = today, PurchasePrice = 987654m, ModifiedPurchasePrice = 876543m };
+        var other = mine with { Id = Guid.NewGuid(), PlateNumber = "OTHER2", SalesAgentUserId = "broker-b" };
+        var loan = new LoanApplication { VehicleId = mine.Id, Status = LoanStatus.Approved, LouApproved = true,
+            SubmittedAt = today.AddDays(-3), DecisionAt = today.ToDateTime(TimeOnly.MinValue) };
+        var otherLoan = loan with { Id = Guid.NewGuid(), VehicleId = other.Id };
+        var document = new DashboardLoanDocument(Guid.NewGuid(), loan.Id, mine.Id);
+        var tasks = new[] { new CalendarTask { AssignedToUserId = "broker-a", Title = "Mine" },
+            new CalendarTask { AssignedToUserId = "broker-b", Title = "Private other task" } };
+        var result = DashboardUpdates.Create("broker-a", "broker-a", ["Sales"], today,
+            [mine, other], [], [loan, otherLoan], [], [], [], tasks, [], [document]);
+        Assert.Contains(result.Reminders, x => x.Kind == "MissingDealPrice" && x.VehicleId == mine.Id);
+        Assert.Contains(result.Reminders, x => x.Kind == "Loan" && x.VehicleId == mine.Id && x.DaysOpen == 3);
+        Assert.DoesNotContain(result.Reminders, x => x.VehicleId == other.Id || x.Title == "Private other task");
+        Assert.All(result.News, x => Assert.Null(x.LouDocumentId));
+        var json = JsonSerializer.Serialize(result);
+        Assert.DoesNotContain("987654", json);
+        Assert.DoesNotContain("876543", json);
+        Assert.DoesNotContain(mine.CustomerId.Value.ToString(), json);
+        var boss = DashboardUpdates.Create("boss", "boss", ["BossAdmin"], today,
+            [mine, other], [], [loan, otherLoan], [], [], [], tasks, [], [document]);
+        Assert.Contains(boss.News, x => x.LouDocumentId == document.Id);
+    }
+
+    [Fact]
+    public void Dashboard_updates_remove_finished_work_and_respect_durable_broker_assignment()
+    {
+        var today = new DateOnly(2026, 11, 14);
+        var vehicle = new Vehicle { SalesAgentUserId = "new-broker", IntakeDate = today,
+            Status = VehicleStatus.Sold, CustomerId = Guid.NewGuid() };
+        var lead = new Lead { VehicleId = vehicle.Id, TakenByUserId = "old-broker", Status = LeadStatus.Contacted };
+        var result = DashboardUpdates.Create("old-broker", "old-broker", ["Sales"], today,
+            [vehicle], [lead], [new LoanApplication { VehicleId = vehicle.Id, Status = LoanStatus.Done }],
+            [new DeliverySchedule { VehicleId = vehicle.Id, PicUserId = "old-broker", Status = DeliveryStatus.Cancelled }],
+            [], [new BrokerDealPrice { VehicleId = vehicle.Id, Amount = 50000, BrokerUserId = "new-broker" }],
+            [new CalendarTask { AssignedToUserId = "old-broker", Status = CalendarTaskStatus.Done }], [], []);
+        Assert.Empty(result.Reminders);
+        Assert.DoesNotContain(result.News, x => x.Kind == "Delivery");
+    }
+
+    [Fact]
     public void WhatsApp_hr_attendance_uses_mutually_exclusive_known_scheduled_categories()
     {
         var today = new DateOnly(2026, 10, 7);
