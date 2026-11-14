@@ -5261,6 +5261,14 @@ hr.MapPut("/payslips/{id:guid}/decision", async (Guid id, HrPayrollDecision deci
     return Results.Ok(saved);
 });
 
+backOffice.MapGet("/dashboard/updates", async (AppDbContext db, HttpContext context) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    var roles = SeedData.Roles.Where(context.User.IsInRole).ToArray();
+    return Results.Ok(await DashboardUpdates.LoadAsync(db, StaffIdentity.CurrentUserId(context),
+        AuditTrail.ActorFrom(context.User), roles, BusinessClock.Today()));
+});
+
 backOffice.MapGet("/dashboard/collection-ageing", async (AppDbContext db, CancellationToken cancellationToken) =>
 {
     var today = BusinessClock.Today();

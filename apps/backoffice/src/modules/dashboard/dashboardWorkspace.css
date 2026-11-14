@@ -200,3 +200,19 @@
   .dashboardInboxFilters .ant-select { width: 100%; }
   .dashboardWorkspace .dashboardSupportingMetrics .metricCard { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Pro Components v3 wraps the title and actions inside the Ant Card header. */
+.dashboardOperational > .ant-pro-card > .ant-pro-card-header > .ant-card-head-wrapper {
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.dashboardOperational > .ant-pro-card > .ant-pro-card-header .ant-pro-card-title {
+  flex: 1 1 180px;
+  white-space: normal;
+}
+.dashboardOperational > .ant-pro-card > .ant-pro-card-header .ant-pro-card-extra {
+  flex: 0 1 auto;
+  max-width: 100%;
+}

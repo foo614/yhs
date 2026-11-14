@@ -50,7 +50,7 @@ export type RouteAccess = {
 };
 
 export const routeAccess: RouteAccess[] = [
-  { path: "/dashboard", roles: ["BossAdmin"] },
+  { path: "/dashboard", roles: assignableStaffRoles },
   { path: "/vehicles", roles: ["BossAdmin", "Sales"] },
   { path: "/repairs", roles: ["BossAdmin", "Repair"] },
   { path: "/loans", roles: ["BossAdmin", "Loan"] },
@@ -149,7 +149,7 @@ export function canAccessRoute(userRoles: string[] | undefined, path: string) {
 }
 
 export function firstAccessiblePath(userRoles: string[] | undefined): AppRoutePath {
-  return routeAccess.find((item) => canAccessRoute(userRoles, item.path))?.path ?? "/vehicles";
+  return routeAccess.find((item) => (item.path !== "/dashboard" || userRoles?.includes("BossAdmin")) && canAccessRoute(userRoles, item.path))?.path ?? "/vehicles";
 }
 
 export function canAssignStaffRoles(roles: string[] | undefined) {

@@ -1,5 +1,6 @@
 import { formatDisplayDate } from "./dateDisplay";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { DashboardUpdatesPanel } from "./modules/dashboard/DashboardUpdatesPanel";
 import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
 import { CollectionAgeingPanel } from "./modules/dashboard/CollectionAgeingPanel";
 import { DataFreshness } from "./modules/shared/DataFreshness";
@@ -355,7 +356,7 @@ const repairReceiptOcrSections = {
 } satisfies Record<string, OcrFieldSection>;
 
 const bilingual = {
-  dashboard: "Dashboard / 管理层分析",
+  dashboard: "Dashboard / 工作看板",
   vehicles: "Vehicles / 收车库存",
   repairs: "Repair / 整备",
   loans: "Loan / 贷款",
@@ -1317,9 +1318,13 @@ export default function App() {
             }}
           />
           <div ref={moduleContentRef}>
-          {pathname === "/dashboard" && <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} staffUsers={staffUsers} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} actionsLastCheckedAt={actionsLastCheckedAt} actionsRefreshing={actionsRefreshing} onRefreshActions={refreshDashboardActions} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={() => refreshDashboard()} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} />}
+          {pathname === "/dashboard" && <div className="dashboardOperational">
+            <DashboardUpdatesPanel roles={currentRoles} onNavigate={navigateTo} />
+            {currentRoles.includes("BossAdmin") ? <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} staffUsers={staffUsers} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} actionsLastCheckedAt={actionsLastCheckedAt} actionsRefreshing={actionsRefreshing} onRefreshActions={refreshDashboardActions} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={() => refreshDashboard()} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} /> : <OperationsCalendar compact onOpenDelivery={currentRoles.includes("Delivery") ? (id) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(id)}`) : undefined} />}
+          </div>}
           {pathname === "/vehicles" && (
             <VehiclePage
+              initialVehicleId={new URLSearchParams(routeUrl.split("?")[1] ?? "").get("vehicleId") ?? undefined}
               vehicles={vehicles}
               leads={leads}
               loans={loans}
@@ -1508,6 +1513,7 @@ export default function App() {
           )}
           {pathname === "/leads" && (
             <LeadsPage
+              initialMyCarsPlate={new URLSearchParams(routeUrl.split("?")[1] ?? "").get("myCarsPlate") ?? undefined}
               currentUser={currentUser}
               vehicles={vehicles}
               customers={customers}
@@ -1903,14 +1909,14 @@ function ModuleCommandBar({
         </div>
       </div>
       <div className="moduleCommandAside">
-        <div className="moduleStats">
+        {(pathname !== "/dashboard" || roles.includes("BossAdmin")) && <div className="moduleStats">
           {stats.map((stat) => (
             <span key={stat.label}>
               <strong>{stat.value}</strong>
               {stat.label}
             </span>
           ))}
-        </div>
+        </div>}
         <span className="moduleGuideButtonWrap" ref={guideButtonRef}>
           <Button className="moduleGuideButton" icon={<QuestionCircleOutlined />} onClick={onOpenGuide}>
             How to use / 使用指南
@@ -5187,14 +5193,15 @@ export function DeliveryPage({
   );
 }
 
-export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate }: { currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => Promise<void> | void }) {
+export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate }: { initialMyCarsPlate?: string; currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => Promise<void> | void }) {
   const [leadKeyword, setLeadKeyword] = useState("");
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
   const [leadSortMode, setLeadSortMode] = useState<"CloseAsap" | "Received">("Received");
   const [closingLead, setClosingLead] = useState<Lead | null>(null);
   const [closureOutcome, setClosureOutcome] = useState<"Sold" | "Lost" | "Invalid">("Lost");
-  const [leadView, setLeadView] = useState<"Leads" | "MyCars">("Leads");
+  const [leadView, setLeadView] = useState<"Leads" | "MyCars">(initialMyCarsPlate ? "MyCars" : "Leads");
+  useEffect(() => { if (initialMyCarsPlate) setLeadView("MyCars"); }, [initialMyCarsPlate]);
   const [pendingLeadIds, setPendingLeadIds] = useState<Set<string>>(new Set());
   const [leadErrors, setLeadErrors] = useState<Record<string, string>>({});
   const pendingLeadRequests = useRef(new Set<string>());
@@ -5583,7 +5590,7 @@ export function LeadsPage({ currentUser, vehicles, customers, leads, onCreateCus
           { value: "Invalid", label: "Invalid / 无效询问" }
         ]} />
       </Modal>
-      </> : <SalesMyCarsPanel currentUser={currentUser} />}
+      </> : <SalesMyCarsPanel currentUser={currentUser} initialKeyword={initialMyCarsPlate} />}
     </Space>
   );
 }
