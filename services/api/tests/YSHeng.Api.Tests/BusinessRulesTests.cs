@@ -63,6 +63,12 @@ public sealed class BusinessRulesTests
             [new CalendarTask { AssignedToUserId = "old-broker", Status = CalendarTaskStatus.Done }], [], []);
         Assert.Empty(result.Reminders);
         Assert.DoesNotContain(result.News, x => x.Kind == "Delivery");
+        var legacy = vehicle with { SalesAgentUserId = null };
+        var oldSale = lead with { Status = LeadStatus.Closed, ClosureOutcome = LeadClosureOutcome.Sold, TakenAt = DateTime.UtcNow.AddDays(-2) };
+        var currentSale = oldSale with { Id = Guid.NewGuid(), TakenByUserId = "new-broker", TakenAt = DateTime.UtcNow };
+        var oldBroker = DashboardUpdates.Create("old-broker", "old-broker", ["Sales"], today,
+            [legacy], [oldSale, currentSale], [], [], [], [], [], [], []);
+        Assert.Empty(oldBroker.Reminders);
     }
 
     [Fact]

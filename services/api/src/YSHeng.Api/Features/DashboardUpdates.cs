@@ -39,10 +39,15 @@ public static class DashboardUpdates
         var reminders = new List<DashboardUpdate>();
         var vehicleById = vehicles.ToDictionary(x => x.Id);
         var cutoff = today.AddDays(-30);
-        bool Owns(Vehicle vehicle) => !string.IsNullOrEmpty(userId) &&
-            (!string.IsNullOrWhiteSpace(vehicle.SalesAgentUserId) ? vehicle.SalesAgentUserId == userId
-                : leads.Any(x => x.VehicleId == vehicle.Id && x.TakenByUserId == userId &&
-                    (x.Status != LeadStatus.Closed || x.ClosureOutcome == LeadClosureOutcome.Sold)));
+        bool Owns(Vehicle vehicle)
+        {
+            if (string.IsNullOrEmpty(userId)) return false;
+            if (!string.IsNullOrWhiteSpace(vehicle.SalesAgentUserId)) return vehicle.SalesAgentUserId == userId;
+            if (vehicle.Status == VehicleStatus.Sold)
+                return leads.Where(x => x.VehicleId == vehicle.Id && x.ClosureOutcome == LeadClosureOutcome.Sold && !string.IsNullOrWhiteSpace(x.TakenByUserId))
+                    .OrderByDescending(x => x.TakenAt ?? x.CreatedAt).FirstOrDefault()?.TakenByUserId == userId;
+            return leads.Any(x => x.VehicleId == vehicle.Id && x.Status != LeadStatus.Closed && x.TakenByUserId == userId);
+        }
         string? VehiclePath(Vehicle vehicle) => boss || broker ? $"/vehicles?vehicleId={vehicle.Id}" : null;
         foreach (var vehicle in vehicles)
         {
