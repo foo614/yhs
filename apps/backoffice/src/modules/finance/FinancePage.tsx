@@ -2220,7 +2220,7 @@ export function FinancePage({
         </Form>
       </Drawer>
       {canApproveManagementReview && financeTab === "settlements" && <ProCard title="Bank settlement / 银行结算">
-        {settlementLoadError ? <Alert type="error" message={settlementLoadError} action={<Button onClick={() => void onRetrySettlements?.()}>Retry</Button>} /> :
+        {settlementLoadError ? <Alert type="error" message="Settlement records could not be loaded" description={settlementLoadError} action={<Button onClick={() => void onRetrySettlements?.()}>Retry</Button>} /> :
           <BankSettlementPanel records={settlements.filter(row => matchesDashboardFinanceFocus(dashboardFocus, row.vehicleId, settlementMatchesDashboardAttention(row, dashboardFocus.attention, dashboardToday)))} vehicles={vehicles} canManage={canApproveManagementReview && !settlementRefreshing} refresh={async () => { await onRetrySettlements?.(); }} />}
       </ProCard>}
 
