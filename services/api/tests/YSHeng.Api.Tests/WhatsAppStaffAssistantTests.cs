@@ -42,14 +42,14 @@ public sealed class WhatsAppStaffAssistantTests
         await using var fixture = await Fixture.Create();
         await fixture.AddStaff("boss", "BossAdmin");
         Assert.True(await fixture.Verify(await fixture.Issue("boss")));
+        await fixture.DispatchAccepted(); // Consume the link acknowledgement before queuing intake messages.
         var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync();
         fixture.Db.VehicleCatalogModels.Add(new VehicleCatalogModel { Make = "Honda", Model = "Civic" });
         await fixture.Db.SaveChangesAsync();
         var text = WhatsAppVehicleIntake.Template.Replace("Seller name", "Test Seller").Replace("Seller TIN", "IG123456789").Replace("Seller IC", "900101011234").Replace("source: YSHeng", "source: Carsome");
         using var payload = fixture.Payload((text, fixture.Now));
         Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, payload.RootElement, fixture.Now));
-        // The link acknowledgement may be ahead of the create request.
-        for (var n = 0; n < 3 && !await fixture.Db.WhatsAppVehicleIntakeDrafts.AnyAsync(); n++) await fixture.DispatchAccepted();
+        await fixture.DispatchAccepted();
         var draft = await fixture.Db.WhatsAppVehicleIntakeDrafts.SingleAsync();
         using var mediaMessage = JsonDocument.Parse(JsonSerializer.Serialize(new { type = "image", image = new { id = "987", caption = $"VOC {draft.Id}" } }));
         var intent = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffWebhook.ParseMessage(mediaMessage.RootElement));
