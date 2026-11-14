@@ -5039,6 +5039,25 @@ body {
     padding-inline: 8px;
   }
 
+  .customer360MobileRecord .ant-descriptions-view > table {
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .customer360MobileActions {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .customer360MobileActions .tableActionGroup,
+  .customer360MobileActions .tableActionGroup .ant-space-item,
+  .customer360MobileActions .tableActionGroup .ant-btn {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .leadMobileGroupItem {
     grid-template-columns: 1fr;
   }
@@ -5705,7 +5724,7 @@ body {
     top: 8px;
   }
 
-  .ant-modal-content {
+  .ant-modal-container {
     max-height: calc(100vh - 16px);
     max-height: calc(100dvh - 16px);
     overflow: auto;
@@ -6953,8 +6972,8 @@ body {
     padding-inline: 14px !important;
   }
 
-  .financeV2Modal .ant-modal-content,
-  .financeInvoiceReviewModal .ant-modal-content {
+  .financeV2Modal .ant-modal-container,
+  .financeInvoiceReviewModal .ant-modal-container {
     padding: 0;
   }
 
