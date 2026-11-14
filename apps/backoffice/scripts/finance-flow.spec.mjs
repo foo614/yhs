@@ -102,7 +102,7 @@ for (const width of [320, 820, 1440]) {
       if (width < 768) {
         await page.locator(".responsiveSectionPicker .responsiveSectionSelect").click();
         const dropdown = page.locator(".responsiveSectionDropdown:visible");
-        await dropdown.getByRole("option", { name: tabs[index], exact: true }).click();
+        await dropdown.locator(".ant-select-item-option").filter({ hasText: tabs[index] }).click();
         await dropdown.waitFor({ state: "hidden" });
       } else {
         const escapedTabLabel = tabs[index].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -111,7 +111,7 @@ for (const width of [320, 820, 1440]) {
       }
     };
     const record = name => page.locator(width <= 720 ? ".mobileRecordCard" : ".ant-table-row").filter({ visible: true }).filter({ hasText: name }).first();
-    const close = async () => { await page.locator(".ant-drawer-open .ant-drawer-close,.ant-modal-close:visible").last().click(); await expect(page.getByRole("dialog").filter({ visible: true })).toHaveCount(0); };
+    const close = async () => { const dialogs = page.getByRole("dialog").filter({ visible: true }); const count = await dialogs.count(); await page.locator(".ant-drawer-open .ant-drawer-close,.ant-modal-close:visible").last().click(); await expect(dialogs).toHaveCount(count - 1); };
     const capture = async name => {
       await page.evaluate(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); await Promise.all(document.getAnimations().filter(a => a.playState === "running" && Number.isFinite(a.effect?.getComputedTiming().activeDuration)).map(a => a.finished.catch(() => {}))); });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);

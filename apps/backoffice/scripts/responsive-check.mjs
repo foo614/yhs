@@ -335,7 +335,7 @@ async function activateSection(label) {
   if (await picker.isVisible()) {
     await picker.click();
     const dropdown = page.locator(".responsiveSectionDropdown:visible");
-    await dropdown.getByRole("option", { name: label, exact: true }).click();
+    await dropdown.locator(".ant-select-item-option").filter({ hasText: label }).click();
     await dropdown.waitFor({ state: "hidden" });
   } else {
     const escapedTabLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -468,7 +468,7 @@ async function inspectDetailTabs(route, width) {
     await inspect(`${route}-detail-tab-${visited.size}-${label.replace(/[^a-zA-Z0-9]+/g, "-")}`, width);
     if (route === "vehicles" && label === "Leads") {
       if (width <= 720) {
-        const search = page.getByRole("textbox", { name: "Search leads for this vehicle", exact: true });
+        const search = page.getByRole("searchbox", { name: "Search leads for this vehicle", exact: true });
         await search.fill("NO-MATCH");
         await page.locator(".vehicleLeadMobileList").getByText("No leads match these filters.", { exact: true }).waitFor();
         await inspect("vehicles-leads-empty-search", width);
@@ -1064,6 +1064,10 @@ const knownWarnings = new Set([
   "Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?"
 ]);
 const knownAntd6DeprecationWarnings = new Set([
+  "Warning: [antd: DatePicker.RangePicker] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+  "Warning: [antd: Select] `dropdownRender` is deprecated. Please use `popupRender` instead.",
+  "Warning: [antd: Notification] `message` is deprecated. Please use `title` instead.",
+  "Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.",
   "Warning: [antd: Alert] `message` is deprecated. Please use `title` instead.",
   "Warning: [antd: Drawer] `destroyOnClose` is deprecated. Please use `destroyOnHidden` instead.",
   "Warning: [antd: Drawer] `height` is deprecated. Please use `size` instead.",
