@@ -2028,6 +2028,34 @@ backOffice.MapGet("/inspections/invoice-number-check", async (string? invoiceNum
     return Results.Ok(InspectionRules.CheckSupplierInvoiceReference(invoiceNumber, existing));
 }).RequireAuthorization("Deliveries");
 
+backOffice.MapGet("/inspections/export-autocount", async (string? company, AppDbContext db, HttpContext context) =>
+{
+    if (!context.User.IsInRole("BossAdmin"))
+    {
+        return Results.Json(new ApiError("Inspection AutoCount export requires BossAdmin access."), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (!Enum.TryParse<InspectionCompany>(company, ignoreCase: true, out var selectedCompany) || !Enum.IsDefined(selectedCompany))
+    {
+        return Results.BadRequest(new ApiError("Select a supported inspection company for export."));
+    }
+
+    var inspections = await db.InspectionRecords.AsNoTracking()
+        .Where(item => item.Company == selectedCompany && item.Status != InspectionStatus.Cancelled)
+        .ToListAsync();
+    if (inspections.Count == 0)
+    {
+        return Results.NotFound(new ApiError($"No active inspection bookings are available for {selectedCompany}."));
+    }
+
+    var vehicleIds = inspections.Select(item => item.VehicleId).Distinct().ToList();
+    var vehicles = await db.Vehicles.AsNoTracking().Where(vehicle => vehicleIds.Contains(vehicle.Id)).ToListAsync();
+    var workbook = AutoCountExcel.ExportInspection(new InspectionAutoCountExportInput(inspections, vehicles, selectedCompany));
+    ApiAudit.Add(db, context.User, "inspection.autoCountExported", $"InspectionAutoCountExport[{selectedCompany}]", Guid.Empty);
+    await db.SaveChangesAsync();
+    return Results.File(workbook, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"inspection-autocount-{selectedCompany}.xlsx");
+}).RequireAuthorization("BossAdmin");
+
 backOffice.MapGet("/inspections/{id:guid}", async (Guid id, AppDbContext db) =>
 {
     var inspection = await db.InspectionRecords.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id);

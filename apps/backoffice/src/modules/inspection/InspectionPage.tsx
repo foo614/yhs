@@ -21,8 +21,10 @@ import { ModalForm } from "@ant-design/pro-components";
 import {
   createInspection,
   checkInspectionInvoiceNumber,
+  exportInspectionAutoCountWorkbook,
   getInspections,
   type CreateInspectionRequest,
+  type InspectionCompany,
   type InspectionRecord,
   type InspectionStatus,
   type VehicleLookup,
@@ -39,9 +41,10 @@ type InspectionFormValues = Omit<CreateInspectionRequest, "appointmentDate" | "a
 
 type InspectionPageProps = {
   vehicles: VehicleLookup[];
+  canExportAutoCount?: boolean;
 };
 
-const companyOptions = [
+const companyOptions: { value: InspectionCompany; label: string }[] = [
   { value: "YSHengAuto", label: "YSHeng Auto" },
   { value: "YSHengAutomotive", label: "YSHeng Automotive" }
 ];
@@ -60,13 +63,15 @@ function refreshableError(error: unknown) {
   return error instanceof Error ? error.message : "Unable to complete the inspection request.";
 }
 
-export function InspectionPage({ vehicles }: InspectionPageProps) {
+export function InspectionPage({ vehicles, canExportAutoCount = false }: InspectionPageProps) {
   const [form] = Form.useForm<InspectionFormValues>();
   const [records, setRecords] = useState<InspectionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selected, setSelected] = useState<InspectionRecord | null>(null);
+  const [exportCompany, setExportCompany] = useState<InspectionCompany>("YSHengAuto");
+  const [exporting, setExporting] = useState(false);
 
   const vehicleOptions = useMemo(() => vehicles.map(vehicle => ({
     value: vehicle.id,
@@ -146,6 +151,24 @@ export function InspectionPage({ vehicles }: InspectionPageProps) {
     }
   }
 
+  async function exportAutoCount() {
+    setExporting(true);
+    try {
+      const blob = await exportInspectionAutoCountWorkbook(exportCompany);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `inspection-autocount-${exportCompany}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      message.success("Inspection AutoCount workbook downloaded. Review each PI sheet before saving.");
+    } catch (error) {
+      message.error(refreshableError(error));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <ModalForm<InspectionFormValues>
@@ -191,7 +214,15 @@ export function InspectionPage({ vehicles }: InspectionPageProps) {
           rowKey="id"
           loading={loading}
           dataSource={records}
-          toolBarRender={() => [<Button key="create" type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBookingOpen(true); }}>Create booking / 新增预约</Button>]}
+          toolBarRender={() => [
+            <Button key="create" type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBookingOpen(true); }}>Create booking / 新增预约</Button>,
+            ...(canExportAutoCount ? [
+              <Space key="export" wrap>
+                <Select aria-label="Inspection AutoCount company" value={exportCompany} onChange={(value: InspectionCompany) => setExportCompany(value)} options={companyOptions} />
+                <Button onClick={() => void exportAutoCount()} loading={exporting}>Export AutoCount PI / 导出验车 PI</Button>
+              </Space>
+            ] : [])
+          ]}
           scroll={{ x: 980 }}
           columns={[
             { title: "Vehicle / 车辆", dataIndex: "vehicleLabel", render: (value: string, record) => value || record.plateNumber || record.vehicleId },
