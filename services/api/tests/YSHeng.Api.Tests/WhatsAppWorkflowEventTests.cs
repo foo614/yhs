@@ -36,7 +36,8 @@ public sealed class WhatsAppWorkflowEventTests
         {
             await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.Intake, vehicle.Id, 1, vehicle, "test", Now);
             await db.SaveChangesAsync();
-            Assert.Single(await db.WhatsAppWorkflowEvents.ToListAsync());
+            Assert.Single(await db.WhatsAppWorkflowEvents.Where(item => item.EventKind == WhatsAppWorkflowEvents.Intake).ToListAsync());
+            Assert.Single(await db.WhatsAppWorkflowEvents.Where(item => item.EventKind == WhatsAppWorkflowEvents.NewStock).ToListAsync());
         }
     }
 
@@ -129,6 +130,23 @@ public sealed class WhatsAppWorkflowEventTests
         Assert.True(await WhatsAppWorkflowEvents.HasOpenPublicationRequestAsync(db, vehicle.Id, Now + 86399));
         Assert.False(await WhatsAppWorkflowEvents.HasOpenPublicationRequestAsync(db, vehicle.Id, Now + 86400));
         Assert.Equal(2, await WhatsAppWorkflowEvents.NextVersionAsync(db, WhatsAppWorkflowEvents.PublicationRequest, vehicle.Id));
+    }
+
+    [Fact]
+    public async Task Company_news_is_available_to_workers_without_exposing_purchase_cost()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        AddRole(db, "Delivery", "worker");
+        var vehicle = new Vehicle { PlateNumber = "TEST123", Make = "Synthetic", Model = "Car", Year = 2024, PurchasePrice = 12345m, SellingPrice = 55000m };
+        db.Vehicles.Add(vehicle);
+        var news = await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.NewStock, vehicle.Id, 1, vehicle, "test", Now);
+        await db.SaveChangesAsync();
+        Assert.True(await WhatsAppWorkflowEvents.CurrentFactsAsync(db, news!, "worker", Now));
+        Assert.False(await WhatsAppWorkflowEvents.CurrentFactsAsync(db, news!, "unknown", Now));
+        var body = WhatsAppWorkflowEvents.RenderBody(news!, vehicle, "en_US");
+        Assert.Contains("55000", body);
+        Assert.DoesNotContain("12345", body);
     }
 
     private static void AddRole(AppDbContext db, string role, string userId)

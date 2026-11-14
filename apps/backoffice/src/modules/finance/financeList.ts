@@ -1,4 +1,4 @@
-export const FINANCE_LIST_PAGE_SIZE = 8;
+export const FINANCE_LIST_PAGE_SIZE = 10;
 
 export function financeStatusLabel(status: string) {
   return status === "FollowedUp" ? "Followed Up / 已跟进" : status;

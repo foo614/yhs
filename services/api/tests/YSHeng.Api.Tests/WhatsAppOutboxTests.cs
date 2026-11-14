@@ -511,6 +511,53 @@ public sealed class WhatsAppOutboxTests
             assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
     }
 
+    private static WhatsAppApprovedTemplate AttachmentTemplate() => new()
+    {
+        Key = WhatsAppInspectionAttachment.TemplateKey, Name = "approved_inspection_document", Language = "ms",
+        Approved = true, ApprovalEvidence = "synthetic document approval", HeaderFormat = "DOCUMENT"
+    };
+
+    [Theory]
+    [InlineData(true, true, "Accepted", 2)]
+    [InlineData(false, true, "Suppressed", 0)]
+    [InlineData(true, false, "Suppressed", 1)]
+    public async Task Inspection_pdf_upload_precedes_document_send_and_rechecks_eligibility(bool validPdf, bool eligible, string outcome, int requests)
+    {
+        var handler = new AttachmentHandler();
+        using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
+        var row = new WhatsAppOutbox { Audience = "Staff", EventKind = "staff.notification", MessageKind = "InspectionReminder",
+            RequiredStaffRole = "BossAdmin", BusinessEventKey = $"inspection:{Guid.NewGuid():N}:appointment-1day:2027-01-15",
+            TemplateVersion = WhatsAppInspectionAttachment.TemplateKey, TemplateReference = "Inspection tomorrow", Language = "ms", Recipient = Recipient };
+        var result = await sender.SendAttachmentAsync(StaffDispatch(AttachmentTemplate()), row,
+            System.Text.Encoding.UTF8.GetBytes(validPdf ? "%PDF-1.7 synthetic" : "not a PDF"), _ => Task.FromResult(eligible));
+        Assert.Equal(outcome, result.Outcome);
+        Assert.Equal(requests, handler.Requests);
+        Assert.Equal(eligible && validPdf ? "wamid.synthetic.document" : null, result.MessageId);
+        Assert.Equal("TemplateNotApproved", (await sender.SendAsync(StaffDispatch(AttachmentTemplate()), row)).Outcome);
+    }
+
+    private sealed class AttachmentHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests++;
+            Assert.Equal("graph.facebook.com", request.RequestUri!.Host);
+            if (request.RequestUri.AbsolutePath.EndsWith("/media"))
+            {
+                Assert.IsType<MultipartFormDataContent>(request.Content);
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { id = "123456789" }) };
+            }
+            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            var components = json.RootElement.GetProperty("template").GetProperty("components");
+            var media = components[0].GetProperty("parameters")[0];
+            Assert.Equal("document", media.GetProperty("type").GetString());
+            Assert.Equal("123456789", media.GetProperty("document").GetProperty("id").GetString());
+            Assert.False(media.GetProperty("document").TryGetProperty("link", out _));
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { messages = new[] { new { id = "wamid.synthetic.document" } } }) };
+        }
+    }
+
     private sealed class StaffTemplateHandler(Action<string> submitted) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -1565,6 +1612,144 @@ public sealed class WhatsAppOutboxTests
         Assert.Equal(reassign ? "Suppressed" : "Accepted", delivered.State);
         if (reassign) Assert.Null(delivered.SubmittedBody);
         else Assert.Equal(delivered.TemplateReference, delivered.SubmittedBody);
+    }
+
+    [Fact]
+    public async Task Company_news_respects_configured_delay_and_deduplicates_for_worker()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await db.UserRoles.Where(row => row.UserId == "staff-notification").ExecuteDeleteAsync();
+        db.Roles.Add(new IdentityRole("Delivery") { Id = "news-worker", NormalizedName = "DELIVERY" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff-notification", RoleId = "news-worker" });
+        var vehicle = new Vehicle { PlateNumber = "NEWS123", PurchasePrice = 12345m, SellingPrice = 55000m };
+        db.Vehicles.Add(vehicle);
+        await db.SaveChangesAsync();
+        Assert.True(await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "CompanyNews", new(true, 0, 0, 0, 5), "boss", Now));
+        await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.NewStock, vehicle.Id, 1, vehicle, "boss", Now);
+        await db.SaveChangesAsync();
+        Assert.Equal(1, await WhatsAppWorkflowDispatch.EnqueueAsync(db, assistant, Now));
+        Assert.Equal(0, await WhatsAppWorkflowDispatch.EnqueueAsync(db, assistant, Now + 1));
+        var row = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal(Now + 300, row.ScheduledAt);
+        Assert.Equal("Delivery", row.RequiredStaffRole);
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (_, _) => throw new InvalidOperationException("Not due"), Now + 299, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        var calls = 0;
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (message, _) => {
+            calls++;
+            Assert.DoesNotContain("12345", message.Body);
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.synthetic.news"));
+        }, Now + 300, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task Calendar_task_batch_deduplicates_and_suppresses_reassigned_tasks_before_send()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        await db.UserRoles.Where(row => row.UserId == "staff-notification").ExecuteDeleteAsync();
+        db.Roles.Add(new IdentityRole("Delivery") { Id = "calendar-worker", NormalizedName = "DELIVERY" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff-notification", RoleId = "calendar-worker" });
+        var day = WhatsAppStaffNotifications.LocalDate(Now).AddDays(1);
+        var task = new CalendarTask { AssignedToUserId = "staff-notification", Title = "Synthetic preparation", StartDate = day, EndDate = day };
+        db.CalendarTasks.Add(task);
+        await db.SaveChangesAsync();
+        Assert.True(await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "CalendarTasks", new(true, 0, 1, 0), "boss", Now));
+        Assert.Equal(1, await WhatsAppCalendarTasks.EnqueueAsync(db, assistant, Now, default));
+        Assert.Equal(0, await WhatsAppCalendarTasks.EnqueueAsync(db, assistant, Now + 1, default));
+        await db.CalendarTasks.Where(row => row.Id == task.Id).ExecuteUpdateAsync(set => set.SetProperty(row => row.AssignedToUserId, "other-worker"));
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(), (_, _) => throw new InvalidOperationException("Reassigned work must not send"), Now + 2, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.Equal("Suppressed", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
+    }
+
+    [Fact]
+    public async Task Inspection_reminder_batch_deduplicates_skips_sold_or_cancelled_and_dispatches_current_facts()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        var appointment = day.AddDays(1);
+        var liveVehicle = new Vehicle { PlateNumber = "INSP-LIVE", Status = VehicleStatus.Available };
+        var soldVehicle = new Vehicle { PlateNumber = "INSP-SOLD", Status = VehicleStatus.Sold };
+        var cancelledVehicle = new Vehicle { PlateNumber = "INSP-CANCEL", Status = VehicleStatus.Available };
+        db.Vehicles.AddRange(liveVehicle, soldVehicle, cancelledVehicle);
+        db.InspectionRecords.AddRange(
+            new InspectionRecord { VehicleId = liveVehicle.Id, Type = InspectionType.Awalan, Status = InspectionStatus.Booked, AppointmentDate = appointment, BookingReference = "BOOK-LIVE" },
+            new InspectionRecord { VehicleId = soldVehicle.Id, Type = InspectionType.Awalan, Status = InspectionStatus.Booked, AppointmentDate = appointment, BookingReference = "BOOK-SOLD" },
+            new InspectionRecord { VehicleId = cancelledVehicle.Id, Type = InspectionType.Awalan, Status = InspectionStatus.Cancelled, AppointmentDate = appointment, BookingReference = "BOOK-CANCEL" });
+        await db.SaveChangesAsync();
+        Assert.True(await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "InspectionReminder", new(true, 0, 0, 0), "boss", Now));
+
+        Assert.Equal(1, await WhatsAppInspectionReminders.EnqueueAsync(db, assistant, Now));
+        Assert.Equal(0, await WhatsAppInspectionReminders.EnqueueAsync(db, assistant, Now + 1));
+        var queued = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Contains("INSP-LIVE", queued.Body);
+        Assert.DoesNotContain("INSP-SOLD", queued.Body);
+        Assert.DoesNotContain("INSP-CANCEL", queued.Body);
+        Assert.Null(await WhatsAppInspectionAttachment.LoadAsync(db, queued, Now, default));
+        var liveInspection = await db.InspectionRecords.SingleAsync(item => item.VehicleId == liveVehicle.Id);
+        var slip = new DocumentBlob { VehicleId = soldVehicle.Id, InspectionId = liveInspection.Id,
+            Category = FileCategory.InspectionAppointmentConfirmation, MimeType = "application/pdf",
+            Content = System.Text.Encoding.UTF8.GetBytes("%PDF-1.7 synthetic"), FileName = "appointment.pdf" };
+        db.DocumentBlobs.Add(slip);
+        await db.SaveChangesAsync();
+        Assert.Null(await WhatsAppInspectionAttachment.LoadAsync(db, queued, Now, default));
+        db.Entry(slip).CurrentValues.SetValues(slip with { VehicleId = liveVehicle.Id });
+        await db.SaveChangesAsync();
+        Assert.Equal(slip.Id, (await WhatsAppInspectionAttachment.LoadAsync(db, queued, Now, default))!.Id);
+
+        var calls = 0;
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Name = "approved_staff_notice", Language = "ms", Approved = true, ApprovalEvidence = "synthetic" }, AttachmentTemplate()), (message, _) =>
+        {
+            calls++;
+            Assert.Contains("INSP-LIVE", message.Body);
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.synthetic.inspection"));
+        }, Now + 1, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.Equal(1, calls);
+        Assert.Equal("Accepted", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
+    }
+
+    [Fact]
+    public async Task Daily_staff_reminder_retargets_only_an_unattempted_row_after_rebind()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+        var firstBinding = await db.WhatsAppStaffBindings.AsNoTracking().SingleAsync();
+        Assert.True(await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "InspectionReminder", new(true, 0, 0, 0), "boss", Now));
+        var first = await WhatsAppStaffNotifications.StageAsync(db, assistant, firstBinding.Id, "InspectionReminder", "BossAdmin",
+            "inspection:rebind:appointment-1day:2027-01-15", 1, "first body", Now, Now + 3600, Now, "test");
+        Assert.NotNull(first);
+        await db.SaveChangesAsync();
+
+        await WhatsAppStaffBindings.RevokeAsync(db, "staff-notification", "staff", Now + 1);
+        db.WhatsAppStaffBindings.Add(new WhatsAppStaffBinding
+        {
+            StaffUserId = "staff-notification", Recipient = Recipient, PhoneNumberId = assistant.PhoneNumberId,
+            SecurityStampHash = firstBinding.SecurityStampHash, Language = "ms", VerifiedAt = Now + 61
+        });
+        await db.SaveChangesAsync();
+        var secondBinding = await db.WhatsAppStaffBindings.AsNoTracking().SingleAsync(row => row.RevokedAt == null);
+
+        var second = await WhatsAppStaffNotifications.StageAsync(db, assistant, secondBinding.Id, "InspectionReminder", "BossAdmin",
+            "inspection:rebind:appointment-1day:2027-01-15", 1, "second body", Now + 61, Now + 3661, Now + 61, "test");
+        await db.SaveChangesAsync();
+
+        Assert.NotNull(second);
+        Assert.Equal(first!.Id, second!.Id);
+        var retargeted = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal(secondBinding.Id, retargeted.StaffBindingId);
+        Assert.Equal("second body", retargeted.Body);
+        Assert.Equal(0, retargeted.Attempts);
+        Assert.Single(await db.AuditLogs.AsNoTracking().Where(row => row.Action == "whatsapp.staff.retargeted").ToListAsync());
     }
 
     private static WhatsAppAssistantOptions StaffAssistant(bool testMode = true) => new()

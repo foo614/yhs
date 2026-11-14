@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 namespace YSHeng.Api.Domain;
 
 public enum StockOwner { YSHeng, KS }
+public enum VehiclePurchaseSource { Carsome, Carro, KSA, YSHeng }
 public enum VehicleStatus { Available, LoanProcessing, Sold }
 public enum LeadStatus { New, Contacted, Closed }
 public enum LeadClosureOutcome { Sold, Lost, Invalid }
@@ -19,9 +20,10 @@ public enum ReceivableStatus { Draft, WaitingForApproval, ReadyToCollect, Partia
 public enum PaymentVoucherStatus { Pending, Approved, Paid }
 public enum DisbursementMethod { BankTransfer, Cheque, Cash, Other }
 public enum SupplierStatus { Active, Inactive }
-public enum SettlementDirection { LegacyPaySeller, PaySeller, CollectFromSeller, InternalOffset }
+public enum SettlementDirection { LegacyPaySeller, PaySeller, CollectFromSeller, InternalOffset, PayBank }
 public enum PurchaseInvoiceLineType { VehiclePurchase, PurchaseProcessing, LatePaymentCharge, Parking, Transport, Refurbishment, Other }
 public enum PurchaseInvoiceSourceType { LegacySupplier, OwnerAcquisition }
+public enum PurchaseInvoiceSellerType { Private, Company }
 public enum DeliveryAccountingChargeType { Insurance, RoadTax }
 public enum AccountingConfirmationStatus { Draft, FinanceConfirmed }
 public enum CashHandoverStatus { ReceivedBySales, PendingHandover, HandedOver, Rejected, Receipted }
@@ -37,9 +39,13 @@ public enum HrBusinessTripStatus { Pending, Approved, Rejected, Cancelled }
 public enum HrAttendanceReminderType { PendingApproval, UpcomingOutstation, MissingCheckOut }
 public enum HrPayslipStatus { Draft, Generated, PendingFinance, PendingBoss, Published }
 public enum HrEmploymentType { Monthly, Hourly }
-public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate, InspectionReport, WindscreenPolicy }
+public enum InspectionType { Awalan = 9001, Berkala = 9002, Khas = 9003, BerkalaSemula = 9004, PertukaranHakMilik = 9011 }
+public enum InspectionCompany { YSHengAuto, YSHengAutomotive }
+public enum InspectionStatus { Booked, Completed, Cancelled }
+public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate, InspectionReport, WindscreenPolicy, SettlementEvidence = 100, BankSettlementPayment = 101, InspectionReceipt = 110, InspectionAppointmentConfirmation = 111 }
 public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed, Reviewed }
+public enum CalendarTaskStatus { Open, Done, Cancelled }
 // Accepted and Rejected are retained only for historical OCR jobs created before
 // the review-and-correct workflow. New reviews use Reviewed.
 public enum OcrReviewDecision { Pending, Accepted, Rejected, Reviewed }
@@ -48,6 +54,7 @@ public enum AiUsageStatus { Reserved, Succeeded, Failed }
 
 public sealed record Vehicle
 {
+    public bool? HasBankDebt { get; init; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public string PlateNumber { get; init; } = "";
     public string? ChassisNumber { get; init; }
@@ -56,6 +63,8 @@ public sealed record Vehicle
     public string Model { get; init; } = "";
     public int Year { get; init; }
     public StockOwner StockOwner { get; init; }
+    public VehiclePurchaseSource PurchaseSource { get; init; } = VehiclePurchaseSource.YSHeng;
+    public bool? HasSpareKey { get; init; }
     public string StockLocation { get; init; } = "";
     public VehicleStatus Status { get; init; }
     public bool IsPublic { get; init; }
@@ -63,6 +72,13 @@ public sealed record Vehicle
     public decimal PurchasePrice { get; init; }
     public decimal? ModifiedPurchasePrice { get; init; }
     public decimal SellingPrice { get; init; }
+    // Recorded dealer charges. Kept separate from existing margin and invoice totals
+    // until the accounting treatment is confirmed.
+    public decimal? DealerProcessingFee { get; init; }
+    public decimal? DealerTrailerFee { get; init; }
+    public decimal? DealerParkingFee { get; init; }
+    public decimal? DealerLateCharge { get; init; }
+    public decimal? DealerDiscount { get; init; }
     public decimal AdditionalCharges { get; init; }
     public decimal RefurbishmentTotal { get; init; }
     [NotMapped]
@@ -144,6 +160,33 @@ public sealed record Lead
     public DateTime? TakenAt { get; init; }
 }
 
+public sealed record CalendarTask
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string Title { get; init; } = "";
+    public string? Description { get; init; }
+    public DateOnly StartDate { get; init; }
+    public DateOnly EndDate { get; init; }
+    public string AssignedToUserId { get; init; } = "";
+    public string AssignedToName { get; init; } = "";
+    public CalendarTaskStatus Status { get; init; } = CalendarTaskStatus.Open;
+    public string CreatedByUserId { get; init; } = "";
+    public string CreatedByName { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public DateTime? CompletedAt { get; init; }
+    public string? CompletedByUserId { get; init; }
+}
+
+public sealed record BrokerDealPrice
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid VehicleId { get; init; }
+    public decimal Amount { get; init; }
+    public string BrokerUserId { get; init; } = "";
+    public string BrokerName { get; init; } = "";
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
+}
+
 public sealed record VehiclePhoto
 {
     public Guid Id { get; init; } = Guid.NewGuid();
@@ -173,10 +216,12 @@ public sealed record DocumentBlob
     public Guid? CustomerId { get; init; }
     public Guid? OwnerId { get; init; }
     public Guid? RepairJobId { get; init; }
+    public Guid? BankSettlementId { get; init; }
     public Guid? PaymentRecordId { get; init; }
     public Guid? CollectionTransactionId { get; init; }
     public Guid? DeliveryScheduleId { get; init; }
     public Guid? LoanApplicationId { get; init; }
+    public Guid? InspectionId { get; init; }
     public DocumentOwnershipType OwnershipType { get; init; } = DocumentOwnershipType.Vehicle;
     public FileCategory Category { get; init; }
     public string FileName { get; init; } = "";
@@ -185,6 +230,29 @@ public sealed record DocumentBlob
     public string Checksum { get; init; } = "";
     public string UploadedBy { get; init; } = "";
     public DateTime UploadedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record InspectionRecord
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid VehicleId { get; init; }
+    public InspectionType Type { get; init; }
+    public InspectionCompany Company { get; init; }
+    public InspectionStatus Status { get; init; } = InspectionStatus.Booked;
+    public bool IsLorry { get; init; }
+    public DateOnly AppointmentDate { get; init; }
+    public TimeOnly? AppointmentTime { get; init; }
+    public DateOnly ReportExpiryDate { get; init; }
+    public string BookingReference { get; init; } = "";
+    public string SourceReceiptNumber { get; init; } = "";
+    public decimal ReceiptTotal { get; init; }
+    public decimal AllocatedAmount { get; init; }
+    public string SupplierInvoiceReference { get; init; } = "";
+    public string? Notes { get; init; }
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public string CreatedBy { get; init; } = "";
+    public DateTime? CompletedAt { get; init; }
+    public string? CompletedBy { get; init; }
 }
 
 public sealed record OcrJob
@@ -265,6 +333,14 @@ public sealed record PurchaseInvoice
     public string? AccountingConfirmedBy { get; init; }
     public string? AccountingConfirmedByUserId { get; init; }
     public DateTime? AccountingConfirmedAt { get; init; }
+    public string? SupplierInvoiceNumber { get; init; }
+    public DateOnly? SupplierInvoiceDate { get; init; }
+    public string? DiscountVoucherReference { get; init; }
+    public string? AutoCountInvoiceNumber { get; init; }
+    public bool AutoCountKeyed { get; init; }
+    public string? AutoCountKeyedBy { get; init; }
+    public string? AutoCountKeyedByUserId { get; init; }
+    public DateTime? AutoCountKeyedAt { get; init; }
     [NotMapped]
     public IReadOnlyList<PurchaseInvoiceLine> Lines { get; init; } = [];
     [NotMapped]
@@ -279,6 +355,9 @@ public sealed record PurchaseInvoiceLine
     public string Description { get; init; } = "";
     public decimal Amount { get; init; }
     public bool CapitaliseIntoVehicleCost { get; init; }
+    public string? SupplierInvoiceNumber { get; init; }
+    public DateOnly? SupplierInvoiceDate { get; init; }
+    public string? DiscountVoucherReference { get; init; }
 }
 
 public sealed record PurchaseInvoiceRevision
@@ -297,6 +376,11 @@ public sealed record PurchaseInvoiceRevision
     public string? SellerIcNumber { get; init; }
     public string? SellerTinNumber { get; init; }
     public string? SellerAddress { get; init; }
+    public PurchaseInvoiceSellerType SellerType { get; init; } = PurchaseInvoiceSellerType.Private;
+    public string? SellerRegistrationNumber { get; init; }
+    public string? SupplierInvoiceNumber { get; init; }
+    public DateOnly? SupplierInvoiceDate { get; init; }
+    public string? DiscountVoucherReference { get; init; }
     public string VehiclePlateNumber { get; init; } = "";
     public string VehicleDescription { get; init; } = "";
     public decimal Amount { get; init; }
@@ -326,6 +410,9 @@ public sealed record PurchaseInvoiceRevisionLine
     public decimal Amount { get; init; }
     public bool CapitaliseIntoVehicleCost { get; init; }
     public int SortOrder { get; init; }
+    public string? SupplierInvoiceNumber { get; init; }
+    public DateOnly? SupplierInvoiceDate { get; init; }
+    public string? DiscountVoucherReference { get; init; }
 }
 public sealed record RepairJob { public Guid Id { get; init; } = Guid.NewGuid(); public Guid VehicleId { get; init; } public string RepairPart { get; init; } = ""; public string WhatToDo { get; init; } = ""; public decimal Cost { get; init; } public bool ChecklistDone { get; init; } public string? AssignedTo { get; init; } public DateOnly? StartedOn { get; init; } public DateOnly? ExpectedCompletionDate { get; init; } public RepairApprovalStatus ApprovalStatus { get; init; } = RepairApprovalStatus.Approved; public string? ApprovalNotes { get; init; } public string? ApprovedBy { get; init; } public DateTime? ApprovedAt { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
 public sealed record RepairReceipt { public Guid Id { get; init; } = Guid.NewGuid(); public Guid RepairJobId { get; init; } public Guid DocumentId { get; init; } public string? SupplierName { get; init; } public string? InvoiceNumber { get; init; } public decimal? TotalAmount { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
@@ -516,6 +603,12 @@ public sealed record SettlementReminder
     public decimal Amount { get; init; }
     public DateOnly Deadline { get; init; }
     public bool IsPaid { get; init; }
+    public string? BankName { get; init; }
+    public string? BankAccountNumber { get; init; }
+    public Guid? ReplacesSettlementId { get; init; }
+    public Guid? SupersededById { get; init; }
+    public Guid? PaymentDocumentId { get; init; }
+    public DateOnly? PaidOn { get; init; }
 }
 
 public sealed record DailySpend
@@ -924,6 +1017,48 @@ public sealed record WhatsAppStaffRequest
     public string? ProviderMessageId { get; init; }
 }
 
+public sealed record WhatsAppPriceUpdateDraft
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string IdempotencyKey { get; init; } = "";
+    public Guid BindingId { get; init; }
+    public Guid VehicleId { get; init; }
+    public string PlateNumber { get; init; } = "";
+    public decimal OriginalSellingPrice { get; init; }
+    public decimal ProposedSellingPrice { get; init; }
+    public string State { get; init; } = "Preview";
+    public long CreatedAt { get; init; }
+    public long ExpiresAt { get; init; }
+    public string? ConfirmedBy { get; init; }
+    public string? ConfirmedByUserId { get; init; }
+    public long? ConfirmedAt { get; init; }
+}
+
+public sealed record WhatsAppSettlementUpdateDraft
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string IdempotencyKey { get; init; } = "";
+    public Guid BindingId { get; init; }
+    public Guid SettlementId { get; init; }
+    public Guid VehicleId { get; init; }
+    public string PlateNumber { get; init; } = "";
+    public decimal OriginalBankDebtAmount { get; init; }
+    public decimal OriginalAmount { get; init; }
+    public DateOnly OriginalDeadline { get; init; }
+    public string OriginalBankName { get; init; } = "";
+    public string OriginalBankAccountNumber { get; init; } = "";
+    public decimal ProposedBankDebtAmount { get; init; }
+    public DateOnly ProposedDeadline { get; init; }
+    public string ProposedBankName { get; init; } = "";
+    public string ProposedBankAccountNumber { get; init; } = "";
+    public string State { get; init; } = "Preview";
+    public long CreatedAt { get; init; }
+    public long ExpiresAt { get; init; }
+    public string? ConfirmedBy { get; init; }
+    public string? ConfirmedByUserId { get; init; }
+    public long? ConfirmedAt { get; init; }
+}
+
 public sealed record AuditLog { public Guid Id { get; init; } = Guid.NewGuid(); public string Actor { get; init; } = ""; public string Action { get; init; } = ""; public string EntityName { get; init; } = ""; public Guid EntityId { get; init; } public DateTime CreatedAt { get; init; } = DateTime.UtcNow; }
 
 public sealed record WhatsAppConsent
@@ -981,6 +1116,7 @@ public sealed record WhatsAppStaffNotificationPolicy
     public int LocalMinuteOfDay { get; init; }
     public int LeadDays { get; init; }
     public int ThresholdPercent { get; init; }
+    public int DelayMinutes { get; init; }
     public long UpdatedAt { get; init; }
 }
 
@@ -1020,4 +1156,22 @@ public sealed record WhatsAppDispatchBudgetSetting
     public long MonthlyBudgetSen { get; init; }
     public long MaximumCostPerAttemptSen { get; init; }
     public long UpdatedAt { get; init; }
+}
+
+
+public sealed record WhatsAppVehicleIntakeDraft
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid BindingId { get; init; }
+    public Guid RequestId { get; init; }
+    public string PayloadJson { get; set; } = "";
+    public string State { get; set; } = "Draft";
+    public long ExpiresAt { get; init; }
+    public Guid? ConfirmationToken { get; set; }
+    public long? ConfirmBefore { get; set; }
+    public byte[]? VocContent { get; set; }
+    public string? VocMime { get; set; }
+    public byte[]? IcContent { get; set; }
+    public string? IcMime { get; set; }
+    public long? ConfirmedAt { get; set; }
 }

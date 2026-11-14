@@ -1,6 +1,6 @@
 import type { StaffRole } from "./api";
 
-export type AppRoutePath = "/dashboard" | "/vehicles" | "/repairs" | "/loans" | "/delivery" | "/finance" | "/customer-360" | "/leads" | "/audit-log" | "/hr-salary" | "/admin";
+export type AppRoutePath = "/dashboard" | "/vehicles" | "/repairs" | "/loans" | "/delivery" | "/inspection" | "/finance" | "/customer-360" | "/leads" | "/audit-log" | "/hr-salary" | "/admin";
 export type BackOfficeDataKey =
   | "dashboard"
   | "reminders"
@@ -55,6 +55,7 @@ export const routeAccess: RouteAccess[] = [
   { path: "/repairs", roles: ["BossAdmin", "Repair"] },
   { path: "/loans", roles: ["BossAdmin", "Loan"] },
   { path: "/delivery", roles: ["BossAdmin", "Delivery"] },
+  { path: "/inspection", roles: ["BossAdmin", "Delivery"] },
   { path: "/finance", roles: ["BossAdmin", "Sales", "Finance"] },
   { path: "/customer-360", roles: ["BossAdmin", "Sales", "Loan", "Delivery", "Finance"] },
   { path: "/leads", roles: ["BossAdmin", "Sales"] },
@@ -135,7 +136,7 @@ export const roleDataKeys: Record<StaffRole, BackOfficeDataKey[]> = {
   Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "cashHandovers", "cashHandoverPaymentLookup", "leads", ...hrSelfServiceDataKeys],
   Loan: ["vehicleLookup", "customers", "loans", ...hrSelfServiceDataKeys],
   Delivery: ["vehicleLookup", "deliveries", ...hrSelfServiceDataKeys],
-  Finance: ["vehicleLookup", "financeVehicleOptions", "customers", "owners", "payments", "cashHandovers", "cashHandoverPaymentLookup", "settlements", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", ...hrSelfServiceDataKeys],
+  Finance: ["vehicleLookup", "financeVehicleOptions", "customers", "owners", "payments", "cashHandovers", "cashHandoverPaymentLookup", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", ...hrSelfServiceDataKeys],
   Repair: ["vehicleLookup", "supplierInvoices", "repairs", ...hrSelfServiceDataKeys],
   HrSalary: hrManagementDataKeys
 };

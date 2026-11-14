@@ -584,6 +584,80 @@ const deliveryGuide: ModuleGuideDefinition = {
   completionReminder: "Do not bypass a blocked release. Fix missing, expired, or inconsistent evidence in the source record first."
 };
 
+const inspectionGuide: ModuleGuideDefinition = {
+  path: "/inspection",
+  title: "Inspection / 验车",
+  roleLabel: "Inspection operations / 验车作业",
+  summary: "Book vehicle inspections, keep receipts and appointment confirmations with the correct plate, and close the record only after the completion report is uploaded.",
+  quickSteps: [
+    { title: "Create the booking / 开预约", description: "Select the vehicle, inspection type, company, date, receipt, and appointment confirmation reference." },
+    { title: "Upload the evidence / 上传文件", description: "Attach the receipt and appointment confirmation to this inspection, then upload the completion report after the inspection is done." },
+    { title: "Complete with expiry / 完成并跟到期日", description: "Mark the inspection completed only after its report is attached; the system keeps the four-month expiry for reminders." }
+  ],
+  sections: [
+    {
+      key: "inspection-booking",
+      label: "Booking / 预约",
+      kind: "section",
+      audience: "Boss/Admin and Delivery",
+      purpose: "Create one standalone inspection record with the exact plate, company, type, appointment, and receipt allocation.",
+      actions: ["Select the correct plate.", "Choose 9001, 9002, 9003, 9004, or 9011.", "Enter the company, appointment details, receipt number, and allocated amount.", "Save the booking and verify the generated supplier invoice reference."],
+      requiredItems: ["Vehicle", "Inspection type", "Company", "Appointment date", "Booking reference", "Supplier receipt number", "Receipt total and allocation"],
+      completeWhen: "The booking is saved against the correct vehicle and its source receipt.",
+      handoff: "Inspection documents / 验车文件.",
+      warnings: ["Receipt references are retained per vehicle allocation and are not renumbered when rows are reordered."]
+    },
+    {
+      key: "inspection-documents",
+      label: "Inspection Documents / 验车文件",
+      kind: "detail-tab",
+      audience: "Boss/Admin and Delivery",
+      purpose: "Keep the receipt, appointment confirmation, and completion report separate while preserving the inspection owner link.",
+      actions: ["Open the inspection record.", "Upload the receipt and appointment confirmation before the appointment.", "Upload the completion report after the inspection.", "Review the file category and plate before leaving the record."],
+      requiredItems: ["Receipt", "Appointment confirmation", "Completion report"],
+      completeWhen: "All required files are linked to this inspection record.",
+      handoff: "Inspection completion / 验车完成.",
+      warnings: ["Do not upload inspection files under a delivery record; the inspection ID is the document owner."]
+    },
+    {
+      key: "inspection-completion",
+      label: "Completion and Validity / 完成与有效期",
+      kind: "section",
+      audience: "Boss/Admin and Delivery",
+      purpose: "Prevent a booking from being marked complete before the completion report is present and show the four-month validity window.",
+      actions: ["Confirm the inspection was physically completed.", "Check the completion report is uploaded.", "Mark the inspection Completed.", "Use the displayed report expiry date for follow-up planning."],
+      requiredItems: ["Completion report", "Completed status", "Report expiry date"],
+      completeWhen: "The record shows Completed and the report expiry is visible.",
+      handoff: "Reminder follow-up / 到期跟进.",
+      warnings: ["The API rejects Completed status when the completion report is missing."]
+    },
+    {
+      key: "inspection-lorry-reminders",
+      label: "Lorry Reminders / 罗里提醒",
+      kind: "section",
+      audience: "Boss/Admin and Delivery",
+      purpose: "Plan lorry inspection follow-up with the agreed reminder windows.",
+      actions: ["Review records whose report expires in two months.", "Book the next inspection before expiry.", "Check the one-week-before appointment reminder.", "Use the appointment slip when preparing the lorry."],
+      requiredItems: ["Report expiry", "Appointment date for lorry", "Appointment confirmation"],
+      completeWhen: "The next booking is arranged before the current validity expires.",
+      warnings: ["Reminder dates are calculated from the stored inspection date and must not be treated as proof of payment."]
+    },
+    {
+      key: "inspection-companies",
+      label: "Company and Invoice Allocation / 公司与发票分配",
+      kind: "detail-tab",
+      audience: "Boss/Admin",
+      purpose: "Keep YSHeng Auto and YSHeng Automotive records separate and retain supplier invoice references for each vehicle.",
+      actions: ["Choose the company on every booking.", "Review each vehicle allocation under the source receipt.", "Keep the generated suffix reference with the vehicle.", "Wait for the confirmed AutoCount template before exporting accounting files."],
+      requiredItems: ["Company", "Source receipt number", "Vehicle allocation", "Supplier invoice reference"],
+      completeWhen: "Every allocation retains its company and stable reference.",
+      handoff: "Pending AutoCount mapping / 等待 AutoCount 格式.",
+      warnings: ["Exact AutoCount export columns and template mapping remain pending client confirmation."]
+    }
+  ],
+  completionReminder: "Keep the inspection documents attached to the standalone inspection record, and complete it only after the report is uploaded."
+};
+
 const financeManagementGuide: ModuleGuideDefinition = {
   path: "/finance",
   title: "Finance / 财务",
@@ -1336,6 +1410,7 @@ const guidesByPath: Record<AppRoutePath, ModuleGuideDefinition> = {
   "/repairs": repairGuide,
   "/loans": loanGuide,
   "/delivery": deliveryGuide,
+  "/inspection": inspectionGuide,
   "/finance": financeManagementGuide,
   "/customer-360": customerGuide,
   "/leads": leadsGuide,

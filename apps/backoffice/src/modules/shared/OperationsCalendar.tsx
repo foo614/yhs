@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Calendar, DatePicker, Drawer, Empty, Grid, List, Skeleton, Space, Spin, Tag, Typography } from "antd";
+import { Alert, Button, Calendar, DatePicker, Drawer, Empty, Form, Grid, Input, List, Modal, Select, Skeleton, Space, Spin, Tag, Typography } from "antd";
 import { ClockCircleOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
 import dayjs from "dayjs";
-import { getOperationsCalendar, type OperationsCalendarEvent } from "../../api";
+import { createCalendarTask, getOperationsCalendar, type OperationsCalendarEvent, type StaffUser } from "../../api";
 import { DataFreshness } from "./DataFreshness";
 import "./operationsCalendar.css";
 
@@ -13,8 +13,8 @@ export function eventsOnDate(events: OperationsCalendarEvent[], date: string) {
 
 export function operationsCalendarEventDetail(event: OperationsCalendarEvent) {
   return {
-    time: event.kind === "Delivery" ? event.time ?? "Time not set" : `${event.startDate} – ${event.endDate}`,
-    status: event.kind === "Delivery" ? event.status ?? "Status unavailable" : undefined
+    time: (event.kind === "Delivery" || event.kind === "Inspection") ? event.time ?? "Time not set" : `${event.startDate} – ${event.endDate}`,
+    status: (event.kind === "Delivery" || event.kind === "Inspection") ? event.status ?? "Status unavailable" : event.kind === "Task" ? event.status : undefined
   };
 }
 
@@ -26,7 +26,7 @@ export function operationsCalendarCellKinds(events: OperationsCalendarEvent[]) {
 }
 
 export function hasScheduledDeliveryTime(event: OperationsCalendarEvent) {
-  return event.kind === "Delivery" && Boolean(event.time);
+  return (event.kind === "Delivery" || event.kind === "Inspection") && Boolean(event.time);
 }
 
 export function operationsCalendarVehicleLabel(event: OperationsCalendarEvent) {
@@ -54,17 +54,19 @@ export function SelectedDayEvents({
           <List.Item key={`${event.kind}-${event.id}`} className="operationsCalendarEvent">
             <div className="operationsCalendarEventBody">
               <Space size={6} wrap>
-                <Tag color={event.kind === "Delivery" ? "blue" : "orange"}>{event.kind === "Delivery" ? "Delivery / 出车" : "Busy / 忙碌"}</Tag>
+                <Tag color={event.kind === "Delivery" ? "blue" : event.kind === "Task" ? "purple" : "orange"}>{event.kind === "Inspection" ? "Inspection / 验车" : event.kind === "Delivery" ? "Delivery / 出车" : event.kind === "Task" ? "Task / 任务" : "Busy / 忙碌"}</Tag>
                 {detail.status && <Tag>{detail.status}</Tag>}
               </Space>
               <Space size={6} wrap>
                 <Typography.Text strong>{event.title}</Typography.Text>
-                {event.kind === "Delivery" && operationsCalendarVehicleLabel(event) ? <Typography.Text type="secondary">{operationsCalendarVehicleLabel(event)}</Typography.Text> : null}
+                {(event.kind === "Delivery" || event.kind === "Inspection") && operationsCalendarVehicleLabel(event) ? <Typography.Text type="secondary">{operationsCalendarVehicleLabel(event)}</Typography.Text> : null}
               </Space>
               <Typography.Text type="secondary">
                 {hasScheduledDeliveryTime(event) && <ClockCircleOutlined aria-hidden="true" className="operationsCalendarTimeIcon" />}
                 {detail.time}
               </Typography.Text>
+              {event.kind === "Task" && <Typography.Text type="secondary">Assigned to / 负责员工: {event.assignedToName ?? "Unassigned"}</Typography.Text>}
+              {event.kind === "Task" && event.description && <Typography.Text type="secondary">{event.description}</Typography.Text>}
               {event.kind === "Delivery" && (
                 <Typography.Text type="secondary" className="operationsCalendarCustomer">
                   Customer / 客户: {event.customerName ?? "No customer linked"}{event.customerContact ? ` · ${event.customerContact}` : ""}
@@ -79,7 +81,7 @@ export function SelectedDayEvents({
   );
 }
 
-export function OperationsCalendar({ onOpenDelivery, compact = false }: { onOpenDelivery?: (deliveryId: string) => void; compact?: boolean }) {
+export function OperationsCalendar({ onOpenDelivery, compact = false, canManageTasks = false, staffUsers = [] }: { onOpenDelivery?: (deliveryId: string) => void; compact?: boolean; canManageTasks?: boolean; staffUsers?: StaffUser[] }) {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const [monthExpanded, setMonthExpanded] = useState(compact);
@@ -91,6 +93,10 @@ export function OperationsCalendar({ onOpenDelivery, compact = false }: { onOpen
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [mobileDayDrawerOpen, setMobileDayDrawerOpen] = useState(false);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [taskSaving, setTaskSaving] = useState(false);
+  const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
+  const [taskForm] = Form.useForm();
   const calendarRegionRef = useRef<HTMLDivElement>(null);
   const month = date.format("YYYY-MM");
   useEffect(() => {
@@ -121,8 +127,40 @@ export function OperationsCalendar({ onOpenDelivery, compact = false }: { onOpen
     requestAnimationFrame(() => calendarRegionRef.current?.focus());
   };
 
-  return <ProCard title="Operations calendar / 工作日历" className={`operationsCalendar${compact ? " operationsCalendarCompact" : ""}`} extra={<Button aria-label="Refresh calendar" loading={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</Button>}>
-    <Typography.Paragraph className="operationsCalendarDescription" type="secondary">Delivery dates and staff availability. Personal leave and trip details are not shown. / 出车日期与员工忙碌时间，不显示私人详情。</Typography.Paragraph>
+  const openTaskModal = () => {
+    setTaskSaveError(null);
+    taskForm.resetFields();
+    taskForm.setFieldsValue({ range: [dayjs(), dayjs()], assignedToUserId: staffUsers.find(user => user.isActive)?.id });
+    setTaskModalOpen(true);
+  };
+
+  const saveTask = async () => {
+    try {
+      const values = await taskForm.validateFields();
+      const range = values.range as [dayjs.Dayjs, dayjs.Dayjs];
+      setTaskSaving(true);
+      setTaskSaveError(null);
+      await createCalendarTask({
+        title: values.title,
+        description: values.description,
+        startDate: range[0].format("YYYY-MM-DD"),
+        endDate: range[1].format("YYYY-MM-DD"),
+        assignedToUserId: values.assignedToUserId
+      });
+      setTaskModalOpen(false);
+      taskForm.resetFields();
+      setRefresh(value => value + 1);
+    } catch (reason) {
+      if (reason && typeof reason === "object" && "errorFields" in reason) return;
+      setTaskSaveError(reason instanceof Error ? reason.message : "Task could not be saved. Please try again.");
+    } finally {
+      setTaskSaving(false);
+    }
+  };
+
+  return <>
+    <ProCard title="Operations calendar / 工作日历" className={`operationsCalendar${compact ? " operationsCalendarCompact" : ""}`} extra={<Space wrap><>{canManageTasks && <Button type="primary" onClick={openTaskModal}>Add task / 新增任务</Button>}</><Button aria-label="Refresh calendar" loading={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</Button></Space>}>
+    <Typography.Paragraph className="operationsCalendarDescription" type="secondary">Delivery, inspection appointments, assigned tasks and staff availability. / 出车、验车预约、工作任务与员工忙碌时间。</Typography.Paragraph>
     <div className="operationsCalendarMeta">
       <DataFreshness label="Calendar" updatedAt={loadedMonth === month ? updatedAt : null} loading={loading} error={error} />
       {(compact || isMobile) && <Button className="operationsCalendarToggle" aria-expanded={monthExpanded} aria-controls="operations-month-grid" onClick={() => setMonthExpanded(value => !value)}>{monthExpanded ? "Hide month / 收起月历" : "Show month / 展开月历"}</Button>}
@@ -161,5 +199,17 @@ export function OperationsCalendar({ onOpenDelivery, compact = false }: { onOpen
         ? <Alert type="error" showIcon message="Calendar unavailable" description={error} action={<Button onClick={() => setRefresh(value => value + 1)}>Try again</Button>} />
         : loading ? <Skeleton active paragraph={{ rows: 2 }} /> : <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}
     </Drawer>
-  </ProCard>;
+    </ProCard>
+    <Modal title="Add calendar task / 新增日历任务" open={taskModalOpen} onCancel={() => setTaskModalOpen(false)} onOk={() => void saveTask()} confirmLoading={taskSaving} okText="Save task / 保存任务" destroyOnClose>
+      {taskSaveError && <Alert type="error" showIcon message="Task could not be saved" description={taskSaveError} />}
+      <Form form={taskForm} layout="vertical">
+        <Form.Item name="title" label="Task / 任务" rules={[{ required: true, message: "Enter a task title." }]}><Input maxLength={160} showCount /></Form.Item>
+        <Form.Item name="description" label="Details / 备注"><Input.TextArea maxLength={2000} showCount rows={3} /></Form.Item>
+        <Form.Item name="range" label="Timeline / 日期" rules={[{ required: true, message: "Select the task timeline." }]}><DatePicker.RangePicker allowClear={false} /></Form.Item>
+        <Form.Item name="assignedToUserId" label="Assign to / 负责员工" rules={[{ required: true, message: "Select a staff member." }]}>
+          <Select showSearch optionFilterProp="label" options={staffUsers.filter(user => user.isActive).map(user => ({ value: user.id, label: `${user.displayName} / ${user.roles.join(", ")}` }))} placeholder="Select staff / 选择员工" />
+        </Form.Item>
+      </Form>
+    </Modal>
+  </>;
 }

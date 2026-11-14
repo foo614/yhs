@@ -17,6 +17,7 @@ public static class WhatsAppStaffQueue
         var binding = await db.WhatsAppStaffBindings.AsNoTracking().SingleOrDefaultAsync(item =>
             item.PhoneNumberId == options.PhoneNumberId && item.Recipient == recipient && item.RevokedAt == null, ct);
         if (binding is null || await WhatsAppStaffBindings.ResolveAsync(db, options, binding.Id, now, ct) is not { } identity) return false;
+        if (intent.Name is "create-vehicle" or "intake-file" && !identity.Roles.Contains("BossAdmin")) return false;
         var dayStart = DateTimeOffset.FromUnixTimeSeconds(now).ToOffset(TimeSpan.FromHours(8)).Date;
         var from = new DateTimeOffset(dayStart, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
         var workspace = await db.WhatsAppStaffRequests.CountAsync(item => item.CreatedAt >= from, ct);
@@ -50,9 +51,15 @@ public static class WhatsAppStaffQueue
         await DispatchOneRichAsync(db, options, (recipient, outbound, token) => send(recipient, outbound.Text, token), now, ct);
 
     public static async Task<bool> DispatchOneRichAsync(AppDbContext db, WhatsAppAssistantOptions options,
-        Func<string, WhatsAppStaffOutbound, CancellationToken, Task<WhatsAppSendResult>> send, long now, CancellationToken ct = default)
+        Func<string, WhatsAppStaffOutbound, CancellationToken, Task<WhatsAppSendResult>> send, long now, CancellationToken ct = default,
+        WhatsAppMediaClient? mediaClient = null)
     {
         if (!options.Ready) return false;
+        await db.WhatsAppStaffRequests.Where(item => item.Intent == "create-vehicle" && item.ExpiresAt <= now && item.Argument != "")
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.Argument, ""), ct);
+        await db.WhatsAppVehicleIntakeDrafts.Where(item => item.State == "Draft" && item.ExpiresAt <= now)
+            .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, "Expired").SetProperty(item => item.PayloadJson, "")
+                .SetProperty(item => item.VocContent, (byte[]?)null).SetProperty(item => item.IcContent, (byte[]?)null), ct);
         // An interrupted HTTP submission is ambiguous, so it is never automatically replayed.
         await db.WhatsAppStaffRequests.Where(item => item.State == "Sending" && item.LeaseUntil <= now)
             .ExecuteUpdateAsync(set => set.SetProperty(item => item.State, "UnknownOutcome"), ct);
@@ -71,11 +78,26 @@ public static class WhatsAppStaffQueue
             return true;
         }
         var permitted = WhatsAppStaffQueries.Permitted(intent, identity.Value.Roles);
-        var reply = permitted
+        string? mediaReply = null;
+        if (permitted && intent.Name == "intake-file")
+        {
+            var parts = intent.Argument.Split('|');
+            if (parts.Length == 3 && Guid.TryParse(parts[0], out var draftId) && parts[1] is "VOC" or "IC" && mediaClient is not null &&
+                await db.WhatsAppVehicleIntakeDrafts.AnyAsync(d => d.Id == draftId && d.BindingId == request.BindingId && d.State == "Draft" && d.ExpiresAt > now, ct))
+            {
+                var media = await mediaClient.DownloadAsync(options, parts[2], ct);
+                mediaReply = media is null ? "File could not be downloaded or validated. Upload it again with the draft reference."
+                    : await WhatsAppVehicleIntake.StoreFileAsync(db, request.BindingId, draftId, parts[1], media, options, now, ct);
+            }
+            else mediaReply = "Draft unavailable. Start a vehicle draft before uploading VOC/IC.";
+        }
+        var reply = mediaReply ?? (permitted
             ? intent.Name == "usage" ? WhatsAppStaffCommandHelp.Reply(intent.Argument, identity.Value.Binding.Language, identity.Value.Roles)
                 : await WhatsAppStaffQueries.ReplyAsync(db, intent, identity.Value.Binding.Language, now, ct, options.PublicSiteUrl,
-                    identity.Value.Roles, identity.Value.Binding.StaffUserId)
-            : WhatsAppStaffQueries.Text(identity.Value.Binding.Language, "Your role cannot access this query.", "Peranan anda tidak dibenarkan mengakses pertanyaan ini.");
+                    identity.Value.Roles, identity.Value.Binding.StaffUserId, identity.Value.Binding.Id, request.Id, options)
+            : WhatsAppStaffQueries.Text(identity.Value.Binding.Language, "Your role cannot access this query.", "Peranan anda tidak dibenarkan mengakses pertanyaan ini."));
+        if (intent.Name == "create-vehicle")
+            await db.WhatsAppStaffRequests.Where(item => item.Id == request.Id).ExecuteUpdateAsync(set => set.SetProperty(item => item.Argument, ""), ct);
         var outbound = new WhatsAppStaffOutbound(reply, identity.Value.Binding.Language,
             permitted && intent.Name == "menu" ? WhatsAppStaffCommandHelp.Allowed(identity.Value.Roles) : null);
         var currentTime = Math.Max(now, DateTimeOffset.UtcNow.ToUnixTimeSeconds());

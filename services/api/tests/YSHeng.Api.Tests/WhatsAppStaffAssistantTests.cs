@@ -17,6 +17,170 @@ namespace YSHeng.Api.Tests;
 
 public sealed class WhatsAppStaffAssistantTests
 {
+    [Theory]
+    [InlineData("valid", 2)]
+    [InlineData("untrusted-host", 1)]
+    [InlineData("bad-checksum", 2)]
+    [InlineData("oversized", 1)]
+    public async Task WhatsApp_intake_media_download_checks_destination_size_and_integrity(string scenario, int calls)
+    {
+        await using var fixture = await Fixture.Create();
+        var handler = new IntakeMediaHandler(scenario);
+        using var client = new WhatsAppMediaClient(handler);
+        var media = await client.DownloadAsync(fixture.Options, "987", default);
+        Assert.Equal(calls, handler.Calls);
+        if (scenario == "valid") Assert.NotNull(media); else Assert.Null(media);
+        Assert.False(WhatsAppMediaClient.AllowedDownload(new Uri("https://lookaside.fbsbx.com.evil.test/whatsapp_business/attachments/")));
+        Assert.False(WhatsAppMediaClient.AllowedDownload(new Uri("https://lookaside.fbsbx.com:444/whatsapp_business/attachments/")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WhatsApp_intake_webhook_media_is_routed_to_owned_draft_and_invalid_confirm_is_rejected(bool expired)
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        Assert.True(await fixture.Verify(await fixture.Issue("boss")));
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync();
+        fixture.Db.VehicleCatalogModels.Add(new VehicleCatalogModel { Make = "Honda", Model = "Civic" });
+        await fixture.Db.SaveChangesAsync();
+        var text = WhatsAppVehicleIntake.Template.Replace("Seller name", "Test Seller").Replace("Seller TIN", "IG123456789").Replace("Seller IC", "900101011234").Replace("source: YSHeng", "source: Carsome");
+        using var payload = fixture.Payload((text, fixture.Now));
+        Assert.True(await WhatsAppStaffWebhook.ProcessAsync(fixture.Db, fixture.Options, payload.RootElement, fixture.Now));
+        // The link acknowledgement may be ahead of the create request.
+        for (var n = 0; n < 3 && !await fixture.Db.WhatsAppVehicleIntakeDrafts.AnyAsync(); n++) await fixture.DispatchAccepted();
+        var draft = await fixture.Db.WhatsAppVehicleIntakeDrafts.SingleAsync();
+        using var mediaMessage = JsonDocument.Parse(JsonSerializer.Serialize(new { type = "image", image = new { id = "987", caption = $"VOC {draft.Id}" } }));
+        var intent = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffWebhook.ParseMessage(mediaMessage.RootElement));
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, intent, "intake-media", fixture.Now));
+        using var mediaClient = new WhatsAppMediaClient(new IntakeMediaHandler("valid"));
+        string reply = "";
+        await WhatsAppStaffQueue.DispatchOneRichAsync(fixture.Db, fixture.Options, (_, outbound, _) => { reply = outbound.Text; return Task.FromResult(new WhatsAppSendResult("Accepted", "media-reply")); }, fixture.Now, mediaClient: mediaClient);
+        Assert.Contains("VOC saved", reply);
+        await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"preview {draft.Id}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default);
+        var token = draft.ConfirmationToken;
+        if (expired) { draft.ConfirmBefore = fixture.Now - 1; await fixture.Db.SaveChangesAsync(); }
+        else await fixture.Db.WhatsAppStaffBindings.Where(b => b.Id == binding.Id).ExecuteUpdateAsync(set => set.SetProperty(b => b.RevokedAt, fixture.Now));
+        await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"confirm {token}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default);
+        Assert.Empty(await fixture.Db.Vehicles.ToListAsync());
+        Assert.Equal("Draft", draft.State);
+        Assert.All(await fixture.Db.WhatsAppStaffRequests.AsNoTracking().Where(q => q.Intent == "create-vehicle").ToListAsync(), q => Assert.Equal("", q.Argument));
+    }
+
+    [Fact]
+    public async Task WhatsApp_intake_expiration_clears_private_payloads_even_without_active_binding()
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        Assert.True(await fixture.Verify(await fixture.Issue("boss")));
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync();
+        fixture.Db.WhatsAppVehicleIntakeDrafts.Add(new WhatsAppVehicleIntakeDraft { BindingId = binding.Id, RequestId = Guid.NewGuid(), PayloadJson = "synthetic private seller", VocContent = [1, 2], IcContent = [3, 4], ExpiresAt = fixture.Now - 1 });
+        fixture.Db.WhatsAppStaffRequests.Add(new WhatsAppStaffRequest { BindingId = binding.Id, EventKey = "expired-intake", Intent = "create-vehicle", Argument = "synthetic private seller", State = "UnknownOutcome", ExpiresAt = fixture.Now - 1 });
+        await fixture.Db.SaveChangesAsync();
+        await fixture.Db.WhatsAppStaffBindings.Where(b => b.Id == binding.Id).ExecuteUpdateAsync(set => set.SetProperty(b => b.RevokedAt, fixture.Now));
+        await fixture.DispatchAccepted();
+        var draft = await fixture.Db.WhatsAppVehicleIntakeDrafts.AsNoTracking().SingleAsync();
+        Assert.Equal("Expired", draft.State);
+        Assert.Equal("", draft.PayloadJson);
+        Assert.Null(draft.VocContent);
+        Assert.Null(draft.IcContent);
+        Assert.Equal("", (await fixture.Db.WhatsAppStaffRequests.AsNoTracking().SingleAsync(q => q.EventKey == "expired-intake")).Argument);
+    }
+
+    private sealed class IntakeMediaHandler(string scenario) : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            using var bitmap = new SkiaSharp.SKBitmap(2, 2);
+            using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+            using var encoded = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+            var bytes = encoded.ToArray();
+            if (Calls == 1)
+            {
+                Assert.Equal("graph.facebook.com", request.RequestUri!.Host);
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new {
+                    id = "987", url = scenario == "untrusted-host" ? "https://evil.test/file" : "https://lookaside.fbsbx.com/whatsapp_business/attachments/?id=987",
+                    file_size = scenario == "oversized" ? 11 * 1024 * 1024 : bytes.Length, mime_type = "image/png",
+                    sha256 = scenario == "bad-checksum" ? "bad" : Convert.ToHexString(SHA256.HashData(bytes)) })) });
+            }
+            Assert.Equal("lookaside.fbsbx.com", request.RequestUri!.Host);
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WhatsApp_intake_requires_owned_documents_then_atomically_creates_once(bool dealer)
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        Assert.True(await fixture.Verify(await fixture.Issue("boss")));
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync();
+        fixture.Db.VehicleCatalogModels.Add(new VehicleCatalogModel { Make = "Honda", Model = "Civic" });
+        await fixture.Db.SaveChangesAsync();
+        var text = WhatsAppVehicleIntake.Template.Replace("Seller name", "Test Seller").Replace("Seller TIN", "IG123456789").Replace("Seller IC", "900101-01-1234");
+        if (dealer) text = text.Replace("source: YSHeng", "source: Carsome").Replace("ic: 900101-01-1234", "ic:");
+        var intent = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse(text));
+        var reply = await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, intent.Argument, binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default);
+        Assert.Contains("No vehicle created", reply);
+        var draft = await fixture.Db.WhatsAppVehicleIntakeDrafts.SingleAsync();
+        Assert.Contains("Upload VOC first", await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"preview {draft.Id}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default));
+        using var vocBitmap = new SkiaSharp.SKBitmap(2, 2);
+        using var vocImage = SkiaSharp.SKImage.FromBitmap(vocBitmap);
+        using var vocEncoded = vocImage.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+        var pdf = new WhatsAppDownloadedMedia(vocEncoded.ToArray(), "image/png", "voc.png");
+        Assert.Contains("VOC saved", await WhatsAppVehicleIntake.StoreFileAsync(fixture.Db, binding.Id, draft.Id, "VOC", pdf, fixture.Options, fixture.Now, default));
+        if (!dealer)
+        {
+            Assert.Contains("Upload seller IC", await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"preview {draft.Id}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default));
+            using var bitmap = new SkiaSharp.SKBitmap(2, 2);
+            using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+            using var encoded = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+            Assert.Contains("IC saved", await WhatsAppVehicleIntake.StoreFileAsync(fixture.Db, binding.Id, draft.Id, "IC", new(encoded.ToArray(), "image/png", "ic.png"), fixture.Options, fixture.Now, default));
+        }
+        Assert.Contains("Confirm within", await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"preview {draft.Id}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default));
+        var oldToken = draft.ConfirmationToken;
+        await WhatsAppVehicleIntake.StoreFileAsync(fixture.Db, binding.Id, draft.Id, "VOC", pdf, fixture.Options, fixture.Now, default);
+        Assert.Contains("not found", await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"confirm {oldToken}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default));
+        await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"preview {draft.Id}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default);
+        var token = draft.ConfirmationToken;
+        var confirmed = await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"confirm {token}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default);
+        Assert.Contains("Vehicle BKC3003 created", confirmed);
+        Assert.Contains("already created", await WhatsAppVehicleIntake.ReplyAsync(fixture.Db, $"confirm {token}", binding.Id, Guid.NewGuid(), fixture.Options, fixture.Now, default));
+        var vehicle = Assert.Single(await fixture.Db.Vehicles.ToListAsync());
+        var docs = await fixture.Db.DocumentBlobs.ToListAsync();
+        Assert.Equal(dealer ? 1 : 2, docs.Count);
+        Assert.All(docs, doc => { Assert.Equal(vehicle.Id, doc.VehicleId); Assert.Equal(vehicle.OwnerId, doc.OwnerId); Assert.Equal("boss", doc.UploadedBy); });
+        Assert.Equal("", draft.PayloadJson);
+        Assert.Null(draft.VocContent);
+    }
+
+    [Theory]
+    [InlineData("other-binding")]
+    [InlineData("expired")]
+    [InlineData("revoked")]
+    public async Task WhatsApp_intake_rejects_upload_outside_current_boss_owned_draft(string condition)
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        Assert.True(await fixture.Verify(await fixture.Issue("boss")));
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync();
+        var draft = new WhatsAppVehicleIntakeDraft { BindingId = binding.Id, RequestId = Guid.NewGuid(), PayloadJson = "{}", ExpiresAt = condition == "expired" ? fixture.Now - 1 : fixture.Now + 300 };
+        fixture.Db.WhatsAppVehicleIntakeDrafts.Add(draft);
+        await fixture.Db.SaveChangesAsync();
+        if (condition == "revoked") await fixture.Db.WhatsAppStaffBindings.Where(b => b.Id == binding.Id).ExecuteUpdateAsync(set => set.SetProperty(b => b.RevokedAt, fixture.Now));
+        var result = await WhatsAppVehicleIntake.StoreFileAsync(fixture.Db, condition == "other-binding" ? Guid.NewGuid() : binding.Id, draft.Id, "VOC", new(Encoding.ASCII.GetBytes("%PDF-1.4 synthetic"), "application/pdf", "voc.pdf"), fixture.Options, fixture.Now, default);
+        Assert.DoesNotContain("VOC saved", result);
+        Assert.Null(draft.VocContent);
+        Assert.Empty(await fixture.Db.Vehicles.ToListAsync());
+        Assert.False(WhatsAppStaffQueries.Permitted(new("create-vehicle"), ["Finance"]));
+    }
+
     [Fact]
     public async Task History_does_not_blame_budget_for_an_invitation_already_verified()
     {
@@ -198,6 +362,7 @@ public sealed class WhatsAppStaffAssistantTests
         }
         Assert.False(WhatsAppStaffQueries.Permitted(new("collections", "TEST123"), ["Sales"]));
         Assert.False(WhatsAppStaffQueries.Permitted(new("settlement", "TEST123"), ["Loan"]));
+        Assert.False(WhatsAppStaffQueries.Permitted(new("settlement", "TEST123"), ["Finance"]));
         Assert.False(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("collections", "TEST123"), ["Finance"]));
         Assert.True(WhatsAppStaffQueries.Permitted(new("profit", "month"), ["BossAdmin"]));
@@ -206,6 +371,166 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.DoesNotContain("→ profit month", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
         Assert.Contains("→ profit month", WhatsAppStaffQueries.Help("en_US", ["BossAdmin"]));
         Assert.Contains("cannot access", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("profit", "month"), ["Finance"], "en_US", fixture.Now));
+    }
+
+    [Fact]
+    public async Task Boss_price_preview_is_explicit_idempotent_and_not_available_to_sales()
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        var issued = await fixture.Issue("boss");
+        Assert.True(await fixture.Verify(issued, key: "boss-price-link"));
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync(item => item.StaffUserId == "boss");
+        fixture.Db.Vehicles.Add(new Vehicle { PlateNumber = "PRICE123", SellingPrice = 45_000m, Status = VehicleStatus.Available });
+        await fixture.Db.SaveChangesAsync();
+
+        var intent = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("price PRICE-123 50000"));
+        Assert.True(WhatsAppStaffQueries.Permitted(intent, ["BossAdmin"]));
+        Assert.False(WhatsAppStaffQueries.Permitted(intent, ["Sales"]));
+        var requestId = Guid.NewGuid();
+        var first = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, intent, "en_US", fixture.Now,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, requestId: requestId, assistantOptions: fixture.Options);
+        var second = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, intent, "en_US", fixture.Now,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, requestId: requestId, assistantOptions: fixture.Options);
+
+        Assert.Equal(first, second);
+        Assert.Contains("price confirm", first);
+        var draft = await fixture.Db.WhatsAppPriceUpdateDrafts.SingleAsync();
+        Assert.Equal(45_000m, draft.OriginalSellingPrice);
+        Assert.Equal(50_000m, draft.ProposedSellingPrice);
+        Assert.Equal("Preview", draft.State);
+        var confirm = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse($"price confirm {draft.Id}"));
+        var applied = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, confirm, "en_US", fixture.Now + 1,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, assistantOptions: fixture.Options);
+        Assert.Contains("Updated PRICE123", applied);
+        Assert.Equal(50_000m, (await fixture.Db.Vehicles.SingleAsync()).SellingPrice);
+        var replay = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, confirm, "en_US", fixture.Now + 2,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, assistantOptions: fixture.Options);
+        Assert.Contains("Already updated", replay);
+        Assert.Equal(1, await fixture.Db.AuditLogs.CountAsync(row => row.Action == "vehicle.sellingPriceUpdatedByWhatsApp"));
+        await WhatsAppStaffQueries.ReplyAsync(fixture.Db, Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("price PRICE123 55000")), "en_US", fixture.Now + 3,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, requestId: Guid.NewGuid(), assistantOptions: fixture.Options);
+        var expiredDraft = await fixture.Db.WhatsAppPriceUpdateDrafts.SingleAsync(row => row.State == "Preview");
+        var expired = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse($"price confirm {expiredDraft.Id}")), "en_US", fixture.Now + 304,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, assistantOptions: fixture.Options);
+        Assert.Contains("expired", expired);
+        Assert.Equal(50_000m, (await fixture.Db.Vehicles.SingleAsync()).SellingPrice);
+
+    }
+
+    [Fact]
+    public async Task Boss_settlement_update_previews_masks_account_confirms_once_and_replays_safely()
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        var issued = await fixture.Issue("boss");
+        Assert.True(await fixture.Verify(issued, key: "boss-settlement-link"));
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync(item => item.StaffUserId == "boss");
+        var vehicle = new Vehicle { PlateNumber = "SETTLE123", Status = VehicleStatus.Available };
+        fixture.Db.Vehicles.Add(vehicle);
+        fixture.Db.SettlementReminders.Add(new SettlementReminder
+        {
+            VehicleId = vehicle.Id, Direction = SettlementDirection.PayBank, BankDebtAmount = 50_000m, Amount = 50_000m,
+            Deadline = new DateOnly(2027, 1, 31), BankName = "Maybank", BankAccountNumber = "123456789"
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var intent = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("settlement-update SETTLE-123 | 52000 | 2027-02-15 | CIMB | 987654321"));
+        Assert.True(WhatsAppStaffQueries.Permitted(intent, ["BossAdmin"]));
+        Assert.False(WhatsAppStaffQueries.Permitted(intent, ["Sales"]));
+        var requestId = Guid.NewGuid();
+        var first = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, intent, "en_US", fixture.Now,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, requestId: requestId, assistantOptions: fixture.Options);
+        var second = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, intent, "en_US", fixture.Now,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, requestId: requestId, assistantOptions: fixture.Options);
+        Assert.Equal(first, second);
+        Assert.Contains("settlement-update confirm", first);
+        Assert.Contains("****4321", first);
+        Assert.DoesNotContain("987654321", first);
+        Assert.Single(await fixture.Db.WhatsAppSettlementUpdateDrafts.ToListAsync());
+
+        var draft = await fixture.Db.WhatsAppSettlementUpdateDrafts.SingleAsync();
+        var confirm = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse($"settlement-update confirm {draft.Id}"));
+        var applied = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, confirm, "en_US", fixture.Now + 1,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, assistantOptions: fixture.Options);
+        Assert.Contains("Updated SETTLE123", applied);
+        var settlement = await fixture.Db.SettlementReminders.SingleAsync();
+        Assert.Equal(52_000m, settlement.Amount);
+        Assert.Equal("987654321", settlement.BankAccountNumber);
+        var replay = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, confirm, "en_US", fixture.Now + 2,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, assistantOptions: fixture.Options);
+        Assert.Contains("Already updated", replay);
+        Assert.Equal(1, await fixture.Db.AuditLogs.CountAsync(row => row.Action == "bankSettlement.updatedByWhatsApp"));
+    }
+
+    [Fact]
+    public async Task Boss_settlement_update_marks_preview_stale_when_source_changes()
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        var issued = await fixture.Issue("boss");
+        Assert.True(await fixture.Verify(issued, key: "boss-settlement-stale-link"));
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync(item => item.StaffUserId == "boss");
+        var vehicle = new Vehicle { PlateNumber = "STALE123", Status = VehicleStatus.Available };
+        fixture.Db.Vehicles.Add(vehicle);
+        fixture.Db.SettlementReminders.Add(new SettlementReminder
+        {
+            VehicleId = vehicle.Id, Direction = SettlementDirection.PayBank, BankDebtAmount = 60_000m, Amount = 60_000m,
+            Deadline = new DateOnly(2027, 3, 1), BankName = "Maybank", BankAccountNumber = "123456789"
+        });
+        await fixture.Db.SaveChangesAsync();
+        var intent = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("settlement-update STALE123 | 61000 | 2027-03-15 | Maybank | 987654321"));
+        var preview = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, intent, "en_US", fixture.Now,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, requestId: Guid.NewGuid(), assistantOptions: fixture.Options);
+        var draft = await fixture.Db.WhatsAppSettlementUpdateDrafts.SingleAsync();
+        var source = await fixture.Db.SettlementReminders.SingleAsync();
+        fixture.Db.Entry(source).CurrentValues.SetValues(source with { Amount = 61_000m, BankDebtAmount = 61_000m });
+        await fixture.Db.SaveChangesAsync();
+        var confirm = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse($"settlement-update confirm {draft.Id}"));
+        var reply = await WhatsAppStaffQueries.ReplyAsync(fixture.Db, confirm, "en_US", fixture.Now + 1,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, assistantOptions: fixture.Options);
+        Assert.Contains("changed after this preview", reply);
+        Assert.Equal("Stale", (await fixture.Db.WhatsAppSettlementUpdateDrafts.SingleAsync()).State);
+        Assert.Equal(61_000m, (await fixture.Db.SettlementReminders.SingleAsync()).Amount);
+        Assert.DoesNotContain("987654321", preview);
+    }
+
+    [Theory]
+    [InlineData("expired")]
+    [InlineData("revoked")]
+    [InlineData("paid")]
+    public async Task Boss_settlement_confirmation_does_not_change_money_after_authority_or_source_becomes_invalid(string condition)
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        var issued = await fixture.Issue("boss");
+        Assert.True(await fixture.Verify(issued, key: "settlement-guard-link"));
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync();
+        var vehicle = new Vehicle { PlateNumber = "GUARD123", Status = VehicleStatus.Available };
+        var settlement = new SettlementReminder
+        {
+            VehicleId = vehicle.Id, Direction = SettlementDirection.PayBank, BankDebtAmount = 50_000m, Amount = 50_000m,
+            Deadline = new DateOnly(2027, 1, 31), BankName = "Maybank", BankAccountNumber = "123456789"
+        };
+        fixture.Db.Vehicles.Add(vehicle);
+        fixture.Db.SettlementReminders.Add(settlement);
+        await fixture.Db.SaveChangesAsync();
+        var preview = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse("settlement-update GUARD123 | 52000 | 2027-02-15 | CIMB | 987654321"));
+        await WhatsAppStaffQueries.ReplyAsync(fixture.Db, preview, "en_US", fixture.Now,
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, requestId: Guid.NewGuid(), assistantOptions: fixture.Options);
+        var draft = await fixture.Db.WhatsAppSettlementUpdateDrafts.SingleAsync();
+        if (condition == "revoked") fixture.Db.Entry(binding).CurrentValues.SetValues(binding with { RevokedAt = fixture.Now + 1 });
+        if (condition == "paid") fixture.Db.Entry(settlement).CurrentValues.SetValues(settlement with { IsPaid = true });
+        await fixture.Db.SaveChangesAsync();
+        var confirm = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse($"settlement-update confirm {draft.Id}"));
+        await WhatsAppStaffQueries.ReplyAsync(fixture.Db, confirm, "en_US", fixture.Now + (condition == "expired" ? 301 : 2),
+            roles: ["BossAdmin"], staffUserId: "boss", bindingId: binding.Id, assistantOptions: fixture.Options);
+        var unchanged = await fixture.Db.SettlementReminders.AsNoTracking().SingleAsync();
+        Assert.Equal(50_000m, unchanged.Amount);
+        Assert.Equal("123456789", unchanged.BankAccountNumber);
+        Assert.Equal(condition == "paid", unchanged.IsPaid);
+        Assert.NotEqual("Confirmed", (await fixture.Db.WhatsAppSettlementUpdateDrafts.AsNoTracking().SingleAsync()).State);
+        Assert.False(await fixture.Db.AuditLogs.AnyAsync(row => row.Action == "bankSettlement.updatedByWhatsApp"));
     }
 
     [Fact]
@@ -247,7 +572,7 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.DoesNotContain("999,999", collections);
         Assert.DoesNotContain("PRIVATE", collections);
 
-        var settlement = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "FIN123"), ["Finance"], "en_US", now);
+        var settlement = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "FIN123"), ["BossAdmin"], "en_US", now);
         Assert.Contains("Direction: Collect from seller", settlement);
         Assert.Contains("Recorded amount: RM 800.00", settlement);
         Assert.Contains("Status: Overdue — outstanding", settlement);
@@ -282,12 +607,12 @@ public sealed class WhatsAppStaffAssistantTests
         await fixture.Db.SaveChangesAsync();
         var now = new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
 
-        Assert.Contains("No seller settlement recorded", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "EMPTY1"), ["Finance"], "en_US", now));
-        var zero = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "OFFSET1"), ["Finance"], "en_US", now);
+        Assert.Contains("No seller settlement recorded", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "EMPTY1"), ["BossAdmin"], "en_US", now));
+        var zero = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "OFFSET1"), ["BossAdmin"], "en_US", now);
         Assert.Contains("Direction: Internal offset", zero);
         Assert.Contains("Recorded amount: RM 0.00", zero);
-        Assert.Contains("Review Finance in Back Office", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "ORPHAN1"), ["Finance"], "en_US", now));
-        Assert.Contains("Review Finance in Back Office", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "LEGACY0"), ["Finance"], "en_US", now));
+        Assert.Contains("Review Finance in Back Office", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "ORPHAN1"), ["BossAdmin"], "en_US", now));
+        Assert.Contains("Review Finance in Back Office", await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("settlement", "LEGACY0"), ["BossAdmin"], "en_US", now));
         var invalid = await WhatsAppStaffFinanceQueries.ReplyAsync(fixture.Db, new("collections", "MISMATCH1"), ["Finance"], "en_US", now);
         Assert.Contains("Review Finance in Back Office", invalid);
         Assert.DoesNotContain("RM 0.00", invalid);
@@ -527,7 +852,7 @@ public sealed class WhatsAppStaffAssistantTests
     public void Service_catalogue_matches_typed_commands_and_role_counts()
     {
         Assert.Equal(6, WhatsAppStaffCommandHelp.Allowed(["Sales"]).Count);
-        Assert.Equal(8, WhatsAppStaffCommandHelp.Allowed(["Finance"]).Count);
+        Assert.Equal(7, WhatsAppStaffCommandHelp.Allowed(["Finance"]).Count);
         Assert.Equal(10, WhatsAppStaffCommandHelp.Allowed(["BossAdmin"]).Count);
         Assert.Equal(10, WhatsAppStaffCommandHelp.Allowed(["Sales", "Finance", "BossAdmin"]).Count);
         foreach (var service in WhatsAppStaffCommandHelp.Services)
@@ -1031,7 +1356,7 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.Contains("→ due", WhatsAppStaffQueries.Help("en_US", ["Sales"]));
         Assert.DoesNotContain("→ due", WhatsAppStaffQueries.Help("en_US", ["Finance"]));
         Assert.Equal(6, WhatsAppStaffCommandHelp.Allowed(["Sales"]).Count);
-        Assert.Equal(8, WhatsAppStaffCommandHelp.Allowed(["Finance"]).Count);
+        Assert.Equal(7, WhatsAppStaffCommandHelp.Allowed(["Finance"]).Count);
         Assert.Equal(10, WhatsAppStaffCommandHelp.Allowed(["BossAdmin"]).Count);
 
         var sources = await WhatsAppDueDigest.LoadAsync(fixture.Db, today, 3);

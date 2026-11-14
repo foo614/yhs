@@ -34,11 +34,11 @@ describe("finance list helpers", () => {
     expect(filterFinanceRowsByFields(paymentRows, { plate: "VPK1234", customer: "Smoke" }, (row) => row)).toEqual([]);
   });
 
-  it("uses eight rows per page and clamps an out-of-range current page", () => {
+  it("uses ten rows per page and clamps an out-of-range current page", () => {
     const pageRows = Array.from({ length: FINANCE_LIST_PAGE_SIZE + 1 }, (_, index) => index + 1);
 
     expect(financePageFor(pageRows.length, 9)).toBe(2);
-    expect(pageFinanceRows(pageRows, 2)).toEqual([9]);
+    expect(pageFinanceRows(pageRows, 2)).toEqual([11]);
   });
 
   it("restores all records when search and status filters are cleared", () => {

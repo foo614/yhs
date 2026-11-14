@@ -239,7 +239,8 @@ public sealed class ApiDocumentationTests
         var root = FindRepositoryRoot();
         var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
         var seed = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Data", "SeedData.cs"));
-        var intakeRoute = program[program.IndexOf("backOffice.MapPost(\"/vehicle-intakes\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapPost(\"/vehicles\"", StringComparison.Ordinal)];
+        Assert.Contains("backOffice.MapPost(\"/vehicle-intakes\", VehicleIntake.CreateAsync)", program);
+        var intakeRoute = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "VehicleIntake.cs"));
 
         Assert.Contains("form.Files.GetFile(\"identityCard\")", intakeRoute);
         Assert.Contains("UploadPolicy.ValidateOcrImageContent", intakeRoute);
@@ -255,7 +256,8 @@ public sealed class ApiDocumentationTests
     {
         var root = FindRepositoryRoot();
         var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
-        var intakeRoute = program[program.IndexOf("backOffice.MapPost(\"/vehicle-intakes\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapPost(\"/vehicles\"", StringComparison.Ordinal)];
+        Assert.Contains("backOffice.MapPost(\"/vehicle-intakes\", VehicleIntake.CreateAsync)", program);
+        var intakeRoute = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", "VehicleIntake.cs"));
         var createRoute = program[program.IndexOf("backOffice.MapPost(\"/vehicles\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapPut(\"/vehicles/{id:guid}\"", StringComparison.Ordinal)];
         var updateRoute = program[program.IndexOf("backOffice.MapPut(\"/vehicles/{id:guid}\"", StringComparison.Ordinal)..program.IndexOf("backOffice.MapGet(\"/vehicles/{id:guid}/stock-movements\"", StringComparison.Ordinal)];
 
@@ -431,7 +433,7 @@ public sealed class ApiDocumentationTests
         var route = program[routeStart..routeEnd];
 
         Assert.Contains("item.Id == documentId && item.VehicleId == id", route);
-        Assert.Contains("DepartmentAccess.CanUploadDocument(roles, document.Category)", route);
+        Assert.Contains("DepartmentAccess.CanViewDocument(roles, document.Category)", route);
         Assert.Contains("return Results.NotFound()", route);
         Assert.Contains("return Results.Forbid()", route);
     }
@@ -443,6 +445,7 @@ public sealed class ApiDocumentationTests
         var apiDocs = File.ReadAllText(Path.Combine(root, "docs", "API.md"));
 
         AssertDocumentedEnum<StockOwner>(apiDocs);
+        AssertDocumentedEnum<VehiclePurchaseSource>(apiDocs);
         AssertDocumentedEnum<VehicleStatus>(apiDocs);
         AssertDocumentedEnum<LeadStatus>(apiDocs);
         AssertDocumentedEnum<LoanStatus>(apiDocs);
@@ -485,7 +488,7 @@ public sealed class ApiDocumentationTests
         Assert.Contains("FinanceClearanceRules.ClearedVehicleIds(payments, financeInvoices, collections)", program);
         Assert.True(Regex.Matches(program, @"FinanceClearanceRules\.IsVehicleCleared\(delivery\.VehicleId, payments, financeInvoices, collections\)").Count >= 2);
         Assert.Contains("FinanceClearanceRules.ClearedVehicleIds(paymentList, financeInvoices ?? [], collections ?? [])", deliveryWorkboard);
-        Assert.Matches(new Regex(@"SalesWorkboardRules\.Create\(\s*selectedAgentIds,[\s\S]*?financeInvoices:\s*financeInvoices,\s*collections:\s*collections\)"), program);
+        Assert.Matches(new Regex(@"SalesWorkboardRules\.Create\(\s*selectedAgentIds,[\s\S]*?financeInvoices:\s*financeInvoices,\s*collections:\s*collections(?:,\s*brokerDealPrices:\s*brokerDealPrices)?\)"), program);
         Assert.Contains("Finance V2 uses one receivable per vehicle", apiDocs);
         Assert.Contains("Creating the receivable locks the buyer identity", apiDocs);
         Assert.Contains("First-deploy assumption", apiDocs);

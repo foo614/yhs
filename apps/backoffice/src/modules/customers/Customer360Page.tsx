@@ -81,8 +81,12 @@ const documentLabels: Record<CustomerProfileDocument["category"], string> = {
   PaymentReceipt: "Payment Receipt",
   PaymentInvoice: "Payment Invoice",
   MedicalCertificate: "Medical Certificate",
+  InspectionReceipt: "Inspection Receipt",
+  InspectionAppointmentConfirmation: "Inspection Appointment Confirmation",
   InspectionReport: "Inspection Report",
-  WindscreenPolicy: "Windscreen Policy"
+  BankSettlementPayment: "Bank payment evidence",
+  SettlementEvidence: "Settlement supporting document / 结算证明",
+    WindscreenPolicy: "Windscreen Policy"
 };
 
 function displayValue(value?: string | number | null) {

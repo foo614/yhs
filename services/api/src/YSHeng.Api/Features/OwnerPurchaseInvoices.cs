@@ -7,11 +7,27 @@ using YSHeng.Api.Domain;
 
 namespace YSHeng.Api.Features;
 
-public sealed record GenerateOwnerPurchaseInvoiceRequest(Guid ExpectedOwnerId, decimal ExpectedPurchasePrice, DateOnly ExpectedIntakeDate);
+public sealed record GenerateOwnerPurchaseInvoiceRequest(
+    Guid ExpectedOwnerId,
+    decimal ExpectedPurchasePrice,
+    DateOnly ExpectedIntakeDate,
+    Guid? ExpectedSupplierId = null,
+    string? SupplierInvoiceNumber = null,
+    DateOnly? SupplierInvoiceDate = null,
+    string? DiscountVoucherReference = null);
+
+public sealed record RecordAutoCountKeyRequest(int ExpectedRevision, string? AutoCountInvoiceNumber);
 
 public sealed record PurchaseInvoiceRevisionSeller(string? Name, string? Phone, string? IcNumber, string? TinNumber, string? Address);
 
-public sealed record PurchaseInvoiceRevisionLineRequest(PurchaseInvoiceLineType LineType, string? Description, decimal Amount, bool CapitaliseIntoVehicleCost);
+public sealed record PurchaseInvoiceRevisionLineRequest(
+    PurchaseInvoiceLineType LineType,
+    string? Description,
+    decimal Amount,
+    bool CapitaliseIntoVehicleCost,
+    string? SupplierInvoiceNumber = null,
+    DateOnly? SupplierInvoiceDate = null,
+    string? DiscountVoucherReference = null);
 
 public sealed record CreatePurchaseInvoiceRevisionRequest(
     int ExpectedRevision,
@@ -20,12 +36,17 @@ public sealed record CreatePurchaseInvoiceRevisionRequest(
     DateOnly PurchaseDate,
     string? PaymentReference,
     PurchaseInvoiceRevisionSeller? Seller,
-    IReadOnlyList<PurchaseInvoiceRevisionLineRequest>? Lines);
+    IReadOnlyList<PurchaseInvoiceRevisionLineRequest>? Lines,
+    string? SupplierInvoiceNumber = null,
+    DateOnly? SupplierInvoiceDate = null,
+    string? DiscountVoucherReference = null);
 
 public sealed record OwnerPurchaseInvoiceDraft(PurchaseInvoice Invoice, PurchaseInvoiceRevision Revision, IReadOnlyList<PurchaseInvoiceRevisionLine> Lines);
 
 public static class OwnerPurchaseInvoiceRules
 {
+    public static decimal GenerationAmount(Vehicle vehicle) => vehicle.ModifiedPurchasePrice ?? vehicle.PurchasePrice;
+
     private const int MaximumRevisionLines = 100;
     private const int MaximumReasonLength = 500;
     private const int MaximumSellerFieldLength = 200;
@@ -35,7 +56,7 @@ public static class OwnerPurchaseInvoiceRules
     private const decimal MaximumRevisionLineAmount = 10_000_000m;
     private static readonly Regex OfficialNumberPattern = new("^YSH-PINV-[0-9]{4}-[0-9]{6,}$", RegexOptions.CultureInvariant);
 
-    public static ValidationResult ValidateGeneration(GenerateOwnerPurchaseInvoiceRequest request, Vehicle? vehicle, Owner? owner)
+    public static ValidationResult ValidateGeneration(GenerateOwnerPurchaseInvoiceRequest request, Vehicle? vehicle, Owner? owner, Supplier? supplier = null)
     {
         var errors = new List<ValidationError>();
         if (vehicle is null)
@@ -46,21 +67,43 @@ public static class OwnerPurchaseInvoiceRules
 
         if (!vehicle.BossConfirmed)
             errors.Add(new ValidationError("purchase_invoice_intake_not_approved", "A Boss-confirmed intake is required before issuing an owner purchase invoice."));
-        if (vehicle.PurchasePrice <= 0)
+        if (OwnerPurchaseInvoiceRules.GenerationAmount(vehicle) <= 0)
             errors.Add(new ValidationError("purchase_invoice_purchase_price_required", "A positive canonical purchase price is required before issuing an owner purchase invoice."));
-        else if (!HasCurrencyPrecision(vehicle.PurchasePrice))
+        else if (!HasCurrencyPrecision(OwnerPurchaseInvoiceRules.GenerationAmount(vehicle)))
             errors.Add(new ValidationError("purchase_invoice_purchase_price_precision_invalid", "The canonical purchase price must have no more than two decimal places for a formal purchase invoice."));
         if (vehicle.IntakeDate == default)
             errors.Add(new ValidationError("purchase_invoice_intake_date_required", "A valid intake date is required before issuing an owner purchase invoice."));
-        if (!vehicle.OwnerId.HasValue)
+        if (vehicle.PurchaseSource is VehiclePurchaseSource.Carsome or VehiclePurchaseSource.Carro or VehiclePurchaseSource.KSA)
+        {
+            if (!request.ExpectedSupplierId.HasValue || supplier is null || supplier.Status != SupplierStatus.Active || supplier.Id != request.ExpectedSupplierId.Value)
+                errors.Add(new ValidationError("purchase_invoice_supplier_required", "Select an active supplier company for a dealer-sourced vehicle before issuing its purchase invoice."));
+            else
+            {
+                if (string.IsNullOrWhiteSpace(supplier.CompanyName)) errors.Add(new ValidationError("purchase_invoice_supplier_name_required", "The dealer company name is required for a formal purchase invoice."));
+                if (string.IsNullOrWhiteSpace(supplier.Phone)) errors.Add(new ValidationError("purchase_invoice_supplier_phone_required", "The dealer company phone number is required for a formal purchase invoice."));
+            }
+            if (vehicle.PurchaseSource == VehiclePurchaseSource.KSA && vehicle.Status != VehicleStatus.Sold)
+                errors.Add(new ValidationError("purchase_invoice_ksa_not_sold", "A KSA vehicle can only receive a purchase invoice after it has been sold."));
+        }
+        else if (!vehicle.OwnerId.HasValue)
             errors.Add(new ValidationError("purchase_invoice_owner_required", "Select the vehicle's previous owner before issuing an owner purchase invoice."));
         else if (request.ExpectedOwnerId != vehicle.OwnerId.Value)
             errors.Add(new ValidationError("purchase_invoice_owner_changed", "The selected previous owner changed. Refresh and review the intake before issuing."));
-        if (request.ExpectedPurchasePrice != vehicle.PurchasePrice)
+        if (request.ExpectedPurchasePrice != OwnerPurchaseInvoiceRules.GenerationAmount(vehicle))
             errors.Add(new ValidationError("purchase_invoice_purchase_price_changed", "The canonical purchase price changed. Refresh and review the intake before issuing."));
         if (request.ExpectedIntakeDate != vehicle.IntakeDate)
             errors.Add(new ValidationError("purchase_invoice_intake_date_changed", "The intake date changed. Refresh and review the intake before issuing."));
-        if (owner is null || !vehicle.OwnerId.HasValue || owner.Id != vehicle.OwnerId.Value)
+        if (request.SupplierInvoiceNumber?.Length > MaximumPaymentReferenceLength)
+            errors.Add(new ValidationError("purchase_invoice_supplier_number_too_long", $"The supplier invoice number cannot exceed {MaximumPaymentReferenceLength} characters."));
+        if (request.DiscountVoucherReference?.Length > MaximumPaymentReferenceLength)
+            errors.Add(new ValidationError("purchase_invoice_discount_reference_too_long", $"The discount voucher reference cannot exceed {MaximumPaymentReferenceLength} characters."));
+        AddUnsupportedTextError(errors, [request.SupplierInvoiceNumber, request.DiscountVoucherReference]);
+        if (vehicle.PurchaseSource is VehiclePurchaseSource.Carsome or VehiclePurchaseSource.Carro or VehiclePurchaseSource.KSA)
+        {
+            if (supplier is not null)
+                AddUnsupportedTextError(errors, [supplier.CompanyName, supplier.RegistrationNumber, supplier.TinNumber, supplier.Address, supplier.Phone, vehicle.PlateNumber, VehicleDescription(vehicle)]);
+        }
+        else if (owner is null || !vehicle.OwnerId.HasValue || owner.Id != vehicle.OwnerId.Value)
             errors.Add(new ValidationError("purchase_invoice_owner_not_found", "The vehicle's previous owner is unavailable. Refresh and review the intake before issuing."));
         else
         {
@@ -136,7 +179,11 @@ public static class OwnerPurchaseInvoiceRules
 
         if (request.PaymentReference?.Length > MaximumPaymentReferenceLength)
             errors.Add(new ValidationError("purchase_invoice_revision_payment_reference_too_long", $"The payment reference cannot exceed {MaximumPaymentReferenceLength} characters."));
-        AddUnsupportedTextError(errors, [request.Reason, request.PaymentReference]);
+        if (request.SupplierInvoiceNumber?.Length > MaximumPaymentReferenceLength)
+            errors.Add(new ValidationError("purchase_invoice_revision_supplier_number_too_long", $"The supplier invoice number cannot exceed {MaximumPaymentReferenceLength} characters."));
+        if (request.DiscountVoucherReference?.Length > MaximumPaymentReferenceLength)
+            errors.Add(new ValidationError("purchase_invoice_revision_discount_reference_too_long", $"The discount voucher reference cannot exceed {MaximumPaymentReferenceLength} characters."));
+        AddUnsupportedTextError(errors, [request.Reason, request.PaymentReference, request.SupplierInvoiceNumber, request.DiscountVoucherReference]);
         return new ValidationResult(errors);
     }
 
@@ -168,6 +215,18 @@ public static class OwnerPurchaseInvoiceRules
     public static string NormalizeInvoiceNumber(string? number) => string.Concat((number ?? "").Where(character => !char.IsWhiteSpace(character))).ToUpperInvariant();
 
     public static bool HasCurrencyPrecision(decimal amount) => decimal.Round(amount, 2) == amount;
+
+    public static ValidationResult ValidateAutoCountKey(PurchaseInvoice invoice, RecordAutoCountKeyRequest request)
+    {
+        var errors = new List<ValidationError>();
+        if (invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition && request.ExpectedRevision != invoice.CurrentRevisionNumber)
+            errors.Add(new ValidationError("purchase_invoice_revision_stale", "This formal invoice changed after it was reviewed. Refresh before recording the AutoCount number."));
+        if (invoice.AccountingStatus != AccountingConfirmationStatus.FinanceConfirmed)
+            errors.Add(new ValidationError("purchase_invoice_accounting_confirmation_required", "Boss/Admin must confirm the purchase invoice before recording its AutoCount number."));
+        if (string.IsNullOrWhiteSpace(request.AutoCountInvoiceNumber) || request.AutoCountInvoiceNumber.Trim().Length > 100)
+            errors.Add(new ValidationError("purchase_invoice_autocount_number_required", "Enter the AutoCount purchase invoice number (maximum 100 characters)."));
+        return new ValidationResult(errors);
+    }
 
     public static decimal CalculateRevisionTotal(IEnumerable<PurchaseInvoiceRevisionLineRequest> lines)
     {
@@ -206,18 +265,32 @@ public static class OwnerPurchaseInvoiceFactory
     public static string NumberFor(DateOnly issuedDate, long sequence) => $"YSH-PINV-{issuedDate.Year}-{sequence:000000}";
 
     public static OwnerPurchaseInvoiceDraft CreateInitial(Vehicle vehicle, Owner owner, string invoiceNumber, DateOnly issueDate, string createdBy, DateTime now, string? createdByUserId = null)
+        => CreateInitial(vehicle, owner, null, invoiceNumber, issueDate, createdBy, now, createdByUserId);
+
+    public static OwnerPurchaseInvoiceDraft CreateInitial(Vehicle vehicle, Owner? owner, Supplier? supplier, string invoiceNumber, DateOnly issueDate, string createdBy, DateTime now, string? createdByUserId = null, string? supplierInvoiceNumber = null, DateOnly? supplierInvoiceDate = null, string? discountVoucherReference = null)
     {
+        var dealerSource = vehicle.PurchaseSource is VehiclePurchaseSource.Carsome or VehiclePurchaseSource.Carro or VehiclePurchaseSource.KSA;
+        var sellerType = dealerSource ? PurchaseInvoiceSellerType.Company : PurchaseInvoiceSellerType.Private;
+        var sellerName = dealerSource ? supplier?.CompanyName : owner?.Name;
+        var sellerPhone = dealerSource ? supplier?.Phone : owner?.Phone;
+        var sellerIc = dealerSource ? null : CleanOptional(owner?.IcNumber);
+        var sellerTin = dealerSource ? CleanOptional(supplier?.TinNumber) : CleanOptional(owner?.TinNumber);
+        var sellerAddress = dealerSource ? CleanOptional(supplier?.Address) : CleanOptional(owner?.Address);
         var invoice = new PurchaseInvoice
         {
             VehicleId = vehicle.Id,
             SourceType = PurchaseInvoiceSourceType.OwnerAcquisition,
-            OwnerId = owner.Id,
+            SupplierId = dealerSource ? supplier?.Id : null,
+            OwnerId = owner?.Id,
             CurrentRevisionNumber = 1,
             InvoiceNumber = invoiceNumber,
             InvoiceDate = issueDate,
             PurchaseDate = vehicle.IntakeDate,
-            Amount = vehicle.PurchasePrice,
-            AccountingStatus = AccountingConfirmationStatus.Draft
+            Amount = OwnerPurchaseInvoiceRules.GenerationAmount(vehicle),
+            AccountingStatus = AccountingConfirmationStatus.Draft,
+            SupplierInvoiceNumber = CleanOptional(supplierInvoiceNumber),
+            SupplierInvoiceDate = supplierInvoiceDate,
+            DiscountVoucherReference = CleanOptional(discountVoucherReference)
         };
         var revision = new PurchaseInvoiceRevision
         {
@@ -225,17 +298,22 @@ public static class OwnerPurchaseInvoiceFactory
             RevisionNumber = 1,
             InvoiceNumber = invoiceNumber,
             SourceVehicleId = vehicle.Id,
-            SourceOwnerId = owner.Id,
+            SourceOwnerId = owner?.Id ?? Guid.Empty,
             InvoiceDate = issueDate,
             PurchaseDate = vehicle.IntakeDate,
-            SellerName = owner.Name.Trim(),
-            SellerPhone = owner.Phone.Trim(),
-            SellerIcNumber = CleanOptional(owner.IcNumber),
-            SellerTinNumber = CleanOptional(owner.TinNumber),
-            SellerAddress = CleanOptional(owner.Address),
+            SellerName = (sellerName ?? "").Trim(),
+            SellerPhone = (sellerPhone ?? "").Trim(),
+            SellerIcNumber = sellerIc,
+            SellerTinNumber = sellerTin,
+            SellerAddress = sellerAddress,
+            SellerType = sellerType,
+            SellerRegistrationNumber = dealerSource ? CleanOptional(supplier?.RegistrationNumber) : null,
+            SupplierInvoiceNumber = CleanOptional(supplierInvoiceNumber),
+            SupplierInvoiceDate = supplierInvoiceDate,
+            DiscountVoucherReference = CleanOptional(discountVoucherReference),
             VehiclePlateNumber = vehicle.PlateNumber.Trim(),
             VehicleDescription = OwnerPurchaseInvoiceRules.VehicleDescription(vehicle),
-            Amount = vehicle.PurchasePrice,
+            Amount = OwnerPurchaseInvoiceRules.GenerationAmount(vehicle),
             CreatedBy = createdBy,
             CreatedByUserId = createdByUserId,
             CreatedAt = now,
@@ -251,7 +329,7 @@ public static class OwnerPurchaseInvoiceFactory
                 Description = string.IsNullOrWhiteSpace(revision.VehicleDescription)
                     ? $"Vehicle purchase - {revision.VehiclePlateNumber}"
                     : $"Vehicle purchase - {revision.VehiclePlateNumber} {revision.VehicleDescription}",
-                Amount = vehicle.PurchasePrice,
+                Amount = OwnerPurchaseInvoiceRules.GenerationAmount(vehicle),
                 CapitaliseIntoVehicleCost = true,
                 SortOrder = 1
             }
@@ -284,6 +362,11 @@ public static class OwnerPurchaseInvoiceFactory
             SellerIcNumber = CleanOptional(seller.IcNumber),
             SellerTinNumber = CleanOptional(seller.TinNumber),
             SellerAddress = CleanOptional(seller.Address),
+            SellerType = currentRevision.SellerType,
+            SellerRegistrationNumber = currentRevision.SellerRegistrationNumber,
+            SupplierInvoiceNumber = CleanOptional(request.SupplierInvoiceNumber),
+            SupplierInvoiceDate = request.SupplierInvoiceDate,
+            DiscountVoucherReference = CleanOptional(request.DiscountVoucherReference),
             VehiclePlateNumber = currentRevision.VehiclePlateNumber,
             VehicleDescription = currentRevision.VehicleDescription,
             Amount = OwnerPurchaseInvoiceRules.CalculateRevisionTotal(request.Lines!),
@@ -300,7 +383,10 @@ public static class OwnerPurchaseInvoiceFactory
             Description = line.Description!.Trim(),
             Amount = line.Amount,
             CapitaliseIntoVehicleCost = line.CapitaliseIntoVehicleCost,
-            SortOrder = index + 1
+            SortOrder = index + 1,
+            SupplierInvoiceNumber = CleanOptional(line.SupplierInvoiceNumber),
+            SupplierInvoiceDate = line.SupplierInvoiceDate,
+            DiscountVoucherReference = CleanOptional(line.DiscountVoucherReference)
         }).ToList();
         revision = revision with { Content = OwnerPurchaseInvoicePdf.Create(revision, lines) };
         var current = invoice with
@@ -309,11 +395,19 @@ public static class OwnerPurchaseInvoiceFactory
             InvoiceDate = revision.InvoiceDate,
             PurchaseDate = revision.PurchaseDate,
             PaymentReference = revision.PaymentReference,
+            SupplierInvoiceNumber = revision.SupplierInvoiceNumber,
+            SupplierInvoiceDate = revision.SupplierInvoiceDate,
+            DiscountVoucherReference = revision.DiscountVoucherReference,
             Amount = revision.Amount,
             AccountingStatus = AccountingConfirmationStatus.Draft,
             AccountingConfirmedBy = null,
             AccountingConfirmedByUserId = null,
-            AccountingConfirmedAt = null
+            AccountingConfirmedAt = null,
+            AutoCountInvoiceNumber = null,
+            AutoCountKeyed = false,
+            AutoCountKeyedBy = null,
+            AutoCountKeyedByUserId = null,
+            AutoCountKeyedAt = null
         };
         return new OwnerPurchaseInvoiceDraft(current, revision, lines);
     }
@@ -327,7 +421,10 @@ public static class OwnerPurchaseInvoiceFactory
             LineType = line.LineType,
             Description = line.Description,
             Amount = line.Amount,
-            CapitaliseIntoVehicleCost = line.CapitaliseIntoVehicleCost
+            CapitaliseIntoVehicleCost = line.CapitaliseIntoVehicleCost,
+            SupplierInvoiceNumber = line.SupplierInvoiceNumber,
+            SupplierInvoiceDate = line.SupplierInvoiceDate,
+            DiscountVoucherReference = line.DiscountVoucherReference
         }).ToList();
 
     private static string? CleanOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -434,6 +531,11 @@ public static class OwnerPurchaseInvoiceReader
         SellerIcNumber = revision.SellerIcNumber,
         SellerTinNumber = revision.SellerTinNumber,
         SellerAddress = revision.SellerAddress,
+        SellerType = revision.SellerType,
+        SellerRegistrationNumber = revision.SellerRegistrationNumber,
+        SupplierInvoiceNumber = revision.SupplierInvoiceNumber,
+        SupplierInvoiceDate = revision.SupplierInvoiceDate,
+        DiscountVoucherReference = revision.DiscountVoucherReference,
         VehiclePlateNumber = revision.VehiclePlateNumber,
         VehicleDescription = revision.VehicleDescription,
         Amount = revision.Amount,

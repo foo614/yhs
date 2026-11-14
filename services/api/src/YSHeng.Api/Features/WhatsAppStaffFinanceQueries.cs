@@ -122,14 +122,14 @@ public static class WhatsAppStaffFinanceQueries
         if (vehicles.Count == 0) return Text(language, "No matching vehicle.", "Tiada kenderaan yang sepadan.");
         if (vehicles.Count > 1) return ReviewFinance(language, "Multiple vehicles match this plate.", "Beberapa kenderaan sepadan dengan plat ini.");
         var vehicle = vehicles[0];
-        var settlements = await db.SettlementReminders.AsNoTracking().Where(item => item.VehicleId == vehicle.Id).Select(item => new SettlementReminder
+        var settlements = await db.SettlementReminders.AsNoTracking().Where(item => item.VehicleId == vehicle.Id && item.SupersededById == null).Select(item => new SettlementReminder
         {
             VehicleId = item.VehicleId, OwnerId = item.OwnerId, Direction = item.Direction, PurchasePriceSnapshot = item.PurchasePriceSnapshot,
-            BankDebtAmount = item.BankDebtAmount, Amount = item.Amount, Deadline = item.Deadline, IsPaid = item.IsPaid
+            BankDebtAmount = item.BankDebtAmount, Amount = item.Amount, Deadline = item.Deadline, IsPaid = item.IsPaid, BankName = item.BankName, BankAccountNumber = item.BankAccountNumber, PaymentDocumentId = item.PaymentDocumentId, PaidOn = item.PaidOn
         }).Take(2).ToListAsync(ct);
         if (settlements.Count == 0) return Text(language,
-            $"{Clean(vehicle.PlateNumber)} — Seller settlement\nNo seller settlement recorded.",
-            $"{Clean(vehicle.PlateNumber)} — Penyelesaian penjual\nTiada penyelesaian penjual direkodkan.");
+            $"{Clean(vehicle.PlateNumber)} — Settlement\nNo seller settlement recorded.",
+            $"{Clean(vehicle.PlateNumber)} — Penyelesaian\nTiada penyelesaian penjual direkodkan.");
         if (settlements.Count > 1) return ReviewFinance(language, "Multiple seller settlements were found.", "Beberapa penyelesaian penjual ditemui.");
         var settlement = settlements[0];
         var owners = settlement.OwnerId is { } ownerId
@@ -142,6 +142,7 @@ public static class WhatsAppStaffFinanceQueries
         {
             SettlementDirection.LegacyPaySeller => Text(language, "Pay seller (legacy saved record)", "Bayar penjual (rekod lama disimpan)"),
             SettlementDirection.PaySeller => Text(language, "Pay seller", "Bayar penjual"),
+            SettlementDirection.PayBank => Text(language, "Pay to bank", "Bayar bank"),
             SettlementDirection.CollectFromSeller => Text(language, "Collect from seller", "Kutip daripada penjual"),
             SettlementDirection.InternalOffset => Text(language, "Internal offset", "Pelarasan dalaman"),
             _ => throw new InvalidOperationException("Settlement direction passed validation but is not supported.")
@@ -152,8 +153,8 @@ public static class WhatsAppStaffFinanceQueries
                 ? Text(language, "Overdue — outstanding", "Lewat — tertunggak")
                 : Text(language, "Outstanding", "Tertunggak");
         return Text(language,
-            $"{Clean(vehicle.PlateNumber)} — Seller settlement\nDirection: {direction}\nRecorded amount: {Money(settlement.Amount)}\nDeadline: {Date(settlement.Deadline, language)}\nStatus: {status}",
-            $"{Clean(vehicle.PlateNumber)} — Penyelesaian penjual\nArah: {direction}\nAmaun direkodkan: {Money(settlement.Amount)}\nTarikh akhir: {Date(settlement.Deadline, language)}\nStatus: {status}");
+            $"{Clean(vehicle.PlateNumber)} — Settlement\nDirection: {direction}\nRecorded amount: {Money(settlement.Amount)}\nDeadline: {Date(settlement.Deadline, language)}\nStatus: {status}",
+            $"{Clean(vehicle.PlateNumber)} — Penyelesaian\nArah: {direction}\nAmaun direkodkan: {Money(settlement.Amount)}\nTarikh akhir: {Date(settlement.Deadline, language)}\nStatus: {status}");
     }
 
     private static async Task<string> ProfitAsync(AppDbContext db, bool dashboard, string argument, string language, long now, CancellationToken ct)
@@ -202,10 +203,10 @@ public static class WhatsAppStaffFinanceQueries
         {
             PaymentRecordId = item.PaymentRecordId, Amount = item.Amount, Status = item.Status
         }).ToListAsync(ct);
-        var settlements = await db.SettlementReminders.AsNoTracking().Select(item => new SettlementReminder
+        var settlements = await db.SettlementReminders.AsNoTracking().Where(item => item.SupersededById == null).Select(item => new SettlementReminder
         {
             VehicleId = item.VehicleId, OwnerId = item.OwnerId, Direction = item.Direction, PurchasePriceSnapshot = item.PurchasePriceSnapshot,
-            BankDebtAmount = item.BankDebtAmount, Amount = item.Amount, Deadline = item.Deadline, IsPaid = item.IsPaid
+            BankDebtAmount = item.BankDebtAmount, Amount = item.Amount, Deadline = item.Deadline, IsPaid = item.IsPaid, BankName = item.BankName, BankAccountNumber = item.BankAccountNumber, PaymentDocumentId = item.PaymentDocumentId, PaidOn = item.PaidOn
         }).ToListAsync(ct);
         var owners = await db.Owners.AsNoTracking().Select(item => new Owner { Id = item.Id }).ToListAsync(ct);
         var vehiclesById = vehicles.GroupBy(vehicle => vehicle.Id).ToDictionary(group => group.Key, group => group.ToList());
@@ -223,13 +224,14 @@ public static class WhatsAppStaffFinanceQueries
         var settlementReviewCount = settlementGroups.Count - validSettlements.Count;
         var reconciledByPayment = collections.GroupBy(item => item.PaymentRecordId).ToDictionary(group => group.Key, group => (IEnumerable<CollectionTransaction>)group);
         var receivables = validV2Payments.Sum(payment => FinanceV2Rules.Balance(payment, reconciledByPayment.GetValueOrDefault(payment.Id) ?? []));
-        var sellerPayable = validSettlements.Where(item => !item.IsPaid && SettlementRules.IsPayable(item)).Sum(item => item.Amount);
+        var sellerPayable = validSettlements.Where(item => !item.IsPaid && item.Direction != SettlementDirection.PayBank && SettlementRules.IsPayable(item)).Sum(item => item.Amount);
+        var bankPayable = validSettlements.Where(item => !item.IsPaid && item.Direction == SettlementDirection.PayBank).Sum(item => item.Amount);
         var sellerCollectable = validSettlements.Where(item => !item.IsPaid && item.Direction == SettlementDirection.CollectFromSeller).Sum(item => item.Amount);
         var reviewCount = payments.Count(item => item.FinanceWorkflowVersion != 2) + payments.Count(item => item.FinanceWorkflowVersion == 2 && !validV2Payments.Any(valid => valid.Id == item.Id));
         var partial = reviewCount > 0 || settlementReviewCount > 0;
         reply += Text(language,
-            $"\n\n{(partial ? "Validated current balances (partial)" : "Validated current balances")}\nValidated Finance V2 customer receivables: {Money(receivables)}\nValidated seller settlements to pay: {Money(sellerPayable)}\nValidated seller settlements to collect: {Money(sellerCollectable)}",
-            $"\n\n{(partial ? "Baki semasa disahkan (sebahagian)" : "Baki semasa disahkan")}\nBelum terima pelanggan Finance V2 yang disahkan: {Money(receivables)}\nPenyelesaian penjual disahkan untuk dibayar: {Money(sellerPayable)}\nPenyelesaian penjual disahkan untuk dikutip: {Money(sellerCollectable)}");
+            $"\n\n{(partial ? "Validated current balances (partial)" : "Validated current balances")}\nValidated Finance V2 customer receivables: {Money(receivables)}\nBank debt to pay: {Money(bankPayable)}\nValidated seller settlements to pay: {Money(sellerPayable)}\nValidated seller settlements to collect: {Money(sellerCollectable)}",
+            $"\n\n{(partial ? "Baki semasa disahkan (sebahagian)" : "Baki semasa disahkan")}\nBelum terima pelanggan Finance V2 yang disahkan: {Money(receivables)}\nHutang bank untuk dibayar: {Money(bankPayable)}\nPenyelesaian penjual disahkan untuk dibayar: {Money(sellerPayable)}\nPenyelesaian penjual disahkan untuk dikutip: {Money(sellerCollectable)}");
         if (partial)
             reply += Text(language,
                 $"\nExcluded from these subtotals: {reviewCount} legacy or mismatched receivable record(s), {settlementReviewCount} ambiguous or inconsistent settlement vehicle(s). Review Finance in Back Office.",

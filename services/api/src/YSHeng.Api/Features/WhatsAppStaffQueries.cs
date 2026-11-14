@@ -13,6 +13,15 @@ public static class WhatsAppStaffQueries
     public static WhatsAppStaffIntent? Parse(string text)
     {
         text = text.Trim();
+        if (text.Equals("create-vehicle", StringComparison.OrdinalIgnoreCase)) return new("create-vehicle");
+        if (text.StartsWith("create-vehicle\n", StringComparison.OrdinalIgnoreCase) || text.StartsWith("create-vehicle\r\n", StringComparison.OrdinalIgnoreCase))
+            return WhatsAppVehicleIntake.TryParse(text[14..].Trim(), out _) ? new("create-vehicle", text[14..].Trim()) : new("create-vehicle");
+        if (text.StartsWith("create-vehicle ", StringComparison.OrdinalIgnoreCase))
+        {
+            var command = text[15..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return command.Length == 2 && command[0] is "preview" or "confirm" && Guid.TryParse(command[1], out var id)
+                ? new("create-vehicle", $"{command[0]} {id:D}") : new("create-vehicle");
+        }
         if (text.Length is 0 or > 120 || text.Any(char.IsControl)) return null;
         var parts = text.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
         var name = parts[0].ToLowerInvariant();
@@ -21,6 +30,18 @@ public static class WhatsAppStaffQueries
             return argument.Length == 0 ? new(name == "berhenti" ? "stop" : name) : null;
         if (name == "link") return Regex.IsMatch(argument, @"\A[A-Fa-f0-9]{32}\z") ? new(name, argument.ToUpperInvariant()) : null;
         if (name == "language") return argument.ToLowerInvariant() switch { "en" => new(name, "en_US"), "ms" => new(name, "ms"), _ => null };
+        if (name == "price")
+        {
+            if (argument.StartsWith("confirm ", StringComparison.OrdinalIgnoreCase) && WhatsAppStaffPriceCommands.TryParseConfirmation(argument[8..], out var draftId))
+                return new(name, $"confirm {draftId:D}");
+            return WhatsAppStaffPriceCommands.TryParsePreview(argument, out _, out _) ? new(name, argument) : null;
+        }
+        if (name == "settlement-update")
+        {
+            if (argument.StartsWith("confirm ", StringComparison.OrdinalIgnoreCase) && WhatsAppStaffSettlementCommands.TryParseConfirmation(argument[8..], out var draftId))
+                return new(name, $"confirm {draftId:D}");
+            return WhatsAppStaffSettlementCommands.TryParsePreview(argument, out _, out _, out _, out _, out _) ? new(name, argument) : null;
+        }
         if (name == "due")
         {
             if (argument.Length == 0) return new(name, "1");
@@ -46,8 +67,11 @@ public static class WhatsAppStaffQueries
     public static bool Permitted(WhatsAppStaffIntent intent, IReadOnlyCollection<string> roles) =>
         roles.Any(SeedData.Roles.Contains) && (intent.Name switch
         {
-            "collections" or "settlement" => roles.Contains("Finance") || roles.Contains("BossAdmin"),
+            "collections" => roles.Contains("Finance") || roles.Contains("BossAdmin"),
+            "settlement" => roles.Contains("BossAdmin"),
             "profit" or "dashboard" => roles.Contains("BossAdmin"),
+            "price" or "create-vehicle" or "intake-file" => roles.Contains("BossAdmin"),
+            "settlement-update" => roles.Contains("BossAdmin"),
             "due" => roles.Contains("BossAdmin") || roles.Contains("Sales"),
             "service" => WhatsAppStaffCommandHelp.Services.Any(item => item.Name == intent.Argument &&
                 Permitted(new(item.Name), roles)),
@@ -71,8 +95,12 @@ public static class WhatsAppStaffQueries
 
     public static async Task<string> ReplyAsync(AppDbContext db, WhatsAppStaffIntent intent, string language, long now,
         CancellationToken ct = default, string? publicSiteUrl = null, IReadOnlyCollection<string>? roles = null,
-        string? staffUserId = null)
+        string? staffUserId = null, Guid? bindingId = null, Guid? requestId = null, WhatsAppAssistantOptions? assistantOptions = null)
     {
+        if (intent.Name == "create-vehicle")
+            return bindingId is { } binding && requestId is { } request && assistantOptions is not null
+                ? await WhatsAppVehicleIntake.ReplyAsync(db, intent.Argument, binding, request, assistantOptions, now, ct)
+                : "A verified Boss/Admin connection is required.";
         var bm = language == "ms";
         var culture = CultureInfo.GetCultureInfo(bm ? "ms-MY" : "en-MY");
         if (intent.Name == "linked") return Text(language, "WhatsApp connected.\n\n", "WhatsApp disambungkan.\n\n") + Help(language, roles ?? []);
@@ -106,6 +134,18 @@ public static class WhatsAppStaffQueries
             try { return await WhatsAppStaffFinanceQueries.ReplyAsync(db, intent, roles ?? [], language, now, ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception) { return Text(language, "Finance data is temporarily unavailable. Try again later.", "Data kewangan tidak tersedia buat sementara waktu. Cuba lagi kemudian."); }
+        }
+        if (intent.Name == "price")
+        {
+            if (!bindingId.HasValue || string.IsNullOrWhiteSpace(staffUserId) || roles?.Contains("BossAdmin") != true || assistantOptions is null)
+                return Text(language, "Only Boss/Admin can update a stock asking price.", "Hanya Boss/Admin boleh mengemas kini harga jualan stok.");
+            return await WhatsAppStaffPriceCommands.ReplyAsync(db, intent, language, now, bindingId.Value, staffUserId, assistantOptions, ct, requestId);
+        }
+        if (intent.Name == "settlement-update")
+        {
+            if (!bindingId.HasValue || string.IsNullOrWhiteSpace(staffUserId) || roles?.Contains("BossAdmin") != true || assistantOptions is null)
+                return Text(language, "Only Boss/Admin can update bank settlement details.", "Hanya Boss/Admin boleh mengemas kini butiran settlement bank.");
+            return await WhatsAppStaffSettlementCommands.ReplyAsync(db, intent, language, now, bindingId.Value, staffUserId, assistantOptions, ct, requestId);
         }
         var vehicles = db.Vehicles.AsNoTracking();
         if (intent.Name == "stock")

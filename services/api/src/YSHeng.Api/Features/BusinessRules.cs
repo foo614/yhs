@@ -54,10 +54,91 @@ public sealed record PublicVehicleResponse(Guid Id, string PlateNumber, string M
 public sealed record PublicVehicleDetailResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, decimal SellingPrice, string? DescriptionMarkdown);
 public sealed record PublicVehicleCatalogModelResponse(string Make, string Model);
 public sealed record VehicleCatalogModelRequest(string Make, string Model, bool IsActive = true);
+public sealed record BackOfficeVehicleResponse(
+    Guid Id,
+    string PlateNumber,
+    string? ChassisNumber,
+    string? EngineNumber,
+    string Make,
+    string Model,
+    int Year,
+    StockOwner StockOwner,
+    VehiclePurchaseSource PurchaseSource,
+    string StockLocation,
+    VehicleStatus Status,
+    bool IsPublic,
+    string? PublicDescriptionMarkdown,
+    decimal SellingPrice,
+    decimal ContraRangePrice,
+    string? UcdStatus,
+    Guid? CustomerId,
+    Guid? OwnerId,
+    bool? HasSpareKey,
+    DateOnly IntakeDate,
+    DateTime? IntakeAt,
+    DateTime? SoldAt,
+    decimal? PurchasePrice = null,
+    decimal? ModifiedPurchasePrice = null,
+    decimal? AdditionalCharges = null,
+    decimal? RefurbishmentTotal = null,
+    decimal? RepairCost = null,
+    decimal? CommissionTotal = null,
+    decimal? OutstationPickupAllowance = null,
+    DateTime? OutstationPickupScheduledAt = null,
+    string? OutstationPickupBookingSlip = null,
+    bool? BossConfirmed = null,
+    decimal? DealerProcessingFee = null,
+    decimal? DealerTrailerFee = null,
+    decimal? DealerParkingFee = null,
+    decimal? DealerLateCharge = null,
+    decimal? DealerDiscount = null);
+
+public static class BackOfficeVehicleResponses
+{
+    public static BackOfficeVehicleResponse ToResponse(Vehicle vehicle, bool canViewPrivateFields, decimal? repairCost = null) =>
+        new(
+            vehicle.Id,
+            vehicle.PlateNumber,
+            vehicle.ChassisNumber,
+            vehicle.EngineNumber,
+            vehicle.Make,
+            vehicle.Model,
+            vehicle.Year,
+            vehicle.StockOwner,
+            vehicle.PurchaseSource,
+            vehicle.StockLocation,
+            vehicle.Status,
+            vehicle.IsPublic,
+            vehicle.PublicDescriptionMarkdown,
+            vehicle.SellingPrice,
+            vehicle.ContraRangePrice,
+            vehicle.UcdStatus,
+            vehicle.CustomerId,
+            vehicle.OwnerId,
+            vehicle.HasSpareKey,
+            vehicle.IntakeDate,
+            vehicle.IntakeAt,
+            vehicle.SoldAt,
+            canViewPrivateFields ? vehicle.PurchasePrice : null,
+            canViewPrivateFields ? vehicle.ModifiedPurchasePrice : null,
+            canViewPrivateFields ? vehicle.AdditionalCharges : null,
+            canViewPrivateFields ? vehicle.RefurbishmentTotal : null,
+            canViewPrivateFields ? repairCost : null,
+            canViewPrivateFields ? vehicle.CommissionTotal : null,
+            canViewPrivateFields ? vehicle.OutstationPickupAllowance : null,
+            canViewPrivateFields ? vehicle.OutstationPickupScheduledAt : null,
+            canViewPrivateFields ? vehicle.OutstationPickupBookingSlip : null,
+            canViewPrivateFields ? vehicle.BossConfirmed : null,
+            canViewPrivateFields ? vehicle.DealerProcessingFee : null,
+            canViewPrivateFields ? vehicle.DealerTrailerFee : null,
+            canViewPrivateFields ? vehicle.DealerParkingFee : null,
+            canViewPrivateFields ? vehicle.DealerLateCharge : null,
+            canViewPrivateFields ? vehicle.DealerDiscount : null);
+}
 public sealed record RepairApprovalRequest(string? Notes);
 public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId, decimal SellingPrice, decimal AdditionalCharges);
 public sealed record SettlementDraftResponse(Guid VehicleId, Guid? OwnerId, decimal PurchasePrice);
-public sealed record VehicleIntakeSettlementRequest(decimal BankDebtAmount, decimal? ExpectedPurchasePrice = null, DateOnly? Deadline = null);
+public sealed record VehicleIntakeSettlementRequest(decimal BankDebtAmount, decimal? ExpectedPurchasePrice = null, DateOnly? Deadline = null, string? BankName = null, string? BankAccountNumber = null, bool HasDebt = true);
 public sealed record SettlementCreateRequest(Guid VehicleId, decimal BankDebtAmount, decimal? ExpectedPurchasePrice = null, DateOnly? Deadline = null);
 public sealed record SettlementUpdateRequest(
     decimal? BankDebtAmount,
@@ -77,7 +158,7 @@ public sealed record SettlementStatusUpdateRequest(
     bool ExpectedIsPaid,
     Guid? Id = null);
 public sealed record VehicleIntakeRequest(Vehicle Vehicle, VehicleIntakeSettlementRequest? Settlement, Owner? NewOwner = null);
-public sealed record VehicleIntakeResponse(Vehicle Vehicle, SettlementReminder? Settlement, Owner? CreatedOwner = null);
+public sealed record VehicleIntakeResponse(BackOfficeVehicleResponse Vehicle, SettlementReminder? Settlement, Owner? CreatedOwner = null);
 public sealed record OwnerIdentityCardPreviewResponse(OcrExtractionResult Result, Owner? ExistingOwner);
 public sealed record DashboardSummary(
     int TotalStock,
@@ -128,6 +209,35 @@ public sealed record DashboardRefurbishmentSummary(
     int WorkInProgressCount,
     int OverdueWorkCount,
     DashboardAmountSlice[] HighestCostVehicles);
+
+public static class DashboardSummaryPrivacy
+{
+    public static DashboardSummary ForRole(DashboardSummary summary, bool canViewPrivateFinancials) => canViewPrivateFinancials
+        ? summary
+        : summary with
+        {
+            PurchaseCost = 0m,
+            OutstandingPayment = 0m,
+            SettlementDue = 0,
+            RepairCost = 0m,
+            EstimatedProfit = 0m,
+            TotalProfit = 0m,
+            MoneyRiskBreakdown = [],
+            RepairCostByVehicle = [],
+            RealisedProfit = 0m,
+            ProfitBreakdown = [],
+            ActualProfit = 0m,
+            OutstandingCollection = 0m,
+            SettlementDueAmount = 0m,
+            SupplierSpendTop = [],
+            Refurbishment = summary.Refurbishment with
+            {
+                FinalRepairSpend = 0m,
+                AverageSpendPerVehicle = 0m,
+                HighestCostVehicles = []
+            }
+        };
+}
 public sealed record DashboardWorkflowBlockers(DashboardCountSlice[] ByType, DashboardCountSlice[] DueBuckets);
 public sealed record DashboardSalesFunnel(DashboardCountSlice[] Stages, decimal ConversionRate);
 public sealed record DashboardAiDocumentCategory(
@@ -218,14 +328,23 @@ public static class DepartmentAccess
 
         return category switch
         {
-            FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.IdentityCard or FileCategory.ApDocument or FileCategory.StatusReceipt => roleSet.Contains("Sales"),
+            FileCategory.PurchaseInvoice => false,
+            FileCategory.Voc or FileCategory.IdentityCard or FileCategory.ApDocument or FileCategory.StatusReceipt => roleSet.Contains("Sales"),
             FileCategory.LoanDocument => roleSet.Contains("Loan"),
-            FileCategory.DeliveryDocument or FileCategory.InspectionReport or FileCategory.HandoverPhoto or FileCategory.SignedHandover or FileCategory.Policy or FileCategory.RoadTaxReceipt or FileCategory.WindscreenPolicy => roleSet.Contains("Delivery"),
+            FileCategory.DeliveryDocument or FileCategory.InspectionReceipt or FileCategory.InspectionAppointmentConfirmation or FileCategory.InspectionReport or FileCategory.HandoverPhoto or FileCategory.SignedHandover or FileCategory.Policy or FileCategory.RoadTaxReceipt or FileCategory.WindscreenPolicy => roleSet.Contains("Delivery"),
             FileCategory.RepairInvoice => roleSet.Contains("Repair"),
             FileCategory.PaymentReceipt or FileCategory.PaymentInvoice => roleSet.Contains("Finance"),
             FileCategory.MedicalCertificate => roleSet.Contains("HrSalary"),
             _ => false
         };
+    }
+
+    public static bool CanViewDocument(IEnumerable<string> roles, FileCategory category)
+    {
+        var roleSet = roles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (roleSet.Contains("BossAdmin")) return true;
+        if (category == FileCategory.PurchaseInvoice) return false;
+        return CanUploadDocument(roleSet, category);
     }
 
     public static bool IsHrManager(ClaimsPrincipal principal) =>
@@ -528,7 +647,7 @@ public static class VehicleCatalogRules
 
 public static class BackOfficeVehicleLookup
 {
-    public static BackOfficeVehicleLookupResponse ToResponse(Vehicle vehicle) =>
+    public static BackOfficeVehicleLookupResponse ToResponse(Vehicle vehicle, bool canViewPrivateFields = true) =>
         new(
             vehicle.Id,
             vehicle.PlateNumber,
@@ -539,7 +658,7 @@ public static class BackOfficeVehicleLookup
             vehicle.Status,
             vehicle.CustomerId,
             vehicle.SellingPrice,
-            vehicle.AdditionalCharges);
+            canViewPrivateFields ? vehicle.AdditionalCharges : 0m);
 }
 
 public static class FinanceSettlementDraft
@@ -602,10 +721,10 @@ public static class SettlementRules
     public static bool IsLegacy(SettlementReminder reminder) => reminder.Direction == SettlementDirection.LegacyPaySeller;
 
     public static bool RequiresReminder(SettlementReminder reminder) =>
-        reminder.Direction != SettlementDirection.InternalOffset;
+        !reminder.SupersededById.HasValue && reminder.Direction != SettlementDirection.InternalOffset;
 
     public static bool IsPayable(SettlementReminder reminder) =>
-        reminder.Direction is SettlementDirection.LegacyPaySeller or SettlementDirection.PaySeller;
+        !reminder.SupersededById.HasValue && reminder.Direction is SettlementDirection.LegacyPaySeller or SettlementDirection.PaySeller or SettlementDirection.PayBank;
 
     public static decimal SignedAmount(SettlementReminder reminder) => reminder.Direction switch
     {
@@ -670,7 +789,7 @@ public static class VehicleIntakeSettlementRules
 
 public static class VehicleIntakeOwnerRules
 {
-    public static ValidationResult Validate(Vehicle vehicle, Owner? newOwner, IEnumerable<Owner> existingOwners)
+    public static ValidationResult Validate(Vehicle vehicle, Owner? newOwner, IEnumerable<Owner> existingOwners, bool requireIc = true)
     {
         if (newOwner is null) return new ValidationResult([]);
 
@@ -680,11 +799,11 @@ public static class VehicleIntakeOwnerRules
             errors.Add(new ValidationError("intake_owner_mismatch", "The new owner must match the previous owner selected for this vehicle."));
         }
 
-        if (string.IsNullOrWhiteSpace(newOwner.IcNumber))
+        if (requireIc && string.IsNullOrWhiteSpace(newOwner.IcNumber))
         {
             errors.Add(new ValidationError("owner_ic_required", "Confirm the seller IC number before creating a new owner from the identity card."));
         }
-        else if (ContactRules.NormalizeIcNumber(newOwner.IcNumber).Length != 12)
+        else if (!string.IsNullOrWhiteSpace(newOwner.IcNumber) && ContactRules.NormalizeIcNumber(newOwner.IcNumber).Length != 12)
         {
             errors.Add(new ValidationError("owner_ic_invalid", "Seller IC number must contain 12 digits."));
         }
@@ -756,6 +875,44 @@ public static class VehicleRules
     public static Vehicle NormalizeModifiedPurchasePrice(Vehicle vehicle) =>
         vehicle with { ModifiedPurchasePrice = vehicle.ModifiedPurchasePrice ?? vehicle.PurchasePrice };
 
+    public static bool IsDealerPurchaseSource(VehiclePurchaseSource source) =>
+        source is VehiclePurchaseSource.Carsome or VehiclePurchaseSource.Carro or VehiclePurchaseSource.KSA;
+
+    public static bool HasDealerCharges(Vehicle vehicle) =>
+        vehicle.DealerProcessingFee.HasValue || vehicle.DealerTrailerFee.HasValue || vehicle.DealerParkingFee.HasValue
+        || vehicle.DealerLateCharge.HasValue || vehicle.DealerDiscount.HasValue;
+
+    public static ValidationResult ValidateDealerCharges(Vehicle vehicle)
+    {
+        var errors = new List<ValidationError>();
+        var charges = new[]
+        {
+            ("dealer_processing_fee", vehicle.DealerProcessingFee),
+            ("dealer_trailer_fee", vehicle.DealerTrailerFee),
+            ("dealer_parking_fee", vehicle.DealerParkingFee),
+            ("dealer_late_charge", vehicle.DealerLateCharge),
+            ("dealer_discount", vehicle.DealerDiscount)
+        };
+        foreach (var (name, value) in charges)
+        {
+            if (value.HasValue && value.Value < 0)
+                errors.Add(new ValidationError($"{name}_invalid", "Dealer charges cannot be negative."));
+        }
+
+        if (!IsDealerPurchaseSource(vehicle.PurchaseSource) && HasDealerCharges(vehicle))
+            errors.Add(new ValidationError("dealer_charges_source_invalid", "Dealer charges are only available for Carsome, Carro or KSA vehicles."));
+        return new ValidationResult(errors);
+    }
+
+    public static Vehicle PreserveDealerChargesForNonManagement(Vehicle incoming, Vehicle existing) => incoming with
+    {
+        DealerProcessingFee = existing.DealerProcessingFee,
+        DealerTrailerFee = existing.DealerTrailerFee,
+        DealerParkingFee = existing.DealerParkingFee,
+        DealerLateCharge = existing.DealerLateCharge,
+        DealerDiscount = existing.DealerDiscount
+    };
+
     public static ValidationResult ValidateIntake(Vehicle vehicle)
     {
         var errors = new List<ValidationError>();
@@ -781,6 +938,11 @@ public static class VehicleRules
         if (vehicle.Year is < 1900 or > 2100)
         {
             errors.Add(new ValidationError("invalid_year", "Vehicle year must be between 1900 and 2100."));
+        }
+
+        if (!Enum.IsDefined(vehicle.PurchaseSource))
+        {
+            errors.Add(new ValidationError("invalid_purchase_source", "Select a supported vehicle purchase source."));
         }
 
         if (vehicle.PurchasePrice < 0)
@@ -827,6 +989,8 @@ public static class VehicleRules
         {
             errors.Add(new ValidationError("public_description_too_long", "Public vehicle description must be 6,000 characters or fewer."));
         }
+
+        errors.AddRange(ValidateDealerCharges(vehicle).Errors);
 
         return new ValidationResult(errors);
     }
@@ -2409,6 +2573,7 @@ public static class FinanceRules
 
     public static ValidationResult ValidateSettlement(SettlementReminder settlement, IEnumerable<Owner> owners)
     {
+        if (settlement.Direction == SettlementDirection.PayBank) return BankSettlementRules.Validate(settlement);
         var errors = new List<ValidationError>();
         if (SettlementRules.IsLegacy(settlement))
         {

@@ -195,6 +195,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/vehicles` | `Vehicles` | Full vehicle records for Boss/Admin and Sales, returned newest intake first using `intakeAt` (falling back to `intakeDate`), including `purchasePrice` (real acquisition price), optional `modifiedPurchasePrice` (internal adjusted cost used for margin/profit), and read-only `repairCost`: final repair-job cost when present, otherwise the intake refurbishment total. |
+| `GET` | `/api/vehicles/stock-export?source=all\|MY\|CAR\|YS\|KLG&includeSold=false` | `BossAdmin` | Slide 18 stock-list workbook with only No, Date, Vehicle No, Model, Year, Purchase Source, UCD Date, Bank Loan and S.Key. Defaults to current stock, keeps UCD Date blank pending mapping, and excludes TIN, costs, owner/customer details and sold vehicles. |
 | `GET` | `/api/vehicle-catalog/models` | `Vehicles` | List active and inactive make/model catalogue entries. |
 | `POST` | `/api/vehicle-catalog/models` | `Vehicles` | Add a make/model option for public filters. |
 | `PUT` | `/api/vehicle-catalog/models/{id}` | `Vehicles` | Edit or deactivate a make/model option without changing existing vehicle records. |
@@ -216,7 +217,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | `GET` | `/api/purchase-invoices` | `PurchaseAccountingRead` | List purchase invoices with current classified lines. Owner-acquisition invoices additionally include source type, Owner ID, current revision number and the current revision snapshot; PDF bytes are excluded from JSON. |
 | `POST` | `/api/purchase-invoices` | `Vehicles` | Retained legacy supplier-record route. Requires an active supplier and staff-provided number/dates; classified lines must equal the total. Does not generate a PDF or accept owner-acquisition or revision metadata. New Owner-based invoices use the generate route. |
 | `PUT` | `/api/purchase-invoices/{id}` | `Vehicles` | Update a legacy draft purchase invoice and replace its classified lines. Finance-confirmed legacy invoices remain immutable. Generated Owner invoices must use the revision route. |
-| `POST` | `/api/vehicles/{vehicleId}/purchase-invoice/generate` | `Vehicles` | Issue the vehicle's Owner-based formal invoice and revision 1 PDF atomically from canonical Owner/intake data. Requires a Boss-confirmed intake, positive purchase price and valid Owner name/phone. The request contains `expectedOwnerId`, `expectedPurchasePrice` and `expectedIntakeDate`; stale source review is rejected. Uses a separate server number and Singapore issue date. Returns the existing generated invoice on retry. |
+| `POST` | `/api/vehicles/{vehicleId}/purchase-invoice/generate` | `Vehicles` + `BossAdmin` | Generate one formal purchase invoice per vehicle intake; retries return the existing invoice. Uses `modifiedPurchasePrice` when present, otherwise legacy `purchasePrice`, and checks `expectedPurchasePrice` against that value. Private acquisitions require `expectedOwnerId`; dealer sources require an active `expectedSupplierId` and use the company seller snapshot. Both require a Boss-confirmed intake and matching `expectedIntakeDate`. KSA vehicles must be Sold. Supplier invoice number/date and discount reference are optional. |
 | `POST` | `/api/purchase-invoices/{id}/revisions` | `Vehicles` | Correct a generated invoice using `expectedRevision`, a mandatory `reason`, dates, seller display details and classified lines. Creates the next full snapshot and PDF, retains previous versions, and resets current Finance confirmation. Source vehicle/Owner IDs and official number stay fixed; master records are not changed. |
 | `GET` | `/api/purchase-invoices/{id}/revisions` | `PurchaseAccountingRead` | List version snapshots and classified lines with author, timestamp, correction reason and version-specific Finance review evidence. PDF bytes are excluded. |
 | `GET` | `/api/purchase-invoices/{id}/revisions/{revisionNumber}/content` | `PurchaseAccountingRead` | Download the exact retained PDF revision. Access is authenticated and audited; later corrections do not replace these bytes. |
@@ -232,7 +233,7 @@ Slashless make/model values require a known catalog make. In New Vehicle intake,
 
 IC address extraction excludes standalone card-number lines, including IC/NRIC/NO labels and MyKad or Kad Pengenalan headings. Real street numbers remain intact. A no-house-number locality address requires a recognized locality marker, five-digit postcode and supported Malaysian state; incomplete or unsupported locality forms remain available for manual entry rather than being inferred.
 
-Generated Purchase Invoices use `OwnerAcquisition`; existing supplier records remain `LegacySupplier` without automatic conversion or historical PDF backfill. A correction keeps the official number and increments the visible revision. The invoice total is derived from positive classified lines, and seller corrections affect only that invoice snapshot. Issuance and correction do not approve, pay, settle or reconcile anything. The AutoCount workbook remains a manual review artifact: Owner-source rows identify the Owner snapshot and require Finance creditor mapping rather than automatically creating a supplier or guessing its code.
+Generated Purchase Invoices use `OwnerAcquisition`; existing supplier records remain `LegacySupplier` without automatic conversion or historical PDF backfill. A correction keeps the official number and increments the visible revision. The invoice total is derived from positive classified lines, and seller corrections affect only that invoice snapshot. Issuance and correction do not approve, pay, settle or reconcile anything. The AutoCount workbook remains a manual review artifact: Acquisition rows distinguish Private and Company sellers and retain the issued seller snapshot. Creditor mapping must be confirmed rather than guessed. Exporting does not mark an invoice as keyed into AutoCount.
 
 System numbering skips normalized existing legacy numbers and reserves the `YSH-PINV-YYYY-NNNNNN` format against new legacy writes. A previously used legacy number may remain unchanged. Stale expected Owner/price/intake inputs return HTTP 409 when canonical source data is otherwise valid; missing or invalid source data returns HTTP 400.
 
@@ -242,7 +243,7 @@ Owner-invoice revision requests allow at most 100 classified lines, each with a 
 
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/operations-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` | `BackOffice` | Shared Dashboard/HR calendar for authenticated staff. The inclusive date range must be ordered and contain at most 93 days. |
+| `GET` | `/api/operations-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` | `BackOffice` | Shared Dashboard calendar with delivery dates, booked inspection appointments, assigned tasks and staff availability. Non-Boss users see only their assigned tasks; inspection events exclude costs and documents. The inclusive date range must be ordered and contain at most 93 days. |
 
 Each event contains `id`, `kind`, `title`, `startDate`, `endDate`, `time`, `status`, `customerName`, `customerContact`, and `customerAccess`. Delivery events use the delivery ID, plate number, scheduled date/time, and delivery status; cancelled deliveries are excluded. Staff with `CustomerRead` receive the linked customer's name and contact. Other authenticated staff receive only `Customer linked` with no contact, while deliveries without a linked customer return `No customer linked`. Approved leave and business trips appear only as staff availability (`Busy`), with no reason, medical information, trip location, customer, or Finance details. Busy events have null time and status, and null customer fields.
 
@@ -259,7 +260,7 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `GET` | `/api/vehicles/{id}/photos` | `BackOffice` | List photo metadata. |
 | `PUT` | `/api/vehicles/{id}/photos/order` | `Vehicles` | Save the complete display order for the vehicle's website photos. |
 | `GET` | `/api/vehicles/{id}/photos/{photoId}/content` | `BackOffice` | Download original photo content. |
-| `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}&collectionTransactionId={id}&deliveryScheduleId={id}` | Category-specific role | Upload document, max 10 MB. Repair and delivery workflow links are exclusive. Collection evidence requires both `paymentRecordId` and `collectionTransactionId`; delivery categories require `deliveryScheduleId`. The server verifies each linked record, route vehicle, and locked customer before storing the evidence. |
+| `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}&collectionTransactionId={id}&deliveryScheduleId={id}&inspectionId={id}` | Category-specific role | Upload document, max 10 MB. Repair, delivery and inspection workflow links are exclusive. Collection evidence requires both `paymentRecordId` and `collectionTransactionId`; delivery categories require `deliveryScheduleId`; inspection receipt, appointment-confirmation and report categories require `inspectionId`. The server verifies each linked record and route vehicle before storing the evidence. |
 | `GET` | `/api/vehicles/{id}/documents` | Category-specific role | List document metadata visible to the signed-in department. |
 | `DELETE` | `/api/vehicles/{id}/loan-documents/{documentId}` | Category-specific role | Remove a document from the selected vehicle's Loan checklist. The server rejects cross-vehicle and non-Loan categories, removes linked OCR jobs, and records an audit entry. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | Category-specific role | Download document content visible to the signed-in department. |
@@ -284,12 +285,14 @@ Document upload ownership:
 
 | Category | Uploader roles |
 | --- | --- |
-| `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt` | `BossAdmin`, `Sales` |
+| `PurchaseInvoice` | `BossAdmin` |
+| `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt` | `BossAdmin`, `Sales` |
 | `LoanDocument` | `BossAdmin`, `Loan` |
-| `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `InspectionReport`, `WindscreenPolicy` | `BossAdmin`, `Delivery` |
+| `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `InspectionReceipt`, `InspectionAppointmentConfirmation`, `InspectionReport`, `WindscreenPolicy` | `BossAdmin`, `Delivery` |
 | `RepairInvoice` | `BossAdmin`, `Repair` |
 | `PaymentReceipt`, `PaymentInvoice` | `BossAdmin`, `Finance` |
 | `MedicalCertificate` | `BossAdmin`, `HrSalary` |
+| `SettlementEvidence`, `BankSettlementPayment` | `BossAdmin` |
 
 `VehiclePhoto` is rejected on the document endpoint and must use the photo endpoint.
 
@@ -306,6 +309,10 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `GET` | `/api/loans/{id}/document-check` | `Loans` | Check VOC/AP/status receipt/loan document completeness. |
 | `GET` | `/api/deliveries` | `Deliveries` | List delivery schedules. |
 | `GET` | `/api/deliveries/workboard` | `Deliveries` | Return delivery rows with their server-derived stage, next action, blocker, Finance clearance, locked customer/PIC, and delivery-owned evidence. |
+| `GET` | `/api/inspections` | `Deliveries` | List standalone inspection bookings, their four-month report expiry, stable supplier-invoice allocation reference and linked receipt, appointment-confirmation and completion-report metadata. |
+| `GET` | `/api/inspections/{id}` | `Deliveries` | Read one standalone inspection booking and its protected document metadata. |
+| `POST` | `/api/inspections` | `Deliveries` | Create an inspection booking with one of the supported types `9001`, `9002`, `9003`, `9004` or `9011`. The server stores the source receipt and allocates a stable `source-1`, `source-2`, ... supplier reference without renumbering existing vehicle allocations. |
+| `PUT` | `/api/inspections/{id}` | `Deliveries` | Update booking details or mark an inspection completed/cancelled. The completion report must already be linked before `Completed` is accepted; completed records retain the uploaded evidence and audit actor. |
 | `GET` | `/api/deliveries/pic-options` | `Deliveries` | Return active Delivery or Boss/Admin staff choices for PIC assignment. |
 | `POST` | `/api/deliveries` | `Deliveries` | Create one active delivery plan for a vehicle with an existing canonical buyer and a valid staff PIC. The server locks the buyer and starts the internal status at `BookingInspection`. |
 | `PUT` | `/api/deliveries/{id}` | `Deliveries` | Update an active delivery plan. Vehicle, buyer, and internal status are server-owned; schedule changes require a reschedule reason. |
@@ -387,10 +394,10 @@ First-deploy assumptions: no pre-existing Finance V2 invoice can already have an
 | `GET` | `/api/collection-transactions/{id}/official-receipt/content` | Download the Finance-protected official Customer Receipt PDF issued for a reconciled collection. |
 | `POST` | `/api/deliveries/{id}/resolve-invoice-update` | Finance closes a legacy pre-issuance Delivery invoice-update request after handling it; this records the Finance actor and server timestamp. Resolution is rejected after an immutable Finance V2 invoice exists. |
 | `GET` | `/api/finance-invoices/{invoiceId}/content` | Download the protected YS Heng sales-invoice PDF and record the authenticated Finance actor in the audit log before content is returned. |
-| `GET` / `POST` | `/api/settlement-reminders` | List/create seller settlements. Create takes `vehicleId`, nonnegative `bankDebtAmount`, optional `expectedPurchasePrice` and `deadline`; canonical Owner and positive purchase price are read from the vehicle. The server snapshots purchase price and calculates direction and absolute difference. Client amount, owner and completion values cannot override it. |
+| `GET` / `POST` | `/api/settlement-reminders` | BossAdmin-only history listing. Legacy POST returns 409; create new bank payments through `/api/bank-settlements`. |
 | `GET` | `/api/settlement-drafts` | Return Finance-only previous-owner and purchase-price intake values used to prefill settlement review. |
-| `PUT` | `/api/settlement-reminders/{id}` | Edit open settlement bank debt/deadline only, recomputing from the stored purchase-price snapshot. Historical settlement amount/Owner are preserved. Requires `expectedAmount`, `expectedDirection`, `expectedBankDebtAmount` (null for legacy), `expectedDeadline`, and `expectedIsPaid`; stale snapshots return 409. A completed record must be reopened separately. |
-| `POST` | `/api/settlement-reminders/{id}/status` | Confirm payment/receipt/offset or reopen, with `isPaid` and the same expected snapshot as term edits. Status changes do not accept new monetary terms. Stale or repeated transitions return 409; authenticated actor and transition are audited. No funds are transferred or posted to AutoCount. |
+| `PUT` | `/api/settlement-reminders/{id}` | BossAdmin-only historical open seller record adjustment, using the existing purchase snapshot and expected-state guard. Bank, superseded and completed records cannot be changed here. |
+| `POST` | `/api/settlement-reminders/{id}/status` | BossAdmin-only completion of open historical seller records, with expected-state guard. Completed history cannot be reopened; bank payments use their evidence-based completion endpoint. No funds are transferred or posted to AutoCount. |
 | `GET` / `POST` | `/api/daily-spends` | List/create daily spend rows. |
 | `PUT` | `/api/daily-spends/{id}` | Update daily spend row. |
 | `GET` / `POST` | `/api/broker-commissions` | List/create broker commission rows. |
@@ -553,6 +560,7 @@ Reminder and priority-action items include additive `sourceType` and `sourceId` 
 ## Enum Values
 
 - `StockOwner`: `YSHeng`, `KS`
+- `VehiclePurchaseSource`: `Carsome`, `Carro`, `KSA`, `YSHeng`
 - `VehicleStatus`: `Available`, `LoanProcessing`, `Sold`
 - `LeadStatus`: `New`, `Contacted`, `Closed`
 - `LeadClosureOutcome`: `Sold`, `Lost`, `Invalid`
@@ -568,7 +576,7 @@ Reminder and priority-action items include additive `sourceType` and `sourceId` 
 - `PaymentVoucherStatus`: `Pending`, `Approved`, `Paid`
 - `CashHandoverStatus`: `ReceivedBySales`, `PendingHandover`, `HandedOver`, `Rejected`, `Receipted`
 - `DebtRecoveryStatus`: `Open`, `FollowedUp`, `Closed`
-- `SettlementDirection`: `LegacyPaySeller`, `PaySeller`, `CollectFromSeller`, `InternalOffset`
+- `SettlementDirection`: `LegacyPaySeller`, `PaySeller`, `CollectFromSeller`, `InternalOffset`, `PayBank`
 - `SupplierStatus`: `Active`, `Inactive`
 - `RepairApprovalStatus`: `Pending`, `Approved`, `Rejected`
 - `SupplierInvoiceAgingStatus`: `Unmatched`, `DueSoon`, `Overdue`, `Paid`
@@ -578,7 +586,7 @@ Reminder and priority-action items include additive `sourceType` and `sourceId` 
 - `HrPayslipStatus`: `Draft`, `Generated` (legacy), `PendingFinance`, `PendingBoss`, `Published`
 - `HrEmploymentType`: `Monthly`, `Hourly`
 - `HrAttendanceVerificationMethod`: `Manual`, `OfficeQr`, `Outstation`, `ManualException`, `OfficeIp`
-- `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`, `InspectionReport`, `WindscreenPolicy`
+- `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`, `InspectionReport`, `WindscreenPolicy`, `SettlementEvidence`, `BankSettlementPayment`, `InspectionReceipt`, `InspectionAppointmentConfirmation`
 - `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`, `Reviewed`
 - `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`, `Reviewed`
 - `AiService`: `Ocr`
@@ -603,3 +611,24 @@ Validation failures usually return one of these shapes:
 ```
 
 Back-office mutations write audit records with the authenticated staff email. Public lead creation writes a public actor audit record.
+
+
+## Bank settlement transition (slides 9 and 15)
+
+- `POST /api/bank-settlements` requires Finance and BossAdmin policies. Input: vehicleId, positive bankDebtAmount, deadline, bankName, bankAccountNumber, optional replacesSettlementId. The payable is the bank debt, independent of purchase price.
+- Replacement locks the vehicle, verifies the unpaid source snapshot, creates the bank record and sets the source SupersededById atomically. Paid history is not rewritten. Sources lacking bank debt require manual review. Duplicate active bank payments or repeat replacement are rejected.
+- `PUT /api/bank-settlements/{id}` requires Finance and BossAdmin. Only outstanding bank records may change; input includes bankDebtAmount, deadline, bankName and bankAccountNumber plus expectedBankDebtAmount, expectedDeadline, expectedBankName and expectedBankAccountNumber for stale-state protection. Original superseded seller records remain unchanged.
+- `POST /api/bank-settlements/{id}/complete` requires Finance and BossAdmin. Input: paymentDocumentId, paidOn, expectedBankDebtAmount, expectedDeadline, expectedBankName, expectedBankAccountNumber. Evidence must be a BossAdmin-only BankSettlementPayment document uploaded with bankSettlementId for this exact settlement and vehicle. Uploads reject paid, replaced, unrelated or cross-workflow records; PDF/JPEG/PNG content validation and the existing 10 MB limit apply.
+- Generic seller update/status endpoints reject bank or superseded records. Superseded records remain readable as history but are excluded from new reminder generation and settlement export.
+- Vehicle intake settlement input now supports hasDebt, bankName, bankAccountNumber. Debt creates a bank settlement without requiring a purchase price. No debt creates no payable, records HasBankDebt=false and requires multipart settlementEvidence (PDF/JPEG/PNG, maximum 10 MB). SettlementEvidence is BossAdmin-only. Intake files and decision are saved atomically.
+- The business meaning of No debt covers original cash purchases and already-settled loans. It does not itself assert a new bank payment.
+- No live database migration or production release has been performed by this change. Existing queued notification payloads and end-to-end WhatsApp mutations require separate integration verification.
+
+
+### Boss WhatsApp vehicle intake
+
+`create-vehicle` returns a multiline template with `plate`, `make`, `model`, `year`, `source`, `price`, `seller`, `phone`, `tin`, and `ic`. Fill these using existing intake data; `source` is YSHeng/Carsome/Carro/KSA. A draft lasts 30 minutes. VOC is required; IC is optional only for dealer sources.
+
+Send images/documents with caption `VOC <draft-id>` or `IC <draft-id>`. Then send `create-vehicle preview <draft-id>` and the returned `create-vehicle confirm <token>` within five minutes. File replacement invalidates the old token. Only the same currently verified Boss/Admin binding can attach or confirm. Confirmation calls the shared HTTP intake validation and atomically saves owner/vehicle/documents/audit. Repeated confirmation returns the existing completion status. No public file URL is created.
+
+The additive assistant schema includes `WhatsAppVehicleIntakeDrafts`; enable it through the existing assistant schema setup gate. Actual provider delivery and PostgreSQL rollout must be verified separately from synthetic local tests.

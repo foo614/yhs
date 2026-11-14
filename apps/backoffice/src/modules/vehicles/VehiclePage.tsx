@@ -1,3 +1,4 @@
+import { settlementBanks } from "../../settlementBanks";
 import { formatDisplayDate, formatDisplayDateTime } from "../../dateDisplay";
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -8,7 +9,7 @@ import type { ProColumns } from "@ant-design/pro-components";
 import { enUSIntl } from "@ant-design/pro-provider";
 import MDEditor from "@uiw/react-md-editor";
 import "@uiw/react-md-editor/markdown-editor.css";
-import { Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { AutoComplete, Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import type { FormInstance } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -28,6 +29,7 @@ import { settlementDirectionLabel, settlementPreview } from "../../settlements";
 import { OwnerPurchaseInvoiceDetails } from "./OwnerPurchaseInvoiceDetails";
 import "./VehicleDetails.css";
 import {
+  exportStockList,
   customerSelectLabel,
   createVehicleCatalogModel,
   getVehicleDocumentContent,
@@ -62,6 +64,7 @@ import {
   type VehicleIntakeSettlementInput,
   type Supplier,
   type Vehicle,
+  type VehiclePurchaseSource,
   type VehicleCatalogModel,
   type VehicleIntakeValues,
   type VehicleIntakeCreateResponse,
@@ -73,7 +76,6 @@ import {
 const maxWebsitePhotoBytes = 5 * 1024 * 1024;
 const vehicleIntakeDocumentCategories: DocumentCategory[] = ["Voc", "IdentityCard", "ApDocument"];
 const receiptInvoiceDocumentCategories: DocumentCategory[] = ["PurchaseInvoice", "RepairInvoice", "PaymentReceipt", "PaymentInvoice"];
-const mobileVehiclePageSize = 8;
 const earliestVehicleYear = 1990;
 const latestVehicleYear = new Date().getFullYear() + 1;
 
@@ -85,6 +87,28 @@ function ModifiedPurchaseLabel() {
         <InfoCircleOutlined aria-label="Modified purchase information" />
       </Tooltip>
     </span>
+  );
+}
+
+function isDealerPurchaseSource(source?: VehiclePurchaseSource) {
+  return source === "Carsome" || source === "Carro" || source === "KSA";
+}
+
+function DealerChargeFields() {
+  return (
+    <>
+      <Alert
+        type="info"
+        showIcon
+        message="Recorded dealer charges / 车行记录费用"
+        description="Boss/Admin records these supporting charges. They do not change current profit or invoice totals yet."
+      />
+      <Form.Item name="dealerProcessingFee" label="Processing fee / 手续费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+      <Form.Item name="dealerTrailerFee" label="Trailer fee / 拖车费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+      <Form.Item name="dealerParkingFee" label="Parking fee / 停车费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+      <Form.Item name="dealerLateCharge" label="Late charge / 逾期费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+      <Form.Item name="dealerDiscount" label="Discount / 折扣"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+    </>
   );
 }
 export const neutralVehicleDescriptionTemplate = `## Vehicle highlights
@@ -120,6 +144,8 @@ export const neutralVehicleDescriptionTemplate = `## Vehicle highlights
 - Contact:`;
 export type VehicleIntakeDraft = Partial<Omit<Vehicle, "id" | "intakeAt" | "intakeDate">> & {
   prepareSettlement?: boolean;
+  settlementBankName?: string;
+  settlementBankAccountNumber?: string;
   settlementDeadline?: string;
   bankDebtAmount?: number;
 };
@@ -128,6 +154,7 @@ type SellerIdentityReviewValues = {
   name?: string;
   phone?: string;
   icNumber?: string;
+  tinNumber?: string;
   address?: string;
 };
 
@@ -241,17 +268,29 @@ export async function savePurchaseInvoiceRecord(invoice: PurchaseInvoice, onCrea
 }
 
 export function ownerPurchaseInvoiceGenerationBlockReason(
-  vehicle: Pick<Vehicle, "bossConfirmed" | "ownerId" | "purchasePrice" | "intakeDate"> | undefined,
-  owner: Pick<Owner, "id" | "name" | "phone"> | undefined
+  vehicle: (Pick<Vehicle, "bossConfirmed" | "ownerId" | "purchasePrice" | "modifiedPurchasePrice" | "intakeDate"> & Partial<Pick<Vehicle, "purchaseSource" | "status">>) | undefined,
+  owner: Pick<Owner, "id" | "name" | "phone"> | undefined,
+  supplier?: Pick<Supplier, "id" | "companyName" | "phone" | "status">
 ) {
   if (!vehicle) return "Select a vehicle before generating its purchase invoice.";
   if (!vehicle.bossConfirmed) return "Vehicle intake must be approved before a formal purchase invoice can be generated.";
-  if (!vehicle.ownerId || !owner?.id) return "Link the vehicle to its previous owner before generating the purchase invoice.";
-  if (!owner.name.trim()) return "The previous owner name is required before generating the purchase invoice.";
-  if (!owner.phone.trim()) return "The previous owner phone is required before generating the purchase invoice.";
-  if (Number(vehicle.purchasePrice) <= 0) return "Vehicle purchase price must be greater than zero before generating the purchase invoice.";
+  if (vehicle.purchaseSource === "KSA" && vehicle.status !== "Sold") return "A KSA vehicle can only receive a purchase invoice after it has been sold.";
+  if (vehicle.purchaseSource === "Carsome" || vehicle.purchaseSource === "Carro" || vehicle.purchaseSource === "KSA") {
+    if (!supplier || !isSupplierUsable(supplier)) return "Select an active dealer supplier before generating the purchase invoice.";
+    if (!supplier.companyName.trim()) return "The dealer supplier company name is required before generating the purchase invoice.";
+    if (!supplier.phone.trim()) return "The dealer supplier phone is required before generating the purchase invoice.";
+  } else {
+    if (!vehicle.ownerId || !owner?.id) return "Link the vehicle to its previous owner before generating the purchase invoice.";
+    if (!owner.name.trim()) return "The previous owner name is required before generating the purchase invoice.";
+    if (!owner.phone.trim()) return "The previous owner phone is required before generating the purchase invoice.";
+  }
+  if (Number(vehicle.modifiedPurchasePrice ?? vehicle.purchasePrice) <= 0) return "Vehicle purchase price must be greater than zero before generating the purchase invoice.";
   if (!vehicle.intakeDate) return "Vehicle intake date is required before generating the purchase invoice.";
   return undefined;
+}
+
+export function effectivePurchaseInvoiceAmount(vehicle: Pick<Vehicle, "purchasePrice" | "modifiedPurchasePrice">) {
+  return vehicle.modifiedPurchasePrice ?? vehicle.purchasePrice;
 }
 
 export function PurchaseInvoiceHistory({
@@ -530,8 +569,10 @@ export function vehicleFromEditValues(values: VehicleIntakeValues, currentVehicl
 }
 
 export function settlementFromVehicleIntakeValues(values: VehicleIntakeDraft, _vehicleId?: string, _settlementId?: string): VehicleIntakeSettlementInput | undefined {
-  if (!values.prepareSettlement) return undefined;
   return {
+    hasDebt: Boolean(values.prepareSettlement),
+    bankName: values.settlementBankName,
+    bankAccountNumber: values.settlementBankAccountNumber,
     bankDebtAmount: Number(values.bankDebtAmount ?? 0),
     expectedPurchasePrice: Number(values.purchasePrice ?? 0),
     deadline: values.settlementDeadline || undefined
@@ -544,6 +585,7 @@ export function ownerFromIdentityCardReview(values: SellerIdentityReviewValues, 
     name: values.name?.trim() ?? "",
     phone: values.phone?.trim() ?? "",
     icNumber: formatIdentityCardNumber(values.icNumber),
+    tinNumber: values.tinNumber?.trim() || undefined,
     address: identityCardAddress(values.address)
   };
 }
@@ -587,7 +629,7 @@ function formatIdentityCardNumber(value?: string) {
     : value?.trim() || undefined;
 }
 
-function VehicleIntakeReview({ draft, customers, owners, pendingOwner, hasSellerNric, hasVoc }: { draft: VehicleIntakeDraft; customers: Customer[]; owners: Owner[]; pendingOwner?: Owner | null; hasSellerNric: boolean; hasVoc: boolean }) {
+function VehicleIntakeReview({ draft, customers, owners, pendingOwner, hasSellerNric, hasVoc, canApproveVehicles }: { draft: VehicleIntakeDraft; customers: Customer[]; owners: Owner[]; pendingOwner?: Owner | null; hasSellerNric: boolean; hasVoc: boolean; canApproveVehicles: boolean }) {
   const displayValue = (value: unknown) => value === undefined || value === "" || value === null ? "Not provided" : String(value);
   const customer = customers.find((item) => item.id === draft.customerId);
   const owner = owners.find((item) => item.id === draft.ownerId) ?? (pendingOwner?.id === draft.ownerId ? pendingOwner : undefined);
@@ -603,16 +645,20 @@ function VehicleIntakeReview({ draft, customers, owners, pendingOwner, hasSeller
       <ProDescriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
         <ProDescriptions.Item label="Plate / 车牌">{displayValue(draft.plateNumber)}</ProDescriptions.Item>
         <ProDescriptions.Item label="Vehicle / 车辆">{[draft.make, draft.model, draft.year].filter(Boolean).join(" ") || "Not provided"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Real purchase / 真实收车价">{formatMoney(Number(draft.purchasePrice ?? 0))}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Modified purchase / 修改收车价">{formatMoney(Number(draft.modifiedPurchasePrice ?? draft.purchasePrice ?? 0))}</ProDescriptions.Item>
+        {canApproveVehicles ? <>
+          <ProDescriptions.Item label="Real purchase / 真实收车价">{formatMoney(Number(draft.purchasePrice ?? 0))}</ProDescriptions.Item>
+          <ProDescriptions.Item label="Modified purchase / 修改收车价">{formatMoney(Number(draft.modifiedPurchasePrice ?? draft.purchasePrice ?? 0))}</ProDescriptions.Item>
+        </> : null}
         <ProDescriptions.Item label="Selling / 售价">{formatMoney(Number(draft.sellingPrice ?? 0))}</ProDescriptions.Item>
         <ProDescriptions.Item label="Confirmed buyer / 已确认买家">{customer ? customerSelectLabel(customer) : "Not linked"}</ProDescriptions.Item>
         <ProDescriptions.Item label="Previous owner / 原车主">{owner ? `${owner.name} / ${owner.phone}` : "Not selected"}</ProDescriptions.Item>
         <ProDescriptions.Item label="Previous owner NRIC / 原车主身份证">{hasSellerNric ? "Reviewed and ready to upload" : "Not uploaded"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="VOC / 车辆登记证">{hasVoc ? "Reviewed and ready to upload" : "Not uploaded (optional)"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Bank debt / 银行欠款">{draft.prepareSettlement ? formatMoney(Number(draft.bankDebtAmount ?? 0)) : "Not prepared"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Settlement / 结算">{draft.prepareSettlement ? `${settlementDirectionLabel(settlementPreview(Number(draft.purchasePrice ?? 0), Number(draft.bankDebtAmount ?? 0))?.direction)}: ${formatMoney(settlementPreview(Number(draft.purchasePrice ?? 0), Number(draft.bankDebtAmount ?? 0))?.amount ?? 0)}` : "Finance follow-up after intake"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Settlement deadline / 结算期限">{draft.prepareSettlement ? displayValue(draft.settlementDeadline) : "Not prepared"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="VOC / 车辆登记证">{hasVoc ? "Reviewed and ready to upload" : "Not uploaded (required)"}</ProDescriptions.Item>
+        {canApproveVehicles ? <>
+        <ProDescriptions.Item label="Bank debt / 银行欠款">{draft.prepareSettlement ? formatMoney(Number(draft.bankDebtAmount ?? 0)) : "No debt"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Settlement / 结算">{draft.prepareSettlement ? `Pay to bank: ${formatMoney(Number(draft.bankDebtAmount ?? 0))}` : "No debt — supporting document required"}</ProDescriptions.Item>
+        <ProDescriptions.Item label="Settlement deadline / 结算期限">{draft.prepareSettlement ? displayValue(draft.settlementDeadline) : "No debt"}</ProDescriptions.Item>
+        </> : null}
       </ProDescriptions>
     </Space>
   );
@@ -880,7 +926,7 @@ export function VehiclePage({
   dashboardFocus?: DashboardVehicleFocus;
   dashboardAnalyticsPeriod?: DashboardAnalyticsPeriod;
   onClearDashboardFocus: () => void;
-  onCreate: (vehicle: Vehicle, settlement: VehicleIntakeSettlementInput | undefined, newOwner: Owner | undefined, identityCard?: File, voc?: File) => Promise<VehicleIntakeCreateResponse>;
+  onCreate: (vehicle: Vehicle, settlement: VehicleIntakeSettlementInput | undefined, newOwner: Owner | undefined, identityCard?: File, voc?: File, settlementEvidence?: File) => Promise<VehicleIntakeCreateResponse>;
   onUpdate: (vehicle: Vehicle) => Promise<void>;
   onStartLoan: (vehicle: Vehicle) => Promise<void>;
   onOpenCustomer: (customerId: string) => void;
@@ -938,6 +984,7 @@ export function VehiclePage({
   const [sellerIdentityManualEntry, setSellerIdentityManualEntry] = useState(false);
   const [sellerNricFile, setSellerNricFile] = useState<File | null>(null);
   const [sellerVocFile, setSellerVocFile] = useState<File | null>(null);
+  const [settlementEvidenceFile, setSettlementEvidenceFile] = useState<File | null>(null);
   const [pendingOwnerDraft, setPendingOwnerDraft] = useState<Owner | null>(null);
   const [vehicleCreateSaving, setVehicleCreateSaving] = useState(false);
   const [vehicleCreateError, setVehicleCreateError] = useState<string | null>(null);
@@ -962,7 +1009,10 @@ export function VehiclePage({
   const selectedIntakeOwner = owners.find((owner) => owner.id === vehicleIntakeDraft.ownerId)
     ?? (pendingOwnerDraft?.id === vehicleIntakeDraft.ownerId ? pendingOwnerDraft : undefined);
   const sellerIdentityReadFailed = ownerIdentityCardReadFailed(sellerIdentityPreview);
+  const [stockExportSource, setStockExportSource] = useState<VehiclePurchaseSource | undefined>();
+  const [stockExporting, setStockExporting] = useState(false);
   const [purchaseInvoiceCreateOpen, setPurchaseInvoiceCreateOpen] = useState(false);
+  const [purchaseInvoiceSupplierId, setPurchaseInvoiceSupplierId] = useState<string | undefined>();
   const [supplierMaster, setSupplierMaster] = useState<Supplier[]>([]);
   useEffect(() => {
     void getSupplierMaster()
@@ -985,6 +1035,7 @@ export function VehiclePage({
   const [operationFilters, setOperationFilters] = useState<OperationIntakeVehicleFilters>({});
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [mobileVehiclePage, setMobileVehiclePage] = useState(1);
+  const [mobileVehiclePageSize, setMobileVehiclePageSize] = useState(10);
   const selectedVehicleId = uploadVehicleId || vehicles[0]?.id || "";
   const selectedVehicleIdRef = useRef(selectedVehicleId);
   const photoDeleteBusyRef = useRef(new Set<string>());
@@ -1062,7 +1113,9 @@ export function VehiclePage({
   const selectedVehicleCustomer = selectedVehicle?.customerId ? customers.find((customer) => customer.id === selectedVehicle.customerId) : undefined;
   const selectedVehicleOwner = selectedVehicle?.ownerId ? owners.find((owner) => owner.id === selectedVehicle.ownerId) : undefined;
   const selectedOwnerPurchaseInvoice = selectedVehicleInvoices.find((invoice) => invoice.sourceType === "OwnerAcquisition");
-  const purchaseInvoiceGenerationBlocker = ownerPurchaseInvoiceGenerationBlockReason(selectedVehicle, selectedVehicleOwner);
+  const selectedPurchaseInvoiceSupplier = supplierMaster.find((supplier) => supplier.id === purchaseInvoiceSupplierId);
+  const dealerPurchaseSource = selectedVehicle?.purchaseSource === "Carsome" || selectedVehicle?.purchaseSource === "Carro" || selectedVehicle?.purchaseSource === "KSA";
+  const purchaseInvoiceGenerationBlocker = ownerPurchaseInvoiceGenerationBlockReason(selectedVehicle, selectedVehicleOwner, selectedPurchaseInvoiceSupplier);
   const personOwnedDocument = documentOwnershipTab !== "Vehicle" && vehicleDocumentAllowsPersonSelection(documentCategory);
   const selectedDocumentPerson = documentOwnershipTab === "Seller" ? selectedVehicleOwner : documentOwnershipTab === "Buyer" ? selectedVehicleCustomer : undefined;
   const documentOwnershipReady = !personOwnedDocument || Boolean(selectedDocumentPerson && selectedDocumentPerson.id === documentPersonId);
@@ -1086,6 +1139,17 @@ export function VehiclePage({
   useEffect(() => {
     setMobileVehicleLeadPage((page) => Math.min(page, Math.max(1, Math.ceil(filteredVehicleLeads.length / mobileVehicleLeadPageSize))));
   }, [filteredVehicleLeads.length]);
+
+  useEffect(() => {
+    if (!purchaseInvoiceCreateOpen || !dealerPurchaseSource) {
+      setPurchaseInvoiceSupplierId(undefined);
+      return;
+    }
+    setPurchaseInvoiceSupplierId((current) => {
+      const selected = supplierMaster.find((supplier) => supplier.id === current);
+      return isSupplierUsable(selected) ? current : supplierMaster.find(isSupplierUsable)?.id;
+    });
+  }, [dealerPurchaseSource, purchaseInvoiceCreateOpen, selectedVehicle?.id, supplierMaster]);
   const loanHandoffVehicle = vehicles.find((vehicle) => vehicle.id === loanHandoffVehicleId);
   const loanHandoffStep = loanHandoffVehicle ? vehicleLoanHandoffStep(loanHandoffVehicle) : undefined;
   const loanHandoffBuyerPolicy = loanHandoffVehicle ? vehicleLoanHandoffBuyerPolicy(loanHandoffVehicle) : { locked: false, allowedCustomerIds: [] };
@@ -1652,6 +1716,7 @@ export function VehiclePage({
     },
     {
       title: "Outstation Pickup / 外地收车",
+      hidden: !canApproveVehicles,
       render: (_, row) => row.outstationPickupScheduledAt || row.outstationPickupAllowance || row.outstationPickupBookingSlip
         ? (
           <Space direction="vertical" size={0}>
@@ -1736,6 +1801,7 @@ export function VehiclePage({
     },
     {
       title: "Real Purchase / 真实收车价",
+      hidden: !canApproveVehicles,
       dataIndex: "purchasePrice",
       width: 130,
       sorter: (a, b) => a.purchasePrice - b.purchasePrice,
@@ -1743,12 +1809,14 @@ export function VehiclePage({
     },
     {
       title: "Modified Cost / 修改成本",
+      hidden: !canApproveVehicles,
       width: 140,
       sorter: (a, b) => effectivePurchaseCost(a) - effectivePurchaseCost(b),
       render: (_, row) => formatMoney(effectivePurchaseCost(row))
     },
     {
       title: "Repair Cost / 整备费用",
+      hidden: !canApproveVehicles,
       width: 130,
       sorter: (a, b) => repairCostFor(a) - repairCostFor(b),
       render: (_, row) => formatMoney(repairCostFor(row))
@@ -1762,6 +1830,7 @@ export function VehiclePage({
     },
     {
       title: "Est. Profit / 预估利润",
+      hidden: !canApproveVehicles,
       width: 140,
       sorter: (a, b) => profitFor(a) - profitFor(b),
       render: (_, row) => formatMoney(profitFor(row))
@@ -1802,6 +1871,7 @@ export function VehiclePage({
     },
     {
       title: "Outstation / 外地",
+      hidden: !canApproveVehicles,
       width: 210,
       filters: [{ text: "Scheduled", value: "scheduled" }, { text: "None", value: "none" }],
       onFilter: (value, row) => value === "scheduled" ? hasOutstationPickup(row) : !hasOutstationPickup(row),
@@ -1824,116 +1894,29 @@ export function VehiclePage({
 
   const compactOperationIntakeColumns: ProColumns<Vehicle>[] = [
     {
-      title: "Plate / 车牌",
-      dataIndex: "plateNumber",
-      fixed: "left",
-      width: 220,
-      sorter: (a, b) => a.plateNumber.localeCompare(b.plateNumber),
-      render: (_, row) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text type="secondary">{row.plateNumber}</Typography.Text>
-          <Typography.Text strong>{vehicleName(row)}</Typography.Text>
-        </Space>
-      )
+      title: "Plate & intake / 车牌与入库日期", dataIndex: "plateNumber", width: 240,
+      sorter: (a, b) => -compareVehicleIntakeDates(a.intakeDate, b.intakeDate, a.intakeAt, b.intakeAt), defaultSortOrder: "descend",
+      render: (_, row) => <Space direction="vertical" size={0}>
+        <Button type="link" onClick={(event) => { event.stopPropagation(); openVehicleDetails(row.id); setVehicleDetailTab("documents"); }}>{row.plateNumber}</Button>
+        <Typography.Text type="secondary">{formatVehicleIntakeTimestamp(row.intakeAt, row.intakeDate)}</Typography.Text>
+      </Space>
     },
     {
-      title: "Contacts / 联系人",
-      width: 240,
-      render: (_, row) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text>Owner: {contactFor(owners, row.ownerId)}</Typography.Text>
-          <Typography.Text type="secondary">Buyer: {customerLinkFor(row.customerId)}</Typography.Text>
-        </Space>
-      )
-    },
-    {
-      title: "Intake / 入库日期时间",
-      dataIndex: "intakeDate",
-      width: 165,
-      defaultSortOrder: "descend",
-      sorter: (a, b) => -compareVehicleIntakeDates(a.intakeDate, b.intakeDate, a.intakeAt, b.intakeAt),
-      render: (_, row) => formatVehicleIntakeTimestamp(row.intakeAt, row.intakeDate)
-    },
-    {
-      title: "Model / 车型",
-      dataIndex: "model",
-      hideInTable: true,
-      valueType: "text"
-    },
-    {
-      title: "Year / 年份",
-      dataIndex: "year",
-      hideInTable: true,
-      valueType: "digit"
-    },
-    {
-      title: "Real Purchase / 真实收车价",
-      dataIndex: "purchasePrice",
-      width: 130,
+      title: "Real Purchase / 真实收车价", hideInTable: !canApproveVehicles, dataIndex: "purchasePrice", width: 160,
       sorter: (a, b) => a.purchasePrice - b.purchasePrice,
-      render: (_, row) => formatMoney(Number(row.purchasePrice ?? 0))
+      render: (_, row) => row.purchasePrice > 0 ? formatMoney(row.purchasePrice) : <Tag color="warning">Not filled / 未填写</Tag>
     },
     {
-      title: "Modified Cost / 修改成本",
-      width: 140,
-      sorter: (a, b) => effectivePurchaseCost(a) - effectivePurchaseCost(b),
-      render: (_, row) => formatMoney(effectivePurchaseCost(row))
-    },
-    {
-      title: "Repair Cost / 整备费用",
-      width: 130,
-      sorter: (a, b) => repairCostFor(a) - repairCostFor(b),
-      render: (_, row) => formatMoney(repairCostFor(row))
-    },
-    {
-      title: "Selling / 售价",
-      dataIndex: "sellingPrice",
-      width: 130,
+      title: "Selling / 售价", dataIndex: "sellingPrice", width: 140,
       sorter: (a, b) => a.sellingPrice - b.sellingPrice,
-      render: (_, row) => formatMoney(Number(row.sellingPrice ?? 0))
+      render: (_, row) => formatMoney(row.sellingPrice)
     },
     {
-      title: "Est. Profit / 预估利润",
-      width: 140,
-      sorter: (a, b) => profitFor(a) - profitFor(b),
-      render: (_, row) => formatMoney(profitFor(row))
-    },
-    {
-      title: "Status / 状态",
-      dataIndex: "status",
-      width: 150,
-      valueType: "select",
+      title: "Status / 状态", dataIndex: "status", width: 150, valueType: "select",
       valueEnum: { Available: "Available", LoanProcessing: "Loan processing", Sold: "Sold" },
       render: (_, row) => <Tag color={vehicleStatusColor[row.status]}>{vehicleStatusLabel[row.status]}</Tag>
     },
-    {
-      title: "Readiness / 准备情况",
-      width: 240,
-      render: (_, row) => (
-        <Space direction="vertical" size={2}>
-          <Typography.Text type="secondary">Approval: {row.bossConfirmed ? "Approved" : "Needs approval"}</Typography.Text>
-          <Typography.Text type="secondary">Website: {row.isPublic ? "Visible" : "Not published"}</Typography.Text>
-          <Typography.Text type="secondary">Invoice: {invoiceCountForVehicle(row.id) > 0 ? "Linked" : "Missing"}</Typography.Text>
-          <Typography.Text type="secondary">Buyer: {row.customerId ? "Linked" : "Missing"}</Typography.Text>
-          <Typography.Text type="secondary">Used-car team: {row.ucdStatus || "Status not set"}</Typography.Text>
-        </Space>
-      )
-    },
-    {
-      title: "Enquiries / 询盘",
-      width: 100,
-      sorter: (a, b) => activeLeadCountForVehicle(a.id) - activeLeadCountForVehicle(b.id),
-      render: (_, row) => {
-        const count = activeLeadCountForVehicle(row.id);
-        return <Tag color={count > 0 ? "green" : "default"}>{count}</Tag>;
-      }
-    },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 220,
-      render: (_, row) => renderVehicleActions(row)
-    }
+    { title: "Action / 操作", fixed: "right", width: 220, render: (_, row) => renderVehicleActions(row) }
   ];
 
   const documentColumns: ColumnsType<VehicleDocument> = [
@@ -2132,9 +2115,11 @@ export function VehiclePage({
     { title: "Car Plate", dataIndex: "vehicleId", width: 110, render: (vehicleId) => plateFor(vehicles, vehicleId) },
     { title: "Invoice", dataIndex: "invoiceNumber", width: 190 },
     { title: "Source", dataIndex: "sourceType", width: 130, render: (value) => value === "OwnerAcquisition" ? <Tag color="blue">Previous owner</Tag> : <Tag>Legacy supplier</Tag> },
+    { title: "SBI", width: 180, render: (_, row) => row.currentRevision ? `${row.currentRevision.sellerType === "Company" ? "Company" : "Private"} · ${row.currentRevision.sellerName}` : "Legacy supplier" },
     { title: "Version", width: 80, render: (_, row) => row.sourceType === "OwnerAcquisition" ? `V${row.currentRevisionNumber ?? row.currentRevision?.revisionNumber ?? 1}` : "Legacy" },
     { title: "Invoice Date", dataIndex: "invoiceDate", width: 120, render: (value) => value || "-" },
     { title: "Finance", dataIndex: "accountingStatus", width: 175, render: (value) => <Tag color={value === "FinanceConfirmed" ? "green" : "gold"}>{value === "FinanceConfirmed" ? "Finance confirmed" : "Pending Finance review"}</Tag> },
+    { title: "AutoCount", width: 140, render: (_, row) => row.autoCountKeyed ? <Tag color="green">Keyed</Tag> : <Tag>Not keyed</Tag> },
     { title: "Amount", dataIndex: "amount", width: 140, align: "right", render: (value) => <span className="purchaseInvoiceAmount">{formatMoney(value)}</span> },
     { title: "Action", fixed: "right", width: 120, render: (_, row) => <Space className="tableActionGroup" wrap size={6}><Button size="small" type="primary" onClick={() => selectPurchaseInvoice(row.id)}>Details</Button></Space> }
   ];
@@ -2143,7 +2128,19 @@ export function VehiclePage({
     setVehicleIntakeDraft((current) => ({ ...current, ...values }));
     return true;
   };
-  const closeVehicleCreate = () => {
+  const closeVehicleCreate = (force = false) => {
+    const hasUnsavedIntake = Object.keys(vehicleIntakeDraft).length > 0 || Boolean(sellerNricFile || sellerVocFile || pendingOwnerDraft);
+    if (!force && hasUnsavedIntake) {
+      Modal.confirm({
+        title: "Discard vehicle intake?",
+        content: "You have entered vehicle intake details that have not been saved. Close this window and discard them?",
+        okText: "Discard",
+        okButtonProps: { danger: true },
+        cancelText: "Keep editing",
+        onOk: () => closeVehicleCreate(true)
+      });
+      return;
+    }
     sellerIdentityRequestId.current += 1;
     vehicleCreateSavingRef.current = false;
     setVehicleCreateOpen(false);
@@ -2155,6 +2152,7 @@ export function VehiclePage({
     setSellerIdentityManualEntry(false);
     setSellerNricFile(null);
     setSellerVocFile(null);
+    setSettlementEvidenceFile(null);
     setPendingOwnerDraft(null);
     sellerIdentityReviewForm.resetFields();
   };
@@ -2167,7 +2165,8 @@ export function VehiclePage({
       setVehicleCreateError("Select or confirm the previous owner before creating the vehicle.");
       return false;
     }
-    if (pendingOwnerDraft && (!sellerNricFile || !sellerIdentityConfirmed)) {
+    const dealerPurchase = ["Carsome", "Carro", "KSA"].includes(values.purchaseSource ?? "");
+    if (pendingOwnerDraft && !dealerPurchase && (!sellerNricFile || !sellerIdentityConfirmed)) {
       setVehicleCreateError("Attach the previous owner NRIC and confirm the owner details before creating a new owner.");
       return false;
     }
@@ -2183,9 +2182,10 @@ export function VehiclePage({
     vehicleCreateSavingRef.current = true;
     setVehicleCreateSaving(true);
     try {
-      const settlement = settlementFromVehicleIntakeValues(values, vehicleId, newId());
-      await onCreate(vehicle, settlement, pendingOwnerDraft ?? undefined, sellerNricFile ?? undefined, sellerVocFile ?? undefined);
-      closeVehicleCreate();
+      const settlement = canPrepareSettlement ? settlementFromVehicleIntakeValues(values, vehicleId, newId()) : undefined;
+      if (settlement?.hasDebt === false && !settlementEvidenceFile) throw new Error("Upload the no-debt supporting document before creating this vehicle.");
+      await onCreate(vehicle, settlement, pendingOwnerDraft ?? undefined, sellerNricFile ?? undefined, sellerVocFile ?? undefined, settlementEvidenceFile ?? undefined);
+      closeVehicleCreate(true);
       return true;
     } catch (error) {
       setVehicleCreateError(humanizeApiError(error, "Unable to create the vehicle. Please try again."));
@@ -2285,13 +2285,30 @@ export function VehiclePage({
     setSellerIdentityManualEntry(false);
     message.success("New previous owner confirmed. The record will be created with the vehicle.");
   };
+  const downloadStockList = async () => {
+    setStockExporting(true);
+    try {
+      const blob = await exportStockList(stockExportSource);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `stock-list-${stockExportSource ?? "all"}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+      message.success("Stock list Excel downloaded.");
+    } catch (error) {
+      message.error(humanizeApiError(error, "Stock list Excel could not be downloaded."));
+    } finally {
+      setStockExporting(false);
+    }
+  };
   return (
     <>
       {publicationModalContext}
       <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
       <ProCard
         title="Vehicle Inventory / 车辆库存"
-        extra={<Space><Tag color="green">{vehicles.length} vehicles</Tag><Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateError(null); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
+        extra={<Space wrap><Tag color="green">{vehicles.length} vehicles</Tag>{canApproveVehicles ? <><Select aria-label="Stock export source" allowClear placeholder="All sources" value={stockExportSource} onChange={setStockExportSource} options={[{ value: "Carsome", label: "Carsome (CAR)" }, { value: "Carro", label: "Carro (MY)" }, { value: "KSA", label: "KSA (KLG)" }, { value: "YSHeng", label: "YSHeng (YS)" }]} /><Button loading={stockExporting} onClick={() => void downloadStockList()}>Export stock Excel</Button></> : null}<Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateError(null); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
       >
         {dashboardFocus && <Alert
           className="sectionIntroAlert"
@@ -2419,68 +2436,31 @@ export function VehiclePage({
         </div>
         <div className="mobileRecordList">
           {filteredVehicles.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No vehicles match the current filters." />}
-          {mobileVehicles.map((vehicle) => {
-            const workflow = getVehicleWorkflowState(vehicle);
-
-            return (
+          {mobileVehicles.map((vehicle) => (
             <article className="mobileRecordCard vehicleMobileCard" key={vehicle.id}>
               <div className="mobileRecordHeader">
                 <div>
-                  <Typography.Text className="mobileRecordEyebrow">Plate / 车牌</Typography.Text>
-                  <Typography.Title level={5}>{vehicle.plateNumber}</Typography.Title>
+                  <Typography.Text className="mobileRecordEyebrow">Plate & intake / 车牌与入库日期</Typography.Text>
+                  <Button type="link" onClick={() => { openVehicleDetails(vehicle.id); setVehicleDetailTab("documents"); }}>{vehicle.plateNumber}</Button>
+                  <Typography.Paragraph type="secondary">{formatVehicleIntakeTimestamp(vehicle.intakeAt, vehicle.intakeDate)}</Typography.Paragraph>
                 </div>
-                <Tag color={vehicleStatusColor[vehicle.status]}>{vehicle.status}</Tag>
+                <Tag color={vehicleStatusColor[vehicle.status]}>{vehicleStatusLabel[vehicle.status]}</Tag>
               </div>
               <div className="mobileRecordMeta">
-                <span>
-                  <small>Vehicle / 车辆</small>
-                  <strong>{vehicleName(vehicle)}</strong>
-                </span>
-                <span>
-                  <small>Selling / 售价</small>
-                  <strong>{formatMoney(vehicle.sellingPrice)}</strong>
-                </span>
-                <span>
-                  <small>Buyer / 买家</small>
-                  <strong>{customerLinkFor(vehicle.customerId)}</strong>
-                </span>
+                {canApproveVehicles && <span><small>Real Purchase / 真实收车价</small><strong>{vehicle.purchasePrice > 0 ? formatMoney(vehicle.purchasePrice) : "Not filled / 未填写"}</strong></span>}
+                <span><small>Selling / 售价</small><strong>{formatMoney(vehicle.sellingPrice)}</strong></span>
               </div>
-              <div className={`vehicleWorkflowGuide vehicleWorkflowGuide-${workflow.color}`}>
-                <div className="vehicleWorkflowTop">
-                  <span>Current step / 当前步骤</span>
-                  <Tag color={workflow.color}>{workflow.status}</Tag>
-                </div>
-                <strong>{workflow.next}</strong>
-              </div>
-              <div className="mobileRecordFooter">
-                {renderVehicleActions(vehicle)}
-              </div>
-              <details className="vehicleMobileSupportingDetails">
-                <summary>Costs & supporting details / 成本与详情</summary>
-                <div className="mobileRecordMeta">
-                  <span><small>Real Purchase / 真实收车价</small><strong>{formatMoney(vehicle.purchasePrice)}</strong></span>
-                  <span><small>Modified Cost / 修改成本</small><strong>{formatMoney(effectivePurchaseCost(vehicle))}</strong></span>
-                  <span><small>Repair Cost / 整备费用</small><strong>{formatMoney(repairCostFor(vehicle))}</strong></span>
-                  <span><small>Est. Profit / 预估利润</small><strong>{formatMoney(profitFor(vehicle))}</strong></span>
-                  <span><small>Invoice / 发票</small><strong>{invoiceCountForVehicle(vehicle.id) > 0 ? `${invoiceCountForVehicle(vehicle.id)} linked` : "Missing"}</strong></span>
-                  <span><small>Active enquiries / 活跃询盘</small><strong>{activeLeadCountForVehicle(vehicle.id)}</strong></span>
-                  <span><small>Owner / 车主</small><strong>{contactFor(owners, vehicle.ownerId)}</strong></span>
-                </div>
-                <Space wrap size={6}>
-                  <Badge status={vehicle.bossConfirmed ? "success" : "warning"} text={vehicle.bossConfirmed ? "Approved" : "Approval pending"} />
-                  <Badge status={vehicle.isPublic ? "success" : "default"} text={vehicle.isPublic ? "Website visible" : "Website hidden"} />
-                </Space>
-              </details>
+              <div className="mobileRecordFooter">{renderVehicleActions(vehicle)}</div>
             </article>
-            );
-          })}
+          ))}
           {filteredVehicles.length > mobileVehiclePageSize && (
             <Pagination
               current={clampedMobileVehiclePage}
               pageSize={mobileVehiclePageSize}
               total={filteredVehicles.length}
-              showSizeChanger={false}
-              onChange={setMobileVehiclePage}
+              showSizeChanger
+              pageSizeOptions={[10, 20, 50, 100]}
+              onChange={(page, size) => { setMobileVehiclePage(page); setMobileVehiclePageSize(size); }}
             />
           )}
         </div>
@@ -2541,11 +2521,11 @@ export function VehiclePage({
               setMobileVehiclePage(1);
             }
           }}
-          pagination={{ ...tablePagination(8), current: clampedMobileVehiclePage, onChange: setMobileVehiclePage }}
-          scroll={{ x: 1650 }}
+          pagination={{ pageSize: mobileVehiclePageSize, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], current: clampedMobileVehiclePage, onChange: (page, size) => { setMobileVehiclePage(page); setMobileVehiclePageSize(size); } }}
+          scroll={{ x: 900 }}
           rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}
           onRow={(row) => ({
-            onClick: () => selectVehicle(row.id)
+            onClick: (event) => { if (!(event.target as HTMLElement).closest("button, a, input")) openVehicleDetails(row.id); }
           })}
           locale={{ emptyText: "No vehicles match the current filters." }}
         />
@@ -2662,7 +2642,7 @@ export function VehiclePage({
                 <Descriptions.Item label="Engine Number">{selectedVehicle.engineNumber || "-"}</Descriptions.Item>
                 <Descriptions.Item label="Customer / 客户">{selectedVehicleCustomer ? customerLinkFor(selectedVehicleCustomer.id) : "-"}</Descriptions.Item>
                 <Descriptions.Item label="Owner / 原车主">{selectedVehicleOwner ? `${selectedVehicleOwner.name} / ${selectedVehicleOwner.phone}` : "-"}</Descriptions.Item>
-                <Descriptions.Item label="Estimated Profit / 预估利润">{formatMoney(selectedVehicleProfit)}</Descriptions.Item>
+                {canApproveVehicles ? <Descriptions.Item label="Estimated Profit / 预估利润">{formatMoney(selectedVehicleProfit)}</Descriptions.Item> : null}
               </Descriptions>
             </ProCard>
           ) : null}
@@ -2843,6 +2823,17 @@ export function VehiclePage({
               >
                 <InputNumber className="fullWidth" min={earliestVehicleYear} max={latestVehicleYear} precision={0} step={1} />
               </Form.Item>
+              <Form.Item name="purchaseSource" label="Purchase source / 收车来源">
+                <Select
+                  options={[{ value: "Carsome", label: "Carsome" }, { value: "Carro", label: "Carro" }, { value: "KSA", label: "KSA" }, { value: "YSHeng", label: "YSHeng" }]}
+                  onChange={(value: VehiclePurchaseSource) => {
+                    if (value === "YSHeng") vehicleDetailForm.setFieldsValue({ dealerProcessingFee: null, dealerTrailerFee: null, dealerParkingFee: null, dealerLateCharge: null, dealerDiscount: null });
+                  }}
+                />
+              </Form.Item>
+              <Form.Item name="hasSpareKey" label="Spare key / 备用钥匙" rules={[{ required: true, message: "Select whether the car has a spare key." }]}>
+                <Select options={[{ value: true, label: "Yes / 有" }, { value: false, label: "No / 没有" }]} />
+              </Form.Item>
               <Form.Item
                 name="intakeAt"
                 label="Intake date & time / 入库日期时间"
@@ -2851,8 +2842,13 @@ export function VehiclePage({
               >
                 <DatePicker className="fullWidth" showTime={{ format: "HH:mm", minuteStep: 5 }} format="DD MMM YYYY, HH:mm" placeholder="Select intake date and time" />
               </Form.Item>
-              <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              {canApproveVehicles ? <>
+                <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+                <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              </> : null}
+              <Form.Item noStyle shouldUpdate={(previous, current) => previous.purchaseSource !== current.purchaseSource}>
+                {({ getFieldValue }) => canApproveVehicles && isDealerPurchaseSource(getFieldValue("purchaseSource")) ? <DealerChargeFields /> : null}
+              </Form.Item>
               <Form.Item
                 name="sellingPrice"
                 label="Selling / 售价"
@@ -2864,20 +2860,7 @@ export function VehiclePage({
               >
                 <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} disabled={selectedVehiclePricePolicy.locked} />
               </Form.Item>
-              <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item name="refurbishmentTotal" label="Refurbishment Total / 整备预算"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item name="commissionTotal" label="Commission / 佣金"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item name="outstationPickupAllowance" label="Outstation Pickup Allowance / 外地收车津贴"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item
-                name="outstationPickupScheduledAt"
-                label="Outstation Pickup Date & Time / 外地收车时间"
-                getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })}
-                normalize={(value: Dayjs | null) => value?.toISOString()}
-              >
-                <DatePicker className="fullWidth" showTime={{ format: "HH:mm", minuteStep: 5 }} format="DD MMM YYYY, HH:mm" placeholder="Select date and time" />
-              </Form.Item>
-              <Form.Item name="outstationPickupBookingSlip" label="Booking Slip Reference / 预约单参考编号"><Input placeholder="Booking slip no. or file ref" /></Form.Item>
+              <Form.Item name="contraRangePrice" label="Contra / 抵扣金额" extra="Fill this only when the customer trades in a car and buys another car from us."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item
                 className="vehicleMarkdownField"
                 name="publicDescriptionMarkdown"
@@ -3273,6 +3256,7 @@ export function VehiclePage({
                   form?.setFieldsValue(patch);
                   setVehicleIntakeDraft((current) => ({ ...current, ...patch }));
                   setSellerVocFile(null);
+    setSettlementEvidenceFile(null);
                   message.success(Object.keys(patch).length
                     ? "VOC removed. Unchanged suggestions were cleared; manual edits were kept."
                     : "VOC removed. Your vehicle entries were kept.");
@@ -3428,8 +3412,24 @@ export function VehiclePage({
             className="formGrid vehicleIntakeStepForm"
             initialValues={{ contraRangePrice: 0, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, outstationPickupAllowance: 0 }}
           >
-            <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="purchaseSource" label="Purchase source / 收车来源" rules={[{ required: true, message: "Select the purchase source." }]}>
+              <Select
+                options={[{ value: "Carsome", label: "Carsome" }, { value: "Carro", label: "Carro" }, { value: "KSA", label: "KSA" }, { value: "YSHeng", label: "YSHeng" }]}
+                onChange={(value: VehiclePurchaseSource) => {
+                  if (value === "YSHeng") vehicleCreateFormRef.current?.setFieldsValue({ dealerProcessingFee: null, dealerTrailerFee: null, dealerParkingFee: null, dealerLateCharge: null, dealerDiscount: null });
+                }}
+              />
+            </Form.Item>
+            <Form.Item name="hasSpareKey" label="Spare key / 备用钥匙" rules={[{ required: true, message: "Select whether the car has a spare key." }]}>
+              <Select options={[{ value: true, label: "Yes / 有" }, { value: false, label: "No / 没有" }]} />
+            </Form.Item>
+            {canApproveVehicles ? <>
+              <Form.Item name="purchasePrice" label="Real purchase / 真实收车价"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item name="modifiedPurchasePrice" label={<ModifiedPurchaseLabel />}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            </> : null}
+            <Form.Item noStyle shouldUpdate={(previous, current) => previous.purchaseSource !== current.purchaseSource}>
+              {({ getFieldValue }) => canApproveVehicles && isDealerPurchaseSource(getFieldValue("purchaseSource")) ? <DealerChargeFields /> : null}
+            </Form.Item>
             <Form.Item
               name="sellingPrice"
               label="Selling / 售价"
@@ -3440,24 +3440,11 @@ export function VehiclePage({
             >
               <InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
             </Form.Item>
-            <Form.Item name="contraRangePrice" label="Contra Range Price / Contra 价格范围"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="additionalCharges" label="Additional Charges / 杂费"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="refurbishmentTotal" label="Refurbishment Total / 整备预算"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="commissionTotal" label="Commission / 佣金"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="outstationPickupAllowance" label="Outstation Pickup Allowance / 外地收车津贴"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item
-              name="outstationPickupScheduledAt"
-              label="Outstation Pickup Date & Time / 外地收车时间"
-              getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })}
-              normalize={(value: Dayjs | null) => value?.toISOString()}
-            >
-              <DatePicker className="fullWidth" showTime={{ format: "HH:mm", minuteStep: 5 }} format="DD MMM YYYY, HH:mm" placeholder="Select date and time" />
-            </Form.Item>
-            <Form.Item name="outstationPickupBookingSlip" label="Booking Slip Reference / 预约单参考编号"><Input placeholder="Booking slip no. or file ref" /></Form.Item>
+            <Form.Item name="contraRangePrice" label="Contra / 抵扣金额" extra="Fill this only when the customer trades in a car and buys another car from us."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           </StepsForm.StepForm>
           <StepsForm.StepForm
             name="settlement"
-            title="Previous owner settlement"
+            title="Bank settlement"
             onFinish={captureVehicleIntakeStep}
             className="vehicleIntakeStepForm"
             initialValues={{ prepareSettlement: canPrepareSettlement, bankDebtAmount: 0, settlementDeadline: singaporeTodayIsoDate() }}
@@ -3466,11 +3453,11 @@ export function VehiclePage({
               <Alert
                 type="info"
                 showIcon
-                message="Prepare the previous owner settlement reminder"
-                description="Purchase price minus bank debt determines whether to pay the seller, collect the difference, or record an internal offset. The server calculates the final amount. Creating this record does not confirm payment or receipt."
+                message="Record bank debt or upload no-debt evidence"
+                description="Bank settlement uses the outstanding bank debt. Purchase price can be filled later. No debt includes cash purchases and loans already settled."
               />
-              <Form.Item name="prepareSettlement" label="Create settlement reminder / 建立结算提醒" valuePropName="checked">
-                <Switch checkedChildren="Yes" unCheckedChildren="No" />
+              <Form.Item name="prepareSettlement" label="Bank debt / 银行欠款" valuePropName="checked">
+                <Switch checkedChildren="Debt" unCheckedChildren="No debt" />
               </Form.Item>
               <Form.Item noStyle shouldUpdate={(previous, current) => previous.prepareSettlement !== current.prepareSettlement || previous.bankDebtAmount !== current.bankDebtAmount}>
                 {({ getFieldValue }) => getFieldValue("prepareSettlement") ? <>
@@ -3482,22 +3469,29 @@ export function VehiclePage({
                       {formatMoney(Number(vehicleIntakeDraft.purchasePrice ?? 0))}
                     </Descriptions.Item>
                     <Descriptions.Item label="Settlement / 结算">
-                      {settlementDirectionLabel(settlementPreview(Number(vehicleIntakeDraft.purchasePrice ?? 0), Number(getFieldValue("bankDebtAmount") ?? 0))?.direction)}: {formatMoney(settlementPreview(Number(vehicleIntakeDraft.purchasePrice ?? 0), Number(getFieldValue("bankDebtAmount") ?? 0))?.amount ?? 0)}
+                      Pay to bank: {formatMoney(Number(getFieldValue("bankDebtAmount") ?? 0))}
                     </Descriptions.Item>
                   </Descriptions>
-                  <Form.Item name="bankDebtAmount" label="Outstanding bank debt / 银行欠款" rules={[{ required: true, message: "Enter the bank debt, or zero if none." }]}>
+                  <Form.Item name="bankDebtAmount" label="Outstanding bank debt / 银行欠款" rules={[{ required: true, message: "Enter the outstanding bank debt." }]}>
                     <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
                   </Form.Item>
                   <Form.Item
                     name="settlementDeadline"
                     label="Settlement deadline / 结算期限"
-                    rules={[{ required: Number(vehicleIntakeDraft.purchasePrice ?? 0) !== Number(getFieldValue("bankDebtAmount") ?? 0), message: "Choose the settlement deadline." }]}
+                    rules={[{ required: true, message: "Choose the settlement deadline." }]}
                     getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })}
                     normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}
                   >
                     <DatePicker className="fullWidth" format="DD MMM YYYY" />
                   </Form.Item>
-                </> : <Alert type="warning" showIcon message="No settlement reminder will be created. Finance must add it after vehicle intake." />}
+                  <Form.Item name="settlementBankName" label="Bank name / 银行名称" rules={[{ required: true, whitespace: true }]}><AutoComplete options={settlementBanks.map(value => ({ value }))} filterOption={(input, option) => String(option?.value).toLowerCase().includes(input.toLowerCase())} /></Form.Item>
+                  <Form.Item name="settlementBankAccountNumber" label="Bank account number / 银行户口号码" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
+                </> : <>
+                  <Alert type="info" showIcon message="No debt: upload supporting evidence for the cash purchase or settled loan." />
+                  <Upload accept=".pdf,.jpg,.jpeg,.png" maxCount={1} beforeUpload={file => { setSettlementEvidenceFile(file); return false; }} onRemove={() => setSettlementEvidenceFile(null)}>
+                    <Button>Upload supporting document / 上传证明文件</Button>
+                  </Upload>
+                </>}
               </Form.Item>
             </> : <Alert
               type="info"
@@ -3513,7 +3507,7 @@ export function VehiclePage({
               message="Check the vehicle submission"
               description={vehicleCreateError}
             /> : null}
-            <VehicleIntakeReview draft={vehicleIntakeDraft} customers={customers} owners={owners} pendingOwner={pendingOwnerDraft} hasSellerNric={Boolean(sellerNricFile)} hasVoc={Boolean(sellerVocFile)} />
+            <VehicleIntakeReview draft={vehicleIntakeDraft} customers={customers} owners={owners} pendingOwner={pendingOwnerDraft} hasSellerNric={Boolean(sellerNricFile)} hasVoc={Boolean(sellerVocFile)} canApproveVehicles={canApproveVehicles} />
           </StepsForm.StepForm>
         </StepsForm>
       </Modal>
@@ -3611,7 +3605,6 @@ export function VehiclePage({
                 name="icNumber"
                 label="IC / 身份证"
                 rules={[
-                  { required: true, message: "Confirm the IC number." },
                   {
                     validator: async (_, value?: string) => {
                       if (value && normalizeIdentityCardNumber(value).length !== 12) throw new Error("Enter a complete 12-digit Malaysian IC number.");
@@ -3620,6 +3613,9 @@ export function VehiclePage({
                 ]}
               >
                 <Input placeholder="900101-01-1234" />
+              </Form.Item>
+              <Form.Item name="tinNumber" label="TIN / 税务编号" rules={[{ required: true, message: "Enter the seller TIN manually." }]}>
+                <Input placeholder="Enter TIN number" />
               </Form.Item>
               <Form.Item name="address" label="Address / 地址"><Input.TextArea rows={3} /></Form.Item>
               <Form.Item className="formActions">
@@ -3654,14 +3650,16 @@ export function VehiclePage({
                 message.warning(purchaseInvoiceGenerationBlocker);
                 return;
               }
-              if (!selectedVehicle || !selectedVehicleOwner) return;
+              if (!selectedVehicle) return;
 
               setPurchaseInvoiceGenerating(true);
               try {
+                const effectivePurchasePrice = effectivePurchaseInvoiceAmount(selectedVehicle);
                 const invoice = await onGeneratePurchaseInvoice(selectedVehicle.id, {
-                  expectedOwnerId: selectedVehicleOwner.id,
-                  expectedPurchasePrice: selectedVehicle.purchasePrice,
-                  expectedIntakeDate: selectedVehicle.intakeDate!
+                  expectedOwnerId: selectedVehicleOwner?.id ?? "00000000-0000-0000-0000-000000000000",
+                  expectedPurchasePrice: effectivePurchasePrice,
+                  expectedIntakeDate: selectedVehicle.intakeDate!,
+                  expectedSupplierId: dealerPurchaseSource ? selectedPurchaseInvoiceSupplier?.id : undefined
                 });
                 setPurchaseInvoiceCreateOpen(false);
                 selectPurchaseInvoice(invoice.id);
@@ -3681,8 +3679,20 @@ export function VehiclePage({
           <Descriptions size="small" column={1} bordered>
             <Descriptions.Item label="Car plate">{selectedVehicle?.plateNumber || "Not selected"}</Descriptions.Item>
             <Descriptions.Item label="Vehicle">{selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : "Not selected"}</Descriptions.Item>
-            <Descriptions.Item label="Previous owner">{selectedVehicleOwner ? `${selectedVehicleOwner.name} · ${selectedVehicleOwner.phone}` : "Missing"}</Descriptions.Item>
-            <Descriptions.Item label="Real purchase / 真实收车价">{selectedVehicle ? formatMoney(selectedVehicle.purchasePrice) : "Missing"}</Descriptions.Item>
+            {dealerPurchaseSource ? (
+              <Descriptions.Item label="Dealer supplier / 车行供应商">
+                <Select
+                  className="fullWidth"
+                  value={purchaseInvoiceSupplierId}
+                  placeholder="Select an active dealer supplier"
+                  onChange={setPurchaseInvoiceSupplierId}
+                  options={supplierMaster.filter(isSupplierUsable).map((supplier) => ({ value: supplier.id, label: `${supplier.companyName} · ${supplier.phone}` }))}
+                />
+              </Descriptions.Item>
+            ) : (
+              <Descriptions.Item label="Previous owner">{selectedVehicleOwner ? `${selectedVehicleOwner.name} · ${selectedVehicleOwner.phone}` : "Missing"}</Descriptions.Item>
+            )}
+            {canApproveVehicles ? <Descriptions.Item label="Invoice purchase / 开票收车价">{selectedVehicle ? formatMoney(effectivePurchaseInvoiceAmount(selectedVehicle)) : "Missing"}</Descriptions.Item> : null}
             <Descriptions.Item label="Intake date">{selectedVehicle?.intakeDate || "Missing"}</Descriptions.Item>
             <Descriptions.Item label="Optional seller data">IC, TIN and address stay blank when the approved Owner record has no value. They are never guessed.</Descriptions.Item>
           </Descriptions>

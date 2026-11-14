@@ -58,7 +58,8 @@ describe("operational table UI contract", () => {
       { file: "modules/vehicles/VehiclePage.tsx", dataSources: ["filteredVehicles"] },
       { file: "modules/settings/VehicleCatalogSettings.tsx", dataSources: ["filteredCatalogModels"] },
       { file: "modules/finance/CashCustodyPage.tsx", dataSources: ["filteredHandovers"] },
-      { file: "modules/finance/FinancePage.tsx", dataSources: ["filteredPayments", "filteredSettlements", "filteredBrokerCommissions", "filteredDebtRecoveries", "filteredPaymentVouchers", "filteredDailySpends"] },
+      { file: "modules/finance/FinancePage.tsx", dataSources: ["filteredPayments", "filteredBrokerCommissions", "filteredDebtRecoveries", "filteredPaymentVouchers", "filteredDailySpends"] },
+      { file: "modules/finance/BankSettlementPanel.tsx", dataSources: ["rows"] },
       { file: "modules/hr/HrSalaryPage.tsx", dataSources: ["filteredAttendance", "filteredLeaveRequests", "filteredLeaveBalances", "filteredLeaveAdjustments", "filteredPayslips"] }
     ];
 

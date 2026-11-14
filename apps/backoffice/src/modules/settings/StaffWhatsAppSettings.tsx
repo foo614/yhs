@@ -13,6 +13,9 @@ const descriptions: Record<StaffWhatsAppPolicyCategory, { title: string; detail:
   AttendanceSummary: { title: "Attendance summary", detail: "Daily staff availability summary. Default 10:00 Malaysia time." },
   LeaveApproval: { title: "Leave approval", detail: "Daily pending leave approval summary. Default 09:00 Malaysia time." },
   OcrUsage: { title: "OCR usage", detail: "Warn when OCR use reaches the selected share of its limit. Default 90%." },
+  InspectionReminder: { title: "Inspection reminders", detail: "Boss/Admin appointment and report expiry reminders. Cancelled inspections and sold vehicles are excluded." },
+  CalendarTasks: { title: "Calendar tasks", detail: "Daily reminder for assigned tasks. Boss/Admin sees all; each employee receives only their own tasks." },
+  CompanyNews: { title: "Company news — all staff", detail: "New-stock updates sent individually to each connected active employee. No cost, supplier or customer details are included." },
   VehicleEvent: { title: "Vehicle events", detail: "Notify assigned staff about relevant vehicle workflow changes." },
   DeliveryEvent: { title: "Delivery events", detail: "Notify assigned staff about relevant handover changes." },
   FinanceEvent: { title: "Finance events", detail: "Notify authorized staff about relevant finance workflow changes." }
@@ -50,7 +53,7 @@ function readiness(policy: StaffWhatsAppPolicy) {
   return "Configuration allows sending only in ready languages. Each recipient still needs a verified connection and current role access. This is not a live delivery check.";
 }
 
-type PolicyFormValues = { enabled: boolean; time?: Dayjs; leadDays: number; thresholdPercent: number };
+type PolicyFormValues = { enabled: boolean; time?: Dayjs; leadDays: number; thresholdPercent: number; delayMinutes: number };
 
 export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] }) {
   const screens = Grid.useBreakpoint();
@@ -104,6 +107,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       enabled: editing.enabled,
       time: dayjs().startOf("day").add(editing.localMinuteOfDay, "minute"),
       leadDays: editing.leadDays,
+      delayMinutes: editing.delayMinutes ?? 0,
       thresholdPercent: editing.thresholdPercent
     });
   }, [editing, form]);
@@ -116,17 +120,19 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
     const category = editing.category;
     const input: StaffWhatsAppPolicyInput = {
       enabled: values.enabled,
-      localMinuteOfDay: category === "OutstandingDigest" || category === "AttendanceSummary" || category === "LeaveApproval"
+      localMinuteOfDay: category === "OutstandingDigest" || category === "AttendanceSummary" || category === "LeaveApproval" || category === "CalendarTasks" || category === "InspectionReminder"
         ? (values.time?.hour() ?? 0) * 60 + (values.time?.minute() ?? 0) : editing.localMinuteOfDay,
-      leadDays: category === "OutstandingDigest" ? values.leadDays : editing.leadDays,
+      leadDays: (category === "OutstandingDigest" || category === "CalendarTasks") ? values.leadDays : editing.leadDays,
+      delayMinutes: category === "OutstandingDigest" || category === "AttendanceSummary" || category === "LeaveApproval" || category === "CalendarTasks" || category === "InspectionReminder" ? 0 : values.delayMinutes,
       thresholdPercent: category === "OcrUsage" ? values.thresholdPercent : editing.thresholdPercent
     };
     modal.confirm({
       title: `Save ${descriptions[category].title} settings?`,
       content: <Space direction="vertical">
         <span>{input.enabled ? "Enable" : "Disable"} this staff message category.</span>
-        {(category === "OutstandingDigest" || category === "AttendanceSummary" || category === "LeaveApproval") && <span>Scheduled for {localTime(input.localMinuteOfDay)} Malaysia time.</span>}
-        {category === "OutstandingDigest" && <span>Lead time: {input.leadDays} days.</span>}
+        {(category === "OutstandingDigest" || category === "AttendanceSummary" || category === "LeaveApproval" || category === "CalendarTasks" || category === "InspectionReminder") && <span>Scheduled for {localTime(input.localMinuteOfDay)} Malaysia time.</span>}
+        {!["OutstandingDigest", "AttendanceSummary", "LeaveApproval", "CalendarTasks", "InspectionReminder"].includes(category) && <span>Send {input.delayMinutes ?? 0} minutes after the event.</span>}
+        {(category === "OutstandingDigest" || category === "CalendarTasks") && <span>Lead time: {input.leadDays} days.</span>}
         {category === "OcrUsage" && <span>Threshold: {input.thresholdPercent}%.</span>}
         {input.enabled && (!editing.senderReady || !editing.templateReady) && <span>Sending will remain unavailable until the readiness issues are resolved.</span>}
       </Space>,
@@ -187,7 +193,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
           extra={<Tag color={policy.enabled ? "green" : "default"}>{policy.enabled ? "Enabled" : "Off"}</Tag>}>
           <Space direction="vertical" className="fullWidth">
             <Typography.Text type="secondary">{descriptions[policy.category].detail}</Typography.Text>
-            {(policy.category === "OutstandingDigest" || policy.category === "AttendanceSummary" || policy.category === "LeaveApproval") &&
+            {(policy.category === "OutstandingDigest" || policy.category === "AttendanceSummary" || policy.category === "LeaveApproval" || policy.category === "CalendarTasks" || policy.category === "InspectionReminder") &&
               <Typography.Text>Time: {localTime(policy.localMinuteOfDay)} MYT</Typography.Text>}
             {policy.category === "OutstandingDigest" && <Typography.Text>Lead time: {policy.leadDays} days</Typography.Text>}
             {policy.category === "OcrUsage" && <Typography.Text>Threshold: {policy.thresholdPercent}%</Typography.Text>}
@@ -293,11 +299,14 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       {editing && <Form form={form} layout="vertical" onFinish={reviewSave}>
         <Typography.Paragraph type="secondary">{descriptions[editing.category].detail}</Typography.Paragraph>
         <Form.Item name="enabled" label="Category" valuePropName="checked"><Switch checkedChildren="On" unCheckedChildren="Off" /></Form.Item>
-        {(editing.category === "OutstandingDigest" || editing.category === "AttendanceSummary" || editing.category === "LeaveApproval") &&
+        {(editing.category === "OutstandingDigest" || editing.category === "AttendanceSummary" || editing.category === "LeaveApproval" || editing.category === "CalendarTasks" || editing.category === "InspectionReminder") &&
           <Form.Item name="time" label="Daily time (Malaysia, UTC+8)" rules={[{ required: true, message: "Select a daily time." }]}>
             <TimePicker format="HH:mm" className="fullWidth" />
           </Form.Item>}
-        {editing.category === "OutstandingDigest" && <Form.Item name="leadDays" label="Lead days" rules={[{ required: true, type: "number", min: 1, max: 30 }]}>
+        {!["OutstandingDigest", "AttendanceSummary", "LeaveApproval", "CalendarTasks", "InspectionReminder"].includes(editing.category) && <Form.Item name="delayMinutes" label="Minutes after event (0 = immediately)" rules={[{ required: true, type: "number", min: 0, max: 1440 }]}>
+          <InputNumber min={0} max={1440} precision={0} className="fullWidth" />
+        </Form.Item>}
+        {(editing.category === "OutstandingDigest" || editing.category === "CalendarTasks") && <Form.Item name="leadDays" label="Lead days" rules={[{ required: true, type: "number", min: 1, max: 30 }]}>
           <InputNumber min={1} max={30} precision={0} className="fullWidth" />
         </Form.Item>}
         {editing.category === "OcrUsage" && <Form.Item name="thresholdPercent" label="OCR usage threshold (%)" rules={[{ required: true, type: "number", min: 1, max: 100 }]}>

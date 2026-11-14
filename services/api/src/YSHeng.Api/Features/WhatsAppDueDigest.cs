@@ -37,7 +37,7 @@ public static class WhatsAppDueDigest
             .Where(item => !item.IsPaid && item.Amount > 0 && item.DueDate != null && item.DueDate != DateOnly.MinValue && item.DueDate <= through)
             .ToListAsync(ct);
         var settlements = await db.SettlementReminders.AsNoTracking()
-            .Where(item => !item.IsPaid && item.Deadline != default && item.Deadline <= through &&
+            .Where(item => !item.IsPaid && item.SupersededById == null && item.Deadline != default && item.Deadline <= through &&
                 item.Direction != SettlementDirection.InternalOffset && item.Amount > 0).ToListAsync(ct);
         var dailySpends = await db.DailySpends.AsNoTracking()
             .Where(item => !item.IsPaid && item.DueDate != default && item.DueDate <= through && item.Amount > 0).ToListAsync(ct);
@@ -78,10 +78,10 @@ public static class WhatsAppDueDigest
             foreach (var commission in (sources.Commissions ?? []).Where(item => !item.IsPaid && item.Amount > 0 && item.DueDate is { } date && Due(date)))
                 items.Add(new("Commission", commission.Id, commission.DueDate!.Value,
                     $"{(malay ? "Komisen" : "Commission")} {Plate(commission.VehicleId)} RM{Money(commission.Amount)}"));
-            foreach (var settlement in sources.Settlements.Where(item => !item.IsPaid && item.Amount > 0 && Due(item.Deadline) &&
-                item.Direction is SettlementDirection.LegacyPaySeller or SettlementDirection.PaySeller or SettlementDirection.CollectFromSeller))
+            foreach (var settlement in sources.Settlements.Where(item => !item.IsPaid && !item.SupersededById.HasValue && item.Amount > 0 && Due(item.Deadline) &&
+                item.Direction is SettlementDirection.LegacyPaySeller or SettlementDirection.PaySeller or SettlementDirection.CollectFromSeller or SettlementDirection.PayBank))
                 items.Add(new("Settlement", settlement.Id, settlement.Deadline,
-                    $"{(settlement.Direction == SettlementDirection.CollectFromSeller ? (malay ? "Kutip daripada penjual" : "Collect from seller") : (malay ? "Bayar kepada penjual" : "Pay seller"))} {Plate(settlement.VehicleId)} RM{Money(settlement.Amount)}"));
+                    $"{(settlement.Direction == SettlementDirection.PayBank ? (malay ? "Bayar bank" : "Pay to bank") : settlement.Direction == SettlementDirection.CollectFromSeller ? (malay ? "Kutip daripada penjual" : "Collect from seller") : (malay ? "Bayar kepada penjual" : "Pay seller"))} {Plate(settlement.VehicleId)} RM{Money(settlement.Amount)}"));
             foreach (var spend in sources.DailySpends.Where(item => !item.IsPaid && item.Amount > 0 && Due(item.DueDate)))
                 items.Add(new("DailySpend", spend.Id, spend.DueDate, $"{(malay ? "Perbelanjaan" : "Expense")} RM{Money(spend.Amount)}"));
             foreach (var payment in sources.Payments.Where(item => item.Status != PaymentStatus.Reconciled &&
@@ -223,7 +223,7 @@ public static class WhatsAppDueDigest
         CancellationToken ct = default)
     {
         // Payment bank-follow-up is optional, so its absence is not a missing-date issue.
-        var missingSettlement = await db.SettlementReminders.CountAsync(item => !item.IsPaid && item.Amount > 0 &&
+        var missingSettlement = await db.SettlementReminders.CountAsync(item => !item.IsPaid && item.SupersededById == null && item.Amount > 0 &&
             item.Direction != SettlementDirection.InternalOffset && item.Deadline == default, ct);
         var missingExpense = await db.DailySpends.CountAsync(item => !item.IsPaid && item.Amount > 0 &&
             item.DueDate == default, ct);

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
-import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, compareVehicleIntakeDates, effectiveCommissionCost, effectivePickupAllowanceCost, effectivePurchaseCost, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, formatDocumentTimestamp, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleCustomerPath, vehicleDetailsPersonCreateFlags, vehicleDocumentAccept, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
+import { canApplyVehicleUploadLoad, canStartVehicleUploadLoad, compareVehicleIntakeDates, effectiveCommissionCost, effectivePickupAllowanceCost, effectivePurchaseCost, effectivePurchaseInvoiceAmount, effectiveRepairCost, estimatedVehicleProfit, filterOperationIntakeVehicles, filterVehiclesForDashboardFocus, formatDocumentTimestamp, getVehicleWorkflowState, identityCardEnding, IntakeChecklistCard, ownerFromIdentityCardReview, ownerIdentityCardReadFailed, ownerPurchaseInvoiceGenerationBlockReason, possibleOwnersForIdentityReview, PurchaseInvoiceHistory, purchaseInvoiceCreateInitialValues, purchaseInvoiceFromCreateValues, savePurchaseInvoiceRecord, settlementFromVehicleIntakeValues, vehicleCustomerEditPolicy, vehicleCustomerPath, vehicleDetailsPersonCreateFlags, vehicleDocumentAccept, vehicleDocumentAllowsPersonSelection, vehicleDocumentCategoriesForOwnership, vehicleDocumentOwnershipDefault, vehicleDocumentOwnershipSelection, vehicleDocumentsForOwnership, vehicleFromCreateIntakeValues, vehicleFromEditValues, vehicleIntakeChecklistTab, vehicleLoanHandoffBuyerPolicy, vehicleLoanHandoffStep, vehiclePhotoDeleteConfirmationText, vehicleSellingPriceChanged, vehicleSellingPriceEditPolicy, vehicleSoldInAnalyticsPeriod, vehicleStatusLabel } from "./VehiclePage";
 import type { BrokerCommission, Lead, LoanApplication, PaymentVoucher, PurchaseInvoice, RepairJob, Supplier, Vehicle, VehicleDocument, VehicleIntakeValues } from "../../api";
 
 const baseVehicle: Vehicle = {
@@ -326,7 +326,7 @@ describe("vehicleFromCreateIntakeValues", () => {
     });
   });
 
-  it("sends bank debt and the reviewed price, leaving owner, direction and amount server-owned", () => {
+  it("sends the bank debt decision while leaving payment direction and amount server-owned", () => {
     expect(settlementFromVehicleIntakeValues({
       ...intakeValues,
       ownerId: "owner-1",
@@ -335,14 +335,17 @@ describe("vehicleFromCreateIntakeValues", () => {
       prepareSettlement: true,
       settlementDeadline: "2026-09-01"
     }, "vehicle-new", "settlement-new")).toEqual({
+      hasDebt: true,
+      bankName: undefined,
+      bankAccountNumber: undefined,
       bankDebtAmount: 35_000,
       expectedPurchasePrice: 49_900,
       deadline: "2026-09-01"
     });
   });
 
-  it("does not create a settlement when the staff member leaves it for Finance", () => {
-    expect(settlementFromVehicleIntakeValues({ ...intakeValues, prepareSettlement: false }, "vehicle-new", "settlement-new")).toBeUndefined();
+  it("records the no-debt decision without inventing a bank payment", () => {
+    expect(settlementFromVehicleIntakeValues({ ...intakeValues, prepareSettlement: false }, "vehicle-new", "settlement-new")).toMatchObject({ hasDebt: false, bankDebtAmount: 0 });
   });
 });
 
@@ -539,6 +542,22 @@ describe("structured purchase invoice entry", () => {
     expect(ownerPurchaseInvoiceGenerationBlockReason({ bossConfirmed: true, ownerId: undefined, purchasePrice: 42000, intakeDate: "2026-09-05" }, undefined)).toContain("previous owner");
     expect(ownerPurchaseInvoiceGenerationBlockReason({ bossConfirmed: true, ownerId: "owner-1", purchasePrice: 0, intakeDate: "2026-09-05" }, { id: "owner-1", name: "Owner", phone: "0123456789" })).toContain("greater than zero");
     expect(ownerPurchaseInvoiceGenerationBlockReason({ bossConfirmed: true, ownerId: "owner-1", purchasePrice: 42000, intakeDate: "2026-09-05" }, { id: "owner-1", name: "Owner", phone: "0123456789" })).toBeUndefined();
+  });
+
+  it("uses the modified purchase amount when generating the formal invoice", () => {
+    const vehicle = { ...baseVehicle, purchasePrice: 52000, modifiedPurchasePrice: 47500, intakeDate: "2026-09-05" };
+    expect(effectivePurchaseInvoiceAmount(vehicle)).toBe(47500);
+    expect(ownerPurchaseInvoiceGenerationBlockReason(vehicle, { id: "owner-1", name: "Owner", phone: "0123456789" })).toBeUndefined();
+    expect(ownerPurchaseInvoiceGenerationBlockReason({ ...vehicle, modifiedPurchasePrice: 0 }, { id: "owner-1", name: "Owner", phone: "0123456789" })).toContain("greater than zero");
+  });
+
+  it("requires an active dealer supplier and enforces the KSA sold gate", () => {
+    const dealerVehicle = { ...baseVehicle, purchaseSource: "Carsome" as const, ownerId: undefined, intakeDate: "2026-09-05" };
+    expect(ownerPurchaseInvoiceGenerationBlockReason(dealerVehicle, undefined)).toContain("active dealer supplier");
+    expect(ownerPurchaseInvoiceGenerationBlockReason(dealerVehicle, undefined, inactiveSupplier)).toContain("active dealer supplier");
+    expect(ownerPurchaseInvoiceGenerationBlockReason(dealerVehicle, undefined, activeSupplier)).toBeUndefined();
+    expect(ownerPurchaseInvoiceGenerationBlockReason({ ...dealerVehicle, purchaseSource: "KSA" }, undefined, activeSupplier)).toContain("sold");
+    expect(ownerPurchaseInvoiceGenerationBlockReason({ ...dealerVehicle, purchaseSource: "KSA", status: "Sold" }, undefined, activeSupplier)).toBeUndefined();
   });
 
   it("maps entered values into the structured record with GUID line ids", () => {

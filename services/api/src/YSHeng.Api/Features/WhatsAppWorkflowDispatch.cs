@@ -13,8 +13,8 @@ public static class WhatsAppWorkflowDispatch
         long now, CancellationToken ct = default)
     {
         if (!assistant.Ready) return 0;
-        var enabled = await db.WhatsAppStaffNotificationPolicies.AsNoTracking().Where(row => row.Enabled)
-            .Select(row => row.Category).ToArrayAsync(ct);
+        var policies = await db.WhatsAppStaffNotificationPolicies.AsNoTracking().Where(row => row.Enabled).ToDictionaryAsync(row => row.Category, ct);
+        var enabled = policies.Keys.ToArray();
         var events = await db.WhatsAppWorkflowEvents.AsNoTracking().Where(row => row.State == "Pending" &&
             row.ResolvedAt == null && row.ExpiresAt > now && enabled.Contains(row.Category))
             .OrderBy(row => row.CreatedAt).ThenBy(row => row.Id).ToListAsync(ct);
@@ -25,11 +25,15 @@ public static class WhatsAppWorkflowDispatch
         {
             var vehicle = await db.Vehicles.AsNoTracking().SingleOrDefaultAsync(row => row.Id == source.VehicleId, ct);
             if (vehicle is null) continue;
+            var dueAt = source.CreatedAt + policies[source.Category].DelayMinutes * 60L;
+            if (dueAt >= source.ExpiresAt) continue;
             foreach (var binding in bindings)
             {
                 if (source.RequiredRole == "Sales" && source.TargetUserId != binding.StaffUserId) continue;
                 var resolved = await WhatsAppStaffBindings.ResolveAsync(db, assistant, binding.Id, now, ct);
                 if (resolved is null || !await WhatsAppWorkflowEvents.CurrentFactsAsync(db, source, binding.StaffUserId, now, ct)) continue;
+                var recipientRole = source.RequiredRole == "AllStaff" ? resolved.Value.Roles.FirstOrDefault(role => WhatsAppStaffNotifications.RoleAllowed(source.Category, [role])) : source.RequiredRole;
+                if (recipientRole is null) continue;
                 var body = WhatsAppWorkflowEvents.RenderBody(source, vehicle, binding.Language);
                 if (!ValidBody(body)) continue;
                 var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"staff|workflow|{source.Id:N}|{binding.StaffUserId}")));
@@ -37,11 +41,11 @@ public static class WhatsAppWorkflowDispatch
                 var row = new WhatsAppOutbox
                 {
                     IdempotencyKey = key, Audience = "Staff", StaffBindingId = binding.Id, StaffUserId = binding.StaffUserId,
-                    Recipient = binding.Recipient, RequiredStaffRole = source.RequiredRole, MessageKind = source.Category,
+                    Recipient = binding.Recipient, RequiredStaffRole = recipientRole, MessageKind = source.Category,
                     BusinessEventKey = $"workflow:{source.Id:N}", BusinessEventVersion = source.SourceVersion,
                     EventKind = "staff.notification", TemplateVersion = "staff_notice_v1", TemplateReference = body,
                     Body = body, Language = binding.Language, State = "Queued", CreatedAt = now,
-                    ScheduledAt = source.CreatedAt, NextAttemptAt = now, ExpiresAt = source.ExpiresAt
+                    ScheduledAt = dueAt, NextAttemptAt = Math.Max(now, dueAt), ExpiresAt = source.ExpiresAt
                 };
                 db.WhatsAppOutbox.Add(row);
                 db.AuditLogs.Add(new AuditLog { Actor = "whatsapp-workflow", Action = "whatsapp.workflow.queued",
@@ -63,7 +67,7 @@ public static class WhatsAppWorkflowDispatch
             !row.BusinessEventKey.StartsWith("workflow:", StringComparison.Ordinal) ||
             !Guid.TryParseExact(row.BusinessEventKey[9..], "N", out var id)) return null;
         var source = await db.WhatsAppWorkflowEvents.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, ct);
-        if (source is null || source.Category != row.MessageKind || source.RequiredRole != row.RequiredStaffRole ||
+        if (source is null || source.Category != row.MessageKind || (source.RequiredRole != "AllStaff" && source.RequiredRole != row.RequiredStaffRole) ||
             source.SourceVersion != row.BusinessEventVersion ||
             !await WhatsAppWorkflowEvents.CurrentFactsAsync(db, source, row.StaffUserId, now, ct)) return null;
         var vehicle = await db.Vehicles.AsNoTracking().SingleAsync(item => item.Id == source.VehicleId, ct);

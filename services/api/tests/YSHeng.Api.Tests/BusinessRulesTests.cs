@@ -5887,6 +5887,130 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Purchase_invoice_documents_are_boss_only_for_upload_and_view()
+    {
+        Assert.False(DepartmentAccess.CanUploadDocument(["Sales"], FileCategory.PurchaseInvoice));
+        Assert.False(DepartmentAccess.CanViewDocument(["Sales"], FileCategory.PurchaseInvoice));
+        Assert.True(DepartmentAccess.CanUploadDocument(["BossAdmin"], FileCategory.PurchaseInvoice));
+        Assert.True(DepartmentAccess.CanViewDocument(["BossAdmin"], FileCategory.PurchaseInvoice));
+        Assert.True(DepartmentAccess.CanViewDocument(["Sales"], FileCategory.Voc));
+    }
+
+    [Fact]
+    public void Vehicle_response_redacts_purchase_costs_for_non_management_users()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with
+        {
+            PurchasePrice = 50_000m,
+            ModifiedPurchasePrice = 49_000m,
+            AdditionalCharges = 500m,
+            RefurbishmentTotal = 1_200m,
+            CommissionTotal = 800m,
+            OutstationPickupAllowance = 150m,
+            OutstationPickupBookingSlip = "BOOK-1",
+            BossConfirmed = true
+        };
+
+        var broker = BackOfficeVehicleResponses.ToResponse(vehicle, canViewPrivateFields: false, repairCost: 900m);
+        var boss = BackOfficeVehicleResponses.ToResponse(vehicle, canViewPrivateFields: true, repairCost: 900m);
+
+        Assert.Null(broker.PurchasePrice);
+        Assert.Null(broker.ModifiedPurchasePrice);
+        Assert.Null(broker.RepairCost);
+        Assert.Null(broker.BossConfirmed);
+        Assert.Equal(vehicle.PurchasePrice, boss.PurchasePrice);
+        Assert.Equal(vehicle.ModifiedPurchasePrice, boss.ModifiedPurchasePrice);
+        Assert.Equal(900m, boss.RepairCost);
+    }
+
+    [Fact]
+    public void Dealer_charges_are_valid_only_for_dealer_sources_and_redacted_from_non_management_responses()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with
+        {
+            PurchaseSource = VehiclePurchaseSource.Carsome,
+            DealerProcessingFee = 120m,
+            DealerTrailerFee = 80m,
+            DealerParkingFee = 40m,
+            DealerLateCharge = 20m,
+            DealerDiscount = 10m
+        };
+
+        Assert.True(VehicleRules.ValidateDealerCharges(vehicle).IsValid);
+        var broker = BackOfficeVehicleResponses.ToResponse(vehicle, canViewPrivateFields: false);
+        var boss = BackOfficeVehicleResponses.ToResponse(vehicle, canViewPrivateFields: true);
+        Assert.Null(broker.DealerProcessingFee);
+        Assert.Null(broker.DealerTrailerFee);
+        Assert.Null(broker.DealerParkingFee);
+        Assert.Null(broker.DealerLateCharge);
+        Assert.Null(broker.DealerDiscount);
+        Assert.Equal(120m, boss.DealerProcessingFee);
+        Assert.Equal(10m, boss.DealerDiscount);
+    }
+
+    [Fact]
+    public void Dealer_charges_reject_non_dealer_source_and_negative_values()
+    {
+        var nonDealer = VehicleSeed.Available(publicVisible: false) with
+        {
+            PurchaseSource = VehiclePurchaseSource.YSHeng,
+            DealerProcessingFee = 1m
+        };
+        var negative = VehicleSeed.Available(publicVisible: false) with { DealerLateCharge = -1m };
+
+        Assert.Contains(VehicleRules.ValidateDealerCharges(nonDealer).Errors, error => error.Code == "dealer_charges_source_invalid");
+        Assert.Contains(VehicleRules.ValidateDealerCharges(negative).Errors, error => error.Code == "dealer_late_charge_invalid");
+    }
+
+    [Fact]
+    public void Vehicle_owner_identity_normalizes_ic_dashes_and_requires_manual_tin_for_new_owner()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = Guid.NewGuid() };
+        var owner = new Owner { Id = vehicle.OwnerId.Value, Name = "Seller", Phone = "0123456789", IcNumber = "900101-01-1234", TinNumber = "TIN-1" };
+
+        var result = VehicleIntakeOwnerRules.Validate(vehicle, owner, [], requireIc: true);
+
+        Assert.DoesNotContain(result.Errors, error => error.Code == "owner_ic_invalid");
+        Assert.DoesNotContain(result.Errors, error => error.Code == "owner_tin_required");
+        Assert.Equal("900101011234", ContactRules.NormalizeIcNumber(owner.IcNumber));
+        Assert.Equal("", ContactRules.NormalizeIcNumber(null));
+    }
+
+    [Fact]
+    public void Dealer_intake_can_create_owner_without_ic_but_tin_remains_manual()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { OwnerId = Guid.NewGuid() };
+        var owner = new Owner { Id = vehicle.OwnerId.Value, Name = "Dealer", Phone = "0123456789", TinNumber = "TIN-DEALER" };
+
+        var result = VehicleIntakeOwnerRules.Validate(vehicle, owner, [], requireIc: false);
+
+        Assert.DoesNotContain(result.Errors, error => error.Code == "owner_ic_required");
+        Assert.DoesNotContain(result.Errors, error => error.Code == "owner_tin_required");
+    }
+
+    [Fact]
+    public void Dashboard_summary_redacts_private_financial_totals_for_broker_roles()
+    {
+        var summary = DashboardMetrics.Create([], [], [], [], [], [], [], [], [], [], [], [], BusinessClock.Today());
+        summary = summary with
+        {
+            PurchaseCost = 100_000m,
+            SettlementDue = 3,
+            SettlementDueAmount = 25_000m,
+            EstimatedProfit = 15_000m,
+            Refurbishment = summary.Refurbishment with { FinalRepairSpend = 4_000m }
+        };
+
+        var redacted = DashboardSummaryPrivacy.ForRole(summary, canViewPrivateFinancials: false);
+
+        Assert.Equal(0m, redacted.PurchaseCost);
+        Assert.Equal(0, redacted.SettlementDue);
+        Assert.Equal(0m, redacted.SettlementDueAmount);
+        Assert.Equal(0m, redacted.EstimatedProfit);
+        Assert.Equal(0m, redacted.Refurbishment.FinalRepairSpend);
+    }
+
+    [Fact]
     public void Ocr_parser_extracts_purchase_invoice_fields_from_provider_text()
     {
         var vehicle = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "VPK1234" };

@@ -124,7 +124,7 @@ describe("browser route state", () => {
 
     await createVehicleIntakeFromVehiclePage(createIntake, input, identityCard, voc);
 
-    expect(createIntake).toHaveBeenCalledWith(input, identityCard, voc);
+    expect(createIntake).toHaveBeenCalledWith(input, identityCard, voc, undefined);
   });
 
   it("formats workflow vehicle identity with plate, year, make, and model", () => {
