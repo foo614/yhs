@@ -3,7 +3,8 @@ import { DeleteOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons"
 import type { ProColumns } from "@ant-design/pro-components";
 import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Select, Space, Tag, Typography, Upload, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import type { UploadRequestOption } from "rc-upload/lib/interface";
+import type { UploadProps } from "antd";
+type UploadRequestOption = Parameters<NonNullable<UploadProps["customRequest"]>>[0];
 import { formatMoneyInputWithTwoDecimals, parseMoneyInput } from "../../money";
 import {
   getOcrJob,

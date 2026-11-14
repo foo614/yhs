@@ -4,16 +4,17 @@ import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, 
 import type { KeyboardEvent, ReactNode } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import { ArrowDownOutlined, ArrowUpOutlined, CheckCircleFilled, DeleteOutlined, DownloadOutlined, HolderOutlined, InfoCircleOutlined, UploadOutlined } from "@ant-design/icons";
-import { ProCard, ProDescriptions, ProConfigProvider, StepsForm } from "@ant-design/pro-components";
+import { ProCard, ProConfigProvider, StepsForm } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
-import { enUSIntl } from "@ant-design/pro-provider";
+import { enUSIntl } from "@ant-design/pro-components";
 import MDEditor from "@uiw/react-md-editor";
 import "@uiw/react-md-editor/markdown-editor.css";
 import { AutoComplete, Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import type { FormInstance } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
-import type { UploadRequestOption } from "rc-upload/lib/interface";
+import type { UploadProps } from "antd";
+type UploadRequestOption = Parameters<NonNullable<UploadProps["customRequest"]>>[0];
 import { customerCreateBlockReason, normalizeIdentityCardNumber, ownerCreateBlockReason } from "../../contacts";
 import { singaporeTodayIsoDate, type DashboardVehicleFocus } from "../../dashboard";
 import { isRepairCostFinal, isSupplierUsable } from "../../repairs";
@@ -384,7 +385,7 @@ function PurchaseInvoiceLineFields() {
         <Space direction="vertical" className="fullWidth">
           <Typography.Text strong>Classified invoice lines</Typography.Text>
           {fields.map((field) => (
-            <ProCard key={field.key} size="small" bordered>
+            <ProCard key={field.key} size="small" variant="outlined">
               <Form.Item {...field} name={[field.name, "lineType"]} label="Fee classification" rules={[{ required: true }]}><Select options={lineTypeOptions} /></Form.Item>
               <Form.Item {...field} name={[field.name, "description"]} label="Description" rules={[{ required: true }]}><Input /></Form.Item>
               <Form.Item {...field} name={[field.name, "amount"]} label="Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
@@ -642,24 +643,24 @@ function VehicleIntakeReview({ draft, customers, owners, pendingOwner, hasSeller
         message="Review the intake before creating the vehicle"
         description="The vehicle will start as Available. Management approval and website visibility remain subject to your role and the workflow rules."
       />
-      <ProDescriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
-        <ProDescriptions.Item label="Plate / 车牌">{displayValue(draft.plateNumber)}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Vehicle / 车辆">{[draft.make, draft.model, draft.year].filter(Boolean).join(" ") || "Not provided"}</ProDescriptions.Item>
+      <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
+        <Descriptions.Item label="Plate / 车牌">{displayValue(draft.plateNumber)}</Descriptions.Item>
+        <Descriptions.Item label="Vehicle / 车辆">{[draft.make, draft.model, draft.year].filter(Boolean).join(" ") || "Not provided"}</Descriptions.Item>
         {canApproveVehicles ? <>
-          <ProDescriptions.Item label="Real purchase / 真实收车价">{formatMoney(Number(draft.purchasePrice ?? 0))}</ProDescriptions.Item>
-          <ProDescriptions.Item label="Modified purchase / 修改收车价">{formatMoney(Number(draft.modifiedPurchasePrice ?? draft.purchasePrice ?? 0))}</ProDescriptions.Item>
+          <Descriptions.Item label="Real purchase / 真实收车价">{formatMoney(Number(draft.purchasePrice ?? 0))}</Descriptions.Item>
+          <Descriptions.Item label="Modified purchase / 修改收车价">{formatMoney(Number(draft.modifiedPurchasePrice ?? draft.purchasePrice ?? 0))}</Descriptions.Item>
         </> : null}
-        <ProDescriptions.Item label="Selling / 售价">{formatMoney(Number(draft.sellingPrice ?? 0))}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Confirmed buyer / 已确认买家">{customer ? customerSelectLabel(customer) : "Not linked"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Previous owner / 原车主">{owner ? `${owner.name} / ${owner.phone}` : "Not selected"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Previous owner NRIC / 原车主身份证">{hasSellerNric ? "Reviewed and ready to upload" : "Not uploaded"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="VOC / 车辆登记证">{hasVoc ? "Reviewed and ready to upload" : "Not uploaded (required)"}</ProDescriptions.Item>
+        <Descriptions.Item label="Selling / 售价">{formatMoney(Number(draft.sellingPrice ?? 0))}</Descriptions.Item>
+        <Descriptions.Item label="Confirmed buyer / 已确认买家">{customer ? customerSelectLabel(customer) : "Not linked"}</Descriptions.Item>
+        <Descriptions.Item label="Previous owner / 原车主">{owner ? `${owner.name} / ${owner.phone}` : "Not selected"}</Descriptions.Item>
+        <Descriptions.Item label="Previous owner NRIC / 原车主身份证">{hasSellerNric ? "Reviewed and ready to upload" : "Not uploaded"}</Descriptions.Item>
+        <Descriptions.Item label="VOC / 车辆登记证">{hasVoc ? "Reviewed and ready to upload" : "Not uploaded (required)"}</Descriptions.Item>
         {canApproveVehicles ? <>
-        <ProDescriptions.Item label="Bank debt / 银行欠款">{draft.prepareSettlement ? formatMoney(Number(draft.bankDebtAmount ?? 0)) : "No debt"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Settlement / 结算">{draft.prepareSettlement ? `Pay to bank: ${formatMoney(Number(draft.bankDebtAmount ?? 0))}` : "No debt — supporting document required"}</ProDescriptions.Item>
-        <ProDescriptions.Item label="Settlement deadline / 结算期限">{draft.prepareSettlement ? displayValue(draft.settlementDeadline) : "No debt"}</ProDescriptions.Item>
+        <Descriptions.Item label="Bank debt / 银行欠款">{draft.prepareSettlement ? formatMoney(Number(draft.bankDebtAmount ?? 0)) : "No debt"}</Descriptions.Item>
+        <Descriptions.Item label="Settlement / 结算">{draft.prepareSettlement ? `Pay to bank: ${formatMoney(Number(draft.bankDebtAmount ?? 0))}` : "No debt — supporting document required"}</Descriptions.Item>
+        <Descriptions.Item label="Settlement deadline / 结算期限">{draft.prepareSettlement ? displayValue(draft.settlementDeadline) : "No debt"}</Descriptions.Item>
         </> : null}
-      </ProDescriptions>
+      </Descriptions>
     </Space>
   );
 }

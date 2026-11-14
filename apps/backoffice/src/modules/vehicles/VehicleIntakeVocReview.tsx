@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { EyeOutlined, UploadOutlined } from "@ant-design/icons";
 import { Alert, Button, Space, Typography, Upload, message } from "antd";
-import type { UploadRequestOption } from "rc-upload/lib/interface";
+import type { UploadProps } from "antd";
+type UploadRequestOption = Parameters<NonNullable<UploadProps["customRequest"]>>[0];
 import { previewVehicleIntakeVoc, type OcrExtractionResult, type VehicleCatalogModel } from "../../api";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
 import { DocumentPreviewDrawer, type DocumentPreviewSource } from "../shared/DocumentPreviewDrawer";

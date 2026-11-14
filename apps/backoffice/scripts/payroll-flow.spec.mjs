@@ -69,7 +69,7 @@ for (const width of widths.filter(value => [360, 768, 1440].includes(value))) {
     const openPayroll = async () => {
       await page.goto("/hr-salary");
       if (width <= 767) {
-        await page.locator(".hrMobileSectionPicker .ant-select-selector").click();
+        await page.locator(".hrMobileSectionPicker .fullWidth").click();
         await page.locator(".hrSectionOptions .ant-select-item-option").filter({ hasText: "Pay Slip" }).click();
       } else {
         const tab = page.getByRole("tab", { name: /Pay Slip/ });

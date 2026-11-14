@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { ProCard, ProDescriptions } from "@ant-design/pro-components";
-import { Alert, Button, DatePicker, Empty, Form, Input, InputNumber, Select, Space, Spin, Switch, Tag, Typography } from "antd";
+import { ProCard } from "@ant-design/pro-components";
+import { Alert, Button, DatePicker, Descriptions, Empty, Form, Input, InputNumber, Select, Space, Spin, Switch, Tag, Typography } from "antd";
 import { EditOutlined } from "@ant-design/icons";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "../../money";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
@@ -155,7 +155,7 @@ function RevisionLineFields() {
         <Space direction="vertical" className="fullWidth" size={8}>
           <Typography.Text strong>Classified invoice lines</Typography.Text>
           {fields.map((field) => (
-            <ProCard key={field.key} size="small" bordered className="purchaseInvoiceLineCard">
+            <ProCard key={field.key} size="small" variant="outlined" className="purchaseInvoiceLineCard">
               <Form.Item {...field} name={[field.name, "lineType"]} label="Fee classification" rules={[{ required: true }]}><Select options={lineTypeOptions} /></Form.Item>
               <Form.Item {...field} name={[field.name, "description"]} label="Description" rules={[{ required: true }]}><Input /></Form.Item>
               <Form.Item {...field} name={[field.name, "amount"]} label="Amount" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
@@ -173,21 +173,21 @@ function RevisionLineFields() {
 
 function SnapshotDetails({ revision, simplified = false }: { revision: PurchaseInvoiceRevision; simplified?: boolean }) {
   return (
-    <ProDescriptions size="small" column={1} className="purchaseInvoiceSnapshot">
-      <ProDescriptions.Item label="Invoice number">{revision.invoiceNumber}{simplified ? "" : ` · Version ${revision.revisionNumber}`}</ProDescriptions.Item>
-      {!simplified && <ProDescriptions.Item label="Official status"><Tag className="purchaseInvoiceStatusTag" color="blue">Issued official version</Tag></ProDescriptions.Item>}
-      {!simplified && <ProDescriptions.Item label="Finance status">{revisionAccountingTag(revision.accountingStatus)}</ProDescriptions.Item>}
-      {!simplified && <ProDescriptions.Item label="Finance review evidence">{financeReviewEvidence(revision)}</ProDescriptions.Item>}
-      <ProDescriptions.Item label="Invoice date">{revision.invoiceDate}</ProDescriptions.Item>
-      <ProDescriptions.Item label="Purchase date">{revision.purchaseDate}</ProDescriptions.Item>
-      <ProDescriptions.Item label="Payment reference">{displayValue(revision.paymentReference)}</ProDescriptions.Item>
-      <ProDescriptions.Item label="Seller">{revision.sellerName} · {revision.sellerPhone}</ProDescriptions.Item>
-      <ProDescriptions.Item label="Seller IC / TIN">{displayValue(revision.sellerIcNumber)} / {displayValue(revision.sellerTinNumber)}</ProDescriptions.Item>
-      <ProDescriptions.Item label="Seller address">{displayValue(revision.sellerAddress)}</ProDescriptions.Item>
-      <ProDescriptions.Item label="Vehicle">{revision.vehiclePlateNumber} · {revision.vehicleDescription}</ProDescriptions.Item>
-      <ProDescriptions.Item label="Classified lines">{lineSummary(revision.lines)}</ProDescriptions.Item>
-      <ProDescriptions.Item label="Total">{formatMoney(Number(revision.amount))}</ProDescriptions.Item>
-    </ProDescriptions>
+    <Descriptions size="small" column={1} className="purchaseInvoiceSnapshot">
+      <Descriptions.Item label="Invoice number">{revision.invoiceNumber}{simplified ? "" : ` · Version ${revision.revisionNumber}`}</Descriptions.Item>
+      {!simplified && <Descriptions.Item label="Official status"><Tag className="purchaseInvoiceStatusTag" color="blue">Issued official version</Tag></Descriptions.Item>}
+      {!simplified && <Descriptions.Item label="Finance status">{revisionAccountingTag(revision.accountingStatus)}</Descriptions.Item>}
+      {!simplified && <Descriptions.Item label="Finance review evidence">{financeReviewEvidence(revision)}</Descriptions.Item>}
+      <Descriptions.Item label="Invoice date">{revision.invoiceDate}</Descriptions.Item>
+      <Descriptions.Item label="Purchase date">{revision.purchaseDate}</Descriptions.Item>
+      <Descriptions.Item label="Payment reference">{displayValue(revision.paymentReference)}</Descriptions.Item>
+      <Descriptions.Item label="Seller">{revision.sellerName} · {revision.sellerPhone}</Descriptions.Item>
+      <Descriptions.Item label="Seller IC / TIN">{displayValue(revision.sellerIcNumber)} / {displayValue(revision.sellerTinNumber)}</Descriptions.Item>
+      <Descriptions.Item label="Seller address">{displayValue(revision.sellerAddress)}</Descriptions.Item>
+      <Descriptions.Item label="Vehicle">{revision.vehiclePlateNumber} · {revision.vehicleDescription}</Descriptions.Item>
+      <Descriptions.Item label="Classified lines">{lineSummary(revision.lines)}</Descriptions.Item>
+      <Descriptions.Item label="Total">{formatMoney(Number(revision.amount))}</Descriptions.Item>
+    </Descriptions>
   );
 }
 
