@@ -1,5 +1,4 @@
-import { ProConfigProvider, ProTable, type ProColumns, type ProFormInstance, type ProTableProps } from "@ant-design/pro-components";
-import { enUSIntl } from "@ant-design/pro-provider";
+import { enUSIntl, ProConfigProvider, ProTable, type ProColumns, type ProFormInstance, type ProTableProps } from "@ant-design/pro-components";
 import { Button, Input, Select, type TableProps } from "antd";
 import type { ColumnType, ColumnsType } from "antd/es/table";
 import { isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -256,12 +255,12 @@ function hideOperationsTableColumnsInSearch<RecordType extends object>(
     if ("children" in column && column.children) {
       return {
         ...column,
-        hideInSearch: true,
+        search: false,
         children: hideOperationsTableColumnsInSearch(column.children)
       } as ProColumns<RecordType>;
     }
 
-    return { ...column, hideInSearch: true } as ProColumns<RecordType>;
+    return { ...column, search: false } as ProColumns<RecordType>;
   });
 }
 
@@ -502,7 +501,7 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
       columns={proColumns}
       dataSource={filteredDataSource}
       pagination={filteredPagination}
-      search={compactSearch || search === false || proColumns.every((column) => column.hideInSearch) ? false : {
+      search={compactSearch || search === false || proColumns.every((column) => column.search === false) ? false : {
         labelWidth: "auto",
         defaultCollapsed: (nativeSearch?.fields.length ?? defaultOperationsSearchFields(sortedTableColumns).length) > 3,
         span: { xs: 24, sm: 24, md: 12, lg: 12, xl: 8, xxl: 6 },

@@ -12,6 +12,7 @@ import {
   BarChartOutlined,
   CalendarOutlined,
   CarOutlined,
+  CloseOutlined,
   DashboardOutlined,
   DeleteOutlined,
   DownloadOutlined,
@@ -37,7 +38,6 @@ import {
   DatePicker,
   Descriptions,
   Drawer,
-  Dropdown,
   Empty,
   Form,
   FloatButton,
@@ -1876,8 +1876,22 @@ function ModuleCommandBar({
     .map((item) => ({
       key: item.path,
       label: routeDisplayName(item.path, roles),
-      onClick: () => onNavigate(item.path)
+      icon: item.icon
     }));
+  const [fastTrackOpen, setFastTrackOpen] = useState(false);
+
+  useEffect(() => {
+    setFastTrackOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!fastTrackOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFastTrackOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [fastTrackOpen]);
 
   return (
     <section className={"moduleCommandBar" + (pathname === "/dashboard" ? " dashboardCommandBar" : pathname === "/hr-salary" ? " hrCommandBar" : "")} ref={commandBarRef}>
@@ -1903,9 +1917,33 @@ function ModuleCommandBar({
           </Button>
         </span>
       </div>
-      <Dropdown menu={{ items: fastTrackItems }} placement="topRight" trigger={["click"]}>
-        <FloatButton icon={<MenuOutlined />} tooltip="Fast track menu / 快速菜单" aria-label="Fast track menu" />
-      </Dropdown>
+      <FloatButton.Group
+        className="moduleFastTrack"
+        trigger="click"
+        type="primary"
+        shape="square"
+        classNames={{ list: "moduleFastTrackList" }}
+        open={fastTrackOpen}
+        onOpenChange={setFastTrackOpen}
+        icon={<MenuOutlined />}
+        closeIcon={<CloseOutlined />}
+        aria-label="Fast track menu / 快速菜单"
+      >
+        {fastTrackItems.map((item) => (
+          <FloatButton
+            key={item.key}
+            shape="square"
+            icon={item.icon}
+            content={item.label}
+            tooltip={item.label}
+            aria-label={`Open ${item.label}`}
+            onClick={() => {
+              setFastTrackOpen(false);
+              onNavigate(item.key);
+            }}
+          />
+        ))}
+      </FloatButton.Group>
     </section>
   );
 }

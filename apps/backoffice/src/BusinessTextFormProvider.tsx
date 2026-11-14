@@ -1,6 +1,6 @@
-import { Form } from "antd";
+import { Form, type FormInstance } from "antd";
 import type { NamePath } from "antd/es/form/interface";
-import type { FieldData } from "rc-field-form/lib/interface";
+type FieldData = Parameters<FormInstance["setFields"]>[0][number];
 import type { ReactNode } from "react";
 
 /**

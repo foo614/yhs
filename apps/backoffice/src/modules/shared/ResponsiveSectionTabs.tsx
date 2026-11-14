@@ -30,7 +30,7 @@ export function ResponsiveSectionTabs({ sectionLabel, items = [], activeKey, def
         onChange={changeSection}
         options={items.map(item => ({ value: item.key, label: item.label, disabled: item.disabled }))}
         popupMatchSelectWidth
-        popupClassName="responsiveSectionDropdown"
+        classNames={{ popup: { root: "responsiveSectionDropdown" } }}
       />
     </div>
     <Tabs {...props} className={["responsiveSectionTabPanels", className].filter(Boolean).join(" ")} items={items} activeKey={selectedKey ?? ""} onChange={changeSection} />

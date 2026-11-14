@@ -1040,6 +1040,45 @@ body {
   color: #085e4e !important;
 }
 
+.moduleFastTrack {
+  z-index: 30;
+}
+
+.moduleFastTrackList {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  inset-inline-end: 0;
+  max-height: min(620px, calc(100dvh - 132px));
+  width: min(248px, calc(100vw - 64px));
+  overflow-y: auto;
+  padding: 4px;
+  scrollbar-width: thin;
+}
+
+.moduleFastTrackList > .ant-float-btn {
+  flex: 0 0 auto;
+  width: 100% !important;
+  min-height: 44px;
+}
+
+.moduleFastTrackList > .ant-float-btn .ant-float-btn-content {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: start;
+  white-space: normal;
+}
+
+.moduleFastTrackList > .ant-float-btn:focus-visible,
+.moduleFastTrack .ant-float-btn-group-trigger:focus-visible {
+  outline: 3px solid rgba(11, 112, 92, .36);
+  outline-offset: 3px;
+}
+
 .moduleContentGuideTarget {
   position: relative;
   width: 100%;
@@ -1383,13 +1422,13 @@ body {
 }
 
 .dashboardDocumentSearch {
-  display: block;
+  display: flex;
   max-width: 360px;
   margin-block: 12px;
 }
 
 .dashboardDocumentSearch .ant-input-affix-wrapper,
-.dashboardDocumentSearch .ant-input-search-button {
+.dashboardDocumentSearch .ant-input-search-btn {
   min-height: 44px;
 }
 
@@ -5000,6 +5039,25 @@ body {
     padding-inline: 8px;
   }
 
+  .customer360MobileRecord .ant-descriptions-view > table {
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .customer360MobileActions {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .customer360MobileActions .tableActionGroup,
+  .customer360MobileActions .tableActionGroup .ant-space-item,
+  .customer360MobileActions .tableActionGroup .ant-btn {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .leadMobileGroupItem {
     grid-template-columns: 1fr;
   }
@@ -5229,17 +5287,14 @@ body {
 
   .tableToolbar .ant-btn,
   .tableToolbar .ant-input-affix-wrapper,
-  .tableToolbar .ant-input-search-button,
   .tableToolbar .ant-select-selector,
   .tableToolbar .ant-select,
   .toolbarForm .ant-btn,
   .toolbarForm .ant-input-affix-wrapper,
-  .toolbarForm .ant-input-search-button,
   .toolbarForm .ant-select-selector,
   .toolbarForm .ant-select,
   .vehicleOperationFilters .ant-btn,
   .vehicleOperationFilters .ant-input-affix-wrapper,
-  .vehicleOperationFilters .ant-input-search-button,
   .vehicleOperationFilters .ant-select-selector {
     min-height: 44px !important;
   }
@@ -5248,9 +5303,9 @@ body {
     min-height: 44px;
   }
 
-  .tableToolbar .ant-input-search-button,
-  .toolbarForm .ant-input-search-button,
-  .vehicleOperationFilters .ant-input-search-button {
+  .tableToolbar .ant-input-search-btn,
+  .toolbarForm .ant-input-search-btn,
+  .vehicleOperationFilters .ant-input-search-btn {
     width: 44px !important;
     min-width: 44px !important;
   }
@@ -5327,13 +5382,22 @@ body {
     height: 44px;
   }
 
+  /* Ant Design 6 renders Search with Space.Compact instead of input-group. */
+  .ant-input-search > .ant-input-affix-wrapper,
+  .ant-input-search > .ant-input {
+    min-width: 0;
+    flex: 1 1 0;
+    width: 0;
+    height: 44px;
+  }
+
   .ant-input-search .ant-input-group-addon {
     display: flex;
     flex: 0 0 auto;
     width: auto;
   }
 
-  .ant-input-search .ant-input-search-button {
+  .ant-input-search .ant-input-search-btn {
     height: 44px;
     min-height: 44px;
     min-width: 44px;
@@ -5660,7 +5724,7 @@ body {
     top: 8px;
   }
 
-  .ant-modal-content {
+  .ant-modal-container {
     max-height: calc(100vh - 16px);
     max-height: calc(100dvh - 16px);
     overflow: auto;
@@ -6238,7 +6302,7 @@ body {
   }
 
   .leadFilterControl .ant-input-affix-wrapper,
-  .leadFilterControl .ant-input-search-button,
+  .leadFilterControl .ant-input-search-btn,
   .leadFilterControl .ant-select-selector {
     min-height: 44px;
   }
@@ -6696,7 +6760,7 @@ body {
   }
 
   .deliveryWorkboardToolbar .ant-input,
-  .deliveryWorkboardToolbar .ant-input-search-button {
+  .deliveryWorkboardToolbar .ant-input-search-btn {
     height: 44px;
   }
 
@@ -6908,8 +6972,8 @@ body {
     padding-inline: 14px !important;
   }
 
-  .financeV2Modal .ant-modal-content,
-  .financeInvoiceReviewModal .ant-modal-content {
+  .financeV2Modal .ant-modal-container,
+  .financeInvoiceReviewModal .ant-modal-container {
     padding: 0;
   }
 
@@ -7726,6 +7790,16 @@ body {
 .supplierMasterMobileList { display: none; }
 
 @media (max-width: 767px) {
+  .moduleFastTrack {
+    inset-inline-end: 16px;
+    inset-block-end: 16px;
+  }
+
+  .moduleFastTrackList {
+    max-height: calc(100dvh - 112px);
+    width: min(220px, calc(100vw - 56px));
+  }
+
   .moduleCommandBar:not(.hrCommandBar):not(.dashboardCommandBar) {
     padding: 10px 12px;
   }

@@ -20,6 +20,8 @@
 }
 
 .responsiveSectionSelect {
+  min-width: 0;
+  max-width: 100%;
   width: 100%;
 }
 
@@ -28,7 +30,9 @@
   min-height: 44px;
 }
 
-.responsiveSectionSelect.ant-select-single .ant-select-selector .ant-select-selection-item {
+.responsiveSectionSelect.ant-select-single .ant-select-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
   white-space: normal;
   line-height: 1.5;
   padding-block: 8px;

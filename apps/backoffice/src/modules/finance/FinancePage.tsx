@@ -1947,7 +1947,7 @@ export function FinancePage({
             <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]} extra="Any amount above RM 0 requires a reason and separate Boss/Admin approval."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="windscreenCharges" label="Windscreen charges / 挡风玻璃费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           </div>
-          <ProCard size="small" title="Paid on behalf of customer / 代客户支付" bordered>
+          <ProCard size="small" title="Paid on behalf of customer / 代客户支付" variant="outlined">
             <div className="financeV2AmountGrid">
               <Form.Item name="insurancePaidOnBehalfAmount" label="Insurance (4001-I001 · class 006)"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item name="roadTaxPaidOnBehalfAmount" label="Road tax (4001-R001 · class 006)"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>

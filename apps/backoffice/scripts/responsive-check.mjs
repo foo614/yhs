@@ -248,18 +248,18 @@ async function inspect(name, width) {
       })()
       && (element.checkVisibility?.() ?? true)
       && getComputedStyle(element).visibility !== "hidden";
-    const outside = [...document.querySelectorAll("button,a,input,.ant-select,.ant-picker,.ant-form-item,.moduleCommandBar,.mobileRecordCard > *,.ant-picker-panel-container,.ant-modal-content")].filter(visible).filter(element => {
+    const outside = [...document.querySelectorAll("button,a,input,.ant-select,.ant-picker,.ant-form-item,.moduleCommandBar,.mobileRecordCard > *,.ant-picker-panel-container,.ant-modal-container")].filter(visible).filter(element => {
       if (!element.matches(".ant-picker-panel-container") && element.closest(".ant-table,.ant-tabs-nav-list,.ant-select-dropdown,.ant-picker-dropdown")) return false;
       const r = element.getBoundingClientRect();
       return r.width > 0 && (r.left < -1 || r.right > viewport + 1);
     }).map(element => ({ tag: element.tagName, class: element.className, text: (element.textContent ?? "").slice(0, 60), left: Math.round(element.getBoundingClientRect().left), right: Math.round(element.getBoundingClientRect().right) }));
     const overlappingSelects = [...document.querySelectorAll(".ant-select")].filter(visible).filter(element => {
-      const selector = element.querySelector(".ant-select-selector");
+      const selector = element.querySelector('[role="combobox"]');
       return selector && selector.getBoundingClientRect().bottom > element.getBoundingClientRect().bottom + 1;
-    }).map(element => ({ class: element.className, height: element.getBoundingClientRect().height, selectorHeight: element.querySelector(".ant-select-selector").getBoundingClientRect().height, top: element.getBoundingClientRect().top, selectorTop: element.querySelector(".ant-select-selector").getBoundingClientRect().top }));
+    }).map(element => ({ class: element.className, height: element.getBoundingClientRect().height, selectorHeight: element.querySelector('[role="combobox"]').getBoundingClientRect().height, top: element.getBoundingClientRect().top, selectorTop: element.querySelector('[role="combobox"]').getBoundingClientRect().top }));
     const searchGeometry = viewport <= 1024 ? [...document.querySelectorAll(".ant-input-search")].filter(visible).flatMap(search => {
       const field = search.querySelector(".ant-input-affix-wrapper") ?? search.querySelector("input.ant-input");
-      const button = search.querySelector(".ant-input-search-button");
+      const button = search.querySelector(".ant-input-search-btn");
       if (!field || !button) return [];
       const a = field.getBoundingClientRect();
       const b = button.getBoundingClientRect();
@@ -331,22 +331,29 @@ async function inspect(name, width) {
   if (visualEvidence && routes.includes(name)) await page.screenshot({ path: `${output}/${name}-${width}-entry.png` });
 }
 async function activateSection(label) {
-  const picker = page.locator(".responsiveSectionPicker .ant-select-selector");
+  const picker = page.locator(".responsiveSectionPicker .responsiveSectionSelect");
   if (await picker.isVisible()) {
     await picker.click();
-    await page.locator(".responsiveSectionDropdown .ant-select-item-option").filter({ hasText: label }).click();
-    await page.locator(".responsiveSectionDropdown:visible").waitFor({ state: "hidden" });
+    const dropdown = page.locator(".responsiveSectionDropdown:visible");
+    await dropdown.locator(".ant-select-item-option").filter({ hasText: label }).click();
+    await dropdown.waitFor({ state: "hidden" });
   } else {
-    const tab = page.getByRole("tab", { name: label, exact: true });
+    const escapedTabLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const tab = page.getByRole("tab", { name: new RegExp(`${escapedTabLabel}$`) });
     await tab.focus();
     await tab.press("Enter");
   }
+}
+function visibleDialogSurface() {
+  return page.getByRole("dialog").filter({ visible: true }).or(page.locator(".ant-modal:visible,.ant-drawer:visible")).last();
 }
 async function closeOverlay() {
   const close = page.locator(".ant-modal-close:visible,.ant-drawer-close:visible").last();
   if (await close.isVisible().catch(() => false)) await close.click();
   else await page.keyboard.press("Escape");
-  await page.locator(".ant-modal:visible,.ant-drawer-content:visible").waitFor({ state: "hidden" });
+  await expect(page.getByRole("dialog").filter({ visible: true })).toHaveCount(0);
+  await expect(page.locator(".ant-drawer-open")).toHaveCount(0);
+  await expect(page.locator(".ant-modal-wrap:visible,.ant-modal:visible")).toHaveCount(0);
 }
 // Critical mutation coverage: a repeated tap must not create duplicate lead work,
 // and a terminal loan transition must require confirmation and retain failed input.
@@ -446,7 +453,7 @@ async function verifyLoanCompletion() {
   }
 }
 async function inspectDetailTabs(route, width) {
-  const overlay = page.locator(".ant-modal:visible,.ant-drawer-content:visible").last();
+  const overlay = visibleDialogSurface();
   if (!await overlay.isVisible().catch(() => false)) return;
   const visited = new Set();
   while (true) {
@@ -461,7 +468,7 @@ async function inspectDetailTabs(route, width) {
     await inspect(`${route}-detail-tab-${visited.size}-${label.replace(/[^a-zA-Z0-9]+/g, "-")}`, width);
     if (route === "vehicles" && label === "Leads") {
       if (width <= 720) {
-        const search = page.getByRole("textbox", { name: "Search leads for this vehicle", exact: true });
+        const search = page.getByRole("searchbox", { name: "Search leads for this vehicle", exact: true });
         await search.fill("NO-MATCH");
         await page.locator(".vehicleLeadMobileList").getByText("No leads match these filters.", { exact: true }).waitFor();
         await inspect("vehicles-leads-empty-search", width);
@@ -670,7 +677,7 @@ try {
             await page.getByRole("button", { name: "Open navigation", exact: true }).click();
             await page.getByRole("button", { name: "My WhatsApp", exact: true }).click();
           } else await page.getByRole("button", { name: "My WhatsApp", exact: true }).click();
-          const drawer = page.locator(".ant-drawer-content").filter({ has: page.getByText("My WhatsApp", { exact: true }) });
+          const drawer = page.getByRole("dialog").filter({ has: page.getByText("My WhatsApp", { exact: true }), visible: true });
           await drawer.getByText("Not connected", { exact: true }).waitFor();
           await drawer.getByRole("textbox", { name: "WhatsApp number (with country code)", exact: true }).fill("60123456789");
           await drawer.getByRole("button", { name: "Send invitation", exact: true }).click();
@@ -723,7 +730,7 @@ try {
         }
         if (route === "hr-salary") {
           if (width <= 767) {
-            await page.locator(".hrMobileSectionPicker .ant-select-selector").click();
+            await page.locator(".hrMobileSectionPicker .fullWidth").click();
             await page.locator(".hrSectionOptions .ant-select-item-option").filter({ hasText: "Outstation / 外勤" }).click();
           } else {
             await page.getByRole("tab", { name: /Outstation \/ 外勤/ }).click();
@@ -782,7 +789,7 @@ try {
             if (visualEvidence) await page.locator(selector).first().screenshot({ path: `${output}/dashboard-${name}-detail-${width}.png` });
           }
           await page.locator(".dashboardMonitoringDetails > summary").click();
-          const documentSearch = page.getByRole("textbox", { name: "Search document types" });
+          const documentSearch = page.getByRole("searchbox", { name: "Search document types" });
           await documentSearch.fill("NO-MATCH");
           await page.getByText("No document types match your search.", { exact: true }).waitFor();
           await documentSearch.fill("Identity");
@@ -821,7 +828,7 @@ try {
           const button = page.getByRole("button", { name: label, exact: true });
           if (!await button.isVisible().catch(() => false)) continue;
           await button.click();
-          await page.locator(".ant-modal:visible,.ant-drawer-content:visible").first().waitFor({ timeout: 5000 });
+          await visibleDialogSurface().waitFor({ timeout: 5000 });
           await inspect(`${route}-${label.replaceAll(" ", "-")}`, width);
           if (label === "New sales invoice") {
             await page.getByRole("button", { name: "Review invoice", exact: true }).click();
@@ -840,18 +847,14 @@ try {
         const details = page.getByRole("button", { name: route === "delivery" ? "Continue" : "Details", exact: true }).filter({ visible: true }).first();
         if (await details.isVisible().catch(() => false)) {
           await details.click();
-          const detailSurface = page.locator(".ant-modal:visible,.ant-drawer-content:visible")
+          const detailSurface = page.getByRole("dialog").filter({ visible: true })
             .or(page.getByRole("button", { name: /^Back to .* List$/ }))
             .first();
           await detailSurface.waitFor({ timeout: 5000 });
           await inspect(`${route}-details`, width);
           if (route === "vehicles") {
-            const documentsTab = page.getByRole("tab", { name: "Documents & photos", exact: true });
-            await documentsTab.focus();
-            await documentsTab.press("Enter");
-            const vehicleTab = page.getByRole("tab", { name: "Vehicle / 车辆", exact: true });
-            await vehicleTab.focus();
-            await vehicleTab.press("Enter");
+            await page.getByText("Documents & photos", { exact: true }).filter({ visible: true }).first().click();
+            await page.getByText("Vehicle / 车辆", { exact: true }).filter({ visible: true }).first().click();
             await page.getByText("Saved to this vehicle / 保存至此车辆", { exact: true }).waitFor();
             const documentLayout = await page.locator(".vehicleDocumentFlow").evaluate(flow => {
               const banner = [...flow.querySelectorAll(".ant-alert")].find(element => element.textContent.includes("Saved to this vehicle"));
@@ -882,7 +885,7 @@ try {
       }
       if (process.env.RESPONSIVE_TABS === "1" || (process.env.RESPONSIVE_TABS !== "0" && [360, 820, 1440].includes(width))) {
         if (route === "hr-salary" && width <= 767) {
-          const picker = page.locator(".hrMobileSectionPicker .ant-select-selector");
+          const picker = page.locator(".hrMobileSectionPicker .fullWidth");
           await picker.click();
           const options = page.locator(".hrSectionOptions .ant-select-item-option");
           const labels = await options.allTextContents();
@@ -894,7 +897,7 @@ try {
           }
         }
         if (["finance", "admin"].includes(route) && width <= 767) {
-          const picker = page.locator(".responsiveSectionPicker .ant-select-selector");
+          const picker = page.locator(".responsiveSectionPicker .responsiveSectionSelect");
           await picker.click();
           const labels = await page.locator(".responsiveSectionDropdown .ant-select-item-option").allTextContents();
           await page.keyboard.press("Escape");
@@ -903,15 +906,15 @@ try {
             await inspect(`${route}-section-${index}`, width);
           }
         }
-        const tabs = page.getByRole("tab");
-        const ids = await tabs.evaluateAll(elements => elements.map(element => element.id));
-        for (const [index, id] of ids.entries()) {
-          const tab = page.locator(`[id="${id}"]`);
+        const tabs = page.getByRole("tab").filter({ visible: true });
+        const tabCount = await tabs.count();
+        for (let index = 0; index < tabCount; index += 1) {
+          const tab = tabs.nth(index);
           if (!await tab.isVisible().catch(() => false)) continue;
           // Keyboard activation also covers tabs in the horizontal overflow strip.
           await tab.focus();
           await tab.press("Enter");
-          if (await tab.getAttribute("aria-selected") !== "true") throw new Error(`Tab did not activate: ${id}`);
+          if (await tab.getAttribute("aria-selected") !== "true") throw new Error(`Tab did not activate at index ${index}`);
           await inspect(`${route}-tab-${index}`, width);
         }
         if (route === "admin") {
@@ -1007,7 +1010,7 @@ try {
           await page.getByText("Recipient and data checks", { exact: true }).waitFor();
           await inspect("whatsapp-reminder-diagnostics", width);
           await page.getByRole("button", { name: "Edit settings", exact: true }).first().click();
-          await page.locator(".ant-drawer-open").getByRole("button", { name: "Review and save", exact: true }).waitFor();
+          await page.getByRole("dialog").filter({ visible: true }).getByRole("button", { name: "Review and save", exact: true }).waitFor();
           await inspect("whatsapp-policy-editor", width);
           await closeOverlay();
           await page.getByRole("tab", { name: "Sending limits", exact: true }).click();
@@ -1060,7 +1063,24 @@ const knownWarnings = new Set([
   "Warning: `disabled` should not set with empty `value`. You should set `allowEmpty` or `value` instead.",
   "Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?"
 ]);
-const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !((diagnostics.dashboardFailureChecks || diagnostics.leadRecovery || diagnostics.loanConfirmation) && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
+const knownAntd6DeprecationWarnings = new Set([
+  "Warning: [antd: DatePicker.RangePicker] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+  "Warning: [antd: Select] `dropdownRender` is deprecated. Please use `popupRender` instead.",
+  "Warning: [antd: Notification] `message` is deprecated. Please use `title` instead.",
+  "Warning: [antd: InputNumber] `addonAfter` is deprecated. Please use `Space.Compact` instead.",
+  "Warning: [antd: Alert] `message` is deprecated. Please use `title` instead.",
+  "Warning: [antd: Drawer] `destroyOnClose` is deprecated. Please use `destroyOnHidden` instead.",
+  "Warning: [antd: Drawer] `height` is deprecated. Please use `size` instead.",
+  "Warning: [antd: Drawer] `width` is deprecated. Please use `size` instead.",
+  "Warning: [antd: List] The `List` component is deprecated and will be removed in the next major version. If you're using version 6.6.0 or later, please use `Listy` instead.",
+  "Warning: [antd: Modal] `destroyOnClose` is deprecated. Please use `destroyOnHidden` instead.",
+  "Warning: [antd: Modal] `maskClosable` is deprecated. Please use `mask.closable` instead.",
+  "Warning: [antd: Select] `popupClassName` is deprecated. Please use `classNames.popup.root` instead.",
+  "Warning: [antd: Space] `direction` is deprecated. Please use `orientation` instead.",
+  "Warning: [antd: Steps] `direction` is deprecated. Please use `orientation` instead.",
+  "Warning: [antd: Steps] `items.description` is deprecated. Please use `items.content` instead."
+]);
+const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !knownAntd6DeprecationWarnings.has(message) && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !((diagnostics.dashboardFailureChecks || diagnostics.leadRecovery || diagnostics.loanConfirmation) && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
 const summary = { width, checks: results.length, failed, unknownRequests: [...unknownRequests], failedRequests: diagnostics.failedRequests, unexpectedConsoleErrors };
 console.log(JSON.stringify(summary, null, 2));
 if (failed.length || unknownRequests.size || diagnostics.failedRequests.length || unexpectedConsoleErrors.length) {

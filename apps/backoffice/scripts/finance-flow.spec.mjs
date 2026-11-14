@@ -100,15 +100,18 @@ for (const width of [320, 820, 1440]) {
     await page.goto(`${baseURL}/finance?tab=payments`);
     const activate = async index => {
       if (width < 768) {
-        await page.locator(".responsiveSectionPicker .ant-select-selector").click();
-        await page.locator(".responsiveSectionDropdown .ant-select-item-option").filter({ hasText: tabs[index] }).click();
+        await page.locator(".responsiveSectionPicker .responsiveSectionSelect").click();
+        const dropdown = page.locator(".responsiveSectionDropdown:visible");
+        await dropdown.locator(".ant-select-item-option").filter({ hasText: tabs[index] }).click();
+        await dropdown.waitFor({ state: "hidden" });
       } else {
-        const tab = page.getByRole("tab", { name: tabs[index], exact: true });
+        const escapedTabLabel = tabs[index].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const tab = page.getByRole("tab", { name: new RegExp(`${escapedTabLabel}$`) });
         await tab.focus(); await tab.press("Enter"); await expect(tab).toHaveAttribute("aria-selected", "true");
       }
     };
     const record = name => page.locator(width <= 720 ? ".mobileRecordCard" : ".ant-table-row").filter({ visible: true }).filter({ hasText: name }).first();
-    const close = async () => { await page.locator(".ant-drawer-open .ant-drawer-close,.ant-modal-close:visible").last().click(); };
+    const close = async () => { const dialogs = page.getByRole("dialog").filter({ visible: true }); const count = await dialogs.count(); await page.locator(".ant-drawer-open .ant-drawer-close,.ant-modal-close:visible").last().click(); await expect(dialogs).toHaveCount(count - 1); };
     const capture = async name => {
       await page.evaluate(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); await Promise.all(document.getAnimations().filter(a => a.playState === "running" && Number.isFinite(a.effect?.getComputedTiming().activeDuration)).map(a => a.finished.catch(() => {}))); });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
@@ -160,7 +163,7 @@ for (const width of [320, 820, 1440]) {
     expect(download.suggestedFilename()).toBe("YSV-20260901-123456.pdf");
     expect((await readFile(await download.path())).equals(pdf)).toBe(true);
     await page.getByRole("button", { name: "Details", exact: true }).filter({ visible: true }).first().click();
-    await expect(page.getByText("Version history / 版本记录", { exact: true })).toBeVisible();
+    await expect(page.getByText("Purchase Invoice Version History / 收车发票版本记录", { exact: true }).filter({ visible: true }).first()).toBeVisible();
     await capture("purchase-version-details"); await close();
     await activate(6);
     await record("Synthetic Customer").getByRole("button", { name: "Details", exact: true }).click();
@@ -236,7 +239,7 @@ for (const width of [320, 820, 1440]) {
     const openLegacy = async () => {
       await page.goto(`${baseURL}/finance?tab=payments`);
       await page.getByRole("button", { name: /Legacy payment records/ }).click();
-      await page.locator(".ant-select").filter({ has: page.getByRole("combobox", { name: "Review legacy payment record", exact: true }) }).locator(".ant-select-selector").click();
+      await page.getByRole("combobox", { name: "Review legacy payment record", exact: true }).click();
       await page.locator(".ant-select-item-option").filter({ hasText: "TEST-INV" }).click();
     };
     const drawer = page.locator(".ant-drawer-open").filter({ hasText: "Payment Details / 收款详情" });
@@ -264,7 +267,7 @@ for (const width of [320, 820, 1440]) {
       role = "Finance";
       await openLegacy();
       await expect(drawer.getByRole("button", { name: "Approve Management Review", exact: true })).toHaveCount(0);
-      await drawer.locator(".ant-form-item").filter({ has: page.locator("label").filter({ hasText: /^Status$/ }) }).locator(".ant-select-selector").click();
+      await drawer.getByRole("combobox", { name: "Status", exact: true }).click();
       await page.locator(".ant-select-item-option").filter({ hasText: /^Reconciled$/ }).click();
       await drawer.getByRole("button", { name: "Update Payment", exact: true }).click();
       await expect(confirm).toContainText("Reconcile legacy payment?");

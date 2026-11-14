@@ -134,8 +134,8 @@ describe("vehicle intake VOC review", () => {
       year: 2024
     });
     expect(applied.detectedFields).toEqual(["plateNumber", "chassisNumber", "engineNumber", "make", "model", "year"]);
-    expect(markup).toMatch(/ant-select-selection-item[^>]*title="Honda"[^>]*>Honda/);
-    expect(markup).toMatch(/ant-select-selection-item[^>]*title="Civic"[^>]*>Civic/);
+    expect(markup).toMatch(/ant-select-content-has-value[^>]*title="Honda"[^>]*>Honda/);
+    expect(markup).toMatch(/ant-select-content-has-value[^>]*title="Civic"[^>]*>Civic/);
   });
 
   it("replaces unchanged values from the first VOC without overwriting staff edits", () => {
