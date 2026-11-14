@@ -104,6 +104,7 @@ import { InspectionPage } from "./modules/inspection/InspectionPage";
 import { SalesMyCarsPanel } from "./modules/leads/SalesMyCarsPanel";
 import { markModuleGuideTourSeen, moduleGuideForPath, shouldShowModuleGuideTour } from "./moduleGuides";
 import { formatMoney as formatRinggit, formatMoneyInput, parseMoneyInput } from "./money";
+import { displayRoleLabel, roleLabel } from "./roleLabels";
 import {
   checkInHrAttendance,
   checkOutHrAttendance,
@@ -1522,7 +1523,7 @@ export default function App() {
                 await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
                 notifySuccess(
                   existingCustomer ? "Existing customer linked to lead" : "Customer linked to lead",
-                  `${lead.customerName} is ready for sales follow-up.`
+                  `${lead.customerName} is ready for broker follow-up.`
                 );
               }}
               onUpdate={(lead) => runUpdate(() => updateLead(lead), (record) => setLeads((items) => replaceById(items, record)), "Lead updated")}
@@ -4821,7 +4822,7 @@ export function LoanPage({
                 type="warning"
                 showIcon
                 message={`${missingLoanDocuments.length} document${missingLoanDocuments.length === 1 ? "" : "s"} still needed before completion`}
-                description="Loan Document can be uploaded here. Missing VOC, AP Document, and Status Receipt are provided by Sales and remain visible until received."
+                description="Loan Document can be uploaded here. Missing VOC, AP Document, and Status Receipt are provided by the Broker and remain visible until received."
               />
             )}
             {selectedLoan.status === "Rejected" && (
@@ -6224,13 +6225,13 @@ function SystemFlowReference() {
   const flowSteps = [
     {
       title: "1. Lead / Enquiry",
-      owner: "Sales",
+      owner: "Broker",
       records: ["Lead", "Customer"],
       detail: "Public enquiry or walk-in customer is captured, qualified, and linked to a customer record."
     },
     {
       title: "2. Vehicle Intake & Cost",
-      owner: "Sales + Admin",
+      owner: "Broker + Admin",
       records: ["Vehicle", "Previous Owner", "VOC", "Purchase Invoice"],
       detail: "Create the stock record, verify the previous owner and VOC, record the real purchase cost and internal modified purchase cost, then obtain management price approval before publishing."
     },
@@ -6242,9 +6243,9 @@ function SystemFlowReference() {
     },
     {
       title: "4. Confirm Buyer & Sale",
-      owner: "Sales + Finance",
-      records: ["Buyer", "Sales Agent", "Sales Invoice"],
-      detail: "Confirm the canonical buyer and sales agent, then Finance reviews the approved sale amounts before issuing the formal sales invoice."
+      owner: "Broker + Finance",
+      records: ["Buyer", "Broker", "Sales Invoice"],
+      detail: "Confirm the canonical buyer and broker, then Finance reviews the approved sale amounts before issuing the formal sales invoice."
     },
     {
       title: "5. Finance Path",
@@ -6280,7 +6281,7 @@ function SystemFlowReference() {
     },
     {
       role: "Sales" as StaffRole,
-      owns: "Leads, customer follow-up, vehicle intake, buyer confirmation, sales-agent ownership, and website stock visibility.",
+      owns: "Leads, customer follow-up, vehicle intake, buyer confirmation, broker ownership, and website stock visibility.",
       handoff: "Hands the confirmed buyer to Loan for financed sales or directly to Finance for cash collection."
     },
     {
@@ -6343,8 +6344,8 @@ function SystemFlowReference() {
           direction="vertical"
           size="small"
           items={[
-            { title: "Intake and price approval", description: "Sales records the vehicle, previous owner, VOC, real purchase cost, internal modified cost, and selling price; management approves before publishing." },
-            { title: "Buyer and invoice confirmed", description: "Sales confirms the buyer and sales agent. Finance reviews the approved amounts and issues the formal sales invoice." },
+            { title: "Intake and price approval", description: "Broker records the vehicle, previous owner, VOC, real purchase cost, internal modified cost, and selling price; management approves before publishing." },
+            { title: "Buyer and invoice confirmed", description: "Broker confirms the buyer and broker. Finance reviews the approved amounts and issues the formal sales invoice." },
             { title: "Cash or loan path completed", description: "Financed sales complete the Loan workflow; cash sales proceed directly to collection. Finance records receipts and reconciles cleared money." },
             { title: "Settlement and delivery cleared", description: "Finance completes the previous-owner settlement and payment controls. Delivery releases only after operational evidence and Finance clearance are complete." },
             { title: "Final close retained", description: "Customer 360 and the Audit Log retain the complete sale, finance, document, and handover history." }
@@ -6564,14 +6565,6 @@ function dataKeyLabel(key: BackOfficeDataKey) {
     hrPayslips: "HR payslips"
   };
   return labels[key];
-}
-
-function roleLabel(role: StaffRole) {
-  return displayRoleLabel(role);
-}
-
-function displayRoleLabel(role: string) {
-  return role === "BossAdmin" ? "Admin" : role === "HrSalary" ? "HR Payroll" : role;
 }
 
 function documentCategoryLabel(category: DocumentCategory) {

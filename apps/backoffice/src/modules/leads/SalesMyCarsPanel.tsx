@@ -152,7 +152,7 @@ export function SalesMyCarsPanel({
         </Tag>
         {keyword.trim() && <Button size="small" onClick={() => setKeyword("")}>Clear search</Button>}
       </Space>
-      <div className="salesMyCarsStats" aria-label="Sales car summary">
+      <div className="salesMyCarsStats" aria-label="Broker car summary">
         <span><strong>{data?.soldThisMonth ?? 0}</strong>Sold this month</span>
         <span><strong>{data?.inProgressCount ?? 0}</strong>Cars in progress</span>
       </div>

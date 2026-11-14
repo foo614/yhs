@@ -1,5 +1,6 @@
 import type { CreateStaffUserRequest, ResetStaffPasswordRequest, StaffRole, StaffUser, StaffWhatsAppConnection, UpdateStaffUserRequest } from "./api";
 import { canAssignStaffRoles } from "./access";
+import { staffRoleSearchLabel } from "./roleLabels";
 
 export type StaffStatusFilter = "All" | "Active" | "Disabled";
 
@@ -40,12 +41,6 @@ export function filterStaffUsers(staffUsers: StaffUser[], filters: StaffUserFilt
 
     return true;
   });
-}
-
-function staffRoleSearchLabel(role: StaffRole) {
-  if (role === "BossAdmin") return "Admin";
-  if (role === "HrSalary") return "HR Payroll";
-  return role;
 }
 
 export function staffCreateBlockReason(request: CreateStaffUserRequest, existing: StaffUser[] = []) {

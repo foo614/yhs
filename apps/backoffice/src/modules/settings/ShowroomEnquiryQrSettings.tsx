@@ -28,7 +28,7 @@ export function ShowroomEnquiryQrSettings() {
 
   return (
     <Space direction="vertical" size={16} className="fullWidth">
-      <Alert className="operationalInfoAlert" type="info" showIcon message="Stable shop QR — Opens the public no-login enquiry flow and labels new submissions for Sales." />
+      <Alert className="operationalInfoAlert" type="info" showIcon message="Stable shop QR — Opens the public no-login enquiry flow and labels new submissions for Brokers." />
       <div ref={qrPreviewRef} className="showroomQrPreview">
         <QRCode
           value={url}
