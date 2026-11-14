@@ -9,7 +9,7 @@ import { OperationsProTable } from "../shared/OperationsProTable";
 import { StaffWhatsAppLimitSettings } from "./StaffWhatsAppLimitSettings";
 
 const descriptions: Record<StaffWhatsAppPolicyCategory, { title: string; detail: string }> = {
-  OutstandingDigest: { title: "Outstanding digest", detail: "Boss: due finance items and deliveries. Sales: assigned deliveries only. Default 09:00 Malaysia time, three calendar days ahead." },
+  OutstandingDigest: { title: "Outstanding digest", detail: "Boss: due finance items and deliveries. Broker: assigned deliveries only. Default 09:00 Malaysia time, three calendar days ahead." },
   AttendanceSummary: { title: "Attendance summary", detail: "Daily staff availability summary. Default 10:00 Malaysia time." },
   LeaveApproval: { title: "Leave approval", detail: "Daily pending leave approval summary. Default 09:00 Malaysia time." },
   OcrUsage: { title: "OCR usage", detail: "Warn when OCR use reaches the selected share of its limit. Default 90%." },
@@ -182,9 +182,9 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
         message="Recipient and data checks"
         description={<Space direction="vertical">
           <span>{diagnostics.connectedStaff} of {diagnostics.eligibleStaff} active staff with reminder roles have a verified, currently eligible connection. This does not guarantee delivery.</span>
-          <span>Missing required dates: {diagnostics.missingRequiredDate}. Unpaid commissions needing a due date: {diagnostics.missingCommissionDate}. Deliveries without a Sales assignment: {diagnostics.unassignedDelivery}.</span>
-          <span>Active workflow events with assignment issues: {diagnostics.unroutableWorkflowEvents}. Old receipt events are not forwarded to a different salesperson after reassignment.</span>
-          <span>Set dates in the source record and assign Sales on the vehicle. Staff connect through My WhatsApp. Undated items are not given an invented deadline.</span>
+          <span>Missing required dates: {diagnostics.missingRequiredDate}. Unpaid commissions needing a due date: {diagnostics.missingCommissionDate}. Deliveries without a Broker assignment: {diagnostics.unassignedDelivery}.</span>
+          <span>Active workflow events with assignment issues: {diagnostics.unroutableWorkflowEvents}. Old receipt events are not forwarded to a different broker after reassignment.</span>
+          <span>Set dates in the source record and assign Broker on the vehicle. Staff connect through My WhatsApp. Undated items are not given an invented deadline.</span>
         </Space>} />}
       {policiesLoading && !policyRows.length && <Typography.Text type="secondary">Loading staff message settings…</Typography.Text>}
       {!policiesLoading && !policiesError && !policyRows.length && <Alert type="info" showIcon message="No staff message categories are available." />}

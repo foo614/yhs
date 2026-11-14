@@ -2710,7 +2710,7 @@ export function VehiclePage({
                   <span>{selectedVehicle.outstationPickupScheduledAt ? String(selectedVehicle.outstationPickupScheduledAt).replace("T", " ").slice(0, 16) : selectedVehicle.outstationPickupBookingSlip || "No outstation pickup recorded."}</span>
                 </IntakeChecklistCard>
                 <IntakeChecklistCard className={selectedVehicleActiveLeads.length > 0 ? "ready" : "neutral"} actionLabel="Open leads / 查看销售线索" onActivate={() => openIntakeChecklistDestination("sales-leads")}>
-                  <small>Sales leads</small>
+                  <small>Broker leads</small>
                   <strong>{selectedVehicleActiveLeads.length} active</strong>
                   <span>{selectedVehicleCustomer ? `Buyer: ${selectedVehicleCustomer.name}` : "No confirmed buyer linked yet."}</span>
                 </IntakeChecklistCard>
@@ -2776,7 +2776,7 @@ export function VehiclePage({
                   type="info"
                   showIcon
                   message="Approved selling price is locked"
-                  description="Sales and other non-management users cannot change an approved price. Ask Boss/Admin to start a reprice if the agreed selling price changes."
+                  description="Brokers and other non-management users cannot change an approved price. Ask Boss/Admin to start a reprice if the agreed selling price changes."
                 />
               ) : selectedVehiclePricePolicy.warnsBeforeReprice ? (
                 <Alert

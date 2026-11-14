@@ -70,9 +70,9 @@ describe("loan workflow helpers", () => {
     expect(canUploadLoanChecklistDocument(["BossAdmin"], "Voc")).toBe(true);
   });
 
-  it("labels Sales-provided evidence without sending Loan staff to a forbidden upload", () => {
-    expect(loanDocumentChecklistStatus("Voc", true)).toBe("Provided by Sales");
-    expect(loanDocumentChecklistStatus("StatusReceipt", false)).toBe("Missing — request from Sales");
+  it("labels Broker-provided evidence without sending Loan staff to a forbidden upload", () => {
+    expect(loanDocumentChecklistStatus("Voc", true)).toBe("Provided by Broker");
+    expect(loanDocumentChecklistStatus("StatusReceipt", false)).toBe("Missing — request from Broker");
     expect(loanDocumentChecklistStatus("LoanDocument", false)).toBe("Not uploaded yet");
   });
 

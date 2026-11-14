@@ -212,8 +212,8 @@ export function CashCustodyPage({
         <Space direction="vertical" size={12} className="fullWidth">
           {loadError && <Alert type="error" showIcon message="Cash custody data is unavailable" description={`${loadError} Creating or changing custody is disabled until the register reloads successfully.`} action={<Button loading={retrying} onClick={async () => { setRetrying(true); try { await onRetry(); } finally { setRetrying(false); } }}>Retry</Button>} />}
           <FinanceListNotice label="Cash custody records" loading={loading} />
-          {prefillPaymentId && !isSales && <Alert type="info" showIcon message="The assigned Sales user must record this physical cash" description="Your payment context is retained below. Finance can review an existing custody record, but only the assigned Sales user can start a new cash custody record." />}
-          <Alert type="warning" showIcon message="Sales records physical cash. Finance confirms receipt, and a different Finance or Boss/Admin checker accepts or rejects custody. Finance V2 cash updates the invoice only after acceptance." />
+          {prefillPaymentId && !isSales && <Alert type="info" showIcon message="The assigned Broker must record this physical cash" description="Your payment context is retained below. Finance can review an existing custody record, but only the assigned Broker can start a new cash custody record." />}
+          <Alert type="warning" showIcon message="Broker records physical cash. Finance confirms receipt, and a different Finance or Boss/Admin checker accepts or rejects custody. Finance V2 cash updates the invoice only after acceptance." />
           <div className="metricGrid">
             <Metric label="Open custody" value={summaryUnavailable ?? handovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length} />
             <Metric label="Overdue handovers" value={summaryUnavailable ?? overdueCount} danger={overdueCount > 0} />
@@ -328,7 +328,7 @@ export function CashCustodyPage({
                 { name: "invoice", label: "Invoice" },
                 { name: "receipt", label: "Receipt" },
                 { name: "status", label: "Status", options: [
-                  { value: "ReceivedBySales", label: "Received by Sales" },
+                  { value: "ReceivedBySales", label: "Received by Broker" },
                   { value: "PendingHandover", label: "Pending Handover" },
                   { value: "HandedOver", label: "Handed Over" },
                   { value: "Receipted", label: "Receipted" },
@@ -573,7 +573,7 @@ function isOverdue(handover: CashHandover) {
 
 function statusLabel(status: CashHandover["status"]) {
   return {
-    ReceivedBySales: "Received by Sales",
+    ReceivedBySales: "Received by Broker",
     PendingHandover: "Pending Handover",
     HandedOver: "Handed Over",
     Rejected: "Rejected",

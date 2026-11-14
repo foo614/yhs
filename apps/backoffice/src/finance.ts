@@ -28,7 +28,7 @@ export function financeSaleBlockReason(input: FinanceSaleInput, vehicles: Vehicl
   if (input.salesPrice < 0 || input.interestAdditionalCharges < 0 || input.ncdAmount < 0 || input.windscreenCharges < 0) {
     return "Invoice amounts cannot be negative.";
   }
-  if (!input.salesAgentUserId) return "Select the responsible sales agent.";
+  if (!input.salesAgentUserId) return "Select the responsible broker.";
   if (![input.insurancePaidOnBehalfAmount, input.roadTaxPaidOnBehalfAmount, input.advancePaidOnBehalfAmount]
     .every((value) => value === undefined || Number.isFinite(value))) {
     return "Complete the paid-on-behalf amounts or leave them at zero.";
