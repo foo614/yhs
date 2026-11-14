@@ -634,7 +634,7 @@ export function FinancePage({
   useEffect(() => {
     void getSalesAgents()
       .then(setSalesAgents)
-      .catch((error) => message.error(humanizeApiError(error, "Unable to load sales agents.")));
+      .catch((error) => message.error(humanizeApiError(error, "Unable to load brokers.")));
   }, []);
 
   const reloadDeliveryAccountingCharges = useCallback(async () => {
@@ -1930,7 +1930,7 @@ export function FinancePage({
           <Form.Item name="vehicleId" label="Vehicle & Buyer / 车辆与买家" rules={[{ required: true, message: "Select a vehicle." }]}>
             <Select showSearch optionFilterProp="label" onChange={updateInvoiceVehicleDefaults} options={eligibleInvoiceVehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model} · ${customerLabel(customers, vehicle.customerId)}` }))} />
           </Form.Item>
-          <Form.Item name="salesAgentUserId" label="Sales agent / 销售员" rules={[{ required: true, message: "Select the responsible sales agent." }]}>
+          <Form.Item name="salesAgentUserId" label="Broker / 经纪人" rules={[{ required: true, message: "Select the responsible broker." }]}>
             <Select showSearch optionFilterProp="label" options={salesAgents.map((agent) => ({ value: agent.id, label: `${agent.displayName} · ${agent.email}` }))} />
           </Form.Item>
           <Form.Item name="loanBankReference" label="Loan bank reference"><Input placeholder="Bank / loan approval reference" /></Form.Item>

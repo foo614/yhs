@@ -24,7 +24,7 @@ export function loanDocumentChecklistStatus(category: DocumentCategory, isPresen
     return isPresent ? "Uploaded and ready" : "Not uploaded yet";
   }
 
-  return isPresent ? "Provided by Sales" : "Missing — request from Sales";
+  return isPresent ? "Provided by Broker" : "Missing — request from Broker";
 }
 
 export type LoanFilters = {

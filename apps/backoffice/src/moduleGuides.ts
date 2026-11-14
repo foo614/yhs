@@ -119,7 +119,7 @@ const dashboardGuide: ModuleGuideDefinition = {
 const vehicleGuide: ModuleGuideDefinition = {
   path: "/vehicles",
   title: "Vehicles / 收车库存",
-  roleLabel: "Sales vehicle intake / 销售收车",
+  roleLabel: "Broker vehicle intake / 经纪收车",
   summary: "Create and maintain the vehicle, customer or owner, purchase details, photos, and readiness handoff.",
   quickSteps: [
     {
@@ -140,7 +140,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "inventory-list",
       label: "Vehicle Inventory / 车辆库存",
       kind: "section",
-      audience: "Sales; Boss/Admin also approves",
+      audience: "Broker; Boss/Admin also approves",
       purpose: "Find stock, read readiness, and choose the correct next action.",
       actions: ["Search plate, model, year, or status.", "Review approval, website, invoice, buyer, UCD, leads, and cost indicators.", "Open Details.", "Boss/Admin approves when the record is correct.", "Use Publish, Link Buyer, Start Loan, or Open Loan only when that action matches the sale."],
       requiredItems: ["Correct plate and vehicle record"],
@@ -152,7 +152,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "create-vehicle-identity",
       label: "Create Vehicle: Vehicle / 新增车辆：车辆",
       kind: "section",
-      audience: "Sales",
+      audience: "Broker",
       purpose: "Capture the vehicle's core identity.",
       actions: ["Enter registration plate.", "Add chassis and engine number when available.", "Choose make and model.", "Enter year and review spelling."],
       requiredItems: ["Unique registration plate", "Make", "Model", "Year"],
@@ -164,7 +164,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "create-vehicle-stock",
       label: "Create Vehicle: Stock & pricing / 新增车辆：库存与价格",
       kind: "section",
-      audience: "Sales",
+      audience: "Broker",
       purpose: "Capture real acquisition cost, internal adjusted cost, selling price, and pickup information.",
       actions: ["Enter the real purchase price and, when needed, an internal modified purchase price used for margin and profit.", "Review contra, additional payment, refurbishment, commission, and outstation allowance.", "Add pickup date and reference when applicable."],
       requiredItems: ["Selling price greater than zero", "Non-negative monetary values"],
@@ -176,19 +176,19 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "create-vehicle-publication",
       label: "Create Vehicle: Buyer & publication / 新增车辆：买家与发布",
       kind: "section",
-      audience: "Sales",
+      audience: "Broker",
       purpose: "Link the previous owner, optionally confirm a buyer, and prepare public listing content.",
       actions: ["Select the confirmed buyer only when known.", "Select or register the previous owner.", "Add website description and publication details."],
       requiredItems: ["Previous owner"],
       completeWhen: "The owner is correct and buyer/public copy are either confirmed or intentionally left incomplete.",
       handoff: "Create Vehicle: Review.",
-      warnings: ["A new vehicle starts Available but hidden.", "Sales cannot self-approve the vehicle."]
+      warnings: ["A new vehicle starts Available but hidden.", "Broker cannot self-approve the vehicle."]
     },
     {
       key: "create-vehicle-review",
       label: "Create Vehicle: Review / 新增车辆：核对",
       kind: "section",
-      audience: "Sales",
+      audience: "Broker",
       purpose: "Confirm the intake before creating the stock record.",
       actions: ["Review identity and prices.", "Confirm the previous owner.", "Confirm the intended buyer or deliberately leave the vehicle unassigned.", "Create the vehicle."],
       requiredItems: ["Reviewed vehicle, price, owner, and buyer decision"],
@@ -200,7 +200,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "details-overview",
       label: "Details: Overview / 详情：总览",
       kind: "detail-tab",
-      audience: "Sales; Boss/Admin also approves",
+      audience: "Broker; Boss/Admin also approves",
       purpose: "Review the vehicle summary and intake checklist.",
       actions: ["Inspect Vehicle Summary.", "Review owner, invoice, documents, photos, OCR, approval, UCD, pickup, and lead checklist items.", "Open the relevant detail tab for every attention item."],
       requiredItems: ["Correct vehicle record"],
@@ -212,7 +212,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "details-vehicle",
       label: "Details: Vehicle details / 详情：车辆资料",
       kind: "detail-tab",
-      audience: "Sales; Boss/Admin controls approval",
+      audience: "Broker; Boss/Admin controls approval",
       purpose: "Correct vehicle, price, pickup, and public-listing data.",
       actions: ["Verify website visibility.", "Correct identity, prices, pickup, and public copy.", "Save the vehicle record."],
       requiredItems: ["Valid intake values"],
@@ -224,7 +224,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "details-people",
       label: "Details: Linked people & leads / 详情：关联人员与询盘",
       kind: "detail-tab",
-      audience: "Sales",
+      audience: "Broker",
       purpose: "Verify the confirmed buyer, previous owner, and related enquiries.",
       actions: ["Verify the Buyer card and open Customer 360 or edit/create the customer when needed.", "Verify the Previous Owner and edit/create the owner when needed.", "Review linked leads and confirm the canonical buyer."],
       requiredItems: ["Canonical buyer matching any active loan", "Correct previous owner"],
@@ -236,7 +236,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "details-assets",
       label: "Details: Documents & photos / 详情：文件与照片",
       kind: "detail-tab",
-      audience: "Sales; document access follows role policy",
+      audience: "Broker; document access follows role policy",
       purpose: "Store documents under the correct owner/category and maintain website photos.",
       actions: ["Choose Documents or Website photos.", "For documents, choose Seller, Buyer, or Vehicle ownership and the correct category.", "Confirm the linked person, upload or scan, edit OCR differences, and apply only confirmed values.", "Recheck upload history and ownership."],
       requiredItems: ["Seller: Purchase Invoice, VOC, IC, AP Document", "Buyer: IC, Loan Document, Delivery Document, Policy", "Vehicle: Status Receipt, Road Tax Receipt, Repair Invoice"],
@@ -248,7 +248,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "purchase-invoice",
       label: "Purchase Invoice / 收车发票",
       kind: "section",
-      audience: "Sales enters; Finance confirms accounting",
+      audience: "Broker enters; Finance confirms accounting",
       purpose: "Create a vehicle-linked, supplier-backed acquisition invoice with classified cost lines.",
       actions: ["Enter manually or scan and review OCR.", "Select vehicle and active supplier.", "Enter invoice number, date, and optional purchase date/reference.", "Add each classification, description, amount, and capitalisation choice.", "Confirm line total equals invoice total, then save."],
       requiredItems: ["Active supplier", "Unique invoice number", "Invoice date", "Amount greater than zero", "At least one classified line", "Line total equal to invoice total"],
@@ -260,7 +260,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "vehicle-approval-publication",
       label: "Approval & website publication / 审批与网站发布",
       kind: "section",
-      audience: "Boss/Admin approves; Sales prepares",
+      audience: "Boss/Admin approves; Broker prepares",
       purpose: "Separate operational approval from public website visibility.",
       actions: ["Boss/Admin reviews price and readiness.", "Approve the vehicle; it remains hidden.", "Publish only when the listing is ready."],
       requiredItems: ["Accurate vehicle and price data", "Approved status", "Available status for public listing"],
@@ -272,7 +272,7 @@ const vehicleGuide: ModuleGuideDefinition = {
       key: "vehicle-loan-handoff",
       label: "Start Loan / 开始贷款",
       kind: "section",
-      audience: "Sales",
+      audience: "Broker",
       purpose: "Open the linked financing workflow for the confirmed buyer.",
       actions: ["Confirm the buyer.", "Review vehicle, status, and website state.", "Select Confirm & Start Loan."],
       requiredItems: ["Linked existing customer as confirmed buyer"],
@@ -464,9 +464,9 @@ const loanGuide: ModuleGuideDefinition = {
       key: "loan-documents",
       label: "Loan Documents / 贷款文件",
       kind: "section",
-      audience: "Loan uploads Loan Document; Sales supplies shared vehicle files; Boss/Admin may upload all",
+      audience: "Loan uploads Loan Document; Broker supplies shared vehicle files; Boss/Admin may upload all",
       purpose: "Complete the four-document checklist for the current vehicle and buyer.",
-      actions: ["Review missing items.", "Choose the correct category and preview the file before confirming upload.", "Upload the Loan Document.", "Request Sales-owned VOC, AP Document, and Status Receipt through Vehicles.", "Preview or download uploaded evidence when checking it.", "Mark Done only when the checklist is Complete."],
+      actions: ["Review missing items.", "Choose the correct category and preview the file before confirming upload.", "Upload the Loan Document.", "Request Broker-owned VOC, AP Document, and Status Receipt through Vehicles.", "Preview or download uploaded evidence when checking it.", "Mark Done only when the checklist is Complete."],
       requiredItems: ["VOC", "AP Document", "Status Receipt", "Loan Document", "Every file linked to the same vehicle and current buyer"],
       completeWhen: "The API reports the loan document checklist Complete.",
       handoff: "Status Done, then Delivery and Finance.",
@@ -666,7 +666,7 @@ const financeManagementGuide: ModuleGuideDefinition = {
   quickSteps: [
     {
       title: "Prepare and issue invoices / 准备与开具发票",
-      description: "Confirm the vehicle, customer, sales agent, item lines, paid-on-behalf amounts, and any price adjustment approval."
+      description: "Confirm the vehicle, customer, broker, item lines, paid-on-behalf amounts, and any price adjustment approval."
     },
     {
       title: "Record then reconcile / 记录后再对账",
@@ -684,8 +684,8 @@ const financeManagementGuide: ModuleGuideDefinition = {
       kind: "tab",
       audience: "Finance and Boss/Admin",
       purpose: "Prepare the sale invoice, record non-cash collections, reconcile evidence, and export reviewed AutoCount workbooks.",
-      actions: ["Confirm the vehicle's buyer and active sales agent.", "Prepare the invoice with vehicle, insurance, road tax, and other paid-on-behalf lines.", "When nett price differs from the calculated total, obtain approval from another Boss/Admin.", "Add each non-cash partial collection with method, amount, date, and reference.", "For bank financing, progress Pending to Approved to Disbursed.", "Attach evidence to the exact collection.", "Finance or Boss/Admin confirms the money reached the company account and reconciles it; the audit trail records who completed the action.", "Boss/Admin reverses only a genuine error.", "Choose a date range and export the AutoCount .xlsx.", "Before manual import, inspect every row's status and remarks, resolve review-only or draft rows, and keep TaxCode blank until Finance confirms the tax mapping."],
-      requiredItems: ["Confirmed buyer", "Active sales agent", "Invoice line values", "Approval for price variance", "Collection method, amount, date, reference, and evidence", "Disbursed bank financing before reconciliation"],
+      actions: ["Confirm the vehicle's buyer and active broker.", "Prepare the invoice with vehicle, insurance, road tax, and other paid-on-behalf lines.", "When nett price differs from the calculated total, obtain approval from another Boss/Admin.", "Add each non-cash partial collection with method, amount, date, and reference.", "For bank financing, progress Pending to Approved to Disbursed.", "Attach evidence to the exact collection.", "Finance or Boss/Admin confirms the money reached the company account and reconciles it; the audit trail records who completed the action.", "Boss/Admin reverses only a genuine error.", "Choose a date range and export the AutoCount .xlsx.", "Before manual import, inspect every row's status and remarks, resolve review-only or draft rows, and keep TaxCode blank until Finance confirms the tax mapping."],
+      requiredItems: ["Confirmed buyer", "Active broker", "Invoice line values", "Approval for price variance", "Collection method, amount, date, reference, and evidence", "Disbursed bank financing before reconciliation"],
       completeWhen: "The invoice is issued, all collections are reconciled with evidence and an audit record, and the receivable balance is Paid.",
       handoff: "Reviewed AutoCount workbook for manual import; customer history appears in Customer 360.",
       warnings: ["Cash is handled through Cash Handover, not added as a normal collection.", "There is one receivable per buyer-linked vehicle.", "A requester still cannot approve their own NCD or nett-price variance; collection reconciliation is restricted to Finance and Boss/Admin and remains audited.", "The workbook may include draft, pending, unpaid, or unconfirmed review-only rows with warning remarks; export does not make them posting-ready.", "AutoCount export is a mapping/import aid, not a direct integration, and TaxCode remains blank until Finance confirms the tax mapping."]
@@ -754,13 +754,13 @@ const financeManagementGuide: ModuleGuideDefinition = {
       key: "cash-custody",
       label: "Cash Handover / Official Receipts",
       kind: "tab",
-      audience: "Sales records custody; Finance confirms",
-      purpose: "Transfer physical customer cash from Sales custody to Finance and issue the official receipt.",
-      actions: ["Sales records the cash received against the correct payment and requests handover.", "Finance counts the physical cash and records the handover.", "Finance accepts a match or rejects a mismatch with a useful reason.", "After acceptance, Finance issues the official receipt.", "Sales follows the register until Receipted or corrects a Rejected handover."],
+      audience: "Broker records custody; Finance confirms",
+      purpose: "Transfer physical customer cash from Broker custody to Finance and issue the official receipt.",
+      actions: ["Broker records the cash received against the correct payment and requests handover.", "Finance counts the physical cash and records the handover.", "Finance accepts a match or rejects a mismatch with a useful reason.", "After acceptance, Finance issues the official receipt.", "Broker follows the register until Receipted or corrects a Rejected handover."],
       requiredItems: ["Correct payment", "Actual cash amount", "Custody note", "Physical cash confirmation"],
       completeWhen: "Finance accepts the physical handover and the official receipt is issued.",
       handoff: "Customer 360 official receipts and Finance collection record.",
-      warnings: ["Cash custody is separate from accounting reconciliation.", "This flow is for supported legacy/cash records only and allows one handover per payment.", "The Sales recorder cannot issue their own official receipt."]
+      warnings: ["Cash custody is separate from accounting reconciliation.", "This flow is for supported legacy/cash records only and allows one handover per payment.", "The Broker recorder cannot issue their own official receipt."]
     }
   ],
   completionReminder: "Follow each workflow's approval rule. Never mark a collection, voucher, or cash handover complete without matching evidence and its required audit trail."
@@ -769,7 +769,7 @@ const financeManagementGuide: ModuleGuideDefinition = {
 const financeSalesGuide: ModuleGuideDefinition = {
   path: "/finance",
   title: "Cash Custody / 现金交接",
-  roleLabel: "Sales cash custody / 销售现金保管",
+  roleLabel: "Broker cash custody / 经纪现金保管",
   summary: "Record cash received from a customer and hand physical custody to Finance without performing accounting reconciliation.",
   quickSteps: [
     {
@@ -790,16 +790,16 @@ const financeSalesGuide: ModuleGuideDefinition = {
       key: "cash-custody",
       label: "Cash Handover / Official Receipts",
       kind: "tab",
-      audience: "Sales cash custody",
+      audience: "Broker cash custody",
       purpose: "Record physical cash received and request its handover to Finance without performing accounting reconciliation.",
       actions: ["Select the correct payment.", "Enter the actual cash amount and a useful note.", "Keep the cash secure and request handover.", "Track the register until Finance accepts and issues the official receipt, or correct a rejected mismatch."],
       requiredItems: ["Correct payment", "Actual cash amount", "Custody note", "Physical cash ready for Finance"],
       completeWhen: "Finance has accepted the physical handover and issued the official receipt.",
       handoff: "Finance confirms, receipts, and performs any separate accounting work.",
-      warnings: ["Sales cannot access the other six Finance tabs.", "This is physical custody, not reconciliation.", "Only one handover is allowed per payment, and Sales cannot issue its own official receipt."]
+      warnings: ["Broker cannot access the other six Finance tabs.", "This is physical custody, not reconciliation.", "Only one handover is allowed per payment, and Broker cannot issue its own official receipt."]
     }
   ],
-  completionReminder: "Sales records custody only. Finance must confirm the physical handover before an official receipt is issued."
+  completionReminder: "Broker records custody only. Finance must confirm the physical handover before an official receipt is issued."
 };
 
 const customerGuide: ModuleGuideDefinition = {
@@ -955,7 +955,7 @@ const customerDeliveryGuide: ModuleGuideDefinition = {
 const leadsGuide: ModuleGuideDefinition = {
   path: "/leads",
   title: "Leads / 客户询问",
-  roleLabel: "Sales follow-up / 销售跟进",
+  roleLabel: "Broker follow-up / 经纪跟进",
   summary: "Prioritize customer enquiries, take ownership, contact the customer, and close each case with a clear outcome.",
   quickSteps: [
     {
@@ -968,7 +968,7 @@ const leadsGuide: ModuleGuideDefinition = {
     },
     {
       title: "Close with an outcome / 记录结果并结案",
-      description: "Choose Sold, Lost, or Invalid with a useful reason, or release the lead if another salesperson should continue."
+      description: "Choose Sold, Lost, or Invalid with a useful reason, or release the lead if another broker should continue."
     }
   ],
   sections: [
@@ -976,7 +976,7 @@ const leadsGuide: ModuleGuideDefinition = {
       key: "close-asap",
       label: "Hot-car demand / 热门车辆需求",
       kind: "section",
-      audience: "Sales and Boss/Admin",
+      audience: "Broker and Boss/Admin",
       purpose: "Prioritize open demand for available public vehicles, especially cars with multiple active leads.",
       actions: ["Review Hot cars, Open leads, and Multi-lead cars.", "Keep Close ASAP first for daily triage.", "Switch to Newest first when reviewing recent arrivals."],
       requiredItems: ["Public vehicle enquiry: customer name, phone, and approved public Available vehicle", "General contact enquiry: customer name, phone, and message"],
@@ -988,7 +988,7 @@ const leadsGuide: ModuleGuideDefinition = {
       key: "filters-and-groups",
       label: "Filters and grouped vehicle demand / 筛选与车辆询问分组",
       kind: "section",
-      audience: "Sales and Boss/Admin",
+      audience: "Broker and Boss/Admin",
       purpose: "Find New, Contacted, Closed, linked, or unlinked leads and review demand by vehicle.",
       actions: ["Filter by Status.", "Use Needs Customer for unlinked enquiries.", "Expand a vehicle group to inspect customer, phone, message, source, owner, and status.", "Reset stale filters before a different investigation."],
       requiredItems: ["Intended status/link filter and vehicle group"],
@@ -1000,19 +1000,19 @@ const leadsGuide: ModuleGuideDefinition = {
       key: "ownership",
       label: "Take or release a lead / 接手或释放询问",
       kind: "section",
-      audience: "Sales and Boss/Admin",
-      purpose: "Give one salesperson ownership of status changes and link/create the customer.",
-      actions: ["Select Take Lead.", "Review the customer matched by normalized phone or the new basic customer created from name, phone, and enquiry notes.", "Confirm the lead becomes Contacted and shows the current owner.", "Use Release Lead only when another salesperson should continue."],
+      audience: "Broker and Boss/Admin",
+      purpose: "Give one broker ownership of status changes and link/create the customer.",
+      actions: ["Select Take Lead.", "Review the customer matched by normalized phone or the new basic customer created from name, phone, and enquiry notes.", "Confirm the lead becomes Contacted and shows the current owner.", "Use Release Lead only when another broker should continue."],
       requiredItems: ["Authenticated staff", "Verified customer name and phone"],
       completeWhen: "The lead is Contacted and shows the correct Taken by owner, or has been deliberately released.",
       handoff: "Complete missing customer IC, TIN, and address before Loan, Delivery, or Finance.",
-      warnings: ["Another salesperson cannot change an assigned lead's status.", "Phone matching is the current reuse rule; confirm the matched customer is truly the same person."]
+      warnings: ["Another broker cannot change an assigned lead's status.", "Phone matching is the current reuse rule; confirm the matched customer is truly the same person."]
     },
     {
       key: "close-case",
       label: "Close with real outcome / 按真实结果结案",
       kind: "section",
-      audience: "Assigned Sales owner",
+      audience: "Assigned Broker owner",
       purpose: "Close a contacted enquiry with an accurate outcome.",
       actions: ["Contact the customer first.", "For Sold, confirm the lead customer matches the vehicle's confirmed buyer in Vehicle Details.", "Choose Sold, Lost, or Invalid.", "Review the buyer context and save Close Case."],
       requiredItems: ["Assigned lead", "Actual closure outcome", "Matching confirmed vehicle buyer for Sold"],

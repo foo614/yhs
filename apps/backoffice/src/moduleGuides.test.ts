@@ -97,7 +97,7 @@ describe("module guidance", () => {
     ];
 
     expect(salesGuide.title).toBe("Cash Custody / 现金交接");
-    expect(salesGuide.roleLabel).toContain("Sales cash custody");
+    expect(salesGuide.roleLabel).toContain("Broker cash custody");
     expect(salesGuide.completionReminder).toContain("Finance must confirm");
     expect(salesGuide.sections.map((section) => section.key)).toEqual(["cash-custody"]);
     expect(financeGuide.title).toBe("Finance / 财务");
