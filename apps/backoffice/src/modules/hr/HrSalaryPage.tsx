@@ -1642,7 +1642,7 @@ function staffPrimaryRole(id: string, staffUsers: StaffUser[]): StaffRole {
 function roleLabel(role: StaffRole) {
   return {
     BossAdmin: "Admin / 管理员",
-    Sales: "Broker / 经纪人",
+    Sales: "Broker",
     Loan: "Loan / 贷款",
     Delivery: "Delivery / 出车",
     Finance: "Finance / 财务",

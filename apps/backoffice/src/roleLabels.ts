@@ -1,6 +1,6 @@
 const visibleRoleLabels: Record<string, string> = {
   BossAdmin: "Admin",
-  Sales: "Broker / 经纪人",
+  Sales: "Broker",
   HrSalary: "HR Payroll"
 };
 
@@ -13,4 +13,7 @@ export function displayRoleLabel(role: string) {
 }
 
 export const roleLabel = displayRoleLabel;
-export const staffRoleSearchLabel = displayRoleLabel;
+
+export function staffRoleSearchLabel(role: string) {
+  return role === "Sales" ? "Broker 经纪人" : displayRoleLabel(role);
+}
