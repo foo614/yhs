@@ -5268,7 +5268,7 @@ body {
 
   .ant-pagination {
     justify-content: flex-start;
-    gap: 4px;
+    gap: 8px;
   }
 
   .ant-pagination .ant-pagination-options {
@@ -7854,4 +7854,33 @@ body {
 @media (min-width: 721px) and (max-width: 767px) {
   .dashboardAnalyticsPopup .ant-picker-panels { flex-direction: column; }
   .dashboardAnalyticsPopup .ant-picker-panel-container { max-width: calc(100vw - 16px); max-height: calc(100dvh - 24px); overflow: auto; }
+}
+
+/* Keep table footers inset even when ProTable removes card body padding. */
+.operationsProTable .ant-table-pagination.ant-pagination {
+  margin: 0;
+  /* Leave the fixed floating menu clear of the page-size selector. */
+  padding: 16px 72px 16px 24px;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.operationsProTable .ant-pagination > li {
+  margin-inline-end: 0;
+}
+
+.operationsProTable .ant-pagination .ant-pagination-options {
+  margin-inline-start: 8px;
+}
+
+@media (max-width: 720px) {
+  .operationsProTable .ant-table-pagination.ant-pagination {
+    padding: 16px;
+    row-gap: 12px;
+  }
+
+  .operationsProTable .ant-pagination .ant-pagination-total-text {
+    flex-basis: 100%;
+  }
 }
