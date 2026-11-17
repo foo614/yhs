@@ -1,3 +1,4 @@
+import { RepairReviewPanel } from "./modules/repairs/RepairReviewPanel";
 import { formatDisplayDate } from "./dateDisplay";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { DashboardUpdatesPanel } from "./modules/dashboard/DashboardUpdatesPanel";
@@ -66,7 +67,7 @@ import type { InputProps, InputRef } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
-import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, loanDocumentUploadOwner, markLoanDone, nextLoanDocumentReloadKey, type LoanFilters } from "./loan";
+import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanDocumentCategories, loanHistoryDocumentCategories, loanDocumentChecklistStatus, loanDocumentUploadOwner, loanRequiredDocumentCategories, markLoanDone, nextLoanDocumentReloadKey, type LoanFilters } from "./loan";
 import {
   activeLeadCountByVehicle,
   expandLeadGroupsByDefault,
@@ -80,7 +81,7 @@ import {
   type LeadVehicleGroup,
   type LeadLinkFilter
 } from "./leads";
-import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, refurbishmentDetailsSelection, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
+import { filterRefurbishmentRecords, hasAtMostTwoDecimalPlaces, isReceiptTotalInputText, isRepairCostFinal, isSupplierUsable, receiptTotalFromInput, repairApprovalThreshold, repairCreateBlockReason, repairDocumentCategories, supplierInvoiceAgingStatus, supplierInvoiceCreateBlockReason, supplierInvoiceDateBlockReason, type RefurbishmentFilters, type RefurbishmentRecord } from "./repairs";
 import { filterStaffUsers, staffCreateBlockReason, staffPasswordResetBlockReason, staffUpdateBlockReason, staffWhatsAppStatusLabel, type StaffStatusFilter } from "./staff";
 import { dashboardActionWorkload, filterDashboardActions, type DashboardActionDueFilter, dashboardActionKey, dashboardAnalyticsPeriodForPreset, dashboardDrilldownFromRouteUrl, dashboardMetricTarget, dashboardPriorityEntries, dashboardReminderTarget, filterDashboardReminders, financeRiskTarget, reminderDueLabel, reminderDueTagColor, sidebarActionBadges, singaporeTodayIsoDate, type DashboardAnalyticsRangePreset, type DashboardDrilldown, type ReminderDueFilter } from "./dashboard";
 import { FinancePage, financeTabForUrl } from "./modules/finance/FinancePage";
@@ -128,6 +129,7 @@ import {
   createDebtRecovery,
   createHrAttendanceNetwork,
   createLoan,
+  takeLoan,
   decideLoan,
   createOwner,
   createPayment,
@@ -182,6 +184,7 @@ import {
   getHrStaffUsers,
   getLeads,
   getLoanDocumentCheckStrict,
+  getLoanBankOptions,
   getLoans,
   getOcrUsageLimit,
   getOwners,
@@ -247,6 +250,12 @@ import {
   updateSupplier,
   updateSupplierInvoice,
   updateVehicle,
+  createLoanBankOption,
+  submitLoanBank,
+  rejectLoanBank,
+  selectFinalLoanBank,
+  createLoanBuyerIntake,
+  updateLoanBankOption,
   uploadHrMedicalCertificate,
   uploadVehicleDocument,
   uploadVehicleDocumentWithProgress,
@@ -296,6 +305,7 @@ import {
   type HrPayslip,
   type FinanceVehicleOption,
   type Lead,
+  type LoanBankOption,
   type LoanApplication,
   type LoanDecisionStatus,
   type LoanDocumentCheck,
@@ -496,10 +506,10 @@ export function activeLoanForVehicle(loans: LoanApplication[], vehicleId: string
   return loans.find((loan) => loan.vehicleId === vehicleId && ["Pending", "Approved", "Done"].includes(loan.status));
 }
 
-function tablePagination(pageSize = 8): TablePaginationConfig {
+function tablePagination(_pageSize = 10): TablePaginationConfig {
   return {
-    pageSize,
-    showSizeChanger: false,
+    defaultPageSize: 10,
+    showSizeChanger: true,
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} / 共 ${total} 条`
   };
 }
@@ -1187,7 +1197,11 @@ export default function App() {
       }
 
       await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
-      navigateTo(`/loans?loanId=${encodeURIComponent(targetLoan.id)}`);
+      if (currentRoles.includes("BossAdmin") || currentRoles.includes("Loan")) {
+        navigateTo(`/loans?loanId=${encodeURIComponent(targetLoan.id)}`);
+      } else {
+        navigateTo(`/vehicles?vehicleId=${encodeURIComponent(vehicle.id)}`);
+      }
       notifySuccess(
         existingLoan ? "Loan workflow opened" : "Loan workflow started",
         existingLoan ? "This vehicle already has a loan record." : "A pending loan record was created and linked to the selected customer."
@@ -1385,8 +1399,9 @@ export default function App() {
               supplierInvoices={supplierInvoices}
               repairs={repairs}
               canApproveRepairs={currentRoles.includes("BossAdmin")}
+              onRefreshRepairRecords={async () => { const [jobs, invoices] = await Promise.all([getRepairs(), getSupplierInvoices()]); setRepairs(jobs); setSupplierInvoices(invoices); }}
               onCreateInvoice={(invoice) => runCreate(() => createSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => [record, ...items]), "Supplier invoice created")}
-              onUpdateInvoice={(invoice) => runUpdate(() => updateSupplierInvoice(invoice), (record) => setSupplierInvoices((items) => replaceById(items, record)), "Supplier invoice updated")}
+              onUpdateInvoice={(invoice, expected) => runUpdate(() => updateSupplierInvoice(invoice, expected), (record) => setSupplierInvoices((items) => replaceById(items, record)), "Supplier invoice updated")}
               onCreateRepair={(repair) => runCreate(() => createRepair(repair), (record) => setRepairs((items) => [record, ...items]), "Repair task created")}
               onCreateRepairWithReceipt={(request) => runCreateWithResult(
                 () => createRepairWithReceipt(request),
@@ -1398,7 +1413,7 @@ export default function App() {
               )}
               onUpdateRepair={(repair) => runUpdate(() => updateRepair(repair), (record) => setRepairs((items) => replaceById(items, record)), "Repair task updated")}
               onConfirmReceipt={(repairId, receipt) => confirmRepairReceipt(repairId, receipt)}
-              onApproveRepair={(repairId, notes) => runUpdate(() => approveRepair(repairId, notes), (record) => setRepairs((items) => replaceById(items, record)), "Repair approved")}
+              onApproveRepair={(repairId, notes) => runUpdate(() => approveRepair(repairId, notes, repairs.find(repair => repair.id === repairId)?.cost), (record) => setRepairs((items) => replaceById(items, record)), "Repair approved")}
               onUploadDocument={(vehicleId, file, category) => runUpload(() => uploadVehicleDocument(vehicleId, file, category), "Repair document uploaded")}
             />
           )}
@@ -1407,13 +1422,16 @@ export default function App() {
               vehicles={vehicleLookup}
               customers={customers}
               loans={loans}
+              currentUser={currentUser}
               roles={currentRoles}
               initialLoanId={loanIdFromRouteUrl(routeUrl)}
               dashboardFocus={dashboardDrilldown}
               onClearDashboardFocus={() => navigateTo("/loans")}
               onBackToList={() => navigateTo("/loans")}
               onCreate={(loan) => runCreate(() => createLoan(loan), (record) => setLoans((items) => [record, ...items]), "Loan submitted")}
+              onTake={(loanId) => runUpdate(() => takeLoan(loanId), (record) => setLoans((items) => replaceById(items, record)), "Loan case taken")}
               onUpdate={(loan) => runUpdate(() => updateLoan(loan), (record) => setLoans((items) => replaceById(items, record)), "Loan updated")}
+              onRefresh={() => loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined)}
               onDecide={(loanId, status, rejectionReason) => runUpdate(
                 () => decideLoan(loanId, status, rejectionReason),
                 (record) => setLoans((items) => replaceById(items, record)),
@@ -2015,7 +2033,7 @@ function moduleStats(pathname: string, data: {
   const availableVehicles = data.vehicles.filter((vehicle) => vehicle.status === "Available").length;
   const publicVehicles = data.vehicles.filter((vehicle) => vehicle.isPublic).length;
   const pendingVehicleApprovals = data.vehicles.filter((vehicle) => !vehicle.bossConfirmed).length;
-  const pendingLoans = data.loans.filter((loan) => loan.status === "Pending").length;
+  const pendingLoans = data.loans.filter((loan) => loan.status === "Pending" || loan.status === "Submitted").length;
   const openPayments = data.payments.filter((payment) => payment.status !== "Reconciled").length;
   const newLeads = data.leads.filter((lead) => lead.status === "New").length;
   const todayText = today();
@@ -2100,6 +2118,8 @@ export function ModuleDocumentList({
   categories,
   repairJobId,
   paymentRecordId,
+  loanApplicationId,
+  customerId,
   reloadKey = 0,
   showOcrResults = true,
   enablePreview = false,
@@ -2109,6 +2129,8 @@ export function ModuleDocumentList({
   categories: readonly DocumentCategory[];
   repairJobId?: string;
   paymentRecordId?: string;
+  loanApplicationId?: string;
+  customerId?: string;
   reloadKey?: number;
   showOcrResults?: boolean;
   enablePreview?: boolean;
@@ -2152,7 +2174,9 @@ export function ModuleDocumentList({
           const matchingDocuments = documentItems.filter((document) =>
             categories.includes(document.category) &&
             (!repairJobId || document.repairJobId === repairJobId) &&
-            (!paymentRecordId || document.paymentRecordId === paymentRecordId)
+            (!paymentRecordId || document.paymentRecordId === paymentRecordId) &&
+            (!loanApplicationId || document.loanApplicationId === loanApplicationId ||
+              (!document.loanApplicationId && Boolean(customerId) && document.customerId === customerId))
           );
           const matchingDocumentIds = new Set(matchingDocuments.map((document) => document.id));
           setDocuments(newestRecordsFirst(matchingDocuments, document => document.uploadedAt));
@@ -2173,7 +2197,7 @@ export function ModuleDocumentList({
     return () => {
       active = false;
     };
-  }, [categories, enablePreview, paymentRecordId, reloadKey, repairJobId, showOcrResults, vehicleId]);
+  }, [categories, enablePreview, paymentRecordId, loanApplicationId, customerId, reloadKey, repairJobId, showOcrResults, vehicleId]);
 
   const closeDocumentPreview = () => {
     previewRequestId.current += 1;
@@ -2396,6 +2420,7 @@ export function DashboardPage({
   const [collectionBreakdownOpen, setCollectionBreakdownOpen] = useState(false);
   const [reminderTypeFilter, setReminderTypeFilter] = useState<DashboardReminder["type"] | "All">("All");
   const [reminderDueFilter, setReminderDueFilter] = useState<ReminderDueFilter>("All");
+  const [dashboardPageSize, setDashboardPageSize] = useState(10);
   const [mobileReminderPage, setMobileReminderPage] = useState(1);
   const [mobilePriorityPage, setMobilePriorityPage] = useState(1);
   const dashboardReminderTypes = Array.from(new Set(reminders.map((reminder) => reminder.type)));
@@ -2437,9 +2462,9 @@ export function DashboardPage({
     setReminderDueFilter("All");
     setMobileReminderPage(1);
   };
-  const mobileReminderPageCount = Math.max(1, Math.ceil(filteredReminders.length / 8));
+  const mobileReminderPageCount = Math.max(1, Math.ceil(filteredReminders.length / dashboardPageSize));
   const clampedMobileReminderPage = Math.min(mobileReminderPage, mobileReminderPageCount);
-  const mobileReminders = filteredReminders.slice((clampedMobileReminderPage - 1) * 8, clampedMobileReminderPage * 8);
+  const mobileReminders = filteredReminders.slice((clampedMobileReminderPage - 1) * dashboardPageSize, clampedMobileReminderPage * dashboardPageSize);
   const dashboardToday = singaporeTodayIsoDate();
   const priorityEntries = dashboardPriorityEntries(reminders, priorityActions, dashboardToday);
   const filteredPriorityEntries = filterDashboardActions(priorityEntries, { type: actionType, department: actionDepartment, due: actionDue }, dashboardToday);
@@ -2460,9 +2485,9 @@ export function DashboardPage({
     return label === "Overdue" ? "red" : label === "Due today" ? "orange" : label === "Due soon" ? "blue" : "default";
   };
   const prioritySourceLabel = (source: typeof priorityEntries[number]["source"]) => source === "reminder" ? "Reminder / 提醒" : "Department action / 部门行动";
-  const mobilePriorityPageCount = Math.max(1, Math.ceil(filteredPriorityEntries.length / 8));
+  const mobilePriorityPageCount = Math.max(1, Math.ceil(filteredPriorityEntries.length / dashboardPageSize));
   const clampedMobilePriorityPage = Math.min(mobilePriorityPage, mobilePriorityPageCount);
-  const mobilePriorityEntries = filteredPriorityEntries.slice((clampedMobilePriorityPage - 1) * 8, clampedMobilePriorityPage * 8);
+  const mobilePriorityEntries = filteredPriorityEntries.slice((clampedMobilePriorityPage - 1) * dashboardPageSize, clampedMobilePriorityPage * dashboardPageSize);
   const priorityStatus = actionsRefreshing
     ? { color: "blue", label: "Checking actions" }
     : reminderLoadError
@@ -2521,14 +2546,14 @@ export function DashboardPage({
                   <div className="dashboardTaskFacts"><span><small>Due / 到期</small><strong>{formatDisplayDate(entry.dueDate)}</strong></span><span><small>Exposure / 金额</small><strong>{entry.amount === undefined || entry.amount === null ? "—" : formatMoney(Number(entry.amount))}</strong></span></div>
                 </article>)}
                 {filteredPriorityEntries.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionEmptyText} />}
-                <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={8} total={filteredPriorityEntries.length} showSizeChanger={false} hideOnSinglePage onChange={setMobilePriorityPage} />
+                <Pagination className="mobileRecordPagination" current={clampedMobilePriorityPage} pageSize={dashboardPageSize} total={filteredPriorityEntries.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setMobilePriorityPage(page); setDashboardPageSize(size); }} />
               </div>
               <Table className="desktopDataTable dashboardPriorityTable" rowKey="key" search={false} size="small" columns={[
                 { title: "Task / 事项", render: (_, entry) => <div className="dashboardTableTask"><Tag className="dashboardStatusBadge" color={priorityDueColor(entry)}>{dashboardLabel(priorityDueLabel(entry))}</Tag><strong>{entry.title}</strong><span>{entry.subject ?? "General"}</span><small>{dashboardLabel(entry.type)} · {prioritySourceLabel(entry.source)}</small></div> },
                 { title: "Due / 到期", dataIndex: "dueDate", sorter: false, width: 112, render: value => formatDisplayDate(value) },
                 { title: "Exposure / 金额", dataIndex: "amount", align: "right", width: 142, render: (_, entry) => entry.amount === undefined || entry.amount === null ? "—" : <span className="dashboardMoney">{formatMoney(Number(entry.amount))}</span> },
                 { title: "Action / 操作", width: 124, fixed: "right", render: (_, entry) => <Button type="primary" aria-label={"Open " + entry.title} onClick={() => onNavigate(entry.target)}>Open action</Button> }
-              ]} dataSource={filteredPriorityEntries} pagination={tablePagination(8)} scroll={{ x: 700 }} locale={{ emptyText: actionEmptyText }} />
+              ]} dataSource={filteredPriorityEntries} pagination={{ ...tablePagination(), pageSize: dashboardPageSize, onChange: (_, size) => setDashboardPageSize(size) }} scroll={{ x: 700 }} locale={{ emptyText: actionEmptyText }} />
             </ProCard>
             <details className="dashboardInboxDisclosure"><summary>All reminders / 全部提醒 <span>{reminderFiltersActive ? filteredReminders.length + " matching of " + reminders.length + " · Filters active" : reminders.length + " reminders"}{reminderLoadError ? " · Check incomplete" : actionsRefreshing ? " · Checking" : ""}</span></summary>
               <div className="dashboardInboxBody">
@@ -2541,13 +2566,13 @@ export function DashboardPage({
                 </div>
                 <div className="mobileRecordList dashboardReminderMobileList">{mobileReminders.map(reminder => <article className="mobileRecordCard" key={reminder.key}>
                   <Tag>{dashboardLabel(reminder.type)}</Tag><Typography.Title level={5}>{reminder.vehiclePlate}</Typography.Title><p>{reminder.title}</p><div className="dashboardTaskFacts"><span><small>Due / 到期</small><strong>{formatDisplayDate(reminder.dueDate)} · {dashboardLabel(reminderDueLabel(reminder))}</strong></span><span><small>Amount / 金额</small><strong>{reminder.amount ? formatMoney(Number(reminder.amount)) : "—"}</strong></span></div><div className="mobileRecordFooter"><Button onClick={() => onNavigate(dashboardReminderTarget(reminder))}>Open follow-up</Button></div>
-                </article>)}{filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet."} />}<Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={8} total={filteredReminders.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileReminderPage} /></div>
+                </article>)}{filteredReminders.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet."} />}<Pagination className="mobileRecordPagination" current={clampedMobileReminderPage} pageSize={dashboardPageSize} total={filteredReminders.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setMobileReminderPage(page); setDashboardPageSize(size); }} /></div>
                 <Table className="desktopDataTable" search={false} rowKey="key" columns={[
                   { title: "Reminder / 提醒", render: (_, row) => <Space direction="vertical" size={4}><Tag>{dashboardLabel(row.type)}</Tag><strong>{row.title}</strong><span>{row.vehiclePlate}</span></Space> },
                   { title: "Due / 到期", dataIndex: "dueDate", sorter: false, render: (_, row) => <Space direction="vertical" size={4}><span>{formatDisplayDate(row.dueDate)}</span><Tag>{dashboardLabel(reminderDueLabel(row))}</Tag></Space> },
                   { title: "Amount / 金额", dataIndex: "amount", align: "right", render: value => value ? <span className="dashboardMoney">{formatMoney(Number(value))}</span> : "—" },
                   { title: "Action / 操作", width: 124, fixed: "right", render: (_, row) => <Button onClick={() => onNavigate(dashboardReminderTarget(row))}>Open follow-up</Button> }
-                ]} dataSource={filteredReminders} pagination={tablePagination(8)} scroll={{ x: 680 }} locale={{ emptyText: actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet." }} />
+                ]} dataSource={filteredReminders} pagination={{ ...tablePagination(), pageSize: dashboardPageSize, onChange: (_, size) => setDashboardPageSize(size) }} scroll={{ x: 680 }} locale={{ emptyText: actionsRefreshing ? "Checking reminders…" : reminderLoadError ? "Retry to load reminders." : actionsLastCheckedAt ? "No reminders match the current filters." : "Reminders have not been checked yet." }} />
               </div>
             </details>
           </div>
@@ -2685,7 +2710,7 @@ function DashboardAiDocumentProcessingPanel({
         search={false}
         rowKey="category"
         size="small"
-        pagination={false}
+        pagination={{ defaultPageSize: 10, showSizeChanger: true }}
         scroll={{ x: 760 }}
         dataSource={matchingCategories}
         locale={{ emptyText: categorySearch.trim() ? "No document types match your search." : "No OCR activity in this period." }}
@@ -2992,7 +3017,7 @@ export function repairHeaderStats(
 export function loanHeaderStats(loans: Pick<LoanApplication, "status">[]) {
   return {
     approved: loans.filter((loan) => loan.status === "Approved").length,
-    inProgress: loans.filter((loan) => loan.status === "Draft" || loan.status === "Pending").length,
+    inProgress: loans.filter((loan) => loan.status === "Draft" || loan.status === "Pending" || loan.status === "Submitted").length,
     rejected: loans.filter((loan) => loan.status === "Rejected").length,
     done: loans.filter((loan) => loan.status === "Done").length
   };
@@ -3321,6 +3346,7 @@ function RepairPage({
   onUpdateRepair,
   onConfirmReceipt,
   onApproveRepair,
+  onRefreshRepairRecords,
   onUploadDocument
 }: {
   vehicles: VehicleLookup[];
@@ -3328,12 +3354,13 @@ function RepairPage({
   repairs: RepairJob[];
   canApproveRepairs: boolean;
   onCreateInvoice: (invoice: SupplierInvoice) => Promise<void>;
-  onUpdateInvoice: (invoice: SupplierInvoice) => Promise<void>;
+  onUpdateInvoice: (invoice: SupplierInvoice, expected?: SupplierInvoice) => Promise<void>;
   onCreateRepair: (repair: RepairJob) => Promise<void>;
   onCreateRepairWithReceipt: (request: CreateRepairWithReceiptRequest) => Promise<CreateRepairWithReceiptResponse>;
   onUpdateRepair: (repair: RepairJob) => Promise<void>;
   onConfirmReceipt: (repairId: string, receipt: ConfirmRepairReceiptRequest) => Promise<unknown>;
   onApproveRepair: (repairId: string, notes?: string) => Promise<void>;
+  onRefreshRepairRecords: () => Promise<void>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory) => Promise<void>;
 }) {
   const [uploadRepairId, setUploadRepairId] = useState("");
@@ -3345,6 +3372,7 @@ function RepairPage({
   const [supplierKeyword, setSupplierKeyword] = useState("");
   const [supplierStatus, setSupplierStatus] = useState<Supplier["status"] | "All">("All");
   const [mobileSupplierPage, setMobileSupplierPage] = useState(1);
+  const [supplierPageSize, setSupplierPageSize] = useState(10);
   const [repairCreateMode, setRepairCreateMode] = useState<"receipt" | "manual">("receipt");
   const [receiptDraft, setReceiptDraft] = useState<ConfirmRepairReceiptRequest | null>(null);
   const [repairCreateForm] = Form.useForm();
@@ -3361,8 +3389,6 @@ function RepairPage({
   const [repairDocumentsLoading, setRepairDocumentsLoading] = useState(false);
   const [repairDocumentsError, setRepairDocumentsError] = useState("");
   const [repairReceipts, setRepairReceipts] = useState<RepairReceiptWithItems[]>([]);
-  const [refurbishmentFilters, setRefurbishmentFilters] = useState<RefurbishmentFilters>({});
-  const [mobileRefurbishmentPage, setMobileRefurbishmentPage] = useState(1);
   const selectedRepair = repairs.find((repair) => repair.id === uploadRepairId);
   const selectedSupplierInvoice = supplierInvoices.find((invoice) => invoice.id === editSupplierInvoiceId);
   const vehicleOptions = vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }));
@@ -3463,12 +3489,6 @@ function RepairPage({
     setEditSupplierInvoiceId(invoiceId);
   };
 
-  const openRefurbishmentDetails = (record: RefurbishmentTableRecord) => {
-    const selection = refurbishmentDetailsSelection(record);
-    setUploadRepairId(selection.repairId ?? "");
-    setEditSupplierInvoiceId(selection.supplierInvoiceId ?? "");
-  };
-
   const repairStats = repairHeaderStats(repairs);
   const pendingRepairs = repairStats.open;
   const repairTotal = repairStats.cost;
@@ -3476,7 +3496,7 @@ function RepairPage({
   const highCostPendingRepairs = repairStats.highCostPending;
   const filteredSupplierMaster = filterSupplierMaster(supplierMaster, supplierKeyword, supplierStatus);
   const supplierFiltersActive = Boolean(supplierKeyword.trim()) || supplierStatus !== "All";
-  const supplierPage = Math.min(mobileSupplierPage, Math.max(1, Math.ceil(filteredSupplierMaster.length / 5)));
+  const supplierPage = Math.min(mobileSupplierPage, Math.max(1, Math.ceil(filteredSupplierMaster.length / supplierPageSize)));
   useEffect(() => setMobileSupplierPage(1), [supplierKeyword, supplierStatus]);
   const showRepairCompletionConfirmation = (repair: RepairJob, onConfirm: () => Promise<void> | void) => {
     Modal.confirm({
@@ -3521,97 +3541,6 @@ function RepairPage({
       onOk: () => onApproveRepair(repair.id, repair.approvalNotes)
     });
   };
-  const refurbishmentRecordCount = repairs.length + supplierInvoices.length;
-  const refurbishmentRecords = buildRefurbishmentTableRecords(repairs, supplierInvoices, vehicles, refurbishmentFilters);
-  const refurbishmentFiltersActive = Object.values(refurbishmentFilters).some((value) => value !== undefined && value !== "" && value !== "All");
-  const mobileRefurbishmentPageCount = Math.max(1, Math.ceil(refurbishmentRecords.length / mobileWorkflowPageSize));
-  const clampedMobileRefurbishmentPage = Math.min(mobileRefurbishmentPage, mobileRefurbishmentPageCount);
-  const mobileRefurbishmentRecords = refurbishmentRecords.slice(
-    (clampedMobileRefurbishmentPage - 1) * mobileWorkflowPageSize,
-    clampedMobileRefurbishmentPage * mobileWorkflowPageSize
-  );
-  const updateRefurbishmentFilters = (next: Partial<RefurbishmentFilters>) => {
-    setRefurbishmentFilters((current) => ({ ...current, ...next }));
-    setMobileRefurbishmentPage(1);
-  };
-  const refurbishmentEmptyText = refurbishmentRecordCount > 0
-    ? "No repair or supplier invoice records match the current filters."
-    : "No repair or supplier invoice records yet.";
-  const refurbishmentColumns: ColumnsType<RefurbishmentTableRecord> = [
-    {
-      title: "Car Plate / 车牌",
-      dataIndex: "plateNumber",
-      width: 220,
-      render: (_, row) => <VehicleIdentity vehicles={vehicles} vehicleId={row.kind === "repair" ? row.repair.vehicleId : row.invoice.vehicleId} />
-    },
-    {
-      title: "Created / 建立时间",
-      dataIndex: "createdAt",
-      render: (_, row) => formatRecordDate(row.kind === "repair" ? row.repair.createdAt : row.invoice.createdAt)
-    },
-    {
-      title: "Record / 记录",
-      render: (_, row) => row.kind === "repair"
-        ? (
-          <Space direction="vertical" size={0}>
-            <Typography.Text strong>{row.repair.whatToDo || row.repair.repairPart || "Repair"}</Typography.Text>
-          </Space>
-        )
-        : (
-          <Space direction="vertical" size={0}>
-            <Typography.Text strong>{row.invoice.supplierName}</Typography.Text>
-            <Typography.Text type="secondary">Invoice: {row.invoice.invoiceNumber}</Typography.Text>
-          </Space>
-        )
-    },
-    {
-      title: "Amount / 金额",
-      render: (_, row) => formatMoney(row.kind === "repair" ? row.repair.cost : row.invoice.amount)
-    },
-    {
-      title: "Status / 状态",
-      render: (_, row) => {
-        if (row.kind === "repair") {
-          return (
-            <Space wrap size={4}>
-              <Tag color={row.repair.checklistDone ? "green" : "orange"}>{row.repair.checklistDone ? "Completed" : "In progress"}</Tag>
-              <Tag color={row.repair.approvalStatus === "Rejected" ? "red" : row.repair.approvalStatus === "Pending" ? "gold" : "blue"}>
-                {row.repair.approvalStatus ?? "Approved"}
-              </Tag>
-            </Space>
-          );
-        }
-
-        const status = supplierInvoicePlateStatus(row.invoice, vehicles);
-        const aging = supplierInvoiceAgingStatus(row.invoice);
-        return (
-          <Space wrap size={4}>
-            <Tag color={status.color}>{status.label}</Tag>
-            <Tag color={aging === "Overdue" ? "red" : aging === "DueSoon" ? "gold" : aging === "Paid" ? "green" : "default"}>{aging}</Tag>
-          </Space>
-        );
-      }
-    },
-    {
-      title: "Action / 操作",
-      fixed: "right",
-      width: 220,
-      render: (_, row) => (
-        <Space className="tableActionGroup" wrap size={6}>
-          {row.kind === "repair" ? (
-            <>
-              <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(row)}>Details</Button>
-              {canApproveRepairs && row.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(row.repair)}>Approve Repair / 批准维修</Button>}
-              <Button size="small" onClick={() => confirmRepairCompletion(row.repair)} disabled={row.repair.checklistDone || !isRepairCostFinal(row.repair)}>Repair completed</Button>
-            </>
-          ) : (
-            <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(row)}>Details</Button>
-          )}
-        </Space>
-      )
-    }
-  ];
-
   if (selectedRepair) {
     return (
       <Space direction="vertical" size={16} className="fullWidth">
@@ -3623,8 +3552,9 @@ function RepairPage({
             <Descriptions.Item label="Approved By / 审批人">{selectedRepair.approvedBy || "Not approved"}</Descriptions.Item>
             <Descriptions.Item label="Approved At / 审批时间">{selectedRepair.approvedAt ? new Date(selectedRepair.approvedAt).toLocaleString() : "-"}</Descriptions.Item>
           </Descriptions>
-          {canApproveRepairs && selectedRepair.approvalStatus !== "Approved" && <Button type="primary" onClick={() => confirmRepairApproval(selectedRepair)}>Approve Repair / 批准维修</Button>}
+          {canApproveRepairs && selectedRepair.approvalStatus === "Pending" && <Button type="primary" onClick={() => confirmRepairApproval(selectedRepair)}>Approve Repair / 批准维修</Button>}
           <Form
+            disabled={selectedRepair.approvalStatus === "Rejected"}
             name="repairEdit"
             key={`${selectedRepair.id}-repair-record`}
             layout="vertical"
@@ -3803,7 +3733,7 @@ function RepairPage({
                 return;
               }
 
-              await onUpdateInvoice(invoice);
+              await onUpdateInvoice(invoice, selectedSupplierInvoice);
             }}
           >
             <Form.Item name="id" label="Selected Supplier Invoice"><Select options={supplierInvoices.map((invoice) => ({ value: invoice.id, label: `${invoice.supplierName} / ${invoice.invoiceNumber}` }))} onChange={selectSupplierInvoice} /></Form.Item>
@@ -3817,7 +3747,7 @@ function RepairPage({
             <Form.Item name="plateNumberOnInvoice" label="Plate on Supplier Invoice / 发票车牌"><Input placeholder="Plate number printed on supplier invoice" /></Form.Item>
             <Form.Item name="amount" label="Amount / 金额 (RM)" rules={supplierInvoiceAmountRules}><ReceiptTotalInput /></Form.Item>
             <Form.Item name="dueDate" label="Due Date" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("dueDate")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
-            <Form.Item name="paidAt" label="Paid Date" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("paidAt")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
+            <Form.Item name="paidAt" label="Paid Date" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("paidAt")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker disabled className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Supplier Invoice</Button></Form.Item>
           </Form>
         </ProCard>
@@ -3830,147 +3760,12 @@ function RepairPage({
       <ProCard
         id="repair-supplier-card"
         title="Supplier & Refurbishment / 供应商与整备"
-        extra={<Space wrap><Tag color="blue">{refurbishmentRecordCount} records</Tag><Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair</Button></Space>}
+        extra={<Button type="primary" onClick={() => setRepairCreateOpen(true)}>New Repair / 新增维修</Button>}
       >
-        <Space className="toolbarForm workflowFilterBar pageFilterMobileOnly" wrap>
-          <Input.Search
-            allowClear
-            placeholder="Search plate, repair, supplier, or invoice"
-            value={refurbishmentFilters.keyword ?? ""}
-            onChange={(event) => updateRefurbishmentFilters({ keyword: event.target.value })}
-            style={{ width: 300 }}
-          />
-          <Select
-            value={refurbishmentFilters.kind ?? "All"}
-            onChange={(kind) => updateRefurbishmentFilters({ kind })}
-            options={[
-              { value: "All", label: "All record types" },
-              { value: "Repair", label: "Repair tasks" },
-              { value: "SupplierInvoice", label: "Supplier invoices" }
-            ]}
-            style={{ width: 180 }}
-          />
-          <Select
-            value={refurbishmentFilters.state ?? "All"}
-            onChange={(state) => updateRefurbishmentFilters({ state })}
-            options={[
-              { value: "All", label: "All states" },
-              { value: "Open", label: "Open" },
-              { value: "Done", label: "Done" }
-            ]}
-            style={{ width: 140 }}
-          />
-          <Tag color={refurbishmentFiltersActive ? "blue" : "default"}>{refurbishmentFiltersActive ? `${refurbishmentRecords.length} of ${refurbishmentRecordCount} matching` : `${refurbishmentRecordCount} record${refurbishmentRecordCount === 1 ? "" : "s"}`}</Tag>
-          {refurbishmentFiltersActive && <Button
-            size="small"
-            onClick={() => {
-              setRefurbishmentFilters({});
-              setMobileRefurbishmentPage(1);
-            }}
-          >
-            Clear filters
-          </Button>}
-        </Space>
-        <div className="mobileRecordList">
-          {refurbishmentRecords.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={refurbishmentEmptyText} />}
-          {mobileRefurbishmentRecords.map((record) => {
-            const isRepair = record.kind === "repair";
-            const status = isRepair ? undefined : supplierInvoicePlateStatus(record.invoice, vehicles);
-            return (
-              <article className="mobileRecordCard" key={record.key}>
-                  <div className="mobileRecordHeader">
-                    <div>
-                      <Typography.Text className="mobileRecordEyebrow">{isRepair ? "Repair" : "Supplier Invoice"}</Typography.Text>
-                      <VehicleIdentity vehicles={vehicles} vehicleId={isRepair ? record.repair.vehicleId : record.invoice.vehicleId} />
-                    </div>
-                  {isRepair ? <Tag color={record.repair.checklistDone ? "green" : "orange"}>{record.repair.checklistDone ? "Completed" : "In progress"}</Tag> : <Tag color={status?.color}>{status?.label}</Tag>}
-                </div>
-                <div className="mobileRecordMeta">
-                  <span>
-                    <small>{isRepair ? "Repair title" : "Supplier"}</small>
-                    <strong>{isRepair ? record.repair.whatToDo || record.repair.repairPart || "Repair" : record.invoice.supplierName}</strong>
-                  </span>
-                  <span>
-                    <small>Amount / 金额</small>
-                    <strong>{formatMoney(isRepair ? record.repair.cost : record.invoice.amount)}</strong>
-                  </span>
-                </div>
-                {!isRepair && (
-                  <div className="mobileRecordSection">
-                    <Typography.Text className="mobileRecordLabel">Invoice / 单据</Typography.Text>
-                    <div className="mobileRecordTextBlock">
-                      <span>Invoice No: {record.invoice.invoiceNumber}</span>
-                      <span>Plate on invoice: {record.invoice.plateNumberOnInvoice || "Not entered"}</span>
-                    </div>
-                  </div>
-                )}
-                <div className="mobileRecordFooter">
-                  <Space className="tableActionGroup" wrap size={6}>
-                    {isRepair ? (
-                      <>
-                        <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(record)}>Details</Button>
-                        {canApproveRepairs && record.repair.approvalStatus !== "Approved" && <Button size="small" onClick={() => confirmRepairApproval(record.repair)}>Approve Repair / 批准维修</Button>}
-                        <Button size="small" onClick={() => confirmRepairCompletion(record.repair)} disabled={record.repair.checklistDone || !isRepairCostFinal(record.repair)}>Repair completed</Button>
-                      </>
-                    ) : (
-                      <Button size="small" type="primary" onClick={() => openRefurbishmentDetails(record)}>Details</Button>
-                    )}
-                  </Space>
-                </div>
-              </article>
-            );
-          })}
-          {refurbishmentRecords.length > mobileWorkflowPageSize && (
-            <Pagination
-              current={clampedMobileRefurbishmentPage}
-              pageSize={mobileWorkflowPageSize}
-              total={refurbishmentRecords.length}
-              showSizeChanger={false}
-              onChange={setMobileRefurbishmentPage}
-            />
-          )}
-        </div>
-        <Table
-          className="desktopDataTable nativeSearchDesktopOnly"
-          rowKey="key"
-          columns={refurbishmentColumns}
-          dataSource={refurbishmentRecords}
-          nativeSearch={{
-            fields: [
-              { name: "plate", label: "Plate" },
-              { name: "repair", label: "Repair" },
-              { name: "supplier", label: "Supplier" },
-              { name: "invoice", label: "Invoice" },
-              { name: "kind", label: "Record type", options: [
-                { value: "Repair", label: "Repair tasks" },
-                { value: "SupplierInvoice", label: "Supplier invoices" }
-              ] },
-              { name: "state", label: "State", options: [
-                { value: "Open", label: "Open" },
-                { value: "Done", label: "Done" }
-              ] }
-            ],
-            values: {
-              kind: refurbishmentFilters.kind === "All" ? undefined : refurbishmentFilters.kind,
-              state: refurbishmentFilters.state === "All" ? undefined : refurbishmentFilters.state
-            },
-            onSubmit: (values) => {
-              setRefurbishmentFilters({
-                keyword: operationsKeywordFromFields(values, ["plate", "repair", "supplier", "invoice"]),
-                kind: (values.kind as RefurbishmentFilters["kind"] | undefined) ?? "All",
-                state: (values.state as RefurbishmentFilters["state"] | undefined) ?? "All"
-              });
-              setMobileRefurbishmentPage(1);
-            },
-            onReset: () => {
-              setRefurbishmentFilters({});
-              setMobileRefurbishmentPage(1);
-            }
-          }}
-          pagination={{ ...tablePagination(8), current: clampedMobileRefurbishmentPage, onChange: setMobileRefurbishmentPage }}
-          scroll={{ x: 820 }}
-          locale={{ emptyText: refurbishmentEmptyText }}
-        />
+        <RepairReviewPanel canApprove={canApproveRepairs} revision={`${repairs.map(row => `${row.id}:${row.cost}:${row.approvalStatus}`).join(",")}|${supplierInvoices.map(row => `${row.id}:${row.amount}:${row.paidAt}`).join(",")}`} onApprove={onApproveRepair} onChanged={() => { setDocumentReloadKey(value => value + 1); void onRefreshRepairRecords().catch(() => message.error("Unable to refresh repair details. Reload before making changes.")); }} onOpen={row => {
+          setUploadRepairId(row.repairId ?? "");
+          setEditSupplierInvoiceId(row.repairId ? "" : row.supplierInvoiceId ?? "");
+        }} />
       </ProCard>
       <details className="secondaryWorkspaceSection">
         <summary>Suppliers & repair overview / 供应商与整备概览</summary>
@@ -4035,7 +3830,7 @@ function RepairPage({
               setSupplierStatus("All");
             }
           }}
-          pagination={tablePagination(5)}
+          pagination={{ ...tablePagination(), current: supplierPage, pageSize: supplierPageSize, onChange: (page, size) => { setMobileSupplierPage(page); setSupplierPageSize(size); } }}
           locale={{ emptyText: supplierMaster.length === 0 ? "No suppliers yet." : "No suppliers match the current filters." }}
           columns={[
             { title: "Company / 公司", dataIndex: "companyName" },
@@ -4051,7 +3846,7 @@ function RepairPage({
         />
         <div className="mobileRecordList supplierMasterMobileList">
           {filteredSupplierMaster.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={supplierMaster.length === 0 ? "No suppliers yet." : "No suppliers match the current filters."} />}
-          {filteredSupplierMaster.slice((supplierPage - 1) * 5, supplierPage * 5).map(supplier => (
+          {filteredSupplierMaster.slice((supplierPage - 1) * supplierPageSize, supplierPage * supplierPageSize).map(supplier => (
             <article className="mobileRecordCard" key={supplier.id}>
               <div className="mobileRecordHeader">
                 <Typography.Text strong>{supplier.companyName}</Typography.Text>
@@ -4067,7 +3862,7 @@ function RepairPage({
               </div>
             </article>
           ))}
-          <Pagination size="small" current={supplierPage} pageSize={5} total={filteredSupplierMaster.length} showSizeChanger={false} hideOnSinglePage onChange={setMobileSupplierPage} />
+          <Pagination size="small" current={supplierPage} pageSize={supplierPageSize} total={filteredSupplierMaster.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setMobileSupplierPage(page); setSupplierPageSize(size); }} />
         </div>
       </ProCard>
       </details>
@@ -4238,6 +4033,7 @@ function RepairPage({
           const saveRepair = async () => {
             await onCreateInvoice(invoice);
             await onCreateRepair(repair);
+            setUploadRepairId(repair.id);
             repairCreateForm.resetFields();
             setReceiptDraft(null);
             setRepairCreateOpen(false);
@@ -4418,7 +4214,7 @@ function RepairPage({
                 <Form.Item name="amount" label="Receipt total / 收据总额 (RM)" rules={supplierInvoiceAmountRules}><ReceiptTotalInput /></Form.Item>
                 <Form.Item name="invoiceDate" label="Invoice date / 发票日期" getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
                 <Form.Item name="dueDate" label="Payment due date / 付款到期日" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("dueDate")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
-                <Form.Item name="paidAt" label="Paid date / 付款日期" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("paidAt")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
+                <Form.Item name="paidAt" label="Paid date / 付款日期" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("paidAt")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker disabled className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
                 <Form.Item className="repairManualFieldFullWidth" name="plateNumberOnInvoice" label="Plate on receipt / invoice / 发票车牌"><Input placeholder="Plate number printed on the receipt or invoice" /></Form.Item>
                 <Form.Item className="repairManualFieldFullWidth" name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement" /></Form.Item>
               </div>
@@ -4438,26 +4234,31 @@ export function LoanPage({
   vehicles,
   customers,
   loans,
+  currentUser,
   roles,
   initialLoanId,
   dashboardFocus,
   onClearDashboardFocus,
   onBackToList,
-  onCreate,
+  onTake,
   onUpdate,
+  onRefresh,
   onDecide,
   onUploadDocument
 }: {
   vehicles: VehicleLookup[];
   customers: Customer[];
   loans: LoanApplication[];
+  currentUser: CurrentUser | null;
   roles: readonly string[];
   initialLoanId?: string;
   dashboardFocus: DashboardDrilldown;
   onClearDashboardFocus: () => void;
   onBackToList: () => void;
   onCreate: (loan: LoanApplication) => void;
+  onTake: (loanId: string) => Promise<void> | void;
   onUpdate: (loan: LoanApplication) => Promise<void> | void;
+  onRefresh: () => Promise<void>;
   onDecide: (loanId: string, status: LoanDecisionStatus, rejectionReason?: string) => Promise<void>;
   onUploadDocument: (vehicleId: string, file: File, category: DocumentCategory, onProgress: UploadProgressHandler, owner: DocumentUploadOwner) => Promise<void>;
 }) {
@@ -4466,10 +4267,17 @@ export function LoanPage({
   const [documentChecksError, setDocumentChecksError] = useState("");
   const [uploadLoanId, setUploadLoanId] = useState(initialLoanId ?? "");
   const [loanCreateOpen, setLoanCreateOpen] = useState(false);
+  const [loanIntakeForm] = Form.useForm();
+  const [intakeFile, setIntakeFile] = useState<File>();
+  const [intakeSaving, setIntakeSaving] = useState(false);
+  const intakeId = useRef(newId());
+  const [newBuyer, setNewBuyer] = useState(false);
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
   const [loanFilters, setLoanFilters] = useState<LoanFilters>({});
   const [loanFilterForm] = Form.useForm<LoanFilters>();
   const [mobileLoanPage, setMobileLoanPage] = useState(1);
+  const [loanPage, setLoanPage] = useState(1);
+  const [loanPageSize, setLoanPageSize] = useState(10);
   const [rejectionLoan, setRejectionLoan] = useState<LoanApplication>();
   const [rejectionReason, setRejectionReason] = useState("");
   const [decisionSubmitting, setDecisionSubmitting] = useState(false);
@@ -4477,20 +4285,69 @@ export function LoanPage({
   const [completionSaving, setCompletionSaving] = useState(false);
   const [completionError, setCompletionError] = useState("");
   const completionPending = useRef(false);
+  const [loanDetailForm] = Form.useForm<Partial<LoanApplication>>();
+  const [loanBankForm] = Form.useForm<Partial<LoanBankOption>>();
+  const [loanBankOptions, setLoanBankOptions] = useState<LoanBankOption[]>([]);
+  const [loanBankOptionsLoading, setLoanBankOptionsLoading] = useState(false);
   const selectedLoan: LoanApplication | undefined = loans.find((loan) => loan.id === uploadLoanId);
+  const currentLoanIdRef = useRef(uploadLoanId);
+  currentLoanIdRef.current = uploadLoanId;
   const loanIds = useMemo(() => loans.map((loan) => loan.id).join(","), [loans]);
   const filteredLoans = filterLoanApplications(loans, vehicles, customers, documentChecks, loanFilters);
   const canCreateManually = canCreateManualLoan(roles);
+  const isBossAdmin = roles.includes("BossAdmin");
+  const canProcessLoan = (loan: LoanApplication) => isBossAdmin || (roles.includes("Loan") && loan.takenByUserId === currentUser?.id);
+  const brokerOwnsLoan = (loan: LoanApplication) => roles.includes("Sales") && !isBossAdmin && vehicles.some((vehicle) => vehicle.id === loan.vehicleId && vehicle.salesAgentUserId === currentUser?.id && vehicle.customerId === loan.customerId);
+  const canOpenLoanDetails = (loan: LoanApplication) => canProcessLoan(loan) || brokerOwnsLoan(loan);
+  const canEditLoanDetails = (loan: LoanApplication) => (canProcessLoan(loan) || brokerOwnsLoan(loan)) && loan.status !== "Rejected" && loan.status !== "Done";
+  useEffect(() => {
+    if (!selectedLoan) return;
+    loanDetailForm.setFieldsValue({
+      loanAmount: selectedLoan.loanAmount,
+      loanBank: selectedLoan.loanBank,
+      interestRate: selectedLoan.interestRate,
+      loanTenureMonths: selectedLoan.loanTenureMonths,
+      loanTerms: selectedLoan.loanTerms,
+      finalSellingPrice: selectedLoan.finalSellingPrice,
+      depositAmount: selectedLoan.depositAmount,
+      contraAmount: selectedLoan.contraAmount,
+      tradeInPlateNumber: selectedLoan.tradeInPlateNumber,
+      ncdAmount: selectedLoan.ncdAmount,
+      ncdPercentage: selectedLoan.ncdPercentage,
+      ncdVehiclePlate: selectedLoan.ncdVehiclePlate,
+      ncdInsurer: selectedLoan.ncdInsurer,
+      windscreenCovered: selectedLoan.windscreenCovered,
+      windscreenCover: selectedLoan.windscreenCover,
+      warrantyInsuranceSelected: selectedLoan.warrantyInsuranceSelected,
+      agreementSignedAt: selectedLoan.agreementSignedAt
+    });
+  }, [loanDetailForm, selectedLoan]);
+  useEffect(() => {
+    if (!selectedLoan || !canOpenLoanDetails(selectedLoan)) {
+      setLoanBankOptions([]);
+      return;
+    }
+    let active = true;
+    setLoanBankOptions([]);
+    loanBankForm.resetFields();
+    setLoanBankOptionsLoading(true);
+    void getLoanBankOptions(selectedLoan.id)
+      .then((options) => { if (active) setLoanBankOptions(options); })
+      .catch(() => { if (active) message.warning("Bank options could not be loaded."); })
+      .finally(() => { if (active) setLoanBankOptionsLoading(false); });
+    return () => { active = false; };
+  }, [selectedLoan?.id, selectedLoan?.takenByUserId, isBossAdmin, currentUser?.id]);
   const loanFiltersActive = Object.values(loanFilters).some((value) => value !== undefined && value !== "" && value !== "All");
-  const mobileLoanPageCount = Math.max(1, Math.ceil(filteredLoans.length / mobileWorkflowPageSize));
+  const mobileLoanPageCount = Math.max(1, Math.ceil(filteredLoans.length / loanPageSize));
   const clampedMobileLoanPage = Math.min(mobileLoanPage, mobileLoanPageCount);
   const mobileLoans = filteredLoans.slice(
-    (clampedMobileLoanPage - 1) * mobileWorkflowPageSize,
-    clampedMobileLoanPage * mobileWorkflowPageSize
+    (clampedMobileLoanPage - 1) * loanPageSize,
+    clampedMobileLoanPage * loanPageSize
   );
   const updateLoanFilters = (next: Partial<LoanFilters>) => {
     setLoanFilters((current) => ({ ...current, ...next }));
     setMobileLoanPage(1);
+    setLoanPage(1);
   };
   const loanEmptyText = loans.length > 0 ? "No loans match the current filters." : "No loan records yet.";
   const loanStats = loanHeaderStats(loans);
@@ -4508,10 +4365,12 @@ export function LoanPage({
     loanFilterForm.resetFields();
     loanFilterForm.setFieldsValue({ ...nextFilters, status: nextFilters.status ?? "All" });
     setMobileLoanPage(1);
+    setLoanPage(1);
   }, [dashboardFocus.loanStatus, dashboardFocus.vehicleId, loanFilterForm]);
 
   useEffect(() => {
-    if (!loans.length) {
+    const visibleLoans = loans.filter(canOpenLoanDetails);
+    if (!visibleLoans.length) {
       setDocumentChecks({});
       setDocumentChecksLoading(false);
       setDocumentChecksError("");
@@ -4521,7 +4380,7 @@ export function LoanPage({
     let active = true;
     setDocumentChecksLoading(true);
     setDocumentChecksError("");
-    void Promise.all(loans.map(async (loan) => [loan.id, await getLoanDocumentCheckStrict(loan.id)] as const))
+    void Promise.all(visibleLoans.map(async (loan) => [loan.id, await getLoanDocumentCheckStrict(loan.id)] as const))
       .then((items) => {
         if (active) setDocumentChecks(Object.fromEntries(items));
       })
@@ -4543,6 +4402,7 @@ export function LoanPage({
   const loanStatusColor: Record<LoanApplication["status"], string> = {
     Draft: "default",
     Pending: "orange",
+    Submitted: "cyan",
     Approved: "green",
     Rejected: "red",
     Done: "blue"
@@ -4569,7 +4429,7 @@ export function LoanPage({
     return `Upload ${check.missingCategories.map(documentCategoryLabel).join(", ")} before marking the loan done.`;
   };
 
-  const renderLoanNextAction = (loan: LoanApplication) => {
+  const renderLoanNextAction = (loan: LoanApplication, inDetails = false) => {
     if (loan.status === "Done") {
       return <Typography.Text type="secondary">Completed</Typography.Text>;
     }
@@ -4586,28 +4446,28 @@ export function LoanPage({
       );
     }
 
-    if (loan.status === "Pending") {
+    if (loan.status === "Pending" || loan.status === "Submitted") {
+      if (!loan.takenByUserId) {
+        if (roles.includes("Sales")) {
+          return <Typography.Text type="secondary">Waiting for Admin/Loan to take case</Typography.Text>;
+        }
+        return <Button size="small" onClick={() => onTake(loan.id)}>Take case</Button>;
+      }
+      if (!canProcessLoan(loan)) {
+        return <Typography.Text type="secondary">Taken by {loan.takenByName || "another processor"}</Typography.Text>;
+      }
       return (
         <Space size={6} wrap>
-          <Popconfirm
-            title="Record loan approval?"
-            description="This records the loan and LOU as approved. Continue only after checking the decision evidence."
-            okText="Record approval"
-            cancelText="Cancel"
-            onConfirm={() => onDecide(loan.id, "Approved")}
-          >
-            <Button size="small" type="primary">Record approval</Button>
-          </Popconfirm>
-          <Button
-            size="small"
-            danger
-            onClick={() => {
-              setRejectionLoan(loan);
-              setRejectionReason("");
-            }}
-          >
-            Record rejection
-          </Button>
+          {inDetails && <Button
+              size="small"
+              danger
+              onClick={() => {
+                setRejectionLoan(loan);
+                setRejectionReason("");
+              }}
+            >
+              Record rejection
+            </Button>}
         </Space>
       );
     }
@@ -4726,6 +4586,16 @@ export function LoanPage({
     </Modal>
   );
 
+  if (selectedLoan && !canOpenLoanDetails(selectedLoan)) {
+    return (
+      <Space direction="vertical" size={16} className="fullWidth">
+        <Button onClick={() => { setUploadLoanId(""); onBackToList(); }}>Back to Loan List</Button>
+        <Alert type="warning" showIcon message="Take this loan case before opening details" description="A Loan processor must take ownership before viewing or changing the case. Boss/Admin can review all cases." />
+        {selectedLoan.status === "Pending" && !selectedLoan.takenByUserId && roles.includes("Loan") && <Button type="primary" onClick={() => onTake(selectedLoan.id)}>Take case / 接手</Button>}
+      </Space>
+    );
+  }
+
   const columns: ColumnsType<LoanApplication> = [
     {
       title: "Car Plate / 车牌",
@@ -4755,15 +4625,15 @@ export function LoanPage({
       width: 150,
       render: (_, row) => renderLoanDocumentSummary(documentChecks[row.id])
     },
-    { title: "Submitted / 提交", dataIndex: "submittedAt", width: 140, render: (value) => formatDisplayDate(value) },
-    { title: "Follow Up / 跟进", width: 140, render: (_, row) => <Tag color={row.status === "Pending" ? "orange" : "default"}>{row.status === "Pending" ? "3-day active" : "No reminder"}</Tag> },
+    { title: "Created / 创建", dataIndex: "submittedAt", width: 140, render: (value) => formatDisplayDate(value) },
+    { title: "Follow Up / 跟进", width: 140, render: (_, row) => <Tag color={(row.status === "Pending" || row.status === "Submitted") ? "orange" : "default"}>{(row.status === "Pending" || row.status === "Submitted") ? "2-day reminder" : "No reminder"}</Tag> },
     {
       title: "Next Action / 操作",
       fixed: "right",
       width: 240,
       render: (_, row) => (
         <Space className="tableActionGroup loanActionCell" wrap size={6}>
-          <Button size="small" type="primary" onClick={() => setUploadLoanId(row.id)}>Details</Button>
+          <Button size="small" type="primary" disabled={!canOpenLoanDetails(row)} onClick={() => setUploadLoanId(row.id)}>Details</Button>
           {renderLoanNextAction(row)}
         </Space>
       )
@@ -4772,7 +4642,7 @@ export function LoanPage({
 
   if (selectedLoan) {
     const check = documentChecks[selectedLoan.id];
-    const missingLoanDocuments = check?.missingCategories ?? loanDocumentCategories;
+    const missingLoanDocuments = check?.missingCategories ?? loanRequiredDocumentCategories;
     const uploadLoanDocument = async (category: DocumentCategory, file: File, onProgress: UploadProgressHandler) => {
       await onUploadDocument(selectedLoan.vehicleId, file, category, onProgress, loanDocumentUploadOwner(selectedLoan));
       setDocumentReloadKey(nextLoanDocumentReloadKey);
@@ -4787,35 +4657,54 @@ export function LoanPage({
         throw error;
       }
     };
+    const loanDocumentUploadAction = (category: DocumentCategory, isPresent: boolean) => <PreviewDocumentUpload
+      documentLabel={documentCategoryLabel(category)}
+      buttonLabel={isPresent ? "Upload another / 再上传" : "Upload / 上传"}
+      onUpload={(file, onProgress) => uploadLoanDocument(category, file, onProgress)}
+    />;
+    const refreshBanks = async () => {
+      const refreshedOptions = await getLoanBankOptions(selectedLoan.id);
+      if (currentLoanIdRef.current !== selectedLoan.id) return;
+      setLoanBankOptions(refreshedOptions);
+      setDocumentReloadKey((value) => value + 1);
+      await onRefresh();
+    };
+    const bankAction = async (action: () => Promise<unknown>) => {
+      try { await action(); await refreshBanks(); }
+      catch (error) { message.error(humanizeApiError(error, "Bank action could not be saved.")); }
+    };
     const progressStep = selectedLoan.status === "Done" ? 3 : selectedLoan.status === "Approved" ? 2 : selectedLoan.status === "Draft" ? 0 : 1;
     const progressStatus = selectedLoan.status === "Rejected" ? "error" : selectedLoan.status === "Done" ? "finish" : "process";
     const progressMessage = selectedLoan.status === "Draft"
       ? "Submit this draft before bank follow-up begins."
-      : selectedLoan.status === "Pending"
-        ? "Awaiting the loan and LOU decision. Documents may be added while waiting."
+      : (selectedLoan.status === "Pending" || selectedLoan.status === "Submitted")
+        ? "Awaiting the bank decision and reviewed LOU. Documents may be added while waiting."
         : selectedLoan.status === "Rejected"
           ? `Loan rejected${selectedLoan.rejectionReason ? `: ${selectedLoan.rejectionReason}` : "."}`
           : selectedLoan.status === "Done"
             ? "Loan file complete and ready for Finance and Delivery follow-up."
             : check?.isComplete
               ? "Approval and all required documents are recorded. Mark the loan file complete when the final check is finished."
-              : "Approval recorded. Complete the four-document checklist before finishing the loan file.";
+              : "Approval recorded. Upload at least one original loan document before finishing the loan file. Edited Loan Documents are optional.";
     return (
       <Space direction="vertical" size={16} className="fullWidth">
         <Button onClick={() => { setUploadLoanId(""); onBackToList(); }}>Back to Loan List</Button>
         {documentChecksError && <DocumentLoadFailureNotice message="Loan document checks could not be loaded" description={documentChecksError} onRetry={() => setDocumentReloadKey((value) => value + 1)} />}
         {documentChecksLoading && <Typography.Text type="secondary">Checking loan documents…</Typography.Text>}
         <ProCard title={`Loan Details / 贷款详情 - ${plateFor(vehicles, selectedLoan.vehicleId)}`}>
-          <Descriptions size="small" column={{ xs: 1, md: 3 }}>
+          <Descriptions size="small" layout="vertical" column={{ xs: 1, sm: 2, xl: 3 }}>
             <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedLoan.vehicleId)}</Descriptions.Item>
             <Descriptions.Item label="Customer / 客户">{contactFor(customers, selectedLoan.customerId)}</Descriptions.Item>
             <Descriptions.Item label="Status / 状态"><Tag color={loanStatusColor[selectedLoan.status]}>{selectedLoan.status === "Done" ? "Loan file complete" : selectedLoan.status}</Tag></Descriptions.Item>
-            <Descriptions.Item label="Submitted / 提交">{formatDisplayDate(selectedLoan.submittedAt)}</Descriptions.Item>
+            <Descriptions.Item label="Created / 创建">{formatDisplayDate(selectedLoan.submittedAt)}</Descriptions.Item>
             <Descriptions.Item label="LOU approval recorded / LOU 已批准">{selectedLoan.louApproved ? "Yes" : "No"}</Descriptions.Item>
             <Descriptions.Item label="LOU completed / LOU 已完成">{selectedLoan.louDone ? "Yes" : "No"}</Descriptions.Item>
             <Descriptions.Item label="Document Check / 文件检查">
               {documentChecksError ? <Tag color="warning">Unavailable</Tag> : check?.isComplete ? <Tag color="green">Complete</Tag> : <Tag color="red">Incomplete</Tag>}
             </Descriptions.Item>
+            {check && <Descriptions.Item label="Original / 原件">{check.originalDocumentCount ?? 0} received · {check.missingCategories.length} missing</Descriptions.Item>}
+            {check && <Descriptions.Item label="Edited / 修改件">{check.editedDocumentCount ?? 0} optional</Descriptions.Item>}
+            {check && <Descriptions.Item label="LOU / LOU">{check.louDocumentCount ?? 0} received</Descriptions.Item>}
             {selectedLoan.decisionBy && <Descriptions.Item label="Decision by / 决定人">{selectedLoan.decisionBy}</Descriptions.Item>}
             {selectedLoan.decisionAt && <Descriptions.Item label="Decision time / 决定时间">{String(selectedLoan.decisionAt).replace("T", " ").slice(0, 16)}</Descriptions.Item>}
           </Descriptions>
@@ -4834,16 +4723,111 @@ export function LoanPage({
               ]}
             />
             <Alert type={selectedLoan.status === "Rejected" ? "error" : selectedLoan.status === "Done" ? "success" : "info"} showIcon message={progressMessage} />
-            <Space wrap>{renderLoanNextAction(selectedLoan)}</Space>
+            <Space wrap>{renderLoanNextAction(selectedLoan, true)}</Space>
+          </Space>
+        </ProCard>
+        <ProCard title="LOU & deal details / LOU 与成交资料">
+          <Form
+            form={loanDetailForm}
+            layout="vertical"
+            onFinish={async (values) => {
+              await onUpdate({ ...selectedLoan, ...values });
+            }}
+            disabled={!canEditLoanDetails(selectedLoan)}
+          >
+            <div className="formGridTwo">
+              <Form.Item name="loanAmount" label="LOU amount / LOU 金额"><InputNumber disabled className="fullWidth" min={0} precision={2} /></Form.Item>
+              <Form.Item name="loanBank" label="Selected bank / 选定银行"><Input disabled placeholder="Bank name" /></Form.Item>
+              <Form.Item name="interestRate" label="Interest rate / 利率 (%)"><InputNumber disabled className="fullWidth" min={0} precision={3} /></Form.Item>
+              <Form.Item name="loanTenureMonths" label="Loan tenure / 贷款期限 (months)"><InputNumber disabled className="fullWidth" min={1} precision={0} /></Form.Item>
+              <Form.Item name="finalSellingPrice" label="Final selling price / 最终成交价"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+              <Form.Item name="depositAmount" label="Deposit / 定金"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+              <Form.Item name="contraAmount" label="Contra / 抵扣金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+              <Form.Item name="tradeInPlateNumber" label="Trade-in plate / 旧车车牌"><Input /></Form.Item>
+              <Form.Item name="ncdAmount" label="NCD / NCD 金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+              <Form.Item name="ncdPercentage" label="NCD percentage / NCD 百分比"><InputNumber className="fullWidth" min={0} max={100} precision={2} /></Form.Item>
+              <Form.Item name="ncdVehiclePlate" label="NCD vehicle plate / NCD 车牌"><Input /></Form.Item>
+              <Form.Item name="ncdInsurer" label="NCD insurer / NCD 保险公司"><Input /></Form.Item>
+              <Form.Item name="windscreenCovered" label="Windscreen / 挡风玻璃保险"><Select options={[{ value: true, label: "Yes / 是" }, { value: false, label: "No / 否" }]} /></Form.Item>
+              <Form.Item name="windscreenCover" label="Windscreen cover / 挡风玻璃保险"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+              <Form.Item name="warrantyInsuranceSelected" label="Warranty insurance / 保修保险"><Select allowClear options={[{ value: true, label: "Yes / 有" }, { value: false, label: "No / 无" }]} /></Form.Item>
+              <Form.Item name="agreementSignedAt" label="Date signed agreement / 签约日期 (optional)" getValueProps={(value) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
+            </div>
+            <Form.Item name="loanTerms" label="LOU terms / LOU 条款"><Input.TextArea disabled rows={3} placeholder="Keep the bank's exact terms for later review." /></Form.Item>
+            <Button type="primary" htmlType="submit" disabled={!canEditLoanDetails(selectedLoan)}>Save LOU & deal details / 保存资料</Button>
+          </Form>
+        </ProCard>
+        <ProCard title="Bank options / 银行方案">
+          <Space direction="vertical" size={16} className="fullWidth">
+            {loanBankOptionsLoading && <Typography.Text type="secondary">Loading bank options…</Typography.Text>}
+            {loanBankOptions.filter((option) => option.loanApplicationId === selectedLoan.id).map((option) => <div key={option.id}>
+              <Space wrap>
+                <Typography.Text strong>{option.bankName}</Typography.Text><Tag>{option.status}</Tag>
+                <Typography.Text>{option.loanAmount != null ? `RM ${option.loanAmount.toLocaleString("en-MY")}` : "Amount pending / 待填金额"}</Typography.Text>
+                {option.interestRate != null && <Typography.Text>{option.interestRate}%</Typography.Text>}
+                {option.tenureMonths != null && <Typography.Text>{option.tenureMonths} months / 个月</Typography.Text>}
+                {option.submittedAt && <Typography.Text>Submitted / 提交: {option.submittedAt.slice(0, 10)}</Typography.Text>}
+                {option.isSelected && <Tag color="green">Final LOU / 最终方案</Tag>}
+                {canEditLoanDetails(selectedLoan) && option.status === "Approved" && !option.isSelected && <Popconfirm title="Use this final LOU / 采用此方案?" onConfirm={() => bankAction(() => selectFinalLoanBank(option))}><Button>Select final LOU / 选择最终方案</Button></Popconfirm>}
+                {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !option.isSelected && option.status !== "Rejected" && <Button onClick={() => loanBankForm.setFieldsValue(option)}>Edit / 编辑</Button>}
+                {canProcessLoan(selectedLoan) && option.status === "Pending" && <Popconfirm title="Record bank submission / 记录已提交银行?" onConfirm={() => bankAction(() => submitLoanBank(option))}><Button>Submitted to bank / 已提交银行</Button></Popconfirm>}
+                {canProcessLoan(selectedLoan) && option.status === "Submitted" && <Button danger onClick={() => {
+                  let reason = "";
+                  Modal.confirm({ title: "Bank rejection / 银行拒绝", content: <Input.TextArea placeholder="Reason / 原因" onChange={(event) => { reason = event.target.value; }} />, onOk: async () => { if (!reason.trim()) throw new Error("Enter a rejection reason."); await rejectLoanBank(option, reason.trim()); await refreshBanks(); } });
+                }}>Reject / 拒绝</Button>}
+              </Space>
+              {option.rejectionReason && <Typography.Paragraph type="secondary">{option.rejectionReason}</Typography.Paragraph>}
+              {canProcessLoan(selectedLoan) && option.status === "Submitted" && <PreviewDocumentUpload
+                documentLabel="Bank LOU PDF / 银行 LOU 文件"
+                buttonLabel="Upload LOU file / 上传 LOU 文件"
+                onUpload={async (file, progress) => {
+                  await onUploadDocument(selectedLoan.vehicleId, file, "LoanDocument", progress, { ...loanDocumentUploadOwner(selectedLoan), loanBankOptionId: option.id });
+                  await refreshBanks();
+                }}
+              />}
+              {canProcessLoan(selectedLoan) && option.status === "Submitted" && <OcrUploadReview
+                vehicleId={selectedLoan.vehicleId} category="LoanDocument" compact commitAfterApply
+                uploadOwner={{ ...loanDocumentUploadOwner(selectedLoan), loanBankOptionId: option.id }}
+                buttonLabel="Upload bank LOU / 上传银行 LOU" applyLabel="Save reviewed terms / 保存复核条款"
+                existingValues={{ loanBank: option.bankName, loanAmount: option.loanAmount, interestRate: option.interestRate, loanTenureMonths: option.tenureMonths, loanTerms: option.terms }}
+                fields={[{ name: "loanBank", label: "Bank / 银行" }, { name: "loanAmount", label: "Loan amount / 贷款金额", type: "number" }, { name: "interestRate", label: "Interest / 利率 (%)", type: "number" }, { name: "loanTenureMonths", label: "Tenure / 期数", type: "number" }, { name: "loanTerms", label: "Exact bank terms / 银行原文条款", fullWidth: true }]}
+                onUploaded={() => setDocumentReloadKey((value) => value + 1)}
+                onCompleted={refreshBanks}
+                onApply={async (values) => {
+                  await updateLoanBankOption({ ...option, bankName: String(values.loanBank ?? option.bankName), loanAmount: values.loanAmount == null ? undefined : Number(values.loanAmount), interestRate: values.interestRate == null ? undefined : Number(values.interestRate), tenureMonths: values.loanTenureMonths == null ? undefined : Number(values.loanTenureMonths), terms: String(values.loanTerms ?? "") });
+                }}
+              />}
+            </div>)}
+            {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && <Form form={loanBankForm} layout="vertical" onFinish={async (values) => {
+              try {
+                const existing = loanBankOptions.find((option) => option.id === values.id);
+                if (existing) await updateLoanBankOption({ ...existing, ...values });
+                else await createLoanBankOption(selectedLoan.id, { loanApplicationId: selectedLoan.id, bankName: values.bankName || "", loanAmount: values.loanAmount, interestRate: values.interestRate, tenureMonths: values.tenureMonths, terms: values.terms, isSelected: false });
+                await refreshBanks(); loanBankForm.resetFields();
+                message.success("Bank option saved / 银行方案已保存");
+              } catch (error) { message.error(humanizeApiError(error, "Bank option could not be saved.")); }
+            }}>
+              <Form.Item name="id" hidden><Input /></Form.Item>
+              <div className="formGridTwo">
+                <Form.Item name="bankName" label="Bank / 银行" rules={[{ required: true }]}><Input /></Form.Item>
+                <Form.Item name="loanAmount" label="Loan amount / 贷款金额"><InputNumber className="fullWidth" min={0.01} precision={2} /></Form.Item>
+                <Form.Item name="interestRate" label="Interest rate / 利率 (%)"><InputNumber className="fullWidth" min={0.001} precision={3} /></Form.Item>
+                <Form.Item name="tenureMonths" label="Tenure / 期数 (months)"><InputNumber className="fullWidth" min={1} precision={0} /></Form.Item>
+              </div>
+              <Form.Item name="terms" label="Bank terms / 银行条款"><Input.TextArea rows={3} /></Form.Item>
+              <Space wrap><Button type="primary" htmlType="submit">Save bank option / 保存银行方案</Button><Button onClick={() => loanBankForm.resetFields()}>Clear / 清空</Button></Space>
+            </Form>}
           </Space>
         </ProCard>
         <ProCard title="Loan Documents / 贷款文件">
           <Space direction="vertical" size={12} className="fullWidth">
             <DocumentUploadChecklist
               title="Required document checklist / 必需文件清单"
-              description="Add files as they arrive. All four are required before loan follow-up can be completed."
+              description="At least one original Loan document is mandatory; upload multiple originals when needed. Edited Loan Documents are optional, and the LOU is stored separately—neither replaces the original evidence."
               items={loanDocumentCategories.map((category) => {
-                const isPresent = !missingLoanDocuments.includes(category);
+                const isPresent = category === "LoanOriginalDocument"
+                  ? !missingLoanDocuments.includes(category)
+                  : (check?.editedDocumentCount ?? 0) > 0;
                 const canUpload = selectedLoan.status !== "Rejected" && canUploadLoanChecklistDocument(roles, category);
                 return {
                   label: documentCategoryLabel(category),
@@ -4851,13 +4835,7 @@ export function LoanPage({
                   statusText: selectedLoan.status === "Rejected"
                     ? "Application rejected — existing files are read-only"
                     : canUpload ? undefined : loanDocumentChecklistStatus(category, isPresent),
-                  action: canUpload ? (
-                    <PreviewDocumentUpload
-                      documentLabel={documentCategoryLabel(category)}
-                      buttonLabel={isPresent ? `Upload another ${documentCategoryLabel(category)}` : `Upload ${documentCategoryLabel(category)}`}
-                      onUpload={(file, onProgress) => uploadLoanDocument(category, file, onProgress)}
-                    />
-                  ) : undefined
+                  action: canUpload ? loanDocumentUploadAction(category, isPresent) : undefined
                 };
               })}
             />
@@ -4866,7 +4844,7 @@ export function LoanPage({
                 type="warning"
                 showIcon
                 message={`${missingLoanDocuments.length} document${missingLoanDocuments.length === 1 ? "" : "s"} still needed before completion`}
-                description="Loan Document can be uploaded here. Missing VOC, AP Document, and Status Receipt are provided by the Broker and remain visible until received."
+                description="Optional edited Loan Documents and LOU files do not satisfy the original checklist. Upload at least one original Loan document; legacy VOC, AP Document, and Status Receipt files remain visible but are no longer individual requirements."
               />
             )}
             {selectedLoan.status === "Rejected" && (
@@ -4875,9 +4853,11 @@ export function LoanPage({
             <Typography.Text strong>Uploaded files / 已上传文件</Typography.Text>
             <ModuleDocumentList
               vehicleId={selectedLoan.vehicleId}
-              categories={loanDocumentCategories}
+              categories={loanHistoryDocumentCategories}
+              loanApplicationId={selectedLoan.id}
+              customerId={selectedLoan.customerId}
               reloadKey={documentReloadKey}
-              showOcrResults={false}
+              showOcrResults
               enablePreview
               onDelete={selectedLoan.status !== "Rejected" ? removeLoanDocument : undefined}
             />
@@ -4893,7 +4873,7 @@ export function LoanPage({
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
         title="Loan Workflow / 贷款流程"
-        extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending").length} pending</Tag>{canCreateManually ? <Button onClick={() => setLoanCreateOpen(true)}>Manual loan record</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
+        extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending" || loan.status === "Submitted") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending" || loan.status === "Submitted").length} pending</Tag>{canCreateManually ? <Button onClick={() => setLoanCreateOpen(true)}>Create buyer / 新增买家</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
       >
         {(dashboardFocus.loanStatus || dashboardFocus.vehicleId) && <Alert
           className="sectionIntroAlert"
@@ -4918,7 +4898,7 @@ export function LoanPage({
             onChange={(status) => updateLoanFilters({ status })}
             options={[
               { value: "All", label: "All statuses" },
-              ...(["Draft", "Pending", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value }))
+              ...(["Draft", "Pending", "Submitted", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value }))
             ]}
             style={{ width: 160 }}
           />
@@ -4942,6 +4922,7 @@ export function LoanPage({
               }
               setLoanFilters({});
               setMobileLoanPage(1);
+              setLoanPage(1);
             }}
           >
             Clear filters
@@ -4962,7 +4943,7 @@ export function LoanPage({
             <Select aria-label="Loan status" placeholder="All loan statuses / 全部贷款状态"
               options={[
                 { value: "All", label: "All loan statuses / 全部贷款状态" },
-                ...(["Draft", "Pending", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value }))
+                ...(["Draft", "Pending", "Submitted", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value }))
               ]}
               style={{ width: 160 }}
             />
@@ -4985,6 +4966,7 @@ export function LoanPage({
             }
             setLoanFilters({});
             setMobileLoanPage(1);
+            setLoanPage(1);
           }}>Reset</Button></Form.Item>
           <Tag color={loanFiltersActive ? "blue" : "default"}>{loanFiltersActive ? `${filteredLoans.length} of ${loans.length} matching` : `${loans.length} loan${loans.length === 1 ? "" : "s"}`}</Tag>
         </Form>
@@ -4992,7 +4974,7 @@ export function LoanPage({
           {filteredLoans.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loanEmptyText} />}
           {mobileLoans.map((loan) => {
             const check = documentChecks[loan.id];
-            const isPending = loan.status === "Pending";
+            const isPending = loan.status === "Pending" || loan.status === "Submitted";
             return (
               <article className="mobileRecordCard" key={loan.id}>
                   <div className="mobileRecordHeader">
@@ -5008,7 +4990,7 @@ export function LoanPage({
                     <strong>{contactFor(customers, loan.customerId)}</strong>
                   </span>
                   <span>
-                    <small>Submitted / 提交</small>
+                    <small>Created / 创建</small>
                     <strong>{formatDisplayDate(loan.submittedAt)}</strong>
                   </span>
                 </div>
@@ -5024,22 +5006,29 @@ export function LoanPage({
                   {renderLoanDocumentSummary(check)}
                 </div>
                 <div className="mobileRecordFooter">
-                  <Tag color={isPending ? "orange" : "default"}>{isPending ? "3-day reminder active" : "No reminder"}</Tag>
+                  <Tag color={isPending ? "orange" : "default"}>{isPending ? "2-day reminder active" : "No reminder"}</Tag>
                   <Space className="tableActionGroup" wrap size={6}>
-                    <Button size="small" type="primary" onClick={() => setUploadLoanId(loan.id)}>Details</Button>
+                    <Button size="small" type="primary" disabled={!canOpenLoanDetails(loan)} onClick={() => setUploadLoanId(loan.id)}>Details</Button>
                     {renderLoanNextAction(loan)}
                   </Space>
                 </div>
               </article>
             );
           })}
-          {filteredLoans.length > mobileWorkflowPageSize && (
+          {filteredLoans.length > 0 && (
             <Pagination
               current={clampedMobileLoanPage}
-              pageSize={mobileWorkflowPageSize}
+              pageSize={loanPageSize}
               total={filteredLoans.length}
-              showSizeChanger={false}
-              onChange={setMobileLoanPage}
+              showSizeChanger
+              pageSizeOptions={["10", "20", "30"]}
+              onChange={(page, pageSize) => {
+                setMobileLoanPage(page);
+                if (pageSize !== loanPageSize) {
+                  setLoanPageSize(pageSize);
+                  setMobileLoanPage(1);
+                }
+              }}
             />
           )}
         </div>
@@ -5053,7 +5042,7 @@ export function LoanPage({
               { name: "plate", label: "Plate" },
               { name: "customer", label: "Customer" },
               { name: "phone", label: "Phone" },
-              { name: "status", label: "Status", options: (["Draft", "Pending", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value })) },
+              { name: "status", label: "Status", options: (["Draft", "Pending", "Submitted", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value })) },
               { name: "documents", label: "Documents", options: [
                 { value: "Missing", label: "Documents missing" },
                 { value: "Complete", label: "Documents complete" }
@@ -5070,15 +5059,31 @@ export function LoanPage({
                 documents: (values.documents as LoanFilters["documents"] | undefined) ?? "All"
               });
               setMobileLoanPage(1);
+              setLoanPage(1);
             },
             onReset: () => {
               loanFilterForm.resetFields();
               if (dashboardFocus.loanStatus || dashboardFocus.vehicleId) onClearDashboardFocus();
               setLoanFilters({});
               setMobileLoanPage(1);
+              setLoanPage(1);
             }
           }}
-          pagination={{ ...tablePagination(8), current: clampedMobileLoanPage, onChange: setMobileLoanPage }}
+          pagination={{
+            current: Math.min(loanPage, Math.max(1, Math.ceil(filteredLoans.length / loanPageSize))),
+            pageSize: loanPageSize,
+            total: filteredLoans.length,
+            showSizeChanger: true,
+            pageSizeOptions: ["10", "20", "30"],
+            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} / 共 ${total} 条`,
+            onChange: (page, pageSize) => {
+              setLoanPage(page);
+              if (pageSize !== loanPageSize) {
+                setLoanPageSize(pageSize);
+                setLoanPage(1);
+              }
+            }
+          }}
           scroll={{ x: "max-content" }}
           locale={{ emptyText: loanEmptyText }}
         />
@@ -5095,10 +5100,10 @@ export function LoanPage({
       {rejectionModal}
         {completionModal}
       <Modal
-        title="Manual Loan Record / 手动贷款记录"
+        title="Buyer & loan application / 买家与贷款申请"
         width={680}
         open={loanCreateOpen}
-        onCancel={() => setLoanCreateOpen(false)}
+        onCancel={() => { setLoanCreateOpen(false); setIntakeFile(undefined); loanIntakeForm.resetFields(); setNewBuyer(false); intakeId.current = newId(); }}
         footer={null}
         destroyOnClose
         className="recordCreateModal"
@@ -5106,57 +5111,38 @@ export function LoanPage({
         <Alert
           type="warning"
           showIcon
-          message="Exception-only record"
-          description="For ordinary sales, start from Vehicle Details and confirm the buyer there. This route is for Boss/Admin corrections only."
+          message="Register buyer details / 登记买家资料"
+          description="Financed buyers receive a Pending loan case. Cash buyers are saved without a loan application. / 贷款买家建立待处理案件，现金买家无需建立贷款。"
           className="manualLoanRecordAlert"
         />
-        <Form name="loanCreate" layout="vertical" className="modalForm" onFinish={(values) => {
-          const loan: LoanApplication = {
-            id: newId(),
-            vehicleId: values.vehicleId,
-            customerId: values.customerId,
-            status: values.status,
-            louApproved: values.louApproved,
-            louDone: values.louDone,
-            submittedAt: values.submittedAt,
-            rejectionReason: values.rejectionReason
-          };
-          const blockReason = loanCreateBlockReason(loan);
-          if (blockReason) {
-            message.warning(blockReason);
-            return;
-          }
-          onCreate(loan);
-          setLoanCreateOpen(false);
-        }} initialValues={{ vehicleId: vehicles[0]?.id, customerId: customers[0]?.id, status: "Pending", louApproved: false, louDone: false, submittedAt: today() }}>
-          <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Form.Item name="customerId" label="Customer / 客户" rules={[{ required: true }]}>
-            <Select
-              showSearch
-              optionFilterProp="label"
-              placeholder="Select customer"
-              options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
-            />
+        <Form form={loanIntakeForm} name="loanCreate" layout="vertical" className="modalForm" initialValues={{ cashBuyer: false }} onValuesChange={(changed) => { if ("customerId" in changed || "icNumber" in changed || "vehicleId" in changed) setIntakeFile(undefined); }} onFinish={async (values) => {
+          if (!intakeFile) { message.error("Upload the buyer IC image or PDF / 请上传买家 IC 图片或 PDF"); return; }
+          setIntakeSaving(true);
+          try {
+            await createLoanBuyerIntake({ ...values, customerId: newBuyer ? undefined : values.customerId, newLoanId: intakeId.current }, intakeFile);
+            await onRefresh();
+            setLoanCreateOpen(false);
+            loanIntakeForm.resetFields(); setIntakeFile(undefined); intakeId.current = newId();
+            message.success("Buyer details saved / 买家资料已保存");
+          } catch (error) { message.error(humanizeApiError(error, "Buyer details could not be saved.")); }
+          finally { setIntakeSaving(false); }
+        }}>
+          <Form.Item name="vehicleId" label="Car plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.filter((vehicle) => isBossAdmin || vehicle.salesAgentUserId === currentUser?.id).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="cashBuyer" valuePropName="checked"><Checkbox>Cash buyer — no loan application / 现金买家，无需贷款申请</Checkbox></Form.Item>
+          <Form.Item label="Customer / 客户"><Select value={newBuyer ? "new" : "existing"} onChange={(value) => { setNewBuyer(value === "new"); setIntakeFile(undefined); }} options={[{ value: "existing", label: "Existing customer / 现有客户" }, { value: "new", label: "Create new customer / 新增客户" }]} /></Form.Item>
+          {!newBuyer ? <Form.Item name="customerId" label="Select customer / 选择客户" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item> : <>
+            <Form.Item name="name" label="Name / 姓名" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="icNumber" label="IC number / 身份证号码" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="address" label="Address / 地址"><Input.TextArea /></Form.Item>
+            <Form.Item name="email" label="Email / 电邮" rules={[{ type: "email" }]}><Input /></Form.Item>
+          </>}
+          <Form.Item name="finalSellingPrice" label="Selling price / 售价" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0.01} precision={2} /></Form.Item>
+          <Form.Item name="tradeInPlateNumber" label="Trade-in plate / 旧车车牌 (optional)"><Input /></Form.Item>
+          <Form.Item label="Buyer IC image or PDF / 买家 IC 图片或 PDF" required>
+            <Upload fileList={intakeFile ? [{ uid: "buyer-ic", name: intakeFile.name, status: "done" }] : []} accept="image/jpeg,image/png,application/pdf" maxCount={1} beforeUpload={(file) => { setIntakeFile(file); return false; }} onRemove={() => setIntakeFile(undefined)}><Button>Select IC file / 选择 IC 文件</Button></Upload>
           </Form.Item>
-          <Form.Item name="status" label="Status"><Select options={["Draft", "Pending", "Approved", "Rejected"].map((value) => ({ value }))} /></Form.Item>
-          <Form.Item noStyle shouldUpdate={(previous, current) => previous.status !== current.status}>
-            {({ getFieldValue }) => getFieldValue("status") === "Rejected" ? (
-              <Form.Item
-                name="rejectionReason"
-                label="Rejection reason / 拒绝原因"
-                rules={[
-                  { required: true, whitespace: true, message: "Enter the bank or decision reason." },
-                  { max: 500, message: "Rejection reason must be 500 characters or fewer." }
-                ]}
-              >
-                <Input.TextArea rows={4} maxLength={500} showCount placeholder="Example: Bank declined due to affordability assessment" />
-              </Form.Item>
-            ) : null}
-          </Form.Item>
-          <Form.Item name="submittedAt" label="Submitted Date" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
-          <Form.Item name="louApproved" label="LOU Approve"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
-          <Form.Item name="louDone" label="LOU Done"><Select options={[{ value: true, label: "Yes" }, { value: false, label: "No" }]} /></Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create manual record</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={intakeSaving}>Save buyer / 保存买家</Button></Form.Item>
         </Form>
       </Modal>
     </Space>
@@ -5554,7 +5540,7 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
                 columns={leadDetailColumns}
                 dataSource={group.leads}
                 search={false}
-                pagination={false}
+                pagination={{ defaultPageSize: 10, showSizeChanger: true }}
                 scroll={{ x: 1120 }}
                 locale={{ emptyText: "No lead details in this group." }}
               />
@@ -5599,6 +5585,7 @@ function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]
   auditLog = newestRecordsFirst(auditLog, record => record.createdAt);
   const [form] = Form.useForm<AuditLogFilters>();
   const [mobileAuditPage, setMobileAuditPage] = useState(1);
+  const [mobileWorkflowPageSize, setWorkflowPageSize] = useState(10);
   const [searching, setSearching] = useState(false);
   const mobileAuditPageCount = Math.max(1, Math.ceil(auditLog.length / mobileWorkflowPageSize));
   const clampedMobileAuditPage = Math.min(mobileAuditPage, mobileAuditPageCount);
@@ -5686,13 +5673,13 @@ function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]
             </div>
           </article>
         ))}
-        {auditLog.length > mobileWorkflowPageSize && (
+        {auditLog.length > 0 && (
           <Pagination
             current={clampedMobileAuditPage}
             pageSize={mobileWorkflowPageSize}
             total={auditLog.length}
-            showSizeChanger={false}
-            onChange={setMobileAuditPage}
+            showSizeChanger pageSizeOptions={[10, 20, 30]}
+            onChange={(page, size) => { setMobileAuditPage(page); setWorkflowPageSize(size); }}
           />
         )}
       </div>
@@ -5715,7 +5702,7 @@ function AuditLogRecords({ auditLog, filters, onSearch }: { auditLog: AuditLog[]
           }),
           onReset: () => void runSearch({})
         }}
-        pagination={{ ...tablePagination(mobileWorkflowPageSize), current: clampedMobileAuditPage, onChange: setMobileAuditPage }}
+        pagination={{ ...tablePagination(mobileWorkflowPageSize), pageSize: mobileWorkflowPageSize, current: clampedMobileAuditPage, onChange: (page, size) => { setMobileAuditPage(page); setWorkflowPageSize(size); } }}
         scroll={{ x: 900 }}
         locale={{ emptyText: "No audit records match the current filters." }}
       />
@@ -5772,6 +5759,7 @@ function AdminPage({
   const [staffWhatsAppError, setStaffWhatsAppError] = useState("");
   const [staffWhatsAppRefresh, setStaffWhatsAppRefresh] = useState(0);
   const [mobileStaffPage, setMobileStaffPage] = useState(1);
+  const [mobileWorkflowPageSize, setWorkflowPageSize] = useState(10);
   const [ocrLimitSnapshot, setOcrLimitSnapshot] = useState<AiUsageLimitSnapshot | null>(null);
   const [ocrLimitSaving, setOcrLimitSaving] = useState(false);
   const [ocrLimitForm] = Form.useForm<UpdateAiServiceLimitRequest>();
@@ -6018,13 +6006,13 @@ function AdminPage({
                       </div>
                     </article>
                   ))}
-                  {filteredStaffUsers.length > mobileWorkflowPageSize && (
+                  {filteredStaffUsers.length > 0 && (
                     <Pagination
                       current={clampedMobileStaffPage}
                       pageSize={mobileWorkflowPageSize}
                       total={filteredStaffUsers.length}
-                      showSizeChanger={false}
-                      onChange={setMobileStaffPage}
+                      showSizeChanger pageSizeOptions={[10, 20, 30]}
+                      onChange={(page, size) => { setMobileStaffPage(page); setWorkflowPageSize(size); }}
                     />
                   )}
                 </div>
@@ -6056,7 +6044,7 @@ function AdminPage({
                     },
                     onReset: clearStaffFilters
                   }}
-                  pagination={{ ...tablePagination(mobileWorkflowPageSize), current: clampedMobileStaffPage, onChange: setMobileStaffPage }}
+                  pagination={{ ...tablePagination(mobileWorkflowPageSize), pageSize: mobileWorkflowPageSize, current: clampedMobileStaffPage, onChange: (page, size) => { setMobileStaffPage(page); setWorkflowPageSize(size); } }}
                   scroll={{ x: 1200 }}
                   locale={{ emptyText: "No staff users match the current filters." }}
                 />
@@ -6336,7 +6324,7 @@ function SystemFlowReference() {
     },
     {
       role: "Loan" as StaffRole,
-      owns: "Loan submission, document checklist, LOU approve/done, 3-day follow-up.",
+      owns: "Loan submission, document checklist, LOU approve/done, 2-day follow-up.",
       handoff: "Handles financed sales only, then hands the approved buyer to Finance collection and Delivery preparation."
     },
     {
@@ -6434,7 +6422,7 @@ function SystemFlowReference() {
           { title: "Handoff / 交接", dataIndex: "handoff" }
         ]}
         dataSource={ownershipRows}
-        pagination={false}
+        pagination={{ defaultPageSize: 10, showSizeChanger: true }}
         scroll={{ x: 900 }}
         locale={{ emptyText: "No ownership rows configured." }}
       />
@@ -6619,7 +6607,9 @@ function documentCategoryLabel(category: DocumentCategory) {
     IdentityCard: "Identity Card",
     ApDocument: "AP Document",
     StatusReceipt: "Status Receipt",
-    LoanDocument: "Loan Document",
+    LoanDocument: "LOU / LOU",
+    LoanOriginalDocument: "Original Loan Document / 原始贷款文件",
+    LoanEditedDocument: "Edited Loan Document / 修改贷款文件",
     DeliveryDocument: "Delivery Document",
     HandoverPhoto: "Handover Photo",
     SignedHandover: "Signed Handover",

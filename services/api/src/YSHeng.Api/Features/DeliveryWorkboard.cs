@@ -22,6 +22,7 @@ public sealed record DeliveryWorkboardItem(
     Guid VehicleId,
     string PlateNumber,
     string VehicleLabel,
+    decimal? FinalSellingPrice,
     Guid CustomerId,
     string CustomerName,
     string PicUserId,
@@ -29,6 +30,7 @@ public sealed record DeliveryWorkboardItem(
     DeliveryType DeliveryType,
     DateOnly ScheduledDate,
     TimeOnly? ScheduledTime,
+    DateTime? ReleasedAt,
     string? DeliveryAddress,
     string? TransportMethod,
     string? RescheduleReason,
@@ -51,9 +53,13 @@ public sealed record DeliveryWorkboardItem(
     bool NotificationSent,
     bool TwoDayNoticeSent,
     bool InsuranceHandled,
+    string? InsuranceCompany,
+    decimal? InsurancePrice,
+    decimal? InsuranceSumInsured,
     string? InsurancePolicyReference,
     DateOnly? InsuranceExpiryDate,
     bool RoadTaxHandled,
+    bool? RoadTaxPaidViaEAuto,
     string? RoadTaxReceiptReference,
     DateOnly? RoadTaxExpiryDate,
     bool WindscreenInsuranceHandled,
@@ -121,6 +127,11 @@ public static class DeliveryWorkboardRules
     public static bool IsActive(DeliverySchedule delivery) =>
         delivery.Status is not (DeliveryStatus.Released or DeliveryStatus.Cancelled);
 
+    public static bool IsVisibleOnWorkboard(DeliverySchedule delivery, DateOnly today) =>
+        IsActive(delivery) ||
+        !delivery.ReleasedAt.HasValue ||
+        delivery.ReleasedAt.Value.Date >= today.AddDays(-7).ToDateTime(TimeOnly.MinValue).Date;
+
     public static bool HasOpenInvoiceUpdateRequest(DeliverySchedule delivery) =>
         delivery.InvoiceUpdateRequestedAt.HasValue &&
         (!delivery.InvoiceUpdateResolvedAt.HasValue || delivery.InvoiceUpdateResolvedAt < delivery.InvoiceUpdateRequestedAt);
@@ -139,7 +150,8 @@ public static class DeliveryWorkboardRules
         Customer customer,
         bool financeCleared,
         IEnumerable<DocumentBlob> documents,
-        DateOnly? today = null)
+        DateOnly? today = null,
+        decimal? finalSellingPrice = null)
     {
         var documentCheck = DeliveryDocumentRules.CheckCompleteness(delivery, documents);
         var stage = StageFor(delivery, financeCleared, documentCheck, today);
@@ -152,6 +164,7 @@ public static class DeliveryWorkboardRules
             vehicle.Id,
             vehicle.PlateNumber,
             $"{vehicle.Make} {vehicle.Model}".Trim(),
+            finalSellingPrice,
             customer.Id,
             customer.Name,
             delivery.PicUserId ?? "",
@@ -159,6 +172,7 @@ public static class DeliveryWorkboardRules
             delivery.DeliveryType,
             delivery.ScheduledDate,
             delivery.ScheduledTime,
+            delivery.ReleasedAt,
             delivery.DeliveryAddress,
             delivery.TransportMethod,
             delivery.RescheduleReason,
@@ -181,9 +195,13 @@ public static class DeliveryWorkboardRules
             delivery.NotificationSent,
             delivery.TwoDayNoticeSent,
             delivery.InsuranceHandled,
+            delivery.InsuranceCompany,
+            delivery.InsurancePrice,
+            delivery.InsuranceSumInsured,
             delivery.InsurancePolicyReference,
             delivery.InsuranceExpiryDate,
             delivery.RoadTaxHandled,
+            delivery.RoadTaxPaidViaEAuto,
             delivery.RoadTaxReceiptReference,
             delivery.RoadTaxExpiryDate,
             delivery.WindscreenInsuranceHandled,
@@ -205,8 +223,6 @@ public static class DeliveryWorkboardRules
         if (delivery.Status == DeliveryStatus.Cancelled) return DeliveryStage.Cancelled;
         if (!delivery.CustomerId.HasValue || string.IsNullOrWhiteSpace(delivery.PicUserId)) return DeliveryStage.PlanDelivery;
         if (delivery.ScheduledDate == default || !delivery.ScheduledTime.HasValue) return DeliveryStage.PlanDelivery;
-        if (string.IsNullOrWhiteSpace(delivery.InspectionBookingReference)) return DeliveryStage.PlanDelivery;
-        if (!PreparationComplete(delivery, documents)) return DeliveryStage.PrepareCar;
         if (!DocumentsClear(delivery, financeCleared, documents, today)) return DeliveryStage.ClearDocuments;
         return DeliveryStage.Handover;
     }
@@ -217,7 +233,6 @@ public static class DeliveryWorkboardRules
         !string.IsNullOrWhiteSpace(delivery.PicUserId) &&
         delivery.ScheduledDate != default &&
         delivery.ScheduledTime.HasValue &&
-        !string.IsNullOrWhiteSpace(delivery.InspectionBookingReference) &&
         !HasOpenInvoiceUpdateRequest(delivery) &&
         financeCleared &&
         documents.IsComplete &&
@@ -243,23 +258,16 @@ public static class DeliveryWorkboardRules
         if (string.IsNullOrWhiteSpace(delivery.PicUserId)) return "Assign delivery PIC";
         if (delivery.ScheduledDate == default) return "Set delivery date";
         if (!delivery.ScheduledTime.HasValue) return "Set delivery time";
-        if (string.IsNullOrWhiteSpace(delivery.InspectionBookingReference)) return "Add inspection booking";
-        if (!delivery.InspectionDone) return "Complete inspection";
-        if (documents.MissingCategories.Contains(FileCategory.InspectionReport)) return "Upload inspection report";
-        if (!delivery.PolishDone) return "Mark polish complete";
-        if (!delivery.TintedDone) return "Mark tint complete";
-        if (!delivery.WashDone) return "Mark car wash complete";
         if (!delivery.DocumentsPrepared || documents.MissingCategories.Contains(FileCategory.DeliveryDocument)) return "Prepare delivery documents";
         if (!delivery.InsuranceHandled || documents.MissingCategories.Contains(FileCategory.Policy)) return "Clear insurance";
         if (!delivery.RoadTaxHandled || documents.MissingCategories.Contains(FileCategory.RoadTaxReceipt)) return "Clear road tax";
         if (DeliveryRules.ExpiredDeliveryDocuments(delivery, today).Count > 0) return "Update expired coverage";
-        if (!delivery.TwoDayNoticeSent) return "Notify customer";
         if (!financeCleared) return "Wait for Finance clearance";
         if (HasOpenInvoiceUpdateRequest(delivery)) return "Wait for Finance invoice update";
         if (documents.MissingCategories.Contains(FileCategory.HandoverPhoto)) return "Upload handover photo";
         if (documents.MissingCategories.Contains(FileCategory.SignedHandover)) return "Upload signed handover";
         if (!delivery.CustomerAcknowledged) return "Confirm customer acknowledgement";
-        if (!delivery.FinalChecklistConfirmed) return "Confirm final checklist";
+        if (!delivery.FinalChecklistConfirmed) return "Confirm final handover";
         return "Release vehicle";
     }
 
@@ -277,13 +285,6 @@ public static class DeliveryWorkboardRules
         };
     }
 
-    private static bool PreparationComplete(DeliverySchedule delivery, DeliveryDocumentCheck documents) =>
-        delivery.InspectionDone &&
-        !documents.MissingCategories.Contains(FileCategory.InspectionReport) &&
-        delivery.PolishDone &&
-        delivery.TintedDone &&
-        delivery.WashDone;
-
     private static bool DocumentsClear(DeliverySchedule delivery, bool financeCleared, DeliveryDocumentCheck documents, DateOnly? today) =>
         delivery.DocumentsPrepared &&
         !documents.MissingCategories.Contains(FileCategory.DeliveryDocument) &&
@@ -292,7 +293,6 @@ public static class DeliveryWorkboardRules
         delivery.RoadTaxHandled &&
         !documents.MissingCategories.Contains(FileCategory.RoadTaxReceipt) &&
         DeliveryRules.ExpiredDeliveryDocuments(delivery, today).Count == 0 &&
-        delivery.TwoDayNoticeSent &&
         financeCleared &&
         !HasOpenInvoiceUpdateRequest(delivery);
 }
@@ -363,9 +363,13 @@ public static class DeliveryMutationRules
         NotificationSent = false,
         TwoDayNoticeSent = false,
         InsuranceHandled = false,
+        InsuranceCompany = null,
+        InsurancePrice = null,
+        InsuranceSumInsured = null,
         InsurancePolicyReference = null,
         InsuranceExpiryDate = null,
         RoadTaxHandled = false,
+        RoadTaxPaidViaEAuto = null,
         RoadTaxReceiptReference = null,
         RoadTaxExpiryDate = null,
         WindscreenInsuranceHandled = false,
@@ -397,7 +401,8 @@ public static class DeliveryMutationRules
             Status = existing.Status,
             RescheduleReason = scheduleChanged ? incoming.RescheduleReason?.Trim() : existing.RescheduleReason,
             NotificationSent = scheduleChanged ? false : incoming.NotificationSent,
-            TwoDayNoticeSent = scheduleChanged ? false : incoming.TwoDayNoticeSent,
+            // The former two-day customer notice is retained only as legacy history.
+            TwoDayNoticeSent = existing.TwoDayNoticeSent,
             CancellationReason = existing.CancellationReason,
             HandoverPhotoCaptured = existing.HandoverPhotoCaptured,
             SignedHandoverReceived = existing.SignedHandoverReceived,
@@ -424,30 +429,24 @@ public static class DeliveryMutationRules
         if (!string.Equals(before.PicUserId, after.PicUserId, StringComparison.Ordinal)) return $"PIC assigned to {after.Pic}";
 
         var changed = new List<string>();
-        AddChanged(changed, before.InspectionBookingReference, after.InspectionBookingReference, "inspection booking");
-        AddChanged(changed,
-            before.InspectionDone != after.InspectionDone ||
-            !string.Equals(before.InspectionReportReference?.Trim(), after.InspectionReportReference?.Trim(), StringComparison.Ordinal),
-            "inspection");
-        AddChanged(changed, before.PolishDone, after.PolishDone, "polish");
-        AddChanged(changed, before.TintedDone, after.TintedDone, "tint");
-        AddChanged(changed, before.WashDone, after.WashDone, "car wash");
         AddChanged(changed, before.DocumentsPrepared, after.DocumentsPrepared, "delivery documents");
         AddChanged(changed,
             before.InsuranceHandled != after.InsuranceHandled ||
+            !string.Equals(before.InsuranceCompany?.Trim(), after.InsuranceCompany?.Trim(), StringComparison.Ordinal) ||
+            before.InsurancePrice != after.InsurancePrice ||
+            before.InsuranceSumInsured != after.InsuranceSumInsured ||
             before.InsuranceExpiryDate != after.InsuranceExpiryDate ||
             !string.Equals(before.InsurancePolicyReference?.Trim(), after.InsurancePolicyReference?.Trim(), StringComparison.Ordinal),
             "insurance");
         AddChanged(changed,
             before.RoadTaxHandled != after.RoadTaxHandled ||
+            before.RoadTaxPaidViaEAuto != after.RoadTaxPaidViaEAuto ||
             before.RoadTaxExpiryDate != after.RoadTaxExpiryDate ||
             !string.Equals(before.RoadTaxReceiptReference?.Trim(), after.RoadTaxReceiptReference?.Trim(), StringComparison.Ordinal),
             "road tax");
-        AddChanged(changed,
-            before.NotificationSent != after.NotificationSent || before.TwoDayNoticeSent != after.TwoDayNoticeSent,
-            "customer notice");
+        AddChanged(changed, before.NotificationSent, after.NotificationSent, "staff notification");
         AddChanged(changed, before.CustomerAcknowledged, after.CustomerAcknowledged, "customer acknowledgement");
-        AddChanged(changed, before.FinalChecklistConfirmed, after.FinalChecklistConfirmed, "final checklist");
+        AddChanged(changed, before.FinalChecklistConfirmed, after.FinalChecklistConfirmed, "final handover confirmation");
         return changed.Count == 0 ? "Delivery details updated" : $"Updated {string.Join(", ", changed)}";
     }
 

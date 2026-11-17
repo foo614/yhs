@@ -78,16 +78,10 @@ public static class WhatsAppStaffProgressQueries
         var blockers = new List<string>();
         void Missing(bool done, string english, string malay) { if (!done) blockers.Add(T(language, english, malay)); }
         Missing(delivery.ScheduledDate != default, "delivery date", "tarikh penyerahan");
-        Missing(delivery.InspectionDone, "inspection", "pemeriksaan");
         Missing(delivery.DocumentsPrepared, "document preparation", "penyediaan dokumen");
-        Missing(delivery.PolishDone, "polish", "gilap");
-        Missing(delivery.TintedDone, "tinting", "tinted");
-        Missing(delivery.WashDone, "wash", "cuci");
         Missing(delivery.InsuranceHandled, "insurance processing", "urusan insurans");
         Missing(delivery.RoadTaxHandled, "road tax processing", "urusan cukai jalan");
-        Missing(delivery.TwoDayNoticeSent, "two-day notice", "notis dua hari");
         Missing(delivery.CustomerAcknowledged, "customer acknowledgement", "pengesahan pelanggan");
-        Missing(delivery.FinalChecklistConfirmed, "final checklist", "senarai semak akhir");
         var documentsCheck = DeliveryDocumentRules.CheckCompleteness(delivery, documents);
         if (!documentsCheck.IsComplete)
             blockers.Add(T(language, "missing uploads: ", "muat naik belum lengkap: ") + string.Join(", ", documentsCheck.MissingCategories.Select(item => Category(item, language))));
@@ -104,7 +98,9 @@ public static class WhatsAppStaffProgressQueries
     {
         FileCategory.StatusReceipt => T(language, "status receipt", "resit status"),
         FileCategory.Voc => "VOC", FileCategory.ApDocument => T(language, "AP document", "dokumen AP"),
-        FileCategory.LoanDocument => T(language, "loan document", "dokumen pinjaman"),
+        FileCategory.LoanOriginalDocument => T(language, "original loan document", "dokumen pinjaman asal"),
+        FileCategory.LoanEditedDocument => T(language, "edited loan document", "dokumen pinjaman suntingan"),
+        FileCategory.LoanDocument => T(language, "LOU document", "dokumen LOU"),
         FileCategory.DeliveryDocument => T(language, "delivery document", "dokumen penyerahan"),
         FileCategory.InspectionReport => T(language, "inspection report", "laporan pemeriksaan"),
         FileCategory.HandoverPhoto => T(language, "handover photo", "foto penyerahan"),

@@ -26,6 +26,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<RepairReceiptItem> RepairReceiptItems => Set<RepairReceiptItem>();
     public DbSet<SupplierInvoice> SupplierInvoices => Set<SupplierInvoice>();
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
+    public DbSet<LoanBankOption> LoanBankOptions => Set<LoanBankOption>();
     public DbSet<DeliverySchedule> DeliverySchedules => Set<DeliverySchedule>();
     public DbSet<InspectionRecord> InspectionRecords => Set<InspectionRecord>();
     public DbSet<DeliveryActivity> DeliveryActivities => Set<DeliveryActivity>();
@@ -112,6 +113,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<WhatsAppWorkflowEvent>().HasIndex(item => new { item.State, item.CreatedAt });
         builder.Entity<WhatsAppWorkflowEvent>().HasIndex(item => new { item.EventKind, item.SourceId, item.SourceVersion }).IsUnique();
         builder.Entity<Vehicle>().HasIndex(vehicle => vehicle.PlateNumber).IsUnique();
+        builder.Entity<LoanBankOption>().HasIndex(option => new { option.LoanApplicationId, option.BankName });
+        builder.Entity<LoanBankOption>().HasIndex(option => option.LouDocumentId);
+        builder.Entity<LoanBankOption>().HasOne<LoanApplication>().WithMany().HasForeignKey(option => option.LoanApplicationId).OnDelete(DeleteBehavior.Cascade);
         builder.Entity<VehicleCatalogModel>().HasIndex(item => new { item.Make, item.Model }).IsUnique();
         builder.Entity<StockMovement>().HasIndex(movement => new { movement.VehicleId, movement.CreatedAt });
         builder.Entity<Supplier>().HasIndex(supplier => supplier.CompanyName).IsUnique();

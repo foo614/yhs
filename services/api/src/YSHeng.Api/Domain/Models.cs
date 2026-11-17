@@ -8,7 +8,8 @@ public enum VehiclePurchaseSource { Carsome, Carro, KSA, YSHeng }
 public enum VehicleStatus { Available, LoanProcessing, Sold }
 public enum LeadStatus { New, Contacted, Closed }
 public enum LeadClosureOutcome { Sold, Lost, Invalid }
-public enum LoanStatus { Draft, Pending, Approved, Rejected, Done }
+public enum LoanStatus { Draft, Pending, Approved, Rejected, Done, Submitted }
+public enum LoanBankOptionStatus { Pending, Submitted, Approved, Rejected }
 public enum DeliveryStatus { BookingInspection, Scheduled, Inspection, PreparingDocuments, CarPreparation, ReadyForRelease, Released, Cancelled }
 public enum DeliveryType { Standard, Outstation }
 public enum DeliveryStage { PlanDelivery, PrepareCar, ClearDocuments, Handover, Completed, Cancelled }
@@ -42,7 +43,7 @@ public enum HrEmploymentType { Monthly, Hourly }
 public enum InspectionType { Awalan = 9001, Berkala = 9002, Khas = 9003, BerkalaSemula = 9004, PertukaranHakMilik = 9011 }
 public enum InspectionCompany { YSHengAuto, YSHengAutomotive }
 public enum InspectionStatus { Booked, Completed, Cancelled }
-public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate, InspectionReport, WindscreenPolicy, SettlementEvidence = 100, BankSettlementPayment = 101, InspectionReceipt = 110, InspectionAppointmentConfirmation = 111 }
+public enum FileCategory { VehiclePhoto, PurchaseInvoice, Voc, IdentityCard, ApDocument, StatusReceipt, LoanDocument, DeliveryDocument, HandoverPhoto, SignedHandover, Policy, RoadTaxReceipt, RepairInvoice, PaymentReceipt, PaymentInvoice, MedicalCertificate, InspectionReport, WindscreenPolicy, SettlementEvidence = 100, BankSettlementPayment = 101, InspectionReceipt = 110, InspectionAppointmentConfirmation = 111, LoanOriginalDocument = 112, LoanEditedDocument = 113 }
 public enum DocumentOwnershipType { Seller, Buyer, Vehicle }
 public enum OcrJobStatus { Queued, Analyzing, NeedsReview, Failed, Reviewed }
 public enum CalendarTaskStatus { Open, Done, Cancelled }
@@ -439,12 +440,54 @@ public sealed record LoanApplication
     public bool LouApproved { get; init; }
     public bool LouDone { get; init; }
     public DateOnly? SubmittedAt { get; init; }
+    public DateTime? LastUpdatedAt { get; init; }
+    public DateTime? BankSubmittedAt { get; init; }
+    public string? TakenByUserId { get; init; }
+    public string? TakenByName { get; init; }
+    public DateTime? TakenAt { get; init; }
+    public decimal? LoanAmount { get; init; }
+    public string? LoanBank { get; init; }
+    public decimal? InterestRate { get; init; }
+    public int? LoanTenureMonths { get; init; }
+    public string? LoanTerms { get; init; }
+    public decimal? FinalSellingPrice { get; init; }
+    public decimal? DepositAmount { get; init; }
+    public decimal? ContraAmount { get; init; }
+    public string? TradeInPlateNumber { get; init; }
+    public decimal? NcdAmount { get; init; }
+    public decimal? NcdPercentage { get; init; }
+    public string? NcdVehiclePlate { get; init; }
+    public string? NcdInsurer { get; init; }
+    public bool? WindscreenCovered { get; init; }
+    public decimal? WindscreenCover { get; init; }
+    public decimal? WarrantyInsurance { get; init; }
+    public bool? WarrantyInsuranceSelected { get; init; }
+    public DateOnly? AgreementSignedAt { get; init; }
     public string? DecisionBy { get; init; }
     public DateTime? DecisionAt { get; init; }
     public string? RejectionReason { get; init; }
 }
 
+public sealed record LoanBankOption
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid LoanApplicationId { get; init; }
+    public string BankName { get; init; } = "";
+    public decimal? LoanAmount { get; init; }
+    public decimal? InterestRate { get; init; }
+    public int? TenureMonths { get; init; }
+    public string? Terms { get; init; }
+    public bool IsSelected { get; init; }
+    public LoanBankOptionStatus Status { get; init; } = LoanBankOptionStatus.Pending;
+    public DateTime? SubmittedAt { get; init; }
+    public string? RejectionReason { get; init; }
+    public Guid? LouDocumentId { get; init; }
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
+}
+
 public sealed record LoanDecisionRequest(LoanStatus Status, string? RejectionReason);
+public sealed record LoanBankResultRequest(LoanBankOptionStatus Status, string? RejectionReason);
 
 public sealed record DeliverySchedule
 {
@@ -471,9 +514,13 @@ public sealed record DeliverySchedule
     public bool NotificationSent { get; init; }
     public bool TwoDayNoticeSent { get; init; }
     public bool InsuranceHandled { get; init; }
+    public string? InsuranceCompany { get; init; }
+    public decimal? InsurancePrice { get; init; }
+    public decimal? InsuranceSumInsured { get; init; }
     public string? InsurancePolicyReference { get; init; }
     public DateOnly? InsuranceExpiryDate { get; init; }
     public bool RoadTaxHandled { get; init; }
+    public bool? RoadTaxPaidViaEAuto { get; init; }
     public string? RoadTaxReceiptReference { get; init; }
     public DateOnly? RoadTaxExpiryDate { get; init; }
     public bool WindscreenInsuranceHandled { get; init; }

@@ -5,6 +5,12 @@ export const faqLanguages = [
 ] as const;
 
 export type FaqLanguage = (typeof faqLanguages)[number]["code"];
+
+export function recommendedVehiclePriceFromSalary(grossSalary: number) {
+  if (!Number.isFinite(grossSalary) || grossSalary <= 0) return 0;
+  return Math.floor(Math.min(300000, grossSalary * 12) / 1000) * 1000;
+}
+
 type FaqCopy = {
   title: string;
   welcome: string;
@@ -17,9 +23,15 @@ type FaqCopy = {
   whatsappTopic: string;
   whatsappLanguage: string;
   whatsappNotice: string;
+  salaryLabel: string;
+  salaryPlaceholder: string;
+  salaryResult: string;
+  salaryBrowse: string;
+  salaryDisclaimer: string;
   questions: readonly {
     question: string;
     answer: string;
+    interaction?: "salary";
     guide?: { href: "/car-loan-kluang" | "/trade-in-car-kluang"; label: string };
   }[];
 };
@@ -38,8 +50,13 @@ export const buyerFaq: Record<FaqLanguage, FaqCopy> = {
     whatsappTopic: "Topik",
     whatsappLanguage: "Bahasa",
     whatsappNotice: "WhatsApp ialah perkhidmatan luar. Jangan hantar kad pengenalan, penyata bank atau dokumen kewangan sehingga jualan mengesahkan saluran yang sesuai.",
+    salaryLabel: "Gaji kasar bulanan anda",
+    salaryPlaceholder: "Contoh: RM 3,000",
+    salaryResult: "Anggaran julat harga kereta yang sesuai: sehingga RM {amount}.",
+    salaryBrowse: "Lihat kereta dalam julat ini",
+    salaryDisclaimer: "Panduan carian ini menggunakan 12 bulan gaji kasar, dibundarkan ke bawah kepada RM 1,000 (maksimum RM 300,000). Ia tidak menilai kemampuan bayaran atau kelulusan pinjaman.",
     questions: [
-      { question: "Kereta apa yang sesuai dengan bajet saya?", answer: "Lihat stok semasa dan gunakan penapis harga di halaman kereta. Anda juga boleh beritahu pasukan jualan bajet dan model pilihan anda melalui WhatsApp. Pilihan bergantung pada stok semasa; sahkan harga dan ketersediaan dengan jualan." },
+      { question: "Kereta apa yang sesuai dengan bajet saya?", answer: "Masukkan gaji kasar bulanan anda dan kami akan cadangkan julat harga kereta daripada stok semasa. Pilihan bergantung pada stok semasa; sahkan harga dan ketersediaan dengan jualan.", interaction: "salary" },
       { question: "Bolehkah saya memohon pinjaman kereta?", answer: "Tanya pasukan jualan tentang urusan pembiayaan untuk kereta pilihan anda. Jumlah pinjaman, kadar dan tempoh bergantung pada profil pemohon serta penilaian dan kelulusan bank. Anggaran bukan tawaran atau jaminan kelulusan.", guide: { href: "/car-loan-kluang", label: "Baca panduan pinjaman kereta (Bahasa Inggeris)" } },
       { question: "Apakah dokumen untuk permohonan pinjaman?", answer: "Secara umum, bank mungkin meminta dokumen pengenalan, bukti pendapatan dan penyata bank. Keperluan pekerja bergaji dan bekerja sendiri boleh berbeza. Sahkan senarai terkini dengan jualan sebelum menyediakan dokumen; jangan hantar dokumen peribadi melalui panduan ini.", guide: { href: "/car-loan-kluang", label: "Baca panduan pinjaman kereta (Bahasa Inggeris)" } },
       { question: "Bolehkah saya tukar beli kereta lama?", answer: "Hubungi jualan untuk membincangkan tukar beli. Berikan jenama, model, tahun, perbatuan dan gambar kereta melalui saluran jualan. Sebarang penerimaan dan nilai akhir perlu disahkan selepas pemeriksaan kereta; tiada nilai dijamin dalam talian.", guide: { href: "/trade-in-car-kluang", label: "Baca panduan tukar beli (Bahasa Inggeris)" } },
@@ -59,8 +76,13 @@ export const buyerFaq: Record<FaqLanguage, FaqCopy> = {
     whatsappTopic: "Topic",
     whatsappLanguage: "Language",
     whatsappNotice: "WhatsApp is an external service. Do not send ID, bank statements or financial documents until sales confirms the appropriate channel.",
+    salaryLabel: "Your gross monthly salary",
+    salaryPlaceholder: "Example: RM 3,000",
+    salaryResult: "A simple guide suggests cars priced up to RM {amount}.",
+    salaryBrowse: "Browse cars in this range",
+    salaryDisclaimer: "This browsing guide uses 12 months of gross salary, rounded down to RM 1,000 (capped at RM 300,000). It does not assess repayment affordability or loan approval.",
     questions: [
-      { question: "Which cars fit my budget?", answer: "Browse current stock and use the price filters on the cars page. You can also tell sales your budget and preferred model on WhatsApp. Options depend on current stock; confirm price and availability with sales." },
+      { question: "Which cars fit my budget?", answer: "Enter your gross monthly salary and we will suggest a simple price range from current stock. Options depend on current stock; confirm price and availability with sales.", interaction: "salary" },
       { question: "Can I apply for a car loan?", answer: "Ask sales about financing arrangements for your chosen car. Loan amount, rate and term depend on your applicant profile and the bank’s assessment and approval. An estimate is not an offer or a guarantee of approval.", guide: { href: "/car-loan-kluang", label: "Read the car loan guide" } },
       { question: "What documents might a loan need?", answer: "Generally, a bank may ask for identification, proof of income and bank statements. Requirements can differ for employed and self-employed buyers. Confirm the current checklist with sales before preparing documents; do not send personal documents through this guide.", guide: { href: "/car-loan-kluang", label: "Read the car loan guide" } },
       { question: "Can I trade in my current car?", answer: "Contact sales to discuss a trade-in. Share the make, model, year, mileage and photos through the sales contact. Any acceptance and final valuation must be confirmed after inspecting the car; no value is guaranteed online.", guide: { href: "/trade-in-car-kluang", label: "Read the trade-in guide" } },
@@ -80,8 +102,13 @@ export const buyerFaq: Record<FaqLanguage, FaqCopy> = {
     whatsappTopic: "咨询主题",
     whatsappLanguage: "语言",
     whatsappNotice: "WhatsApp 是外部服务。在销售确认合适的提交渠道前，请勿发送身份证件、银行结单或财务文件。",
+    salaryLabel: "您的每月税前总薪资",
+    salaryPlaceholder: "例如：RM 3,000",
+    salaryResult: "简单预算参考：适合查看售价不超过 RM {amount} 的车辆。",
+    salaryBrowse: "查看这个范围的车源",
+    salaryDisclaimer: "此浏览参考按税前月薪的 12 倍计算，向下取整至 RM 1,000，上限 RM 300,000；不评估实际还款能力，也不代表贷款批准。",
     questions: [
-      { question: "哪些车符合我的预算？", answer: "您可以浏览现有车源，并在车辆页面使用价格筛选。也可以通过 WhatsApp 告诉销售您的预算和心仪车型。选择取决于当前车源；价格及车辆是否仍可售，请向销售确认。" },
+      { question: "哪些车符合我的预算？", answer: "输入您的每月税前总薪资，我们会根据现有车源给出简单售价范围。选择取决于当前车源；价格及车辆是否仍可售，请向销售确认。", interaction: "salary" },
       { question: "可以买车申请贷款吗？", answer: "请向销售咨询心仪车辆的贷款安排。贷款金额、利率和期限取决于申请人的资料，以及银行的评估和批准。估算不代表正式贷款方案，也不保证获批。", guide: { href: "/car-loan-kluang", label: "阅读汽车贷款指南" } },
       { question: "申请贷款可能需要哪些文件？", answer: "一般而言，银行可能要求身份证明、收入证明和银行结单。受薪人士与自雇人士的要求可能不同。准备文件前，请向销售确认最新清单；请勿通过此指南发送个人文件。", guide: { href: "/car-loan-kluang", label: "阅读汽车贷款指南" } },
       { question: "可以用现有车辆以旧换新吗？", answer: "请联系销售讨论以旧换新，并通过销售联系渠道提供品牌、车型、年份、里程及照片。是否接受及最终估价须在检查车辆后确认；线上不保证任何估值。", guide: { href: "/trade-in-car-kluang", label: "阅读 Trade-in 指南" } },

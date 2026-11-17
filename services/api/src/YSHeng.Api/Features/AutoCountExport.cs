@@ -53,10 +53,12 @@ public static partial class AutoCountExcel
         var selectedPurchaseInvoices = input.PurchaseInvoices
             .Where(invoice => InPeriod(EffectiveDate(Present(invoice.InvoiceDate), sourceVehicles, invoice.VehicleId), input.From, input.To)).ToList();
         var selectedSupplierInvoices = input.SupplierInvoices
+            .Where(invoice => !RepairReviewRules.HasRejectedReceipt(invoice, input.Repairs, input.RepairReceipts ?? []))
             .Where(invoice => InPeriod(EffectiveDate(Present(invoice.InvoiceDate) ?? Present(invoice.PaidAt) ?? Present(invoice.DueDate), sourceVehicles, invoice.VehicleId), input.From, input.To)).ToList();
         var selectedPayments = input.Payments
             .Where(payment => InPeriod(AutoCountDateRules.SingaporeAccountingDate(payment.CreatedAt), input.From, input.To)).ToList();
         var selectedRepairs = input.Repairs
+            .Where(repair => repair.ApprovalStatus != RepairApprovalStatus.Rejected)
             .Where(repair => (!repairInvoiceTotals.TryGetValue(repair.Id, out var total) || total != repair.Cost)
                 && InPeriod(RepairReviewDate(repair), input.From, input.To)).ToList();
         var selectedReceipts = (input.RepairReceipts ?? [])

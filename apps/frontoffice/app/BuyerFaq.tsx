@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Languages, MessageCircle, X } from "lucide-react";
 import { whatsappNumber } from "./business";
-import { buyerFaq, faqLanguages, type FaqLanguage } from "./buyer-faq";
+import { buyerFaq, faqLanguages, recommendedVehiclePriceFromSalary, type FaqLanguage } from "./buyer-faq";
 import { hrefWithLanguage } from "./i18n";
 import styles from "./BuyerFaq.module.css";
 
@@ -25,9 +25,12 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [language, setLanguage] = useState<FaqLanguage | null>(null);
   const [question, setQuestion] = useState<number | null>(null);
+  const [grossSalary, setGrossSalary] = useState("");
   const t = language ? buyerFaq[language] : null;
   const selectedQuestion = t && question !== null ? t.questions[question] : null;
   const languageLabel = language ? faqLanguages.find((entry) => entry.code === language)?.label : null;
+  const salaryValue = Number(grossSalary);
+  const suggestedMaxPrice = recommendedVehiclePriceFromSalary(salaryValue);
   const whatsappMessage = t && languageLabel
     ? `${t.whatsappTopic}: ${selectedQuestion?.question ?? t.title}\n${t.whatsappLanguage}: ${languageLabel}`
     : "";
@@ -112,6 +115,27 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
                 <div className={styles.answer}>
                   <h3 ref={answerHeading} tabIndex={-1}>{selectedQuestion?.question}</h3>
                   <p>{selectedQuestion?.answer}</p>
+                  {selectedQuestion?.interaction === "salary" && (
+                    <div className={styles.salaryRecommendation}>
+                      <label htmlFor="buyer-faq-gross-salary">{t.salaryLabel}</label>
+                      <input
+                        id="buyer-faq-gross-salary"
+                        inputMode="decimal"
+                        min="0"
+                        placeholder={t.salaryPlaceholder}
+                        type="number"
+                        value={grossSalary}
+                        onChange={(event) => setGrossSalary(event.target.value)}
+                      />
+                      {suggestedMaxPrice > 0 && (
+                        <>
+                          <p>{t.salaryResult.replace("{amount}", suggestedMaxPrice.toLocaleString("en-MY"))}</p>
+                          <Link className={styles.guideLink} href={hrefWithLanguage(`/vehicles?maxPrice=${suggestedMaxPrice}`, language === "zh" ? "zh" : "en")} onClick={close}>{t.salaryBrowse}<ArrowRight size={16} aria-hidden="true" /></Link>
+                          <small>{t.salaryDisclaimer}</small>
+                        </>
+                      )}
+                    </div>
+                  )}
                   {selectedQuestion?.guide && <Link className={styles.guideLink} href={hrefWithLanguage(selectedQuestion.guide.href, language === "zh" ? "zh" : "en")} onClick={close}>{selectedQuestion.guide.label}<ArrowRight size={16} aria-hidden="true" /></Link>}
                   <button type="button" className={styles.textButton} onClick={() => { returnToQuestion.current = question; setQuestion(null); }}><ArrowLeft size={16} aria-hidden="true" />{t.back}</button>
                 </div>

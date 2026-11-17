@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Card, Form, Grid, Input, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Form, Grid, Input, Modal, Pagination, Select, Space, Tag, Typography, message } from "antd";
 import { OperationsProTable } from "../shared/OperationsProTable";
 import { actOnWhatsAppQueue, getWhatsAppQueue, humanizeApiError, saveWhatsAppConsent, type WhatsAppConsentInput, type WhatsAppQueue, type WhatsAppQueueItem } from "../../api";
 
@@ -10,6 +10,7 @@ export function WhatsAppSettings() {
   const [queue, setQueue] = useState<WhatsAppQueue>();
   const [state, setState] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,10 +19,10 @@ export function WhatsAppSettings() {
   const [modal, contextHolder] = Modal.useModal();
   const load = useCallback(async () => {
     setLoading(true);
-    try { setQueue(await getWhatsAppQueue(state, page)); setError(""); }
+    try { setQueue(await getWhatsAppQueue(state, page, pageSize)); setError(""); }
     catch (failure) { setQueue(undefined); setError(humanizeApiError(failure, "Could not load WhatsApp notifications.")); }
     finally { setLoading(false); }
-  }, [state, page]);
+  }, [state, page, pageSize]);
   useEffect(() => { void load(); }, [load]);
 
   const act = (row: WhatsAppQueueItem, action: "retry" | "suppress") => modal.confirm({
@@ -62,13 +63,13 @@ export function WhatsAppSettings() {
       <Select aria-label="Notification status" value={state} style={{ minWidth: 220 }} onChange={value => { setState(value); setPage(1); }} options={[{ value: "", label: "All statuses" }, ...states.map(value => ({ value, label: labels[value] ?? value }))]} />
       <Button loading={loading} onClick={() => void load()}>Refresh</Button>
     </Space>
-    {screens.md ? <OperationsProTable<WhatsAppQueueItem> search={false} columnFilters={false} rowKey="id" loading={loading} dataSource={queue?.items ?? []} pagination={false} scroll={{ x: 950 }} columns={[
+    {screens.md ? <OperationsProTable<WhatsAppQueueItem> search={false} columnFilters={false} rowKey="id" loading={loading} dataSource={queue?.items ?? []} pagination={{ current: page, pageSize, total: queue?.totalCount ?? queue?.items.length ?? 0, showSizeChanger: true, onChange: (next, size) => { setPage(size === pageSize ? next : 1); setPageSize(size); } }} scroll={{ x: 950 }} columns={[
       { title: "Recipient", dataIndex: "recipient" },
       { title: "Event / reference", render: (_, row) => <><div>{row.eventKind}</div><Typography.Text type="secondary" style={{ overflowWrap: "anywhere" }}>{row.businessReference || "Test"}</Typography.Text></> },
       { title: "Language / template", render: (_, row) => <><div>{row.language === "ms" ? "Bahasa Malaysia" : "English"}</div><Typography.Text type="secondary">{row.templateVersion}</Typography.Text></> },
       { title: "Status", dataIndex: "state", render: value => <Tag>{labels[value] ?? value}</Tag> },
       { title: "Attempts", dataIndex: "attempts" },
-      // The API orders before paging; a local sorter would reorder only these 25 rows.
+      // The API orders before paging; a local sorter would reorder only this server page.
       { title: "Created", dataIndex: "createdAt", sorter: false, render: value => new Date(value * 1000).toLocaleString() },
       { title: "Action", fixed: "right", render: (_, row) => actions(row) }
     ]} /> : <Space direction="vertical" className="fullWidth">
@@ -80,7 +81,7 @@ export function WhatsAppSettings() {
           <Typography.Text type="secondary">{row.attempts} attempts · {new Date(row.createdAt * 1000).toLocaleString()}</Typography.Text>{actions(row)}</Space>
       </Card>)}
     </Space>}
-    <Space><Button disabled={page === 1 || loading} onClick={() => setPage(page - 1)}>Previous</Button><Typography.Text>Page {page}</Typography.Text><Button disabled={loading || (queue?.items.length ?? 0) < 25} onClick={() => setPage(page + 1)}>Next</Button></Space>
+    {!screens.md && <Pagination current={page} pageSize={pageSize} total={queue?.totalCount ?? queue?.items.length ?? 0} showSizeChanger pageSizeOptions={[10, 20, 30]} disabled={loading} onChange={(next, size) => { setPage(size === pageSize ? next : 1); setPageSize(size); }} />}
     <Card title="Record consent and language">
       <Typography.Paragraph type="secondary">Use evidence of the recipient's agreement or withdrawal. Only the selected, approved language can be sent when production sending is enabled.</Typography.Paragraph>
       <Form form={form} layout="vertical" initialValues={{ language: "ms", optedIn: false }} onFinish={saveConsent} disabled={!queue?.captureEnabled || busy}>

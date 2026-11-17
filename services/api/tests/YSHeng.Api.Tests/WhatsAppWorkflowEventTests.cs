@@ -149,6 +149,34 @@ public sealed class WhatsAppWorkflowEventTests
         Assert.DoesNotContain("12345", body);
     }
 
+    [Fact]
+    public async Task Delivery_booking_event_is_available_to_each_active_staff_role()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        AddRole(db, "Delivery", "delivery-worker");
+        AddRole(db, "Finance", "finance-worker");
+        var vehicle = new Vehicle { PlateNumber = "BOOK123", Make = "Synthetic", Model = "Car", Year = 2024, Status = VehicleStatus.Available };
+        var delivery = new DeliverySchedule { VehicleId = vehicle.Id, ScheduledDate = new DateOnly(2026, 11, 18), Status = DeliveryStatus.Scheduled };
+        db.Vehicles.Add(vehicle);
+        db.DeliverySchedules.Add(delivery);
+        var captured = await WhatsAppWorkflowEvents.StageAsync(db, WhatsAppWorkflowEvents.DeliveryBookingCreated,
+            delivery.Id, 1, vehicle, "test", Now);
+        await db.SaveChangesAsync();
+
+        Assert.Equal("AllStaff", captured!.RequiredRole);
+        Assert.Equal("CompanyNews", captured.Category);
+        Assert.True(await WhatsAppWorkflowEvents.CurrentFactsAsync(db, captured, "delivery-worker", Now));
+        Assert.True(await WhatsAppWorkflowEvents.CurrentFactsAsync(db, captured, "finance-worker", Now));
+        var body = WhatsAppWorkflowEvents.RenderBody(captured, vehicle, "en_US");
+        Assert.Contains("new delivery booking created", body);
+        Assert.DoesNotContain("RM", body);
+
+        db.Entry(delivery).Property(item => item.Status).CurrentValue = DeliveryStatus.Cancelled;
+        await db.SaveChangesAsync();
+        Assert.False(await WhatsAppWorkflowEvents.CurrentFactsAsync(db, captured, "delivery-worker", Now));
+    }
+
     private static void AddRole(AppDbContext db, string role, string userId)
     {
         if (!db.Roles.Local.Any(item => item.Id == role)) db.Roles.Add(new IdentityRole { Id = role, Name = role, NormalizedName = role.ToUpperInvariant() });

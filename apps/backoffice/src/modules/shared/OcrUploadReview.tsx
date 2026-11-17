@@ -165,6 +165,7 @@ export function OcrUploadReview({
   existingValues,
   uploadOwner,
   onUploaded,
+  onCompleted,
   onApply
 }: {
   vehicleId?: string;
@@ -179,6 +180,7 @@ export function OcrUploadReview({
   existingValues?: OcrReviewValues;
   uploadOwner?: DocumentUploadOwner;
   onUploaded?: () => void;
+  onCompleted?: () => void | Promise<void>;
   onApply: (values: OcrReviewValues, job: OcrJob) => void | Promise<void>;
 }) {
   const [form] = Form.useForm<OcrReviewValues>();
@@ -205,9 +207,12 @@ export function OcrUploadReview({
     setAnalyzeProgress(0);
     form.resetFields();
     return () => { requestVersion.current += 1; };
-  }, [vehicleId, category, uploadOwner?.ownershipType, uploadOwner?.ownerId, uploadOwner?.customerId, uploadOwner?.repairJobId, uploadOwner?.paymentRecordId, uploadOwner?.collectionTransactionId, uploadOwner?.deliveryScheduleId, form]);
+  }, [vehicleId, category, uploadOwner?.ownershipType, uploadOwner?.ownerId, uploadOwner?.customerId, uploadOwner?.repairJobId, uploadOwner?.paymentRecordId, uploadOwner?.collectionTransactionId, uploadOwner?.deliveryScheduleId, uploadOwner?.loanApplicationId, uploadOwner?.loanBankOptionId, form]);
   const declaredAmount = Form.useWatch("amount", form) as string | number | undefined;
-  const lineItemColumns = ocrLineItemColumns(updateLineItem, removeLineItem);
+  const lineItemColumns = (ocrLineItemColumns(updateLineItem, removeLineItem) as ColumnsType<OcrLineItem>).map(column => ({
+    ...column,
+    ...("render" in column ? { render: (value: unknown, record: OcrLineItem) => column.render?.(value, record, lineItems.indexOf(record)) } : {})
+  }));
   const declaredAmountNumber = parseOcrAmount(declaredAmount);
   const declaredAmountForDisplay = declaredAmountNumber ?? 0;
   const lineItemsTotal = lineItems.reduce((sum, item) => sum + (parseOcrAmount(item.amount) ?? 0), 0);
@@ -311,6 +316,7 @@ export function OcrUploadReview({
       pendingApply.current = undefined;
       setSavedStep(undefined);
       setReviewOpen(false);
+      await onCompleted?.();
       message.success("OCR review complete. Check the linked form or record before continuing.");
     } catch (error) {
       if (!isCurrent()) return;
@@ -473,11 +479,11 @@ export function OcrUploadReview({
                 <OperationsProTable<OcrLineItem>
                   className="ocrLineItemsTable"
                   size="small"
-                  rowKey={(_, index) => String(index)}
+                  rowKey={record => String(lineItems.indexOf(record))}
                   columns={lineItemColumns as ColumnsType<OcrLineItem>}
                   dataSource={lineItems}
                   search={false}
-                  pagination={false}
+                  pagination={{ defaultPageSize: 10, showSizeChanger: true }}
                   scroll={{ x: 840 }}
                   locale={{ emptyText: "No line item descriptions detected. Add one manually." }}
                 />

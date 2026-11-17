@@ -569,7 +569,7 @@ describe("workflow list query controls", () => {
   }];
   it("keeps compact mobile filters while loan tables expose the native desktop query form", () => {
     const loanMarkup = renderToStaticMarkup(createElement(LoanPage, {
-      vehicles, customers, loans, roles: ["Loan"], dashboardFocus: {}, onClearDashboardFocus: () => {}, onBackToList: () => {}, onCreate: () => {}, onUpdate: () => {}, onDecide: async () => {}, onUploadDocument: async () => {}
+      vehicles, customers, loans, currentUser: { isAuthenticated: true, id: "loan-user", roles: ["Loan"] }, roles: ["Loan"], dashboardFocus: {}, onClearDashboardFocus: () => {}, onBackToList: () => {}, onCreate: () => {}, onTake: async () => {}, onUpdate: () => {}, onRefresh: async () => {}, onDecide: async () => {}, onUploadDocument: async () => {}
     }));
     const deliveryMarkup = renderToStaticMarkup(createElement(DeliveryPage, {
       vehicles, dashboardFocus: {}, onClearDashboardFocus: () => {}, onOpenCustomer: () => {}

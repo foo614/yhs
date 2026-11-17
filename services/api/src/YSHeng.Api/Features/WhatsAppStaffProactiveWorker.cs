@@ -15,6 +15,8 @@ public sealed class WhatsAppStaffProactiveWorker(IServiceScopeFactory scopes,
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             await TryRunAsync("due", async db => await WhatsAppDueDigest.EnqueueForVerifiedBindingsAsync(
                 db, assistant, now, "whatsapp-proactive", ct: stoppingToken), stoppingToken);
+            await TryRunAsync("loan-follow-up", async db => await WhatsAppLoanFollowUps.EnqueueForVerifiedBindingsAsync(
+                db, assistant, now, "whatsapp-proactive", stoppingToken), stoppingToken);
             await TryRunAsync("inspection", db => WhatsAppInspectionReminders.EnqueueAsync(db, assistant, now, stoppingToken), stoppingToken);
             await TryRunAsync("calendar", db => WhatsAppCalendarTasks.EnqueueAsync(db, assistant, now, stoppingToken), stoppingToken);
             await TryRunAsync("hr", async db => await WhatsAppHrNotifications.EnqueueCurrentDayAsync(

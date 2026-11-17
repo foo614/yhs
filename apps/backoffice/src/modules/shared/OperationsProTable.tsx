@@ -383,6 +383,7 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
 }: OperationsProTableProps<RecordType, Params>) {
   const [searchValues, setSearchValues] = useState<Record<string, unknown>>({});
   const [searchPage, setSearchPage] = useState(1);
+  const [selectedPageSize, setSelectedPageSize] = useState(10);
   const [mobile, setMobile] = useState(false);
   const [mobileKeyword, setMobileKeyword] = useState("");
   const [mobileDraft, setMobileDraft] = useState<Record<string, unknown>>(nativeSearch?.values ?? {});
@@ -450,17 +451,28 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
     [dataSource, nativeSearch, searchValues, mobile, mobileKeyword, tableColumns]
   );
   const defaultSearchActive = Boolean(mobile && mobileKeyword.trim()) || Object.values(searchValues).some((value) => value !== undefined && value !== null && String(value).trim() !== "");
-  const filteredPagination = defaultSearchActive && pagination && typeof pagination === "object"
+  const configuredPagination = pagination === false ? false : {
+    ...pagination,
+    defaultPageSize: 10,
+    pageSize: pagination?.showSizeChanger ? pagination.pageSize ?? selectedPageSize : selectedPageSize,
+    showSizeChanger: true,
+    pageSizeOptions: [10, 20, 30],
+    onChange: (page: number, pageSize: number) => {
+      setSelectedPageSize(pageSize);
+      pagination?.onChange?.(page, pageSize);
+    }
+  };
+  const filteredPagination = defaultSearchActive && configuredPagination
     ? {
-      ...pagination,
+      ...configuredPagination,
       current: searchPage,
-      total: Array.isArray(filteredDataSource) ? filteredDataSource.length : pagination.total,
+      total: Array.isArray(filteredDataSource) ? filteredDataSource.length : configuredPagination.total,
       onChange: (page: number, pageSize: number) => {
         setSearchPage(page);
-        if (pageSize !== pagination.pageSize) pagination.onChange?.(page, pageSize);
+        configuredPagination.onChange(page, pageSize);
       }
     }
-    : pagination;
+    : configuredPagination;
 
   return (
     <ProConfigProvider intl={enUSIntl}>

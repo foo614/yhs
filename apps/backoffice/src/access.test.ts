@@ -33,6 +33,7 @@ describe("backoffice role access", () => {
     expect(canAccessRoute(["Sales"], "/leads")).toBe(true);
     expect(canAccessRoute(["Sales"], "/audit-log")).toBe(false);
     expect(canAccessRoute(["Sales"], "/finance")).toBe(true);
+    expect(canAccessRoute(["Sales"], "/loans")).toBe(true);
     expect(canAccessRoute(["Sales"], "/cash-custody")).toBe(false);
     expect(canAccessRoute(["Sales"], "/customer-360")).toBe(true);
     expect(canAccessRoute(["Finance"], "/finance")).toBe(true);
@@ -74,7 +75,7 @@ describe("backoffice role access", () => {
     expect(backOfficeDataKeysForRoles(["Loan"])).toEqual(["vehicleLookup", "customers", "loans", "hrAttendance", "hrDashboard", "hrAvailabilityCalendar", "hrReminders", "hrReminderPolicies", "hrBusinessTrips", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["Repair"])).toEqual(["vehicleLookup", "supplierInvoices", "repairs", "hrAttendance", "hrDashboard", "hrAvailabilityCalendar", "hrReminders", "hrReminderPolicies", "hrBusinessTrips", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["Delivery"])).toEqual(["vehicleLookup", "deliveries", "hrAttendance", "hrDashboard", "hrAvailabilityCalendar", "hrReminders", "hrReminderPolicies", "hrBusinessTrips", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
-    expect(backOfficeDataKeysForRoles(["Sales"])).toEqual(["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "cashHandovers", "cashHandoverPaymentLookup", "leads", "hrAttendance", "hrDashboard", "hrAvailabilityCalendar", "hrReminders", "hrReminderPolicies", "hrBusinessTrips", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
+    expect(backOfficeDataKeysForRoles(["Sales"])).toEqual(["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "loans", "cashHandovers", "cashHandoverPaymentLookup", "leads", "hrAttendance", "hrDashboard", "hrAvailabilityCalendar", "hrReminders", "hrReminderPolicies", "hrBusinessTrips", "hrLeaveRequests", "hrLeaveBalances", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
     expect(backOfficeDataKeysForRoles(["HrSalary"])).toEqual(["hrStaffUsers", "hrAttendance", "hrDashboard", "hrAvailabilityCalendar", "hrReminders", "hrReminderPolicies", "hrBusinessTrips", "hrLeaveRequests", "hrLeaveBalances", "hrLeavePolicies", "hrLeaveAdjustments", "hrPayrollProfiles", "hrPayPeriods", "hrPayslips"]);
   });
 

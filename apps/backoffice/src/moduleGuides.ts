@@ -416,7 +416,7 @@ const loanGuide: ModuleGuideDefinition = {
     },
     {
       title: "Maintain status and documents / 更新状态与文件",
-      description: "Maintain the supported loan status and LOU fields, follow the 3-day reminder, and upload every required document."
+      description: "Maintain the supported loan status and LOU fields, follow the 2-day reminder, and upload every required document."
     },
     {
       title: "Complete the LOU handoff / 完成 LOU 交接",
@@ -430,7 +430,7 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Loan and Boss/Admin",
       purpose: "Find an application and review status, LOU, documents, and follow-up reminders.",
-      actions: ["Filter by plate, customer, phone, status, or document completeness.", "Review Submitted date and the 3-day follow-up indicator.", "Open Details.", "Use the displayed next action only after checking evidence."],
+      actions: ["Filter by plate, customer, phone, status, or document completeness.", "Review the created date and the 2-day follow-up indicator.", "Open Details.", "Take a pending case before processing it, then use the displayed next action only after checking evidence."],
       requiredItems: ["Correct vehicle", "Correct confirmed customer"],
       completeWhen: "The current status and document state are understood and the next action is owned.",
       handoff: "Loan Details.",
@@ -442,7 +442,7 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Loan and Boss/Admin",
       purpose: "Move the loan through supported states without bypassing LOU or document checks.",
-      actions: ["Submit Draft to Pending.", "From Pending, record approval or record rejection with the bank or decision reason.", "From Approved, select Mark Done, review the buyer and required documents, then confirm completion.", "Treat Rejected and Done as review-only terminal states in the current UI."],
+      actions: ["Submit Draft to Pending.", "From Pending, complete the bank/LOU workflow or record a rejection with the bank or decision reason.", "From Approved, select Mark Done, review the buyer and required documents, then confirm completion.", "Treat Rejected and Done as review-only terminal states in the current UI."],
       requiredItems: ["Submitted date for active states", "Rejection reason for Rejected", "LOU Approved for Approved or Done", "LOU Done and all documents for Done"],
       completeWhen: "Status is valid and Done only after the LOU and document requirements are satisfied.",
       handoff: "Delivery and Finance.",
@@ -465,12 +465,12 @@ const loanGuide: ModuleGuideDefinition = {
       label: "Loan Documents / 贷款文件",
       kind: "section",
       audience: "Loan uploads Loan Document; Broker supplies shared vehicle files; Boss/Admin may upload all",
-      purpose: "Complete the four-document checklist for the current vehicle and buyer.",
-      actions: ["Review missing items.", "Choose the correct category and preview the file before confirming upload.", "Upload the Loan Document.", "Request Broker-owned VOC, AP Document, and Status Receipt through Vehicles.", "Preview or download uploaded evidence when checking it.", "Mark Done only when the checklist is Complete."],
-      requiredItems: ["VOC", "AP Document", "Status Receipt", "Loan Document", "Every file linked to the same vehicle and current buyer"],
+      purpose: "Complete the original-document requirement for the current vehicle and buyer while keeping edited copies and the LOU separate.",
+      actions: ["Review missing items.", "Choose the correct category and preview the file before confirming upload.", "Request or review Broker-provided original Loan documents.", "Upload optional edited Loan documents or the LOU when available.", "Preview or download uploaded evidence when checking it.", "Mark Done only when at least one original Loan document is present."],
+      requiredItems: ["At least one original Loan document", "Optional edited Loan documents", "Optional LOU", "Every file linked to the same vehicle and current buyer"],
       completeWhen: "The API reports the loan document checklist Complete.",
       handoff: "Status Done, then Delivery and Finance.",
-      warnings: ["Loan role can upload Loan Document only; Boss/Admin can upload all four.", "Inline preview supports PDF, JPEG, PNG, and WebP; other allowed upload types remain download-only.", "A file for another buyer or vehicle never satisfies this loan."]
+      warnings: ["Broker supplies original Loan documents; Loan role uploads edited copies and LOU; Boss/Admin can upload all.", "Inline preview supports PDF, JPEG, PNG, and WebP; other allowed upload types remain download-only.", "A file for another buyer or vehicle never satisfies this loan."]
     },
     {
       key: "manual-loan",
@@ -490,8 +490,8 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Loan and Boss/Admin",
       purpose: "Confirm a financed sale is ready for downstream delivery and finance work.",
-      actions: ["Confirm canonical buyer.", "Confirm Submitted date.", "Confirm LOU Approved and LOU Done.", "Confirm all four documents.", "Set Done and notify Delivery/Finance."],
-      requiredItems: ["Canonical buyer", "Submitted date", "LOU Approved", "LOU Done", "Complete four-document checklist"],
+      actions: ["Confirm canonical buyer.", "Confirm Submitted date.", "Confirm LOU Approved and LOU Done.", "Confirm at least one original Loan document and review optional edited/LOU files.", "Set Done and notify Delivery/Finance."],
+      requiredItems: ["Canonical buyer", "Submitted date", "LOU Approved", "LOU Done", "At least one original Loan document"],
       completeWhen: "The loan is Done with every gate satisfied.",
       handoff: "Financed sale to Delivery and Finance; cash sale may skip Loan.",
       warnings: ["Done remains an active loan state and the vehicle stays Loan Processing/private until payment reconciliation derives Sold.", "Rejected and Done have no reopen action."]

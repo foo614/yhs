@@ -7,13 +7,16 @@ export const routes = (process.env.RESPONSIVE_ROUTES ?? "dashboard,vehicles,repa
 export const widths = (process.env.RESPONSIVE_WIDTHS ?? "360,390,720,721,767,768,820,1024,1025,1440").split(",").map(Number);
 const vehicle = { id: "test-vehicle", plateNumber: "TEST1234", make: "Toyota", model: "Corolla Cross Hybrid Premium", year: 2024, stockOwner: "YSHeng", customerId: "test-customer", status: "Available", isPublic: false, purchasePrice: 80000, sellingPrice: 98000, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, bossConfirmed: true };
 const fixtures = {
+  "/api/dashboard/updates": { news: [], reminders: [] },
   "/api/auth/me": { isAuthenticated: true, id: "responsive-test", name: "Layout Test", roles: ["BossAdmin"] },
   "/api/vehicles": [vehicle],
   "/api/vehicle-lookup": [vehicle],
   "/api/finance/vehicle-options": [vehicle],
+  "/api/repair-review": [{ id: "test-invoice", repairId: "test-repair", supplierInvoiceId: "test-invoice", vehicleId: vehicle.id, plateNumber: vehicle.plateNumber, invoiceNumber: "SYNTHETIC-RECEIPT-123", supplierName: "Synthetic supplier", receiptDate: "2026-11-01", amount: 1200, status: "Approved", needsReview: false }],
   "/api/repairs": [{ id: "test-repair", vehicleId: vehicle.id, repairPart: "Air conditioning compressor and condenser", whatToDo: "Inspect and replace the damaged assembly after review", cost: 1200, checklistDone: false, approvalStatus: "Approved" }],
   "/api/loans": [{ id: "test-loan", vehicleId: vehicle.id, customerId: "test-customer", status: "Pending", louApproved: false, louDone: false, submittedAt: "2026-09-01" }],
-  "/api/loans/test-loan/document-check": { isComplete: false, missingCategories: ["StatusReceipt", "Voc", "LoanDocument"] },
+  "/api/loans/test-loan/banks": [{ id: "test-bank", loanApplicationId: "test-loan", bankName: "Example Bank", status: "Pending", isSelected: false, loanAmount: 80000, interestRate: 3.2, tenureMonths: 60 }],
+  "/api/loans/test-loan/document-check": { isComplete: false, missingCategories: ["LoanOriginalDocument"] },
   "/api/customers": [{ id: "test-customer", name: "Synthetic Customer With A Longer Display Name", phone: "0000000000" }],
   "/api/leads": [{ id: "test-lead", vehicleId: vehicle.id, customerName: "Synthetic Customer With A Longer Display Name", phone: "0000000000", status: "New", createdAt: "2026-09-01T10:00:00Z", message: "Please arrange a viewing and explain the available finance options." }],
   "/api/deliveries/workboard": [{ id: "test-delivery", vehicleId: vehicle.id, plateNumber: vehicle.plateNumber, vehicleLabel: "2024 Toyota Corolla Cross Hybrid Premium", customerName: "Synthetic Customer With A Longer Display Name", picName: "Layout Test", status: "PreparingDocuments", stage: "ClearDocuments", stageLabel: "Clear documents", nextAction: "Check insurance and road tax documents", scheduledDate: "2026-09-20", deliveryType: "Standard", financeCleared: false, canRelease: false, terminal: false, missingCategories: ["Policy", "RoadTaxReceipt"], evidence: [], polishDone: true, tintedDone: true, washDone: true, documentsPrepared: false, inspectionDone: true, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false }],
@@ -644,6 +647,35 @@ async function verifyDashboardClarity() {
   diagnostics.dashboardFailureChecks = "Summary, actions and calendar failures were injected as HTTP 503; unaffected panels and last successful timestamps verified.";
 }
 
+async function verifyRepairReviewTotal() {
+  const pattern = "**/api/repair-review";
+  const rows = Array.from({ length: 25 }, (_, index) => ({ ...fixtures["/api/repair-review"][0], id: `review-${index}`, supplierInvoiceId: `invoice-${index}`, plateNumber: index < 15 ? "GROUPA" : "GROUPB", amount: 100 }));
+  await page.route(pattern, route => route.fulfill({ json: rows }));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const panel = page.locator(".repairReviewPanel");
+  const total = panel.getByText(/Total amount \/ 总金额/);
+  await expect(total).toContainText("RM 2,500.00");
+  const records = width <= 720 ? panel.locator(".mobileRecordCard:visible") : panel.locator("tbody tr.ant-table-row:visible");
+  await expect(records).toHaveCount(10);
+  const chooser = panel.locator(".ant-pagination-options:visible .ant-select");
+  await expect(chooser).toBeVisible();
+  await chooser.click();
+  await page.locator(".ant-select-item-option").filter({ hasText: /^20 \/ page$/ }).click();
+  await expect(records).toHaveCount(20);
+  await expect(total).toContainText("RM 2,500.00");
+  await chooser.click();
+  await page.locator(".ant-select-item-option").filter({ hasText: /^10 \/ page$/ }).click();
+  await expect(records).toHaveCount(10);
+  if (width <= 720) await panel.getByRole("textbox", { name: "Car plate", exact: true }).fill("GROUPA");
+  else {
+    await panel.locator('input[id$="plate"]').fill("GROUPA");
+    await panel.getByRole("button", { name: "Search", exact: true }).click();
+  }
+  await expect(total).toContainText("RM 1,500.00");
+  await inspect("repair-filtered-total", width);
+  await page.unroute(pattern);
+}
+
 try {
   await page.setViewportSize({ width, height: Number(process.env.RESPONSIVE_HEIGHT ?? 900) });
   for (const route of routes) {
@@ -667,6 +699,7 @@ try {
       }
       const checkInteractions = process.env.RESPONSIVE_INTERACTIONS === "1" || (process.env.RESPONSIVE_INTERACTIONS !== "0" && [360, 820, 1440].includes(width));
       if (checkInteractions) {
+        if (route === "repairs") await verifyRepairReviewTotal();
         if (route === "leads") await verifyLeadRecovery();
         if (route === "loans") await verifyLoanCompletion();
         if (route === "admin" && [360, 820, 1440].includes(width)) {

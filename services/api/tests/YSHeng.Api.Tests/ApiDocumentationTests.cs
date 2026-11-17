@@ -118,7 +118,7 @@ public sealed class ApiDocumentationTests
     }
 
     [Fact]
-    public void Manual_loan_creation_is_boss_admin_only_while_normal_loan_workflow_stays_loans_authorized()
+    public void Broker_loan_creation_is_separate_from_processor_only_workflow_actions()
     {
         var root = FindRepositoryRoot();
         var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
@@ -137,12 +137,16 @@ public sealed class ApiDocumentationTests
             program.IndexOf("backOffice.MapGet(\"/loans/{id:guid}/document-check\"", StringComparison.Ordinal)..
             program.IndexOf("backOffice.MapGet(\"/deliveries/{id:guid}/release-readiness\"", StringComparison.Ordinal)];
 
-        Assert.Contains("}).RequireAuthorization(\"BossAdmin\");", createRoute);
-        Assert.DoesNotContain("}).RequireAuthorization(\"Loans\");", createRoute);
+        Assert.Contains("}).RequireAuthorization(\"LoanCreate\");", createRoute);
+        Assert.DoesNotContain("}).RequireAuthorization(\"BossAdmin\");", createRoute);
         Assert.Contains("}).RequireAuthorization(\"Loans\");", decisionRoute);
-        Assert.Contains("}).RequireAuthorization(\"Loans\");", updateRoute);
-        Assert.Contains("}).RequireAuthorization(\"Loans\");", documentCheckRoute);
-        Assert.Contains("| `POST` | `/api/loans` | `BossAdmin` |", apiDocumentation);
+        Assert.Contains("}).RequireAuthorization(\"LoanRead\");", updateRoute);
+        Assert.Contains("}).RequireAuthorization(\"LoanRead\");", documentCheckRoute);
+        Assert.Contains("| `POST` | `/api/loans` | `LoanCreate` (`BossAdmin`, `Loan`, `Sales`) |", apiDocumentation);
+        Assert.Contains("| `POST` | `/api/loans/{id}/take` | `Loans` |", apiDocumentation);
+        Assert.Contains("| `GET` | `/api/loans/{id}/banks` | `LoanRead` |", apiDocumentation);
+        Assert.Contains("| `POST` | `/api/loans/{id}/banks` | `Loans` |", apiDocumentation);
+        Assert.Contains("| `PUT` | `/api/loans/{id}/banks/{bankId}` | `Loans` |", apiDocumentation);
     }
 
     [Fact]
@@ -293,6 +297,12 @@ public sealed class ApiDocumentationTests
 
         var documentedPaths = ExtractDocumentedPaths(apiDocs).ToArray();
         var mappedRoutes = ExtractMappedRoutes(program).ToHashSet();
+        foreach (var feature in new[] { "LoanBankWorkflow.cs", "LoanBuyerIntake.cs" })
+        {
+            var source = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", feature));
+            foreach (Match match in Regex.Matches(source, @"(?:routes|endpoints)\.Map(?:Get|Post|Put|Delete)\(""(?<path>/[^""]+)"""))
+                mappedRoutes.Add(NormalizeRoute($"/api{match.Groups["path"].Value}"));
+        }
         var implicitIdentityRoutes = new HashSet<string> { NormalizeRoute("/api/auth/login") };
 
         var missing = documentedPaths
@@ -449,6 +459,7 @@ public sealed class ApiDocumentationTests
         AssertDocumentedEnum<VehicleStatus>(apiDocs);
         AssertDocumentedEnum<LeadStatus>(apiDocs);
         AssertDocumentedEnum<LoanStatus>(apiDocs);
+        AssertDocumentedEnum<LoanBankOptionStatus>(apiDocs);
         AssertDocumentedEnum<DeliveryStatus>(apiDocs);
         AssertDocumentedEnum<PaymentStatus>(apiDocs);
         AssertDocumentedEnum<CollectionStatus>(apiDocs);

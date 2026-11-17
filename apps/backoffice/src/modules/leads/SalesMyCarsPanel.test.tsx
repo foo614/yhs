@@ -83,7 +83,7 @@ describe("Cars I’m Handling", () => {
   });
 
   it("paginates the Boss mobile all-agent view while keeping the desktop data source complete", () => {
-    const items = Array.from({ length: 8 }, (_, index) => ({
+    const items = Array.from({ length: 12 }, (_, index) => ({
       ...workboard.items[0],
       vehicleId: `vehicle-${index + 1}`,
       plateNumber: `TEST ${index + 1}`
@@ -94,7 +94,7 @@ describe("Cars I’m Handling", () => {
       autoLoad: false
     }));
 
-    expect(markup.match(/salesMyCarsMobileCard/g) ?? []).toHaveLength(6);
+    expect(markup.match(/salesMyCarsMobileCard/g) ?? []).toHaveLength(10);
     expect(markup).toContain("TEST 8");
     expect(markup).toContain("ant-pagination");
   });

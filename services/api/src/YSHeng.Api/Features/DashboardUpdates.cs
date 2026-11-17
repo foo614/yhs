@@ -71,7 +71,7 @@ public static class DashboardUpdates
             if (!vehicleById.TryGetValue(loan.VehicleId, out var vehicle)) continue;
             var activity = audits.Where(x => x.EntityId == loan.Id).OrderBy(x => x.CreatedAt).ToList();
             var created = activity.FirstOrDefault(x => x.Action == "loan.created");
-            var handled = activity.LastOrDefault(x => x.Action is "loan.updated" or "loan.approved" or "loan.rejected");
+            var handled = activity.LastOrDefault(x => x.Action is "loan.take" or "loan.updated" or "loan.approved" or "loan.rejected");
             var date = loan.SubmittedAt ?? (created is null ? (DateOnly?)null : DateOnly.FromDateTime(created.CreatedAt));
             var path = boss || loanStaff ? $"/loans?loanId={loan.Id}" : VehiclePath(vehicle);
             var item = new DashboardUpdate($"loan:{loan.Id}", "Loan", "Loan case / 贷款个案", loan.Status.ToString(),
@@ -81,10 +81,10 @@ public static class DashboardUpdates
             if ((boss || broker || loanStaff) && loan.LouApproved && loan.DecisionAt.HasValue && DateOnly.FromDateTime(loan.DecisionAt.Value) >= cutoff)
                 news.Add(item with { Id = $"approved:{loan.Id}", Kind = "LoanApproved", Title = "Loan approved / 贷款已批",
                     OccurredAt = loan.DecisionAt, RecordedBy = loan.DecisionBy,
-                    LouDocumentId = DepartmentAccess.CanViewDocument(roles, FileCategory.LoanDocument)
+                    LouDocumentId = (boss || loanStaff)
                         ? documents.FirstOrDefault(x => x.LoanApplicationId == loan.Id && x.VehicleId == vehicle.Id)?.Id : null });
-            var ownLoan = broker && Owns(vehicle) || loanStaff && !string.IsNullOrWhiteSpace(actor) && activity.Any(x => x.Actor == actor);
-            if (loan.Status is not (LoanStatus.Done or LoanStatus.Rejected) && (boss || ownLoan)) reminders.Add(item);
+            var ownLoan = broker && Owns(vehicle) || loanStaff && !string.IsNullOrWhiteSpace(actor) && string.Equals(loan.TakenByUserId, actor, StringComparison.Ordinal);
+            if (loan.Status is not (LoanStatus.Done or LoanStatus.Rejected) && loan.SubmittedAt is not null && ReminderRules.LoanFollowUpDate(loan).AddDays(2) <= today && (boss || ownLoan)) reminders.Add(item);
         }
         foreach (var delivery in deliveries)
         {

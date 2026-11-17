@@ -12,8 +12,9 @@ import {
 import { ProCard } from "@ant-design/pro-components";
 import dayjs, { type Dayjs } from "dayjs";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
-import { compareRecordDates, newestRecordsFirst } from "../../recordDates";
+import { compareRecordDates } from "../../recordDates";
 import { DocumentPreviewDrawer, documentPreviewKind } from "../shared/DocumentPreviewDrawer";
+import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import {
   Alert,
   Button,
@@ -26,6 +27,7 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   Modal,
   Pagination,
   Select,
@@ -55,6 +57,7 @@ import {
   uploadVehicleDocument,
   vehicleDocumentContentUrl,
   type DeliveryActivity,
+  type DeliveryEvidenceItem,
   type DeliveryPicOption,
   type DeliverySchedule,
   type DeliveryWorkboardItem,
@@ -64,7 +67,7 @@ import {
   type VehicleLookup
 } from "../../api";
 
-const stageOrder: DeliveryWorkboardStage[] = ["PlanDelivery", "PrepareCar", "ClearDocuments", "Handover"];
+const stageOrder: DeliveryWorkboardStage[] = ["PlanDelivery", "ClearDocuments", "Handover"];
 
 const stageMeta: Record<DeliveryWorkboardStage, { label: string; shortLabel: string; color: string }> = {
   PlanDelivery: { label: "Plan delivery / 安排交车", shortLabel: "Plan delivery", color: "blue" },
@@ -76,9 +79,10 @@ const stageMeta: Record<DeliveryWorkboardStage, { label: string; shortLabel: str
 };
 
 const evidenceLabels: Partial<Record<DocumentCategory, string>> = {
+  Voc: "New VOC / 新VOC",
   InspectionReport: "Inspection report / 检查报告",
   DeliveryDocument: "Delivery documents / 交车文件",
-  Policy: "Insurance policy / 保险保单",
+  Policy: "Policy / endorsement / credit note / 保单／批单／贷项通知",
   RoadTaxReceipt: "Road tax / 路税",
   HandoverPhoto: "Handover photo / 交车照片",
   SignedHandover: "Signed handover / 签署交车单"
@@ -92,9 +96,10 @@ export type DeliveryWorkboardFilters = {
 
 export type DeliveryQueueFilter = "All" | "ThisWeek" | "NeedsAction" | "Ready" | "Outstation";
 
-export function filterDeliveryWorkboard(items: readonly DeliveryWorkboardItem[], filters: DeliveryWorkboardFilters) {
+export function filterDeliveryWorkboard(items: readonly DeliveryWorkboardItem[], filters: DeliveryWorkboardFilters, today = singaporeDateString()) {
   const keyword = filters.keyword?.trim().toLowerCase();
   return items.filter((item) => {
+    if (!keyword && (!filters.stage || filters.stage === "All") && item.status === "Released" && item.releasedAt && item.releasedAt.slice(0, 10) < addCalendarDays(today, -7)) return false;
     if (filters.stage && filters.stage !== "All" && item.stage !== filters.stage) return false;
     if (filters.picUserId && filters.picUserId !== "All" && item.picUserId !== filters.picUserId) return false;
     if (!keyword) return true;
@@ -110,6 +115,13 @@ export function filterDeliveryQueue(items: readonly DeliveryWorkboardItem[], que
   if (queue === "Ready") return items.filter((item) => item.canRelease);
   if (queue === "Outstation") return items.filter((item) => !item.terminal && item.deliveryType === "Outstation");
   return [...items];
+}
+
+export function nearestDeliveryFirst(items: readonly DeliveryWorkboardItem[]) {
+  return [...items].sort((left, right) => {
+    const dateOrder = `${left.scheduledDate}T${left.scheduledTime || "00:00"}`.localeCompare(`${right.scheduledDate}T${right.scheduledTime || "00:00"}`);
+    return dateOrder || left.id.localeCompare(right.id);
+  });
 }
 
 export function eligibleDeliveryVehicles(vehicles: readonly VehicleLookup[], deliveries: readonly DeliveryWorkboardItem[], loans: readonly LoanApplication[]) {
@@ -191,9 +203,13 @@ function deliveryScheduleFromItem(item: DeliveryWorkboardItem, patch: Partial<De
     notificationSent: item.notificationSent,
     twoDayNoticeSent: item.twoDayNoticeSent,
     insuranceHandled: item.insuranceHandled,
+    insuranceCompany: item.insuranceCompany,
+    insurancePrice: item.insurancePrice,
+    insuranceSumInsured: item.insuranceSumInsured,
     insurancePolicyReference: item.insurancePolicyReference,
     insuranceExpiryDate: item.insuranceExpiryDate,
     roadTaxHandled: item.roadTaxHandled,
+    roadTaxPaidViaEAuto: item.roadTaxPaidViaEAuto,
     roadTaxReceiptReference: item.roadTaxReceiptReference,
     roadTaxExpiryDate: item.roadTaxExpiryDate,
     windscreenInsuranceHandled: item.windscreenInsuranceHandled,
@@ -292,6 +308,8 @@ export function DeliveryWorkboardPage({
   const [picFilter, setPicFilter] = useState<string | "All">("All");
   const [queueFilter, setQueueFilter] = useState<DeliveryQueueFilter>("All");
   const [mobilePage, setMobilePage] = useState(1);
+  const [desktopPage, setDesktopPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [selectedId, setSelectedId] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
   const [activity, setActivity] = useState<DeliveryActivity[]>([]);
@@ -382,21 +400,21 @@ export function DeliveryWorkboardPage({
   const eligibleVehicles = useMemo(() => eligibleDeliveryVehicles(vehicles, items, loans), [vehicles, items, loans]);
   const today = singaporeDateString();
   const weekEndDate = addCalendarDays(today, 7);
-  const filteredItems = useMemo(() => newestRecordsFirst(filterDeliveryQueue(filterDeliveryWorkboard(items, {
+  const filteredItems = useMemo(() => nearestDeliveryFirst(filterDeliveryQueue(filterDeliveryWorkboard(items, {
     keyword,
     stage: stageFilter,
     picUserId: picFilter
-  }), queueFilter, today), item => `${item.scheduledDate}T${item.scheduledTime || "00:00"}`), [items, keyword, stageFilter, picFilter, queueFilter, today]);
+  }), queueFilter, today)), [items, keyword, stageFilter, picFilter, queueFilter, today]);
   const thisWeekCount = items.filter((item) => !item.terminal && item.scheduledDate >= today && item.scheduledDate <= weekEndDate).length;
   const needsActionCount = items.filter((item) => deliveryNeedsAction(item, today)).length;
   const readyCount = items.filter((item) => item.canRelease).length;
   const outstationCount = items.filter((item) => !item.terminal && item.deliveryType === "Outstation").length;
-  const mobilePageSize = 6;
-  const clampedMobilePage = Math.min(mobilePage, Math.max(1, Math.ceil(filteredItems.length / mobilePageSize)));
-  const mobileItems = filteredItems.slice((clampedMobilePage - 1) * mobilePageSize, clampedMobilePage * mobilePageSize);
+  const clampedMobilePage = Math.min(mobilePage, Math.max(1, Math.ceil(filteredItems.length / pageSize)));
+  const mobileItems = filteredItems.slice((clampedMobilePage - 1) * pageSize, clampedMobilePage * pageSize);
 
   useEffect(() => {
     setMobilePage(1);
+    setDesktopPage(1);
   }, [keyword, stageFilter, picFilter, queueFilter]);
 
   const toggleQueueFilter = (filter: Exclude<DeliveryQueueFilter, "All">) => {
@@ -520,7 +538,7 @@ export function DeliveryWorkboardPage({
           transportMethod: rescheduleType === "Outstation" ? rescheduleTransport.trim() : undefined,
           rescheduleReason: actionReason.trim()
         }));
-        message.success("Delivery rescheduled. Reconfirm and save the 2-day customer notice before release.");
+        message.success("Delivery rescheduled. Review the updated delivery plan before release.");
       }
       setSecondaryAction(undefined);
       await refreshSelected(selected.id);
@@ -557,6 +575,13 @@ export function DeliveryWorkboardPage({
           <Typography.Text type="secondary">PIC: {item.picName || "Not assigned"}</Typography.Text>
         </Space>
       )
+    },
+    {
+      title: "Final selling price / 最终成交价",
+      width: 170,
+      render: (_, item) => item.finalSellingPrice == null
+        ? <Typography.Text type="secondary">Loan not recorded / 未记录</Typography.Text>
+        : <Typography.Text>RM {item.finalSellingPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</Typography.Text>
     },
     {
       title: "Delivery / 交车",
@@ -648,7 +673,7 @@ export function DeliveryWorkboardPage({
             onChange={setStageFilter}
             options={[
               { value: "All", label: "All stages" },
-              ...Object.entries(stageMeta).map(([value, meta]) => ({ value: value as DeliveryWorkboardStage, label: meta.shortLabel }))
+              ...stageOrder.map((value) => ({ value, label: stageMeta[value].shortLabel }))
             ]}
           />
           <Select<string | "All">
@@ -675,6 +700,7 @@ export function DeliveryWorkboardPage({
                 <dl>
                   <div><dt>Customer</dt><dd>{item.customerName}</dd></div>
                   <div><dt>PIC</dt><dd>{item.picName || "Not assigned"}</dd></div>
+                  <div><dt>Final price</dt><dd>{item.finalSellingPrice == null ? "Loan not recorded" : `RM ${item.finalSellingPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</dd></div>
                   <div><dt>Delivery</dt><dd>{formatScheduledDateTime(item.scheduledDate, item.scheduledTime)}</dd></div>
                   <div><dt>Type</dt><dd>{item.deliveryType === "Outstation" ? `Outstation · ${shortDestination(item.deliveryAddress)}` : "Showroom"}</dd></div>
                 </dl>
@@ -689,12 +715,17 @@ export function DeliveryWorkboardPage({
                 </div>
               </article>
             ))}
-            {filteredItems.length > mobilePageSize && <Pagination
+            {filteredItems.length > 0 && <Pagination
               current={clampedMobilePage}
-              pageSize={mobilePageSize}
+              pageSize={pageSize}
               total={filteredItems.length}
-              showSizeChanger={false}
-              onChange={setMobilePage}
+              showSizeChanger
+              pageSizeOptions={[10, 20, 30]}
+              onChange={(nextPage, nextPageSize) => {
+                setMobilePage(nextPageSize === pageSize ? nextPage : 1);
+                setDesktopPage(1);
+                setPageSize(nextPageSize);
+              }}
             />}
           </div>
           <OperationsProTable
@@ -728,7 +759,22 @@ export function DeliveryWorkboardPage({
                 setMobilePage(1);
               }
             }}
-            pagination={{ pageSize: 10, showSizeChanger: false }}
+            pagination={{
+              current: desktopPage,
+              pageSize,
+              showSizeChanger: true,
+              pageSizeOptions: [10, 20, 30],
+              onChange: (nextPage, nextPageSize) => {
+                setDesktopPage(nextPageSize === pageSize ? nextPage : 1);
+                setMobilePage(1);
+                setPageSize(nextPageSize);
+              },
+              onShowSizeChange: (_, nextPageSize) => {
+                setDesktopPage(1);
+                setMobilePage(1);
+                setPageSize(nextPageSize);
+              }
+            }}
             scroll={{ x: 1040 }}
             locale={{ emptyText: "No deliveries match these filters." }}
           />
@@ -771,7 +817,11 @@ export function DeliveryWorkboardPage({
             notificationSent: false,
             twoDayNoticeSent: false,
             insuranceHandled: false,
+            insuranceCompany: undefined,
+            insurancePrice: undefined,
+            insuranceSumInsured: undefined,
             roadTaxHandled: false,
+            roadTaxPaidViaEAuto: undefined,
             windscreenInsuranceHandled: false,
             handoverPhotoCaptured: false,
             signedHandoverReceived: false,
@@ -949,6 +999,7 @@ export function DeliveryDrawerContent({
       <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered>
         <Descriptions.Item label="Car / 车辆">{item.plateNumber} · {item.vehicleLabel}</Descriptions.Item>
         <Descriptions.Item label="Customer / 客户">{item.customerName}</Descriptions.Item>
+        <Descriptions.Item label="Final selling price / 最终成交价">{item.finalSellingPrice == null ? "Not recorded in Loan / Loan尚未记录" : `RM ${item.finalSellingPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</Descriptions.Item>
         <Descriptions.Item label="PIC / 负责人">{item.picName || "Not assigned"}</Descriptions.Item>
         <Descriptions.Item label="Delivery / 交车">{formatScheduledDateTime(item.scheduledDate, item.scheduledTime)}</Descriptions.Item>
         <Descriptions.Item label="Location / 地点">{item.deliveryType === "Outstation" ? "Outstation / 外坡" : "Showroom / 展厅"}</Descriptions.Item>
@@ -1022,9 +1073,16 @@ export function CurrentStageForm({
       <Form.Item name="picUserId" label="PIC / 负责人" rules={[{ required: true, message: "Choose a delivery PIC." }]}>
         <Select showSearch optionFilterProp="label" options={picOptions.map((pic) => ({ value: pic.id, label: pic.displayName }))} />
       </Form.Item>
-      <Form.Item name="inspectionBookingReference" label="Inspection booking / 验车预约" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
-      <Typography.Paragraph type="secondary">To change {item.scheduledDate}{item.scheduledTime ? ` at ${deliveryTimeLabel(item.scheduledTime)}` : ""}, use More → Reschedule so the reason is recorded.</Typography.Paragraph>
-      <Button type="primary" htmlType="submit" loading={saving}>Save inspection booking / 保存验车预约</Button>
+      <div className="deliveryCreateGrid">
+        <Form.Item name="scheduledDate" label="Delivery date / 交车日期" rules={[{ required: true, message: "Choose a date." }]} getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+        <Form.Item name="scheduledTime" label="Time / 时间" rules={[{ required: true, message: "Choose a time." }]} getValueProps={(value?: string) => ({ value: deliveryTimePickerValue(value) })} normalize={deliveryTimeString}><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
+      </div>
+      <Form.Item name="deliveryType" label="Location / 地点" rules={[{ required: true }]}>
+        <Select options={[{ value: "Standard", label: "Showroom / 展厅" }, { value: "Outstation", label: "Outstation / 外坡" }]} />
+      </Form.Item>
+      <Form.Item name="deliveryAddress" label="Delivery address / 地址"><Input /></Form.Item>
+      <Form.Item name="transportMethod" label="Transport / 运输"><Input placeholder="Driver, runner or transporter" /></Form.Item>
+      <Button type="primary" htmlType="submit" loading={saving}>Save delivery plan / 保存交车安排</Button>
     </Form>;
   }
 
@@ -1033,16 +1091,10 @@ export function CurrentStageForm({
       key={`${item.id}-prepare`}
       layout="vertical"
       initialValues={item}
-      onFinish={(values) => void onSave(values, "Car preparation saved")}
+      onFinish={(values) => void onSave(values, "Delivery document checks saved")}
     >
-      <EvidenceUpload item={item} category="InspectionReport" saving={saving} onUpload={onUpload} />
-      <div className="deliveryCheckGrid">
-        <Form.Item name="inspectionDone" valuePropName="checked"><Checkbox>Inspection completed / 检查完成</Checkbox></Form.Item>
-        <Form.Item name="polishDone" valuePropName="checked"><Checkbox>Polish completed / 抛光完成</Checkbox></Form.Item>
-        <Form.Item name="tintedDone" valuePropName="checked"><Checkbox>Tint completed / 隔热膜完成</Checkbox></Form.Item>
-        <Form.Item name="washDone" valuePropName="checked"><Checkbox>Car wash completed / 洗车完成</Checkbox></Form.Item>
-      </div>
-      <Button type="primary" htmlType="submit" loading={saving}>Save preparation / 保存准备</Button>
+      <Alert type="info" showIcon message="Inspection and vehicle preparation are managed outside Delivery / 验车及车辆准备由其他模块负责" description="Open Inspection for inspection records and files. Delivery no longer duplicates those uploads or checklist steps." />
+      <Button type="primary" htmlType="submit" loading={saving}>Save delivery document checks / 保存交车文件确认</Button>
     </Form>;
   }
 
@@ -1054,12 +1106,30 @@ export function CurrentStageForm({
       onFinish={(values) => void onSave(values, "Document checks saved")}
     >
       <div className="deliveryEvidenceGrid">
-        {(["DeliveryDocument", "Policy", "RoadTaxReceipt"] as DocumentCategory[]).map((category) => (
-          <EvidenceUpload key={category} item={item} category={category} saving={saving} onUpload={onUpload} />
+        {(["Voc", "DeliveryDocument", "Policy", "RoadTaxReceipt"] as DocumentCategory[]).map((category) => (
+          <EvidenceUpload
+            key={category}
+            item={item}
+            category={category}
+            saving={saving}
+            onUpload={onUpload}
+            onApplyRoadTaxOcr={category === "RoadTaxReceipt" ? async (values) => {
+              const expiry = values.expiryDate ?? values.roadTaxExpiryDate ?? values.expiry;
+              if (expiry) await onSave({ roadTaxExpiryDate: String(expiry) }, "Road tax review saved");
+            } : undefined}
+          />
         ))}
       </div>
       <div className="deliveryStageFormGrid">
+        <Form.Item name="insuranceCompany" label="Insurance company / 保险公司"><Input placeholder="Manual entry / 手动填写" /></Form.Item>
+        <Form.Item name="insurancePrice" label="Insurance price / 保费"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+        <Form.Item name="insuranceSumInsured" label="Sum insured / 投保金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+        <Form.Item name="insurancePolicyReference" label="Policy reference / 保单编号"><Input placeholder="Policy required; endorsement or credit note optional." /></Form.Item>
         <Form.Item name="insuranceExpiryDate" label="Insurance expiry / 保险到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+        <Form.Item name="roadTaxPaidViaEAuto" label="Road tax paid by eAuto / 是否通过 eAuto 付路税" rules={[{ required: true, message: "Choose Yes or No." }]}>
+          <Select options={[{ value: true, label: "Yes / 是" }, { value: false, label: "No — upload JPJ receipt / 否 — 上传JPJ收据" }]} />
+        </Form.Item>
+        <Form.Item name="roadTaxReceiptReference" label="JPJ receipt reference / JPJ收据编号"><Input /></Form.Item>
         <Form.Item name="roadTaxExpiryDate" label="Road tax expiry / 路税到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
       </div>
       <div className="deliveryEvidenceReviewIntro">
@@ -1071,7 +1141,6 @@ export function CurrentStageForm({
         <Form.Item name="insuranceHandled" valuePropName="checked"><Checkbox>Insurance evidence reviewed and confirmed / 保险文件已审核确认</Checkbox></Form.Item>
         <Form.Item name="roadTaxHandled" valuePropName="checked"><Checkbox>Road tax evidence reviewed and confirmed / 路税文件已审核确认</Checkbox></Form.Item>
       </div>
-      <Form.Item name="twoDayNoticeSent" valuePropName="checked" className="deliveryNoticeCheck"><Checkbox>2-day customer notice sent / 已提前两天通知客户</Checkbox></Form.Item>
       <div className="deliveryFinanceGate">
         <Alert
           type={item.financeCleared ? "success" : "warning"}
@@ -1103,7 +1172,7 @@ export function CurrentStageForm({
     </div>
     <div className="deliveryCheckGrid">
       <Form.Item name="customerAcknowledged" valuePropName="checked"><Checkbox>Customer acknowledged handover / 客户已确认交车</Checkbox></Form.Item>
-      <Form.Item name="finalChecklistConfirmed" valuePropName="checked"><Checkbox>Final checklist confirmed / 最终清单已确认</Checkbox></Form.Item>
+      <Form.Item name="finalChecklistConfirmed" valuePropName="checked"><Checkbox>Final handover confirmation / 最终交车确认</Checkbox></Form.Item>
     </div>
     <div className="deliveryHandoverActions">
       <Alert
@@ -1120,27 +1189,32 @@ function EvidenceUpload({
   item,
   category,
   saving,
-  onUpload
+  onUpload,
+  onApplyRoadTaxOcr
 }: {
   item: DeliveryWorkboardItem;
   category: DocumentCategory;
   saving: boolean;
   onUpload: (file: File, category: DocumentCategory) => Promise<void>;
+  onApplyRoadTaxOcr?: (values: OcrReviewValues) => Promise<void>;
 }) {
-  const evidence = item.evidence.find((entry) => entry.category === category && entry.isPresent);
+  const evidences = item.evidence.filter((entry) => entry.category === category && entry.isPresent);
+  const roadTaxReceiptNotRequired = category === "RoadTaxReceipt" && item.roadTaxPaidViaEAuto === true;
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewEvidence, setPreviewEvidence] = useState<DeliveryEvidenceItem>();
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
-  const openPreview = async () => {
-    if (!evidence?.documentId) return;
+  const openPreview = async (entry: DeliveryEvidenceItem) => {
+    if (!entry.documentId) return;
+    setPreviewEvidence(entry);
     setPreviewOpen(true);
     setPreviewError("");
-    if (documentPreviewKind(evidence.mimeType ?? "") === "unsupported") return;
+    if (documentPreviewKind(entry.mimeType ?? "") === "unsupported") return;
     setPreviewLoading(true);
     try {
-      const nextUrl = URL.createObjectURL(await getVehicleDocumentContent(item.vehicleId, evidence.documentId));
+      const nextUrl = URL.createObjectURL(await getVehicleDocumentContent(item.vehicleId, entry.documentId));
       setPreviewUrl((current) => { if (current) URL.revokeObjectURL(current); return nextUrl; });
     } catch (error) {
       setPreviewError(humanizeApiError(error, "Unable to load this document preview."));
@@ -1153,38 +1227,52 @@ function EvidenceUpload({
     <div className="deliveryEvidenceItem">
       <div>
         <Typography.Text strong>{evidenceLabels[category] ?? category}</Typography.Text>
-        <Typography.Text type="secondary">{evidence?.fileName ?? "Not uploaded yet"}</Typography.Text>
-        {evidence?.uploadedBy && <Typography.Text type="secondary">{evidence.uploadedBy} · {String(evidence.uploadedAt ?? "").replace("T", " ").slice(0, 16)}</Typography.Text>}
+        {evidences.length === 0 ? <Typography.Text type="secondary">{roadTaxReceiptNotRequired ? "Not required / 不需要" : "Not uploaded yet"}</Typography.Text> : evidences.map((entry, index) => <Space key={entry.documentId ?? `${category}-${index}`} direction="vertical" size={2} className="fullWidth">
+          <Typography.Text type="secondary">{entry.fileName ?? "Document"}</Typography.Text>
+          {entry.uploadedBy && <Typography.Text type="secondary">{entry.uploadedBy} · {String(entry.uploadedAt ?? "").replace("T", " ").slice(0, 16)}</Typography.Text>}
+          <Space wrap>
+            {entry.documentId && <><Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => void openPreview(entry)}>Preview</Button><Button size="small" icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, entry.documentId)} target="_blank" rel="noreferrer">Download</Button></>}
+          </Space>
+        </Space>)}
       </div>
       <Space>
-        <Tag color={evidence ? "green" : "orange"}>{evidence ? "Received" : "Needed"}</Tag>
-        {evidence?.documentId && <><Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => void openPreview()}>Preview</Button><Button size="small" icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)} target="_blank" rel="noreferrer">Download</Button></>}
+        <Tag color={evidences.length > 0 ? "green" : "orange"}>{evidences.length > 0 ? `${evidences.length} received` : "Needed"}</Tag>
+        {category === "RoadTaxReceipt" && !roadTaxReceiptNotRequired && onApplyRoadTaxOcr && <OcrUploadReview
+          vehicleId={item.vehicleId}
+          category="RoadTaxReceipt"
+          buttonLabel="AI read road tax / AI读取路税"
+          applyLabel="Review and apply expiry / 审核并应用到期日"
+          compact
+          fields={[{ name: "expiryDate", label: "Road tax expiry / 路税到期日" }]}
+          uploadOwner={{ ownershipType: "Buyer", customerId: item.customerId, deliveryScheduleId: item.id }}
+          onApply={async (values) => { await onApplyRoadTaxOcr(values); }}
+        />}
         <Upload
           accept={accept}
           showUploadList={false}
-          disabled={saving || item.terminal}
+          disabled={saving || item.terminal || roadTaxReceiptNotRequired}
           beforeUpload={(file) => {
             void onUpload(file as File, category);
             return Upload.LIST_IGNORE;
           }}
         >
-          <Button size="small" icon={<UploadOutlined />}>{evidence ? "Replace" : "Upload"}</Button>
+          {!roadTaxReceiptNotRequired && <Button size="small" icon={<UploadOutlined />}>{evidences.length > 0 ? "Upload more" : "Upload"}</Button>}
         </Upload>
       </Space>
-      <DocumentPreviewDrawer open={previewOpen} title={`${evidenceLabels[category] ?? category} preview`} source={evidence ? { fileName: evidence.fileName ?? "Document", mimeType: evidence.mimeType ?? "", url: previewUrl } : undefined} loading={previewLoading} error={previewError} onClose={() => setPreviewOpen(false)} footer={evidence?.documentId ? <Button icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, evidence.documentId)} target="_blank">Download original</Button> : undefined} />
+      <DocumentPreviewDrawer open={previewOpen} title={`${evidenceLabels[category] ?? category} preview`} source={previewEvidence ? { fileName: previewEvidence.fileName ?? "Document", mimeType: previewEvidence.mimeType ?? "", url: previewUrl } : undefined} loading={previewLoading} error={previewError} onClose={() => setPreviewOpen(false)} footer={previewEvidence?.documentId ? <Button icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, previewEvidence.documentId)} target="_blank">Download original</Button> : undefined} />
     </div>
   );
 }
 
 function StageSummary({ item, stage }: { item: DeliveryWorkboardItem; stage: DeliveryWorkboardStage }) {
   if (stage === "PlanDelivery") {
-    return <Typography.Text type="secondary">{formatScheduledDateTime(item.scheduledDate, item.scheduledTime)} · {item.deliveryType === "Outstation" ? "Outstation" : "Showroom"} · Inspection booked</Typography.Text>;
+    return <Typography.Text type="secondary">{formatScheduledDateTime(item.scheduledDate, item.scheduledTime)} · {item.deliveryType === "Outstation" ? "Outstation" : "Showroom"}</Typography.Text>;
   }
   if (stage === "PrepareCar") {
-    return <Typography.Text type="secondary">Inspection, polish, tint, and wash recorded.</Typography.Text>;
+    return <Typography.Text type="secondary">Legacy preparation record retained for history; current Inspection and preparation work is managed in its own module.</Typography.Text>;
   }
   if (stage === "ClearDocuments") {
-    return <Typography.Text type="secondary">Coverage, documents, customer notice, and Finance clearance checked.</Typography.Text>;
+    return <Typography.Text type="secondary">Delivery documents, coverage, and Finance clearance checked.</Typography.Text>;
   }
   return <Typography.Text type="secondary">Handover evidence and final confirmation recorded.</Typography.Text>;
 }
@@ -1193,8 +1281,7 @@ function DocumentChecksSavedSummary({ item }: { item: DeliveryWorkboardItem }) {
   const checks = [
     ["Delivery documents", item.documentsPrepared],
     ["Insurance evidence", item.insuranceHandled],
-    ["Road tax evidence", item.roadTaxHandled],
-    ["2-day customer notice", item.twoDayNoticeSent]
+    ["Road tax evidence", item.roadTaxHandled]
   ] as const;
   return <Space direction="vertical" className="fullWidth">
     <Alert type="success" showIcon message="Document checks saved / 文件确认已保存" description={item.financeCleared ? "Finance clearance is complete. Continue with the current delivery step." : "Next: waiting for Finance clearance before vehicle release."} />
